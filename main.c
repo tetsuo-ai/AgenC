@@ -1,4 +1,4 @@
-#include "../include/agent_framework.h"
+#include "./src/agent_framework.c"
 #include <stdio.h>
 
 // clang-format off
