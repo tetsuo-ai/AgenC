@@ -6,6 +6,7 @@
 #include <limits.h>
 #include <unistd.h>
 #include <sched.h>
+#include <inttypes.h>
 #include "../include/memory_stats.h"
 
 #define HIGH_THREAD_COUNT 100
@@ -49,7 +50,7 @@ stress_alloc_dealloc_thread (void *arg)
 }
 
 void
-test_stress_concurrent_access ()
+test_stress_concurrent_access (void)
 {
   printf ("Testing stress concurrent access...\n");
   memory_stats_t stats;
@@ -79,9 +80,9 @@ test_stress_concurrent_access ()
   memory_stats_get_report (&stats, &final_report);
   uint64_t expected_count = STRESS_THREADS * STRESS_ITERATIONS * 10;
 
-  printf ("Expected count: %lu\n", expected_count);
-  printf ("Actual alloc count: %lu\n", final_report.alloc_count);
-  printf ("Actual free count: %lu\n", final_report.free_count);
+  printf ("Expected count: %" PRIu64 "\n", expected_count);
+  printf ("Actual alloc count: %" PRIu64 "\n", final_report.alloc_count);
+  printf ("Actual free count: %" PRIu64 "\n", final_report.free_count);
 
   assert (final_report.alloc_count <= expected_count);
   assert (final_report.free_count == final_report.alloc_count);
@@ -92,7 +93,7 @@ test_stress_concurrent_access ()
 }
 
 void
-test_fragmentation_patterns ()
+test_fragmentation_patterns (void)
 {
   printf ("Testing fragmentation patterns...\n");
   memory_stats_t stats;
@@ -139,7 +140,7 @@ test_fragmentation_patterns ()
 }
 
 void
-test_atomic_corners ()
+test_atomic_corners (void)
 {
   printf ("Testing atomic operation corner cases...\n");
   memory_stats_t stats;
@@ -177,7 +178,7 @@ test_atomic_corners ()
 }
 
 void
-test_null_cases ()
+test_null_cases (void)
 {
   printf ("Testing NULL pointer handling...\n");
 
@@ -197,7 +198,7 @@ test_null_cases ()
 }
 
 void
-test_size_boundaries ()
+test_size_boundaries (void)
 {
   printf ("Testing size boundary conditions...\n");
   memory_stats_t stats;
@@ -253,7 +254,7 @@ stress_thread_routine (void *arg)
 }
 
 void
-test_high_concurrency ()
+test_high_concurrency (void)
 {
   printf ("Testing high concurrency conditions...\n");
   memory_stats_t stats;
@@ -279,7 +280,7 @@ test_high_concurrency ()
 }
 
 void
-test_overflow_handling ()
+test_overflow_handling (void)
 {
   printf ("\nStarting reduced overflow handling test...\n");
   memory_stats_t stats;
@@ -303,18 +304,17 @@ test_overflow_handling ()
 
     printf ("  Before allocation update - Getting report...\n");
     memory_stats_get_report (&stats, &report);
-    printf ("  Current alloc_count before update: %lu\n", report.alloc_count);
+    printf ("  Current alloc_count before update: %" PRIu64 "\n", report.alloc_count);
 
     memory_stats_update_allocation (&stats, ptrs[i], 1, __FILE__, __LINE__);
 
     printf ("  After allocation update - Getting report...\n");
     memory_stats_get_report (&stats, &report);
-    printf ("  Current alloc_count after update: %lu\n", report.alloc_count);
+    printf ("  Current alloc_count after update: %" PRIu64 "\n", report.alloc_count);
 
     if (report.alloc_count != (uint64_t) (i + 1))
     {
-      printf ("  ERROR: Allocation count mismatch. Expected: %d, Got: %lu\n",
-	      i + 1, report.alloc_count);
+      printf ("  ERROR: Allocation count mismatch. Expected: %d, Got: %" PRIu64 "\n", i + 1, report.alloc_count);
     }
     assert (report.alloc_count == (uint64_t) (i + 1));
 
@@ -333,19 +333,18 @@ test_overflow_handling ()
 
     printf ("  Before deallocation - Getting report...\n");
     memory_stats_get_report (&stats, &report);
-    printf ("  Current free_count before update: %lu\n", report.free_count);
+    printf ("  Current free_count before update: %" PRIu64 "\n", report.free_count);
 
     memory_stats_update_deallocation (&stats, ptrs[i]);
     free (ptrs[i]);
 
     printf ("  After deallocation - Getting report...\n");
     memory_stats_get_report (&stats, &report);
-    printf ("  Current free_count after update: %lu\n", report.free_count);
+    printf ("  Current free_count after update: %" PRIu64 "\n", report.free_count);
 
     if (report.free_count != (uint64_t) (i + 1))
     {
-      printf ("  ERROR: Free count mismatch. Expected: %d, Got: %lu\n", i + 1,
-	      report.free_count);
+      printf ("  ERROR: Free count mismatch. Expected: %d, Got: %" PRIu64 "\n", i + 1, report.free_count);
     }
     assert (report.free_count == (uint64_t) (i + 1));
     assert (report.alloc_count == DEBUG_TEST_SIZE);
@@ -355,8 +354,7 @@ test_overflow_handling ()
 
   printf ("\n=== Final Verification ===\n");
   memory_stats_get_report (&stats, &report);
-  printf ("Final counts - Alloc: %lu, Free: %lu\n", report.alloc_count,
-	  report.free_count);
+  printf ("Final counts - Alloc: %" PRIu64 ", Free: %" PRIu64 "\n", report.alloc_count, report.free_count);
 
   assert (report.alloc_count == DEBUG_TEST_SIZE);
   assert (report.free_count == DEBUG_TEST_SIZE);
@@ -366,7 +364,7 @@ test_overflow_handling ()
 }
 
 void
-test_leak_detection_edges ()
+test_leak_detection_edges (void)
 {
   printf ("Testing leak detection edge cases...\n");
   memory_stats_t stats;
@@ -394,7 +392,7 @@ test_leak_detection_edges ()
 }
 
 int
-main ()
+main (void)
 {
   printf ("\n=== Starting Focused Overflow Test ===\n");
   test_overflow_handling ();

@@ -6,6 +6,8 @@
 #include <limits.h>
 #include <signal.h>
 #include <stdatomic.h>
+#include <inttypes.h>
+
 #include "../include/strategy_status.h"
 
 #define NUM_THREADS 4
@@ -220,9 +222,9 @@ test_thread_safety (void)
 			   "get_error_count");
 
   printf ("Thread safety results:\n");
-  printf ("- Total successful transition sequences: %lu\n", total_success);
-  printf ("- Total transitions: %lu\n", transitions);
-  printf ("- Total errors: %lu\n", errors);
+  printf ("- Total successful transition sequences: %" PRIu64 "\n", total_success);
+  printf ("- Total transitions: %" PRIu64 "\n", transitions);
+  printf ("- Total errors: %" PRIu64 "\n", errors);
 
   assert (transitions > 0);
   assert (total_success > 0);

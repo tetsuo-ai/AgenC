@@ -4,7 +4,7 @@
 #include "../include/stats_report.h"
 
 void
-test_stats_report_to_string ()
+test_stats_report_to_string (void)
 {
   stats_report_t report = {.alloc_count = 100,
 			   .free_count = 90,

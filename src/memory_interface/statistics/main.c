@@ -2,12 +2,13 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <inttypes.h>
 #include "include/memory_stats.h"
 
 memory_stats_t stats;
 
 void
-demonstrate_basic_tracking ()
+demonstrate_basic_tracking (void)
 {
   printf ("\n=== Basic Memory Tracking ===\n");
   void *ptr1 = malloc (256);
@@ -18,7 +19,7 @@ demonstrate_basic_tracking ()
 
   stats_report_t report;
   memory_stats_get_report (&stats, &report);
-  printf ("Current allocations: %lu\n", report.alloc_count);
+  printf("Current allocations: %" PRIu64 "\n", report.alloc_count);
   printf ("Current memory usage: %zu bytes\n", report.current_bytes);
 
   memory_stats_update_deallocation (&stats, ptr1);
@@ -28,7 +29,7 @@ demonstrate_basic_tracking ()
 }
 
 void
-demonstrate_pattern_analysis ()
+demonstrate_pattern_analysis (void)
 {
   printf ("\n=== Pattern Analysis ===\n");
 
@@ -54,7 +55,7 @@ demonstrate_pattern_analysis ()
 }
 
 void
-demonstrate_leak_detection ()
+demonstrate_leak_detection (void)
 {
   printf ("\n=== Leak Detection ===\n");
 
@@ -97,8 +98,8 @@ main (int argc, char **argv)
   stats_report_t final_report;
   memory_stats_get_report (&stats, &final_report);
   printf ("\n=== Final Statistics ===\n");
-  printf ("Total allocations: %lu\n", final_report.alloc_count);
-  printf ("Total deallocations: %lu\n", final_report.free_count);
+  printf("Total allocations: %" PRIu64 "\n", final_report.alloc_count);
+  printf("Total deallocations: %" PRIu64 "\n", final_report.free_count);
   printf ("Peak memory usage: %zu bytes\n", final_report.peak_bytes);
 
   return 0;

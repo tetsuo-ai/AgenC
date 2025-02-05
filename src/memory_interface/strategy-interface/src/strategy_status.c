@@ -45,7 +45,7 @@ check_counter_overflow (const uint64_t current_value)
 
 static StrategyResult
 perform_atomic_increment (volatile _Atomic (uint64_t) *const counter,
-			  const uint64_t old_value)
+			  uint64_t old_value)
 {
   bool success
     = atomic_compare_exchange_weak_explicit (counter, &old_value, old_value + 1,
@@ -93,7 +93,7 @@ validate_state_transition (const StrategyStatus current,
 
 static StrategyResult
 perform_atomic_operation (volatile _Atomic (StrategyStatus) *const status,
-			  const StrategyStatus current_status,
+			  StrategyStatus current_status,
 			  const StrategyStatus new_status)
 {
   bool success

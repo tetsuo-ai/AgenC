@@ -2,7 +2,8 @@
 #include <stdlib.h>
 #include <pthread.h>
 #include <unistd.h>
-#include "./include/strategy_status.h"
+#include <inttypes.h>
+#include "../include/strategy_status.h"
 
 #define NUM_WORKER_THREADS 4
 #define ITERATIONS_PER_THREAD 5
@@ -18,8 +19,8 @@ print_status (const StatusTracker *tracker)
       && get_error_count (tracker, &errors) == STRATEGY_SUCCESS)
   {
     printf ("Current Status: %s\n", get_state_string (current));
-    printf ("Total Transitions: %lu\n", transitions);
-    printf ("Total Errors: %lu\n\n", errors);
+    printf("Total Transitions: %" PRIu64 "\n", transitions);
+    printf("Total Errors: %" PRIu64 "\n\n", errors);
   }
 }
 

@@ -10,7 +10,7 @@
 #define TEST_ALLOCATION_SIZE 1024
 
 void
-test_basic_operations ()
+test_basic_operations (void)
 {
   memory_stats_t stats;
   stats_report_t report;
@@ -43,7 +43,7 @@ test_basic_operations ()
 }
 
 void
-test_pattern_analysis ()
+test_pattern_analysis (void)
 {
   memory_stats_t stats;
   stats_report_t report;
@@ -86,7 +86,7 @@ test_pattern_analysis ()
 }
 
 void
-test_leak_detection ()
+test_leak_detection (void)
 {
   memory_stats_t stats;
   stats_report_t report;
@@ -145,7 +145,7 @@ thread_routine (void *arg)
 }
 
 void
-test_thread_safety ()
+test_thread_safety (void)
 {
   memory_stats_t stats;
   stats_report_t report;
@@ -176,7 +176,7 @@ test_thread_safety ()
 }
 
 int
-main ()
+main (void)
 {
   test_basic_operations ();
   test_pattern_analysis ();

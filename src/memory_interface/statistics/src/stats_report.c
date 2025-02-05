@@ -6,6 +6,7 @@
 #include "../include/stats_report.h"
 #include <stdio.h>
 #include <time.h>
+#include <inttypes.h>
 
 /** Size of the static report buffer */
 #define REPORT_BUFFER_SIZE 4096
@@ -24,13 +25,13 @@ stats_report_to_string (const stats_report_t *report)
 		"Memory Statistics Report\n"
 		"=====================\n"
 		"Basic Statistics:\n"
-		"  Allocations:     %lu\n"
-		"  Deallocations:   %lu\n"
+		"  Allocations:     %" PRIu64 "\n"
+		"  Deallocations:   %" PRIu64 "\n"
 		"  Current Memory:  %zu bytes\n"
 		"  Peak Memory:     %zu bytes\n"
 		"\nPattern Analysis:\n"
 		"  Average Size:    %.2f bytes\n"
-		"  Alloc Rate:      %lu/sec\n"
+		"  Alloc Rate:      %" PRIu64 "/sec\n"
 		"\nSize Distribution:\n",
 		report->alloc_count, report->free_count, report->current_bytes,
 		report->peak_bytes, report->avg_allocation_size,
@@ -40,7 +41,7 @@ stats_report_to_string (const stats_report_t *report)
        i++)
   {
     offset += snprintf (report_buffer + offset, REPORT_BUFFER_SIZE - offset,
-			"  ≤ %zu bytes:     %lu allocations\n",
+			"  ≤ %zu bytes:     %" PRIu64 " allocations\n",
 			report->size_distribution[i].threshold,
 			report->size_distribution[i].count);
   }

@@ -11,6 +11,7 @@
 #include <stdatomic.h>
 #include <unistd.h>
 #include <sched.h>
+#include <inttypes.h>
 
 /** Size thresholds for allocation buckets (in bytes) */
 static const size_t size_thresholds[STATS_SIZE_BUCKET_COUNT]
@@ -485,13 +486,13 @@ memory_stats_analyze_patterns (const memory_stats_t *stats)
 		"Memory Allocation Pattern Analysis:\n"
 		"================================\n"
 		"Average Allocation Size: %.2f bytes\n"
-		"Allocation Frequency: %lu/sec\n\n"
+		"Allocation Frequency: %" PRIu64 "/sec\n\n"
 		"Size Distribution:\n",
 		report.avg_allocation_size, report.allocation_frequency);
 
   for (int i = 0; i < STATS_SIZE_BUCKET_COUNT && offset < 4096; i++)
     offset += snprintf (analysis + offset, 4096 - offset,
-			"  ≤ %zu bytes: %lu allocations\n",
+			"  ≤ %zu bytes: %" PRIu64 " allocations\n",
 			report.size_distribution[i].threshold,
 			report.size_distribution[i].count);
 
@@ -530,7 +531,7 @@ memory_stats_check_leaks (const memory_stats_t *stats)
 		     "    Address: %p\n"
 		     "    Size: %zu bytes\n"
 		     "    Location: %s:%d\n"
-		     "    Time: %lu\n\n",
+		     "    Time: %" PRIu64 "\n\n",
 		     i + 1, stats_report.leaks[i].address,
 		     stats_report.leaks[i].size, stats_report.leaks[i].file,
 		     stats_report.leaks[i].line,
