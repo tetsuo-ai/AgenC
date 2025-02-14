@@ -1,7 +1,3 @@
-Below is an updated version of the README.md that reflects the new folder name (memstats) and includes instructions for the install target:
-
----
-
 # Memory Statistics Tracking System
 
 C library for tracking memory allocations, detecting memory leaks, and analyzing memory usage patterns in multi-threaded applications.
