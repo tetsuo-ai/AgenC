@@ -1,4 +1,3 @@
-```markdown
 # Thread-Safe Memory Management Strategy
 
 A robust memory management system providing a flexible interface for implementing custom allocation strategies with comprehensive validation.

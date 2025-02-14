@@ -2,7 +2,7 @@
 
 A thread-safe state management system for memory allocation strategies in C. This library provides atomic operations and memory barriers to ensure thread safety while managing state transitions.
 
-This state management system helps control how a program moves between different states (like "initialized", "active", "error") in a safe way, especially when multiple parts of the program are running at the same time.
+This state management system helps control how a program moves between different states (like "initialized", "active", "error") in a safe way, especially when multiple parts of the program are running concurrently.
 
 ## Features
 
@@ -23,16 +23,35 @@ This state management system helps control how a program moves between different
 
 ## Building
 
+To build the library, tests, and examples, run:
+
 ```bash
-# Build everything (library, tests, and examples)
 make clean && make all
+```
 
-# Run tests
+This will compile the source files into the `build/` directory, create the static library (`libstatetracker.a`), and build both the test executable and example program.
+
+To run the tests, run:
+
+```bash
 make test
+```
 
-# Run example
+To run the example program, run:
+
+```bash
 make example
 ```
+
+## Installation
+
+To install the library and header files, run:
+
+```bash
+make install
+```
+
+This command creates a `lib/` directory (if it doesn't already exist) and copies the built static library (`libstatetracker.a`) from the `build/` directory along with all header files from the `include/` directory into `lib/`.
 
 ## API Reference
 
@@ -42,7 +61,7 @@ make example
 ```c
 StrategyResult initialize_status(StatusTracker* const tracker);
 ```
-Initializes a new status tracker with default state STRATEGY_STATE_INITIALIZED.
+Initializes a new status tracker with the default state `STRATEGY_STATE_INITIALIZED`.
 
 #### Transition State
 ```c
@@ -174,21 +193,20 @@ if (transition_status(&tracker, STRATEGY_STATE_ERROR) == STRATEGY_SUCCESS) {
 
 ### Common Issues and Solutions
 
-1. Runtime Errors
-   - Check for null pointer dereferences
-   - Verify state transitions are valid
-   - Monitor overflow conditions in counters
+1. **Runtime Errors**
+   - Check for null pointer dereferences.
+   - Verify that state transitions are valid.
+   - Monitor counter overflow conditions.
 
-2. Performance Issues
-   - Reduce contention by minimizing transitions
-   - Use appropriate memory ordering semantics
-   - Monitor error counts for excessive failures
+2. **Performance Issues**
+   - Reduce contention by minimizing state transitions.
+   - Use appropriate memory ordering semantics.
+   - Monitor error counts for excessive failures.
 
 ## Security
 
-- All operations are bounds-checked
-- Memory barriers prevent reordering exploits
-- Overflow protection prevents counter attacks
-- Atomic operations prevent race conditions
-- Constant-time operations prevent timing attacks
-
+- All operations are bounds-checked.
+- Memory barriers prevent reordering exploits.
+- Overflow protection prevents counter attacks.
+- Atomic operations prevent race conditions.
+- Constant-time operations prevent timing attacks.
