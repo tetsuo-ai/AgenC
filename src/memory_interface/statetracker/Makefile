@@ -1,6 +1,6 @@
 # Compiler settings
 CC = gcc
-CFLAGS = -Wall -Wextra -Werror -I./include \
+CFLAGS = -Wall -Wextra -Wunused -Wunreachable-code -Werror -I./include \
          -fstack-protector-strong \
          -D_FORTIFY_SOURCE=2 \
          -O2 -fPIC \

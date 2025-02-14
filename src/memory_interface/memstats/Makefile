@@ -1,6 +1,6 @@
 # Compiler and tools
 CC      := gcc
-CFLAGS  := -Wall -Wextra -Werror -pedantic -g
+CFLAGS  := -Wall -Wextra -Werror -Wunreachable-code -Wunused -pedantic -g
 CPPFLAGS:= -I./include
 LDFLAGS := -pthread
 
