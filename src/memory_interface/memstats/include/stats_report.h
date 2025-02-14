@@ -57,9 +57,8 @@ typedef struct stats_report
   size_t peak_bytes;	/**< Peak allocated bytes */
 
   /* Pattern analysis */
-  stats_size_bucket_t
-    size_distribution[STATS_SIZE_BUCKET_COUNT]; /**< Distribution of allocation
-						   sizes */
+  stats_size_bucket_t size_distribution[STATS_SIZE_BUCKET_COUNT]; /**<
+				 Distribution of allocation sizes */
   double avg_allocation_size;	 /**< Average allocation size in bytes */
   uint64_t allocation_frequency; /**< Allocations per second */
 
@@ -72,6 +71,7 @@ typedef struct stats_report
   uint32_t leak_count;		   /**< Number of leaks in the report */
 } stats_report_t;
 
+// clang-format off
 /**
  * @brief Convert stats report to a human-readable string representation
  *
@@ -80,7 +80,7 @@ typedef struct stats_report
  *         Returns "Invalid report" if report is NULL.
  * @note The returned string is valid until the next call to this function
  */
-const char *
-stats_report_to_string (const stats_report_t *report);
+const char *stats_report_to_string(const stats_report_t *report);
+// clang-format on
 
 #endif /* MEMORY_STATS_REPORT_H_ */

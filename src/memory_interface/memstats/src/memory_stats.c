@@ -29,10 +29,10 @@ static const size_t size_thresholds[STATS_SIZE_BUCKET_COUNT]
 #define BACKOFF_JITTER 20
 
 // clang-format off
-static void init_pattern_history (memory_stats_t *status);
-static void init_active_alloc (memory_stats_t *status);
-static void init_buckets (memory_stats_t *status);
-static void init_counters (memory_stats_t *stats);
+ static void init_pattern_history (memory_stats_t *status);
+ static void init_active_alloc (memory_stats_t *status);
+ static void init_buckets (memory_stats_t *status);
+ static void init_counters (memory_stats_t *stats);
 // clang-format on
 
 static void
@@ -496,6 +496,41 @@ memory_stats_analyze_patterns (const memory_stats_t *stats)
 			report.size_distribution[i].count);
 
   return analysis;
+}
+
+int
+memory_stats_get_allocation_size (const memory_stats_t *stats, const void *ptr,
+				  size_t *size)
+{
+  if (!stats || !ptr || !size)
+  {
+    return MEMORY_STATS_ERROR;
+  }
+
+  atomic_thread_fence (memory_order_acquire);
+
+  for (int i = 0; i < STATS_MAX_TRACKED_ALLOCATIONS; i++)
+  {
+    if (atomic_load_explicit (&stats->active_allocations[i].valid,
+			      memory_order_relaxed)
+	== 0)
+    {
+      continue;
+    }
+
+    void *alloc_ptr
+      = atomic_load_explicit (&stats->active_allocations[i].address,
+			      memory_order_relaxed);
+    if (alloc_ptr == ptr)
+    {
+      *size = atomic_load_explicit (&stats->active_allocations[i].size,
+				    memory_order_acquire);
+      atomic_thread_fence (memory_order_release);
+      return MEMORY_STATS_SUCCESS;
+    }
+  }
+
+  return MEMORY_STATS_ERROR;
 }
 
 char *
