@@ -1,6 +1,6 @@
 # Compiler settings
 CC = gcc
-CFLAGS = -Wall -Wextra -Werror -std=c11 -I./include -g
+CFLAGS = -Wall -Wextra -Wunused -Wunreachable-code -Werror -std=c11 -I./include -g
 LDFLAGS = -pthread
 
 # Directories
