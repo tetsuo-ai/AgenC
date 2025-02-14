@@ -1,4 +1,8 @@
-# Statistics Tracking System
+Below is an updated version of the README.md that reflects the new folder name (memstats) and includes instructions for the install target:
+
+---
+
+# Memory Statistics Tracking System
 
 C library for tracking memory allocations, detecting memory leaks, and analyzing memory usage patterns in multi-threaded applications.
 
@@ -14,6 +18,8 @@ C library for tracking memory allocations, detecting memory leaks, and analyzing
 
 ## Installation
 
+The Makefile now includes an install target that builds the static library (libmemstats.a) and copies it along with the header files into the `./lib` folder.
+
 ```bash
 # Build the release version (recommended for production use)
 make release
@@ -21,11 +27,14 @@ make release
 # Build with debug symbols and sanitizers (for development)
 make debug
 
-# Build example program
+# Build the example program
 make example
 
 # Run all tests
 make test
+
+# Install the library and header files into ./lib
+make install
 ```
 
 ## Usage
@@ -145,54 +154,48 @@ make clean
 
 The library uses several techniques to ensure thread safety:
 
-1. Atomic Operations
-   - All counters use atomic types
-   - Updates are performed using atomic operations
-   - Memory ordering is carefully controlled
+1. **Atomic Operations**
+   - All counters use atomic types.
+   - Updates are performed using atomic operations.
+   - Memory ordering is carefully controlled.
 
-2. Lock-free Algorithms
-   - No mutexes or locks are used
-   - Compare-and-swap operations for updates
-   - Wait-free progress for basic operations
+2. **Lock-free Algorithms**
+   - No mutexes or locks are used.
+   - Compare-and-swap operations for updates.
+   - Wait-free progress for basic operations.
 
-3. Contention Management
-   - Exponential backoff for high contention
-   - Randomized jitter to prevent thundering herd
-   - Multiple retry attempts with backoff
+3. **Contention Management**
+   - Exponential backoff for high contention.
+   - Randomized jitter to prevent thundering herd.
+   - Multiple retry attempts with backoff.
 
-4. Memory Ordering
-   - Acquire/Release semantics for consistency
-   - Full memory barriers at critical points
-   - Proper synchronization of shared data
+4. **Memory Ordering**
+   - Acquire/Release semantics for consistency.
+   - Full memory barriers at critical points.
+   - Proper synchronization of shared data.
 
 ## API Reference
 
 ### Core Functions
 
-- `void memory_stats_init(memory_stats_t* stats)`
-  - Initializes the memory statistics tracking system
-  - Must be called before any other operations
+- `void memory_stats_init(memory_stats_t* stats)`  
+  Initializes the memory statistics tracking system. Must be called before any other operations.
 
-- `void memory_stats_update_allocation(memory_stats_t* stats, void* ptr, size_t size, const char* file, int line)`
-  - Records a new memory allocation
-  - Thread-safe: Yes
+- `void memory_stats_update_allocation(memory_stats_t* stats, void* ptr, size_t size, const char* file, int line)`  
+  Records a new memory allocation. *Thread-safe: Yes.*
 
-- `void memory_stats_update_deallocation(memory_stats_t* stats, void* ptr)`
-  - Records a memory deallocation
-  - Thread-safe: Yes
+- `void memory_stats_update_deallocation(memory_stats_t* stats, void* ptr)`  
+  Records a memory deallocation. *Thread-safe: Yes.*
 
-- `void memory_stats_get_report(const memory_stats_t* stats, stats_report_t* report)`
-  - Generates a snapshot of current memory statistics
-  - Thread-safe: Yes
+- `void memory_stats_get_report(const memory_stats_t* stats, stats_report_t* report)`  
+  Generates a snapshot of current memory statistics. *Thread-safe: Yes.*
 
 ### Analysis Functions
 
-- `char* memory_stats_analyze_patterns(const memory_stats_t* stats)`
-  - Analyzes memory allocation patterns
-  - Returns allocated string (caller must free)
-  - Thread-safe: Yes
+- `char* memory_stats_analyze_patterns(const memory_stats_t* stats)`  
+  Analyzes memory allocation patterns. Returns an allocated string (caller must free). *Thread-safe: Yes.*
 
-- `char* memory_stats_check_leaks(const memory_stats_t* stats)`
-  - Generates a report of memory leaks
-  - Returns allocated string (caller must free)
-  - Thread-safe: Yes
+- `char* memory_stats_check_leaks(const memory_stats_t* stats)`  
+  Generates a report of memory leaks. Returns an allocated string (caller must free). *Thread-safe: Yes.*
+
+---
