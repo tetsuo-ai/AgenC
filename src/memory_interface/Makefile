@@ -55,7 +55,7 @@ $(MODULES):
 
 # Clean target
 clean:
-	rm -rf $(LIBRARY_DIR) $(BUILD_DIR)
+	rm -rf $(LIBRARY_DIR) $(BUILD_DIR) ${LIB_DIR}
 	for dir in $(MODULES); do \
 		$(MAKE) -C $$dir clean; \
 	done
