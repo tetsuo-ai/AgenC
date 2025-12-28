@@ -1,55 +1,41 @@
-.vscode
-tags
-
-# Prerequisites
-*.d
-
-# Object files
-*.o
-*.ko
-*.obj
-*.elf
-
-# Linker output
-*.ilk
-*.map
-*.exp
-
-# Precompiled Headers
-*.gch
-*.pch
-
-# Libraries
-*.lib
-*.a
-*.la
-*.lo
-
-# Shared objects (inc. Windows DLLs)
-*.dll
-*.so
-*.so.*
-*.dylib
-
-# Executables
-*.exe
-*.out
-*.app
-*.i*86
-*.x86_64
-*.hex
-
-# Debug files
-*.dSYM/
-*.su
-*.idb
+﻿# Rust
+target/
+**/*.rs.bk
 *.pdb
 
-# Kernel Module Compile Results
-*.mod*
-*.cmd
-.tmp_versions/
-modules.order
-Module.symvers
-Mkfile.old
-dkms.conf
+# Anchor
+.anchor
+test-ledger/
+.DS_Store
+
+# C build artifacts
+*.o
+*.a
+*.so
+*.exe
+*.out
+build/
+bin/
+obj/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Keys (CRITICAL - never commit private keys)
+*.json
+!Anchor.toml
+!package.json
+!tsconfig.json
+id.json
+deploy/
+keys/
+
+# Testing
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
