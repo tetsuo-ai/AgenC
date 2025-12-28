@@ -1,5 +1,8 @@
 # AgenC Framework: C to Rust Migration Roadmap
 
+<img width="1024" height="1024" alt="rustsuo" src="https://github.com/user-attachments/assets/ea03a652-2e83-421d-b2f7-616e6b161ea3" />
+
+
 ## Executive Summary
 
 This document outlines a comprehensive plan to migrate the AgenC Solana communication framework from C to Rust. The migration will:
