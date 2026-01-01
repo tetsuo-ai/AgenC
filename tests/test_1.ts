@@ -1336,6 +1336,84 @@ describe("test_1", () => {
       expect(agent.activeTasks).to.be.at.most(10);
     });
 
+    it("Complete task and verify payout (Happy Path)", async () => {
+      const taskIdPayout = Buffer.from("task-payout-001").padEnd(32, "\0").slice(0, 32);
+      const taskPda = deriveTaskPda(creator.publicKey, taskIdPayout);
+      const escrowPda = deriveEscrowPda(taskPda);
+      const rewardAmount = 1 * LAMPORTS_PER_SOL;
+
+      // 1. Create
+      await program.methods
+        .createTask(
+          Array.from(taskIdPayout),
+          new anchor.BN(CAPABILITY_COMPUTE),
+          Buffer.from("Payout check".padEnd(64, "\0")),
+          new anchor.BN(rewardAmount),
+          1,
+          0,
+          TASK_TYPE_EXCLUSIVE
+        )
+        .accounts({
+          task: taskPda,
+          escrow: escrowPda,
+          protocolConfig: protocolPda,
+          creator: creator.publicKey,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([creator])
+        .rpc();
+
+      // 2. Claim
+      const claimPda = deriveClaimPda(taskPda, worker1.publicKey);
+      await program.methods
+        .claimTask()
+        .accounts({
+          task: taskPda,
+          claim: claimPda,
+          worker: agentId1,
+          authority: worker1.publicKey,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([worker1])
+        .rpc();
+
+      // Snapshot Balance Before Completion
+      const workerBalanceBefore = await provider.connection.getBalance(worker1.publicKey);
+      const escrowBalanceBefore = await provider.connection.getBalance(escrowPda);
+
+      // 3. Complete
+      await program.methods
+        .completeTask(Array.from(Buffer.from("proof".padEnd(32, "\0"))), null)
+        .accounts({
+          task: taskPda,
+          claim: claimPda,
+          escrow: escrowPda,
+          worker: agentId1,
+          protocolConfig: protocolPda,
+          treasury: treasury.publicKey,
+          authority: worker1.publicKey,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([worker1])
+        .rpc();
+
+      // Snapshot Balance After
+      const workerBalanceAfter = await provider.connection.getBalance(worker1.publicKey);
+      const escrowBalanceAfter = await provider.connection.getBalance(escrowPda);
+
+      // Assertions
+      // Worker should get reward (approximate due to tx fees, but largely rewardAmount)
+      // Note: Since worker pays gas, balance increase will be slightly less than rewardAmount.
+      // We check if it increased by at least 0.99 SOL to account for gas.
+      expect(workerBalanceAfter).to.be.above(workerBalanceBefore + (rewardAmount * 0.99));
+      
+      // Escrow should be empty (or rent exempt minimum depending on logic, usually closed or drained)
+      // If you close the account, balance is 0. If you leave it open, it's 0 + rent.
+      // Assuming you drain 'amount' but keep rent:
+      const escrowAccount = await program.account.taskEscrow.fetch(escrowPda);
+      expect(escrowAccount.amount.toNumber()).to.equal(0);
+    });
+
     it("PDA-based double claim prevention (design-bounded: unique seeds)", async () => {
       const taskId028 = Buffer.from("task-000000000000000000000028").slice(0, 32);
       const taskPda = deriveTaskPda(creator.publicKey, taskId028);
@@ -1382,6 +1460,219 @@ describe("test_1", () => {
             task: taskPda,
             claim: claimPda,
             worker: agentId1,
+            authority: worker1.publicKey,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([worker1])
+          .rpc()
+      ).to.be.rejected;
+    });
+  });
+
+  describe("Audit Gap Filling (Issues 3 & 4)", () => {
+    it("Unauthorized Cancel Rejection (Issue 4)", async () => {
+      const taskId = Buffer.from("gap-test-01").padEnd(32, "\0").slice(0, 32);
+      const taskPda = deriveTaskPda(creator.publicKey, taskId);
+      const escrowPda = deriveEscrowPda(taskPda);
+      const unauthorized = Keypair.generate();
+
+      await program.methods
+        .createTask(
+          Array.from(taskId),
+          new anchor.BN(1),
+          Buffer.from("Auth check".padEnd(64, "\0")),
+          new anchor.BN(1 * LAMPORTS_PER_SOL),
+          1,
+          0,
+          0
+        )
+        .accounts({
+          task: taskPda,
+          escrow: escrowPda,
+          protocolConfig: protocolPda,
+          creator: creator.publicKey,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([creator])
+        .rpc();
+
+      await expect(
+        program.methods.cancelTask()
+          .accounts({
+            task: taskPda,
+            escrow: escrowPda,
+            creator: unauthorized.publicKey,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([unauthorized])
+          .rpc()
+      ).to.be.rejected;
+    });
+
+    it("Unauthorized Complete Rejection (Issue 4)", async () => {
+      const taskId = Buffer.from("gap-test-02").padEnd(32, "\0").slice(0, 32);
+      const taskPda = deriveTaskPda(creator.publicKey, taskId);
+      const escrowPda = deriveEscrowPda(taskPda);
+
+      await program.methods
+        .createTask(
+          Array.from(taskId),
+          new anchor.BN(1),
+          Buffer.from("Auth check 2".padEnd(64, "\0")),
+          new anchor.BN(1 * LAMPORTS_PER_SOL),
+          1,
+          0,
+          0
+        )
+        .accounts({
+          task: taskPda,
+          escrow: escrowPda,
+          protocolConfig: protocolPda,
+          creator: creator.publicKey,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([creator])
+        .rpc();
+
+      const claimPda = deriveClaimPda(taskPda, worker1.publicKey);
+      await program.methods.claimTask()
+        .accounts({
+          task: taskPda,
+          claim: claimPda,
+          worker: agentId1,
+          authority: worker1.publicKey,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([worker1])
+        .rpc();
+
+      await expect(
+        program.methods.completeTask(Array.from(Buffer.from("proof")), null)
+          .accounts({
+            task: taskPda,
+            claim: claimPda,
+            escrow: escrowPda,
+            worker: agentId1,
+            protocolConfig: protocolPda,
+            treasury: treasury.publicKey,
+            authority: worker2.publicKey,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([worker2])
+          .rpc()
+      ).to.be.rejected;
+    });
+
+    it("Cannot Cancel a Completed Task (Rug Pull Prevention) (Issue 3)", async () => {
+      const taskId = Buffer.from("gap-test-03").padEnd(32, "\0").slice(0, 32);
+      const taskPda = deriveTaskPda(creator.publicKey, taskId);
+      const escrowPda = deriveEscrowPda(taskPda);
+
+      await program.methods
+        .createTask(
+          Array.from(taskId),
+          new anchor.BN(1),
+          Buffer.from("Rug check".padEnd(64, "\0")),
+          new anchor.BN(1 * LAMPORTS_PER_SOL),
+          1,
+          0,
+          0
+        )
+        .accounts({
+          task: taskPda,
+          escrow: escrowPda,
+          protocolConfig: protocolPda,
+          creator: creator.publicKey,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([creator])
+        .rpc();
+
+      const claimPda = deriveClaimPda(taskPda, worker1.publicKey);
+      await program.methods.claimTask()
+        .accounts({
+          task: taskPda,
+          claim: claimPda,
+          worker: agentId1,
+          authority: worker1.publicKey,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([worker1])
+        .rpc();
+
+      await program.methods.completeTask(Array.from(Buffer.from("proof")), null)
+        .accounts({
+          task: taskPda,
+          claim: claimPda,
+          escrow: escrowPda,
+          worker: agentId1,
+          protocolConfig: protocolPda,
+          treasury: treasury.publicKey,
+          authority: worker1.publicKey,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([worker1])
+        .rpc();
+
+      await expect(
+        program.methods.cancelTask()
+          .accounts({
+            task: taskPda,
+            escrow: escrowPda,
+            creator: creator.publicKey,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([creator])
+          .rpc()
+      ).to.be.rejected;
+    });
+
+    it("Cannot Complete a Cancelled Task (Theft Prevention) (Issue 3)", async () => {
+      const taskId = Buffer.from("gap-test-04").padEnd(32, "\0").slice(0, 32);
+      const taskPda = deriveTaskPda(creator.publicKey, taskId);
+      const escrowPda = deriveEscrowPda(taskPda);
+
+      await program.methods
+        .createTask(
+          Array.from(taskId),
+          new anchor.BN(1),
+          Buffer.from("Theft check".padEnd(64, "\0")),
+          new anchor.BN(1 * LAMPORTS_PER_SOL),
+          1,
+          0,
+          0
+        )
+        .accounts({
+          task: taskPda,
+          escrow: escrowPda,
+          protocolConfig: protocolPda,
+          creator: creator.publicKey,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([creator])
+        .rpc();
+
+      await program.methods.cancelTask()
+        .accounts({
+          task: taskPda,
+          escrow: escrowPda,
+          creator: creator.publicKey,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([creator])
+        .rpc();
+
+      const claimPda = deriveClaimPda(taskPda, worker1.publicKey);
+
+      await expect(
+        program.methods.completeTask(Array.from(Buffer.from("proof")), null)
+          .accounts({
+            task: taskPda,
+            claim: claimPda,
+            escrow: escrowPda,
+            worker: agentId1,
+            protocolConfig: protocolPda,
+            treasury: treasury.publicKey,
             authority: worker1.publicKey,
             systemProgram: SystemProgram.programId,
           })
