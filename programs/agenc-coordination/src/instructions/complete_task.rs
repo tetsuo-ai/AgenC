@@ -44,8 +44,11 @@ pub struct CompleteTask<'info> {
     )]
     pub protocol_config: Account<'info, ProtocolConfig>,
 
-    /// CHECK: Treasury account for protocol fees
-    #[account(mut)]
+    /// CHECK: Treasury account for protocol fees - validated against protocol_config
+    #[account(
+        mut,
+        constraint = treasury.key() == protocol_config.treasury @ CoordinationError::InvalidInput
+    )]
     pub treasury: UncheckedAccount<'info>,
 
     #[account(mut)]
@@ -63,8 +66,10 @@ pub fn handler(
     let claim = &mut ctx.accounts.claim;
     let escrow = &mut ctx.accounts.escrow;
     let worker = &mut ctx.accounts.worker;
-    let config = &ctx.accounts.protocol_config;
     let clock = Clock::get()?;
+
+    // Read protocol fee before any mutable borrows of protocol_config
+    let protocol_fee_bps = ctx.accounts.protocol_config.protocol_fee_bps;
 
     // Validate task state
     require!(
@@ -91,7 +96,7 @@ pub fn handler(
 
     // Calculate protocol fee
     let protocol_fee = reward_per_worker
-        .checked_mul(config.protocol_fee_bps as u64)
+        .checked_mul(protocol_fee_bps as u64)
         .ok_or(CoordinationError::ArithmeticOverflow)?
         .checked_div(10000)
         .ok_or(CoordinationError::ArithmeticOverflow)?;
@@ -121,16 +126,12 @@ pub fn handler(
         .ok_or(CoordinationError::ArithmeticOverflow)?;
 
     // Check if task is fully completed
-    if task.completions >= task.required_completions {
+    let task_completed = task.completions >= task.required_completions;
+    if task_completed {
         task.status = TaskStatus::Completed;
         task.completed_at = clock.unix_timestamp;
         task.result = claim.result_data;
         escrow.is_closed = true;
-
-        // Update protocol stats
-        let config = &mut ctx.accounts.protocol_config.clone();
-        // Note: We can't mutate protocol_config here due to borrowing rules
-        // This would need to be handled differently in production
     }
 
     // Update worker stats
@@ -143,6 +144,16 @@ pub fn handler(
 
     // Increase reputation for successful completion
     worker.reputation = worker.reputation.saturating_add(100).min(10000);
+
+    // Update protocol stats after other mutable borrows are done
+    if task_completed {
+        let config = &mut ctx.accounts.protocol_config;
+        config.completed_tasks = config.completed_tasks.checked_add(1)
+            .ok_or(CoordinationError::ArithmeticOverflow)?;
+        config.total_value_distributed = config.total_value_distributed
+            .checked_add(reward_per_worker)
+            .ok_or(CoordinationError::ArithmeticOverflow)?;
+    }
 
     emit!(TaskCompleted {
         task_id: task.task_id,
