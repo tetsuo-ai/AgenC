@@ -4,16 +4,16 @@ use anchor_lang::prelude::*;
 
 /// Agent capability flags (bitmask)
 pub mod capability {
-    pub const COMPUTE: u64 = 1 << 0;        // General computation
-    pub const INFERENCE: u64 = 1 << 1;      // ML inference
-    pub const STORAGE: u64 = 1 << 2;        // Data storage
-    pub const NETWORK: u64 = 1 << 3;        // Network relay
-    pub const SENSOR: u64 = 1 << 4;         // Sensor data collection
-    pub const ACTUATOR: u64 = 1 << 5;       // Physical actuation
-    pub const COORDINATOR: u64 = 1 << 6;    // Task coordination
-    pub const ARBITER: u64 = 1 << 7;        // Dispute resolution
-    pub const VALIDATOR: u64 = 1 << 8;      // Result validation
-    pub const AGGREGATOR: u64 = 1 << 9;     // Data aggregation
+    pub const COMPUTE: u64 = 1 << 0; // General computation
+    pub const INFERENCE: u64 = 1 << 1; // ML inference
+    pub const STORAGE: u64 = 1 << 2; // Data storage
+    pub const NETWORK: u64 = 1 << 3; // Network relay
+    pub const SENSOR: u64 = 1 << 4; // Sensor data collection
+    pub const ACTUATOR: u64 = 1 << 5; // Physical actuation
+    pub const COORDINATOR: u64 = 1 << 6; // Task coordination
+    pub const ARBITER: u64 = 1 << 7; // Dispute resolution
+    pub const VALIDATOR: u64 = 1 << 8; // Result validation
+    pub const AGGREGATOR: u64 = 1 << 9; // Data aggregation
 }
 
 /// Agent status
@@ -45,9 +45,9 @@ pub enum TaskStatus {
 #[repr(u8)]
 pub enum TaskType {
     #[default]
-    Exclusive = 0,      // Single worker completes entire task
-    Collaborative = 1,  // Multiple workers contribute
-    Competitive = 2,    // First to complete wins
+    Exclusive = 0, // Single worker completes entire task
+    Collaborative = 1, // Multiple workers contribute
+    Competitive = 2,   // First to complete wins
 }
 
 /// Dispute resolution type
@@ -55,9 +55,9 @@ pub enum TaskType {
 #[repr(u8)]
 pub enum ResolutionType {
     #[default]
-    Refund = 0,         // Full refund to task creator
-    Complete = 1,       // Mark task as complete, pay worker
-    Split = 2,          // Split reward between parties
+    Refund = 0, // Full refund to task creator
+    Complete = 1, // Mark task as complete, pay worker
+    Split = 2,    // Split reward between parties
 }
 
 /// Dispute status
@@ -73,7 +73,6 @@ pub enum DisputeStatus {
 /// Protocol configuration account
 /// PDA seeds: ["protocol"]
 #[account]
-#[derive(Default)]
 pub struct ProtocolConfig {
     /// Protocol authority
     pub authority: Pubkey,
@@ -99,6 +98,24 @@ pub struct ProtocolConfig {
     pub _reserved: [u8; 64],
 }
 
+impl Default for ProtocolConfig {
+    fn default() -> Self {
+        Self {
+            authority: Pubkey::default(),
+            treasury: Pubkey::default(),
+            dispute_threshold: 50,
+            protocol_fee_bps: 100,
+            min_arbiter_stake: 0,
+            total_agents: 0,
+            total_tasks: 0,
+            completed_tasks: 0,
+            total_value_distributed: 0,
+            bump: 0,
+            _reserved: [0u8; 64],
+        }
+    }
+}
+
 impl ProtocolConfig {
     pub const SIZE: usize = 8 + // discriminator
         32 + // authority
@@ -111,7 +128,7 @@ impl ProtocolConfig {
         8 +  // completed_tasks
         8 +  // total_value_distributed
         1 +  // bump
-        64;  // reserved
+        64; // reserved
 }
 
 /// Agent registration account
@@ -167,13 +184,12 @@ impl AgentRegistration {
         1 +  // active_tasks
         8 +  // stake
         1 +  // bump
-        32;  // reserved
+        32; // reserved
 }
 
 /// Task account
 /// PDA seeds: ["task", creator, task_id]
 #[account]
-#[derive(Default)]
 pub struct Task {
     /// Unique task identifier
     pub task_id: [u8; 32],
@@ -213,6 +229,31 @@ pub struct Task {
     pub _reserved: [u8; 32],
 }
 
+impl Default for Task {
+    fn default() -> Self {
+        Self {
+            task_id: [0u8; 32],
+            creator: Pubkey::default(),
+            required_capabilities: 0,
+            description: [0u8; 64],
+            reward_amount: 0,
+            max_workers: 1,
+            current_workers: 0,
+            status: TaskStatus::default(),
+            task_type: TaskType::default(),
+            created_at: 0,
+            deadline: 0,
+            completed_at: 0,
+            escrow: Pubkey::default(),
+            result: [0u8; 64],
+            completions: 0,
+            required_completions: 1,
+            bump: 0,
+            _reserved: [0u8; 32],
+        }
+    }
+}
+
 impl Task {
     pub const SIZE: usize = 8 + // discriminator
         32 + // task_id
@@ -232,13 +273,12 @@ impl Task {
         1 +  // completions
         1 +  // required_completions
         1 +  // bump
-        32;  // reserved
+        32; // reserved
 }
 
 /// Worker's claim on a task
 /// PDA seeds: ["claim", task, worker_agent]
 #[account]
-#[derive(Default)]
 pub struct TaskClaim {
     /// Task being claimed
     pub task: Pubkey,
@@ -262,6 +302,23 @@ pub struct TaskClaim {
     pub bump: u8,
 }
 
+impl Default for TaskClaim {
+    fn default() -> Self {
+        Self {
+            task: Pubkey::default(),
+            worker: Pubkey::default(),
+            claimed_at: 0,
+            completed_at: 0,
+            proof_hash: [0u8; 32],
+            result_data: [0u8; 64],
+            is_completed: false,
+            is_validated: false,
+            reward_paid: 0,
+            bump: 0,
+        }
+    }
+}
+
 impl TaskClaim {
     pub const SIZE: usize = 8 + // discriminator
         32 + // task
@@ -273,13 +330,12 @@ impl TaskClaim {
         1 +  // is_completed
         1 +  // is_validated
         8 +  // reward_paid
-        1;   // bump
+        1; // bump
 }
 
 /// Shared coordination state
 /// PDA seeds: ["state", state_key]
 #[account]
-#[derive(Default)]
 pub struct CoordinationState {
     /// State key
     pub state_key: [u8; 32],
@@ -295,6 +351,19 @@ pub struct CoordinationState {
     pub bump: u8,
 }
 
+impl Default for CoordinationState {
+    fn default() -> Self {
+        Self {
+            state_key: [0u8; 32],
+            state_value: [0u8; 64],
+            last_updater: Pubkey::default(),
+            version: 0,
+            updated_at: 0,
+            bump: 0,
+        }
+    }
+}
+
 impl CoordinationState {
     pub const SIZE: usize = 8 + // discriminator
         32 + // state_key
@@ -302,7 +371,7 @@ impl CoordinationState {
         32 + // last_updater
         8 +  // version
         8 +  // updated_at
-        1;   // bump
+        1; // bump
 }
 
 /// Dispute account for conflict resolution
@@ -352,7 +421,7 @@ impl Dispute {
         1 +  // votes_against
         1 +  // total_voters
         8 +  // voting_deadline
-        1;   // bump
+        1; // bump
 }
 
 /// Vote record for dispute
@@ -378,7 +447,7 @@ impl DisputeVote {
         32 + // voter
         1 +  // approved
         8 +  // voted_at
-        1;   // bump
+        1; // bump
 }
 
 /// Task escrow account
@@ -404,5 +473,5 @@ impl TaskEscrow {
         8 +  // amount
         8 +  // distributed
         1 +  // is_closed
-        1;   // bump
+        1; // bump
 }

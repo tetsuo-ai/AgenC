@@ -7,7 +7,7 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Token, TokenAccount, Transfer};
 
-declare_id!("AgNCoorD1nat1onPr0gramXXXXXXXXXXXXXXXXXXXX");
+declare_id!("EopUaCV2svxj9j4hd7KjbrWfdjkspmm2BCBe7jGpKzKZ");
 
 pub mod state;
 pub mod instructions;
