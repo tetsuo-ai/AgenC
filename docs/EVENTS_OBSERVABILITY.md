@@ -1,5 +1,7 @@
 \# Audit and Extension of Program Events for Observability
 
+Note: Canonical observability documentation now lives in `docs/EVENTS_OBSERVABILITY.md`.
+
 
 
 \## Current Events

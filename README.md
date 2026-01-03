@@ -13,6 +13,13 @@ This module enables trustless coordination between AgenC agents using the Solana
 
 Designed for edge computing and embedded systems with minimal dependencies.
 
+## Devnet Security Package
+
+- [Security Audit (Devnet)](docs/SECURITY_AUDIT_DEVNET.md)
+- [Devnet Validation](docs/DEVNET_VALIDATION.md)
+- [Smoke Tests](docs/SMOKE_TESTS.md)
+- [Events and Observability](docs/EVENTS_OBSERVABILITY.md)
+
 ## Architecture
 
 ```
