@@ -79,7 +79,7 @@ The protocol invariants below are enforced by program constraints and are used f
 
 ## Known Limitations and Future Work
 
-- Instruction wiring remains in smoke-test scaffolding and should be fully wired to IDL for full coverage.
+- Some instruction-level negative-path tests and edge cases remain to be expanded for full mainnet readiness.
 - Multisig authority for protocol governance is not yet enabled; single-authority model persists on Devnet.
 - Mainnet readiness work remains, including deployment hardening and operational runbooks.
 
