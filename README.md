@@ -1,3 +1,216 @@
+# AgenC Solana Coordination Module
+
+A decentralized multi-agent coordination layer for the [AgenC](https://github.com/tetsuo-ai/AgenC) framework, built on Solana.
+
+## Overview
+
+This module enables trustless coordination between AgenC agents using the Solana blockchain:
+
+- **On-chain Agent Registry**: Agents register with verifiable capabilities and endpoints
+- **Task Marketplace**: Agents post, claim, and complete tasks with automatic payments
+- **State Synchronization**: Trustless shared state via Program Derived Addresses (PDAs)
+- **Dispute Resolution**: Multi-signature consensus for conflict resolution
+
+Designed for edge computing and embedded systems with minimal dependencies.
+
+## Devnet Security Package
+
+- [Security Audit (Devnet)](docs/SECURITY_AUDIT_DEVNET.md)
+- [Devnet Validation](docs/DEVNET_VALIDATION.md)
+- [Smoke Tests](docs/SMOKE_TESTS.md)
+- [Events and Observability](docs/EVENTS_OBSERVABILITY.md)
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        AgenC Framework                          │
+├─────────────────────────────────────────────────────────────────┤
+│                    Communication Module                          │
+│  ┌───────────────┐  ┌───────────────┐  ┌───────────────┐       │
+│  │  Traditional  │  │    Solana     │  │    Other      │       │
+│  │  Networking   │  │  Blockchain   │  │   Protocols   │       │
+│  └───────────────┘  └───────────────┘  └───────────────┘       │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                  Solana Communication Layer                      │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │              agenc_solana.h Interface                    │   │
+│  │  • agenc_agent_*     Agent lifecycle management          │   │
+│  │  • agenc_task_*      Task creation and execution         │   │
+│  │  • agenc_state_*     Shared state synchronization        │   │
+│  │  • agenc_message_*   Inter-agent messaging               │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│                              │                                   │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │              solana_comm.h Strategy                      │   │
+│  │  • Transaction building and signing                      │   │
+│  │  • Account data serialization                            │   │
+│  │  • RPC communication                                     │   │
+│  │  • Status management (AgenC pattern)                     │   │
+│  └─────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                   Solana Blockchain                              │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │           AgenC Coordination Program                     │   │
+│  │  • RegisterAgent    • CreateTask    • ClaimTask          │   │
+│  │  • CompleteTask     • UpdateState   • ResolveDispute     │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │           Program Derived Addresses (PDAs)               │   │
+│  │  • Agent accounts   • Task accounts   • State accounts   │   │
+│  │  • Escrow accounts  • Dispute accounts                   │   │
+│  └─────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+## Directory Structure
+
+```
+agenc-solana/
+├── programs/
+│   └── agenc-coordination/       # Anchor/Rust Solana program
+│       ├── src/
+│       │   ├── lib.rs           # Program entry point
+│       │   ├── state.rs         # Account structures
+│       │   ├── errors.rs        # Error codes
+│       │   ├── events.rs        # Event definitions
+│       │   └── instructions/    # Instruction handlers
+│       └── Cargo.toml
+├── src/
+│   └── communication/
+│       └── solana/              # C client library
+│           ├── include/
+│           │   ├── solana_types.h    # Core types
+│           │   ├── solana_comm.h     # Communication strategy
+│           │   ├── solana_rpc.h      # RPC client
+│           │   └── agenc_solana.h    # AgenC integration
+│           ├── src/
+│           │   ├── solana_comm.c     # Strategy implementation
+│           │   ├── solana_rpc.c      # RPC implementation
+│           │   ├── solana_status.c   # Status management
+│           │   ├── solana_utils.c    # Utilities
+│           │   └── agenc_solana.c    # AgenC integration
+│           ├── tests/
+│           └── Makefile
+├── examples/
+│   └── solana-multi-agent/      # Demo application
+│       ├── main.c
+│       └── Makefile
+├── docs/
+├── Anchor.toml
+└── README.md
+```
+
+## Prerequisites
+
+### For Solana Program Development
+- Rust 1.70+ and Cargo
+- Solana CLI 1.18+
+- Anchor 0.30+
+
+### For C Client Library
+- GCC or Clang with C11 support
+- POSIX-compliant system (Linux, macOS, Windows with MinGW)
+- pthread support
+
+## Building
+
+### Build the Solana Program
+
+```bash
+# Install Anchor if needed
+cargo install --git https://github.com/coral-xyz/anchor anchor-cli
+
+# Build the program
+cd programs/agenc-coordination
+anchor build
+
+# Get the program ID
+solana-keygen pubkey target/deploy/agenc_coordination-keypair.json
+```
+
+### Build the C Client Library
+
+```bash
+cd src/communication/solana
+
+# Build static library
+make
+
+# Run tests
+make check
+
+# Install to lib/
+make install
+```
+
+### Build the Example
+
+```bash
+cd examples/solana-multi-agent
+
+# Build and run
+make
+./multi_agent
+```
+
+## Deployment to Devnet
+
+### 1. Configure Solana CLI
+
+```bash
+# Set to devnet
+solana config set --url https://api.devnet.solana.com
+
+# Create keypair if needed
+solana-keygen new -o ~/.config/solana/id.json
+
+# Airdrop SOL for deployment
+solana airdrop 2
+```
+
+### 2. Deploy the Program
+
+```bash
+cd programs/agenc-coordination
+
+# Build with Anchor
+anchor build
+
+# Deploy
+anchor deploy --provider.cluster devnet
+
+# Note the program ID from output
+```
+
+### 3. Initialize the Protocol
+
+```bash
+# Using Anchor CLI or custom script
+anchor run initialize -- \
+  --dispute-threshold 51 \
+  --protocol-fee-bps 100 \
+  --min-stake 1000000
+```
+
+### 4. Update C Client with Program ID
+
+Edit `src/communication/solana/include/solana_types.h` or pass the program ID at runtime:
+
+```c
+SolanaCommConfig config = {
+    .rpc_endpoint = "https://api.devnet.solana.com",
+    .network = "devnet",
+    // ... other config
+};
+memcpy(config.program_id.bytes, your_program_id, 32);
+```
 # AgenC Framework – Whitepaper
 
 ## $TETSUO on Solana
