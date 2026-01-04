@@ -1,12 +1,8 @@
 \# Audit and Extension of Program Events for Observability
 
-
-
 \## Current Events
 
 All events defined in `events.rs`. They provide comprehensive coverage of the agent/task/dispute lifecycle.
-
-
 
 | Event Name            | When Emitted                               | Key Fields                                                                 | Observability Use Case                                      |
 
