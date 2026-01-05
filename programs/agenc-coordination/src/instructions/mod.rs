@@ -12,6 +12,7 @@ pub mod initiate_dispute;
 pub mod vote_dispute;
 pub mod resolve_dispute;
 pub mod initialize_protocol;
+pub mod update_protocol_fee;
 
 pub use register_agent::*;
 pub use update_agent::*;
@@ -25,3 +26,4 @@ pub use initiate_dispute::*;
 pub use vote_dispute::*;
 pub use resolve_dispute::*;
 pub use initialize_protocol::*;
+pub use update_protocol_fee::*;

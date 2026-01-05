@@ -2,6 +2,7 @@
 
 use anchor_lang::prelude::*;
 use crate::state::ProtocolConfig;
+use crate::utils::multisig::require_multisig;
 use crate::errors::CoordinationError;
 use crate::events::ProtocolInitialized;
 
@@ -30,6 +31,8 @@ pub fn handler(
     dispute_threshold: u8,
     protocol_fee_bps: u16,
     min_stake: u64,
+    multisig_threshold: u8,
+    multisig_owners: Vec<Pubkey>,
 ) -> Result<()> {
     require!(
         dispute_threshold > 0 && dispute_threshold <= 100,
@@ -39,6 +42,31 @@ pub fn handler(
         protocol_fee_bps <= 1000, // Max 10%
         CoordinationError::InvalidProtocolFee
     );
+    require!(
+        !multisig_owners.is_empty(),
+        CoordinationError::MultisigInvalidSigners
+    );
+    require!(
+        multisig_owners.len() <= ProtocolConfig::MAX_MULTISIG_OWNERS,
+        CoordinationError::MultisigInvalidSigners
+    );
+    require!(
+        multisig_threshold > 0 && (multisig_threshold as usize) <= multisig_owners.len(),
+        CoordinationError::MultisigInvalidThreshold
+    );
+
+    for (index, owner) in multisig_owners.iter().enumerate() {
+        require!(
+            *owner != Pubkey::default(),
+            CoordinationError::MultisigDefaultSigner
+        );
+        for other in multisig_owners.iter().skip(index + 1) {
+            require!(
+                *owner != *other,
+                CoordinationError::MultisigDuplicateSigner
+            );
+        }
+    }
 
     let config = &mut ctx.accounts.protocol_config;
     config.authority = ctx.accounts.authority.key();
@@ -51,6 +79,15 @@ pub fn handler(
     config.completed_tasks = 0;
     config.total_value_distributed = 0;
     config.bump = ctx.bumps.protocol_config;
+    config.multisig_threshold = multisig_threshold;
+    config.multisig_owners_len = multisig_owners.len() as u8;
+    config._padding = [0u8; 6];
+    config.multisig_owners = [Pubkey::default(); ProtocolConfig::MAX_MULTISIG_OWNERS];
+    for (index, owner) in multisig_owners.iter().enumerate() {
+        config.multisig_owners[index] = *owner;
+    }
+
+    require_multisig(config, ctx.remaining_accounts)?;
 
     emit!(ProtocolInitialized {
         authority: config.authority,
