@@ -16,10 +16,7 @@ pub struct UpdateProtocolFee<'info> {
     pub protocol_config: Account<'info, ProtocolConfig>,
 }
 
-pub fn handler(
-    ctx: Context<UpdateProtocolFee>,
-    protocol_fee_bps: u16,
-) -> Result<()> {
+pub fn handler(ctx: Context<UpdateProtocolFee>, protocol_fee_bps: u16) -> Result<()> {
     require!(
         protocol_fee_bps <= 1000,
         CoordinationError::InvalidProtocolFee

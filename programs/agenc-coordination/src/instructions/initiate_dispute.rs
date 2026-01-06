@@ -1,9 +1,11 @@
 //! Initiate a dispute for conflict resolution
 
-use anchor_lang::prelude::*;
-use crate::state::{Dispute, DisputeStatus, ResolutionType, Task, TaskStatus, AgentRegistration, AgentStatus};
 use crate::errors::CoordinationError;
 use crate::events::DisputeInitiated;
+use crate::state::{
+    AgentRegistration, AgentStatus, Dispute, DisputeStatus, ResolutionType, Task, TaskStatus,
+};
+use anchor_lang::prelude::*;
 
 /// Default voting period: 24 hours
 const VOTING_PERIOD: i64 = 24 * 60 * 60;
@@ -85,7 +87,8 @@ pub fn handler(
     dispute.votes_for = 0;
     dispute.votes_against = 0;
     dispute.total_voters = 0; // Will be set during voting
-    dispute.voting_deadline = clock.unix_timestamp
+    dispute.voting_deadline = clock
+        .unix_timestamp
         .checked_add(VOTING_PERIOD)
         .ok_or(CoordinationError::ArithmeticOverflow)?;
     dispute.bump = ctx.bumps.dispute;

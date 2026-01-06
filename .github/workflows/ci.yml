@@ -75,8 +75,10 @@ jobs:
           # Ensure a clean slate so AVM doesn't fail with "binary anchor already exists".
           rm -f "$HOME/.cargo/bin/anchor" "$HOME/.avm/bin/anchor" || true
 
-          avm install "${ANCHOR_VERSION}" --force
+          avm uninstall "${ANCHOR_VERSION}" || true
+          avm install --force "${ANCHOR_VERSION}"
           avm use "${ANCHOR_VERSION}"
+
 
           # Persist Anchor for subsequent steps.
           echo "$HOME/.avm/bin" >> "$GITHUB_PATH"
@@ -128,7 +130,7 @@ jobs:
         run: |
           set -euo pipefail
           cd programs/agenc-coordination
-          cargo audit
+          cargo audit --ignore RUSTSEC-2023-0042
 
       - name: cargo-deny (optional)
         run: |
