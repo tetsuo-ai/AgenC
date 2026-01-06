@@ -94,8 +94,14 @@ pub struct ProtocolConfig {
     pub total_value_distributed: u64,
     /// Bump seed for PDA
     pub bump: u8,
-    /// Reserved for future use
-    pub _reserved: [u8; 64],
+    /// Multisig threshold
+    pub multisig_threshold: u8,
+    /// Length of configured multisig owners
+    pub multisig_owners_len: u8,
+    /// Padding for alignment/future use
+    pub _padding: [u8; 6],
+    /// Multisig owners (fixed-size)
+    pub multisig_owners: [Pubkey; ProtocolConfig::MAX_MULTISIG_OWNERS],
 }
 
 impl Default for ProtocolConfig {
@@ -111,12 +117,16 @@ impl Default for ProtocolConfig {
             completed_tasks: 0,
             total_value_distributed: 0,
             bump: 0,
-            _reserved: [0u8; 64],
+            multisig_threshold: 0,
+            multisig_owners_len: 0,
+            _padding: [0u8; 6],
+            multisig_owners: [Pubkey::default(); ProtocolConfig::MAX_MULTISIG_OWNERS],
         }
     }
 }
 
 impl ProtocolConfig {
+    pub const MAX_MULTISIG_OWNERS: usize = 5;
     pub const SIZE: usize = 8 + // discriminator
         32 + // authority
         32 + // treasury
@@ -128,7 +138,10 @@ impl ProtocolConfig {
         8 +  // completed_tasks
         8 +  // total_value_distributed
         1 +  // bump
-        64; // reserved
+        1 +  // multisig_threshold
+        1 +  // multisig_owners_len
+        6 +  // padding
+        (32 * Self::MAX_MULTISIG_OWNERS); // multisig owners
 }
 
 /// Agent registration account

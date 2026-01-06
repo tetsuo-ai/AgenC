@@ -13,6 +13,7 @@ pub mod state;
 pub mod instructions;
 pub mod errors;
 pub mod events;
+pub mod utils;
 
 use instructions::*;
 use errors::CoordinationError;
@@ -173,7 +174,24 @@ pub mod agenc_coordination {
         dispute_threshold: u8,
         protocol_fee_bps: u16,
         min_stake: u64,
+        multisig_threshold: u8,
+        multisig_owners: Vec<Pubkey>,
     ) -> Result<()> {
-        instructions::initialize_protocol::handler(ctx, dispute_threshold, protocol_fee_bps, min_stake)
+        instructions::initialize_protocol::handler(
+            ctx,
+            dispute_threshold,
+            protocol_fee_bps,
+            min_stake,
+            multisig_threshold,
+            multisig_owners,
+        )
+    }
+
+    /// Update the protocol fee (multisig gated).
+    pub fn update_protocol_fee(
+        ctx: Context<UpdateProtocolFee>,
+        protocol_fee_bps: u16,
+    ) -> Result<()> {
+        instructions::update_protocol_fee::handler(ctx, protocol_fee_bps)
     }
 }
