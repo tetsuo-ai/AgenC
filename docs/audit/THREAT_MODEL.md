@@ -42,6 +42,14 @@ Task state desync
 
 Authority bypass
 
+Governance / Authority Threats
+
+Single authority key compromise (pre-multisig)
+
+Misconfigured governance parameters without multisig gating
+
+Residual risk during transition from single-authority to multisig enforcement
+
 ## Protocol Invariants
 
 ### Escrow Invariants
@@ -166,9 +174,9 @@ Authority bypass
 - Prevents: Dispute capture, authority bypass
 
 **A5: Protocol Authority Exclusivity**
-- Statement: Only `ProtocolConfig.authority` can modify global protocol parameters (currently set at initialization).
+- Statement: Only `ProtocolConfig.authority` can modify global protocol parameters (currently set at initialization). Governance changes are intended to be multisig-gated; until multisig enforcement is active, single-authority compromise remains a residual risk.
 - Applies to: `initialize_protocol`
-- Prevents: Authority bypass, protocol takeover
+- Prevents: Authority bypass, protocol takeover (with residual risk prior to multisig)
 
 ### Dispute Invariants
 

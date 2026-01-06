@@ -4,6 +4,13 @@ import { expect } from "chai";
 import { Keypair, PublicKey, SystemProgram, LAMPORTS_PER_SOL } from "@solana/web3.js";
 import { AgencCoordination } from "../target/types/agenc_coordination";
 
+function id32(s: string): Buffer {
+  const b = Buffer.alloc(32);
+  Buffer.from(s, "utf8").copy(b);
+  expect(b.length).to.equal(32);
+  return b;
+}
+
 describe("coordination-security", () => {
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
@@ -25,19 +32,20 @@ describe("coordination-security", () => {
   let arbiter3: Keypair;
   let unauthorized: Keypair;
 
-  const agentId1 = Buffer.from("agent-000000000000000000000001").slice(0, 32);
-  const agentId2 = Buffer.from("agent-000000000000000000000002").slice(0, 32);
-  const agentId3 = Buffer.from("agent-000000000000000000000003").slice(0, 32);
-  const arbiterId1 = Buffer.from("arbit-000000000000000000000001").slice(0, 32);
-  const arbiterId2 = Buffer.from("arbit-000000000000000000000002").slice(0, 32);
-  const arbiterId3 = Buffer.from("arbit-000000000000000000000003").slice(0, 32);
-  const taskId1 = Buffer.from("task-00000000000000000000000001").slice(0, 32);
-  const taskId2 = Buffer.from("task-00000000000000000000000002").slice(0, 32);
-  const taskId3 = Buffer.from("task-00000000000000000000000003").slice(0, 32);
-  const disputeId1 = Buffer.from("disp-00000000000000000000000001").slice(0, 32);
+  const agentId1 = id32("agent-000000000000000000000001");
+  const agentId2 = id32("agent-000000000000000000000002");
+  const agentId3 = id32("agent-000000000000000000000003");
+  const arbiterId1 = id32("arbit-000000000000000000000001");
+  const arbiterId2 = id32("arbit-000000000000000000000002");
+  const arbiterId3 = id32("arbit-000000000000000000000003");
+  const taskId1 = id32("task-00000000000000000000000001");
+  const taskId2 = id32("task-00000000000000000000000002");
+  const taskId3 = id32("task-00000000000000000000000003");
+  const disputeId1 = id32("disp-00000000000000000000000001");
 
   const CAPABILITY_COMPUTE = 1 << 0;
   const CAPABILITY_INFERENCE = 1 << 1;
+  const CAPABILITY_STORAGE = 1 << 2;
   const CAPABILITY_ARBITER = 1 << 7;
 
   const TASK_TYPE_EXCLUSIVE = 0;
@@ -406,7 +414,7 @@ describe("coordination-security", () => {
           program.programId
         );
 
-        const proofHash = Buffer.from("proof-hash-00000000000001".padEnd(32, "\0"));
+        const proofHash = id32("proof-hash-00000000000001");
         const rewardAmount = 2 * LAMPORTS_PER_SOL;
         const expectedFee = Math.floor(rewardAmount * 100 / 10000);
         const expectedReward = rewardAmount - expectedFee;
@@ -459,7 +467,7 @@ describe("coordination-security", () => {
 
     describe("Task Cancel - Unclaimed", () => {
       it("Successfully cancels unclaimed task", async () => {
-        const newTaskId = Buffer.from("task-cancel00000000000001".padEnd(32, "\0"));
+        const newTaskId = id32("task-cancel00000000000001");
         const [taskPda] = PublicKey.findProgramAddressSync(
           [Buffer.from("task"), creator.publicKey.toBuffer(), newTaskId],
           program.programId
@@ -520,7 +528,7 @@ describe("coordination-security", () => {
       before(async () => {
         workerPda = PublicKey.findProgramAddressSync([Buffer.from("agent"), agentId3], program.programId)[0];
 
-        const disputeTaskId = Buffer.from("task-dispute0000000000001".padEnd(32, "\0"));
+        const disputeTaskId = id32("task-dispute0000000000001");
         taskPda = PublicKey.findProgramAddressSync(
           [Buffer.from("task"), creator.publicKey.toBuffer(), disputeTaskId],
           program.programId
@@ -572,12 +580,12 @@ describe("coordination-security", () => {
       });
 
       it("Successfully initiates dispute", async () => {
-        const evidenceHash = Buffer.from("evidence-hash000000000001".padEnd(32, "\0"));
+        const evidenceHash = id32("evidence-hash000000000001");
 
         await program.methods
           .initiateDispute(
             Array.from(disputeId1),
-            Array.from(Buffer.from("task-dispute0000000000001".padEnd(32, "\0"))),
+            Array.from(id32("task-dispute0000000000001")),
             Array.from(evidenceHash),
             RESOLUTION_TYPE_REFUND
           )
@@ -701,13 +709,13 @@ describe("coordination-security", () => {
       });
 
       it("Fails when non-creator tries to cancel task", async () => {
-        const newTaskId = Buffer.from("task-unauth0000000000001".padEnd(32, "\0"));
+        const newTaskId = id32("task-unauth0000000000001");
         const [taskPda] = PublicKey.findProgramAddressSync(
           [Buffer.from("task"), creator.publicKey.toBuffer(), newTaskId],
           program.programId
         );
         const [escrowPda] = PublicKey.findProgramAddressSync(
-          [Buffer.from("escrow"], taskPda.toBuffer()],
+          [Buffer.from("escrow"), taskPda.toBuffer()],
           program.programId
         );
 
@@ -746,15 +754,588 @@ describe("coordination-security", () => {
       });
     });
 
+    describe("Spoofing Simulations", () => {
+      it("Rejects arbiter vote signed by non-authority (fake capability claim)", async () => {
+        const spoofTaskId = id32("task-spoofcap0000000001");
+        const spoofDisputeId = id32("disp-spoofcap0000000001");
+        const spoofArbiterId = id32("arbit-spoofcap0000001");
+
+        const [taskPda] = PublicKey.findProgramAddressSync(
+          [Buffer.from("task"), creator.publicKey.toBuffer(), spoofTaskId],
+          program.programId
+        );
+        const [escrowPda] = PublicKey.findProgramAddressSync(
+          [Buffer.from("escrow"), taskPda.toBuffer()],
+          program.programId
+        );
+        const [claimPda] = PublicKey.findProgramAddressSync(
+          [Buffer.from("claim"), taskPda.toBuffer(), worker1.publicKey.toBuffer()],
+          program.programId
+        );
+        const [disputePda] = PublicKey.findProgramAddressSync(
+          [Buffer.from("dispute"), spoofDisputeId],
+          program.programId
+        );
+        const [arbiterPda] = PublicKey.findProgramAddressSync(
+          [Buffer.from("agent"), spoofArbiterId],
+          program.programId
+        );
+        const [votePda] = PublicKey.findProgramAddressSync(
+          [Buffer.from("vote"), disputePda.toBuffer(), arbiterPda.toBuffer()],
+          program.programId
+        );
+
+        await program.methods
+          .registerAgent(
+            Array.from(spoofArbiterId),
+            new anchor.BN(CAPABILITY_ARBITER),
+            "https://arbiter-spoof.example.com",
+            null
+          )
+          .accounts({
+            agent: arbiterPda,
+            protocolConfig: protocolPda,
+            authority: arbiter1.publicKey,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([arbiter1])
+          .rpc();
+
+        await program.methods
+          .createTask(
+            Array.from(spoofTaskId),
+            new anchor.BN(CAPABILITY_COMPUTE),
+            Buffer.from("Spoofing capability vote".padEnd(64, "\0")),
+            new anchor.BN(0),
+            1,
+            0,
+            TASK_TYPE_EXCLUSIVE
+          )
+          .accounts({
+            task: taskPda,
+            escrow: escrowPda,
+            protocolConfig: protocolPda,
+            creator: creator.publicKey,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([creator])
+          .rpc();
+
+        await program.methods
+          .claimTask()
+          .accounts({
+            task: taskPda,
+            claim: claimPda,
+            worker: agentId1,
+            authority: worker1.publicKey,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([worker1])
+          .rpc();
+
+        await program.methods
+          .initiateDispute(
+            Array.from(spoofDisputeId),
+            Array.from(spoofTaskId),
+            Array.from(id32("spoof-evidence-1")),
+            RESOLUTION_TYPE_REFUND
+          )
+          .accounts({
+            dispute: disputePda,
+            task: taskPda,
+            agent: PublicKey.findProgramAddressSync([Buffer.from("agent"), agentId1], program.programId)[0],
+            authority: worker1.publicKey,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([worker1])
+          .rpc();
+
+        await expect(
+          program.methods
+            .voteDispute(true)
+            .accounts({
+              dispute: disputePda,
+              vote: votePda,
+              arbiter: arbiterPda,
+              protocolConfig: protocolPda,
+              authority: unauthorized.publicKey,
+              systemProgram: SystemProgram.programId,
+            })
+            .signers([unauthorized])
+            .rpc()
+        ).to.be.rejected;
+      });
+
+      it("Rejects replayed dispute initiation with the same PDA", async () => {
+        const replayTaskId = id32("task-replaydisp0000001");
+        const replayDisputeId = id32("disp-replay0000000001");
+
+        const [taskPda] = PublicKey.findProgramAddressSync(
+          [Buffer.from("task"), creator.publicKey.toBuffer(), replayTaskId],
+          program.programId
+        );
+        const [escrowPda] = PublicKey.findProgramAddressSync(
+          [Buffer.from("escrow"), taskPda.toBuffer()],
+          program.programId
+        );
+        const [claimPda] = PublicKey.findProgramAddressSync(
+          [Buffer.from("claim"), taskPda.toBuffer(), worker1.publicKey.toBuffer()],
+          program.programId
+        );
+        const [disputePda] = PublicKey.findProgramAddressSync(
+          [Buffer.from("dispute"), replayDisputeId],
+          program.programId
+        );
+
+        await program.methods
+          .createTask(
+            Array.from(replayTaskId),
+            new anchor.BN(CAPABILITY_COMPUTE),
+            Buffer.from("Replay dispute init".padEnd(64, "\0")),
+            new anchor.BN(0),
+            1,
+            0,
+            TASK_TYPE_EXCLUSIVE
+          )
+          .accounts({
+            task: taskPda,
+            escrow: escrowPda,
+            protocolConfig: protocolPda,
+            creator: creator.publicKey,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([creator])
+          .rpc();
+
+        await program.methods
+          .claimTask()
+          .accounts({
+            task: taskPda,
+            claim: claimPda,
+            worker: agentId1,
+            authority: worker1.publicKey,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([worker1])
+          .rpc();
+
+        await program.methods
+          .initiateDispute(
+            Array.from(replayDisputeId),
+            Array.from(replayTaskId),
+            Array.from(id32("replay-evidence")),
+            RESOLUTION_TYPE_REFUND
+          )
+          .accounts({
+            dispute: disputePda,
+            task: taskPda,
+            agent: PublicKey.findProgramAddressSync([Buffer.from("agent"), agentId1], program.programId)[0],
+            authority: worker1.publicKey,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([worker1])
+          .rpc();
+
+        await expect(
+          program.methods
+            .initiateDispute(
+              Array.from(replayDisputeId),
+              Array.from(replayTaskId),
+              Array.from(id32("replay-evidence")),
+              RESOLUTION_TYPE_REFUND
+            )
+            .accounts({
+              dispute: disputePda,
+              task: taskPda,
+              agent: PublicKey.findProgramAddressSync([Buffer.from("agent"), agentId1], program.programId)[0],
+              authority: worker1.publicKey,
+              systemProgram: SystemProgram.programId,
+            })
+            .signers([worker1])
+            .rpc()
+        ).to.be.rejected;
+      });
+
+      it("Rejects unauthorized task completion attempts (authority spoof)", async () => {
+        const spoofTaskId = id32("task-spoofcomp0000001");
+
+        const [taskPda] = PublicKey.findProgramAddressSync(
+          [Buffer.from("task"), creator.publicKey.toBuffer(), spoofTaskId],
+          program.programId
+        );
+        const [escrowPda] = PublicKey.findProgramAddressSync(
+          [Buffer.from("escrow"), taskPda.toBuffer()],
+          program.programId
+        );
+        const [claimPda] = PublicKey.findProgramAddressSync(
+          [Buffer.from("claim"), taskPda.toBuffer(), worker1.publicKey.toBuffer()],
+          program.programId
+        );
+        const workerPda = PublicKey.findProgramAddressSync(
+          [Buffer.from("agent"), agentId1],
+          program.programId
+        )[0];
+
+        await program.methods
+          .createTask(
+            Array.from(spoofTaskId),
+            new anchor.BN(CAPABILITY_COMPUTE),
+            Buffer.from("Spoof complete task".padEnd(64, "\0")),
+            new anchor.BN(0),
+            1,
+            0,
+            TASK_TYPE_EXCLUSIVE
+          )
+          .accounts({
+            task: taskPda,
+            escrow: escrowPda,
+            protocolConfig: protocolPda,
+            creator: creator.publicKey,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([creator])
+          .rpc();
+
+        await program.methods
+          .claimTask()
+          .accounts({
+            task: taskPda,
+            claim: claimPda,
+            worker: agentId1,
+            authority: worker1.publicKey,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([worker1])
+          .rpc();
+
+        const proofHash = id32("spoof-complete-proof");
+
+        await expect(
+          program.methods
+            .completeTask(Array.from(proofHash), null)
+            .accounts({
+              task: taskPda,
+              claim: claimPda,
+              escrow: escrowPda,
+              worker: workerPda,
+              protocolConfig: protocolPda,
+              treasury: treasury.publicKey,
+              authority: unauthorized.publicKey,
+              systemProgram: SystemProgram.programId,
+            })
+            .signers([unauthorized])
+            .rpc()
+        ).to.be.rejected;
+      });
+
+      it("Caps reputation at 10000 after repeated completions", async () => {
+        const workerPda = PublicKey.findProgramAddressSync(
+          [Buffer.from("agent"), agentId1],
+          program.programId
+        )[0];
+        const starting = await program.account.agentRegistration.fetch(workerPda);
+        const startingReputation = starting.reputation;
+        const completionsNeeded = Math.ceil((10000 - startingReputation + 100) / 100);
+
+        for (let i = 0; i < completionsNeeded; i += 1) {
+          const repTaskId = id32(`task-repcap-${i}`);
+          const [taskPda] = PublicKey.findProgramAddressSync(
+            [Buffer.from("task"), creator.publicKey.toBuffer(), repTaskId],
+            program.programId
+          );
+          const [escrowPda] = PublicKey.findProgramAddressSync(
+            [Buffer.from("escrow"), taskPda.toBuffer()],
+            program.programId
+          );
+          const [claimPda] = PublicKey.findProgramAddressSync(
+            [Buffer.from("claim"), taskPda.toBuffer(), worker1.publicKey.toBuffer()],
+            program.programId
+          );
+
+          await program.methods
+            .createTask(
+              Array.from(repTaskId),
+              new anchor.BN(CAPABILITY_COMPUTE),
+              Buffer.from(`Reputation cap ${i}`.padEnd(64, "\0")),
+              new anchor.BN(0),
+              1,
+              0,
+              TASK_TYPE_EXCLUSIVE
+            )
+            .accounts({
+              task: taskPda,
+              escrow: escrowPda,
+              protocolConfig: protocolPda,
+              creator: creator.publicKey,
+              systemProgram: SystemProgram.programId,
+            })
+            .signers([creator])
+            .rpc();
+
+          await program.methods
+            .claimTask()
+            .accounts({
+              task: taskPda,
+              claim: claimPda,
+              worker: agentId1,
+              authority: worker1.publicKey,
+              systemProgram: SystemProgram.programId,
+            })
+            .signers([worker1])
+            .rpc();
+
+          const proofHash = id32(`rep-proof-${i}`);
+
+          await program.methods
+            .completeTask(Array.from(proofHash), null)
+            .accounts({
+              task: taskPda,
+              claim: claimPda,
+              escrow: escrowPda,
+              worker: workerPda,
+              protocolConfig: protocolPda,
+              treasury: treasury.publicKey,
+              authority: worker1.publicKey,
+              systemProgram: SystemProgram.programId,
+            })
+            .signers([worker1])
+            .rpc();
+        }
+
+        const updated = await program.account.agentRegistration.fetch(workerPda);
+        expect(updated.reputation).to.equal(10000);
+      });
+    });
+
+    describe("Deadline and Stale State Guards", () => {
+      it("Rejects creator cancel on in-progress task before deadline", async () => {
+        const griefTaskId = id32("task-deadgrief0000001");
+
+        const [taskPda] = PublicKey.findProgramAddressSync(
+          [Buffer.from("task"), creator.publicKey.toBuffer(), griefTaskId],
+          program.programId
+        );
+        const [escrowPda] = PublicKey.findProgramAddressSync(
+          [Buffer.from("escrow"), taskPda.toBuffer()],
+          program.programId
+        );
+        const [claimPda] = PublicKey.findProgramAddressSync(
+          [Buffer.from("claim"), taskPda.toBuffer(), worker1.publicKey.toBuffer()],
+          program.programId
+        );
+
+        const futureDeadline = Math.floor(Date.now() / 1000) + 120;
+
+        await program.methods
+          .createTask(
+            Array.from(griefTaskId),
+            new anchor.BN(CAPABILITY_COMPUTE),
+            Buffer.from("Deadline griefing guard".padEnd(64, "\0")),
+            new anchor.BN(0),
+            1,
+            new anchor.BN(futureDeadline),
+            TASK_TYPE_EXCLUSIVE
+          )
+          .accounts({
+            task: taskPda,
+            escrow: escrowPda,
+            protocolConfig: protocolPda,
+            creator: creator.publicKey,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([creator])
+          .rpc();
+
+        await program.methods
+          .claimTask()
+          .accounts({
+            task: taskPda,
+            claim: claimPda,
+            worker: agentId1,
+            authority: worker1.publicKey,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([worker1])
+          .rpc();
+
+        await expect(
+          program.methods
+            .cancelTask()
+            .accounts({
+              task: taskPda,
+              escrow: escrowPda,
+              creator: creator.publicKey,
+              systemProgram: SystemProgram.programId,
+            })
+            .signers([creator])
+            .rpc()
+        ).to.be.rejected;
+      });
+
+      it("Rejects dispute initiation on a cancelled task (stale proposal)", async () => {
+        const staleTaskId = id32("task-staledisp0000001");
+        const staleDisputeId = id32("disp-stale00000000001");
+
+        const [taskPda] = PublicKey.findProgramAddressSync(
+          [Buffer.from("task"), creator.publicKey.toBuffer(), staleTaskId],
+          program.programId
+        );
+        const [escrowPda] = PublicKey.findProgramAddressSync(
+          [Buffer.from("escrow"), taskPda.toBuffer()],
+          program.programId
+        );
+        const [disputePda] = PublicKey.findProgramAddressSync(
+          [Buffer.from("dispute"), staleDisputeId],
+          program.programId
+        );
+
+        await program.methods
+          .createTask(
+            Array.from(staleTaskId),
+            new anchor.BN(CAPABILITY_COMPUTE),
+            Buffer.from("Stale dispute target".padEnd(64, "\0")),
+            new anchor.BN(0),
+            1,
+            0,
+            TASK_TYPE_EXCLUSIVE
+          )
+          .accounts({
+            task: taskPda,
+            escrow: escrowPda,
+            protocolConfig: protocolPda,
+            creator: creator.publicKey,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([creator])
+          .rpc();
+
+        await program.methods
+          .cancelTask()
+          .accounts({
+            task: taskPda,
+            escrow: escrowPda,
+            creator: creator.publicKey,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([creator])
+          .rpc();
+
+        await expect(
+          program.methods
+            .initiateDispute(
+              Array.from(staleDisputeId),
+              Array.from(staleTaskId),
+              Array.from(id32("stale-evidence")),
+              RESOLUTION_TYPE_REFUND
+            )
+            .accounts({
+              dispute: disputePda,
+              task: taskPda,
+              agent: PublicKey.findProgramAddressSync([Buffer.from("agent"), agentId1], program.programId)[0],
+              authority: worker1.publicKey,
+              systemProgram: SystemProgram.programId,
+            })
+            .signers([worker1])
+            .rpc()
+        ).to.be.rejected;
+      });
+
+      it("Rejects dispute resolution before voting deadline", async () => {
+        const timeoutTaskId = id32("task-timeout000000001");
+        const timeoutDisputeId = id32("disp-timeout00000001");
+
+        const [taskPda] = PublicKey.findProgramAddressSync(
+          [Buffer.from("task"), creator.publicKey.toBuffer(), timeoutTaskId],
+          program.programId
+        );
+        const [escrowPda] = PublicKey.findProgramAddressSync(
+          [Buffer.from("escrow"), taskPda.toBuffer()],
+          program.programId
+        );
+        const [claimPda] = PublicKey.findProgramAddressSync(
+          [Buffer.from("claim"), taskPda.toBuffer(), worker1.publicKey.toBuffer()],
+          program.programId
+        );
+        const [disputePda] = PublicKey.findProgramAddressSync(
+          [Buffer.from("dispute"), timeoutDisputeId],
+          program.programId
+        );
+
+        await program.methods
+          .createTask(
+            Array.from(timeoutTaskId),
+            new anchor.BN(CAPABILITY_COMPUTE),
+            Buffer.from("Timeout edge case".padEnd(64, "\0")),
+            new anchor.BN(0),
+            1,
+            0,
+            TASK_TYPE_EXCLUSIVE
+          )
+          .accounts({
+            task: taskPda,
+            escrow: escrowPda,
+            protocolConfig: protocolPda,
+            creator: creator.publicKey,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([creator])
+          .rpc();
+
+        await program.methods
+          .claimTask()
+          .accounts({
+            task: taskPda,
+            claim: claimPda,
+            worker: agentId1,
+            authority: worker1.publicKey,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([worker1])
+          .rpc();
+
+        await program.methods
+          .initiateDispute(
+            Array.from(timeoutDisputeId),
+            Array.from(timeoutTaskId),
+            Array.from(id32("timeout-evidence")),
+            RESOLUTION_TYPE_REFUND
+          )
+          .accounts({
+            dispute: disputePda,
+            task: taskPda,
+            agent: PublicKey.findProgramAddressSync([Buffer.from("agent"), agentId1], program.programId)[0],
+            authority: worker1.publicKey,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([worker1])
+          .rpc();
+
+        await expect(
+          program.methods
+            .resolveDispute()
+            .accounts({
+              dispute: disputePda,
+              task: taskPda,
+              escrow: escrowPda,
+              protocolConfig: protocolPda,
+              creator: creator.publicKey,
+              worker: null,
+              systemProgram: SystemProgram.programId,
+            })
+            .rpc()
+        ).to.be.rejected;
+      });
+    });
+
     describe("Double Claims and Completions", () => {
       it("Fails when worker tries to claim same task twice", async () => {
-        const newTaskId = Buffer.from("task-double0000000000001".padEnd(32, "\0"));
+        const newTaskId = id32("task-double0000000000001");
         const [taskPda] = PublicKey.findProgramAddressSync(
           [Buffer.from("task"), creator.publicKey.toBuffer(), newTaskId],
           program.programId
         );
         const [escrowPda] = PublicKey.findProgramAddressSync(
-          [Buffer.from("escrow"], taskPda.toBuffer()],
+          [Buffer.from("escrow"), taskPda.toBuffer()],
           program.programId
         );
         const [claimPda] = PublicKey.findProgramAddressSync(
@@ -810,13 +1391,13 @@ describe("coordination-security", () => {
       });
 
       it("Fails when worker tries to complete task twice", async () => {
-        const newTaskId = Buffer.from("task-doublecomp000000001".padEnd(32, "\0"));
+        const newTaskId = id32("task-doublecomp000000001");
         const [taskPda] = PublicKey.findProgramAddressSync(
           [Buffer.from("task"), creator.publicKey.toBuffer(), newTaskId],
           program.programId
         );
         const [escrowPda] = PublicKey.findProgramAddressSync(
-          [Buffer.from("escrow"], taskPda.toBuffer()],
+          [Buffer.from("escrow"), taskPda.toBuffer()],
           program.programId
         );
         const [claimPda] = PublicKey.findProgramAddressSync(
@@ -856,7 +1437,7 @@ describe("coordination-security", () => {
           .signers([worker1])
           .rpc();
 
-        const proofHash = Buffer.from("proof-hash-00000000000002".padEnd(32, "\0"));
+        const proofHash = id32("proof-hash-00000000000002");
 
         await program.methods
           .completeTask(Array.from(proofHash), null)
@@ -894,13 +1475,13 @@ describe("coordination-security", () => {
 
     describe("Capability and Status Validation", () => {
       it("Fails when worker lacks required capabilities", async () => {
-        const newTaskId = Buffer.from("task-capcheck0000000001".padEnd(32, "\0"));
+        const newTaskId = id32("task-capcheck0000000001");
         const [taskPda] = PublicKey.findProgramAddressSync(
           [Buffer.from("task"), creator.publicKey.toBuffer(), newTaskId],
           program.programId
         );
         const [escrowPda] = PublicKey.findProgramAddressSync(
-          [Buffer.from("escrow"], taskPda.toBuffer()],
+          [Buffer.from("escrow"), taskPda.toBuffer()],
           program.programId
         );
         const [claimPda] = PublicKey.findProgramAddressSync(
@@ -958,13 +1539,13 @@ describe("coordination-security", () => {
           .signers([worker1])
           .rpc();
 
-        const newTaskId = Buffer.from("task-inactive00000000001".padEnd(32, "\0"));
+        const newTaskId = id32("task-inactive00000000001");
         const [taskPda] = PublicKey.findProgramAddressSync(
           [Buffer.from("task"), creator.publicKey.toBuffer(), newTaskId],
           program.programId
         );
         const [escrowPda] = PublicKey.findProgramAddressSync(
-          [Buffer.from("escrow"], taskPda.toBuffer()],
+          [Buffer.from("escrow"), taskPda.toBuffer()],
           program.programId
         );
         const [claimPda] = PublicKey.findProgramAddressSync(
@@ -1019,13 +1600,13 @@ describe("coordination-security", () => {
 
     describe("Deadline Expiry", () => {
       it("Fails to claim task after deadline", async () => {
-        const newTaskId = Buffer.from("task-expired000000000001".padEnd(32, "\0"));
+        const newTaskId = id32("task-expired000000000001");
         const [taskPda] = PublicKey.findProgramAddressSync(
           [Buffer.from("task"), creator.publicKey.toBuffer(), newTaskId],
           program.programId
         );
         const [escrowPda] = PublicKey.findProgramAddressSync(
-          [Buffer.from("escrow"], taskPda.toBuffer()],
+          [Buffer.from("escrow"), taskPda.toBuffer()],
           program.programId
         );
 
@@ -1072,13 +1653,13 @@ describe("coordination-security", () => {
       });
 
       it("Successfully cancels expired task with no completions", async () => {
-        const newTaskId = Buffer.from("task-cancalexp0000000001".padEnd(32, "\0"));
+        const newTaskId = id32("task-cancalexp0000000001");
         const [taskPda] = PublicKey.findProgramAddressSync(
           [Buffer.from("task"), creator.publicKey.toBuffer(), newTaskId],
           program.programId
         );
         const [escrowPda] = PublicKey.findProgramAddressSync(
-          [Buffer.from("escrow"], taskPda.toBuffer()],
+          [Buffer.from("escrow"), taskPda.toBuffer()],
           program.programId
         );
 
@@ -1141,8 +1722,8 @@ describe("coordination-security", () => {
 
     describe("Dispute Threshold Tests", () => {
       it("Successfully resolves with exact threshold match", async () => {
-        const newDisputeId = Buffer.from("disp-thres00000000000001".padEnd(32, "\0"));
-        const newTaskId = Buffer.from("task-thres000000000000001".padEnd(32, "\0"));
+        const newDisputeId = id32("disp-thres00000000000001");
+        const newTaskId = id32("task-thres000000000000001");
         const [disputePda] = PublicKey.findProgramAddressSync(
           [Buffer.from("dispute"), newDisputeId],
           program.programId
@@ -1152,7 +1733,7 @@ describe("coordination-security", () => {
           program.programId
         );
         const [escrowPda] = PublicKey.findProgramAddressSync(
-          [Buffer.from("escrow"], taskPda.toBuffer()],
+          [Buffer.from("escrow"), taskPda.toBuffer()],
           program.programId
         );
 
@@ -1180,7 +1761,7 @@ describe("coordination-security", () => {
           .initiateDispute(
             Array.from(newDisputeId),
             Array.from(newTaskId),
-            Array.from(Buffer.from("evidence".padEnd(32, "\0"))),
+            Array.from(id32("evidence")),
             RESOLUTION_TYPE_REFUND
           )
           .accounts({
@@ -1253,13 +1834,13 @@ describe("coordination-security", () => {
 
     describe("Max Workers Boundary", () => {
       it("Fails when task exceeds max workers", async () => {
-        const newTaskId = Buffer.from("task-maxwork000000000001".padEnd(32, "\0"));
+        const newTaskId = id32("task-maxwork000000000001");
         const [taskPda] = PublicKey.findProgramAddressSync(
           [Buffer.from("task"), creator.publicKey.toBuffer(), newTaskId],
           program.programId
         );
         const [escrowPda] = PublicKey.findProgramAddressSync(
-          [Buffer.from("escrow"], taskPda.toBuffer()],
+          [Buffer.from("escrow"), taskPda.toBuffer()],
           program.programId
         );
 
@@ -1320,7 +1901,7 @@ describe("coordination-security", () => {
         expect(task.currentWorkers).to.equal(2);
 
         const extraWorker = Keypair.generate();
-        const extraAgentId = Buffer.from("agent-extra00000000000001".padEnd(32, "\0"));
+        const extraAgentId = id32("agent-extra00000000000001");
         const [extraAgentPda] = PublicKey.findProgramAddressSync(
           [Buffer.from("agent"), extraAgentId],
           program.programId
@@ -1369,13 +1950,13 @@ describe("coordination-security", () => {
 
     describe("Zero Reward Tasks", () => {
       it("Successfully creates and completes zero-reward task", async () => {
-        const newTaskId = Buffer.from("task-zerorew000000000001".padEnd(32, "\0"));
+        const newTaskId = id32("task-zerorew000000000001");
         const [taskPda] = PublicKey.findProgramAddressSync(
           [Buffer.from("task"), creator.publicKey.toBuffer(), newTaskId],
           program.programId
         );
         const [escrowPda] = PublicKey.findProgramAddressSync(
-          [Buffer.from("escrow"], taskPda.toBuffer()],
+          [Buffer.from("escrow"), taskPda.toBuffer()],
           program.programId
         );
 
@@ -1419,7 +2000,7 @@ describe("coordination-security", () => {
           .signers([worker1])
           .rpc();
 
-        const proofHash = Buffer.from("proof-hash-00000000000003".padEnd(32, "\0"));
+        const proofHash = id32("proof-hash-00000000000003");
 
         await program.methods
           .completeTask(Array.from(proofHash), null)
@@ -1446,13 +2027,13 @@ describe("coordination-security", () => {
 
     describe("Deregister with Active Tasks", () => {
       it("Fails to deregister agent with active tasks", async () => {
-        const newTaskId = Buffer.from("task-deregfail000000001".padEnd(32, "\0"));
+        const newTaskId = id32("task-deregfail000000001");
         const [taskPda] = PublicKey.findProgramAddressSync(
           [Buffer.from("task"), creator.publicKey.toBuffer(), newTaskId],
           program.programId
         );
         const [escrowPda] = PublicKey.findProgramAddressSync(
-          [Buffer.from("escrow"], taskPda.toBuffer()],
+          [Buffer.from("escrow"), taskPda.toBuffer()],
           program.programId
         );
 
@@ -1514,8 +2095,8 @@ describe("coordination-security", () => {
 
     describe("Arbiter Voting Requirements", () => {
       it("Fails when non-arbiter tries to vote", async () => {
-        const newDisputeId = Buffer.from("disp-nonarb000000000001".padEnd(32, "\0"));
-        const newTaskId = Buffer.from("task-nonarb000000000001".padEnd(32, "\0"));
+        const newDisputeId = id32("disp-nonarb000000000001");
+        const newTaskId = id32("task-nonarb000000000001");
         const [disputePda] = PublicKey.findProgramAddressSync(
           [Buffer.from("dispute"), newDisputeId],
           program.programId
@@ -1525,7 +2106,7 @@ describe("coordination-security", () => {
           program.programId
         );
         const [escrowPda] = PublicKey.findProgramAddressSync(
-          [Buffer.from("escrow"], taskPda.toBuffer()],
+          [Buffer.from("escrow"), taskPda.toBuffer()],
           program.programId
         );
 
@@ -1553,7 +2134,7 @@ describe("coordination-security", () => {
           .initiateDispute(
             Array.from(newDisputeId),
             Array.from(newTaskId),
-            Array.from(Buffer.from("evidence".padEnd(32, "\0"))),
+            Array.from(id32("evidence")),
             RESOLUTION_TYPE_REFUND
           )
           .accounts({
@@ -1649,13 +2230,13 @@ describe("coordination-security", () => {
 
     describe("Fund Leak Prevention", () => {
       it("Verifies no lamport leaks in task lifecycle", async () => {
-        const newTaskId = Buffer.from("task-fundleak0000000001".padEnd(32, "\0"));
+        const newTaskId = id32("task-fundleak0000000001");
         const [taskPda] = PublicKey.findProgramAddressSync(
           [Buffer.from("task"), creator.publicKey.toBuffer(), newTaskId],
           program.programId
         );
         const [escrowPda] = PublicKey.findProgramAddressSync(
-          [Buffer.from("escrow"], taskPda.toBuffer()],
+          [Buffer.from("escrow"), taskPda.toBuffer()],
           program.programId
         );
 
@@ -1705,7 +2286,7 @@ describe("coordination-security", () => {
           .signers([worker1])
           .rpc();
 
-        const proofHash = Buffer.from("proof-hash-00000000000004".padEnd(32, "\0"));
+        const proofHash = id32("proof-hash-00000000000004");
 
         await program.methods
           .completeTask(Array.from(proofHash), null)
