@@ -121,6 +121,21 @@ pub enum CoordinationError {
     #[msg("Insufficient stake for arbiter registration")]
     InsufficientStake,
 
+    #[msg("Invalid multisig threshold")]
+    MultisigInvalidThreshold,
+
+    #[msg("Invalid multisig signer configuration")]
+    MultisigInvalidSigners,
+
+    #[msg("Not enough multisig signers")]
+    MultisigNotEnoughSigners,
+
+    #[msg("Duplicate multisig signer provided")]
+    MultisigDuplicateSigner,
+
+    #[msg("Multisig signer cannot be default pubkey")]
+    MultisigDefaultSigner,
+
     // General errors (6600-6699)
     #[msg("Invalid input parameter")]
     InvalidInput,
