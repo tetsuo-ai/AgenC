@@ -78,17 +78,16 @@ jobs:
           set -euxo pipefail
           ANCHOR_VERSION="0.30.1"
 
-          # rust-cache can restore old binaries; nuke anything that could conflict
-          rm -f "$HOME/.cargo/bin/anchor" || true
-          rm -f "$HOME/.cargo/bin/avm" || true
+          # rust-cache can restore old binaries; completely remove .avm directory to avoid conflicts
           rm -rf "$HOME/.avm" || true
+          rm -f "$HOME/.cargo/bin/avm" || true
 
           # Install AVM
           cargo install --git https://github.com/coral-xyz/anchor avm --locked --force
           avm --version
 
-          # Install + select Anchor CLI (with --force to overwrite cached binaries)
-          avm install "${ANCHOR_VERSION}" --force
+          # Install + select Anchor CLI
+          avm install "${ANCHOR_VERSION}"
           avm use "${ANCHOR_VERSION}"
 
           # Ensure PATH for this step + subsequent steps
