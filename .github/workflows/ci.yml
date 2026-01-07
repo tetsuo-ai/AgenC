@@ -46,6 +46,8 @@ jobs:
       ANCHOR_IDL_BUILD_PROGRAM_PATH: programs/agenc-coordination
     steps:
       - uses: actions/checkout@v4
+        with:
+          clean: true
 
       - name: Install Node
         uses: actions/setup-node@v4
