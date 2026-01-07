@@ -66,26 +66,30 @@ jobs:
       - name: Install Anchor via avm
         run: |
           set -euo pipefail
-
-          # Install AVM (idempotent) and ensure cargo bin dir is on PATH for this step.
+          
+          # Install avm (Anchor Version Manager)
           cargo install --git https://github.com/coral-xyz/anchor avm --locked --force
-          export PATH="$HOME/.cargo/bin:$PATH"
+          
+          # Ensure cargo bin dir is on PATH for this step and subsequent steps.
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
-
-          # Ensure a clean slate so AVM doesn't fail with "binary anchor already exists".
-          rm -f "$HOME/.cargo/bin/anchor" "$HOME/.avm/bin/anchor" || true
-
-          avm uninstall "${ANCHOR_VERSION}" || true
-          avm install --force "${ANCHOR_VERSION}"
-          avm use "${ANCHOR_VERSION}"
-
-
-          # Persist Anchor for subsequent steps.
-          echo "$HOME/.avm/bin" >> "$GITHUB_PATH"
-          export PATH="$HOME/.avm/bin:$PATH"
-
+          export PATH="$HOME/.cargo/bin:$PATH"
+          
+          # Clean slate so avm can (re)install Anchor reliably
+          rm -f "$HOME/.cargo/bin/anchor" || true
+          rm -f "$HOME/.avm/bin/anchor" || true
+          cargo uninstall anchor-cli || true
+          
+          # Prefer AVM; if it flakes, fall back to installing anchor-cli from the git tag.
+          if ! avm install --force "${ANCHOR_VERSION}"; then
+            echo "avm install failed; falling back to installing anchor-cli from git tag v${ANCHOR_VERSION}"
+            cargo install --git https://github.com/coral-xyz/anchor --tag "v${ANCHOR_VERSION}" anchor-cli --locked --force
+          else
+            avm use "${ANCHOR_VERSION}"
+            echo "$HOME/.avm/bin" >> "$GITHUB_PATH"
+            export PATH="$HOME/.avm/bin:$PATH"
+          fi
+          
           anchor --version
-
       - name: Print tool versions
         run: |
           set -euo pipefail
@@ -123,14 +127,14 @@ jobs:
         run: cargo install cargo-audit --locked --force
 
       - name: cargo-audit
-        run: cargo audit --deny-warnings -f programs/agenc-coordination/Cargo.lock
+        run: cargo audit --deny warnings -f programs/agenc-coordination/Cargo.lock
 
       - name: cargo-deny (optional)
         run: |
           set -euo pipefail
           if [ -f deny.toml ]; then
             cargo install cargo-deny --locked --force
-            cargo deny check
+            cargo deny --manifest-path programs/agenc-coordination/Cargo.toml check
           else
             echo "Skipping cargo-deny (deny.toml not found)."
           fi
