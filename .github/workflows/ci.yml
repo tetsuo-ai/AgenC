@@ -100,6 +100,7 @@ jobs:
           fi
           rm -f "$HOME/.cargo/bin/anchor" || true
           rm -f "$HOME/.local/bin/anchor" || true
+          rm -f "$HOME/.avm/bin/anchor" || true
 
           # Keep ~/.avm for caching, but ensure this version is clean
           rm -rf "$HOME/.avm/versions/${ANCHOR_VERSION}" || true
