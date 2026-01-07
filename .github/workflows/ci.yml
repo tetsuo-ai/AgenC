@@ -105,8 +105,9 @@ jobs:
           cargo install --git https://github.com/coral-xyz/anchor avm --locked --force
           avm --version
 
-          # Install Anchor from source via AVM
-          avm install "${ANCHOR_VERSION}" --from-source
+          # Install Anchor from source via AVM with --force flag
+          # The --force flag is passed through to cargo install internally
+          avm install "${ANCHOR_VERSION}" --from-source --force
           avm use "${ANCHOR_VERSION}"
 
           # Ensure PATH for this step + subsequent steps
