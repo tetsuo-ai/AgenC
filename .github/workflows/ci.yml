@@ -57,12 +57,12 @@ jobs:
         with:
           toolchain: "1.85.0"
 
-      - name: Cache cargo
+      - name: Cache cargo (excluding avm binaries)
         uses: Swatinem/rust-cache@v2
         with:
-          # Exclude avm paths from cache to prevent stale anchor binaries
+          # Don't cache cargo bin directory to avoid stale avm/anchor binaries
+          shared-key: "rust-cache-no-bin"
           cache-directories: |
-            ~/.cargo/bin/
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
@@ -86,22 +86,21 @@ jobs:
           set -euxo pipefail
           ANCHOR_VERSION="0.30.1"
 
-          # Clean up any existing avm/anchor installations
+          # Clean up any existing avm/anchor installations completely
           rm -rf "$HOME/.avm" || true
-          rm -f "$HOME/.cargo/bin/avm" || true
-          rm -f "$HOME/.cargo/bin/anchor" || true
+          rm -rf "$HOME/.cargo/bin/avm" || true
+          rm -rf "$HOME/.cargo/bin/anchor" || true
           
-          # Remove the rustup toolchain that avm uses (1.79.0) and its binaries
-          rustup toolchain uninstall 1.79.0 || true
-          
-          # Also clean up any anchor binaries in rustup toolchains directory
-          find "$HOME/.rustup/toolchains" -name "anchor" -type f -delete 2>/dev/null || true
+          # Remove rustup toolchain that avm will create
+          rustup toolchain list | grep 1.79.0 && rustup toolchain uninstall 1.79.0 || true
 
           # Install AVM
           cargo install --git https://github.com/coral-xyz/anchor avm --locked --force
           avm --version
 
           # Install + select Anchor CLI
+          # Set CARGO_INSTALL_ROOT so cargo install puts binaries in a fresh location
+          export CARGO_INSTALL_ROOT="$HOME/.avm"
           avm install "${ANCHOR_VERSION}"
           avm use "${ANCHOR_VERSION}"
 
