@@ -158,13 +158,7 @@ jobs:
       # Note: Removed --deny warnings to prevent warnings from failing CI
       - name: cargo audit (program lockfile)
         run: |
-          cargo audit \
-            --ignore RUSTSEC-2021-0145 \
-            --ignore RUSTSEC-2023-0033 \
-            --ignore RUSTSEC-2023-0042 \
-            --ignore RUSTSEC-2024-0370 \
-            --ignore RUSTSEC-2024-0445 \
-            -f programs/agenc-coordination/Cargo.lock
+          cargo audit
 
       - name: Install cargo-deny (if deny.toml exists)
         shell: bash
