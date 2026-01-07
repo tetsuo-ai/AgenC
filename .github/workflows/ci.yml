@@ -57,16 +57,8 @@ jobs:
         with:
           toolchain: "1.85.0"
 
-      - name: Cache cargo (excluding avm binaries)
+      - name: Cache cargo
         uses: Swatinem/rust-cache@v2
-        with:
-          # Don't cache cargo bin directory to avoid stale avm/anchor binaries
-          shared-key: "rust-cache-no-bin"
-          cache-directories: |
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install Solana
         shell: bash
@@ -86,22 +78,17 @@ jobs:
           set -euxo pipefail
           ANCHOR_VERSION="0.30.1"
 
-          # Clean up any existing avm/anchor installations completely
+          # rust-cache can restore old binaries; nuke anything that could conflict
+          rm -f "$HOME/.cargo/bin/anchor" || true
+          rm -f "$HOME/.cargo/bin/avm" || true
           rm -rf "$HOME/.avm" || true
-          rm -rf "$HOME/.cargo/bin/avm" || true
-          rm -rf "$HOME/.cargo/bin/anchor" || true
-          
-          # Remove rustup toolchain that avm will create
-          rustup toolchain list | grep 1.79.0 && rustup toolchain uninstall 1.79.0 || true
 
           # Install AVM
           cargo install --git https://github.com/coral-xyz/anchor avm --locked --force
           avm --version
 
-          # Install + select Anchor CLI
-          # Set CARGO_INSTALL_ROOT so cargo install puts binaries in a fresh location
-          export CARGO_INSTALL_ROOT="$HOME/.avm"
-          avm install "${ANCHOR_VERSION}"
+          # Install + select Anchor CLI with --force flag to overwrite any cached binaries
+          avm install "${ANCHOR_VERSION}" --force
           avm use "${ANCHOR_VERSION}"
 
           # Ensure PATH for this step + subsequent steps
