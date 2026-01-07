@@ -87,8 +87,8 @@ jobs:
           cargo install --git https://github.com/coral-xyz/anchor avm --locked --force
           avm --version
 
-          # Install + select Anchor CLI with --force flag to overwrite any cached binaries
-          avm install "${ANCHOR_VERSION}" --force
+          # Install Anchor - use --from-source to bypass binary caching issues
+          avm install "${ANCHOR_VERSION}" --from-source
           avm use "${ANCHOR_VERSION}"
 
           # Ensure PATH for this step + subsequent steps
