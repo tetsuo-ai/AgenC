@@ -120,6 +120,10 @@ jobs:
             rm -rf "$HOME/.cargo/git/checkouts/anchor-"* || true
             # Also clean any target directories that might have cached binaries
             rm -rf "$HOME/.cargo/git/checkouts/*/*/target" || true
+            rm -f "$HOME/.cargo/bin/anchor" || true
+            rm -f "$HOME/.local/bin/anchor" || true
+            rm -f "$HOME/.avm/bin/anchor" || true
+            rm -rf "$HOME/.avm/versions/${ANCHOR_VERSION}" || true
             # Retry installation
             avm install "${ANCHOR_VERSION}" --force
           fi
