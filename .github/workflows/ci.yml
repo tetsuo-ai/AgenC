@@ -110,10 +110,16 @@ jobs:
           echo "$HOME/.avm/bin" >> "$GITHUB_PATH"
           export PATH="$HOME/.avm/bin:$PATH"
 
-          # Prefer prebuilt release binaries (use --force to overwrite any cached binaries)
-          avm install "${ANCHOR_VERSION}" --force
+          # Install Anchor version (this will install rustc 1.79.0 internally)
+          # Then immediately clean up any anchor binaries before cargo install runs
+          avm install "${ANCHOR_VERSION}" || {
+            # If it fails due to existing binary, clean and retry
+            rm -f "$HOME/.avm/bin/anchor" || true
+            find "$HOME/.cargo/git/checkouts" -name "anchor" -type f -executable -delete || true
+            avm install "${ANCHOR_VERSION}"
+          }
+          
           avm use "${ANCHOR_VERSION}"
-
           anchor --version
 
       - name: Install JS deps
