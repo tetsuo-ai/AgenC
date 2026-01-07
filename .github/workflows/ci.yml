@@ -94,10 +94,9 @@ jobs:
           set -euxo pipefail
           ANCHOR_VERSION="0.30.1"
 
-          # Clean any previous installs (caches can restore binaries)
+          # If cache restored an old anchor binary, remove it so installs are deterministic
           rm -f "$HOME/.cargo/bin/anchor" || true
           rm -f "$HOME/.cargo/bin/avm" || true
-          rm -rf "$HOME/.avm" || true
           rm -f "$HOME/.local/bin/anchor" || true
           rm -f "$HOME/.local/bin/avm" || true
 
@@ -118,14 +117,14 @@ jobs:
           export PATH="$HOME/.avm/bin:$PATH"
 
           # Try to install Anchor version
-          if ! avm install "${ANCHOR_VERSION}"; then
+          if ! avm install "${ANCHOR_VERSION}" --force; then
             echo "Installation failed, cleaning cargo git cache and retrying..."
             # Nuclear option: completely clean the anchor git checkout
             rm -rf "$HOME/.cargo/git/checkouts/anchor-"* || true
             # Also clean any target directories that might have cached binaries
             rm -rf "$HOME/.cargo/git/checkouts/*/*/target" || true
             # Retry installation
-            avm install "${ANCHOR_VERSION}"
+            avm install "${ANCHOR_VERSION}" --force
           fi
           
           avm use "${ANCHOR_VERSION}"
