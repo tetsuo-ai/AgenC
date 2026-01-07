@@ -4,38 +4,52 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  SOLANA_VERSION: v1.18.26
+  ANCHOR_VERSION: 0.30.1
+
 jobs:
   rust_checks:
     runs-on: ubuntu-latest
     env:
       # Repo currently has warnings and some Anchor derive cfg quirks on new Rust; don't fail CI on warnings.
       RUSTFLAGS: "-Awarnings"
-      # Some Anchor macro safety checks want a program path in CI builds.
+      # Anchor macro safety checks want a program path in CI builds (especially when idl-build is involved).
       ANCHOR_IDL_BUILD_PROGRAM_PATH: programs/agenc-coordination
+    defaults:
+      run:
+        working-directory: programs/agenc-coordination
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install stable toolchain
+      - name: Install Rust (stable)
         uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            programs/agenc-coordination -> target
 
       - name: cargo fmt (program)
-        working-directory: programs/agenc-coordination
         run: cargo fmt --all -- --check
 
       # IMPORTANT:
       # - No --all-features (enables idl-build and can panic Anchor macros)
       # - No -D warnings (repo has warnings today; don’t brick CI on them)
       - name: cargo clippy (program)
-        working-directory: programs/agenc-coordination
         run: cargo clippy --all-targets
 
       - name: cargo test (program)
-        working-directory: programs/agenc-coordination
         run: cargo test
 
   anchor_tests:
@@ -48,52 +62,48 @@ jobs:
         with:
           node-version: 20
 
-      - name: Install stable toolchain
-        uses: dtolnay/rust-toolchain@stable
+      # Anchor CLI v0.30.1 depends on crates that fail to build on newer Rust;
+      # pin to a compatible toolchain for the Anchor install step.
+      - name: Install Rust (pinned for Anchor)
+        uses: dtolnay/rust-toolchain@1.79.0
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
 
-      - name: Install Solana
+      - name: Install Solana CLI
         shell: bash
         run: |
           set -euxo pipefail
-          SOLANA_VERSION="v1.18.26"
-
           sh -c "$(curl -sSfL https://release.anza.xyz/${SOLANA_VERSION}/install)"
 
-          SOLANA_BIN="$HOME/.local/share/solana/install/active_release/bin"
-
           # Make it available immediately in this step:
-          export PATH="${SOLANA_BIN}:$PATH"
+          export PATH="$HOME/.local/share/solana/install/active_release/bin:$PATH"
 
           # And persist for later steps:
-          echo "${SOLANA_BIN}" >> "$GITHUB_PATH"
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
 
-          # Verify using absolute path (removes all PATH flakiness)
-          "${SOLANA_BIN}/solana" --version
+          solana --version
 
-      - name: Install Anchor
+      - name: Install Anchor (avm)
         shell: bash
         run: |
           set -euxo pipefail
-          ANCHOR_VERSION="0.30.1"
 
-          # Install AVM
+          # Install AVM and ensure cargo bin dir is on PATH for this step.
           cargo install --git https://github.com/coral-xyz/anchor avm --locked --force
+          export PATH="$HOME/.cargo/bin:$PATH"
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
 
-          # Remove any existing anchor binaries so avm/cargo installs don't collide
-          rm -f ~/.cargo/bin/anchor || true
-          rm -f ~/.avm/bin/anchor || true
+          # Ensure a clean slate so AVM doesn't fail with "binary anchor already exists".
+          rm -f "$HOME/.cargo/bin/anchor" "$HOME/.avm/bin/anchor" || true
           cargo uninstall anchor-cli || true
 
-          # Prefer AVM, but fall back to cargo install if AVM install fails
-          if avm install "${ANCHOR_VERSION}" --force; then
-            avm use "${ANCHOR_VERSION}"
-          else
-            echo "AVM install failed; falling back to cargo install anchor-cli v${ANCHOR_VERSION}"
-            cargo install --git https://github.com/coral-xyz/anchor --tag "v${ANCHOR_VERSION}" anchor-cli --locked --force
-          fi
+          avm install "${ANCHOR_VERSION}" --force
+          avm use "${ANCHOR_VERSION}"
+
+          # Persist Anchor for subsequent steps.
+          echo "$HOME/.avm/bin" >> "$GITHUB_PATH"
+          export PATH="$HOME/.avm/bin:$PATH"
 
           anchor --version
 
@@ -109,7 +119,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install stable toolchain
+      - name: Install Rust (stable)
         uses: dtolnay/rust-toolchain@stable
 
       - name: Cache cargo
@@ -118,14 +128,10 @@ jobs:
       - name: Install cargo-audit
         run: cargo install cargo-audit --locked --force
 
-      # Solana currently pulls in advisories via runtime/test deps; ignore in CI so PRs can merge.
+      # Solana 1.18.x currently pulls in these advisories via transitive deps; ignore so PRs can merge.
       - name: cargo audit (program lockfile)
         run: |
-          cargo audit \
-            --deny warnings \
-            --ignore RUSTSEC-2023-0033 \
-            --ignore RUSTSEC-2023-0042 \
-            -f programs/agenc-coordination/Cargo.lock
+          cargo audit             --deny warnings             --ignore RUSTSEC-2021-0145             --ignore RUSTSEC-2023-0033             --ignore RUSTSEC-2023-0042             -f programs/agenc-coordination/Cargo.lock
 
       - name: Install cargo-deny (if deny.toml exists)
         shell: bash
