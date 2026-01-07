@@ -72,47 +72,34 @@ jobs:
           echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
           solana --version
 
-      - name: Install Anchor (AVM)
+      - name: Install Anchor (direct cargo install)
         shell: bash
         run: |
           set -euxo pipefail
           ANCHOR_VERSION="0.30.1"
 
-          # Remove any known places where `anchor` or `avm` could be installed
+          # Remove any known places where `anchor` could be installed
           rm -f "$HOME/.cargo/bin/anchor" || true
-          rm -f "$HOME/.cargo/bin/avm" || true
           rm -rf "$HOME/.avm" || true
           rm -f "$HOME/.local/bin/anchor" || true
-          rm -f "$HOME/.local/bin/avm" || true
 
           # If anchor is on PATH anywhere else (restored by cache), delete that copy
           if command -v anchor >/dev/null 2>&1; then
             echo "Found anchor at: $(command -v anchor)"
             rm -f "$(command -v anchor)" || true
           fi
-          if command -v avm >/dev/null 2>&1; then
-            echo "Found avm at: $(command -v avm)"
-            rm -f "$(command -v avm)" || true
-          fi
 
           # Show debug info (helps diagnosing future CI failures)
           echo "PATH=$PATH"
           ls -la "$HOME/.cargo/bin" || true
-          ls -la "$HOME/.avm/bin" || true
-          ls -la "$HOME/.local/bin" || true
 
-          # Install AVM (force to avoid issues if previous install partly exists)
-          cargo install --git https://github.com/coral-xyz/anchor avm --locked --force
-          avm --version
-
-          # Install Anchor from source via AVM with --force flag
-          # The --force flag is passed through to cargo install internally
-          avm install "${ANCHOR_VERSION}" --from-source --force
-          avm use "${ANCHOR_VERSION}"
-
-          # Ensure PATH for this step + subsequent steps
-          export PATH="$HOME/.avm/bin:$PATH"
-          echo "$HOME/.avm/bin" >> "$GITHUB_PATH"
+          # Install Anchor directly with cargo (bypasses avm issues entirely)
+          # Use --force to overwrite any existing binary
+          cargo install --git https://github.com/coral-xyz/anchor \
+            --tag "v${ANCHOR_VERSION}" \
+            anchor-cli \
+            --locked \
+            --force
 
           anchor --version
 
