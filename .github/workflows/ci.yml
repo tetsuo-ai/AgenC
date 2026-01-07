@@ -52,6 +52,13 @@ jobs:
         with:
           node-version: 20
 
+
+      - name: Enable Yarn (corepack)
+        shell: bash
+        run: |
+          corepack enable
+          corepack prepare yarn@1.22.22 --activate
+          yarn --version
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@master
         with:
@@ -72,36 +79,41 @@ jobs:
           echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
           solana --version
 
-      - name: Install Anchor (direct cargo install)
+      - name: Install Anchor (AVM, prebuilt)
         shell: bash
         run: |
           set -euxo pipefail
           ANCHOR_VERSION="0.30.1"
 
-          # Remove any known places where `anchor` could be installed
+          # Clean any previous installs (caches can restore binaries)
           rm -f "$HOME/.cargo/bin/anchor" || true
+          rm -f "$HOME/.cargo/bin/avm" || true
           rm -rf "$HOME/.avm" || true
           rm -f "$HOME/.local/bin/anchor" || true
+          rm -f "$HOME/.local/bin/avm" || true
 
-          # If anchor is on PATH anywhere else (restored by cache), delete that copy
           if command -v anchor >/dev/null 2>&1; then
             echo "Found anchor at: $(command -v anchor)"
             rm -f "$(command -v anchor)" || true
           fi
+          if command -v avm >/dev/null 2>&1; then
+            echo "Found avm at: $(command -v avm)"
+            rm -f "$(command -v avm)" || true
+          fi
 
-          # Show debug info (helps diagnosing future CI failures)
-          echo "PATH=$PATH"
-          ls -la "$HOME/.cargo/bin" || true
+          # Install AVM
+          cargo install --git https://github.com/coral-xyz/anchor avm --locked --force
 
-          # Install Anchor directly with cargo (bypasses avm issues entirely)
-          # Use --force to overwrite any existing binary
-          # Remove --locked to allow cargo to update incompatible dependencies
-          cargo install --git https://github.com/coral-xyz/anchor \
-            --tag "v${ANCHOR_VERSION}" \
-            anchor-cli \
-            --force
+          # Ensure AVM-managed binaries are on PATH for subsequent steps
+          echo "$HOME/.avm/bin" >> "$GITHUB_PATH"
+          export PATH="$HOME/.avm/bin:$PATH"
+
+          # Prefer prebuilt release binaries
+          avm install "${ANCHOR_VERSION}"
+          avm use "${ANCHOR_VERSION}"
 
           anchor --version
+
 
       - name: Install JS deps
         run: yarn install --frozen-lockfile
