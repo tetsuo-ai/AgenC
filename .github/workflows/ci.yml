@@ -52,13 +52,13 @@ jobs:
         with:
           node-version: 20
 
-
       - name: Enable Yarn (corepack)
         shell: bash
         run: |
-          corepack enable
+          corepack enable || true
           corepack prepare yarn@1.22.22 --activate
           yarn --version
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@master
         with:
@@ -113,7 +113,6 @@ jobs:
           avm use "${ANCHOR_VERSION}"
 
           anchor --version
-
 
       - name: Install JS deps
         run: yarn install --frozen-lockfile
