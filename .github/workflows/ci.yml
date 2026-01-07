@@ -55,7 +55,7 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: "1.81.0"
+          toolchain: "1.79.0"
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
@@ -95,10 +95,10 @@ jobs:
 
           # Install Anchor directly with cargo (bypasses avm issues entirely)
           # Use --force to overwrite any existing binary
+          # Remove --locked to allow cargo to update incompatible dependencies
           cargo install --git https://github.com/coral-xyz/anchor \
             --tag "v${ANCHOR_VERSION}" \
             anchor-cli \
-            --locked \
             --force
 
           anchor --version
