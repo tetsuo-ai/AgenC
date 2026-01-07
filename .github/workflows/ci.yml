@@ -112,7 +112,16 @@ jobs:
           echo "$HOME/.avm/bin" >> "$GITHUB_PATH"
           export PATH="$HOME/.cargo/bin:$HOME/.avm/bin:$PATH"
 
-          avm install "${ANCHOR_VERSION}"
+          # Try to install Anchor version
+          if ! avm install "${ANCHOR_VERSION}"; then
+            echo "Installation failed, cleaning cargo git cache and retrying..."
+            # Nuclear option: completely clean the anchor git checkout
+            rm -rf "$HOME/.cargo/git/checkouts/anchor-"* || true
+            # Also clean any target directories that might have cached binaries
+            rm -rf "$HOME/.cargo/git/checkouts/*/*/target" || true
+            # Retry installation
+            avm install "${ANCHOR_VERSION}"
+          fi
           avm use "${ANCHOR_VERSION}"
           anchor --version
 
