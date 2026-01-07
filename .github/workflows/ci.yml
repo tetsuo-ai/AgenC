@@ -110,14 +110,16 @@ jobs:
           echo "$HOME/.avm/bin" >> "$GITHUB_PATH"
           export PATH="$HOME/.avm/bin:$PATH"
 
-          # Install Anchor version (this will install rustc 1.79.0 internally)
-          # Then immediately clean up any anchor binaries before cargo install runs
-          avm install "${ANCHOR_VERSION}" || {
-            # If it fails due to existing binary, clean and retry
-            rm -f "$HOME/.avm/bin/anchor" || true
-            find "$HOME/.cargo/git/checkouts" -name "anchor" -type f -executable -delete || true
+          # Try to install Anchor version
+          if ! avm install "${ANCHOR_VERSION}"; then
+            echo "Installation failed, cleaning cargo git cache and retrying..."
+            # Nuclear option: completely clean the anchor git checkout
+            rm -rf "$HOME/.cargo/git/checkouts/anchor-"* || true
+            # Also clean any target directories that might have cached binaries
+            rm -rf "$HOME/.cargo/git/checkouts/*/*/target" || true
+            # Retry installation
             avm install "${ANCHOR_VERSION}"
-          }
+          fi
           
           avm use "${ANCHOR_VERSION}"
           anchor --version
