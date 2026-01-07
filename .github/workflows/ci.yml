@@ -76,7 +76,7 @@ jobs:
         shell: bash
         run: |
           set -euxo pipefail
-          ANCHOR_VERSION="0.32.1"
+          ANCHOR_VERSION="0.30.1"
 
           # Remove any known places where `anchor` could be installed
           rm -f "$HOME/.cargo/bin/anchor" || true
