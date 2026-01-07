@@ -69,6 +69,13 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
 
+      - name: Clean cached Anchor binaries
+        shell: bash
+        run: |
+          # Remove any cached anchor binaries that rust-cache might have restored
+          rm -rf "$HOME/.cargo/git/checkouts/anchor-"* || true
+          echo "Cleaned any cached Anchor checkouts"
+
       - name: Install Solana
         shell: bash
         run: |
