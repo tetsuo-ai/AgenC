@@ -54,14 +54,21 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
 
-      - name: Install Solana
-        shell: bash
-        run: |
-          set -euxo pipefail
-          SOLANA_VERSION="v1.18.26"
-          sh -c "$(curl -sSfL https://release.anza.xyz/${SOLANA_VERSION}/install)"
-          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
-          solana --version
+         -name: Install Solana
+          shell: bash
+          run: |
+    set -euxo pipefail
+    SOLANA_VERSION="v1.18.26"
+    sh -c "$(curl -sSfL https://release.anza.xyz/${SOLANA_VERSION}/install)"
+
+    # Make it available immediately in this step:
+    export PATH="$HOME/.local/share/solana/install/active_release/bin:$PATH"
+
+    # And persist for later steps:
+    echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
+
+    solana --version
+
 
       - name: Install Anchor
         shell: bash
