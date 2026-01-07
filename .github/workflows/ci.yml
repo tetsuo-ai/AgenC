@@ -58,10 +58,15 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
 
-      - name: Install Solana
-        uses: metadaoproject/setup-solana@v1
-        with:
-          solana-version: 1.18.26
+      - name: Install Solana CLI
+        run: |
+          set -e
+          version="1.18.26"
+          sh -c "$(curl -sSfL https://release.solana.com/v${version}/install)"
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> $GITHUB_PATH
+
+      - name: Verify Solana installation
+        run: solana --version
 
       - name: Install Anchor
         shell: bash
