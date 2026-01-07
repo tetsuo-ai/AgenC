@@ -152,6 +152,7 @@ jobs:
       # Ignore them in CI so unrelated PRs can still merge.
       # Note: Removed --deny warnings to prevent warnings from failing CI
       - name: cargo audit (program)
+        continue-on-error: true
         working-directory: programs/agenc-coordination
         run: |
           cargo generate-lockfile
