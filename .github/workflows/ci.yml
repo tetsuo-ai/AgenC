@@ -110,8 +110,8 @@ jobs:
           echo "$HOME/.avm/bin" >> "$GITHUB_PATH"
           export PATH="$HOME/.avm/bin:$PATH"
 
-          # Prefer prebuilt release binaries
-          avm install "${ANCHOR_VERSION}"
+          # Prefer prebuilt release binaries (use --force to overwrite any cached binaries)
+          avm install "${ANCHOR_VERSION}" --force
           avm use "${ANCHOR_VERSION}"
 
           anchor --version
