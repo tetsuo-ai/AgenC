@@ -119,18 +119,11 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Install cargo-audit (if missing)
-        run: |
-          set -euo pipefail
-          if ! command -v cargo-audit >/dev/null 2>&1; then
-            cargo install cargo-audit --locked --force
-          fi
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked --force
 
       - name: cargo-audit
-        run: |
-          set -euo pipefail
-          cd programs/agenc-coordination
-          cargo audit --ignore RUSTSEC-2023-0042
+        run: cargo audit --deny-warnings -f programs/agenc-coordination/Cargo.lock
 
       - name: cargo-deny (optional)
         run: |
