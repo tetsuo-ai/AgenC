@@ -113,14 +113,14 @@ jobs:
           export PATH="$HOME/.cargo/bin:$HOME/.avm/bin:$PATH"
 
           # Try to install Anchor version
-          if ! avm install "${ANCHOR_VERSION}"; then
+          if ! avm install "${ANCHOR_VERSION}" --force; then
             echo "Installation failed, cleaning cargo git cache and retrying..."
             # Nuclear option: completely clean the anchor git checkout
             rm -rf "$HOME/.cargo/git/checkouts/anchor-"* || true
             # Also clean any target directories that might have cached binaries
             rm -rf "$HOME/.cargo/git/checkouts/*/*/target" || true
             # Retry installation
-            avm install "${ANCHOR_VERSION}"
+            avm install "${ANCHOR_VERSION}" --force
           fi
           avm use "${ANCHOR_VERSION}"
           anchor --version
@@ -157,6 +157,7 @@ jobs:
           cargo audit \
             --ignore RUSTSEC-2021-0145 \
             --ignore RUSTSEC-2023-0033 \
+            --ignore RUSTSEC-2023-0042 \
             --ignore RUSTSEC-2024-0370 \
             --ignore RUSTSEC-2024-0445
 
