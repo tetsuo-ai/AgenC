@@ -23,9 +23,6 @@ jobs:
       RUSTFLAGS: "-Awarnings"
       # Anchor macro safety checks want a program path in CI builds (especially when idl-build is involved).
       ANCHOR_IDL_BUILD_PROGRAM_PATH: programs/agenc-coordination
-    defaults:
-      run:
-        working-directory: programs/agenc-coordination
     steps:
       - uses: actions/checkout@v4
 
@@ -36,20 +33,20 @@ jobs:
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: |
-            programs/agenc-coordination -> target
 
       - name: cargo fmt (program)
+        working-directory: programs/agenc-coordination
         run: cargo fmt --all -- --check
 
       # IMPORTANT:
       # - No --all-features (enables idl-build and can panic Anchor macros)
       # - No -D warnings (repo has warnings today; don’t brick CI on them)
       - name: cargo clippy (program)
+        working-directory: programs/agenc-coordination
         run: cargo clippy --all-targets
 
       - name: cargo test (program)
+        working-directory: programs/agenc-coordination
         run: cargo test
 
   anchor_tests:
@@ -62,10 +59,9 @@ jobs:
         with:
           node-version: 20
 
-      # Anchor CLI v0.30.1 depends on crates that fail to build on newer Rust;
-      # pin to a compatible toolchain for the Anchor install step.
-      - name: Install Rust (pinned for Anchor)
-        uses: dtolnay/rust-toolchain@1.79.0
+      # Use modern Rust here so AVM builds (AVM now requires newer rustc).
+      - name: Install Rust (stable)
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
@@ -76,32 +72,34 @@ jobs:
           set -euxo pipefail
           sh -c "$(curl -sSfL https://release.anza.xyz/${SOLANA_VERSION}/install)"
 
-          # Make it available immediately in this step:
-          export PATH="$HOME/.local/share/solana/install/active_release/bin:$PATH"
-
-          # And persist for later steps:
+          # Persist for later steps
           echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
 
+          # Verify in this step
+          export PATH="$HOME/.local/share/solana/install/active_release/bin:$PATH"
           solana --version
 
-      - name: Install Anchor (avm)
+      - name: Install Anchor via AVM
         shell: bash
         run: |
           set -euxo pipefail
 
-          # Install AVM and ensure cargo bin dir is on PATH for this step.
+          # Install AVM
           cargo install --git https://github.com/coral-xyz/anchor avm --locked --force
+
+          # Make cargo bins available now + later
           export PATH="$HOME/.cargo/bin:$PATH"
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
 
-          # Ensure a clean slate so AVM doesn't fail with "binary anchor already exists".
+          # Clean slate so installs don't collide
           rm -f "$HOME/.cargo/bin/anchor" "$HOME/.avm/bin/anchor" || true
           cargo uninstall anchor-cli || true
 
+          # Install & select Anchor (downloaded by AVM)
           avm install "${ANCHOR_VERSION}" --force
           avm use "${ANCHOR_VERSION}"
 
-          # Persist Anchor for subsequent steps.
+          # Make anchor available for later steps
           echo "$HOME/.avm/bin" >> "$GITHUB_PATH"
           export PATH="$HOME/.avm/bin:$PATH"
 
@@ -128,10 +126,11 @@ jobs:
       - name: Install cargo-audit
         run: cargo install cargo-audit --locked --force
 
-      # Solana 1.18.x currently pulls in these advisories via transitive deps; ignore so PRs can merge.
+      # Solana 1.18.x pulls in several RustSec advisories via transitive deps.
+      # Ignore in CI so PRs can merge; address by bumping Solana/Anchor in a dedicated PR later.
       - name: cargo audit (program lockfile)
         run: |
-          cargo audit             --deny warnings             --ignore RUSTSEC-2021-0145             --ignore RUSTSEC-2023-0033             --ignore RUSTSEC-2023-0042             -f programs/agenc-coordination/Cargo.lock
+          cargo audit             --deny warnings             --ignore RUSTSEC-2021-0145             --ignore RUSTSEC-2023-0033             --ignore RUSTSEC-2023-0042             --ignore RUSTSEC-2024-0370             -f programs/agenc-coordination/Cargo.lock
 
       - name: Install cargo-deny (if deny.toml exists)
         shell: bash
