@@ -104,11 +104,9 @@ jobs:
           anchor --version
 
       - name: Install JS deps
-        working-directory: programs/agenc-coordination
-        run: npm ci
+        run: yarn install --frozen-lockfile
 
       - name: anchor test
-        working-directory: programs/agenc-coordination
         run: anchor test
 
   security_scans:
