@@ -59,6 +59,14 @@ jobs:
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
+        with:
+          # Exclude avm paths from cache to prevent stale anchor binaries
+          cache-directories: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install Solana
         shell: bash
@@ -78,9 +86,10 @@ jobs:
           set -euxo pipefail
           ANCHOR_VERSION="0.30.1"
 
-          # rust-cache can restore old binaries; completely remove .avm directory to avoid conflicts
+          # Clean up any existing avm/anchor installations
           rm -rf "$HOME/.avm" || true
           rm -f "$HOME/.cargo/bin/avm" || true
+          rm -f "$HOME/.cargo/bin/anchor" || true
 
           # Install AVM
           cargo install --git https://github.com/coral-xyz/anchor avm --locked --force
