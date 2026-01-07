@@ -18,7 +18,7 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: "1.82.0"
+          toolchain: "1.85.0"
           components: rustfmt, clippy
 
       - name: Cache cargo
@@ -55,7 +55,7 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: "1.82.0"
+          toolchain: "1.85.0"
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
@@ -80,6 +80,7 @@ jobs:
 
           # rust-cache can restore old binaries; nuke anything that could conflict
           rm -f "$HOME/.cargo/bin/anchor" || true
+          rm -f "$HOME/.cargo/bin/avm" || true
           rm -rf "$HOME/.avm" || true
 
           # Install AVM
@@ -112,13 +113,13 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: "1.82.0"
+          toolchain: "1.85.0"
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
 
       - name: Install cargo-audit
-        run: cargo install cargo-audit --locked --force
+        run: cargo install cargo-audit@0.21.2 --locked --force
 
       # Solana/Anchor stacks currently pull in known RustSec advisories via runtime/test deps.
       # Ignore them in CI so unrelated PRs can still merge.
