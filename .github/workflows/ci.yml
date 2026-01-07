@@ -91,8 +91,11 @@ jobs:
           rm -f "$HOME/.cargo/bin/avm" || true
           rm -f "$HOME/.cargo/bin/anchor" || true
           
-          # Remove the rustup toolchain that avm uses (1.79.0)
+          # Remove the rustup toolchain that avm uses (1.79.0) and its binaries
           rustup toolchain uninstall 1.79.0 || true
+          
+          # Also clean up any anchor binaries in rustup toolchains directory
+          find "$HOME/.rustup/toolchains" -name "anchor" -type f -delete 2>/dev/null || true
 
           # Install AVM
           cargo install --git https://github.com/coral-xyz/anchor avm --locked --force
