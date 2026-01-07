@@ -107,6 +107,8 @@ jobs:
 
           # Install AVM
           cargo install --git https://github.com/coral-xyz/anchor avm --locked --force
+          rm -f "$HOME/.cargo/bin/anchor" || true
+          rm -f "$HOME/.avm/bin/anchor" || true
 
           # Ensure AVM-managed binaries are on PATH for subsequent steps
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
