@@ -86,6 +86,15 @@ jobs:
           echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
           solana --version
 
+      - name: Downgrade Cargo.lock to version 3 for Solana 1.18 compatibility
+        shell: bash
+        working-directory: programs/agenc-coordination
+        run: |
+          # Solana 1.18 uses Rust 1.75 which doesn't support Cargo.lock v4
+          # Downgrade to v3 for compatibility
+          sed -i '1s/version = 4/version = 3/' Cargo.lock
+          head -n 1 Cargo.lock  # Verify the change
+
       - name: Install Anchor CLI
         shell: bash
         run: |
