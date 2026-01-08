@@ -11,6 +11,27 @@ function id32(s: string): Buffer {
   return b;
 }
 
+const expectAnchorError = async (promise: Promise<unknown>, message: string | string[]) => {
+  try {
+    await promise;
+    const expected = Array.isArray(message) ? message.join(", ") : message;
+    expect.fail(`Expected error: ${expected}`);
+  } catch (err) {
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    const logs = Array.isArray((err as { logs?: string[] } | null)?.logs)
+      ? (err as { logs: string[] }).logs.join("\n")
+      : "";
+    const nestedMessage =
+      typeof (err as { error?: { errorMessage?: string } } | null)?.error?.errorMessage === "string"
+        ? (err as { error: { errorMessage: string } }).error.errorMessage
+        : "";
+    const combined = [errorMessage, nestedMessage, logs].filter(Boolean).join("\n");
+    const expected = Array.isArray(message) ? message : [message];
+    const matched = expected.some((substring) => combined.includes(substring));
+    expect(matched, `Expected error to include one of: ${expected.join(", ")}`).to.be.true;
+  }
+};
+
 describe("coordination-security", () => {
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
@@ -2305,6 +2326,336 @@ describe("coordination-security", () => {
 
         const finalEscrowBalance = await provider.connection.getBalance(escrowPda);
         expect(finalEscrowBalance).to.equal(0);
+      });
+    });
+
+    describe("Issue 43 Gap Coverage", () => {
+      it("Fails update_state with stale version", async () => {
+        const stateKey = Buffer.from("state-ver-mismatch".padEnd(32, "\0"));
+        const stateValue1 = Buffer.from("state-value-1".padEnd(64, "\0"));
+        const stateValue2 = Buffer.from("state-value-2".padEnd(64, "\0"));
+        const [statePda] = PublicKey.findProgramAddressSync(
+          [Buffer.from("state"), stateKey],
+          program.programId
+        );
+        const [agentPda] = PublicKey.findProgramAddressSync(
+          [Buffer.from("agent"), agentId1],
+          program.programId
+        );
+
+        await program.methods
+          .updateState(Array.from(stateKey), Array.from(stateValue1), new anchor.BN(0))
+          .accounts({
+            state: statePda,
+            agent: agentPda,
+            authority: worker1.publicKey,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([worker1])
+          .rpc();
+
+        await expectAnchorError(
+          program.methods
+            .updateState(Array.from(stateKey), Array.from(stateValue2), new anchor.BN(0))
+            .accounts({
+              state: statePda,
+              agent: agentPda,
+              authority: worker1.publicKey,
+              systemProgram: SystemProgram.programId,
+            })
+            .signers([worker1])
+            .rpc(),
+          "State version mismatch (concurrent modification)"
+        );
+      });
+
+      it("Fails to resolve dispute before voting deadline", async () => {
+        const newTaskId = Buffer.from("task-earlyresolve0000001".padEnd(32, "\0"));
+        const newDisputeId = Buffer.from("disp-earlyresolve000001".padEnd(32, "\0"));
+        const [taskPda] = PublicKey.findProgramAddressSync(
+          [Buffer.from("task"), creator.publicKey.toBuffer(), newTaskId],
+          program.programId
+        );
+        const [escrowPda] = PublicKey.findProgramAddressSync(
+          [Buffer.from("escrow"), taskPda.toBuffer()],
+          program.programId
+        );
+        const [workerPda] = PublicKey.findProgramAddressSync(
+          [Buffer.from("agent"), agentId1],
+          program.programId
+        );
+        const [claimPda] = PublicKey.findProgramAddressSync(
+          [Buffer.from("claim"), taskPda.toBuffer(), workerPda.toBuffer()],
+          program.programId
+        );
+        const [disputePda] = PublicKey.findProgramAddressSync(
+          [Buffer.from("dispute"), newDisputeId],
+          program.programId
+        );
+
+        await program.methods
+          .createTask(
+            Array.from(newTaskId),
+            new anchor.BN(CAPABILITY_COMPUTE),
+            Buffer.from("Early resolve test".padEnd(64, "\0")),
+            new anchor.BN(1 * LAMPORTS_PER_SOL),
+            1,
+            0,
+            TASK_TYPE_EXCLUSIVE
+          )
+          .accounts({
+            task: taskPda,
+            escrow: escrowPda,
+            protocolConfig: protocolPda,
+            creator: creator.publicKey,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([creator])
+          .rpc();
+
+        await program.methods
+          .claimTask()
+          .accounts({
+            task: taskPda,
+            claim: claimPda,
+            worker: workerPda,
+            authority: worker1.publicKey,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([worker1])
+          .rpc();
+
+        await program.methods
+          .initiateDispute(
+            Array.from(newDisputeId),
+            Array.from(newTaskId),
+            Array.from(Buffer.from("evidence-earlyresolve".padEnd(32, "\0"))),
+            RESOLUTION_TYPE_REFUND
+          )
+          .accounts({
+            dispute: disputePda,
+            task: taskPda,
+            agent: workerPda,
+            authority: worker1.publicKey,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([worker1])
+          .rpc();
+
+        await expectAnchorError(
+          program.methods
+            .resolveDispute()
+            .accounts({
+              dispute: disputePda,
+              task: taskPda,
+              escrow: escrowPda,
+              protocolConfig: protocolPda,
+              creator: creator.publicKey,
+              worker: null,
+              systemProgram: SystemProgram.programId,
+            })
+            .rpc(),
+          "Voting period has not ended"
+        );
+      });
+
+      it("Fails when the same arbiter votes twice", async () => {
+        const newTaskId = Buffer.from("task-doublevote00000001".padEnd(32, "\0"));
+        const newDisputeId = Buffer.from("disp-doublevote0000001".padEnd(32, "\0"));
+        const arbiterId = Buffer.from("arbiter-doublevote000001".padEnd(32, "\0"));
+        const [taskPda] = PublicKey.findProgramAddressSync(
+          [Buffer.from("task"), creator.publicKey.toBuffer(), newTaskId],
+          program.programId
+        );
+        const [escrowPda] = PublicKey.findProgramAddressSync(
+          [Buffer.from("escrow"), taskPda.toBuffer()],
+          program.programId
+        );
+        const [workerPda] = PublicKey.findProgramAddressSync(
+          [Buffer.from("agent"), agentId1],
+          program.programId
+        );
+        const [claimPda] = PublicKey.findProgramAddressSync(
+          [Buffer.from("claim"), taskPda.toBuffer(), workerPda.toBuffer()],
+          program.programId
+        );
+        const [disputePda] = PublicKey.findProgramAddressSync(
+          [Buffer.from("dispute"), newDisputeId],
+          program.programId
+        );
+        const [arbiterPda] = PublicKey.findProgramAddressSync(
+          [Buffer.from("agent"), arbiterId],
+          program.programId
+        );
+        const [votePda] = PublicKey.findProgramAddressSync(
+          [Buffer.from("vote"), disputePda.toBuffer(), arbiterPda.toBuffer()],
+          program.programId
+        );
+
+        await program.methods
+          .createTask(
+            Array.from(newTaskId),
+            new anchor.BN(CAPABILITY_COMPUTE),
+            Buffer.from("Double vote test".padEnd(64, "\0")),
+            new anchor.BN(1 * LAMPORTS_PER_SOL),
+            1,
+            0,
+            TASK_TYPE_EXCLUSIVE
+          )
+          .accounts({
+            task: taskPda,
+            escrow: escrowPda,
+            protocolConfig: protocolPda,
+            creator: creator.publicKey,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([creator])
+          .rpc();
+
+        await program.methods
+          .claimTask()
+          .accounts({
+            task: taskPda,
+            claim: claimPda,
+            worker: agentId1,
+            authority: worker1.publicKey,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([worker1])
+          .rpc();
+
+        await program.methods
+          .initiateDispute(
+            Array.from(newDisputeId),
+            Array.from(newTaskId),
+            Array.from(Buffer.from("evidence-doublevote".padEnd(32, "\0"))),
+            RESOLUTION_TYPE_REFUND
+          )
+          .accounts({
+            dispute: disputePda,
+            task: taskPda,
+            agent: workerPda,
+            authority: worker1.publicKey,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([worker1])
+          .rpc();
+
+        await program.methods
+          .registerAgent(
+            Array.from(arbiterId),
+            new anchor.BN(CAPABILITY_ARBITER),
+            "https://arbiter-doublevote.example.com",
+            null
+          )
+          .accounts({
+            agent: arbiterPda,
+            protocolConfig: protocolPda,
+            authority: arbiter1.publicKey,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([arbiter1])
+          .rpc();
+
+        await program.methods
+          .voteDispute(true)
+          .accounts({
+            dispute: disputePda,
+            vote: votePda,
+            arbiter: arbiterPda,
+            protocolConfig: protocolPda,
+            authority: arbiter1.publicKey,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([arbiter1])
+          .rpc();
+
+        await expectAnchorError(
+          program.methods
+            .voteDispute(true)
+            .accounts({
+              dispute: disputePda,
+              vote: votePda,
+              arbiter: arbiterPda,
+              protocolConfig: protocolPda,
+              authority: arbiter1.publicKey,
+              systemProgram: SystemProgram.programId,
+            })
+            .signers([arbiter1])
+            .rpc(),
+          ["already in use", "already initialized", "Account already in use", "Allocate: account"]
+        );
+      });
+
+      it("Fails to complete task with treasury mismatch", async () => {
+        const newTaskId = Buffer.from("task-treasurymismatch".padEnd(32, "\0"));
+        const [taskPda] = PublicKey.findProgramAddressSync(
+          [Buffer.from("task"), creator.publicKey.toBuffer(), newTaskId],
+          program.programId
+        );
+        const [escrowPda] = PublicKey.findProgramAddressSync(
+          [Buffer.from("escrow"), taskPda.toBuffer()],
+          program.programId
+        );
+        const [workerPda] = PublicKey.findProgramAddressSync(
+          [Buffer.from("agent"), agentId1],
+          program.programId
+        );
+        const [claimPda] = PublicKey.findProgramAddressSync(
+          [Buffer.from("claim"), taskPda.toBuffer(), workerPda.toBuffer()],
+          program.programId
+        );
+        const proofHash = Buffer.from("proof-treasurymismatch".padEnd(32, "\0"));
+
+        await program.methods
+          .createTask(
+            Array.from(newTaskId),
+            new anchor.BN(CAPABILITY_COMPUTE),
+            Buffer.from("Treasury mismatch test".padEnd(64, "\0")),
+            new anchor.BN(1 * LAMPORTS_PER_SOL),
+            1,
+            0,
+            TASK_TYPE_EXCLUSIVE
+          )
+          .accounts({
+            task: taskPda,
+            escrow: escrowPda,
+            protocolConfig: protocolPda,
+            creator: creator.publicKey,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([creator])
+          .rpc();
+
+        await program.methods
+          .claimTask()
+          .accounts({
+            task: taskPda,
+            claim: claimPda,
+            worker: workerPda,
+            authority: worker1.publicKey,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([worker1])
+          .rpc();
+
+        await expectAnchorError(
+          program.methods
+            .completeTask(Array.from(proofHash), null)
+            .accounts({
+              task: taskPda,
+              claim: claimPda,
+              escrow: escrowPda,
+              worker: workerPda,
+              protocolConfig: protocolPda,
+              treasury: unauthorized.publicKey,
+              authority: worker1.publicKey,
+              systemProgram: SystemProgram.programId,
+            })
+            .signers([worker1])
+            .rpc(),
+          "Invalid input parameter"
+        );
       });
     });
   });

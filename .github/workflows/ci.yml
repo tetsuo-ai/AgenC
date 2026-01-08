@@ -4,6 +4,17 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  SOLANA_VERSION: v1.18.20
+  ANCHOR_VERSION: 0.30.1
+
 jobs:
   rust_checks:
     runs-on: ubuntu-latest
@@ -15,6 +26,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@master
         with:
@@ -22,6 +35,19 @@ jobs:
           components: rustfmt, clippy
 
       - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            programs/agenc-coordination/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('programs/agenc-coordination/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --all-targets --all-features -- -D warnings
+      - run: cargo test --all-features
         uses: Swatinem/rust-cache@v2
 
       - name: cargo fmt (program)
@@ -54,6 +80,62 @@ jobs:
       - name: Install Node
         uses: actions/setup-node@v4
         with:
+          node-version: "20"
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Solana CLI
+        run: |
+          set -euo pipefail
+          sh -c "$(curl -sSfL https://release.anza.xyz/${SOLANA_VERSION}/install)"
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
+
+      - name: Install Anchor via avm
+        run: |
+          set -euo pipefail
+
+          # Install AVM (idempotent) and ensure cargo bin dir is on PATH for this step.
+          cargo install --git https://github.com/coral-xyz/anchor avm --locked --force
+          export PATH="$HOME/.cargo/bin:$PATH"
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+          # Ensure a clean slate so AVM doesn't fail with "binary anchor already exists".
+          rm -f "$HOME/.cargo/bin/anchor" "$HOME/.avm/bin/anchor" || true
+
+          avm install "${ANCHOR_VERSION}" --force
+          avm use "${ANCHOR_VERSION}"
+
+          # Persist Anchor for subsequent steps.
+          echo "$HOME/.avm/bin" >> "$GITHUB_PATH"
+          export PATH="$HOME/.avm/bin:$PATH"
+
+          anchor --version
+
+      - name: Print tool versions
+        run: |
+          set -euo pipefail
+          solana --version
+
+      - name: Install Node dependencies (if lockfile exists)
+        run: |
+          set -euo pipefail
+          if [ -f package-lock.json ]; then
+            npm ci
+          elif [ -f pnpm-lock.yaml ]; then
+            corepack enable
+            pnpm install --frozen-lockfile
+          elif [ -f yarn.lock ]; then
+            corepack enable
+            yarn install --frozen-lockfile
+          else
+            echo "No lockfile found; skipping Node install."
+          fi
+
+      - name: Anchor tests
+        run: |
+          set -euo pipefail
+          anchor test
           node-version: 20
 
       - name: Enable Yarn (corepack)
@@ -141,6 +223,28 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-audit (if missing)
+        run: |
+          set -euo pipefail
+          if ! command -v cargo-audit >/dev/null 2>&1; then
+            cargo install cargo-audit --locked --force
+          fi
+
+      - name: cargo-audit
+        run: |
+          set -euo pipefail
+          cd programs/agenc-coordination
+          cargo audit
+
+      - name: cargo-deny (optional)
+        run: |
+          set -euo pipefail
+          if [ -f deny.toml ]; then
+            cargo install cargo-deny --locked --force
+            cargo deny check
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@master
         with:
