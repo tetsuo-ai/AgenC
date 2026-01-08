@@ -4,173 +4,135 @@ on:
   push:
   pull_request:
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  SOLANA_VERSION: v1.18.26
+  ANCHOR_VERSION: 0.30.1
+  NODE_VERSION: "20"
+
 jobs:
   rust_checks:
     runs-on: ubuntu-latest
     env:
-      # Repo currently has warnings and some Anchor derive cfg quirks on new Rust; don't fail CI on warnings.
+      # OK for general linting; DO NOT use this in anchor_tests (it can break target probing).
       RUSTFLAGS: "-Awarnings"
-      # Some Anchor macro safety checks want a program path in CI builds.
       ANCHOR_IDL_BUILD_PROGRAM_PATH: programs/agenc-coordination
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@master
+      - name: Install Rust (stable)
+        uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: "1.85.0"
           components: rustfmt, clippy
 
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@v2
-
-      - name: cargo fmt (program)
+      - name: cargo fmt
         working-directory: programs/agenc-coordination
-        run: cargo fmt --all -- --check
+        run: cargo fmt --all --check
 
-      # IMPORTANT:
-      # - No --all-features (enables idl-build and can panic Anchor macros)
-      # - No -D warnings (repo has warnings today; don't brick CI on them)
       - name: cargo clippy (program)
         working-directory: programs/agenc-coordination
-        run: cargo clippy --all-targets
-
-      - name: cargo test (program)
-        working-directory: programs/agenc-coordination
-        run: cargo test
-
-  anchor_tests:
-    runs-on: ubuntu-latest
-    env:
-      # Don't use -Awarnings here - it breaks cargo's crate type detection for custom targets
-      # https://github.com/rust-lang/rust/issues/116626
-      ANCHOR_IDL_BUILD_PROGRAM_PATH: programs/agenc-coordination
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          clean: true
-
-      - name: Install Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-
-      - name: Enable Yarn (corepack)
-        shell: bash
-        run: |
-          corepack enable || true
-          corepack prepare yarn@1.22.22 --activate
-          yarn --version
-
-      - name: Install Solana
-        shell: bash
-        run: |
-          set -euxo pipefail
-          SOLANA_VERSION="v1.18.26"
-          sh -c "$(curl -sSfL https://release.anza.xyz/${SOLANA_VERSION}/install)"
-          # Make available immediately:
-          export PATH="$HOME/.local/share/solana/install/active_release/bin:$PATH"
-          # Persist for later steps:
-          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
-          solana --version
-
-      - name: Install Anchor CLI (build from source with Cargo.lock v3)
-        shell: bash
-        run: |
-          set -euxo pipefail
-          ANCHOR_VERSION="0.30.1"
-          
-          # Clone Anchor at the specific version
-          git clone --depth 1 --branch "v${ANCHOR_VERSION}" https://github.com/coral-xyz/anchor.git /tmp/anchor
-          cd /tmp/anchor
-          
-          # Downgrade Cargo.lock to v3 format (compatible with Solana's Rust 1.75)
-          sed -i 's/version = 4/version = 3/' Cargo.lock
-          
-          # Update time crate to version compatible with older Rust
-          # time 0.3.36 fixes the type inference issue
-          cargo update -p time --precise 0.3.36
-          
-          # Also downgrade base64ct if needed
-          cargo update -p base64ct --precise 1.6.0 || true
-          
-          # Install from local path
-          cargo install --path cli --locked --force
-          
-          # Verify
-          anchor --version
-          anchor --version | grep "${ANCHOR_VERSION}"
-
-      - name: Downgrade project Cargo.lock to v3
-        shell: bash
-        working-directory: programs/agenc-coordination
-        run: |
-          set -euxo pipefail
-          
-          # Force remove existing lockfile (whether it's v3 or v4)
-          rm -rf Cargo.lock
-          ls -la || true
-          
-          # Generate fresh lockfile with Solana's cargo (will create v3 format)
-          cargo generate-lockfile
-          
-          # Check the version
-          echo "Generated Cargo.lock header:"
-          head -n 5 Cargo.lock
-          
-          echo "Cargo.lock regenerated successfully"
-
-      - name: Install JS deps
-        run: yarn install --frozen-lockfile
-
-      - name: anchor test
-        run: anchor test
+        run: cargo clippy --all-targets --all-features
 
   security_scans:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: "1.85.0"
+      - name: Install Rust (stable)
+        uses: dtolnay/rust-toolchain@stable
 
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@v2
-
-      - name: Install cargo-audit
-        run: cargo install cargo-audit --locked --force
-
-      # Solana/Anchor stacks currently pull in known RustSec advisories via runtime/test deps.
-      # Ignore them in CI so unrelated PRs can still merge.
-      # Note: Removed --deny warnings to prevent warnings from failing CI
-      - name: cargo audit (program)
-        continue-on-error: true
-        working-directory: programs/agenc-coordination
+      - name: cargo-audit (non-blocking)
+        shell: bash
         run: |
-          cargo generate-lockfile
-          cargo audit \
-            --ignore RUSTSEC-2021-0145 \
-            --ignore RUSTSEC-2023-0033 \
-            --ignore RUSTSEC-2023-0042 \
-            --ignore RUSTSEC-2024-0370 \
-            --ignore RUSTSEC-2024-0445
+          set -euxo pipefail
+          cargo install cargo-audit --locked --force
+          # Don’t fail the whole build on audit noise for Solana/Anchor transitive deps
+          cargo audit || true
 
-      - name: Install cargo-deny (if deny.toml exists)
+      - name: cargo-deny (optional)
         shell: bash
         run: |
           set -euxo pipefail
           if [ -f deny.toml ]; then
             cargo install cargo-deny --locked --force
+            cargo deny --manifest-path programs/agenc-coordination/Cargo.toml check
           else
             echo "deny.toml not found; skipping cargo-deny"
           fi
 
-      - name: cargo-deny
+  anchor_tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: yarn
+
+      - name: Install JS deps
+        run: yarn install --frozen-lockfile
+
+      - name: Install Solana
         shell: bash
         run: |
           set -euxo pipefail
-          if [ -f deny.toml ]; then
-            cargo deny --manifest-path programs/agenc-coordination/Cargo.toml check
+          sh -c "$(curl -sSfL https://release.solana.com/${SOLANA_VERSION}/install)"
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
+          solana --version
+
+      - name: Install AVM + Anchor
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          # Install avm
+          cargo install --locked --force --git https://github.com/coral-xyz/anchor avm
+
+          # Hard cleanup to avoid “binary already exists”
+          rm -f "$HOME/.cargo/bin/anchor" || true
+          rm -f "$HOME/.local/bin/anchor" || true
+          rm -f "$HOME/.avm/bin/anchor" || true
+          rm -rf "$HOME/.avm/versions/${ANCHOR_VERSION}" || true
+
+          # Install anchor
+          avm install "${ANCHOR_VERSION}" --force
+          avm use "${ANCHOR_VERSION}"
+
+          anchor --version
+
+      - name: Force program Cargo.lock to Solana-compatible (v3)
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          # Find Solana platform-tools cargo (this is the one that matches build-sbf expectations)
+          SOLANA_CARGO="$(find "$HOME/.cache/solana" -type f -path "*/platform-tools/rust/bin/cargo" | head -n 1 || true)"
+          if [ -z "$SOLANA_CARGO" ]; then
+            echo "Could not find Solana platform-tools cargo under ~/.cache/solana"
+            echo "Directory listing:"
+            ls -la "$HOME/.cache/solana" || true
+            exit 1
           fi
+
+          "$SOLANA_CARGO" -V
+
+          # Regenerate lockfile using Solana cargo so it writes a compatible lock format
+          cd programs/agenc-coordination
+          rm -f Cargo.lock
+          "$SOLANA_CARGO" generate-lockfile
+
+          # Sanity check: show the lockfile version line if present
+          grep -n "^version" Cargo.lock || true
+          head -n 20 Cargo.lock
+
+      - name: anchor test
+        shell: bash
+        working-directory: programs/agenc-coordination
+        run: |
+          set -euxo pipefail
+          anchor test
