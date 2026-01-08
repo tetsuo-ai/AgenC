@@ -123,34 +123,32 @@ jobs:
       - name: Override Solana's bundled Rust with system Rust
         shell: bash
         run: |
-          # Create wrapper directory
-          mkdir -p ~/rust-wrapper/bin
+          # Create a higher-priority bin directory that will be searched first
+          mkdir -p ~/.local/bin/solana-rust-override
           
-          # Create rustc wrapper that uses system rust
-          cat > ~/rust-wrapper/bin/rustc <<'EOFRUST'
+          # Create rustc wrapper that uses system rust 1.78
+          cat > ~/.local/bin/solana-rust-override/rustc <<'EOFRUST'
           #!/bin/bash
           exec /home/runner/.rustup/toolchains/1.78.0-x86_64-unknown-linux-gnu/bin/rustc "$@"
           EOFRUST
           
           # Create cargo wrapper
-          cat > ~/rust-wrapper/bin/cargo <<'EOFCARGO'
+          cat > ~/.local/bin/solana-rust-override/cargo <<'EOFCARGO'
           #!/bin/bash
           exec /home/runner/.rustup/toolchains/1.78.0-x86_64-unknown-linux-gnu/bin/cargo "$@"
           EOFCARGO
           
-          chmod +x ~/rust-wrapper/bin/rustc
-          chmod +x ~/rust-wrapper/bin/cargo
+          chmod +x ~/.local/bin/solana-rust-override/rustc
+          chmod +x ~/.local/bin/solana-rust-override/cargo
           
-          # Remove Solana's toolchain directory and recreate as symlink to our wrapper
-          rm -rf ~/.rustup/toolchains/solana
-          mkdir -p ~/.rustup/toolchains/solana/bin
-          ln -sf ~/rust-wrapper/bin/rustc ~/.rustup/toolchains/solana/bin/rustc
-          ln -sf ~/rust-wrapper/bin/cargo ~/.rustup/toolchains/solana/bin/cargo
-          
-          # Verify
-          ~/.rustup/toolchains/solana/bin/rustc --version
+          # Verify wrappers work
+          ~/.local/bin/solana-rust-override/rustc --version
 
       - name: anchor test
+        shell: bash
+        env:
+          # Prepend our override directory to PATH so it's found before Solana's bundled rust
+          PATH: "/home/runner/.local/bin/solana-rust-override:${{ env.PATH }}"
         run: anchor test
 
   security_scans:
