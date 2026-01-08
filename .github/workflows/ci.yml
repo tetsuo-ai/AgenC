@@ -46,8 +46,6 @@ jobs:
       # -Awarnings breaks SBF crate-type probing.
       # Run anchor from programs/agenc-coordination, so program path is "."
       ANCHOR_IDL_BUILD_PROGRAM_PATH: .
-      ANCHOR_PROVIDER_URL: http://127.0.0.1:8899
-      SOLANA_URL: http://127.0.0.1:8899
     steps:
       - uses: actions/checkout@v4
         with:
@@ -108,6 +106,8 @@ jobs:
         shell: bash
         run: |
           set -euxo pipefail
+          export ANCHOR_PROVIDER_URL=http://127.0.0.1:8899
+          export SOLANA_URL=http://127.0.0.1:8899
           mkdir -p ~/.config/solana
           if [ ! -f ~/.config/solana/id.json ]; then
             solana-keygen new --no-bip39-passphrase -o ~/.config/solana/id.json
@@ -139,14 +139,22 @@ jobs:
         working-directory: programs/agenc-coordination
         run: |
           set -euxo pipefail
+          export ANCHOR_PROVIDER_URL=http://127.0.0.1:8899
+          export SOLANA_URL=http://127.0.0.1:8899
+          solana config set --url http://127.0.0.1:8899
           anchor build --no-idl
+          ls -la target/deploy
+          test -f target/deploy/agenc_coordination.so
 
       - name: anchor test (skip-build, use cached IDL)
         shell: bash
         working-directory: programs/agenc-coordination
         run: |
           set -euxo pipefail
-          anchor test --skip-build
+          export ANCHOR_PROVIDER_URL=http://127.0.0.1:8899
+          export SOLANA_URL=http://127.0.0.1:8899
+          solana config set --url http://127.0.0.1:8899
+          ANCHOR_PROVIDER_URL=http://127.0.0.1:8899 anchor test --skip-build
 
   security_scans:
     runs-on: ubuntu-latest
