@@ -66,7 +66,6 @@ dependencies = [
  "solana-sdk",
  "tokio",
  "toml_datetime",
- "toml_parser",
 ]
 
 [[package]]
@@ -5755,15 +5754,6 @@ dependencies = [
  "serde_spanned",
  "toml_datetime",
  "toml_write",
- "winnow 0.7.14",
-]
-
-[[package]]
-name = "toml_parser"
-version = "1.0.5+spec-1.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4c03bee5ce3696f31250db0bbaff18bc43301ce0e8db2ed1f07cbb2acf89984c"
-dependencies = [
  "winnow 0.7.14",
 ]
 

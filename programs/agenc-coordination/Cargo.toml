@@ -26,7 +26,6 @@ anchor-spl  = { version = "0.30.1", default-features = false, features = ["token
 
 # MSRV / toolchain compatibility pins (transitive dep pins)
 base64ct = "=1.6.0"
-toml_parser = "=1.0.5+spec-1.0.0"
 toml_datetime = "=0.6.11"
 
 # SBPF-safe RNG
