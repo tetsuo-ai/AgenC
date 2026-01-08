@@ -1,9 +1,11 @@
 //! Resolve a dispute and execute the outcome
 
-use anchor_lang::prelude::*;
-use crate::state::{Dispute, DisputeStatus, ResolutionType, Task, TaskStatus, TaskEscrow, ProtocolConfig};
 use crate::errors::CoordinationError;
 use crate::events::DisputeResolved;
+use crate::state::{
+    Dispute, DisputeStatus, ProtocolConfig, ResolutionType, Task, TaskEscrow, TaskStatus,
+};
+use anchor_lang::prelude::*;
 
 #[derive(Accounts)]
 pub struct ResolveDispute<'info> {
@@ -80,7 +82,8 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
     let approved = approval_pct >= config.dispute_threshold;
 
     // Calculate remaining escrow funds
-    let remaining_funds = escrow.amount
+    let remaining_funds = escrow
+        .amount
         .checked_sub(escrow.distributed)
         .ok_or(CoordinationError::ArithmeticOverflow)?;
 
@@ -91,7 +94,11 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
                 // Full refund to creator
                 if remaining_funds > 0 {
                     **escrow.to_account_info().try_borrow_mut_lamports()? -= remaining_funds;
-                    **ctx.accounts.creator.to_account_info().try_borrow_mut_lamports()? += remaining_funds;
+                    **ctx
+                        .accounts
+                        .creator
+                        .to_account_info()
+                        .try_borrow_mut_lamports()? += remaining_funds;
                 }
                 task.status = TaskStatus::Cancelled;
             }
@@ -108,18 +115,28 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
             }
             ResolutionType::Split => {
                 // Split 50/50 between creator and worker
-                let half = remaining_funds.checked_div(2)
+                let half = remaining_funds
+                    .checked_div(2)
                     .ok_or(CoordinationError::ArithmeticOverflow)?;
 
                 if half > 0 {
                     **escrow.to_account_info().try_borrow_mut_lamports()? -= remaining_funds;
-                    **ctx.accounts.creator.to_account_info().try_borrow_mut_lamports()? += half;
+                    **ctx
+                        .accounts
+                        .creator
+                        .to_account_info()
+                        .try_borrow_mut_lamports()? += half;
 
                     if let Some(worker) = &ctx.accounts.worker {
-                        **worker.to_account_info().try_borrow_mut_lamports()? += remaining_funds - half;
+                        **worker.to_account_info().try_borrow_mut_lamports()? +=
+                            remaining_funds - half;
                     } else {
                         // If no worker, give all to creator
-                        **ctx.accounts.creator.to_account_info().try_borrow_mut_lamports()? += remaining_funds - half;
+                        **ctx
+                            .accounts
+                            .creator
+                            .to_account_info()
+                            .try_borrow_mut_lamports()? += remaining_funds - half;
                     }
                 }
                 task.status = TaskStatus::Cancelled;
@@ -129,7 +146,11 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
         // Dispute rejected - refund to creator by default
         if remaining_funds > 0 {
             **escrow.to_account_info().try_borrow_mut_lamports()? -= remaining_funds;
-            **ctx.accounts.creator.to_account_info().try_borrow_mut_lamports()? += remaining_funds;
+            **ctx
+                .accounts
+                .creator
+                .to_account_info()
+                .try_borrow_mut_lamports()? += remaining_funds;
         }
         task.status = TaskStatus::Cancelled;
     }

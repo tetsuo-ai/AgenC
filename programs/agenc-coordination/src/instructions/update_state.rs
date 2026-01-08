@@ -1,9 +1,9 @@
 //! Update shared coordination state
 
-use anchor_lang::prelude::*;
-use crate::state::{CoordinationState, AgentRegistration, AgentStatus};
 use crate::errors::CoordinationError;
 use crate::events::StateUpdated;
+use crate::state::{AgentRegistration, AgentStatus, CoordinationState};
+use anchor_lang::prelude::*;
 
 #[derive(Accounts)]
 #[instruction(state_key: [u8; 32])]
@@ -59,7 +59,9 @@ pub fn handler(
     state.state_key = state_key;
     state.state_value = state_value;
     state.last_updater = agent.key();
-    state.version = state.version.checked_add(1)
+    state.version = state
+        .version
+        .checked_add(1)
         .ok_or(CoordinationError::ArithmeticOverflow)?;
     state.updated_at = clock.unix_timestamp;
     state.bump = ctx.bumps.state;

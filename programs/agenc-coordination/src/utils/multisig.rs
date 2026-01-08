@@ -5,10 +5,7 @@ use anchor_lang::prelude::*;
 use crate::errors::CoordinationError;
 use crate::state::ProtocolConfig;
 
-pub fn require_multisig(
-    config: &ProtocolConfig,
-    remaining_accounts: &[AccountInfo],
-) -> Result<()> {
+pub fn require_multisig(config: &ProtocolConfig, remaining_accounts: &[AccountInfo]) -> Result<()> {
     let owners_len = config.multisig_owners_len as usize;
     let threshold = config.multisig_threshold as usize;
 

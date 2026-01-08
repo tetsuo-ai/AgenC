@@ -1,9 +1,9 @@
 //! Cancel a task and refund the creator
 
-use anchor_lang::prelude::*;
-use crate::state::{Task, TaskStatus, TaskEscrow};
 use crate::errors::CoordinationError;
 use crate::events::TaskCancelled;
+use crate::state::{Task, TaskEscrow, TaskStatus};
+use anchor_lang::prelude::*;
 
 #[derive(Accounts)]
 pub struct CancelTask<'info> {
@@ -40,9 +40,7 @@ pub fn handler(ctx: Context<CancelTask>) -> Result<()> {
         TaskStatus::Open => true,
         TaskStatus::InProgress => {
             // Can cancel if deadline passed and no completions
-            task.deadline > 0
-                && clock.unix_timestamp > task.deadline
-                && task.completions == 0
+            task.deadline > 0 && clock.unix_timestamp > task.deadline && task.completions == 0
         }
         _ => false,
     };
@@ -50,14 +48,19 @@ pub fn handler(ctx: Context<CancelTask>) -> Result<()> {
     require!(can_cancel, CoordinationError::TaskCannotBeCancelled);
 
     // Calculate refund (total minus any distributed)
-    let refund_amount = escrow.amount
+    let refund_amount = escrow
+        .amount
         .checked_sub(escrow.distributed)
         .ok_or(CoordinationError::ArithmeticOverflow)?;
 
     // Transfer refund to creator
     if refund_amount > 0 {
         **escrow.to_account_info().try_borrow_mut_lamports()? -= refund_amount;
-        **ctx.accounts.creator.to_account_info().try_borrow_mut_lamports()? += refund_amount;
+        **ctx
+            .accounts
+            .creator
+            .to_account_info()
+            .try_borrow_mut_lamports()? += refund_amount;
     }
 
     // Update task status
