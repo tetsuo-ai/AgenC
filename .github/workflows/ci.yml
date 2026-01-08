@@ -105,13 +105,20 @@ jobs:
         shell: bash
         working-directory: programs/agenc-coordination
         run: |
-          # Remove existing lockfile
-          rm -f Cargo.lock
+          set -euxo pipefail
+          
+          # Force remove existing lockfile (whether it's v3 or v4)
+          rm -rf Cargo.lock
+          ls -la || true
           
           # Generate fresh lockfile with Solana's cargo (will create v3 format)
           cargo generate-lockfile
           
-          echo "Cargo.lock regenerated in v3 format"
+          # Check the version
+          echo "Generated Cargo.lock header:"
+          head -n 5 Cargo.lock
+          
+          echo "Cargo.lock regenerated successfully"
 
       - name: Install JS deps
         run: yarn install --frozen-lockfile
