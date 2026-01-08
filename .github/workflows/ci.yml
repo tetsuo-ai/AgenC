@@ -64,16 +64,16 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: "1.84.0"
+          toolchain: "1.78.0"
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
 
-      - name: Install Solana 2.0 (with modern Rust support)
+      - name: Install Solana
         shell: bash
         run: |
           set -euxo pipefail
-          SOLANA_VERSION="v2.0.20"
+          SOLANA_VERSION="v1.18.26"
           sh -c "$(curl -sSfL https://release.anza.xyz/${SOLANA_VERSION}/install)"
           # Make available immediately:
           export PATH="$HOME/.local/share/solana/install/active_release/bin:$PATH"
@@ -81,24 +81,31 @@ jobs:
           echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
           solana --version
 
-      - name: Install Anchor 0.31 (has prebuilt binaries)
+      - name: Install Anchor CLI
         shell: bash
         run: |
           set -euxo pipefail
+          ANCHOR_VERSION="0.30.1"
           
-          # Install AVM
-          cargo install --git https://github.com/coral-xyz/anchor avm --locked --force
-          
-          # Ensure AVM bin is on PATH
-          echo "$HOME/.avm/bin" >> "$GITHUB_PATH"
-          export PATH="$HOME/.avm/bin:$PATH"
-          
-          # Install Anchor 0.31.0 (downloads prebuilt binary, no compilation)
-          avm install 0.31.0
-          avm use 0.31.0
+          # Install Anchor CLI with --locked to respect dependency patches
+          cargo install --git https://github.com/coral-xyz/anchor \
+            --tag "v${ANCHOR_VERSION}" \
+            anchor-cli \
+            --locked \
+            --force
           
           # Verify
           anchor --version
+          anchor --version | grep "${ANCHOR_VERSION}"
+
+      - name: Regenerate Cargo.lock with patches
+        shell: bash
+        working-directory: programs/agenc-coordination
+        run: |
+          # Remove existing lockfile and regenerate with patches applied
+          rm -f Cargo.lock
+          cargo generate-lockfile
+          echo "Lockfile regenerated with dependency patches"
 
       - name: Install JS deps
         run: yarn install --frozen-lockfile
