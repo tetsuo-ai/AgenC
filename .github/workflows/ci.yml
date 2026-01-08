@@ -42,7 +42,8 @@ jobs:
   anchor_tests:
     runs-on: ubuntu-latest
     env:
-      RUSTFLAGS: "-Awarnings"
+      # Don't use -Awarnings here - it breaks cargo's crate type detection for custom targets
+      # https://github.com/rust-lang/rust/issues/116626
       ANCHOR_IDL_BUILD_PROGRAM_PATH: programs/agenc-coordination
     steps:
       - uses: actions/checkout@v4
