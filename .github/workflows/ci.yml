@@ -86,6 +86,13 @@ jobs:
           # Downgrade Cargo.lock to v3 format (compatible with Solana's Rust 1.75)
           sed -i 's/version = 4/version = 3/' Cargo.lock
           
+          # Update time crate to version compatible with older Rust
+          # time 0.3.36 fixes the type inference issue
+          cargo update -p time --precise 0.3.36
+          
+          # Also downgrade base64ct if needed
+          cargo update -p base64ct --precise 1.6.0 || true
+          
           # Install from local path
           cargo install --path cli --locked --force
           
