@@ -65,6 +65,7 @@ dependencies = [
  "solana-program-test",
  "solana-sdk",
  "tokio",
+ "toml_datetime 0.6.11",
  "toml_parser",
 ]
 
