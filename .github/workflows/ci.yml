@@ -46,6 +46,8 @@ jobs:
       # -Awarnings breaks SBF crate-type probing.
       # Run anchor from programs/agenc-coordination, so program path is "."
       ANCHOR_IDL_BUILD_PROGRAM_PATH: .
+      ANCHOR_PROVIDER_URL: http://127.0.0.1:8899
+      SOLANA_URL: http://127.0.0.1:8899
     steps:
       - uses: actions/checkout@v4
         with:
@@ -101,6 +103,33 @@ jobs:
 
           anchor --version
           anchor --version | grep "${ANCHOR_VERSION}"
+
+      - name: Start localnet validator
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p ~/.config/solana
+          if [ ! -f ~/.config/solana/id.json ]; then
+            solana-keygen new --no-bip39-passphrase -o ~/.config/solana/id.json
+          fi
+          solana config set --url http://127.0.0.1:8899
+          solana-test-validator --reset --quiet &
+          for i in {1..30}; do
+            if solana cluster-version >/dev/null 2>&1; then
+              break
+            fi
+            sleep 1
+          done
+          solana cluster-version
+          success=""
+          for i in {1..5}; do
+            if solana airdrop 10; then
+              success="yes"
+              break
+            fi
+            sleep 2
+          done
+          test "$success" = "yes"
 
       - name: Install JS deps
         run: yarn install --frozen-lockfile
