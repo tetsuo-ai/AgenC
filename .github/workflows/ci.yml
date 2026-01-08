@@ -61,24 +61,19 @@ jobs:
           corepack prepare yarn@1.22.22 --activate
           yarn --version
 
-      # Use Rust 1.77.0 for Anchor CLI compilation
-      # Supports Cargo.lock v4 but avoids time crate issues from 1.80+
-      - name: Install Rust toolchain for Anchor
+      - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: "1.77.0"
+          toolchain: "1.83.0"
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
-        with:
-          # Use separate cache key for Rust 1.77 to avoid conflicts
-          shared-key: "rust-1-77"
 
-      - name: Install Solana
+      - name: Install Solana 2.0 (with modern Rust support)
         shell: bash
         run: |
           set -euxo pipefail
-          SOLANA_VERSION="v1.18.26"
+          SOLANA_VERSION="v2.0.20"
           sh -c "$(curl -sSfL https://release.anza.xyz/${SOLANA_VERSION}/install)"
           # Make available immediately:
           export PATH="$HOME/.local/share/solana/install/active_release/bin:$PATH"
@@ -86,32 +81,24 @@ jobs:
           echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
           solana --version
 
-      - name: Downgrade Cargo.lock to version 3 for Solana 1.18 compatibility
-        shell: bash
-        working-directory: programs/agenc-coordination
-        run: |
-          # Solana 1.18 uses Rust 1.75 which doesn't support Cargo.lock v4
-          # Remove and regenerate with the Solana-bundled cargo
-          rm -f Cargo.lock
-          cargo generate-lockfile
-          head -n 1 Cargo.lock  # Verify it's v3
-
-      - name: Install Anchor CLI
+      - name: Install Anchor 0.31 (has prebuilt binaries)
         shell: bash
         run: |
           set -euxo pipefail
-          ANCHOR_VERSION="0.30.1"
           
-          # Install with --locked to use exact dependency versions from 0.30.1
-          cargo install --git https://github.com/coral-xyz/anchor \
-            --tag "v${ANCHOR_VERSION}" \
-            anchor-cli \
-            --locked \
-            --force
+          # Install AVM
+          cargo install --git https://github.com/coral-xyz/anchor avm --locked --force
+          
+          # Ensure AVM bin is on PATH
+          echo "$HOME/.avm/bin" >> "$GITHUB_PATH"
+          export PATH="$HOME/.avm/bin:$PATH"
+          
+          # Install Anchor 0.31.0 (downloads prebuilt binary, no compilation)
+          avm install 0.31.0
+          avm use 0.31.0
           
           # Verify
           anchor --version
-          anchor --version | grep "${ANCHOR_VERSION}"
 
       - name: Install JS deps
         run: yarn install --frozen-lockfile
