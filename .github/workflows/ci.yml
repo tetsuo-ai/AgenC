@@ -126,10 +126,28 @@ jobs:
           # Create a higher-priority bin directory that will be searched first
           mkdir -p ~/.local/bin/solana-rust-override
           
-          # Create rustc wrapper that uses system rust 1.78
+          # Create rustc wrapper that strips nightly-only flags
           cat > ~/.local/bin/solana-rust-override/rustc <<'EOFRUST'
           #!/bin/bash
-          exec /home/runner/.rustup/toolchains/1.78.0-x86_64-unknown-linux-gnu/bin/rustc "$@"
+          # Strip -Z flags (nightly-only) from arguments
+          args=()
+          skip_next=false
+          for arg in "$@"; do
+            if [[ "$skip_next" == "true" ]]; then
+              skip_next=false
+              continue
+            fi
+            if [[ "$arg" == -Z* ]]; then
+              # Skip -Z flags (e.g., -Zremap-cwd-prefix=)
+              continue
+            elif [[ "$arg" == "-Z" ]]; then
+              # Skip -Z and its argument
+              skip_next=true
+              continue
+            fi
+            args+=("$arg")
+          done
+          exec /home/runner/.rustup/toolchains/1.78.0-x86_64-unknown-linux-gnu/bin/rustc "${args[@]}"
           EOFRUST
           
           # Create cargo wrapper that strips +toolchain directive
