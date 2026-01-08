@@ -1,9 +1,9 @@
 //! Update an existing agent's registration
 
-use anchor_lang::prelude::*;
-use crate::state::{AgentRegistration, AgentStatus};
 use crate::errors::CoordinationError;
 use crate::events::AgentUpdated;
+use crate::state::{AgentRegistration, AgentStatus};
+use anchor_lang::prelude::*;
 
 #[derive(Accounts)]
 pub struct UpdateAgent<'info> {

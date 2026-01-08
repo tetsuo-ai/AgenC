@@ -1,10 +1,10 @@
 //! Create a new task with reward escrow
 
-use anchor_lang::prelude::*;
-use anchor_lang::system_program;
-use crate::state::{Task, TaskStatus, TaskType, TaskEscrow, ProtocolConfig};
 use crate::errors::CoordinationError;
 use crate::events::TaskCreated;
+use crate::state::{ProtocolConfig, Task, TaskEscrow, TaskStatus, TaskType};
+use anchor_lang::prelude::*;
+use anchor_lang::system_program;
 
 #[derive(Accounts)]
 #[instruction(task_id: [u8; 32])]
@@ -112,7 +112,9 @@ pub fn handler(
 
     // Update protocol stats
     let config = &mut ctx.accounts.protocol_config;
-    config.total_tasks = config.total_tasks.checked_add(1)
+    config.total_tasks = config
+        .total_tasks
+        .checked_add(1)
         .ok_or(CoordinationError::ArithmeticOverflow)?;
 
     emit!(TaskCreated {
