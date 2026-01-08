@@ -132,10 +132,17 @@ jobs:
           exec /home/runner/.rustup/toolchains/1.78.0-x86_64-unknown-linux-gnu/bin/rustc "$@"
           EOFRUST
           
-          # Create cargo wrapper
+          # Create cargo wrapper that strips +toolchain directive
           cat > ~/.local/bin/solana-rust-override/cargo <<'EOFCARGO'
           #!/bin/bash
-          exec /home/runner/.rustup/toolchains/1.78.0-x86_64-unknown-linux-gnu/bin/cargo "$@"
+          # Strip +toolchain argument if present (e.g., +solana)
+          args=()
+          for arg in "$@"; do
+            if [[ "$arg" != +* ]]; then
+              args+=("$arg")
+            fi
+          done
+          exec /home/runner/.rustup/toolchains/1.78.0-x86_64-unknown-linux-gnu/bin/cargo "${args[@]}"
           EOFCARGO
           
           chmod +x ~/.local/bin/solana-rust-override/rustc
