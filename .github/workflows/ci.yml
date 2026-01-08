@@ -146,10 +146,10 @@ jobs:
 
       - name: anchor test
         shell: bash
-        env:
-          # Prepend our override directory to PATH so it's found before Solana's bundled rust
-          PATH: "/home/runner/.local/bin/solana-rust-override:${{ env.PATH }}"
-        run: anchor test
+        run: |
+          # Prepend our override directory to PATH
+          export PATH="/home/runner/.local/bin/solana-rust-override:$PATH"
+          anchor test
 
   security_scans:
     runs-on: ubuntu-latest
