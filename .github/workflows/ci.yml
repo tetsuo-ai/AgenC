@@ -120,6 +120,13 @@ jobs:
       - name: Install JS deps
         run: yarn install --frozen-lockfile
 
+      - name: Configure Solana to use system Rust
+        shell: bash
+        run: |
+          # Tell Solana to use our installed Rust 1.78 instead of its bundled toolchain
+          echo "CARGO_BUILD_SBF_ENABLE_SBFV2=1" >> $GITHUB_ENV
+          echo "RUSTUP_TOOLCHAIN=1.78.0" >> $GITHUB_ENV
+
       - name: anchor test
         run: anchor test
 
