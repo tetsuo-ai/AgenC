@@ -105,12 +105,19 @@ jobs:
       - name: Install JS deps
         run: yarn install --frozen-lockfile
 
-      - name: anchor test
+      - name: anchor build (skip IDL for proc-macro2 compat)
         shell: bash
         working-directory: programs/agenc-coordination
         run: |
           set -euxo pipefail
-          anchor test
+          anchor build --no-idl
+
+      - name: anchor test (skip-build, use cached IDL)
+        shell: bash
+        working-directory: programs/agenc-coordination
+        run: |
+          set -euxo pipefail
+          anchor test --skip-build
 
   security_scans:
     runs-on: ubuntu-latest

@@ -22,15 +22,19 @@ init-if-needed = []
 
 [dependencies]
 anchor-lang = { version = "0.30.1", features = ["init-if-needed"] }
-anchor-spl  = "0.30.1"
+anchor-spl  = { version = "0.30.1", default-features = false, features = ["token"] }
 
-# HARD PINS (Solana 1.18 / rustc 1.75 compatibility)
-borsh = "=1.3.1"
-borsh-derive = "=1.3.1"
+# MSRV / toolchain compatibility pins (transitive dep pins)
 base64ct = "=1.6.0"
-toml_parser = "=1.0.5+spec-1.1.0"
+toml_parser = "=1.0.5+spec-1.0.0"
+
+# SBPF-safe RNG
+getrandom = { version = "=0.2.12", default-features = false, features = ["custom"] }
+
+[target.'cfg(target_os = "solana")'.dependencies]
+getrandom = { version = "=0.2.12", default-features = false, features = ["custom"] }
 
 [dev-dependencies]
-solana-program-test = "1.18.26"
-solana-sdk = "1.18.26"
+solana-program-test = "=1.18.26"
+solana-sdk          = "=1.18.26"
 tokio = { version = "1.0", features = ["full"] }
