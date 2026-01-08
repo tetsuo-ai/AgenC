@@ -1,10 +1,10 @@
 //! Initialize protocol configuration
 
-use anchor_lang::prelude::*;
-use crate::state::ProtocolConfig;
-use crate::utils::multisig::require_multisig;
 use crate::errors::CoordinationError;
 use crate::events::ProtocolInitialized;
+use crate::state::ProtocolConfig;
+use crate::utils::multisig::require_multisig;
+use anchor_lang::prelude::*;
 
 #[derive(Accounts)]
 pub struct InitializeProtocol<'info> {
@@ -61,10 +61,7 @@ pub fn handler(
             CoordinationError::MultisigDefaultSigner
         );
         for other in multisig_owners.iter().skip(index + 1) {
-            require!(
-                *owner != *other,
-                CoordinationError::MultisigDuplicateSigner
-            );
+            require!(*owner != *other, CoordinationError::MultisigDuplicateSigner);
         }
     }
 

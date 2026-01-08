@@ -1,9 +1,11 @@
 //! Vote on a dispute resolution
 
-use anchor_lang::prelude::*;
-use crate::state::{Dispute, DisputeStatus, DisputeVote, AgentRegistration, AgentStatus, ProtocolConfig, capability};
 use crate::errors::CoordinationError;
 use crate::events::DisputeVoteCast;
+use crate::state::{
+    capability, AgentRegistration, AgentStatus, Dispute, DisputeStatus, DisputeVote, ProtocolConfig,
+};
+use anchor_lang::prelude::*;
 
 #[derive(Accounts)]
 pub struct VoteDispute<'info> {
@@ -86,13 +88,19 @@ pub fn handler(ctx: Context<VoteDispute>, approve: bool) -> Result<()> {
 
     // Update dispute vote counts
     if approve {
-        dispute.votes_for = dispute.votes_for.checked_add(1)
+        dispute.votes_for = dispute
+            .votes_for
+            .checked_add(1)
             .ok_or(CoordinationError::ArithmeticOverflow)?;
     } else {
-        dispute.votes_against = dispute.votes_against.checked_add(1)
+        dispute.votes_against = dispute
+            .votes_against
+            .checked_add(1)
             .ok_or(CoordinationError::ArithmeticOverflow)?;
     }
-    dispute.total_voters = dispute.total_voters.checked_add(1)
+    dispute.total_voters = dispute
+        .total_voters
+        .checked_add(1)
         .ok_or(CoordinationError::ArithmeticOverflow)?;
 
     emit!(DisputeVoteCast {

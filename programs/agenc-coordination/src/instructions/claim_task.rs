@@ -1,9 +1,9 @@
 //! Claim a task to signal intent to work on it
 
-use anchor_lang::prelude::*;
-use crate::state::{Task, TaskStatus, TaskClaim, AgentRegistration, AgentStatus};
 use crate::errors::CoordinationError;
 use crate::events::TaskClaimed;
+use crate::state::{AgentRegistration, AgentStatus, Task, TaskClaim, TaskStatus};
+use anchor_lang::prelude::*;
 
 #[derive(Accounts)]
 pub struct ClaimTask<'info> {
@@ -94,12 +94,16 @@ pub fn handler(ctx: Context<ClaimTask>) -> Result<()> {
     claim.bump = ctx.bumps.claim;
 
     // Update task
-    task.current_workers = task.current_workers.checked_add(1)
+    task.current_workers = task
+        .current_workers
+        .checked_add(1)
         .ok_or(CoordinationError::ArithmeticOverflow)?;
     task.status = TaskStatus::InProgress;
 
     // Update worker
-    worker.active_tasks = worker.active_tasks.checked_add(1)
+    worker.active_tasks = worker
+        .active_tasks
+        .checked_add(1)
         .ok_or(CoordinationError::ArithmeticOverflow)?;
     worker.last_active = clock.unix_timestamp;
 

@@ -9,14 +9,14 @@ use anchor_spl::token::{self, Token, TokenAccount, Transfer};
 
 declare_id!("EopUaCV2svxj9j4hd7KjbrWfdjkspmm2BCBe7jGpKzKZ");
 
-pub mod state;
-pub mod instructions;
 pub mod errors;
 pub mod events;
+pub mod instructions;
+pub mod state;
 pub mod utils;
 
-use instructions::*;
 use errors::CoordinationError;
+use instructions::*;
 
 #[program]
 pub mod agenc_coordination {
@@ -152,7 +152,13 @@ pub mod agenc_coordination {
         evidence_hash: [u8; 32],
         resolution_type: u8,
     ) -> Result<()> {
-        instructions::initiate_dispute::handler(ctx, dispute_id, task_id, evidence_hash, resolution_type)
+        instructions::initiate_dispute::handler(
+            ctx,
+            dispute_id,
+            task_id,
+            evidence_hash,
+            resolution_type,
+        )
     }
 
     /// Vote on a dispute resolution.

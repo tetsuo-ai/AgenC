@@ -1,9 +1,9 @@
 //! Deregister an agent and reclaim rent
 
-use anchor_lang::prelude::*;
-use crate::state::{AgentRegistration, ProtocolConfig};
 use crate::errors::CoordinationError;
 use crate::events::AgentDeregistered;
+use crate::state::{AgentRegistration, ProtocolConfig};
+use anchor_lang::prelude::*;
 
 #[derive(Accounts)]
 pub struct DeregisterAgent<'info> {

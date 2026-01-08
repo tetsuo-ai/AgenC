@@ -1,9 +1,9 @@
 //! Register a new agent on-chain
 
-use anchor_lang::prelude::*;
-use crate::state::{AgentRegistration, AgentStatus, ProtocolConfig};
 use crate::errors::CoordinationError;
 use crate::events::AgentRegistered;
+use crate::state::{AgentRegistration, AgentStatus, ProtocolConfig};
+use anchor_lang::prelude::*;
 
 #[derive(Accounts)]
 #[instruction(agent_id: [u8; 32])]
@@ -37,16 +37,10 @@ pub fn handler(
     endpoint: String,
     metadata_uri: Option<String>,
 ) -> Result<()> {
-    require!(
-        endpoint.len() <= 128,
-        CoordinationError::StringTooLong
-    );
+    require!(endpoint.len() <= 128, CoordinationError::StringTooLong);
 
     let metadata = metadata_uri.unwrap_or_default();
-    require!(
-        metadata.len() <= 128,
-        CoordinationError::StringTooLong
-    );
+    require!(metadata.len() <= 128, CoordinationError::StringTooLong);
 
     let clock = Clock::get()?;
     let agent = &mut ctx.accounts.agent;
@@ -68,7 +62,9 @@ pub fn handler(
 
     // Update protocol stats
     let config = &mut ctx.accounts.protocol_config;
-    config.total_agents = config.total_agents.checked_add(1)
+    config.total_agents = config
+        .total_agents
+        .checked_add(1)
         .ok_or(CoordinationError::ArithmeticOverflow)?;
 
     emit!(AgentRegistered {
