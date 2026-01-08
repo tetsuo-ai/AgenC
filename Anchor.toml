@@ -8,14 +8,11 @@ skip-lint = false
 [programs.localnet]
 agenc_coordination = "EopUaCV2svxj9j4hd7KjbrWfdjkspmm2BCBe7jGpKzKZ"
 
-[programs.devnet]
-agenc_coordination = "EopUaCV2svxj9j4hd7KjbrWfdjkspmm2BCBe7jGpKzKZ"
-
 [registry]
 url = "https://api.apr.dev"
 
 [provider]
-cluster = "devnet"
+cluster = "localnet"
 wallet = "~/.config/solana/id.json"
 
 [scripts]
