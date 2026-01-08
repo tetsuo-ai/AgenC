@@ -102,35 +102,6 @@ jobs:
           anchor --version
           anchor --version | grep "${ANCHOR_VERSION}"
 
-      - name: Start localnet validator
-        shell: bash
-        run: |
-          set -euxo pipefail
-          export ANCHOR_PROVIDER_URL=http://127.0.0.1:8899
-          export SOLANA_URL=http://127.0.0.1:8899
-          mkdir -p ~/.config/solana
-          if [ ! -f ~/.config/solana/id.json ]; then
-            solana-keygen new --no-bip39-passphrase -o ~/.config/solana/id.json
-          fi
-          solana config set --url http://127.0.0.1:8899
-          solana-test-validator --reset --quiet &
-          for i in {1..30}; do
-            if solana cluster-version >/dev/null 2>&1; then
-              break
-            fi
-            sleep 1
-          done
-          solana cluster-version
-          success=""
-          for i in {1..5}; do
-            if solana airdrop 10; then
-              success="yes"
-              break
-            fi
-            sleep 2
-          done
-          test "$success" = "yes"
-
       - name: Install JS deps
         run: yarn install --frozen-lockfile
 
