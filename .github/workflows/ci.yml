@@ -120,16 +120,35 @@ jobs:
       - name: Install JS deps
         run: yarn install --frozen-lockfile
 
-      - name: Force Solana to use system Rust toolchain
+      - name: Override Solana's bundled Rust with system Rust
         shell: bash
         run: |
-          # Remove Solana's bundled Rust toolchain so it uses the system one
-          rm -rf ~/.rustup/toolchains/solana || true
-          rm -rf ~/.cache/solana/*/platform-tools/rust || true
+          # Create wrapper directory
+          mkdir -p ~/rust-wrapper/bin
           
-          # Verify we're using the right rust
-          which rustc
-          rustc --version
+          # Create rustc wrapper that uses system rust
+          cat > ~/rust-wrapper/bin/rustc << 'EOF'
+#!/bin/bash
+exec /home/runner/.rustup/toolchains/1.78.0-x86_64-unknown-linux-gnu/bin/rustc "$@"
+EOF
+          
+          # Create cargo wrapper
+          cat > ~/rust-wrapper/bin/cargo << 'EOF'
+#!/bin/bash
+exec /home/runner/.rustup/toolchains/1.78.0-x86_64-unknown-linux-gnu/bin/cargo "$@"
+EOF
+          
+          chmod +x ~/rust-wrapper/bin/rustc
+          chmod +x ~/rust-wrapper/bin/cargo
+          
+          # Remove Solana's toolchain directory and recreate as symlink to our wrapper
+          rm -rf ~/.rustup/toolchains/solana
+          mkdir -p ~/.rustup/toolchains/solana/bin
+          ln -sf ~/rust-wrapper/bin/rustc ~/.rustup/toolchains/solana/bin/rustc
+          ln -sf ~/rust-wrapper/bin/cargo ~/.rustup/toolchains/solana/bin/cargo
+          
+          # Verify
+          ~/.rustup/toolchains/solana/bin/rustc --version
 
       - name: anchor test
         run: anchor test
