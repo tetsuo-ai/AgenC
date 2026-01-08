@@ -91,9 +91,10 @@ jobs:
         working-directory: programs/agenc-coordination
         run: |
           # Solana 1.18 uses Rust 1.75 which doesn't support Cargo.lock v4
-          # Downgrade to v3 for compatibility
-          sed -i '1s/version = 4/version = 3/' Cargo.lock
-          head -n 1 Cargo.lock  # Verify the change
+          # Remove and regenerate with the Solana-bundled cargo
+          rm -f Cargo.lock
+          cargo generate-lockfile
+          head -n 1 Cargo.lock  # Verify it's v3
 
       - name: Install Anchor CLI
         shell: bash
