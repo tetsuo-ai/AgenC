@@ -93,12 +93,15 @@ jobs:
           set -euxo pipefail
           ANCHOR_VERSION="0.30.1"
           
-          # Install Anchor CLI directly with Rust 1.81 (has edition2024 + time crate fix)
-          cargo install --git https://github.com/coral-xyz/anchor \
-            --tag "v${ANCHOR_VERSION}" \
-            anchor-cli \
-            --locked \
-            --force
+          # Clone the repo to update dependencies
+          git clone --depth 1 --branch "v${ANCHOR_VERSION}" https://github.com/coral-xyz/anchor.git /tmp/anchor
+          cd /tmp/anchor/cli
+          
+          # Update the time crate to fix Rust 1.80+ compatibility
+          cargo update -p time
+          
+          # Install from the updated local source
+          cargo install --path . --force
           
           # Verify
           anchor --version
