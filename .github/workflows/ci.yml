@@ -123,47 +123,48 @@ jobs:
       - name: Override Solana's bundled Rust with system Rust
         shell: bash
         run: |
-          # First, trigger Solana toolchain installation by running a simple cargo command
-          # This ensures Solana's rustc is available before we start
-          echo "Pre-installing Solana toolchain..."
-          cd programs/agenc-coordination
-          cargo --version || true
-          
-          # Wait for Solana toolchain to be installed
-          timeout=60
-          elapsed=0
-          while [[ ! -f ~/.cache/solana/v1.41/platform-tools/rust/bin/rustc ]] && [[ $elapsed -lt $timeout ]]; do
-            echo "Waiting for Solana rustc installation... ($elapsed/$timeout)"
-            sleep 2
-            elapsed=$((elapsed + 2))
-          done
-          
-          if [[ -f ~/.cache/solana/v1.41/platform-tools/rust/bin/rustc ]]; then
-            echo "Solana rustc found at ~/.cache/solana/v1.41/platform-tools/rust/bin/rustc"
-            ~/.cache/solana/v1.41/platform-tools/rust/bin/rustc --version
-          else
-            echo "Warning: Solana rustc not found, will try rustup toolchain"
-          fi
-          
-          cd ../..
-          
           # Create a higher-priority bin directory that will be searched first
           mkdir -p ~/.local/bin/solana-rust-override
           
           # Create intelligent rustc wrapper
           cat > ~/.local/bin/solana-rust-override/rustc <<'EOFRUST'
           #!/bin/bash
-          # If compiling for sbf-solana-solana target, use Solana's rustc
+          
+          # Check if this is for SBF target compilation
+          is_sbf=false
           for arg in "$@"; do
             if [[ "$arg" == "--target=sbf-solana-solana" ]] || [[ "$arg" == "sbf-solana-solana" ]]; then
-              # Find and use Solana's rustc
-              if [[ -f ~/.cache/solana/v1.41/platform-tools/rust/bin/rustc ]]; then
-                exec ~/.cache/solana/v1.41/platform-tools/rust/bin/rustc "$@"
-              elif [[ -f ~/.rustup/toolchains/solana/bin/rustc ]]; then
-                exec ~/.rustup/toolchains/solana/bin/rustc "$@"
-              fi
+              is_sbf=true
+              break
             fi
           done
+          
+          if [[ "$is_sbf" == "true" ]]; then
+            # For SBF compilation, find Solana's rustc but strip -Z flags
+            args=()
+            skip_next=false
+            for arg in "$@"; do
+              if [[ "$skip_next" == "true" ]]; then
+                skip_next=false
+                continue
+              fi
+              if [[ "$arg" == -Z* ]]; then
+                continue
+              elif [[ "$arg" == "-Z" ]]; then
+                skip_next=true
+                continue
+              fi
+              args+=("$arg")
+            done
+            
+            # Find and use Solana's rustc
+            if [[ -f ~/.cache/solana/v1.41/platform-tools/rust/bin/rustc ]]; then
+              exec ~/.cache/solana/v1.41/platform-tools/rust/bin/rustc "${args[@]}"
+            elif [[ -f ~/.rustup/toolchains/solana/bin/rustc ]]; then
+              exec ~/.rustup/toolchains/solana/bin/rustc "${args[@]}"
+            fi
+          fi
+          
           # Otherwise use system Rust 1.78
           exec /home/runner/.rustup/toolchains/1.78.0-x86_64-unknown-linux-gnu/bin/rustc "$@"
           EOFRUST
