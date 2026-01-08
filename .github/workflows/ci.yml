@@ -61,19 +61,18 @@ jobs:
           corepack prepare yarn@1.22.22 --activate
           yarn --version
 
-      # Use Rust 1.81.0 for Anchor CLI compilation
-      # 1.79 is too old (missing edition2024), 1.85 has time crate issues
-      # 1.81+ includes the fix for time crate
+      # Use Rust 1.82.0 for Anchor CLI compilation
+      # Needs edition2024 support + time crate compatibility
       - name: Install Rust toolchain for Anchor
         uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: "1.81.0"
+          toolchain: "1.82.0"
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
         with:
-          # Use separate cache key for Rust 1.81 to avoid conflicts
-          shared-key: "rust-1-81"
+          # Use separate cache key for Rust 1.82 to avoid conflicts
+          shared-key: "rust-1-82"
 
       - name: Install Solana
         shell: bash
