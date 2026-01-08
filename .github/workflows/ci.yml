@@ -105,6 +105,15 @@ jobs:
       - name: Install JS deps
         run: yarn install --frozen-lockfile
 
+      - name: Create Solana keypair
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p ~/.config/solana
+          if [ ! -f ~/.config/solana/id.json ]; then
+            solana-keygen new --no-bip39-passphrase -o ~/.config/solana/id.json
+          fi
+
       - name: anchor build (skip IDL for proc-macro2 compat)
         shell: bash
         working-directory: programs/agenc-coordination
