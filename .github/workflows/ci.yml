@@ -61,10 +61,10 @@ jobs:
           corepack prepare yarn@1.22.22 --activate
           yarn --version
 
-      - name: Install Rust toolchain
+      - name: Install Rust toolchain (older version for Anchor build compatibility)
         uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: "1.85.0"
+          toolchain: "1.79.0"
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
@@ -81,18 +81,25 @@ jobs:
           echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
           solana --version
 
-      - name: Install Anchor CLI directly
+      - name: Install Anchor CLI (prebuilt binary)
         shell: bash
         run: |
           set -euxo pipefail
           ANCHOR_VERSION="0.30.1"
           
-          # Install Anchor CLI directly from the tag, bypassing AVM entirely
-          cargo install --git https://github.com/coral-xyz/anchor \
-            --tag "v${ANCHOR_VERSION}" \
-            anchor-cli \
-            --locked \
-            --force
+          # Download prebuilt binary from GitHub releases
+          curl -LsSf "https://github.com/coral-xyz/anchor/releases/download/v${ANCHOR_VERSION}/anchor-cli-${ANCHOR_VERSION}-x86_64-unknown-linux-gnu.tar.gz" \
+            -o anchor.tar.gz
+          
+          # Extract and install
+          tar -xzf anchor.tar.gz
+          chmod +x anchor
+          mkdir -p "$HOME/.local/bin"
+          mv anchor "$HOME/.local/bin/anchor"
+          
+          # Add to PATH
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          export PATH="$HOME/.local/bin:$PATH"
           
           # Verify
           anchor --version
