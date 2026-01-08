@@ -42,10 +42,9 @@ jobs:
   anchor_tests:
     runs-on: ubuntu-latest
     env:
-      # Don't use -Awarnings here - it breaks cargo's crate type detection for custom targets
-      # https://github.com/rust-lang/rust/issues/116626
-      #
-      # Run anchor from programs/agenc-coordination, so the program path is "."
+      # DO NOT set RUSTFLAGS here.
+      # -Awarnings breaks SBF crate-type probing.
+      # Run anchor from programs/agenc-coordination, so program path is "."
       ANCHOR_IDL_BUILD_PROGRAM_PATH: .
     steps:
       - uses: actions/checkout@v4
@@ -70,61 +69,38 @@ jobs:
           set -euxo pipefail
           SOLANA_VERSION="v1.18.26"
 
-          # Avoid `sh -c "$(curl ...)"` because curl TLS flake can turn this into `sh -c ''`
+          # DO NOT use `sh -c "$(curl ...)"` — TLS flake turns it into `sh -c ''`
           curl -fL --retry 8 --retry-delay 2 --retry-all-errors \
             "https://release.anza.xyz/${SOLANA_VERSION}/install" \
             -o /tmp/solana_install.sh
 
           bash /tmp/solana_install.sh
 
-          # Make available immediately:
           export PATH="$HOME/.local/share/solana/install/active_release/bin:$PATH"
-          # Persist for later steps:
           echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
           solana --version
 
-      - name: Install Anchor CLI (build from source with Cargo.lock v3)
+      - name: Install Anchor CLI (from source, fixed deps)
         shell: bash
         run: |
           set -euxo pipefail
           ANCHOR_VERSION="0.30.1"
 
-          # Clone Anchor at the specific version
-          git clone --depth 1 --branch "v${ANCHOR_VERSION}" https://github.com/coral-xyz/anchor.git /tmp/anchor
+          git clone --depth 1 --branch "v${ANCHOR_VERSION}" \
+            https://github.com/coral-xyz/anchor.git /tmp/anchor
           cd /tmp/anchor
 
-          # Downgrade Cargo.lock to v3 format (compatible with older toolchains)
+          # Force lockfile compatibility
           sed -i 's/version = 4/version = 3/' Cargo.lock
 
-          # Update time crate to version compatible with older Rust
-          # time 0.3.36 fixes the type inference issue
+          # Fix known MSRV breaks for Solana toolchain
           cargo update -p time --precise 0.3.36
-
-          # Also downgrade base64ct if needed
           cargo update -p base64ct --precise 1.6.0 || true
 
-          # Install from local path
           cargo install --path cli --locked --force
 
-          # Verify
           anchor --version
           anchor --version | grep "${ANCHOR_VERSION}"
-
-      - name: Ensure program Cargo.lock is v3 (only fix if missing/v4)
-        shell: bash
-        working-directory: programs/agenc-coordination
-        run: |
-          set -euxo pipefail
-
-          # If lockfile is missing or v4, regenerate it using Cargo 1.78 (writes v3 format)
-          if [ ! -f Cargo.lock ] || grep -q '^version = 4' Cargo.lock; then
-            rustup toolchain install 1.78.0 --profile minimal
-            rm -f Cargo.lock
-            cargo +1.78.0 generate-lockfile
-          fi
-
-          echo "Cargo.lock header:"
-          head -n 5 Cargo.lock
 
       - name: Install JS deps
         run: yarn install --frozen-lockfile
@@ -152,14 +128,12 @@ jobs:
       - name: Install cargo-audit
         run: cargo install cargo-audit --locked --force
 
-      # Solana/Anchor stacks currently pull in known RustSec advisories via runtime/test deps.
-      # Ignore them in CI so unrelated PRs can still merge.
-      # Note: Removed --deny warnings to prevent warnings from failing CI
+      # Solana/Anchor stacks pull known RustSec advisories via runtime/test deps.
+      # Ignore them so unrelated PRs can still merge.
       - name: cargo audit (program)
         continue-on-error: true
         working-directory: programs/agenc-coordination
         run: |
-          cargo generate-lockfile
           cargo audit \
             --ignore RUSTSEC-2021-0145 \
             --ignore RUSTSEC-2023-0033 \
