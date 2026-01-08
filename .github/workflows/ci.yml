@@ -98,14 +98,24 @@ jobs:
           anchor --version
           anchor --version | grep "${ANCHOR_VERSION}"
 
-      - name: Regenerate Cargo.lock with patches
+      - name: Regenerate Cargo.lock with compatible dependency versions
         shell: bash
         working-directory: programs/agenc-coordination
         run: |
-          # Remove existing lockfile and regenerate with patches applied
+          # Remove existing lockfile
           rm -f Cargo.lock
+          
+          # Generate fresh lockfile
           cargo generate-lockfile
-          echo "Lockfile regenerated with dependency patches"
+          
+          # Downgrade problematic dependencies to compatible versions
+          # base64ct 1.6.0 is last version before edition2024
+          cargo update base64ct --precise 1.6.0
+          
+          # time 0.3.36 is compatible with Rust 1.78+
+          cargo update time --precise 0.3.36
+          
+          echo "Lockfile regenerated with compatible dependency versions"
 
       - name: Install JS deps
         run: yarn install --frozen-lockfile
