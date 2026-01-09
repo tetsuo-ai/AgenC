@@ -133,3 +133,33 @@ pub struct RewardDistributed {
     pub protocol_fee: u64,
     pub timestamp: i64,
 }
+
+/// Emitted when a rate limit is hit
+#[event]
+pub struct RateLimitHit {
+    pub agent_id: [u8; 32],
+    pub action_type: u8, // 0 = task_creation, 1 = dispute_initiation
+    pub limit_type: u8,  // 0 = cooldown, 1 = 24h_window
+    pub current_count: u8,
+    pub max_count: u8,
+    pub cooldown_remaining: i64,
+    pub timestamp: i64,
+}
+
+/// Emitted when protocol migration is completed
+#[event]
+pub struct MigrationCompleted {
+    pub from_version: u8,
+    pub to_version: u8,
+    pub authority: Pubkey,
+    pub timestamp: i64,
+}
+
+/// Emitted when protocol version is updated
+#[event]
+pub struct ProtocolVersionUpdated {
+    pub old_version: u8,
+    pub new_version: u8,
+    pub min_supported_version: u8,
+    pub timestamp: i64,
+}

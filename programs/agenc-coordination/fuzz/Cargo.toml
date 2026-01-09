@@ -1,0 +1,27 @@
+[package]
+name = "agenc-coordination-fuzz"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Property-based fuzz tests for AgenC Coordination Protocol"
+
+[lib]
+name = "agenc_coordination_fuzz"
+path = "src/lib.rs"
+
+[[bin]]
+name = "fuzz_all"
+path = "src/main.rs"
+
+[dependencies]
+# Property-based testing
+proptest = "1.4"
+
+# Utilities
+rand = "0.8"
+
+[dev-dependencies]
+tokio = { version = "1.0", features = ["full"] }
+
+[features]
+default = []

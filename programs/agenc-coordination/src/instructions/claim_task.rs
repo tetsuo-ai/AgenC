@@ -2,7 +2,8 @@
 
 use crate::errors::CoordinationError;
 use crate::events::TaskClaimed;
-use crate::state::{AgentRegistration, AgentStatus, Task, TaskClaim, TaskStatus};
+use crate::state::{AgentRegistration, AgentStatus, ProtocolConfig, Task, TaskClaim, TaskStatus};
+use crate::utils::version::check_version_compatible;
 use anchor_lang::prelude::*;
 
 #[derive(Accounts)]
@@ -24,6 +25,12 @@ pub struct ClaimTask<'info> {
     pub claim: Account<'info, TaskClaim>,
 
     #[account(
+        seeds = [b"protocol"],
+        bump = protocol_config.bump
+    )]
+    pub protocol_config: Account<'info, ProtocolConfig>,
+
+    #[account(
         mut,
         seeds = [b"agent", worker.agent_id.as_ref()],
         bump = worker.bump,
@@ -41,7 +48,10 @@ pub fn handler(ctx: Context<ClaimTask>) -> Result<()> {
     let task = &mut ctx.accounts.task;
     let worker = &mut ctx.accounts.worker;
     let claim = &mut ctx.accounts.claim;
+    let config = &ctx.accounts.protocol_config;
     let clock = Clock::get()?;
+
+    check_version_compatible(config)?;
 
     // Validate task state
     require!(

@@ -5,6 +5,7 @@ use crate::events::{RewardDistributed, TaskCompleted};
 use crate::state::{
     AgentRegistration, ProtocolConfig, Task, TaskClaim, TaskEscrow, TaskStatus, TaskType,
 };
+use crate::utils::version::check_version_compatible;
 use anchor_lang::prelude::*;
 
 #[derive(Accounts)]
@@ -69,6 +70,8 @@ pub fn handler(
     let escrow = &mut ctx.accounts.escrow;
     let worker = &mut ctx.accounts.worker;
     let clock = Clock::get()?;
+
+    check_version_compatible(&ctx.accounts.protocol_config)?;
 
     // Read protocol fee before any mutable borrows of protocol_config
     let protocol_fee_bps = ctx.accounts.protocol_config.protocol_fee_bps;

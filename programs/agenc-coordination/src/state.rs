@@ -70,6 +70,12 @@ pub enum DisputeStatus {
     Expired = 2,
 }
 
+/// Current protocol version
+pub const CURRENT_PROTOCOL_VERSION: u8 = 1;
+
+/// Minimum supported protocol version for backward compatibility
+pub const MIN_SUPPORTED_VERSION: u8 = 1;
+
 /// Protocol configuration account
 /// PDA seeds: ["protocol"]
 #[account]
@@ -98,8 +104,24 @@ pub struct ProtocolConfig {
     pub multisig_threshold: u8,
     /// Length of configured multisig owners
     pub multisig_owners_len: u8,
+    // === Rate limiting configuration ===
+    /// Minimum cooldown between task creations (seconds, 0 = disabled)
+    pub task_creation_cooldown: i64,
+    /// Maximum tasks an agent can create per 24h window (0 = unlimited)
+    pub max_tasks_per_24h: u8,
+    /// Minimum cooldown between dispute initiations (seconds, 0 = disabled)
+    pub dispute_initiation_cooldown: i64,
+    /// Maximum disputes an agent can initiate per 24h window (0 = unlimited)
+    pub max_disputes_per_24h: u8,
+    /// Minimum stake required to initiate a dispute (griefing resistance)
+    pub min_stake_for_dispute: u64,
+    // === Versioning fields ===
+    /// Current protocol version (for upgrades)
+    pub protocol_version: u8,
+    /// Minimum supported version for backward compatibility
+    pub min_supported_version: u8,
     /// Padding for alignment/future use
-    pub _padding: [u8; 6],
+    pub _padding: [u8; 2],
     /// Multisig owners (fixed-size)
     pub multisig_owners: [Pubkey; ProtocolConfig::MAX_MULTISIG_OWNERS],
 }
@@ -119,7 +141,16 @@ impl Default for ProtocolConfig {
             bump: 0,
             multisig_threshold: 0,
             multisig_owners_len: 0,
-            _padding: [0u8; 6],
+            // Default rate limits (can be configured post-deployment)
+            task_creation_cooldown: 60, // 60 seconds between task creations
+            max_tasks_per_24h: 50,      // 50 tasks per 24h window
+            dispute_initiation_cooldown: 300, // 5 minutes between disputes
+            max_disputes_per_24h: 10,   // 10 disputes per 24h window
+            min_stake_for_dispute: 0,   // No stake required by default
+            // Versioning
+            protocol_version: CURRENT_PROTOCOL_VERSION,
+            min_supported_version: MIN_SUPPORTED_VERSION,
+            _padding: [0u8; 2],
             multisig_owners: [Pubkey::default(); ProtocolConfig::MAX_MULTISIG_OWNERS],
         }
     }
@@ -140,8 +171,22 @@ impl ProtocolConfig {
         1 +  // bump
         1 +  // multisig_threshold
         1 +  // multisig_owners_len
-        6 +  // padding
+        8 +  // task_creation_cooldown
+        1 +  // max_tasks_per_24h
+        8 +  // dispute_initiation_cooldown
+        1 +  // max_disputes_per_24h
+        8 +  // min_stake_for_dispute
+        1 +  // protocol_version
+        1 +  // min_supported_version
+        2 +  // padding
         (32 * Self::MAX_MULTISIG_OWNERS); // multisig owners
+
+    /// Check if the protocol version is compatible
+    pub fn is_version_compatible(&self) -> bool {
+        self.min_supported_version >= MIN_SUPPORTED_VERSION
+            && self.protocol_version >= self.min_supported_version
+            && self.protocol_version <= CURRENT_PROTOCOL_VERSION
+    }
 }
 
 /// Agent registration account
@@ -177,8 +222,19 @@ pub struct AgentRegistration {
     pub stake: u64,
     /// Bump seed
     pub bump: u8,
-    /// Reserved
-    pub _reserved: [u8; 32],
+    // === Rate limiting fields ===
+    /// Timestamp of last task creation
+    pub last_task_created: i64,
+    /// Timestamp of last dispute initiated
+    pub last_dispute_initiated: i64,
+    /// Number of tasks created in current 24h window
+    pub task_count_24h: u8,
+    /// Number of disputes initiated in current 24h window
+    pub dispute_count_24h: u8,
+    /// Start of current rate limit window (unix timestamp)
+    pub rate_limit_window_start: i64,
+    /// Reserved for future use
+    pub _reserved: [u8; 6],
 }
 
 impl AgentRegistration {
@@ -197,7 +253,12 @@ impl AgentRegistration {
         1 +  // active_tasks
         8 +  // stake
         1 +  // bump
-        32; // reserved
+        8 +  // last_task_created
+        8 +  // last_dispute_initiated
+        1 +  // task_count_24h
+        1 +  // dispute_count_24h
+        8 +  // rate_limit_window_start
+        6; // reserved
 }
 
 /// Task account
