@@ -62,18 +62,6 @@ The protocol invariants below are enforced by program constraints and are used f
 - Devnet smoke tests for end-to-end task, escrow, and dispute flows.
 - On-chain execution verification via Devnet RPC and Explorer checks.
 
-## Spoofing Simulations (Devnet Tests)
-
-The devnet security suite includes spoofing simulations that validate failure paths for:
-
-- Capability-gated actions (arbiter-only voting) with unauthorized signers.
-- Replay attempts (re-using dispute/vote PDAs) to prevent duplicate actions.
-- Unauthorized task completion attempts (authority spoofing).
-- Reputation cap enforcement when repeated completions approach bounds.
-- Deadline/timeout and stale-state checks for disputes and task cancellation.
-
-These simulations mitigate spoofing, replay, and authority-bypass threats while validating the enforcement of reputation bounds and time-based guards.
-
 ## Smoke Test Results Summary
 
 - Total tests: 24
@@ -91,7 +79,7 @@ These simulations mitigate spoofing, replay, and authority-bypass threats while 
 
 ## Known Limitations and Future Work
 
-- Some instruction-level negative-path tests and edge cases remain to be expanded for full mainnet readiness.
+- Instruction wiring remains in smoke-test scaffolding and should be fully wired to IDL for full coverage.
 - Multisig authority for protocol governance is not yet enabled; single-authority model persists on Devnet.
 - Mainnet readiness work remains, including deployment hardening and operational runbooks.
 
