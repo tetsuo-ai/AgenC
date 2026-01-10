@@ -2,7 +2,7 @@
 
 use crate::errors::CoordinationError;
 use crate::events::ProtocolInitialized;
-use crate::state::ProtocolConfig;
+use crate::state::{ProtocolConfig, CURRENT_PROTOCOL_VERSION, MIN_SUPPORTED_VERSION};
 use crate::utils::multisig::require_multisig;
 use anchor_lang::prelude::*;
 
@@ -78,7 +78,16 @@ pub fn handler(
     config.bump = ctx.bumps.protocol_config;
     config.multisig_threshold = multisig_threshold;
     config.multisig_owners_len = multisig_owners.len() as u8;
-    config._padding = [0u8; 6];
+    // Rate limiting defaults (can be updated post-deployment via update instruction)
+    config.task_creation_cooldown = 60; // 60 seconds between task creations
+    config.max_tasks_per_24h = 50; // 50 tasks per 24h window
+    config.dispute_initiation_cooldown = 300; // 5 minutes between disputes
+    config.max_disputes_per_24h = 10; // 10 disputes per 24h window
+    config.min_stake_for_dispute = 0; // No stake required by default
+                                      // Versioning
+    config.protocol_version = CURRENT_PROTOCOL_VERSION;
+    config.min_supported_version = MIN_SUPPORTED_VERSION;
+    config._padding = [0u8; 2];
     config.multisig_owners = [Pubkey::default(); ProtocolConfig::MAX_MULTISIG_OWNERS];
     for (index, owner) in multisig_owners.iter().enumerate() {
         config.multisig_owners[index] = *owner;

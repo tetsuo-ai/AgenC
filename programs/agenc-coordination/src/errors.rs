@@ -151,4 +151,33 @@ pub enum CoordinationError {
 
     #[msg("String too long")]
     StringTooLong,
+
+    // Rate limiting errors (6700-6799)
+    #[msg("Rate limit exceeded: maximum actions per 24h window reached")]
+    RateLimitExceeded,
+
+    #[msg("Cooldown period has not elapsed since last action")]
+    CooldownNotElapsed,
+
+    #[msg("Insufficient stake to initiate dispute")]
+    InsufficientStakeForDispute,
+
+    // Version/upgrade errors (6800-6899)
+    #[msg("Protocol version mismatch: account version incompatible with current program")]
+    VersionMismatchProtocol,
+
+    #[msg("Account version too old: migration required")]
+    AccountVersionTooOld,
+
+    #[msg("Account version too new: program upgrade required")]
+    AccountVersionTooNew,
+
+    #[msg("Migration not allowed: invalid source version")]
+    InvalidMigrationSource,
+
+    #[msg("Migration not allowed: invalid target version")]
+    InvalidMigrationTarget,
+
+    #[msg("Only upgrade authority can perform this action")]
+    UnauthorizedUpgrade,
 }

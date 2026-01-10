@@ -199,3 +199,83 @@ Authority bypass
 - Applies to: `initiate_dispute`
 - Prevents: Task state desync, grief attacks on completed tasks
 
+## Rate Limiting and Anti-Spam Mitigations
+
+### Spam Vectors
+
+**SP1: Task Creation Spam**
+- Threat: Malicious actors flood the network with low-value or fake tasks to:
+  - Exhaust on-chain storage
+  - Waste agent compute time evaluating tasks
+  - Degrade protocol UX
+- Mitigation: Per-agent rate limiting with configurable cooldown and 24h window limits
+- Parameters:
+  - `task_creation_cooldown`: Default 60 seconds between task creations
+  - `max_tasks_per_24h`: Default 50 tasks per agent per 24-hour window
+
+**SP2: Dispute Spam (Griefing)**
+- Threat: Attackers initiate frivolous disputes to:
+  - Lock funds in escrow
+  - Waste arbiter time and attention
+  - Harass legitimate task creators/workers
+- Mitigation: Rate limiting + minimum stake requirement
+- Parameters:
+  - `dispute_initiation_cooldown`: Default 300 seconds (5 minutes) between disputes
+  - `max_disputes_per_24h`: Default 10 disputes per agent per 24-hour window
+  - `min_stake_for_dispute`: Configurable minimum stake to initiate dispute (griefing resistance)
+
+**SP3: Sybil Spam**
+- Threat: Attackers create many identities to bypass per-account rate limits
+- Mitigation:
+  - Agent registration required for rate-limited actions
+  - On-chain registration cost (rent) acts as natural Sybil resistance
+  - Optional stake requirements for high-impact actions
+
+### Rate Limiting Invariants
+
+**RL1: Cooldown Enforcement**
+- Statement: If `config.task_creation_cooldown > 0` and `agent.last_task_created > 0`, then `current_time - agent.last_task_created >= config.task_creation_cooldown` must hold for task creation to succeed.
+- Applies to: `create_task` (when creator_agent is provided)
+- Prevents: Task creation spam
+
+**RL2: Dispute Cooldown Enforcement**
+- Statement: If `config.dispute_initiation_cooldown > 0` and `agent.last_dispute_initiated > 0`, then `current_time - agent.last_dispute_initiated >= config.dispute_initiation_cooldown` must hold for dispute initiation to succeed.
+- Applies to: `initiate_dispute`
+- Prevents: Dispute spam/griefing
+
+**RL3: 24-Hour Window Limit (Tasks)**
+- Statement: If `config.max_tasks_per_24h > 0`, then `agent.task_count_24h < config.max_tasks_per_24h` must hold. Window resets when `current_time - agent.rate_limit_window_start >= 86400`.
+- Applies to: `create_task` (when creator_agent is provided)
+- Prevents: High-volume task spam
+
+**RL4: 24-Hour Window Limit (Disputes)**
+- Statement: If `config.max_disputes_per_24h > 0`, then `agent.dispute_count_24h < config.max_disputes_per_24h` must hold. Window resets when `current_time - agent.rate_limit_window_start >= 86400`.
+- Applies to: `initiate_dispute`
+- Prevents: High-volume dispute spam
+
+**RL5: Stake Requirement for Disputes**
+- Statement: If `config.min_stake_for_dispute > 0`, then `agent.stake >= config.min_stake_for_dispute` must hold for dispute initiation.
+- Applies to: `initiate_dispute`
+- Prevents: Low-cost griefing attacks
+
+### Configuration Tunability
+
+Rate limit parameters are stored in `ProtocolConfig` and can be updated post-deployment via the `update_rate_limits` instruction (multisig gated). This allows the protocol to:
+- Respond to observed attack patterns
+- Adjust limits based on network growth
+- Disable specific limits (set to 0) if needed
+
+### Events
+
+**RateLimitHit Event**
+- Emitted when rate limit prevents an action
+- Fields:
+  - `agent_id`: The rate-limited agent
+  - `action_type`: 0 = task_creation, 1 = dispute_initiation
+  - `limit_type`: 0 = cooldown, 1 = 24h_window
+  - `current_count`: Current count in window
+  - `max_count`: Maximum allowed
+  - `cooldown_remaining`: Seconds until cooldown expires
+  - `timestamp`: When the limit was hit
+- Use: Off-chain monitoring and alerting for abuse detection
+

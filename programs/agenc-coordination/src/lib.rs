@@ -200,4 +200,49 @@ pub mod agenc_coordination {
     ) -> Result<()> {
         instructions::update_protocol_fee::handler(ctx, protocol_fee_bps)
     }
+
+    /// Update rate limiting configuration (multisig gated).
+    /// Parameters can be tuned post-deployment without program upgrade.
+    ///
+    /// # Arguments
+    /// * `task_creation_cooldown` - Seconds between task creations (0 = disabled)
+    /// * `max_tasks_per_24h` - Maximum tasks per agent per 24h (0 = unlimited)
+    /// * `dispute_initiation_cooldown` - Seconds between disputes (0 = disabled)
+    /// * `max_disputes_per_24h` - Maximum disputes per agent per 24h (0 = unlimited)
+    /// * `min_stake_for_dispute` - Minimum stake required to initiate dispute
+    pub fn update_rate_limits(
+        ctx: Context<UpdateRateLimits>,
+        task_creation_cooldown: i64,
+        max_tasks_per_24h: u8,
+        dispute_initiation_cooldown: i64,
+        max_disputes_per_24h: u8,
+        min_stake_for_dispute: u64,
+    ) -> Result<()> {
+        instructions::update_rate_limits::handler(
+            ctx,
+            task_creation_cooldown,
+            max_tasks_per_24h,
+            dispute_initiation_cooldown,
+            max_disputes_per_24h,
+            min_stake_for_dispute,
+        )
+    }
+
+    /// Migrate protocol to a new version (multisig gated).
+    /// Handles state migration when upgrading the program.
+    ///
+    /// # Arguments
+    /// * `target_version` - The version to migrate to
+    pub fn migrate_protocol(ctx: Context<MigrateProtocol>, target_version: u8) -> Result<()> {
+        instructions::migrate::handler(ctx, target_version)
+    }
+
+    /// Update minimum supported protocol version (multisig gated).
+    /// Used to deprecate old versions after migration grace period.
+    ///
+    /// # Arguments
+    /// * `new_min_version` - The new minimum supported version
+    pub fn update_min_version(ctx: Context<UpdateMinVersion>, new_min_version: u8) -> Result<()> {
+        instructions::migrate::update_min_version_handler(ctx, new_min_version)
+    }
 }

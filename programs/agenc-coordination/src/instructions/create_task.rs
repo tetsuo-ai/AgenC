@@ -1,10 +1,14 @@
 //! Create a new task with reward escrow
 
 use crate::errors::CoordinationError;
-use crate::events::TaskCreated;
-use crate::state::{ProtocolConfig, Task, TaskEscrow, TaskStatus, TaskType};
+use crate::events::{RateLimitHit, TaskCreated};
+use crate::state::{AgentRegistration, ProtocolConfig, Task, TaskEscrow, TaskStatus, TaskType};
+use crate::utils::version::check_version_compatible;
 use anchor_lang::prelude::*;
 use anchor_lang::system_program;
+
+/// 24 hours in seconds
+const WINDOW_24H: i64 = 24 * 60 * 60;
 
 #[derive(Accounts)]
 #[instruction(task_id: [u8; 32])]
@@ -34,6 +38,20 @@ pub struct CreateTask<'info> {
     )]
     pub protocol_config: Account<'info, ProtocolConfig>,
 
+    /// Optional: Creator's agent registration for rate limiting
+    /// If provided, rate limits will be enforced
+    #[account(
+        mut,
+        seeds = [b"agent", creator_agent.agent_id.as_ref()],
+        bump = creator_agent.bump,
+        has_one = authority @ CoordinationError::UnauthorizedAgent
+    )]
+    pub creator_agent: Option<Account<'info, AgentRegistration>>,
+
+    /// The authority that owns the creator_agent (if present)
+    /// CHECK: This is validated by the has_one constraint on creator_agent
+    pub authority: Option<AccountInfo<'info>>,
+
     #[account(mut)]
     pub creator: Signer<'info>,
 
@@ -54,6 +72,9 @@ pub fn handler(
     require!(task_type <= 2, CoordinationError::InvalidTaskType);
 
     let clock = Clock::get()?;
+    let config = &ctx.accounts.protocol_config;
+
+    check_version_compatible(config)?;
 
     // Validate deadline if set
     if deadline > 0 {
@@ -61,6 +82,78 @@ pub fn handler(
             deadline > clock.unix_timestamp,
             CoordinationError::InvalidInput
         );
+    }
+
+    // Rate limiting check if creator is a registered agent
+    if let Some(ref mut creator_agent) = ctx.accounts.creator_agent {
+        // Check that the authority signer matches
+        if let Some(ref authority) = ctx.accounts.authority {
+            require!(
+                authority.key() == creator_agent.authority,
+                CoordinationError::UnauthorizedAgent
+            );
+            require!(authority.is_signer, CoordinationError::UnauthorizedAgent);
+        } else {
+            return Err(CoordinationError::UnauthorizedAgent.into());
+        }
+
+        // Check cooldown period
+        if config.task_creation_cooldown > 0 && creator_agent.last_task_created > 0 {
+            let elapsed = clock
+                .unix_timestamp
+                .saturating_sub(creator_agent.last_task_created);
+            if elapsed < config.task_creation_cooldown {
+                let remaining = config.task_creation_cooldown.saturating_sub(elapsed);
+                emit!(RateLimitHit {
+                    agent_id: creator_agent.agent_id,
+                    action_type: 0, // task_creation
+                    limit_type: 0,  // cooldown
+                    current_count: creator_agent.task_count_24h,
+                    max_count: config.max_tasks_per_24h,
+                    cooldown_remaining: remaining,
+                    timestamp: clock.unix_timestamp,
+                });
+                return Err(CoordinationError::CooldownNotElapsed.into());
+            }
+        }
+
+        // Check 24h window limit
+        if config.max_tasks_per_24h > 0 {
+            // Reset window if 24h has passed
+            if clock
+                .unix_timestamp
+                .saturating_sub(creator_agent.rate_limit_window_start)
+                >= WINDOW_24H
+            {
+                creator_agent.rate_limit_window_start = clock.unix_timestamp;
+                creator_agent.task_count_24h = 0;
+                creator_agent.dispute_count_24h = 0;
+            }
+
+            // Check if limit exceeded
+            if creator_agent.task_count_24h >= config.max_tasks_per_24h {
+                emit!(RateLimitHit {
+                    agent_id: creator_agent.agent_id,
+                    action_type: 0, // task_creation
+                    limit_type: 1,  // 24h_window
+                    current_count: creator_agent.task_count_24h,
+                    max_count: config.max_tasks_per_24h,
+                    cooldown_remaining: 0,
+                    timestamp: clock.unix_timestamp,
+                });
+                return Err(CoordinationError::RateLimitExceeded.into());
+            }
+
+            // Increment counter
+            creator_agent.task_count_24h = creator_agent
+                .task_count_24h
+                .checked_add(1)
+                .ok_or(CoordinationError::ArithmeticOverflow)?;
+        }
+
+        // Update last task created timestamp
+        creator_agent.last_task_created = clock.unix_timestamp;
+        creator_agent.last_active = clock.unix_timestamp;
     }
 
     // Transfer reward to escrow
@@ -111,8 +204,8 @@ pub fn handler(
     escrow.bump = ctx.bumps.escrow;
 
     // Update protocol stats
-    let config = &mut ctx.accounts.protocol_config;
-    config.total_tasks = config
+    let protocol_config = &mut ctx.accounts.protocol_config;
+    protocol_config.total_tasks = protocol_config
         .total_tasks
         .checked_add(1)
         .ok_or(CoordinationError::ArithmeticOverflow)?;

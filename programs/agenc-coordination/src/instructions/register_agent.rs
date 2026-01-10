@@ -59,6 +59,13 @@ pub fn handler(
     agent.active_tasks = 0;
     agent.stake = 0;
     agent.bump = ctx.bumps.agent;
+    // Initialize rate limiting fields
+    agent.last_task_created = 0;
+    agent.last_dispute_initiated = 0;
+    agent.task_count_24h = 0;
+    agent.dispute_count_24h = 0;
+    agent.rate_limit_window_start = clock.unix_timestamp;
+    agent._reserved = [0u8; 6];
 
     // Update protocol stats
     let config = &mut ctx.accounts.protocol_config;

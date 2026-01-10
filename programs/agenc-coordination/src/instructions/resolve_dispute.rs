@@ -5,6 +5,7 @@ use crate::events::DisputeResolved;
 use crate::state::{
     Dispute, DisputeStatus, ProtocolConfig, ResolutionType, Task, TaskEscrow, TaskStatus,
 };
+use crate::utils::version::check_version_compatible;
 use anchor_lang::prelude::*;
 
 #[derive(Accounts)]
@@ -54,6 +55,8 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
     let escrow = &mut ctx.accounts.escrow;
     let config = &ctx.accounts.protocol_config;
     let clock = Clock::get()?;
+
+    check_version_compatible(config)?;
 
     // Verify dispute is active
     require!(
