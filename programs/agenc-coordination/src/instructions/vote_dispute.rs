@@ -5,6 +5,7 @@ use crate::events::DisputeVoteCast;
 use crate::state::{
     capability, AgentRegistration, AgentStatus, Dispute, DisputeStatus, DisputeVote, ProtocolConfig,
 };
+use crate::utils::version::check_version_compatible;
 use anchor_lang::prelude::*;
 
 #[derive(Accounts)]
@@ -50,6 +51,8 @@ pub fn handler(ctx: Context<VoteDispute>, approve: bool) -> Result<()> {
     let arbiter = &ctx.accounts.arbiter;
     let config = &ctx.accounts.protocol_config;
     let clock = Clock::get()?;
+
+    check_version_compatible(config)?;
 
     // Verify dispute is active
     require!(
