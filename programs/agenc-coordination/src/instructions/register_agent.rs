@@ -65,6 +65,8 @@ pub fn handler(
     agent.task_count_24h = 0;
     agent.dispute_count_24h = 0;
     agent.rate_limit_window_start = clock.unix_timestamp;
+    agent.active_dispute_votes = 0;
+    agent.last_vote_timestamp = 0;
     agent._reserved = [0u8; 6];
 
     // Update protocol stats

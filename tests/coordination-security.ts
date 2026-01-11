@@ -1,5 +1,6 @@
 import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
+import BN from "bn.js";
 import { expect } from "chai";
 import { Keypair, PublicKey, SystemProgram, LAMPORTS_PER_SOL } from "@solana/web3.js";
 import { AgencCoordination } from "../target/types/agenc_coordination";
@@ -24,17 +25,19 @@ describe("coordination-security", () => {
   let arbiter2: Keypair;
   let arbiter3: Keypair;
   let unauthorized: Keypair;
+  let creatorAgentPda: PublicKey;
 
-  const agentId1 = Buffer.from("agent-000000000000000000000001").slice(0, 32);
-  const agentId2 = Buffer.from("agent-000000000000000000000002").slice(0, 32);
-  const agentId3 = Buffer.from("agent-000000000000000000000003").slice(0, 32);
-  const arbiterId1 = Buffer.from("arbit-000000000000000000000001").slice(0, 32);
-  const arbiterId2 = Buffer.from("arbit-000000000000000000000002").slice(0, 32);
-  const arbiterId3 = Buffer.from("arbit-000000000000000000000003").slice(0, 32);
-  const taskId1 = Buffer.from("task-00000000000000000000000001").slice(0, 32);
-  const taskId2 = Buffer.from("task-00000000000000000000000002").slice(0, 32);
-  const taskId3 = Buffer.from("task-00000000000000000000000003").slice(0, 32);
-  const disputeId1 = Buffer.from("disp-00000000000000000000000001").slice(0, 32);
+  const agentId1 = Buffer.from("agent-000000000000000000000001".padEnd(32, "\0"));
+  const agentId2 = Buffer.from("agent-000000000000000000000002".padEnd(32, "\0"));
+  const agentId3 = Buffer.from("agent-000000000000000000000003".padEnd(32, "\0"));
+  const creatorAgentId = Buffer.from("creator-000000000000000000000001".padEnd(32, "\0"));
+  const arbiterId1 = Buffer.from("arbit-000000000000000000000001".padEnd(32, "\0"));
+  const arbiterId2 = Buffer.from("arbit-000000000000000000000002".padEnd(32, "\0"));
+  const arbiterId3 = Buffer.from("arbit-000000000000000000000003".padEnd(32, "\0"));
+  const taskId1 = Buffer.from("task-00000000000000000000000001".padEnd(32, "\0"));
+  const taskId2 = Buffer.from("task-00000000000000000000000002".padEnd(32, "\0"));
+  const taskId3 = Buffer.from("task-00000000000000000000000003".padEnd(32, "\0"));
+  const disputeId1 = Buffer.from("disp-00000000000000000000000001".padEnd(32, "\0"));
 
   const CAPABILITY_COMPUTE = 1 << 0;
   const CAPABILITY_INFERENCE = 1 << 1;
@@ -68,6 +71,27 @@ describe("coordination-security", () => {
         "confirmed"
       );
     }
+
+    creatorAgentPda = PublicKey.findProgramAddressSync(
+      [Buffer.from("agent"), creatorAgentId],
+      program.programId
+    )[0];
+
+    await program.methods
+      .registerAgent(
+        Array.from(creatorAgentId),
+        new BN(CAPABILITY_COMPUTE),
+        "https://creator.example.com",
+        null
+      )
+      .accounts({
+        agent: creatorAgentPda,
+        protocolConfig: protocolPda,
+        authority: creator.publicKey,
+        systemProgram: SystemProgram.programId,
+      })
+      .signers([creator])
+      .rpc();
   });
 
   describe("Happy Paths", () => {
@@ -130,7 +154,7 @@ describe("coordination-security", () => {
         await program.methods
           .registerAgent(
             Array.from(agentId1),
-            new anchor.BN(CAPABILITY_COMPUTE | CAPABILITY_INFERENCE),
+            new BN(CAPABILITY_COMPUTE | CAPABILITY_INFERENCE),
             "https://worker1.example.com",
             null
           )
@@ -169,7 +193,7 @@ describe("coordination-security", () => {
         await program.methods
           .registerAgent(
             Array.from(agentId2),
-            new anchor.BN(CAPABILITY_COMPUTE),
+            new BN(CAPABILITY_COMPUTE),
             "https://worker2.example.com",
             null
           )
@@ -197,7 +221,7 @@ describe("coordination-security", () => {
 
         await program.methods
           .updateAgent(
-            new anchor.BN(CAPABILITY_COMPUTE | CAPABILITY_INFERENCE | CAPABILITY_ARBITER),
+            new BN(CAPABILITY_COMPUTE | CAPABILITY_INFERENCE | CAPABILITY_ARBITER),
             "https://worker1-updated.example.com",
             null,
             { active: {} }
@@ -256,9 +280,9 @@ describe("coordination-security", () => {
         await program.methods
           .createTask(
             Array.from(taskId1),
-            new anchor.BN(CAPABILITY_COMPUTE),
+            new BN(CAPABILITY_COMPUTE),
             Buffer.from("Process this data".padEnd(64, "\0")),
-            new anchor.BN(rewardAmount),
+            new BN(rewardAmount),
             1,
             0,
             TASK_TYPE_EXCLUSIVE
@@ -267,6 +291,8 @@ describe("coordination-security", () => {
             task: taskPda,
             escrow: escrowPda,
             protocolConfig: protocolPda,
+            creatorAgent: creatorAgentPda,
+            authority: creator.publicKey,
             creator: creator.publicKey,
             systemProgram: SystemProgram.programId,
           })
@@ -301,9 +327,9 @@ describe("coordination-security", () => {
         await program.methods
           .createTask(
             Array.from(taskId2),
-            new anchor.BN(CAPABILITY_COMPUTE),
+            new BN(CAPABILITY_COMPUTE),
             Buffer.from("Collaborative task".padEnd(64, "\0")),
-            new anchor.BN(3 * LAMPORTS_PER_SOL),
+            new BN(3 * LAMPORTS_PER_SOL),
             3,
             0,
             TASK_TYPE_COLLABORATIVE
@@ -312,6 +338,8 @@ describe("coordination-security", () => {
             task: taskPda,
             escrow: escrowPda,
             protocolConfig: protocolPda,
+            creatorAgent: creatorAgentPda,
+            authority: creator.publicKey,
             creator: creator.publicKey,
             systemProgram: SystemProgram.programId,
           })
@@ -337,9 +365,9 @@ describe("coordination-security", () => {
         await program.methods
           .createTask(
             Array.from(taskId3),
-            new anchor.BN(CAPABILITY_COMPUTE),
+            new BN(CAPABILITY_COMPUTE),
             Buffer.from("Competitive task".padEnd(64, "\0")),
-            new anchor.BN(1 * LAMPORTS_PER_SOL),
+            new BN(1 * LAMPORTS_PER_SOL),
             5,
             0,
             TASK_TYPE_COMPETITIVE
@@ -348,6 +376,8 @@ describe("coordination-security", () => {
             task: taskPda,
             escrow: escrowPda,
             protocolConfig: protocolPda,
+            creatorAgent: creatorAgentPda,
+            authority: creator.publicKey,
             creator: creator.publicKey,
             systemProgram: SystemProgram.programId,
           })
@@ -475,9 +505,9 @@ describe("coordination-security", () => {
         await program.methods
           .createTask(
             Array.from(newTaskId),
-            new anchor.BN(CAPABILITY_COMPUTE),
+            new BN(CAPABILITY_COMPUTE),
             Buffer.from("Cancelable task".padEnd(64, "\0")),
-            new anchor.BN(rewardAmount),
+            new BN(rewardAmount),
             1,
             0,
             TASK_TYPE_EXCLUSIVE
@@ -486,6 +516,8 @@ describe("coordination-security", () => {
             task: taskPda,
             escrow: escrowPda,
             protocolConfig: protocolPda,
+            creatorAgent: creatorAgentPda,
+            authority: creator.publicKey,
             creator: creator.publicKey,
             systemProgram: SystemProgram.programId,
           })
@@ -537,7 +569,7 @@ describe("coordination-security", () => {
         await program.methods
           .registerAgent(
             Array.from(agentId3),
-            new anchor.BN(CAPABILITY_COMPUTE),
+            new BN(CAPABILITY_COMPUTE),
             "https://worker3.example.com",
             null
           )
@@ -553,9 +585,9 @@ describe("coordination-security", () => {
         await program.methods
           .createTask(
             Array.from(disputeTaskId),
-            new anchor.BN(CAPABILITY_COMPUTE),
+            new BN(CAPABILITY_COMPUTE),
             Buffer.from("Dispute task".padEnd(64, "\0")),
-            new anchor.BN(1 * LAMPORTS_PER_SOL),
+            new BN(1 * LAMPORTS_PER_SOL),
             1,
             0,
             TASK_TYPE_EXCLUSIVE
@@ -564,6 +596,8 @@ describe("coordination-security", () => {
             task: taskPda,
             escrow: escrowPda,
             protocolConfig: protocolPda,
+            creatorAgent: creatorAgentPda,
+            authority: creator.publicKey,
             creator: creator.publicKey,
             systemProgram: SystemProgram.programId,
           })
@@ -619,7 +653,7 @@ describe("coordination-security", () => {
           await program.methods
             .registerAgent(
               Array.from(arbiterId),
-              new anchor.BN(CAPABILITY_ARBITER),
+              new BN(CAPABILITY_ARBITER),
               `https://arbiter${i + 1}.example.com`,
               null
             )
@@ -655,6 +689,31 @@ describe("coordination-security", () => {
       it("Successfully resolves dispute with refund outcome", async () => {
         const creatorBalanceBefore = await provider.connection.getBalance(creator.publicKey);
 
+        const [arbiterPda1] = PublicKey.findProgramAddressSync(
+          [Buffer.from("agent"), arbiterId1],
+          program.programId
+        );
+        const [arbiterPda2] = PublicKey.findProgramAddressSync(
+          [Buffer.from("agent"), arbiterId2],
+          program.programId
+        );
+        const [arbiterPda3] = PublicKey.findProgramAddressSync(
+          [Buffer.from("agent"), arbiterId3],
+          program.programId
+        );
+        const [votePda1] = PublicKey.findProgramAddressSync(
+          [Buffer.from("vote"), disputePda.toBuffer(), arbiterPda1.toBuffer()],
+          program.programId
+        );
+        const [votePda2] = PublicKey.findProgramAddressSync(
+          [Buffer.from("vote"), disputePda.toBuffer(), arbiterPda2.toBuffer()],
+          program.programId
+        );
+        const [votePda3] = PublicKey.findProgramAddressSync(
+          [Buffer.from("vote"), disputePda.toBuffer(), arbiterPda3.toBuffer()],
+          program.programId
+        );
+
         await program.methods
           .resolveDispute()
           .accounts({
@@ -662,10 +721,19 @@ describe("coordination-security", () => {
             task: taskPda,
             escrow: escrowPda,
             protocolConfig: protocolPda,
+            resolver: provider.wallet.publicKey,
             creator: creator.publicKey,
             worker: null,
             systemProgram: SystemProgram.programId,
           })
+          .remainingAccounts([
+            { pubkey: votePda1, isSigner: false, isWritable: false },
+            { pubkey: arbiterPda1, isSigner: false, isWritable: true },
+            { pubkey: votePda2, isSigner: false, isWritable: false },
+            { pubkey: arbiterPda2, isSigner: false, isWritable: true },
+            { pubkey: votePda3, isSigner: false, isWritable: false },
+            { pubkey: arbiterPda3, isSigner: false, isWritable: true },
+          ])
           .rpc();
 
         const dispute = await program.account.dispute.fetch(disputePda);
@@ -690,7 +758,7 @@ describe("coordination-security", () => {
 
         await expect(
           program.methods
-            .updateAgent(new anchor.BN(CAPABILITY_COMPUTE), "https://malicious.com", null, { active: {} })
+            .updateAgent(new BN(CAPABILITY_COMPUTE), "https://malicious.com", null, { active: {} })
             .accounts({
               agent: agentPda,
               authority: unauthorized.publicKey,
@@ -707,16 +775,16 @@ describe("coordination-security", () => {
           program.programId
         );
         const [escrowPda] = PublicKey.findProgramAddressSync(
-          [Buffer.from("escrow"], taskPda.toBuffer()],
+          [Buffer.from("escrow"), taskPda.toBuffer()],
           program.programId
         );
 
         await program.methods
           .createTask(
             Array.from(newTaskId),
-            new anchor.BN(CAPABILITY_COMPUTE),
+            new BN(CAPABILITY_COMPUTE),
             Buffer.from("Test task".padEnd(64, "\0")),
-            new anchor.BN(1 * LAMPORTS_PER_SOL),
+            new BN(1 * LAMPORTS_PER_SOL),
             1,
             0,
             TASK_TYPE_EXCLUSIVE
@@ -725,6 +793,8 @@ describe("coordination-security", () => {
             task: taskPda,
             escrow: escrowPda,
             protocolConfig: protocolPda,
+            creatorAgent: creatorAgentPda,
+            authority: creator.publicKey,
             creator: creator.publicKey,
             systemProgram: SystemProgram.programId,
           })
@@ -754,7 +824,7 @@ describe("coordination-security", () => {
           program.programId
         );
         const [escrowPda] = PublicKey.findProgramAddressSync(
-          [Buffer.from("escrow"], taskPda.toBuffer()],
+          [Buffer.from("escrow"), taskPda.toBuffer()],
           program.programId
         );
         const [claimPda] = PublicKey.findProgramAddressSync(
@@ -765,9 +835,9 @@ describe("coordination-security", () => {
         await program.methods
           .createTask(
             Array.from(newTaskId),
-            new anchor.BN(CAPABILITY_COMPUTE),
+            new BN(CAPABILITY_COMPUTE),
             Buffer.from("Double claim test".padEnd(64, "\0")),
-            new anchor.BN(1 * LAMPORTS_PER_SOL),
+            new BN(1 * LAMPORTS_PER_SOL),
             2,
             0,
             TASK_TYPE_COLLABORATIVE
@@ -776,6 +846,8 @@ describe("coordination-security", () => {
             task: taskPda,
             escrow: escrowPda,
             protocolConfig: protocolPda,
+            creatorAgent: creatorAgentPda,
+            authority: creator.publicKey,
             creator: creator.publicKey,
             systemProgram: SystemProgram.programId,
           })
@@ -816,7 +888,7 @@ describe("coordination-security", () => {
           program.programId
         );
         const [escrowPda] = PublicKey.findProgramAddressSync(
-          [Buffer.from("escrow"], taskPda.toBuffer()],
+          [Buffer.from("escrow"), taskPda.toBuffer()],
           program.programId
         );
         const [claimPda] = PublicKey.findProgramAddressSync(
@@ -827,9 +899,9 @@ describe("coordination-security", () => {
         await program.methods
           .createTask(
             Array.from(newTaskId),
-            new anchor.BN(CAPABILITY_COMPUTE),
+            new BN(CAPABILITY_COMPUTE),
             Buffer.from("Double complete test".padEnd(64, "\0")),
-            new anchor.BN(1 * LAMPORTS_PER_SOL),
+            new BN(1 * LAMPORTS_PER_SOL),
             1,
             0,
             TASK_TYPE_EXCLUSIVE
@@ -838,6 +910,8 @@ describe("coordination-security", () => {
             task: taskPda,
             escrow: escrowPda,
             protocolConfig: protocolPda,
+            creatorAgent: creatorAgentPda,
+            authority: creator.publicKey,
             creator: creator.publicKey,
             systemProgram: SystemProgram.programId,
           })
@@ -900,7 +974,7 @@ describe("coordination-security", () => {
           program.programId
         );
         const [escrowPda] = PublicKey.findProgramAddressSync(
-          [Buffer.from("escrow"], taskPda.toBuffer()],
+          [Buffer.from("escrow"), taskPda.toBuffer()],
           program.programId
         );
         const [claimPda] = PublicKey.findProgramAddressSync(
@@ -911,9 +985,9 @@ describe("coordination-security", () => {
         await program.methods
           .createTask(
             Array.from(newTaskId),
-            new anchor.BN(CAPABILITY_STORAGE),
+            new BN(CAPABILITY_STORAGE),
             Buffer.from("Capability test".padEnd(64, "\0")),
-            new anchor.BN(1 * LAMPORTS_PER_SOL),
+            new BN(1 * LAMPORTS_PER_SOL),
             1,
             0,
             TASK_TYPE_EXCLUSIVE
@@ -922,6 +996,8 @@ describe("coordination-security", () => {
             task: taskPda,
             escrow: escrowPda,
             protocolConfig: protocolPda,
+            creatorAgent: creatorAgentPda,
+            authority: creator.publicKey,
             creator: creator.publicKey,
             systemProgram: SystemProgram.programId,
           })
@@ -964,7 +1040,7 @@ describe("coordination-security", () => {
           program.programId
         );
         const [escrowPda] = PublicKey.findProgramAddressSync(
-          [Buffer.from("escrow"], taskPda.toBuffer()],
+          [Buffer.from("escrow"), taskPda.toBuffer()],
           program.programId
         );
         const [claimPda] = PublicKey.findProgramAddressSync(
@@ -975,9 +1051,9 @@ describe("coordination-security", () => {
         await program.methods
           .createTask(
             Array.from(newTaskId),
-            new anchor.BN(CAPABILITY_COMPUTE),
+            new BN(CAPABILITY_COMPUTE),
             Buffer.from("Inactive agent test".padEnd(64, "\0")),
-            new anchor.BN(1 * LAMPORTS_PER_SOL),
+            new BN(1 * LAMPORTS_PER_SOL),
             1,
             0,
             TASK_TYPE_EXCLUSIVE
@@ -986,6 +1062,8 @@ describe("coordination-security", () => {
             task: taskPda,
             escrow: escrowPda,
             protocolConfig: protocolPda,
+            creatorAgent: creatorAgentPda,
+            authority: creator.publicKey,
             creator: creator.publicKey,
             systemProgram: SystemProgram.programId,
           })
@@ -1025,7 +1103,7 @@ describe("coordination-security", () => {
           program.programId
         );
         const [escrowPda] = PublicKey.findProgramAddressSync(
-          [Buffer.from("escrow"], taskPda.toBuffer()],
+          [Buffer.from("escrow"), taskPda.toBuffer()],
           program.programId
         );
 
@@ -1034,17 +1112,19 @@ describe("coordination-security", () => {
         await program.methods
           .createTask(
             Array.from(newTaskId),
-            new anchor.BN(CAPABILITY_COMPUTE),
+            new BN(CAPABILITY_COMPUTE),
             Buffer.from("Expired task".padEnd(64, "\0")),
-            new anchor.BN(1 * LAMPORTS_PER_SOL),
+            new BN(1 * LAMPORTS_PER_SOL),
             1,
-            new anchor.BN(pastDeadline),
+            new BN(pastDeadline),
             TASK_TYPE_EXCLUSIVE
           )
           .accounts({
             task: taskPda,
             escrow: escrowPda,
             protocolConfig: protocolPda,
+            creatorAgent: creatorAgentPda,
+            authority: creator.publicKey,
             creator: creator.publicKey,
             systemProgram: SystemProgram.programId,
           })
@@ -1078,7 +1158,7 @@ describe("coordination-security", () => {
           program.programId
         );
         const [escrowPda] = PublicKey.findProgramAddressSync(
-          [Buffer.from("escrow"], taskPda.toBuffer()],
+          [Buffer.from("escrow"), taskPda.toBuffer()],
           program.programId
         );
 
@@ -1087,17 +1167,19 @@ describe("coordination-security", () => {
         await program.methods
           .createTask(
             Array.from(newTaskId),
-            new anchor.BN(CAPABILITY_COMPUTE),
+            new BN(CAPABILITY_COMPUTE),
             Buffer.from("Soon expired".padEnd(64, "\0")),
-            new anchor.BN(1 * LAMPORTS_PER_SOL),
+            new BN(1 * LAMPORTS_PER_SOL),
             1,
-            new anchor.BN(nearFutureDeadline),
+            new BN(nearFutureDeadline),
             TASK_TYPE_EXCLUSIVE
           )
           .accounts({
             task: taskPda,
             escrow: escrowPda,
             protocolConfig: protocolPda,
+            creatorAgent: creatorAgentPda,
+            authority: creator.publicKey,
             creator: creator.publicKey,
             systemProgram: SystemProgram.programId,
           })
@@ -1152,16 +1234,16 @@ describe("coordination-security", () => {
           program.programId
         );
         const [escrowPda] = PublicKey.findProgramAddressSync(
-          [Buffer.from("escrow"], taskPda.toBuffer()],
+          [Buffer.from("escrow"), taskPda.toBuffer()],
           program.programId
         );
 
         await program.methods
           .createTask(
             Array.from(newTaskId),
-            new anchor.BN(CAPABILITY_COMPUTE),
+            new BN(CAPABILITY_COMPUTE),
             Buffer.from("Threshold test".padEnd(64, "\0")),
-            new anchor.BN(1 * LAMPORTS_PER_SOL),
+            new BN(1 * LAMPORTS_PER_SOL),
             1,
             0,
             TASK_TYPE_EXCLUSIVE
@@ -1170,6 +1252,8 @@ describe("coordination-security", () => {
             task: taskPda,
             escrow: escrowPda,
             protocolConfig: protocolPda,
+            creatorAgent: creatorAgentPda,
+            authority: creator.publicKey,
             creator: creator.publicKey,
             systemProgram: SystemProgram.programId,
           })
@@ -1240,10 +1324,17 @@ describe("coordination-security", () => {
             task: taskPda,
             escrow: escrowPda,
             protocolConfig: protocolPda,
+            resolver: provider.wallet.publicKey,
             creator: creator.publicKey,
             worker: null,
             systemProgram: SystemProgram.programId,
           })
+          .remainingAccounts([
+            { pubkey: votePda1, isSigner: false, isWritable: false },
+            { pubkey: arbiterPda1, isSigner: false, isWritable: true },
+            { pubkey: votePda2, isSigner: false, isWritable: false },
+            { pubkey: arbiterPda2, isSigner: false, isWritable: true },
+          ])
           .rpc();
 
         const dispute = await program.account.dispute.fetch(disputePda);
@@ -1259,16 +1350,16 @@ describe("coordination-security", () => {
           program.programId
         );
         const [escrowPda] = PublicKey.findProgramAddressSync(
-          [Buffer.from("escrow"], taskPda.toBuffer()],
+          [Buffer.from("escrow"), taskPda.toBuffer()],
           program.programId
         );
 
         await program.methods
           .createTask(
             Array.from(newTaskId),
-            new anchor.BN(CAPABILITY_COMPUTE),
+            new BN(CAPABILITY_COMPUTE),
             Buffer.from("Max workers test".padEnd(64, "\0")),
-            new anchor.BN(1 * LAMPORTS_PER_SOL),
+            new BN(1 * LAMPORTS_PER_SOL),
             2,
             0,
             TASK_TYPE_COLLABORATIVE
@@ -1277,6 +1368,8 @@ describe("coordination-security", () => {
             task: taskPda,
             escrow: escrowPda,
             protocolConfig: protocolPda,
+            creatorAgent: creatorAgentPda,
+            authority: creator.publicKey,
             creator: creator.publicKey,
             systemProgram: SystemProgram.programId,
           })
@@ -1338,7 +1431,7 @@ describe("coordination-security", () => {
         await program.methods
           .registerAgent(
             Array.from(extraAgentId),
-            new anchor.BN(CAPABILITY_COMPUTE),
+            new BN(CAPABILITY_COMPUTE),
             "https://extra.com",
             null
           )
@@ -1375,16 +1468,16 @@ describe("coordination-security", () => {
           program.programId
         );
         const [escrowPda] = PublicKey.findProgramAddressSync(
-          [Buffer.from("escrow"], taskPda.toBuffer()],
+          [Buffer.from("escrow"), taskPda.toBuffer()],
           program.programId
         );
 
         await program.methods
           .createTask(
             Array.from(newTaskId),
-            new anchor.BN(CAPABILITY_COMPUTE),
+            new BN(CAPABILITY_COMPUTE),
             Buffer.from("Zero reward task".padEnd(64, "\0")),
-            new anchor.BN(0),
+            new BN(0),
             1,
             0,
             TASK_TYPE_EXCLUSIVE
@@ -1393,6 +1486,8 @@ describe("coordination-security", () => {
             task: taskPda,
             escrow: escrowPda,
             protocolConfig: protocolPda,
+            creatorAgent: creatorAgentPda,
+            authority: creator.publicKey,
             creator: creator.publicKey,
             systemProgram: SystemProgram.programId,
           })
@@ -1452,16 +1547,16 @@ describe("coordination-security", () => {
           program.programId
         );
         const [escrowPda] = PublicKey.findProgramAddressSync(
-          [Buffer.from("escrow"], taskPda.toBuffer()],
+          [Buffer.from("escrow"), taskPda.toBuffer()],
           program.programId
         );
 
         await program.methods
           .createTask(
             Array.from(newTaskId),
-            new anchor.BN(CAPABILITY_COMPUTE),
+            new BN(CAPABILITY_COMPUTE),
             Buffer.from("Deregister test".padEnd(64, "\0")),
-            new anchor.BN(1 * LAMPORTS_PER_SOL),
+            new BN(1 * LAMPORTS_PER_SOL),
             1,
             0,
             TASK_TYPE_EXCLUSIVE
@@ -1470,6 +1565,8 @@ describe("coordination-security", () => {
             task: taskPda,
             escrow: escrowPda,
             protocolConfig: protocolPda,
+            creatorAgent: creatorAgentPda,
+            authority: creator.publicKey,
             creator: creator.publicKey,
             systemProgram: SystemProgram.programId,
           })
@@ -1525,16 +1622,16 @@ describe("coordination-security", () => {
           program.programId
         );
         const [escrowPda] = PublicKey.findProgramAddressSync(
-          [Buffer.from("escrow"], taskPda.toBuffer()],
+          [Buffer.from("escrow"), taskPda.toBuffer()],
           program.programId
         );
 
         await program.methods
           .createTask(
             Array.from(newTaskId),
-            new anchor.BN(CAPABILITY_COMPUTE),
+            new BN(CAPABILITY_COMPUTE),
             Buffer.from("Non-arbiter test".padEnd(64, "\0")),
-            new anchor.BN(1 * LAMPORTS_PER_SOL),
+            new BN(1 * LAMPORTS_PER_SOL),
             1,
             0,
             TASK_TYPE_EXCLUSIVE
@@ -1543,6 +1640,8 @@ describe("coordination-security", () => {
             task: taskPda,
             escrow: escrowPda,
             protocolConfig: protocolPda,
+            creatorAgent: creatorAgentPda,
+            authority: creator.publicKey,
             creator: creator.publicKey,
             systemProgram: SystemProgram.programId,
           })
@@ -1655,7 +1754,7 @@ describe("coordination-security", () => {
           program.programId
         );
         const [escrowPda] = PublicKey.findProgramAddressSync(
-          [Buffer.from("escrow"], taskPda.toBuffer()],
+          [Buffer.from("escrow"), taskPda.toBuffer()],
           program.programId
         );
 
@@ -1665,9 +1764,9 @@ describe("coordination-security", () => {
         await program.methods
           .createTask(
             Array.from(newTaskId),
-            new anchor.BN(CAPABILITY_COMPUTE),
+            new BN(CAPABILITY_COMPUTE),
             Buffer.from("Fund leak test".padEnd(64, "\0")),
-            new anchor.BN(rewardAmount),
+            new BN(rewardAmount),
             1,
             0,
             TASK_TYPE_EXCLUSIVE
@@ -1676,6 +1775,8 @@ describe("coordination-security", () => {
             task: taskPda,
             escrow: escrowPda,
             protocolConfig: protocolPda,
+            creatorAgent: creatorAgentPda,
+            authority: creator.publicKey,
             creator: creator.publicKey,
             systemProgram: SystemProgram.programId,
           })
@@ -1728,3 +1829,4 @@ describe("coordination-security", () => {
     });
   });
 });
+

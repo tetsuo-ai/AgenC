@@ -238,6 +238,10 @@ pub struct AgentRegistration {
     pub dispute_count_24h: u8,
     /// Start of current rate limit window (unix timestamp)
     pub rate_limit_window_start: i64,
+    /// Active dispute votes pending resolution
+    pub active_dispute_votes: u8,
+    /// Timestamp of last dispute vote
+    pub last_vote_timestamp: i64,
     /// Reserved for future use
     pub _reserved: [u8; 6],
 }
@@ -263,6 +267,8 @@ impl AgentRegistration {
         1 +  // task_count_24h
         1 +  // dispute_count_24h
         8 +  // rate_limit_window_start
+        1 +  // active_dispute_votes
+        8 +  // last_vote_timestamp
         6; // reserved
 }
 

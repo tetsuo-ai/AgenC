@@ -2,6 +2,7 @@ import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
 import { PublicKey, Keypair, LAMPORTS_PER_SOL } from "@solana/web3.js";
 import { assert } from "chai";
+import BN from "bn.js";
 
 // Update this with your deployed program ID
 const PROGRAM_ID = new PublicKey("EopUaCV2svxj9j4hd7KjbrWfdjkspmm2BCBe7jGpKzKZ");
@@ -92,8 +93,8 @@ describe("AgenC Devnet Smoke Tests", () => {
   let escrowPda: PublicKey;
 
   // Task params
-  const taskId = new anchor.BN(1);
-  const taskReward = new anchor.BN(0.1 * LAMPORTS_PER_SOL); // 0.1 SOL
+  const taskId = new BN(1);
+  const taskReward = new BN(0.1 * LAMPORTS_PER_SOL); // 0.1 SOL
 
   before(async () => {
     console.log("\n========================================");
@@ -181,7 +182,7 @@ describe("AgenC Devnet Smoke Tests", () => {
       
       const capabilities = 0x01; // COMPUTE
       const endpoint = "https://agent1.example.com";
-      const stakeAmount = new anchor.BN(0.05 * LAMPORTS_PER_SOL);
+      const stakeAmount = new BN(0.05 * LAMPORTS_PER_SOL);
 
       // Call register_agent instruction
       // Adjust based on your actual IDL
@@ -195,7 +196,7 @@ describe("AgenC Devnet Smoke Tests", () => {
       
       const capabilities = 0x02; // INFERENCE
       const endpoint = "https://agent2.example.com";
-      const stakeAmount = new anchor.BN(0.05 * LAMPORTS_PER_SOL);
+      const stakeAmount = new BN(0.05 * LAMPORTS_PER_SOL);
 
       // Call register_agent instruction
       
@@ -218,7 +219,7 @@ describe("AgenC Devnet Smoke Tests", () => {
       
       const requiredCapabilities = 0x01; // COMPUTE
       const description = "Test compute task";
-      const deadline = new anchor.BN(Date.now() / 1000 + 3600); // 1 hour
+      const deadline = new BN(Date.now() / 1000 + 3600); // 1 hour
 
       // Call create_task instruction
       
@@ -301,7 +302,7 @@ describe("AgenC Devnet Smoke Tests", () => {
   });
 
   describe("6. Task Cancellation Flow", () => {
-    const cancelTaskId = new anchor.BN(2);
+    const cancelTaskId = new BN(2);
     let cancelTaskPda: PublicKey;
     let cancelEscrowPda: PublicKey;
 
@@ -341,7 +342,7 @@ describe("AgenC Devnet Smoke Tests", () => {
   });
 
   describe("7. Dispute Flow", () => {
-    const disputeTaskId = new anchor.BN(3);
+    const disputeTaskId = new BN(3);
     let disputeTaskPda: PublicKey;
     let disputePda: PublicKey;
 

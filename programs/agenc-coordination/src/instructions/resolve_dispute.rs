@@ -3,8 +3,8 @@
 use crate::errors::CoordinationError;
 use crate::events::DisputeResolved;
 use crate::state::{
-    Dispute, DisputeStatus, ProtocolConfig, ResolutionType, Task, TaskClaim, TaskEscrow,
-    TaskStatus,
+    AgentRegistration, Dispute, DisputeStatus, DisputeVote, ProtocolConfig, ResolutionType, Task,
+    TaskClaim, TaskEscrow, TaskStatus,
 };
 use crate::utils::version::check_version_compatible;
 use anchor_lang::prelude::*;
@@ -38,6 +38,13 @@ pub struct ResolveDispute<'info> {
         bump = protocol_config.bump
     )]
     pub protocol_config: Account<'info, ProtocolConfig>,
+
+    #[account(
+        constraint = resolver.key() == protocol_config.authority
+            || resolver.key() == dispute.initiator
+            @ CoordinationError::UnauthorizedResolver
+    )]
+    pub resolver: Signer<'info>,
 
     /// CHECK: Task creator for refund - validated to match task.creator (fix #58)
     #[account(
@@ -189,7 +196,40 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
         task.status = TaskStatus::Cancelled;
     }
 
-    // Update dispute status
+    // Update dispute status - decrement active_dispute_votes for each arbiter
+    if dispute.total_voters > 0 {
+        let expected = dispute
+            .total_voters
+            .checked_mul(2)
+            .ok_or(CoordinationError::ArithmeticOverflow)? as usize;
+        require!(
+            ctx.remaining_accounts.len() == expected,
+            CoordinationError::InvalidInput
+        );
+
+        for i in (0..expected).step_by(2) {
+            let vote_info = &ctx.remaining_accounts[i];
+            let arbiter_info = &ctx.remaining_accounts[i + 1];
+
+            // Validate vote account
+            let vote_data = vote_info.try_borrow_data()?;
+            let vote = DisputeVote::try_deserialize(&mut &vote_data[8..])?;
+            require!(vote.dispute == dispute.key(), CoordinationError::InvalidInput);
+            require!(vote.voter == arbiter_info.key(), CoordinationError::InvalidInput);
+            drop(vote_data);
+
+            require!(arbiter_info.is_writable, CoordinationError::InvalidInput);
+
+            // Decrement active_dispute_votes on arbiter
+            let mut arbiter_data = arbiter_info.try_borrow_mut_data()?;
+            let mut arbiter = AgentRegistration::try_deserialize(&mut &arbiter_data[8..])?;
+            arbiter.active_dispute_votes = arbiter.active_dispute_votes.saturating_sub(1);
+            arbiter.try_serialize(&mut &mut arbiter_data[8..])?;
+        }
+    } else {
+        require!(ctx.remaining_accounts.is_empty(), CoordinationError::InvalidInput);
+    }
+
     dispute.status = DisputeStatus::Resolved;
     dispute.resolved_at = clock.unix_timestamp;
     escrow.is_closed = true;
