@@ -26,6 +26,9 @@ pub enum CoordinationError {
     #[msg("Only the agent authority can perform this action")]
     UnauthorizedAgent,
 
+    #[msg("Agent registration required to create tasks")]
+    AgentRegistrationRequired,
+
     // Task errors (6100-6199)
     #[msg("Task not found")]
     TaskNotFound,
@@ -59,6 +62,9 @@ pub enum CoordinationError {
 
     #[msg("Invalid task type")]
     InvalidTaskType,
+
+    #[msg("Competitive task already completed by another worker")]
+    CompetitiveTaskAlreadyWon,
 
     #[msg("Task has no workers")]
     NoWorkers,
@@ -100,6 +106,18 @@ pub enum CoordinationError {
 
     #[msg("Dispute has already been resolved")]
     DisputeAlreadyResolved,
+
+    #[msg("Only protocol authority or dispute initiator can resolve disputes")]
+    UnauthorizedResolver,
+
+    #[msg("Creator account does not match task creator")]
+    InvalidCreator,
+
+    #[msg("Agent has active dispute votes pending resolution")]
+    ActiveDisputeVotes,
+
+    #[msg("Agent must wait 24 hours after voting before deregistering")]
+    RecentVoteActivity,
 
     // State errors (6400-6499)
     #[msg("State version mismatch (concurrent modification)")]

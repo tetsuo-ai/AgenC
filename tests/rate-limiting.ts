@@ -1,5 +1,6 @@
 import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
+import BN from "bn.js";
 import { expect } from "chai";
 import { Keypair, PublicKey, SystemProgram, LAMPORTS_PER_SOL } from "@solana/web3.js";
 import { AgencCoordination } from "../target/types/agenc_coordination";
@@ -18,10 +19,12 @@ describe("rate-limiting", () => {
   let treasury: Keypair;
   let creator: Keypair;
   let worker: Keypair;
+  let creatorAgentPda: PublicKey;
 
   const CAPABILITY_COMPUTE = 1 << 0;
 
   const TASK_TYPE_EXCLUSIVE = 0;
+  const creatorAgentId = Buffer.from("agent-ratelimit-task001".padEnd(32, "\0"));
 
   before(async () => {
     treasury = Keypair.generate();
@@ -44,7 +47,7 @@ describe("rate-limiting", () => {
         .initializeProtocol(
           51, // dispute_threshold
           100, // protocol_fee_bps
-          new anchor.BN(LAMPORTS_PER_SOL), // min_arbiter_stake
+          new BN(LAMPORTS_PER_SOL), // min_arbiter_stake
           1, // multisig_threshold
           [provider.wallet.publicKey] // multisig_owners
         )
@@ -66,17 +69,18 @@ describe("rate-limiting", () => {
     let taskCounter = 0;
 
     before(async () => {
-      agentId = Buffer.from("agent-ratelimit-task001".padEnd(32, "\0"));
-      [agentPda] = PublicKey.findProgramAddressSync(
+      agentId = creatorAgentId;
+      [creatorAgentPda] = PublicKey.findProgramAddressSync(
         [Buffer.from("agent"), agentId],
         program.programId
       );
+      agentPda = creatorAgentPda;
 
       // Register agent for rate limiting tests
       await program.methods
         .registerAgent(
           Array.from(agentId),
-          new anchor.BN(CAPABILITY_COMPUTE),
+          new BN(CAPABILITY_COMPUTE),
           "https://ratelimit-agent.example.com",
           null
         )
@@ -104,11 +108,11 @@ describe("rate-limiting", () => {
       await program.methods
         .createTask(
           Array.from(taskId),
-          new anchor.BN(CAPABILITY_COMPUTE),
+          new BN(CAPABILITY_COMPUTE),
           Buffer.from("Rate limit test task".padEnd(64, "\0")),
-          new anchor.BN(0.1 * LAMPORTS_PER_SOL),
+          new BN(0.1 * LAMPORTS_PER_SOL),
           1,
-          new anchor.BN(0),
+          new BN(0),
           TASK_TYPE_EXCLUSIVE
         )
         .accounts({
@@ -159,7 +163,7 @@ describe("rate-limiting", () => {
       expect(agent.taskCount24h).to.equal(2);
     });
 
-    it("Creates task without agent (no rate limiting)", async () => {
+    it("Creates task with agent registration", async () => {
       const taskId = Buffer.from("task-no-agent-001".padEnd(32, "\0"));
       const [taskPda] = PublicKey.findProgramAddressSync(
         [Buffer.from("task"), creator.publicKey.toBuffer(), taskId],
@@ -170,23 +174,22 @@ describe("rate-limiting", () => {
         program.programId
       );
 
-      // Create task without agent - should succeed even during cooldown
       await program.methods
         .createTask(
           Array.from(taskId),
-          new anchor.BN(CAPABILITY_COMPUTE),
+          new BN(CAPABILITY_COMPUTE),
           Buffer.from("No agent task".padEnd(64, "\0")),
-          new anchor.BN(0.1 * LAMPORTS_PER_SOL),
+          new BN(0.1 * LAMPORTS_PER_SOL),
           1,
-          new anchor.BN(0),
+          new BN(0),
           TASK_TYPE_EXCLUSIVE
         )
         .accounts({
           task: taskPda,
           escrow: escrowPda,
           protocolConfig: protocolPda,
-          creatorAgent: null,
-          authority: null,
+          creatorAgent: agentPda,
+          authority: creator.publicKey,
           creator: creator.publicKey,
           systemProgram: SystemProgram.programId,
         })
@@ -211,7 +214,7 @@ describe("rate-limiting", () => {
       await program.methods
         .registerAgent(
           Array.from(disputeAgentId),
-          new anchor.BN(CAPABILITY_COMPUTE),
+          new BN(CAPABILITY_COMPUTE),
           "https://dispute-agent.example.com",
           null
         )
@@ -244,19 +247,19 @@ describe("rate-limiting", () => {
       await program.methods
         .createTask(
           Array.from(taskId),
-          new anchor.BN(CAPABILITY_COMPUTE),
+          new BN(CAPABILITY_COMPUTE),
           Buffer.from("Dispute test task".padEnd(64, "\0")),
-          new anchor.BN(0.5 * LAMPORTS_PER_SOL),
+          new BN(0.5 * LAMPORTS_PER_SOL),
           1,
-          new anchor.BN(0),
+          new BN(0),
           TASK_TYPE_EXCLUSIVE
         )
         .accounts({
           task: taskPda,
           escrow: escrowPda,
           protocolConfig: protocolPda,
-          creatorAgent: null,
-          authority: null,
+          creatorAgent: creatorAgentPda,
+          authority: creator.publicKey,
           creator: creator.publicKey,
           systemProgram: SystemProgram.programId,
         })
@@ -354,11 +357,11 @@ describe("rate-limiting", () => {
       // Update rate limits (requires multisig)
       await program.methods
         .updateRateLimits(
-          new anchor.BN(30), // task_creation_cooldown: 30 seconds
+          new BN(30), // task_creation_cooldown: 30 seconds
           100, // max_tasks_per_24h: 100
-          new anchor.BN(60), // dispute_initiation_cooldown: 60 seconds
+          new BN(60), // dispute_initiation_cooldown: 60 seconds
           20, // max_disputes_per_24h: 20
-          new anchor.BN(0.5 * LAMPORTS_PER_SOL) // min_stake_for_dispute
+          new BN(0.5 * LAMPORTS_PER_SOL) // min_stake_for_dispute
         )
         .accounts({
           protocolConfig: protocolPda,
@@ -398,7 +401,7 @@ describe("rate-limiting", () => {
       await program.methods
         .registerAgent(
           Array.from(lowStakeAgentId),
-          new anchor.BN(CAPABILITY_COMPUTE),
+          new BN(CAPABILITY_COMPUTE),
           "https://lowstake-agent.example.com",
           null
         )
@@ -427,19 +430,19 @@ describe("rate-limiting", () => {
       await program.methods
         .createTask(
           Array.from(taskId),
-          new anchor.BN(CAPABILITY_COMPUTE),
+          new BN(CAPABILITY_COMPUTE),
           Buffer.from("Stake test task".padEnd(64, "\0")),
-          new anchor.BN(0.5 * LAMPORTS_PER_SOL),
+          new BN(0.5 * LAMPORTS_PER_SOL),
           1,
-          new anchor.BN(0),
+          new BN(0),
           TASK_TYPE_EXCLUSIVE
         )
         .accounts({
           task: taskPda,
           escrow: escrowPda,
           protocolConfig: protocolPda,
-          creatorAgent: null,
-          authority: null,
+          creatorAgent: creatorAgentPda,
+          authority: creator.publicKey,
           creator: creator.publicKey,
           systemProgram: SystemProgram.programId,
         })
@@ -501,7 +504,7 @@ describe("rate-limiting", () => {
       await program.methods
         .registerAgent(
           Array.from(agentId),
-          new anchor.BN(CAPABILITY_COMPUTE),
+          new BN(CAPABILITY_COMPUTE),
           "https://24h-agent.example.com",
           null
         )
@@ -538,7 +541,7 @@ describe("rate-limiting", () => {
       await program.methods
         .registerAgent(
           Array.from(agentId),
-          new anchor.BN(CAPABILITY_COMPUTE),
+          new BN(CAPABILITY_COMPUTE),
           "https://event-agent.example.com",
           null
         )
@@ -565,11 +568,11 @@ describe("rate-limiting", () => {
       await program.methods
         .createTask(
           Array.from(taskId1),
-          new anchor.BN(CAPABILITY_COMPUTE),
+          new BN(CAPABILITY_COMPUTE),
           Buffer.from("Event test task 1".padEnd(64, "\0")),
-          new anchor.BN(0.1 * LAMPORTS_PER_SOL),
+          new BN(0.1 * LAMPORTS_PER_SOL),
           1,
-          new anchor.BN(0),
+          new BN(0),
           TASK_TYPE_EXCLUSIVE
         )
         .accounts({
@@ -608,11 +611,11 @@ describe("rate-limiting", () => {
         await program.methods
           .createTask(
             Array.from(taskId2),
-            new anchor.BN(CAPABILITY_COMPUTE),
+            new BN(CAPABILITY_COMPUTE),
             Buffer.from("Event test task 2".padEnd(64, "\0")),
-            new anchor.BN(0.1 * LAMPORTS_PER_SOL),
+            new BN(0.1 * LAMPORTS_PER_SOL),
             1,
-            new anchor.BN(0),
+            new BN(0),
             TASK_TYPE_EXCLUSIVE
           )
           .accounts({

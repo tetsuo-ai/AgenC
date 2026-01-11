@@ -38,6 +38,17 @@ pub fn handler(ctx: Context<DeregisterAgent>) -> Result<()> {
 
     let clock = Clock::get()?;
 
+    require!(
+        agent.active_dispute_votes == 0,
+        CoordinationError::ActiveDisputeVotes
+    );
+
+    const VOTE_COOLDOWN: i64 = 24 * 60 * 60;
+    require!(
+        clock.unix_timestamp.saturating_sub(agent.last_vote_timestamp) > VOTE_COOLDOWN,
+        CoordinationError::RecentVoteActivity
+    );
+
     // Update protocol stats
     let config = &mut ctx.accounts.protocol_config;
     config.total_agents = config.total_agents.saturating_sub(1);
