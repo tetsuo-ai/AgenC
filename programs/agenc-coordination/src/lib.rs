@@ -1,3 +1,4 @@
+#![allow(unexpected_cfgs)]
 //! AgenC Coordination Protocol
 //!
 //! A decentralized multi-agent coordination layer for the AgenC framework.
@@ -5,7 +6,6 @@
 //! allocation across edge computing agents.
 
 use anchor_lang::prelude::*;
-use anchor_spl::token::{self, Token, TokenAccount, Transfer};
 
 declare_id!("EopUaCV2svxj9j4hd7KjbrWfdjkspmm2BCBe7jGpKzKZ");
 
@@ -15,7 +15,6 @@ pub mod instructions;
 pub mod state;
 pub mod utils;
 
-use errors::CoordinationError;
 use instructions::*;
 
 #[program]
@@ -97,6 +96,12 @@ pub mod agenc_coordination {
     /// Agent must have required capabilities and task must be claimable.
     pub fn claim_task(ctx: Context<ClaimTask>) -> Result<()> {
         instructions::claim_task::handler(ctx)
+    }
+
+    /// Expire a stale claim to free up task slot.
+    /// Can only be called after claim.expires_at has passed.
+    pub fn expire_claim(ctx: Context<ExpireClaim>) -> Result<()> {
+        instructions::expire_claim::handler(ctx)
     }
 
     /// Submit proof of work and mark task portion as complete.

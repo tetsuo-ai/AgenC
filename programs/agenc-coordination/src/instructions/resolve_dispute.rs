@@ -3,7 +3,8 @@
 use crate::errors::CoordinationError;
 use crate::events::DisputeResolved;
 use crate::state::{
-    Dispute, DisputeStatus, ProtocolConfig, ResolutionType, Task, TaskEscrow, TaskStatus,
+    Dispute, DisputeStatus, ProtocolConfig, ResolutionType, Task, TaskClaim, TaskEscrow,
+    TaskStatus,
 };
 use crate::utils::version::check_version_compatible;
 use anchor_lang::prelude::*;
@@ -38,11 +39,23 @@ pub struct ResolveDispute<'info> {
     )]
     pub protocol_config: Account<'info, ProtocolConfig>,
 
-    /// CHECK: Task creator for refund
-    #[account(mut)]
+    /// CHECK: Task creator for refund - validated to match task.creator (fix #58)
+    #[account(
+        mut,
+        constraint = creator.key() == task.creator @ CoordinationError::UnauthorizedTaskAction
+    )]
     pub creator: UncheckedAccount<'info>,
 
-    /// CHECK: Worker for payment (if applicable)
+    /// Worker's claim proving they worked on task (fix #59)
+    /// Required for Complete/Split resolutions that pay a worker
+    #[account(
+        seeds = [b"claim", task.key().as_ref(), worker_claim.worker.as_ref()],
+        bump = worker_claim.bump,
+        constraint = worker_claim.task == task.key() @ CoordinationError::NotClaimed
+    )]
+    pub worker_claim: Option<Account<'info, TaskClaim>>,
+
+    /// CHECK: Worker receiving payment - must match worker_claim.worker (fix #59)
     #[account(mut)]
     pub worker: Option<UncheckedAccount<'info>>,
 
@@ -69,6 +82,14 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
         clock.unix_timestamp >= dispute.voting_deadline,
         CoordinationError::VotingNotEnded
     );
+
+    // Validate worker account matches worker_claim if both provided (fix #59)
+    if let (Some(worker), Some(worker_claim)) = (&ctx.accounts.worker, &ctx.accounts.worker_claim) {
+        require!(
+            worker.key() == worker_claim.worker,
+            CoordinationError::UnauthorizedAgent
+        );
+    }
 
     // Calculate total votes and check threshold
     let total_votes = dispute.votes_for.saturating_add(dispute.votes_against);
@@ -106,7 +127,12 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
                 task.status = TaskStatus::Cancelled;
             }
             ResolutionType::Complete => {
-                // Pay worker if provided
+                // Pay worker - requires valid worker_claim
+                require!(
+                    ctx.accounts.worker_claim.is_some() && ctx.accounts.worker.is_some(),
+                    CoordinationError::NotClaimed
+                );
+
                 if let Some(worker) = &ctx.accounts.worker {
                     if remaining_funds > 0 {
                         **escrow.to_account_info().try_borrow_mut_lamports()? -= remaining_funds;
@@ -117,7 +143,7 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
                 task.completed_at = clock.unix_timestamp;
             }
             ResolutionType::Split => {
-                // Split 50/50 between creator and worker
+                // Split requires valid worker_claim if worker provided
                 let half = remaining_funds
                     .checked_div(2)
                     .ok_or(CoordinationError::ArithmeticOverflow)?;
@@ -131,6 +157,11 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
                         .try_borrow_mut_lamports()? += half;
 
                     if let Some(worker) = &ctx.accounts.worker {
+                        // Worker must have valid claim
+                        require!(
+                            ctx.accounts.worker_claim.is_some(),
+                            CoordinationError::NotClaimed
+                        );
                         **worker.to_account_info().try_borrow_mut_lamports()? +=
                             remaining_funds - half;
                     } else {

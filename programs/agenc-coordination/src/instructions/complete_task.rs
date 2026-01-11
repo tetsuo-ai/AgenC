@@ -82,6 +82,14 @@ pub fn handler(
         CoordinationError::TaskNotInProgress
     );
 
+    // Enforce deadline (fix #62)
+    if task.deadline > 0 {
+        require!(
+            clock.unix_timestamp <= task.deadline,
+            CoordinationError::DeadlinePassed
+        );
+    }
+
     // Validate claim not already completed
     require!(
         !claim.is_completed,

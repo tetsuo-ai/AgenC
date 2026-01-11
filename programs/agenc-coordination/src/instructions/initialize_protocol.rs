@@ -3,7 +3,7 @@
 use crate::errors::CoordinationError;
 use crate::events::ProtocolInitialized;
 use crate::state::{ProtocolConfig, CURRENT_PROTOCOL_VERSION, MIN_SUPPORTED_VERSION};
-use crate::utils::multisig::require_multisig;
+use crate::utils::multisig::validate_multisig_owners;
 use anchor_lang::prelude::*;
 
 #[derive(Accounts)]
@@ -34,6 +34,7 @@ pub fn handler(
     multisig_threshold: u8,
     multisig_owners: Vec<Pubkey>,
 ) -> Result<()> {
+    // Validate parameters BEFORE writing any config
     require!(
         dispute_threshold > 0 && dispute_threshold <= 100,
         CoordinationError::InvalidDisputeThreshold
@@ -55,22 +56,30 @@ pub fn handler(
         CoordinationError::MultisigInvalidThreshold
     );
 
-    for (index, owner) in multisig_owners.iter().enumerate() {
-        require!(
-            *owner != Pubkey::default(),
-            CoordinationError::MultisigDefaultSigner
-        );
-        for other in multisig_owners.iter().skip(index + 1) {
-            require!(*owner != *other, CoordinationError::MultisigDuplicateSigner);
-        }
-    }
+    // Validate multisig owners BEFORE writing config (fix #61)
+    validate_multisig_owners(&multisig_owners)?;
 
+    // Verify sufficient signers provided in remaining_accounts
+    let valid_signers = ctx
+        .remaining_accounts
+        .iter()
+        .filter(|acc| acc.is_signer)
+        .filter(|acc| multisig_owners.contains(acc.key))
+        .count();
+
+    require!(
+        valid_signers >= multisig_threshold as usize,
+        CoordinationError::MultisigNotEnoughSigners
+    );
+
+    // Now safe to write config
     let config = &mut ctx.accounts.protocol_config;
     config.authority = ctx.accounts.authority.key();
     config.treasury = ctx.accounts.treasury.key();
     config.dispute_threshold = dispute_threshold;
     config.protocol_fee_bps = protocol_fee_bps;
     config.min_arbiter_stake = min_stake;
+    config.max_claim_duration = ProtocolConfig::DEFAULT_MAX_CLAIM_DURATION;
     config.total_agents = 0;
     config.total_tasks = 0;
     config.completed_tasks = 0;
@@ -92,8 +101,6 @@ pub fn handler(
     for (index, owner) in multisig_owners.iter().enumerate() {
         config.multisig_owners[index] = *owner;
     }
-
-    require_multisig(config, ctx.remaining_accounts)?;
 
     emit!(ProtocolInitialized {
         authority: config.authority,
