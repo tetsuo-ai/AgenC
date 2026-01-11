@@ -82,6 +82,14 @@ pub fn handler(
         CoordinationError::TaskNotInProgress
     );
 
+    // Enforce deadline (fix #62)
+    if task.deadline > 0 {
+        require!(
+            clock.unix_timestamp <= task.deadline,
+            CoordinationError::DeadlinePassed
+        );
+    }
+
     // Validate claim not already completed
     require!(
         !claim.is_completed,
@@ -95,12 +103,33 @@ pub fn handler(
     claim.completed_at = clock.unix_timestamp;
 
     // Calculate reward
-    let reward_per_worker = if task.task_type == TaskType::Collaborative {
-        task.reward_amount
-            .checked_div(task.required_completions as u64)
-            .ok_or(CoordinationError::ArithmeticOverflow)?
-    } else {
-        task.reward_amount
+    let reward_per_worker = match task.task_type {
+        TaskType::Collaborative => {
+            let base_reward = task
+                .reward_amount
+                .checked_div(task.required_completions as u64)
+                .ok_or(CoordinationError::ArithmeticOverflow)?;
+            let remainder = task
+                .reward_amount
+                .checked_rem(task.required_completions as u64)
+                .ok_or(CoordinationError::ArithmeticOverflow)?;
+
+            if task.completions == task.required_completions.saturating_sub(1) {
+                base_reward
+                    .checked_add(remainder)
+                    .ok_or(CoordinationError::ArithmeticOverflow)?
+            } else {
+                base_reward
+            }
+        }
+        TaskType::Competitive => {
+            require!(
+                task.completions == 0,
+                CoordinationError::CompetitiveTaskAlreadyWon
+            );
+            task.reward_amount
+        }
+        TaskType::Exclusive => task.reward_amount,
     };
 
     // Calculate protocol fee

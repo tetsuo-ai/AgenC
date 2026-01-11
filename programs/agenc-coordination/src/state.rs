@@ -90,6 +90,8 @@ pub struct ProtocolConfig {
     pub protocol_fee_bps: u16,
     /// Minimum stake required to register as arbiter
     pub min_arbiter_stake: u64,
+    /// Max duration (seconds) a claim can stay active without completion
+    pub max_claim_duration: i64,
     /// Total registered agents
     pub total_agents: u64,
     /// Total tasks created
@@ -134,6 +136,7 @@ impl Default for ProtocolConfig {
             dispute_threshold: 50,
             protocol_fee_bps: 100,
             min_arbiter_stake: 0,
+            max_claim_duration: ProtocolConfig::DEFAULT_MAX_CLAIM_DURATION,
             total_agents: 0,
             total_tasks: 0,
             completed_tasks: 0,
@@ -158,12 +161,14 @@ impl Default for ProtocolConfig {
 
 impl ProtocolConfig {
     pub const MAX_MULTISIG_OWNERS: usize = 5;
+    pub const DEFAULT_MAX_CLAIM_DURATION: i64 = 7 * 24 * 60 * 60; // 7 days
     pub const SIZE: usize = 8 + // discriminator
         32 + // authority
         32 + // treasury
         1 +  // dispute_threshold
         2 +  // protocol_fee_bps
         8 +  // min_arbiter_stake
+        8 +  // max_claim_duration
         8 +  // total_agents
         8 +  // total_tasks
         8 +  // completed_tasks
@@ -233,6 +238,10 @@ pub struct AgentRegistration {
     pub dispute_count_24h: u8,
     /// Start of current rate limit window (unix timestamp)
     pub rate_limit_window_start: i64,
+    /// Active dispute votes pending resolution
+    pub active_dispute_votes: u8,
+    /// Timestamp of last dispute vote
+    pub last_vote_timestamp: i64,
     /// Reserved for future use
     pub _reserved: [u8; 6],
 }
@@ -258,6 +267,8 @@ impl AgentRegistration {
         1 +  // task_count_24h
         1 +  // dispute_count_24h
         8 +  // rate_limit_window_start
+        1 +  // active_dispute_votes
+        8 +  // last_vote_timestamp
         6; // reserved
 }
 
@@ -360,6 +371,8 @@ pub struct TaskClaim {
     pub worker: Pubkey,
     /// Claim timestamp
     pub claimed_at: i64,
+    /// Expiration timestamp for claim
+    pub expires_at: i64,
     /// Completion timestamp
     pub completed_at: i64,
     /// Proof of work hash
@@ -382,6 +395,7 @@ impl Default for TaskClaim {
             task: Pubkey::default(),
             worker: Pubkey::default(),
             claimed_at: 0,
+            expires_at: 0,
             completed_at: 0,
             proof_hash: [0u8; 32],
             result_data: [0u8; 64],
@@ -398,6 +412,7 @@ impl TaskClaim {
         32 + // task
         32 + // worker
         8 +  // claimed_at
+        8 +  // expires_at
         8 +  // completed_at
         32 + // proof_hash
         64 + // result_data

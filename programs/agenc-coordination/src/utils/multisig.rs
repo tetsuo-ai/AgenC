@@ -5,6 +5,20 @@ use anchor_lang::prelude::*;
 use crate::errors::CoordinationError;
 use crate::state::ProtocolConfig;
 
+/// Validate multisig owner pubkeys before config is written
+pub fn validate_multisig_owners(owners: &[Pubkey]) -> Result<()> {
+    for (index, owner) in owners.iter().enumerate() {
+        require!(
+            *owner != Pubkey::default(),
+            CoordinationError::MultisigDefaultSigner
+        );
+        for other in owners.iter().skip(index + 1) {
+            require!(*owner != *other, CoordinationError::MultisigDuplicateSigner);
+        }
+    }
+    Ok(())
+}
+
 pub fn require_multisig(config: &ProtocolConfig, remaining_accounts: &[AccountInfo]) -> Result<()> {
     let owners_len = config.multisig_owners_len as usize;
     let threshold = config.multisig_threshold as usize;

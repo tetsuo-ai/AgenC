@@ -27,6 +27,7 @@ pub struct VoteDispute<'info> {
     pub vote: Account<'info, DisputeVote>,
 
     #[account(
+        mut,
         seeds = [b"agent", arbiter.agent_id.as_ref()],
         bump = arbiter.bump,
         has_one = authority @ CoordinationError::UnauthorizedAgent
@@ -48,7 +49,7 @@ pub struct VoteDispute<'info> {
 pub fn handler(ctx: Context<VoteDispute>, approve: bool) -> Result<()> {
     let dispute = &mut ctx.accounts.dispute;
     let vote = &mut ctx.accounts.vote;
-    let arbiter = &ctx.accounts.arbiter;
+    let arbiter = &mut ctx.accounts.arbiter;
     let config = &ctx.accounts.protocol_config;
     let clock = Clock::get()?;
 
@@ -105,6 +106,12 @@ pub fn handler(ctx: Context<VoteDispute>, approve: bool) -> Result<()> {
         .total_voters
         .checked_add(1)
         .ok_or(CoordinationError::ArithmeticOverflow)?;
+
+    arbiter.active_dispute_votes = arbiter
+        .active_dispute_votes
+        .checked_add(1)
+        .ok_or(CoordinationError::ArithmeticOverflow)?;
+    arbiter.last_vote_timestamp = clock.unix_timestamp;
 
     emit!(DisputeVoteCast {
         dispute_id: dispute.dispute_id,

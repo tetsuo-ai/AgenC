@@ -1,5 +1,6 @@
 import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
+import BN from "bn.js";
 import { expect } from "chai";
 import { Keypair, PublicKey, SystemProgram, LAMPORTS_PER_SOL } from "@solana/web3.js";
 import { AgencCoordination } from "../target/types/agenc_coordination";
@@ -22,9 +23,11 @@ describe("upgrades", () => {
   let creator: Keypair;
   let multisigSigner: Keypair;
   let initialProtocolVersion: number | null = null;
+  let creatorAgentPda: PublicKey;
 
   const taskIdTooNew = Buffer.from("task-upg-too-new-001".padEnd(32, "\0"));
   const taskIdTooOld = Buffer.from("task-upg-too-old-001".padEnd(32, "\0"));
+  const creatorAgentId = Buffer.from("creator-upg-000000000000000001".padEnd(32, "\0"));
 
   const deriveTaskPda = (creatorKey: PublicKey, taskId: Buffer): PublicKey => {
     return PublicKey.findProgramAddressSync(
@@ -60,7 +63,7 @@ describe("upgrades", () => {
         .initializeProtocol(
           51, // dispute_threshold
           100, // protocol_fee_bps
-          new anchor.BN(LAMPORTS_PER_SOL), // min_arbiter_stake
+          new BN(LAMPORTS_PER_SOL), // min_arbiter_stake
           2, // multisig_threshold
           [provider.wallet.publicKey, multisigSigner.publicKey]
         )
@@ -82,6 +85,31 @@ describe("upgrades", () => {
 
     const config = await program.account.protocolConfig.fetch(protocolPda);
     initialProtocolVersion = config.protocolVersion;
+
+    creatorAgentPda = PublicKey.findProgramAddressSync(
+      [Buffer.from("agent"), creatorAgentId],
+      program.programId
+    )[0];
+
+    try {
+      await program.methods
+        .registerAgent(
+          Array.from(creatorAgentId),
+          new BN(1),
+          "https://creator-upg.example.com",
+          null
+        )
+        .accounts({
+          agent: creatorAgentPda,
+          protocolConfig: protocolPda,
+          authority: creator.publicKey,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([creator])
+        .rpc();
+    } catch (e) {
+      // Agent may already be registered
+    }
   });
 
   it("rejects migration without multisig approval", async () => {
@@ -129,9 +157,9 @@ describe("upgrades", () => {
       await program.methods
         .createTask(
           Array.from(taskIdTooOld),
-          new anchor.BN(1),
+          new BN(1),
           Buffer.from("Too old version".padEnd(64, "\0")),
-          new anchor.BN(0),
+          new BN(0),
           1,
           0,
           0
@@ -140,6 +168,8 @@ describe("upgrades", () => {
           task: taskPda,
           escrow: escrowPda,
           protocolConfig: protocolPda,
+          creatorAgent: creatorAgentPda,
+          authority: creator.publicKey,
           creator: creator.publicKey,
           systemProgram: SystemProgram.programId,
         })
@@ -191,9 +221,9 @@ describe("upgrades", () => {
       await program.methods
         .createTask(
           Array.from(taskIdTooNew),
-          new anchor.BN(1),
+          new BN(1),
           Buffer.from("Too new version".padEnd(64, "\0")),
-          new anchor.BN(0),
+          new BN(0),
           1,
           0,
           0
@@ -202,6 +232,8 @@ describe("upgrades", () => {
           task: taskPda,
           escrow: escrowPda,
           protocolConfig: protocolPda,
+          creatorAgent: creatorAgentPda,
+          authority: creator.publicKey,
           creator: creator.publicKey,
           systemProgram: SystemProgram.programId,
         })
