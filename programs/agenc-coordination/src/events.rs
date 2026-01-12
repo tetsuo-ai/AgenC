@@ -99,8 +99,8 @@ pub struct DisputeVoteCast {
     pub dispute_id: [u8; 32],
     pub voter: Pubkey,
     pub approved: bool,
-    pub votes_for: u8,
-    pub votes_against: u8,
+    pub votes_for: u64,
+    pub votes_against: u64,
     pub timestamp: i64,
 }
 
@@ -109,8 +109,8 @@ pub struct DisputeVoteCast {
 pub struct DisputeResolved {
     pub dispute_id: [u8; 32],
     pub resolution_type: u8,
-    pub votes_for: u8,
-    pub votes_against: u8,
+    pub votes_for: u64,
+    pub votes_against: u64,
     pub timestamp: i64,
 }
 

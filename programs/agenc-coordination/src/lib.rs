@@ -36,8 +36,16 @@ pub mod agenc_coordination {
         capabilities: u64,
         endpoint: String,
         metadata_uri: Option<String>,
+        stake_amount: u64,
     ) -> Result<()> {
-        instructions::register_agent::handler(ctx, agent_id, capabilities, endpoint, metadata_uri)
+        instructions::register_agent::handler(
+            ctx,
+            agent_id,
+            capabilities,
+            endpoint,
+            metadata_uri,
+            stake_amount,
+        )
     }
 
     /// Update an existing agent's registration data.
@@ -156,6 +164,7 @@ pub mod agenc_coordination {
         task_id: [u8; 32],
         evidence_hash: [u8; 32],
         resolution_type: u8,
+        evidence: String,
     ) -> Result<()> {
         instructions::initiate_dispute::handler(
             ctx,
@@ -163,6 +172,7 @@ pub mod agenc_coordination {
             task_id,
             evidence_hash,
             resolution_type,
+            evidence,
         )
     }
 
@@ -176,6 +186,16 @@ pub mod agenc_coordination {
     /// Requires sufficient votes to meet threshold.
     pub fn resolve_dispute(ctx: Context<ResolveDispute>) -> Result<()> {
         instructions::resolve_dispute::handler(ctx)
+    }
+
+    /// Apply slashing to a worker after losing a dispute.
+    pub fn apply_dispute_slash(ctx: Context<ApplyDisputeSlash>) -> Result<()> {
+        instructions::apply_dispute_slash::handler(ctx)
+    }
+
+    /// Expire a dispute after the maximum duration has passed.
+    pub fn expire_dispute(ctx: Context<ExpireDispute>) -> Result<()> {
+        instructions::expire_dispute::handler(ctx)
     }
 
     /// Initialize the protocol configuration.

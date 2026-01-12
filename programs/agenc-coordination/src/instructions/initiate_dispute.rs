@@ -61,6 +61,7 @@ pub fn handler(
     task_id: [u8; 32],
     evidence_hash: [u8; 32],
     resolution_type: u8,
+    evidence: String,
 ) -> Result<()> {
     let dispute = &mut ctx.accounts.dispute;
     let task = &mut ctx.accounts.task;
@@ -84,6 +85,13 @@ pub fn handler(
 
     // Validate resolution type
     require!(resolution_type <= 2, CoordinationError::InvalidInput);
+
+    let evidence_len = evidence.len();
+    require!(
+        evidence_len >= 50,
+        CoordinationError::InsufficientEvidence
+    );
+    require!(evidence_len <= 1000, CoordinationError::EvidenceTooLong);
 
     // === Rate Limiting Checks ===
 
@@ -175,6 +183,11 @@ pub fn handler(
         .unix_timestamp
         .checked_add(VOTING_PERIOD)
         .ok_or(CoordinationError::ArithmeticOverflow)?;
+    dispute.expires_at = clock
+        .unix_timestamp
+        .checked_add(config.max_dispute_duration)
+        .ok_or(CoordinationError::ArithmeticOverflow)?;
+    dispute.slash_applied = false;
     dispute.bump = ctx.bumps.dispute;
 
     // Mark task as disputed

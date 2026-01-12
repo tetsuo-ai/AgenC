@@ -2,7 +2,7 @@
 
 use crate::errors::CoordinationError;
 use crate::events::AgentUpdated;
-use crate::state::{AgentRegistration, AgentStatus};
+use crate::state::{AgentRegistration, AgentStatus, ProtocolConfig};
 use anchor_lang::prelude::*;
 
 #[derive(Accounts)]
@@ -47,7 +47,25 @@ pub fn handler(
             0 => AgentStatus::Inactive,
             1 => AgentStatus::Active,
             2 => AgentStatus::Busy,
-            3 => AgentStatus::Suspended,
+            3 => {
+                let protocol_config_info = ctx
+                    .remaining_accounts
+                    .get(0)
+                    .ok_or(CoordinationError::UnauthorizedAgent)?;
+                let (expected_pda, _) =
+                    Pubkey::find_program_address(&[b"protocol"], ctx.program_id);
+                require!(
+                    protocol_config_info.key() == expected_pda,
+                    CoordinationError::InvalidInput
+                );
+                let protocol_data = protocol_config_info.try_borrow_data()?;
+                let config = ProtocolConfig::try_deserialize(&mut &protocol_data[8..])?;
+                require!(
+                    ctx.accounts.authority.key() == config.authority,
+                    CoordinationError::UnauthorizedAgent
+                );
+                AgentStatus::Suspended
+            }
             _ => return Err(CoordinationError::InvalidInput.into()),
         };
     }
