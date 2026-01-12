@@ -93,18 +93,18 @@ pub fn handler(ctx: Context<VoteDispute>, approve: bool) -> Result<()> {
     if approve {
         dispute.votes_for = dispute
             .votes_for
-            .checked_add(1)
-            .ok_or(CoordinationError::ArithmeticOverflow)?;
+            .checked_add(arbiter.stake)
+            .ok_or(CoordinationError::VoteOverflow)?;
     } else {
         dispute.votes_against = dispute
             .votes_against
-            .checked_add(1)
-            .ok_or(CoordinationError::ArithmeticOverflow)?;
+            .checked_add(arbiter.stake)
+            .ok_or(CoordinationError::VoteOverflow)?;
     }
     dispute.total_voters = dispute
         .total_voters
         .checked_add(1)
-        .ok_or(CoordinationError::ArithmeticOverflow)?;
+        .ok_or(CoordinationError::VoteOverflow)?;
 
     emit!(DisputeVoteCast {
         dispute_id: dispute.dispute_id,

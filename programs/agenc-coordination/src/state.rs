@@ -90,6 +90,10 @@ pub struct ProtocolConfig {
     pub protocol_fee_bps: u16,
     /// Minimum stake required to register as arbiter
     pub min_arbiter_stake: u64,
+    /// Minimum stake required to register as agent
+    pub min_agent_stake: u64,
+    /// Max duration (seconds) a dispute can remain active
+    pub max_dispute_duration: i64,
     /// Total registered agents
     pub total_agents: u64,
     /// Total tasks created
@@ -115,6 +119,8 @@ pub struct ProtocolConfig {
     pub max_disputes_per_24h: u8,
     /// Minimum stake required to initiate a dispute (griefing resistance)
     pub min_stake_for_dispute: u64,
+    /// Percentage of stake slashed on losing dispute (0-100)
+    pub slash_percentage: u8,
     // === Versioning fields ===
     /// Current protocol version (for upgrades)
     pub protocol_version: u8,
@@ -134,6 +140,8 @@ impl Default for ProtocolConfig {
             dispute_threshold: 50,
             protocol_fee_bps: 100,
             min_arbiter_stake: 0,
+            min_agent_stake: 0,
+            max_dispute_duration: ProtocolConfig::DEFAULT_MAX_DISPUTE_DURATION,
             total_agents: 0,
             total_tasks: 0,
             completed_tasks: 0,
@@ -147,6 +155,7 @@ impl Default for ProtocolConfig {
             dispute_initiation_cooldown: 300, // 5 minutes between disputes
             max_disputes_per_24h: 10,   // 10 disputes per 24h window
             min_stake_for_dispute: 0,   // No stake required by default
+            slash_percentage: ProtocolConfig::DEFAULT_SLASH_PERCENTAGE,
             // Versioning
             protocol_version: CURRENT_PROTOCOL_VERSION,
             min_supported_version: MIN_SUPPORTED_VERSION,
@@ -158,12 +167,16 @@ impl Default for ProtocolConfig {
 
 impl ProtocolConfig {
     pub const MAX_MULTISIG_OWNERS: usize = 5;
+    pub const DEFAULT_MAX_DISPUTE_DURATION: i64 = 7 * 24 * 60 * 60; // 7 days
+    pub const DEFAULT_SLASH_PERCENTAGE: u8 = 10;
     pub const SIZE: usize = 8 + // discriminator
         32 + // authority
         32 + // treasury
         1 +  // dispute_threshold
         2 +  // protocol_fee_bps
         8 +  // min_arbiter_stake
+        8 +  // min_agent_stake
+        8 +  // max_dispute_duration
         8 +  // total_agents
         8 +  // total_tasks
         8 +  // completed_tasks
@@ -176,6 +189,7 @@ impl ProtocolConfig {
         8 +  // dispute_initiation_cooldown
         1 +  // max_disputes_per_24h
         8 +  // min_stake_for_dispute
+        1 +  // slash_percentage
         1 +  // protocol_version
         1 +  // min_supported_version
         2 +  // padding
@@ -233,6 +247,8 @@ pub struct AgentRegistration {
     pub dispute_count_24h: u8,
     /// Start of current rate limit window (unix timestamp)
     pub rate_limit_window_start: i64,
+    /// Timestamp of last state update
+    pub last_state_update: i64,
     /// Reserved for future use
     pub _reserved: [u8; 6],
 }
@@ -258,6 +274,7 @@ impl AgentRegistration {
         1 +  // task_count_24h
         1 +  // dispute_count_24h
         8 +  // rate_limit_window_start
+        8 +  // last_state_update
         6; // reserved
 }
 
@@ -470,13 +487,17 @@ pub struct Dispute {
     /// Resolution timestamp
     pub resolved_at: i64,
     /// Votes for approval
-    pub votes_for: u8,
+    pub votes_for: u64,
     /// Votes against
-    pub votes_against: u8,
+    pub votes_against: u64,
     /// Total eligible voters
     pub total_voters: u8,
     /// Voting deadline
     pub voting_deadline: i64,
+    /// Dispute expiration timestamp
+    pub expires_at: i64,
+    /// Whether slashing has been applied
+    pub slash_applied: bool,
     /// Bump seed
     pub bump: u8,
 }
@@ -491,10 +512,12 @@ impl Dispute {
         1 +  // status
         8 +  // created_at
         8 +  // resolved_at
-        1 +  // votes_for
-        1 +  // votes_against
+        8 +  // votes_for
+        8 +  // votes_against
         1 +  // total_voters
         8 +  // voting_deadline
+        8 +  // expires_at
+        1 +  // slash_applied
         1; // bump
 }
 

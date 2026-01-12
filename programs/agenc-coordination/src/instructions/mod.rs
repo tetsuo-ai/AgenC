@@ -15,6 +15,8 @@ pub mod update_protocol_fee;
 pub mod update_rate_limits;
 pub mod update_state;
 pub mod vote_dispute;
+pub mod apply_dispute_slash;
+pub mod expire_dispute;
 
 pub use cancel_task::*;
 pub use claim_task::*;
@@ -31,3 +33,5 @@ pub use update_protocol_fee::*;
 pub use update_rate_limits::*;
 pub use update_state::*;
 pub use vote_dispute::*;
+pub use apply_dispute_slash::*;
+pub use expire_dispute::*;

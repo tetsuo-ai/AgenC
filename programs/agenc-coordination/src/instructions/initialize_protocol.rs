@@ -71,6 +71,8 @@ pub fn handler(
     config.dispute_threshold = dispute_threshold;
     config.protocol_fee_bps = protocol_fee_bps;
     config.min_arbiter_stake = min_stake;
+    config.min_agent_stake = min_stake;
+    config.max_dispute_duration = ProtocolConfig::DEFAULT_MAX_DISPUTE_DURATION;
     config.total_agents = 0;
     config.total_tasks = 0;
     config.completed_tasks = 0;
@@ -84,6 +86,7 @@ pub fn handler(
     config.dispute_initiation_cooldown = 300; // 5 minutes between disputes
     config.max_disputes_per_24h = 10; // 10 disputes per 24h window
     config.min_stake_for_dispute = 0; // No stake required by default
+    config.slash_percentage = ProtocolConfig::DEFAULT_SLASH_PERCENTAGE;
                                       // Versioning
     config.protocol_version = CURRENT_PROTOCOL_VERSION;
     config.min_supported_version = MIN_SUPPORTED_VERSION;
