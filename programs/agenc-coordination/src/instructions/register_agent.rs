@@ -4,6 +4,7 @@ use crate::errors::CoordinationError;
 use crate::events::AgentRegistered;
 use crate::state::{AgentRegistration, AgentStatus, ProtocolConfig};
 use anchor_lang::prelude::*;
+use anchor_lang::system_program;
 
 #[derive(Accounts)]
 #[instruction(agent_id: [u8; 32])]
@@ -36,14 +37,30 @@ pub fn handler(
     capabilities: u64,
     endpoint: String,
     metadata_uri: Option<String>,
+    stake_amount: u64,
 ) -> Result<()> {
     require!(endpoint.len() <= 128, CoordinationError::StringTooLong);
 
     let metadata = metadata_uri.unwrap_or_default();
     require!(metadata.len() <= 128, CoordinationError::StringTooLong);
 
+    let config = &ctx.accounts.protocol_config;
+    require!(
+        stake_amount >= config.min_agent_stake,
+        CoordinationError::InsufficientStake
+    );
+
     let clock = Clock::get()?;
     let agent = &mut ctx.accounts.agent;
+
+    if stake_amount > 0 {
+        let cpi_accounts = system_program::Transfer {
+            from: ctx.accounts.authority.to_account_info(),
+            to: agent.to_account_info(),
+        };
+        let cpi_ctx = CpiContext::new(ctx.accounts.system_program.to_account_info(), cpi_accounts);
+        system_program::transfer(cpi_ctx, stake_amount)?;
+    }
 
     agent.agent_id = agent_id;
     agent.authority = ctx.accounts.authority.key();
@@ -57,7 +74,7 @@ pub fn handler(
     agent.total_earned = 0;
     agent.reputation = 5000; // Start at 50%
     agent.active_tasks = 0;
-    agent.stake = 0;
+    agent.stake = stake_amount;
     agent.bump = ctx.bumps.agent;
     // Initialize rate limiting fields
     agent.last_task_created = 0;
@@ -67,6 +84,7 @@ pub fn handler(
     agent.rate_limit_window_start = clock.unix_timestamp;
     agent.active_dispute_votes = 0;
     agent.last_vote_timestamp = 0;
+    agent.last_state_update = 0;
     agent._reserved = [0u8; 6];
 
     // Update protocol stats

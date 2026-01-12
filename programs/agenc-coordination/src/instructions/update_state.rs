@@ -47,6 +47,15 @@ pub fn handler(
         CoordinationError::AgentNotActive
     );
 
+    if agent.last_state_update > 0 {
+        let elapsed = clock
+            .unix_timestamp
+            .saturating_sub(agent.last_state_update);
+        if elapsed < 60 {
+            return Err(CoordinationError::RateLimitExceeded.into());
+        }
+    }
+
     // Check version for optimistic locking (if state already exists)
     if state.version > 0 {
         require!(
@@ -68,6 +77,7 @@ pub fn handler(
 
     // Update agent activity
     agent.last_active = clock.unix_timestamp;
+    agent.last_state_update = clock.unix_timestamp;
 
     emit!(StateUpdated {
         state_key,
