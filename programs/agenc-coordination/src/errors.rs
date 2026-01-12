@@ -60,6 +60,9 @@ pub enum CoordinationError {
     #[msg("Only the task creator can perform this action")]
     UnauthorizedTaskAction,
 
+    #[msg("Invalid creator")]
+    InvalidCreator,
+
     #[msg("Invalid task type")]
     InvalidTaskType,
 
@@ -109,9 +112,6 @@ pub enum CoordinationError {
 
     #[msg("Only protocol authority or dispute initiator can resolve disputes")]
     UnauthorizedResolver,
-
-    #[msg("Creator account does not match task creator")]
-    InvalidCreator,
 
     #[msg("Agent has active dispute votes pending resolution")]
     ActiveDisputeVotes,

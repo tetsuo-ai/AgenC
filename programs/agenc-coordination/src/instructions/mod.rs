@@ -3,6 +3,7 @@
 pub mod cancel_task;
 pub mod claim_task;
 pub mod complete_task;
+pub mod complete_task_private;
 pub mod create_task;
 pub mod deregister_agent;
 pub mod expire_claim;
@@ -26,6 +27,7 @@ pub use claim_task::*;
 #[allow(ambiguous_glob_reexports)]
 pub use complete_task::*;
 #[allow(ambiguous_glob_reexports)]
+pub use complete_task_private::*;
 pub use create_task::*;
 #[allow(ambiguous_glob_reexports)]
 pub use deregister_agent::*;

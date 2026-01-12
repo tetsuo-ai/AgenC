@@ -1,0 +1,7 @@
+# Auto-generated for proof
+task_id = "1"
+agent_pubkey = [88, 47, 87, 114, 227, 172, 138, 32, 95, 162, 21, 210, 160, 150, 64, 244, 123, 162, 74, 212, 211, 92, 30, 214, 74, 87, 88, 188, 187, 11, 91, 228]
+constraint_hash = "0x224785a48a72c75e2cbb698143e71d5d41bd89a2b9a7185871e39a54ce5785b1"
+output_commitment = "0x2a4c1b6d1dbda0140b9f9440e8be130b2547074d1db76f96f8c815343bb2239a"
+output = ["1", "2", "3", "4"]
+salt = "12345"
