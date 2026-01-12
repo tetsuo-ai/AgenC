@@ -127,6 +127,15 @@ pub mod agenc_coordination {
         instructions::complete_task::handler(ctx, proof_hash, result_data)
     }
 
+    /// Complete a task with private proof verification.
+    pub fn complete_task_private(
+        ctx: Context<CompleteTaskPrivate>,
+        task_id: u64,
+        proof: PrivateCompletionProof,
+    ) -> Result<()> {
+        instructions::complete_task_private::complete_task_private(ctx, task_id, proof)
+    }
+
     /// Cancel an unclaimed or expired task and reclaim funds.
     pub fn cancel_task(ctx: Context<CancelTask>) -> Result<()> {
         instructions::cancel_task::handler(ctx)
