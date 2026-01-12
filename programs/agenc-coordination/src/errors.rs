@@ -54,6 +54,9 @@ pub enum CoordinationError {
     #[msg("Only the task creator can perform this action")]
     UnauthorizedTaskAction,
 
+    #[msg("Invalid creator")]
+    InvalidCreator,
+
     #[msg("Invalid task type")]
     InvalidTaskType,
 
@@ -94,6 +97,21 @@ pub enum CoordinationError {
 
     #[msg("Dispute has already been resolved")]
     DisputeAlreadyResolved,
+
+    #[msg("Insufficient dispute evidence provided")]
+    InsufficientEvidence,
+
+    #[msg("Dispute evidence exceeds maximum allowed length")]
+    EvidenceTooLong,
+
+    #[msg("Dispute has not expired")]
+    DisputeNotExpired,
+
+    #[msg("Dispute slashing already applied")]
+    SlashAlreadyApplied,
+
+    #[msg("Dispute has not been resolved")]
+    DisputeNotResolved,
 
     // State errors (6400-6499)
     #[msg("State version mismatch (concurrent modification)")]
@@ -142,6 +160,9 @@ pub enum CoordinationError {
 
     #[msg("Arithmetic overflow")]
     ArithmeticOverflow,
+
+    #[msg("Vote count overflow")]
+    VoteOverflow,
 
     #[msg("Insufficient funds")]
     InsufficientFunds,

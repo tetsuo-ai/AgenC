@@ -3,6 +3,7 @@
 pub mod cancel_task;
 pub mod claim_task;
 pub mod complete_task;
+pub mod complete_task_private;
 pub mod create_task;
 pub mod deregister_agent;
 pub mod initialize_protocol;
@@ -15,10 +16,13 @@ pub mod update_protocol_fee;
 pub mod update_rate_limits;
 pub mod update_state;
 pub mod vote_dispute;
+pub mod apply_dispute_slash;
+pub mod expire_dispute;
 
 pub use cancel_task::*;
 pub use claim_task::*;
 pub use complete_task::*;
+pub use complete_task_private::*;
 pub use create_task::*;
 pub use deregister_agent::*;
 pub use initialize_protocol::*;
@@ -31,3 +35,5 @@ pub use update_protocol_fee::*;
 pub use update_rate_limits::*;
 pub use update_state::*;
 pub use vote_dispute::*;
+pub use apply_dispute_slash::*;
+pub use expire_dispute::*;
