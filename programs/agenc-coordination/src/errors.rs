@@ -42,6 +42,9 @@ pub enum CoordinationError {
     #[msg("Task deadline has not passed")]
     TaskNotExpired,
 
+    #[msg("Task deadline has passed")]
+    DeadlinePassed,
+
     #[msg("Task is not in progress")]
     TaskNotInProgress,
 
@@ -69,6 +72,9 @@ pub enum CoordinationError {
 
     #[msg("Claim has already been completed")]
     ClaimAlreadyCompleted,
+
+    #[msg("Claim has not expired yet")]
+    ClaimNotExpired,
 
     #[msg("Invalid proof of work")]
     InvalidProof,

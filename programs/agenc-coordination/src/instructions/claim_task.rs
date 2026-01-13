@@ -91,10 +91,20 @@ pub fn handler(ctx: Context<ClaimTask>) -> Result<()> {
         CoordinationError::MaxActiveTasksReached
     );
 
+    // Calculate claim expiration
+    let expires_at = if task.deadline > 0 {
+        task.deadline
+    } else {
+        clock.unix_timestamp
+            .checked_add(config.max_claim_duration)
+            .ok_or(CoordinationError::ArithmeticOverflow)?
+    };
+
     // Initialize claim
     claim.task = task.key();
     claim.worker = worker.key();
     claim.claimed_at = clock.unix_timestamp;
+    claim.expires_at = expires_at;
     claim.completed_at = 0;
     claim.proof_hash = [0u8; 32];
     claim.result_data = [0u8; 64];
