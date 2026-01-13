@@ -5,6 +5,7 @@ pub mod claim_task;
 pub mod complete_task;
 pub mod create_task;
 pub mod deregister_agent;
+pub mod expire_claim;
 pub mod initialize_protocol;
 pub mod initiate_dispute;
 pub mod migrate;
@@ -16,18 +17,35 @@ pub mod update_rate_limits;
 pub mod update_state;
 pub mod vote_dispute;
 
+#[allow(ambiguous_glob_reexports)]
 pub use cancel_task::*;
+#[allow(ambiguous_glob_reexports)]
 pub use claim_task::*;
+#[allow(ambiguous_glob_reexports)]
 pub use complete_task::*;
+#[allow(ambiguous_glob_reexports)]
 pub use create_task::*;
+#[allow(ambiguous_glob_reexports)]
 pub use deregister_agent::*;
+#[allow(ambiguous_glob_reexports)]
+pub use expire_claim::*;
+#[allow(ambiguous_glob_reexports)]
 pub use initialize_protocol::*;
+#[allow(ambiguous_glob_reexports)]
 pub use initiate_dispute::*;
+#[allow(ambiguous_glob_reexports)]
 pub use migrate::*;
+#[allow(ambiguous_glob_reexports)]
 pub use register_agent::*;
+#[allow(ambiguous_glob_reexports)]
 pub use resolve_dispute::*;
+#[allow(ambiguous_glob_reexports)]
 pub use update_agent::*;
+#[allow(ambiguous_glob_reexports)]
 pub use update_protocol_fee::*;
+#[allow(ambiguous_glob_reexports)]
 pub use update_rate_limits::*;
+#[allow(ambiguous_glob_reexports)]
 pub use update_state::*;
+#[allow(ambiguous_glob_reexports)]
 pub use vote_dispute::*;
