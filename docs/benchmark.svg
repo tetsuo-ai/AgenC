@@ -1,0 +1,110 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 675" width="1200" height="675">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#0a0a0f"/>
+      <stop offset="100%" style="stop-color:#12121a"/>
+    </linearGradient>
+    <linearGradient id="accentGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#3a3a5a"/>
+      <stop offset="100%" style="stop-color:#5a5a8a"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1200" height="675" fill="url(#bgGrad)"/>
+
+  <!-- Header -->
+  <text x="600" y="55" text-anchor="middle" fill="#ffffff" font-family="system-ui, sans-serif" font-size="36" font-weight="bold">AgenC ZK Performance</text>
+  <text x="600" y="90" text-anchor="middle" fill="#888888" font-family="system-ui, sans-serif" font-size="18">Privacy-Preserving Task Verification on Solana</text>
+
+  <!-- Main Stats Grid -->
+  <!-- Stat 1: Proof Size -->
+  <rect x="60" y="130" width="250" height="180" rx="12" fill="#1a1a2e" stroke="#3a3a5a" stroke-width="2"/>
+  <text x="185" y="175" text-anchor="middle" fill="#888888" font-family="system-ui, sans-serif" font-size="14" font-weight="500">PROOF SIZE</text>
+  <text x="185" y="240" text-anchor="middle" fill="#ffffff" font-family="system-ui, sans-serif" font-size="56" font-weight="bold">388</text>
+  <text x="185" y="275" text-anchor="middle" fill="#666666" font-family="system-ui, sans-serif" font-size="20">bytes</text>
+  <text x="185" y="300" text-anchor="middle" fill="#4a9" font-family="system-ui, sans-serif" font-size="12">Groth16 compressed</text>
+
+  <!-- Stat 2: Verification Cost -->
+  <rect x="340" y="130" width="250" height="180" rx="12" fill="#1a1a2e" stroke="#3a3a5a" stroke-width="2"/>
+  <text x="465" y="175" text-anchor="middle" fill="#888888" font-family="system-ui, sans-serif" font-size="14" font-weight="500">VERIFICATION</text>
+  <text x="465" y="240" text-anchor="middle" fill="#ffffff" font-family="system-ui, sans-serif" font-size="56" font-weight="bold">~50k</text>
+  <text x="465" y="275" text-anchor="middle" fill="#666666" font-family="system-ui, sans-serif" font-size="20">compute units</text>
+  <text x="465" y="300" text-anchor="middle" fill="#4a9" font-family="system-ui, sans-serif" font-size="12">On-chain Sunspot verifier</text>
+
+  <!-- Stat 3: Public Inputs -->
+  <rect x="620" y="130" width="250" height="180" rx="12" fill="#1a1a2e" stroke="#3a3a5a" stroke-width="2"/>
+  <text x="745" y="175" text-anchor="middle" fill="#888888" font-family="system-ui, sans-serif" font-size="14" font-weight="500">PUBLIC INPUTS</text>
+  <text x="745" y="240" text-anchor="middle" fill="#ffffff" font-family="system-ui, sans-serif" font-size="56" font-weight="bold">35</text>
+  <text x="745" y="275" text-anchor="middle" fill="#666666" font-family="system-ui, sans-serif" font-size="20">fields</text>
+  <text x="745" y="300" text-anchor="middle" fill="#4a9" font-family="system-ui, sans-serif" font-size="12">task_id + agent + hashes</text>
+
+  <!-- Stat 4: Privacy Level -->
+  <rect x="900" y="130" width="250" height="180" rx="12" fill="#1a1a2e" stroke="#3a3a5a" stroke-width="2"/>
+  <text x="1025" y="175" text-anchor="middle" fill="#888888" font-family="system-ui, sans-serif" font-size="14" font-weight="500">PRIVACY</text>
+  <text x="1025" y="240" text-anchor="middle" fill="#ffffff" font-family="system-ui, sans-serif" font-size="48" font-weight="bold">FULL</text>
+  <text x="1025" y="275" text-anchor="middle" fill="#666666" font-family="system-ui, sans-serif" font-size="20">unlinkability</text>
+  <text x="1025" y="300" text-anchor="middle" fill="#4a9" font-family="system-ui, sans-serif" font-size="12">Privacy Cash shielded pool</text>
+
+  <!-- Comparison Section -->
+  <text x="600" y="365" text-anchor="middle" fill="#ffffff" font-family="system-ui, sans-serif" font-size="20" font-weight="bold">ZK System Comparison</text>
+
+  <!-- Comparison Table Header -->
+  <rect x="100" y="390" width="1000" height="40" rx="6" fill="#2a2a3e"/>
+  <text x="200" y="417" text-anchor="middle" fill="#888888" font-family="system-ui, sans-serif" font-size="13" font-weight="600">SYSTEM</text>
+  <text x="380" y="417" text-anchor="middle" fill="#888888" font-family="system-ui, sans-serif" font-size="13" font-weight="600">PROOF SIZE</text>
+  <text x="540" y="417" text-anchor="middle" fill="#888888" font-family="system-ui, sans-serif" font-size="13" font-weight="600">VERIFY TIME</text>
+  <text x="700" y="417" text-anchor="middle" fill="#888888" font-family="system-ui, sans-serif" font-size="13" font-weight="600">ON-CHAIN</text>
+  <text x="880" y="417" text-anchor="middle" fill="#888888" font-family="system-ui, sans-serif" font-size="13" font-weight="600">PRIVACY</text>
+  <text x="1020" y="417" text-anchor="middle" fill="#888888" font-family="system-ui, sans-serif" font-size="13" font-weight="600">CHAIN</text>
+
+  <!-- AgenC Row (highlighted) -->
+  <rect x="100" y="435" width="1000" height="45" rx="0" fill="#1a2a1a" stroke="#4a9" stroke-width="1"/>
+  <text x="200" y="463" text-anchor="middle" fill="#4a9" font-family="system-ui, sans-serif" font-size="14" font-weight="bold">AgenC (Noir+Sunspot)</text>
+  <text x="380" y="463" text-anchor="middle" fill="#ffffff" font-family="system-ui, sans-serif" font-size="14">388 bytes</text>
+  <text x="540" y="463" text-anchor="middle" fill="#ffffff" font-family="system-ui, sans-serif" font-size="14">~1ms</text>
+  <text x="700" y="463" text-anchor="middle" fill="#ffffff" font-family="system-ui, sans-serif" font-size="14">50k CU</text>
+  <text x="880" y="463" text-anchor="middle" fill="#4a9" font-family="system-ui, sans-serif" font-size="14">Full</text>
+  <text x="1020" y="463" text-anchor="middle" fill="#ffffff" font-family="system-ui, sans-serif" font-size="14">Solana</text>
+
+  <!-- Tornado Cash Row -->
+  <rect x="100" y="480" width="1000" height="40" rx="0" fill="#1a1a2e"/>
+  <text x="200" y="505" text-anchor="middle" fill="#888888" font-family="system-ui, sans-serif" font-size="14">Tornado Cash</text>
+  <text x="380" y="505" text-anchor="middle" fill="#666666" font-family="system-ui, sans-serif" font-size="14">~800 bytes</text>
+  <text x="540" y="505" text-anchor="middle" fill="#666666" font-family="system-ui, sans-serif" font-size="14">~10ms</text>
+  <text x="700" y="505" text-anchor="middle" fill="#666666" font-family="system-ui, sans-serif" font-size="14">~500k gas</text>
+  <text x="880" y="505" text-anchor="middle" fill="#888888" font-family="system-ui, sans-serif" font-size="14">Full</text>
+  <text x="1020" y="505" text-anchor="middle" fill="#666666" font-family="system-ui, sans-serif" font-size="14">Ethereum</text>
+
+  <!-- zkSync Row -->
+  <rect x="100" y="520" width="1000" height="40" rx="0" fill="#1a1a2e"/>
+  <text x="200" y="545" text-anchor="middle" fill="#888888" font-family="system-ui, sans-serif" font-size="14">zkSync Era</text>
+  <text x="380" y="545" text-anchor="middle" fill="#666666" font-family="system-ui, sans-serif" font-size="14">~1.5KB</text>
+  <text x="540" y="545" text-anchor="middle" fill="#666666" font-family="system-ui, sans-serif" font-size="14">~100ms</text>
+  <text x="700" y="545" text-anchor="middle" fill="#666666" font-family="system-ui, sans-serif" font-size="14">Batch</text>
+  <text x="880" y="545" text-anchor="middle" fill="#666666" font-family="system-ui, sans-serif" font-size="14">Partial</text>
+  <text x="1020" y="545" text-anchor="middle" fill="#666666" font-family="system-ui, sans-serif" font-size="14">L2</text>
+
+  <!-- Light Protocol Row -->
+  <rect x="100" y="560" width="1000" height="40" rx="0" fill="#1a1a2e"/>
+  <text x="200" y="585" text-anchor="middle" fill="#888888" font-family="system-ui, sans-serif" font-size="14">Light Protocol</text>
+  <text x="380" y="585" text-anchor="middle" fill="#666666" font-family="system-ui, sans-serif" font-size="14">~512 bytes</text>
+  <text x="540" y="585" text-anchor="middle" fill="#666666" font-family="system-ui, sans-serif" font-size="14">~5ms</text>
+  <text x="700" y="585" text-anchor="middle" fill="#666666" font-family="system-ui, sans-serif" font-size="14">100k CU</text>
+  <text x="880" y="585" text-anchor="middle" fill="#888888" font-family="system-ui, sans-serif" font-size="14">Full</text>
+  <text x="1020" y="585" text-anchor="middle" fill="#666666" font-family="system-ui, sans-serif" font-size="14">Solana</text>
+
+  <!-- Footer -->
+  <line x1="100" y1="620" x2="1100" y2="620" stroke="#333" stroke-width="1"/>
+  <text x="600" y="650" text-anchor="middle" fill="#555555" font-family="system-ui, sans-serif" font-size="14">Solana Privacy Hackathon 2026 | github.com/tetsuo-ai/AgenC | Noir + Sunspot + Privacy Cash</text>
+
+  <!-- Tech Stack Icons (simplified) -->
+  <rect x="100" y="620" width="80" height="25" rx="4" fill="#2a2a3e"/>
+  <text x="140" y="638" text-anchor="middle" fill="#888888" font-family="system-ui, sans-serif" font-size="11">Noir</text>
+
+  <rect x="190" y="620" width="80" height="25" rx="4" fill="#2a2a3e"/>
+  <text x="230" y="638" text-anchor="middle" fill="#888888" font-family="system-ui, sans-serif" font-size="11">Sunspot</text>
+
+  <rect x="280" y="620" width="100" height="25" rx="4" fill="#2a2a3e"/>
+  <text x="330" y="638" text-anchor="middle" fill="#888888" font-family="system-ui, sans-serif" font-size="11">Privacy Cash</text>
+</svg>
