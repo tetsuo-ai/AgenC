@@ -1,0 +1,112 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 675" width="1200" height="675">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#0a0a0f"/>
+      <stop offset="100%" style="stop-color:#151520"/>
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="2" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1200" height="675" fill="url(#bgGrad)"/>
+
+  <!-- Title -->
+  <text x="600" y="50" text-anchor="middle" fill="#ffffff" font-family="system-ui, sans-serif" font-size="32" font-weight="bold">AgenC</text>
+  <text x="600" y="80" text-anchor="middle" fill="#888888" font-family="system-ui, sans-serif" font-size="16">Privacy-Preserving Agent Coordination on Solana</text>
+
+  <!-- Flow Arrow Path -->
+  <path d="M 150 200 L 150 300 L 300 300" stroke="#333" stroke-width="2" fill="none" stroke-dasharray="5,5"/>
+  <path d="M 380 300 L 500 300" stroke="#333" stroke-width="2" fill="none" stroke-dasharray="5,5"/>
+  <path d="M 580 300 L 700 300" stroke="#333" stroke-width="2" fill="none" stroke-dasharray="5,5"/>
+  <path d="M 780 300 L 900 300" stroke="#333" stroke-width="2" fill="none" stroke-dasharray="5,5"/>
+  <path d="M 980 300 L 1050 300 L 1050 400" stroke="#333" stroke-width="2" fill="none" stroke-dasharray="5,5"/>
+
+  <!-- Task Creator Box -->
+  <rect x="80" y="130" width="140" height="80" rx="8" fill="#1a1a2e" stroke="#4a4a6a" stroke-width="2"/>
+  <text x="150" y="160" text-anchor="middle" fill="#ffffff" font-family="system-ui, sans-serif" font-size="14" font-weight="bold">Task Creator</text>
+  <text x="150" y="185" text-anchor="middle" fill="#888888" font-family="system-ui, sans-serif" font-size="11">Creates task</text>
+  <text x="150" y="200" text-anchor="middle" fill="#888888" font-family="system-ui, sans-serif" font-size="11">+ shields escrow</text>
+
+  <!-- Escrow Box -->
+  <rect x="300" y="260" width="80" height="80" rx="8" fill="#1a1a2e" stroke="#4a4a6a" stroke-width="2"/>
+  <text x="340" y="295" text-anchor="middle" fill="#ffffff" font-family="system-ui, sans-serif" font-size="12" font-weight="bold">Escrow</text>
+  <text x="340" y="315" text-anchor="middle" fill="#666666" font-family="system-ui, sans-serif" font-size="10">On-chain</text>
+
+  <!-- Privacy Pool Box -->
+  <rect x="500" y="260" width="80" height="80" rx="8" fill="#2d2d44" stroke="#5a5a7a" stroke-width="2"/>
+  <text x="540" y="290" text-anchor="middle" fill="#ffffff" font-family="system-ui, sans-serif" font-size="12" font-weight="bold">Privacy</text>
+  <text x="540" y="305" text-anchor="middle" fill="#ffffff" font-family="system-ui, sans-serif" font-size="12" font-weight="bold">Pool</text>
+  <text x="540" y="325" text-anchor="middle" fill="#666666" font-family="system-ui, sans-serif" font-size="10">Shielded</text>
+
+  <!-- Link Broken Symbol -->
+  <g transform="translate(620, 290)">
+    <line x1="0" y1="0" x2="25" y2="0" stroke="#ff4444" stroke-width="3" stroke-linecap="round"/>
+    <line x1="35" y1="0" x2="60" y2="0" stroke="#ff4444" stroke-width="3" stroke-linecap="round"/>
+    <text x="30" y="5" text-anchor="middle" fill="#ff4444" font-family="system-ui, sans-serif" font-size="16" font-weight="bold">X</text>
+  </g>
+  <text x="650" y="330" text-anchor="middle" fill="#ff6666" font-family="system-ui, sans-serif" font-size="9">LINK BROKEN</text>
+
+  <!-- ZK Proof Box -->
+  <rect x="700" y="260" width="80" height="80" rx="8" fill="#0f0f1a" stroke="#3a3a5a" stroke-width="2"/>
+  <text x="740" y="290" text-anchor="middle" fill="#ffffff" font-family="system-ui, sans-serif" font-size="12" font-weight="bold">ZK Proof</text>
+  <text x="740" y="310" text-anchor="middle" fill="#888888" font-family="system-ui, sans-serif" font-size="10">Noir</text>
+  <text x="740" y="325" text-anchor="middle" fill="#666666" font-family="system-ui, sans-serif" font-size="10">388 bytes</text>
+
+  <!-- Sunspot Verifier Box -->
+  <rect x="900" y="260" width="80" height="80" rx="8" fill="#2d2d44" stroke="#5a5a7a" stroke-width="2"/>
+  <text x="940" y="290" text-anchor="middle" fill="#ffffff" font-family="system-ui, sans-serif" font-size="12" font-weight="bold">Sunspot</text>
+  <text x="940" y="305" text-anchor="middle" fill="#ffffff" font-family="system-ui, sans-serif" font-size="12" font-weight="bold">Verifier</text>
+  <text x="940" y="325" text-anchor="middle" fill="#666666" font-family="system-ui, sans-serif" font-size="10">On-chain</text>
+
+  <!-- Recipient Box -->
+  <rect x="980" y="400" width="140" height="80" rx="8" fill="#1a1a2e" stroke="#4a4a6a" stroke-width="2"/>
+  <text x="1050" y="430" text-anchor="middle" fill="#ffffff" font-family="system-ui, sans-serif" font-size="14" font-weight="bold">Recipient</text>
+  <text x="1050" y="455" text-anchor="middle" fill="#888888" font-family="system-ui, sans-serif" font-size="11">Private payment</text>
+  <text x="1050" y="470" text-anchor="middle" fill="#888888" font-family="system-ui, sans-serif" font-size="11">to unlinked wallet</text>
+
+  <!-- Agent/Worker section -->
+  <rect x="380" y="400" width="200" height="100" rx="8" fill="#1a1a2e" stroke="#4a4a6a" stroke-width="2"/>
+  <text x="480" y="430" text-anchor="middle" fill="#ffffff" font-family="system-ui, sans-serif" font-size="14" font-weight="bold">Agent / Worker</text>
+  <text x="480" y="455" text-anchor="middle" fill="#888888" font-family="system-ui, sans-serif" font-size="11">1. Claims task</text>
+  <text x="480" y="470" text-anchor="middle" fill="#888888" font-family="system-ui, sans-serif" font-size="11">2. Completes work off-chain</text>
+  <text x="480" y="485" text-anchor="middle" fill="#888888" font-family="system-ui, sans-serif" font-size="11">3. Generates ZK proof</text>
+
+  <!-- Arrow from Agent to ZK -->
+  <path d="M 580 420 Q 650 380 700 300" stroke="#555" stroke-width="2" fill="none" marker-end="url(#arrowhead)"/>
+
+  <!-- Arrow from ZK to Privacy Cash flow -->
+  <path d="M 340 340 L 340 450 L 380 450" stroke="#555" stroke-width="2" fill="none"/>
+
+  <!-- Key Stats Box -->
+  <rect x="80" y="520" width="300" height="120" rx="8" fill="#1a1a2e" stroke="#333" stroke-width="1"/>
+  <text x="100" y="550" fill="#ffffff" font-family="system-ui, sans-serif" font-size="14" font-weight="bold">Key Stats</text>
+  <text x="100" y="575" fill="#888888" font-family="monospace" font-size="12">Proof Size:     388 bytes</text>
+  <text x="100" y="595" fill="#888888" font-family="monospace" font-size="12">Verification:   ~50k compute units</text>
+  <text x="100" y="615" fill="#888888" font-family="monospace" font-size="12">Public Inputs:  35 fields</text>
+
+  <!-- Contract Addresses Box -->
+  <rect x="420" y="520" width="400" height="120" rx="8" fill="#1a1a2e" stroke="#333" stroke-width="1"/>
+  <text x="440" y="550" fill="#ffffff" font-family="system-ui, sans-serif" font-size="14" font-weight="bold">Contract Addresses</text>
+  <text x="440" y="575" fill="#666666" font-family="monospace" font-size="10">AgenC Program:</text>
+  <text x="570" y="575" fill="#888888" font-family="monospace" font-size="10">EopUaCV2svxj9j4hd7Kj...</text>
+  <text x="440" y="595" fill="#666666" font-family="monospace" font-size="10">Verifier:</text>
+  <text x="570" y="595" fill="#888888" font-family="monospace" font-size="10">8fHUGmjNzSh76r78v1rP...</text>
+  <text x="440" y="615" fill="#666666" font-family="monospace" font-size="10">Privacy Cash:</text>
+  <text x="570" y="615" fill="#888888" font-family="monospace" font-size="10">9fhQBbumKEFuXtMBDw8A...</text>
+
+  <!-- Tech Stack -->
+  <rect x="860" y="520" width="260" height="120" rx="8" fill="#1a1a2e" stroke="#333" stroke-width="1"/>
+  <text x="880" y="550" fill="#ffffff" font-family="system-ui, sans-serif" font-size="14" font-weight="bold">Tech Stack</text>
+  <text x="880" y="575" fill="#888888" font-family="system-ui, sans-serif" font-size="12">Blockchain: Solana</text>
+  <text x="880" y="595" fill="#888888" font-family="system-ui, sans-serif" font-size="12">ZK Proofs: Noir + Sunspot (Groth16)</text>
+  <text x="880" y="615" fill="#888888" font-family="system-ui, sans-serif" font-size="12">Privacy: Privacy Cash</text>
+
+  <!-- Solana Privacy Hackathon badge -->
+  <text x="600" y="660" text-anchor="middle" fill="#555555" font-family="system-ui, sans-serif" font-size="12">Solana Privacy Hackathon 2026 | github.com/tetsuo-ai/AgenC</text>
+</svg>
