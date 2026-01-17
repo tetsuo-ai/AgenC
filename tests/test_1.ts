@@ -98,9 +98,10 @@ describe("test_1", () => {
         Array.from(creatorAgentId),
         new BN(CAPABILITY_COMPUTE),
         "https://creator.example.com",
-        null
+        null,
+        new BN(1 * LAMPORTS_PER_SOL)  // stake_amount
       )
-      .accounts({
+      .accountsPartial({
         agent: creatorAgentPda,
         protocolConfig: protocolPda,
         authority: creator.publicKey,
@@ -114,9 +115,10 @@ describe("test_1", () => {
         Array.from(agentId1),
         new BN(CAPABILITY_COMPUTE | CAPABILITY_INFERENCE),
         "https://worker1.example.com",
-        null
+        null,
+        new BN(1 * LAMPORTS_PER_SOL)  // stake_amount
       )
-      .accounts({
+      .accountsPartial({
         agent: deriveAgentPda(agentId1),
         protocolConfig: protocolPda,
         authority: worker1.publicKey,
@@ -130,9 +132,10 @@ describe("test_1", () => {
         Array.from(agentId2),
         new BN(CAPABILITY_COMPUTE),
         "https://worker2.example.com",
-        null
+        null,
+        new BN(1 * LAMPORTS_PER_SOL)  // stake_amount
       )
-      .accounts({
+      .accountsPartial({
         agent: deriveAgentPda(agentId2),
         protocolConfig: protocolPda,
         authority: worker2.publicKey,
@@ -146,9 +149,10 @@ describe("test_1", () => {
         Array.from(agentId3),
         new BN(CAPABILITY_COMPUTE),
         "https://worker3.example.com",
-        null
+        null,
+        new BN(1 * LAMPORTS_PER_SOL)  // stake_amount
       )
-      .accounts({
+      .accountsPartial({
         agent: deriveAgentPda(agentId3),
         protocolConfig: protocolPda,
         authority: worker3.publicKey,
@@ -172,9 +176,10 @@ describe("test_1", () => {
           new BN(1 * LAMPORTS_PER_SOL),
           1,
           0,
-          TASK_TYPE_EXCLUSIVE
+          TASK_TYPE_EXCLUSIVE,
+          null  // constraint_hash
         )
-        .accounts({
+        .accountsPartial({
           task: taskPda,
           escrow: escrowPda,
           protocolConfig: protocolPda,
@@ -205,9 +210,10 @@ describe("test_1", () => {
           new BN(2 * LAMPORTS_PER_SOL),
           3,
           0,
-          TASK_TYPE_COLLABORATIVE
+          TASK_TYPE_COLLABORATIVE,
+          null  // constraint_hash
         )
-        .accounts({
+        .accountsPartial({
           task: taskPda,
           escrow: escrowPda,
           protocolConfig: protocolPda,
@@ -238,9 +244,10 @@ describe("test_1", () => {
           new BN(1 * LAMPORTS_PER_SOL),
           5,
           0,
-          TASK_TYPE_COMPETITIVE
+          TASK_TYPE_COMPETITIVE,
+          null  // constraint_hash
         )
-        .accounts({
+        .accountsPartial({
           task: taskPda,
           escrow: escrowPda,
           protocolConfig: protocolPda,
@@ -273,9 +280,10 @@ describe("test_1", () => {
           new BN(rewardAmount),
           1,
           0,
-          TASK_TYPE_EXCLUSIVE
+          TASK_TYPE_EXCLUSIVE,
+          null  // constraint_hash
         )
-        .accounts({
+        .accountsPartial({
           task: taskPda,
           escrow: escrowPda,
           protocolConfig: protocolPda,
@@ -308,9 +316,10 @@ describe("test_1", () => {
           new BN(0),
           1,
           0,
-          TASK_TYPE_EXCLUSIVE
+          TASK_TYPE_EXCLUSIVE,
+          null  // constraint_hash
         )
-        .accounts({
+        .accountsPartial({
           task: taskPda,
           escrow: escrowPda,
           protocolConfig: protocolPda,
@@ -466,9 +475,10 @@ describe("test_1", () => {
           new BN(1 * LAMPORTS_PER_SOL),
           1,
           0,
-          TASK_TYPE_EXCLUSIVE
+          TASK_TYPE_EXCLUSIVE,
+          null  // constraint_hash
         )
-        .accounts({
+        .accountsPartial({
           task: taskPda,
           escrow: escrowPda,
           protocolConfig: protocolPda,
@@ -484,12 +494,11 @@ describe("test_1", () => {
 
       await program.methods
         .claimTask()
-        .accounts({
+        .accountsPartial({
           task: taskPda,
           claim: claimPda,
-          worker: agentId1,
+          worker: deriveAgentPda(agentId1),
           authority: worker1.publicKey,
-          systemProgram: SystemProgram.programId,
         })
         .signers([worker1])
         .rpc();
@@ -512,9 +521,10 @@ describe("test_1", () => {
           new BN(3 * LAMPORTS_PER_SOL),
           3,
           0,
-          TASK_TYPE_COLLABORATIVE
+          TASK_TYPE_COLLABORATIVE,
+          null  // constraint_hash
         )
-        .accounts({
+        .accountsPartial({
           task: taskPda,
           escrow: escrowPda,
           protocolConfig: protocolPda,
@@ -531,24 +541,22 @@ describe("test_1", () => {
 
       await program.methods
         .claimTask()
-        .accounts({
+        .accountsPartial({
           task: taskPda,
           claim: claimPda1,
-          worker: agentId1,
+          worker: deriveAgentPda(agentId1),
           authority: worker1.publicKey,
-          systemProgram: SystemProgram.programId,
         })
         .signers([worker1])
         .rpc();
 
       await program.methods
         .claimTask()
-        .accounts({
+        .accountsPartial({
           task: taskPda,
           claim: claimPda2,
-          worker: agentId2,
+          worker: deriveAgentPda(agentId2),
           authority: worker2.publicKey,
-          systemProgram: SystemProgram.programId,
         })
         .signers([worker2])
         .rpc();
@@ -570,9 +578,10 @@ describe("test_1", () => {
           new BN(3 * LAMPORTS_PER_SOL),
           3,
           0,
-          TASK_TYPE_COLLABORATIVE
+          TASK_TYPE_COLLABORATIVE,
+          null  // constraint_hash
         )
-        .accounts({
+        .accountsPartial({
           task: taskPda,
           escrow: escrowPda,
           protocolConfig: protocolPda,
@@ -590,12 +599,11 @@ describe("test_1", () => {
 
       await program.methods
         .claimTask()
-        .accounts({
+        .accountsPartial({
           task: taskPda,
           claim: claimPda1,
-          worker: agentId1,
+          worker: deriveAgentPda(agentId1),
           authority: worker1.publicKey,
-          systemProgram: SystemProgram.programId,
         })
         .signers([worker1])
         .rpc();
@@ -605,24 +613,22 @@ describe("test_1", () => {
 
       await program.methods
         .claimTask()
-        .accounts({
+        .accountsPartial({
           task: taskPda,
           claim: claimPda2,
-          worker: agentId2,
+          worker: deriveAgentPda(agentId2),
           authority: worker2.publicKey,
-          systemProgram: SystemProgram.programId,
         })
         .signers([worker2])
         .rpc();
 
       await program.methods
         .claimTask()
-        .accounts({
+        .accountsPartial({
           task: taskPda,
           claim: claimPda3,
-          worker: agentId3,
+          worker: deriveAgentPda(agentId3),
           authority: worker3.publicKey,
-          systemProgram: SystemProgram.programId,
         })
         .signers([worker3])
         .rpc();
@@ -647,9 +653,10 @@ describe("test_1", () => {
           new BN(1 * LAMPORTS_PER_SOL),
           1,
           0,
-          TASK_TYPE_EXCLUSIVE
+          TASK_TYPE_EXCLUSIVE,
+          null  // constraint_hash
         )
-        .accounts({
+        .accountsPartial({
           task: taskPda,
           escrow: escrowPda,
           protocolConfig: protocolPda,
@@ -669,7 +676,7 @@ describe("test_1", () => {
           .accounts({
             task: taskPda,
             claim: claimPda,
-            worker: agentId1,
+            worker: deriveAgentPda(agentId1),
             authority: unauthorized.publicKey,
             systemProgram: SystemProgram.programId,
           })
@@ -700,9 +707,10 @@ describe("test_1", () => {
           new BN(1 * LAMPORTS_PER_SOL),
           1,
           0,
-          TASK_TYPE_EXCLUSIVE
+          TASK_TYPE_EXCLUSIVE,
+          null  // constraint_hash
         )
-        .accounts({
+        .accountsPartial({
           task: taskPda,
           escrow: escrowPda,
           protocolConfig: protocolPda,
@@ -722,7 +730,7 @@ describe("test_1", () => {
           .accounts({
             task: taskPda,
             claim: claimPda,
-            worker: agentId1,
+            worker: deriveAgentPda(agentId1),
             authority: worker1.publicKey,
             systemProgram: SystemProgram.programId,
           })
@@ -753,9 +761,10 @@ describe("test_1", () => {
           new BN(1 * LAMPORTS_PER_SOL),
           1,
           0,
-          TASK_TYPE_EXCLUSIVE
+          TASK_TYPE_EXCLUSIVE,
+          null  // constraint_hash
         )
-        .accounts({
+        .accountsPartial({
           task: taskPda,
           escrow: escrowPda,
           protocolConfig: protocolPda,
@@ -775,7 +784,7 @@ describe("test_1", () => {
           .accounts({
             task: taskPda,
             claim: claimPda,
-            worker: agentId1,
+            worker: deriveAgentPda(agentId1),
             authority: worker1.publicKey,
             systemProgram: SystemProgram.programId,
           })
@@ -797,9 +806,10 @@ describe("test_1", () => {
           new BN(1 * LAMPORTS_PER_SOL),
           1,
           0,
-          TASK_TYPE_EXCLUSIVE
+          TASK_TYPE_EXCLUSIVE,
+          null  // constraint_hash
         )
-        .accounts({
+        .accountsPartial({
           task: taskPda,
           escrow: escrowPda,
           protocolConfig: protocolPda,
@@ -815,27 +825,25 @@ describe("test_1", () => {
 
       await program.methods
         .claimTask()
-        .accounts({
+        .accountsPartial({
           task: taskPda,
           claim: claimPda1,
-          worker: agentId1,
+          worker: deriveAgentPda(agentId1),
           authority: worker1.publicKey,
-          systemProgram: SystemProgram.programId,
         })
         .signers([worker1])
         .rpc();
 
       await program.methods
         .completeTask(Array.from(Buffer.from("proof".padEnd(32, "\0"))), null)
-        .accounts({
+        .accountsPartial({
           task: taskPda,
           claim: claimPda1,
           escrow: escrowPda,
-          worker: agentId1,
+          worker: deriveAgentPda(agentId1),
           protocolConfig: protocolPda,
           treasury: treasury.publicKey,
           authority: worker1.publicKey,
-          systemProgram: SystemProgram.programId,
         })
         .signers([worker1])
         .rpc();
@@ -848,7 +856,7 @@ describe("test_1", () => {
           .accounts({
             task: taskPda,
             claim: claimPda2,
-            worker: agentId2,
+            worker: deriveAgentPda(agentId2),
             authority: worker2.publicKey,
             systemProgram: SystemProgram.programId,
           })
@@ -870,9 +878,10 @@ describe("test_1", () => {
           new BN(1 * LAMPORTS_PER_SOL),
           1,
           0,
-          TASK_TYPE_EXCLUSIVE
+          TASK_TYPE_EXCLUSIVE,
+          null  // constraint_hash
         )
-        .accounts({
+        .accountsPartial({
           task: taskPda,
           escrow: escrowPda,
           protocolConfig: protocolPda,
@@ -903,7 +912,7 @@ describe("test_1", () => {
           .accounts({
             task: taskPda,
             claim: claimPda,
-            worker: agentId1,
+            worker: deriveAgentPda(agentId1),
             authority: worker1.publicKey,
             systemProgram: SystemProgram.programId,
           })
@@ -957,9 +966,10 @@ describe("test_1", () => {
           new BN(2 * LAMPORTS_PER_SOL),
           2,
           0,
-          TASK_TYPE_COLLABORATIVE
+          TASK_TYPE_COLLABORATIVE,
+          null  // constraint_hash
         )
-        .accounts({
+        .accountsPartial({
           task: taskPda,
           escrow: escrowPda,
           protocolConfig: protocolPda,
@@ -976,24 +986,22 @@ describe("test_1", () => {
 
       await program.methods
         .claimTask()
-        .accounts({
+        .accountsPartial({
           task: taskPda,
           claim: claimPda1,
-          worker: agentId1,
+          worker: deriveAgentPda(agentId1),
           authority: worker1.publicKey,
-          systemProgram: SystemProgram.programId,
         })
         .signers([worker1])
         .rpc();
 
       await program.methods
         .claimTask()
-        .accounts({
+        .accountsPartial({
           task: taskPda,
           claim: claimPda2,
-          worker: agentId2,
+          worker: deriveAgentPda(agentId2),
           authority: worker2.publicKey,
-          systemProgram: SystemProgram.programId,
         })
         .signers([worker2])
         .rpc();
@@ -1006,7 +1014,7 @@ describe("test_1", () => {
           .accounts({
             task: taskPda,
             claim: claimPda3,
-            worker: agentId3,
+            worker: deriveAgentPda(agentId3),
             authority: worker3.publicKey,
             systemProgram: SystemProgram.programId,
           })
@@ -1029,9 +1037,10 @@ describe("test_1", () => {
           new BN(1 * LAMPORTS_PER_SOL),
           1,
           0,
-          TASK_TYPE_EXCLUSIVE
+          TASK_TYPE_EXCLUSIVE,
+          null  // constraint_hash
         )
-        .accounts({
+        .accountsPartial({
           task: taskPda,
           escrow: escrowPda,
           protocolConfig: protocolPda,
@@ -1053,7 +1062,7 @@ describe("test_1", () => {
           .accounts({
             task: taskPda,
             claim: claimPda,
-            worker: agentId1,
+            worker: deriveAgentPda(agentId1),
             authority: worker1.publicKey,
             systemProgram: SystemProgram.programId,
           })
@@ -1077,9 +1086,10 @@ describe("test_1", () => {
           new BN(1 * LAMPORTS_PER_SOL),
           1,
           0,
-          TASK_TYPE_EXCLUSIVE
+          TASK_TYPE_EXCLUSIVE,
+          null  // constraint_hash
         )
-        .accounts({
+        .accountsPartial({
           task: taskPda,
           escrow: escrowPda,
           protocolConfig: protocolPda,
@@ -1095,27 +1105,25 @@ describe("test_1", () => {
 
       await program.methods
         .claimTask()
-        .accounts({
+        .accountsPartial({
           task: taskPda,
           claim: claimPda1,
-          worker: agentId1,
+          worker: deriveAgentPda(agentId1),
           authority: worker1.publicKey,
-          systemProgram: SystemProgram.programId,
         })
         .signers([worker1])
         .rpc();
 
       await program.methods
         .completeTask(Array.from(Buffer.from("proof".padEnd(32, "\0"))), null)
-        .accounts({
+        .accountsPartial({
           task: taskPda,
           claim: claimPda1,
           escrow: escrowPda,
-          worker: agentId1,
+          worker: deriveAgentPda(agentId1),
           protocolConfig: protocolPda,
           treasury: treasury.publicKey,
           authority: worker1.publicKey,
-          systemProgram: SystemProgram.programId,
         })
         .signers([worker1])
         .rpc();
@@ -1128,7 +1136,7 @@ describe("test_1", () => {
           .accounts({
             task: taskPda,
             claim: claimPda2,
-            worker: agentId2,
+            worker: deriveAgentPda(agentId2),
             authority: worker2.publicKey,
             systemProgram: SystemProgram.programId,
           })
@@ -1150,9 +1158,10 @@ describe("test_1", () => {
           new BN(1 * LAMPORTS_PER_SOL),
           1,
           0,
-          TASK_TYPE_EXCLUSIVE
+          TASK_TYPE_EXCLUSIVE,
+          null  // constraint_hash
         )
-        .accounts({
+        .accountsPartial({
           task: taskPda,
           escrow: escrowPda,
           protocolConfig: protocolPda,
@@ -1183,7 +1192,7 @@ describe("test_1", () => {
           .accounts({
             task: taskPda,
             claim: claimPda,
-            worker: agentId1,
+            worker: deriveAgentPda(agentId1),
             authority: worker1.publicKey,
             systemProgram: SystemProgram.programId,
           })
@@ -1205,9 +1214,10 @@ describe("test_1", () => {
           new BN(1 * LAMPORTS_PER_SOL),
           1,
           0,
-          TASK_TYPE_EXCLUSIVE
+          TASK_TYPE_EXCLUSIVE,
+          null  // constraint_hash
         )
-        .accounts({
+        .accountsPartial({
           task: taskPda,
           escrow: escrowPda,
           protocolConfig: protocolPda,
@@ -1223,12 +1233,11 @@ describe("test_1", () => {
 
       await program.methods
         .claimTask()
-        .accounts({
+        .accountsPartial({
           task: taskPda,
           claim: claimPda,
-          worker: agentId1,
+          worker: deriveAgentPda(agentId1),
           authority: worker1.publicKey,
-          systemProgram: SystemProgram.programId,
         })
         .signers([worker1])
         .rpc();
@@ -1251,9 +1260,10 @@ describe("test_1", () => {
           new BN(3 * LAMPORTS_PER_SOL),
           3,
           0,
-          TASK_TYPE_COLLABORATIVE
+          TASK_TYPE_COLLABORATIVE,
+          null  // constraint_hash
         )
-        .accounts({
+        .accountsPartial({
           task: taskPda,
           escrow: escrowPda,
           protocolConfig: protocolPda,
@@ -1271,12 +1281,11 @@ describe("test_1", () => {
 
       await program.methods
         .claimTask()
-        .accounts({
+        .accountsPartial({
           task: taskPda,
           claim: claimPda1,
-          worker: agentId1,
+          worker: deriveAgentPda(agentId1),
           authority: worker1.publicKey,
-          systemProgram: SystemProgram.programId,
         })
         .signers([worker1])
         .rpc();
@@ -1286,12 +1295,11 @@ describe("test_1", () => {
 
       await program.methods
         .claimTask()
-        .accounts({
+        .accountsPartial({
           task: taskPda,
           claim: claimPda2,
-          worker: agentId2,
+          worker: deriveAgentPda(agentId2),
           authority: worker2.publicKey,
-          systemProgram: SystemProgram.programId,
         })
         .signers([worker2])
         .rpc();
@@ -1301,12 +1309,11 @@ describe("test_1", () => {
 
       await program.methods
         .claimTask()
-        .accounts({
+        .accountsPartial({
           task: taskPda,
           claim: claimPda3,
-          worker: agentId3,
+          worker: deriveAgentPda(agentId3),
           authority: worker3.publicKey,
-          systemProgram: SystemProgram.programId,
         })
         .signers([worker3])
         .rpc();
@@ -1329,9 +1336,10 @@ describe("test_1", () => {
           new BN(2 * LAMPORTS_PER_SOL),
           2,
           0,
-          TASK_TYPE_COLLABORATIVE
+          TASK_TYPE_COLLABORATIVE,
+          null  // constraint_hash
         )
-        .accounts({
+        .accountsPartial({
           task: taskPda,
           escrow: escrowPda,
           protocolConfig: protocolPda,
@@ -1347,12 +1355,11 @@ describe("test_1", () => {
 
       await program.methods
         .claimTask()
-        .accounts({
+        .accountsPartial({
           task: taskPda,
           claim: claimPda,
-          worker: agentId1,
+          worker: deriveAgentPda(agentId1),
           authority: worker1.publicKey,
-          systemProgram: SystemProgram.programId,
         })
         .signers([worker1])
         .rpc();
@@ -1363,7 +1370,7 @@ describe("test_1", () => {
           .accounts({
             task: taskPda,
             claim: claimPda,
-            worker: agentId1,
+            worker: deriveAgentPda(agentId1),
             authority: worker1.publicKey,
             systemProgram: SystemProgram.programId,
           })
@@ -1387,9 +1394,10 @@ describe("test_1", () => {
           new BN(1 * LAMPORTS_PER_SOL),
           255,
           0,
-          TASK_TYPE_COLLABORATIVE
+          TASK_TYPE_COLLABORATIVE,
+          null  // constraint_hash
         )
-        .accounts({
+        .accountsPartial({
           task: taskPda,
           escrow: escrowPda,
           protocolConfig: protocolPda,
@@ -1426,9 +1434,10 @@ describe("test_1", () => {
           new BN(rewardAmount),
           1,
           0,
-          TASK_TYPE_EXCLUSIVE
+          TASK_TYPE_EXCLUSIVE,
+          null  // constraint_hash
         )
-        .accounts({
+        .accountsPartial({
           task: taskPda,
           escrow: escrowPda,
           protocolConfig: protocolPda,
@@ -1444,12 +1453,11 @@ describe("test_1", () => {
       const claimPda = deriveClaimPda(taskPda, worker1.publicKey);
       await program.methods
         .claimTask()
-        .accounts({
+        .accountsPartial({
           task: taskPda,
           claim: claimPda,
-          worker: agentId1,
+          worker: deriveAgentPda(agentId1),
           authority: worker1.publicKey,
-          systemProgram: SystemProgram.programId,
         })
         .signers([worker1])
         .rpc();
@@ -1465,7 +1473,7 @@ describe("test_1", () => {
           task: taskPda,
           claim: claimPda,
           escrow: escrowPda,
-          worker: agentId1,
+          worker: deriveAgentPda(agentId1),
           protocolConfig: protocolPda,
           treasury: treasury.publicKey,
           authority: worker1.publicKey,
@@ -1504,9 +1512,10 @@ describe("test_1", () => {
           new BN(1 * LAMPORTS_PER_SOL),
           1,
           0,
-          TASK_TYPE_EXCLUSIVE
+          TASK_TYPE_EXCLUSIVE,
+          null  // constraint_hash
         )
-        .accounts({
+        .accountsPartial({
           task: taskPda,
           escrow: escrowPda,
           protocolConfig: protocolPda,
@@ -1522,12 +1531,11 @@ describe("test_1", () => {
 
       await program.methods
         .claimTask()
-        .accounts({
+        .accountsPartial({
           task: taskPda,
           claim: claimPda,
-          worker: agentId1,
+          worker: deriveAgentPda(agentId1),
           authority: worker1.publicKey,
-          systemProgram: SystemProgram.programId,
         })
         .signers([worker1])
         .rpc();
@@ -1538,7 +1546,7 @@ describe("test_1", () => {
           .accounts({
             task: taskPda,
             claim: claimPda,
-            worker: agentId1,
+            worker: deriveAgentPda(agentId1),
             authority: worker1.publicKey,
             systemProgram: SystemProgram.programId,
           })
@@ -1615,7 +1623,7 @@ describe("test_1", () => {
           .accounts({
             task: taskPda,
             claim: claimPda,
-            worker: agentId1,
+            worker: deriveAgentPda(agentId1),
             authority: worker1.publicKey,
             systemProgram: SystemProgram.programId,
           })
@@ -1660,7 +1668,7 @@ describe("test_1", () => {
           .accounts({
             task: taskPda,
             claim: claimPda,
-            worker: agentId1,
+            worker: deriveAgentPda(agentId1),
             authority: worker1.publicKey,
             systemProgram: SystemProgram.programId,
           })
@@ -1678,7 +1686,7 @@ describe("test_1", () => {
             task: taskPda,
             claim: claimPda,
             escrow: escrowPda,
-            worker: agentId1,
+            worker: deriveAgentPda(agentId1),
             protocolConfig: protocolPda,
             treasury: treasury.publicKey,
             authority: worker1.publicKey,
@@ -1777,7 +1785,7 @@ describe("test_1", () => {
           .accounts({
             task: taskPda,
             claim: claimPda,
-            worker: agentId1,
+            worker: deriveAgentPda(agentId1),
             authority: worker1.publicKey,
             systemProgram: SystemProgram.programId,
           })
@@ -1844,7 +1852,7 @@ describe("test_1", () => {
           .accounts({
             task: taskPda,
             claim: claimPda1,
-            worker: agentId1,
+            worker: deriveAgentPda(agentId1),
             authority: worker1.publicKey,
             systemProgram: SystemProgram.programId,
           })
@@ -1857,7 +1865,7 @@ describe("test_1", () => {
             task: taskPda,
             claim: claimPda1,
             escrow: escrowPda,
-            worker: agentId1,
+            worker: deriveAgentPda(agentId1),
             protocolConfig: protocolPda,
             treasury: treasury.publicKey,
             authority: worker1.publicKey,
@@ -1878,7 +1886,7 @@ describe("test_1", () => {
             .accounts({
               task: taskPda,
               claim: claimPda2,
-              worker: agentId2,
+              worker: deriveAgentPda(agentId2),
               authority: worker2.publicKey,
               systemProgram: SystemProgram.programId,
             })
@@ -1920,7 +1928,7 @@ describe("test_1", () => {
           .accounts({
             task: taskPda,
             claim: claimPda,
-            worker: agentId1,
+            worker: deriveAgentPda(agentId1),
             authority: worker1.publicKey,
             systemProgram: SystemProgram.programId,
           })
@@ -1933,7 +1941,7 @@ describe("test_1", () => {
             task: taskPda,
             claim: claimPda,
             escrow: escrowPda,
-            worker: agentId1,
+            worker: deriveAgentPda(agentId1),
             protocolConfig: protocolPda,
             treasury: treasury.publicKey,
             authority: worker1.publicKey,
@@ -2008,7 +2016,7 @@ describe("test_1", () => {
             .accounts({
               task: taskPda,
               claim: claimPda,
-              worker: agentId1,
+              worker: deriveAgentPda(agentId1),
               authority: worker1.publicKey,
               systemProgram: SystemProgram.programId,
             })
@@ -2051,7 +2059,7 @@ describe("test_1", () => {
           .accounts({
             task: taskPda,
             claim: claimPda,
-            worker: agentId1,
+            worker: deriveAgentPda(agentId1),
             authority: worker1.publicKey,
             systemProgram: SystemProgram.programId,
           })
@@ -2154,7 +2162,7 @@ describe("test_1", () => {
           .accounts({
             task: taskPda,
             claim: claimPda,
-            worker: agentId1,
+            worker: deriveAgentPda(agentId1),
             authority: worker1.publicKey,
             systemProgram: SystemProgram.programId,
           })
@@ -2206,7 +2214,7 @@ describe("test_1", () => {
           .accounts({
             task: taskPda,
             claim: claimPda1,
-            worker: agentId1,
+            worker: deriveAgentPda(agentId1),
             authority: worker1.publicKey,
             systemProgram: SystemProgram.programId,
           })
@@ -2218,7 +2226,7 @@ describe("test_1", () => {
           .accounts({
             task: taskPda,
             claim: claimPda2,
-            worker: agentId2,
+            worker: deriveAgentPda(agentId2),
             authority: worker2.publicKey,
             systemProgram: SystemProgram.programId,
           })
@@ -2232,7 +2240,7 @@ describe("test_1", () => {
             task: taskPda,
             claim: claimPda1,
             escrow: escrowPda,
-            worker: agentId1,
+            worker: deriveAgentPda(agentId1),
             protocolConfig: protocolPda,
             treasury: treasury.publicKey,
             authority: worker1.publicKey,
@@ -2249,7 +2257,7 @@ describe("test_1", () => {
               task: taskPda,
               claim: claimPda1,
               escrow: escrowPda,
-              worker: agentId1,
+              worker: deriveAgentPda(agentId1),
               protocolConfig: protocolPda,
               treasury: treasury.publicKey,
               authority: worker1.publicKey,
@@ -2295,7 +2303,7 @@ describe("test_1", () => {
           .accounts({
             task: taskPda,
             claim: claimPda,
-            worker: agentId1,
+            worker: deriveAgentPda(agentId1),
             authority: worker1.publicKey,
             systemProgram: SystemProgram.programId,
           })
@@ -2308,7 +2316,7 @@ describe("test_1", () => {
             task: taskPda,
             claim: claimPda,
             escrow: escrowPda,
-            worker: agentId1,
+            worker: deriveAgentPda(agentId1),
             protocolConfig: protocolPda,
             treasury: treasury.publicKey,
             authority: worker1.publicKey,
@@ -2567,7 +2575,7 @@ describe("test_1", () => {
             .accounts({
               task: taskPda,
               claim: claimPda,
-              worker: agentId1, // Agent owned by worker1
+              worker: deriveAgentPda(agentId1), // Agent owned by worker1
               authority: worker2.publicKey, // But signing with worker2
               systemProgram: SystemProgram.programId,
             })
@@ -2657,7 +2665,7 @@ describe("test_1", () => {
           .accounts({
             task: taskPda,
             claim: claimPda,
-            worker: agentId1,
+            worker: deriveAgentPda(agentId1),
             authority: worker1.publicKey,
             systemProgram: SystemProgram.programId,
           })
@@ -2672,7 +2680,7 @@ describe("test_1", () => {
               task: taskPda,
               claim: claimPda,
               escrow: escrowPda,
-              worker: agentId1, // Worker1's agent
+              worker: deriveAgentPda(agentId1), // Worker1's agent
               protocolConfig: protocolPda,
               treasury: treasury.publicKey,
               authority: worker2.publicKey, // But worker2 signing
@@ -2717,7 +2725,7 @@ describe("test_1", () => {
           .accounts({
             task: taskPda,
             claim: claimPda,
-            worker: agentId1,
+            worker: deriveAgentPda(agentId1),
             authority: worker1.publicKey,
             systemProgram: SystemProgram.programId,
           })
@@ -2732,7 +2740,7 @@ describe("test_1", () => {
               task: taskPda,
               claim: claimPda,
               escrow: escrowPda,
-              worker: agentId1,
+              worker: deriveAgentPda(agentId1),
               protocolConfig: protocolPda,
               treasury: wrongTreasury.publicKey, // Wrong treasury
               authority: worker1.publicKey,
@@ -2777,7 +2785,7 @@ describe("test_1", () => {
           .accounts({
             task: taskPda,
             claim: claimPda1,
-            worker: agentId1,
+            worker: deriveAgentPda(agentId1),
             authority: worker1.publicKey,
             systemProgram: SystemProgram.programId,
           })
@@ -2791,7 +2799,7 @@ describe("test_1", () => {
           .accounts({
             task: taskPda,
             claim: claimPda2,
-            worker: agentId2,
+            worker: deriveAgentPda(agentId2),
             authority: worker2.publicKey,
             systemProgram: SystemProgram.programId,
           })
@@ -2806,7 +2814,7 @@ describe("test_1", () => {
               task: taskPda,
               claim: claimPda2, // Worker2's claim
               escrow: escrowPda,
-              worker: agentId1, // But using Worker1's agent
+              worker: deriveAgentPda(agentId1), // But using Worker1's agent
               protocolConfig: protocolPda,
               treasury: treasury.publicKey,
               authority: worker1.publicKey,
@@ -2954,7 +2962,7 @@ describe("test_1", () => {
           .accounts({
             task: taskPda,
             claim: claimPda,
-            worker: agentId1,
+            worker: deriveAgentPda(agentId1),
             authority: worker1.publicKey,
             systemProgram: SystemProgram.programId,
           })
@@ -3051,7 +3059,7 @@ describe("test_1", () => {
           .accounts({
             task: taskPda,
             claim: claimPda,
-            worker: agentId1,
+            worker: deriveAgentPda(agentId1),
             authority: worker1.publicKey,
             systemProgram: SystemProgram.programId,
           })
@@ -3135,7 +3143,7 @@ describe("test_1", () => {
           .accounts({
             task: taskPda,
             claim: claimPda,
-            worker: agentId1,
+            worker: deriveAgentPda(agentId1),
             authority: worker1.publicKey,
             systemProgram: SystemProgram.programId,
           })
@@ -3215,7 +3223,7 @@ describe("test_1", () => {
           .accounts({
             task: taskPda,
             claim: claimPda,
-            worker: agentId1,
+            worker: deriveAgentPda(agentId1),
             authority: worker1.publicKey,
             systemProgram: SystemProgram.programId,
           })
@@ -3295,7 +3303,7 @@ describe("test_1", () => {
           .accounts({
             task: taskPda,
             claim: claimPda,
-            worker: agentId1,
+            worker: deriveAgentPda(agentId1),
             authority: worker1.publicKey,
             systemProgram: SystemProgram.programId,
           })
@@ -3433,12 +3441,11 @@ describe("test_1", () => {
 
       const claimPda = deriveClaimPda(taskPda, worker1.publicKey);
       await program.methods.claimTask()
-        .accounts({
+        .accountsPartial({
           task: taskPda,
           claim: claimPda,
-          worker: agentId1,
+          worker: deriveAgentPda(agentId1),
           authority: worker1.publicKey,
-          systemProgram: SystemProgram.programId,
         })
         .signers([worker1])
         .rpc();
@@ -3449,7 +3456,7 @@ describe("test_1", () => {
             task: taskPda,
             claim: claimPda,
             escrow: escrowPda,
-            worker: agentId1,
+            worker: deriveAgentPda(agentId1),
             protocolConfig: protocolPda,
             treasury: treasury.publicKey,
             authority: worker2.publicKey,
@@ -3489,12 +3496,11 @@ describe("test_1", () => {
 
       const claimPda = deriveClaimPda(taskPda, worker1.publicKey);
       await program.methods.claimTask()
-        .accounts({
+        .accountsPartial({
           task: taskPda,
           claim: claimPda,
-          worker: agentId1,
+          worker: deriveAgentPda(agentId1),
           authority: worker1.publicKey,
-          systemProgram: SystemProgram.programId,
         })
         .signers([worker1])
         .rpc();
@@ -3504,7 +3510,7 @@ describe("test_1", () => {
           task: taskPda,
           claim: claimPda,
           escrow: escrowPda,
-          worker: agentId1,
+          worker: deriveAgentPda(agentId1),
           protocolConfig: protocolPda,
           treasury: treasury.publicKey,
           authority: worker1.publicKey,
@@ -3571,7 +3577,7 @@ describe("test_1", () => {
             task: taskPda,
             claim: claimPda,
             escrow: escrowPda,
-            worker: agentId1,
+            worker: deriveAgentPda(agentId1),
             protocolConfig: protocolPda,
             treasury: treasury.publicKey,
             authority: worker1.publicKey,
@@ -3741,7 +3747,7 @@ describe("test_1", () => {
           .accounts({
             task: taskPda,
             claim: claimPda,
-            worker: agentId1,
+            worker: deriveAgentPda(agentId1),
             authority: worker1.publicKey,
             systemProgram: SystemProgram.programId,
           })
@@ -3760,7 +3766,7 @@ describe("test_1", () => {
             task: taskPda,
             claim: claimPda,
             escrow: escrowPda,
-            worker: agentId1,
+            worker: deriveAgentPda(agentId1),
             protocolConfig: protocolPda,
             treasury: treasury.publicKey,
             authority: worker1.publicKey,
@@ -3830,18 +3836,18 @@ describe("test_1", () => {
         const claimPda3 = deriveClaimPda(taskPda, worker3.publicKey);
 
         await program.methods.claimTask().accounts({
-          task: taskPda, claim: claimPda1, worker: agentId1,
-          authority: worker1.publicKey, systemProgram: SystemProgram.programId,
+          task: taskPda, claim: claimPda1, worker: deriveAgentPda(agentId1),
+          authority: worker1.publicKey,
         }).signers([worker1]).rpc();
 
         await program.methods.claimTask().accounts({
-          task: taskPda, claim: claimPda2, worker: agentId2,
-          authority: worker2.publicKey, systemProgram: SystemProgram.programId,
+          task: taskPda, claim: claimPda2, worker: deriveAgentPda(agentId2),
+          authority: worker2.publicKey,
         }).signers([worker2]).rpc();
 
         await program.methods.claimTask().accounts({
-          task: taskPda, claim: claimPda3, worker: agentId3,
-          authority: worker3.publicKey, systemProgram: SystemProgram.programId,
+          task: taskPda, claim: claimPda3, worker: deriveAgentPda(agentId3),
+          authority: worker3.publicKey,
         }).signers([worker3]).rpc();
 
         // Snapshot balances before completions
@@ -3856,7 +3862,7 @@ describe("test_1", () => {
         // Worker 1 completes
         const w1Before = await provider.connection.getBalance(worker1.publicKey);
         const tx1 = await program.methods.completeTask(Array.from(Buffer.from("proof1".padEnd(32, "\0"))), null).accounts({
-          task: taskPda, claim: claimPda1, escrow: escrowPda, worker: agentId1,
+          task: taskPda, claim: claimPda1, escrow: escrowPda, worker: deriveAgentPda(agentId1),
           protocolConfig: protocolPda, treasury: treasury.publicKey,
           authority: worker1.publicKey, systemProgram: SystemProgram.programId,
         }).signers([worker1]).rpc();
@@ -3868,7 +3874,7 @@ describe("test_1", () => {
         // Worker 2 completes
         const w2Before = await provider.connection.getBalance(worker2.publicKey);
         const tx2 = await program.methods.completeTask(Array.from(Buffer.from("proof2".padEnd(32, "\0"))), null).accounts({
-          task: taskPda, claim: claimPda2, escrow: escrowPda, worker: agentId2,
+          task: taskPda, claim: claimPda2, escrow: escrowPda, worker: deriveAgentPda(agentId2),
           protocolConfig: protocolPda, treasury: treasury.publicKey,
           authority: worker2.publicKey, systemProgram: SystemProgram.programId,
         }).signers([worker2]).rpc();
@@ -3880,7 +3886,7 @@ describe("test_1", () => {
         // Worker 3 completes (final completion, task should become Completed)
         const w3Before = await provider.connection.getBalance(worker3.publicKey);
         const tx3 = await program.methods.completeTask(Array.from(Buffer.from("proof3".padEnd(32, "\0"))), null).accounts({
-          task: taskPda, claim: claimPda3, escrow: escrowPda, worker: agentId3,
+          task: taskPda, claim: claimPda3, escrow: escrowPda, worker: deriveAgentPda(agentId3),
           protocolConfig: protocolPda, treasury: treasury.publicKey,
           authority: worker3.publicKey, systemProgram: SystemProgram.programId,
         }).signers([worker3]).rpc();
@@ -4009,12 +4015,12 @@ describe("test_1", () => {
         // Worker 1 claims and completes
         const claimPda1 = deriveClaimPda(taskPda, worker1.publicKey);
         await program.methods.claimTask().accounts({
-          task: taskPda, claim: claimPda1, worker: agentId1,
-          authority: worker1.publicKey, systemProgram: SystemProgram.programId,
+          task: taskPda, claim: claimPda1, worker: deriveAgentPda(agentId1),
+          authority: worker1.publicKey,
         }).signers([worker1]).rpc();
 
         await program.methods.completeTask(Array.from(Buffer.from("proof1".padEnd(32, "\0"))), null).accounts({
-          task: taskPda, claim: claimPda1, escrow: escrowPda, worker: agentId1,
+          task: taskPda, claim: claimPda1, escrow: escrowPda, worker: deriveAgentPda(agentId1),
           protocolConfig: protocolPda, treasury: treasury.publicKey,
           authority: worker1.publicKey, systemProgram: SystemProgram.programId,
         }).signers([worker1]).rpc();
@@ -4084,20 +4090,20 @@ describe("test_1", () => {
         const claimPda2 = deriveClaimPda(taskPda, worker2.publicKey);
 
         await program.methods.claimTask().accounts({
-          task: taskPda, claim: claimPda1, worker: agentId1,
-          authority: worker1.publicKey, systemProgram: SystemProgram.programId,
+          task: taskPda, claim: claimPda1, worker: deriveAgentPda(agentId1),
+          authority: worker1.publicKey,
         }).signers([worker1]).rpc();
 
         await program.methods.claimTask().accounts({
-          task: taskPda, claim: claimPda2, worker: agentId2,
-          authority: worker2.publicKey, systemProgram: SystemProgram.programId,
+          task: taskPda, claim: claimPda2, worker: deriveAgentPda(agentId2),
+          authority: worker2.publicKey,
         }).signers([worker2]).rpc();
 
         // Worker 1 completes successfully
         const escrowBefore = await provider.connection.getBalance(escrowPda);
 
         await program.methods.completeTask(Array.from(Buffer.from("proof1".padEnd(32, "\0"))), null).accounts({
-          task: taskPda, claim: claimPda1, escrow: escrowPda, worker: agentId1,
+          task: taskPda, claim: claimPda1, escrow: escrowPda, worker: deriveAgentPda(agentId1),
           protocolConfig: protocolPda, treasury: treasury.publicKey,
           authority: worker1.publicKey, systemProgram: SystemProgram.programId,
         }).signers([worker1]).rpc();
@@ -4111,9 +4117,9 @@ describe("test_1", () => {
         // Worker 1 tries to complete again - should fail
         await expect(
           program.methods.completeTask(Array.from(Buffer.from("proof2".padEnd(32, "\0"))), null).accounts({
-            task: taskPda, claim: claimPda1, escrow: escrowPda, worker: agentId1,
+            task: taskPda, claim: claimPda1, escrow: escrowPda, worker: deriveAgentPda(agentId1),
             protocolConfig: protocolPda, treasury: treasury.publicKey,
-            authority: worker1.publicKey, systemProgram: SystemProgram.programId,
+            authority: worker1.publicKey,
           }).signers([worker1]).rpc()
         ).to.be.rejected;
 
@@ -4152,12 +4158,12 @@ describe("test_1", () => {
         const claimPda = deriveClaimPda(taskPda, worker1.publicKey);
 
         await program.methods.claimTask().accounts({
-          task: taskPda, claim: claimPda, worker: agentId1,
-          authority: worker1.publicKey, systemProgram: SystemProgram.programId,
+          task: taskPda, claim: claimPda, worker: deriveAgentPda(agentId1),
+          authority: worker1.publicKey,
         }).signers([worker1]).rpc();
 
         await program.methods.completeTask(Array.from(Buffer.from("proof".padEnd(32, "\0"))), null).accounts({
-          task: taskPda, claim: claimPda, escrow: escrowPda, worker: agentId1,
+          task: taskPda, claim: claimPda, escrow: escrowPda, worker: deriveAgentPda(agentId1),
           protocolConfig: protocolPda, treasury: treasury.publicKey,
           authority: worker1.publicKey, systemProgram: SystemProgram.programId,
         }).signers([worker1]).rpc();
@@ -4212,12 +4218,12 @@ describe("test_1", () => {
         const claimPda = deriveClaimPda(taskPda, worker1.publicKey);
 
         await program.methods.claimTask().accounts({
-          task: taskPda, claim: claimPda, worker: agentId1,
-          authority: worker1.publicKey, systemProgram: SystemProgram.programId,
+          task: taskPda, claim: claimPda, worker: deriveAgentPda(agentId1),
+          authority: worker1.publicKey,
         }).signers([worker1]).rpc();
 
         await program.methods.completeTask(Array.from(Buffer.from("proof".padEnd(32, "\0"))), null).accounts({
-          task: taskPda, claim: claimPda, escrow: escrowPda, worker: agentId1,
+          task: taskPda, claim: claimPda, escrow: escrowPda, worker: deriveAgentPda(agentId1),
           protocolConfig: protocolPda, treasury: treasury.publicKey,
           authority: worker1.publicKey, systemProgram: SystemProgram.programId,
         }).signers([worker1]).rpc();
@@ -4319,15 +4325,15 @@ describe("test_1", () => {
         // Claim task
         const claimPda = deriveClaimPda(taskPda, worker1.publicKey);
         const tx2 = await program.methods.claimTask().accounts({
-          task: taskPda, claim: claimPda, worker: agentId1,
-          authority: worker1.publicKey, systemProgram: SystemProgram.programId,
+          task: taskPda, claim: claimPda, worker: deriveAgentPda(agentId1),
+          authority: worker1.publicKey,
         }).signers([worker1]).rpc();
         const tx2Details = await provider.connection.getTransaction(tx2, { commitment: "confirmed" });
         totalTxFees += tx2Details?.meta?.fee || 0;
 
         // Complete task
         const tx3 = await program.methods.completeTask(Array.from(Buffer.from("proof".padEnd(32, "\0"))), null).accounts({
-          task: taskPda, claim: claimPda, escrow: escrowPda, worker: agentId1,
+          task: taskPda, claim: claimPda, escrow: escrowPda, worker: deriveAgentPda(agentId1),
           protocolConfig: protocolPda, treasury: treasury.publicKey,
           authority: worker1.publicKey, systemProgram: SystemProgram.programId,
         }).signers([worker1]).rpc();
@@ -4402,8 +4408,8 @@ describe("test_1", () => {
 
         const claimPda = deriveClaimPda(taskPda, worker1.publicKey);
         await program.methods.claimTask().accounts({
-          task: taskPda, claim: claimPda, worker: agentId1,
-          authority: worker1.publicKey, systemProgram: SystemProgram.programId,
+          task: taskPda, claim: claimPda, worker: deriveAgentPda(agentId1),
+          authority: worker1.publicKey,
         }).signers([worker1]).rpc();
 
         // Verify task is InProgress
@@ -4469,8 +4475,8 @@ describe("test_1", () => {
 
         const claimPda = deriveClaimPda(taskPda, worker1.publicKey);
         await program.methods.claimTask().accounts({
-          task: taskPda, claim: claimPda, worker: agentId1,
-          authority: worker1.publicKey, systemProgram: SystemProgram.programId,
+          task: taskPda, claim: claimPda, worker: deriveAgentPda(agentId1),
+          authority: worker1.publicKey,
         }).signers([worker1]).rpc();
 
         const beforeTimestamp = Math.floor(Date.now() / 1000);
@@ -4535,8 +4541,8 @@ describe("test_1", () => {
 
         const claimPda = deriveClaimPda(taskPda, worker1.publicKey);
         await program.methods.claimTask().accounts({
-          task: taskPda, claim: claimPda, worker: agentId1,
-          authority: worker1.publicKey, systemProgram: SystemProgram.programId,
+          task: taskPda, claim: claimPda, worker: deriveAgentPda(agentId1),
+          authority: worker1.publicKey,
         }).signers([worker1]).rpc();
 
         // Confirm InProgress before dispute
@@ -4586,8 +4592,8 @@ describe("test_1", () => {
 
         const claimPda0 = deriveClaimPda(taskPda0, worker1.publicKey);
         await program.methods.claimTask().accounts({
-          task: taskPda0, claim: claimPda0, worker: agentId1,
-          authority: worker1.publicKey, systemProgram: SystemProgram.programId,
+          task: taskPda0, claim: claimPda0, worker: deriveAgentPda(agentId1),
+          authority: worker1.publicKey,
         }).signers([worker1]).rpc();
 
         await program.methods.initiateDispute(
@@ -4693,12 +4699,12 @@ describe("test_1", () => {
 
         const claimPda = deriveClaimPda(taskPda, worker1.publicKey);
         await program.methods.claimTask().accounts({
-          task: taskPda, claim: claimPda, worker: agentId1,
-          authority: worker1.publicKey, systemProgram: SystemProgram.programId,
+          task: taskPda, claim: claimPda, worker: deriveAgentPda(agentId1),
+          authority: worker1.publicKey,
         }).signers([worker1]).rpc();
 
         await program.methods.completeTask(Array.from(Buffer.from("proof".padEnd(32, "\0"))), null).accounts({
-          task: taskPda, claim: claimPda, escrow: escrowPda, worker: agentId1,
+          task: taskPda, claim: claimPda, escrow: escrowPda, worker: deriveAgentPda(agentId1),
           protocolConfig: protocolPda, treasury: treasury.publicKey,
           authority: worker1.publicKey, systemProgram: SystemProgram.programId,
         }).signers([worker1]).rpc();
@@ -4820,8 +4826,8 @@ describe("test_1", () => {
 
         const claimPda = deriveClaimPda(taskPda, worker1.publicKey);
         await program.methods.claimTask().accounts({
-          task: taskPda, claim: claimPda, worker: agentId1,
-          authority: worker1.publicKey, systemProgram: SystemProgram.programId,
+          task: taskPda, claim: claimPda, worker: deriveAgentPda(agentId1),
+          authority: worker1.publicKey,
         }).signers([worker1]).rpc();
 
         // First dispute succeeds
@@ -4942,8 +4948,8 @@ describe("test_1", () => {
         // Have worker1 claim to move to InProgress
         const claimPda = deriveClaimPda(taskPda, worker1.publicKey);
         await program.methods.claimTask().accounts({
-          task: taskPda, claim: claimPda, worker: agentId1,
-          authority: worker1.publicKey, systemProgram: SystemProgram.programId,
+          task: taskPda, claim: claimPda, worker: deriveAgentPda(agentId1),
+          authority: worker1.publicKey,
         }).signers([worker1]).rpc();
 
         // Inactive agent tries to dispute - should fail
@@ -4998,8 +5004,8 @@ describe("test_1", () => {
 
         const claimPda = deriveClaimPda(taskPda, worker1.publicKey);
         await program.methods.claimTask().accounts({
-          task: taskPda, claim: claimPda, worker: agentId1,
-          authority: worker1.publicKey, systemProgram: SystemProgram.programId,
+          task: taskPda, claim: claimPda, worker: deriveAgentPda(agentId1),
+          authority: worker1.publicKey,
         }).signers([worker1]).rpc();
 
         // Try to dispute with worker1's agent but worker2's authority - should fail
@@ -5056,8 +5062,8 @@ describe("test_1", () => {
 
         const claimPda = deriveClaimPda(taskPda, worker1.publicKey);
         await program.methods.claimTask().accounts({
-          task: taskPda, claim: claimPda, worker: agentId1,
-          authority: worker1.publicKey, systemProgram: SystemProgram.programId,
+          task: taskPda, claim: claimPda, worker: deriveAgentPda(agentId1),
+          authority: worker1.publicKey,
         }).signers([worker1]).rpc();
 
         // Try with resolution_type = 3 (invalid)
@@ -5135,8 +5141,8 @@ describe("test_1", () => {
 
         const claimPda = deriveClaimPda(taskPda, worker1.publicKey);
         await program.methods.claimTask().accounts({
-          task: taskPda, claim: claimPda, worker: agentId1,
-          authority: worker1.publicKey, systemProgram: SystemProgram.programId,
+          task: taskPda, claim: claimPda, worker: deriveAgentPda(agentId1),
+          authority: worker1.publicKey,
         }).signers([worker1]).rpc();
 
         await program.methods
@@ -5199,8 +5205,8 @@ describe("test_1", () => {
 
         const claimPda = deriveClaimPda(taskPda, worker1.publicKey);
         await program.methods.claimTask().accounts({
-          task: taskPda, claim: claimPda, worker: agentId1,
-          authority: worker1.publicKey, systemProgram: SystemProgram.programId,
+          task: taskPda, claim: claimPda, worker: deriveAgentPda(agentId1),
+          authority: worker1.publicKey,
         }).signers([worker1]).rpc();
 
         await program.methods.initiateDispute(
@@ -5270,8 +5276,8 @@ describe("test_1", () => {
 
         const claimPda = deriveClaimPda(taskPda, worker1.publicKey);
         await program.methods.claimTask().accounts({
-          task: taskPda, claim: claimPda, worker: agentId1,
-          authority: worker1.publicKey, systemProgram: SystemProgram.programId,
+          task: taskPda, claim: claimPda, worker: deriveAgentPda(agentId1),
+          authority: worker1.publicKey,
         }).signers([worker1]).rpc();
 
         await program.methods.initiateDispute(
@@ -5334,8 +5340,8 @@ describe("test_1", () => {
 
         const claimPda = deriveClaimPda(taskPda, worker1.publicKey);
         await program.methods.claimTask().accounts({
-          task: taskPda, claim: claimPda, worker: agentId1,
-          authority: worker1.publicKey, systemProgram: SystemProgram.programId,
+          task: taskPda, claim: claimPda, worker: deriveAgentPda(agentId1),
+          authority: worker1.publicKey,
         }).signers([worker1]).rpc();
 
         await program.methods.initiateDispute(
@@ -5394,8 +5400,8 @@ describe("test_1", () => {
 
         const claimPda = deriveClaimPda(taskPda, worker1.publicKey);
         await program.methods.claimTask().accounts({
-          task: taskPda, claim: claimPda, worker: agentId1,
-          authority: worker1.publicKey, systemProgram: SystemProgram.programId,
+          task: taskPda, claim: claimPda, worker: deriveAgentPda(agentId1),
+          authority: worker1.publicKey,
         }).signers([worker1]).rpc();
 
         await program.methods.initiateDispute(
@@ -5481,8 +5487,8 @@ describe("test_1", () => {
 
         const claimPda = deriveClaimPda(taskPda, worker1.publicKey);
         await program.methods.claimTask().accounts({
-          task: taskPda, claim: claimPda, worker: agentId1,
-          authority: worker1.publicKey, systemProgram: SystemProgram.programId,
+          task: taskPda, claim: claimPda, worker: deriveAgentPda(agentId1),
+          authority: worker1.publicKey,
         }).signers([worker1]).rpc();
 
         await program.methods.initiateDispute(
@@ -5521,8 +5527,8 @@ describe("test_1", () => {
 
         const claimPda = deriveClaimPda(taskPda, worker1.publicKey);
         await program.methods.claimTask().accounts({
-          task: taskPda, claim: claimPda, worker: agentId1,
-          authority: worker1.publicKey, systemProgram: SystemProgram.programId,
+          task: taskPda, claim: claimPda, worker: deriveAgentPda(agentId1),
+          authority: worker1.publicKey,
         }).signers([worker1]).rpc();
 
         await program.methods.initiateDispute(
@@ -5595,8 +5601,8 @@ describe("test_1", () => {
 
         const claimPda = deriveClaimPda(taskPda, worker1.publicKey);
         await program.methods.claimTask().accounts({
-          task: taskPda, claim: claimPda, worker: agentId1,
-          authority: worker1.publicKey, systemProgram: SystemProgram.programId,
+          task: taskPda, claim: claimPda, worker: deriveAgentPda(agentId1),
+          authority: worker1.publicKey,
         }).signers([worker1]).rpc();
 
         await program.methods.initiateDispute(
@@ -5639,8 +5645,8 @@ describe("test_1", () => {
 
         const claimPda = deriveClaimPda(taskPda, worker1.publicKey);
         await program.methods.claimTask().accounts({
-          task: taskPda, claim: claimPda, worker: agentId1,
-          authority: worker1.publicKey, systemProgram: SystemProgram.programId,
+          task: taskPda, claim: claimPda, worker: deriveAgentPda(agentId1),
+          authority: worker1.publicKey,
         }).signers([worker1]).rpc();
 
         await program.methods.initiateDispute(
@@ -5678,8 +5684,8 @@ describe("test_1", () => {
 
         const claimPda = deriveClaimPda(taskPda, worker1.publicKey);
         await program.methods.claimTask().accounts({
-          task: taskPda, claim: claimPda, worker: agentId1,
-          authority: worker1.publicKey, systemProgram: SystemProgram.programId,
+          task: taskPda, claim: claimPda, worker: deriveAgentPda(agentId1),
+          authority: worker1.publicKey,
         }).signers([worker1]).rpc();
 
         await program.methods.initiateDispute(
@@ -6112,18 +6118,18 @@ describe("test_1", () => {
         const claimPda3 = deriveClaimPda(taskPda, worker3.publicKey);
 
         await program.methods.claimTask().accounts({
-          task: taskPda, claim: claimPda1, worker: agentId1,
-          authority: worker1.publicKey, systemProgram: SystemProgram.programId,
+          task: taskPda, claim: claimPda1, worker: deriveAgentPda(agentId1),
+          authority: worker1.publicKey,
         }).signers([worker1]).rpc();
 
         await program.methods.claimTask().accounts({
-          task: taskPda, claim: claimPda2, worker: agentId2,
-          authority: worker2.publicKey, systemProgram: SystemProgram.programId,
+          task: taskPda, claim: claimPda2, worker: deriveAgentPda(agentId2),
+          authority: worker2.publicKey,
         }).signers([worker2]).rpc();
 
         await program.methods.claimTask().accounts({
-          task: taskPda, claim: claimPda3, worker: agentId3,
-          authority: worker3.publicKey, systemProgram: SystemProgram.programId,
+          task: taskPda, claim: claimPda3, worker: deriveAgentPda(agentId3),
+          authority: worker3.publicKey,
         }).signers([worker3]).rpc();
 
         // Verify all 3 claims succeeded
@@ -6154,19 +6160,19 @@ describe("test_1", () => {
         const claimPda3 = deriveClaimPda(taskPda, worker3.publicKey);
 
         await program.methods.claimTask().accounts({
-          task: taskPda, claim: claimPda1, worker: agentId1,
-          authority: worker1.publicKey, systemProgram: SystemProgram.programId,
+          task: taskPda, claim: claimPda1, worker: deriveAgentPda(agentId1),
+          authority: worker1.publicKey,
         }).signers([worker1]).rpc();
 
         await program.methods.claimTask().accounts({
-          task: taskPda, claim: claimPda2, worker: agentId2,
-          authority: worker2.publicKey, systemProgram: SystemProgram.programId,
+          task: taskPda, claim: claimPda2, worker: deriveAgentPda(agentId2),
+          authority: worker2.publicKey,
         }).signers([worker2]).rpc();
 
         // Third claim should fail
         await expect(
           program.methods.claimTask().accounts({
-            task: taskPda, claim: claimPda3, worker: agentId3,
+            task: taskPda, claim: claimPda3, worker: deriveAgentPda(agentId3),
             authority: worker3.publicKey, systemProgram: SystemProgram.programId,
           }).signers([worker3]).rpc()
         ).to.be.rejected;
@@ -6194,14 +6200,14 @@ describe("test_1", () => {
         // First claim succeeds
         const claimPda1 = deriveClaimPda(taskPda, worker1.publicKey);
         await program.methods.claimTask().accounts({
-          task: taskPda, claim: claimPda1, worker: agentId1,
-          authority: worker1.publicKey, systemProgram: SystemProgram.programId,
+          task: taskPda, claim: claimPda1, worker: deriveAgentPda(agentId1),
+          authority: worker1.publicKey,
         }).signers([worker1]).rpc();
 
         // Same worker trying to claim again should fail (PDA already exists)
         await expect(
           program.methods.claimTask().accounts({
-            task: taskPda, claim: claimPda1, worker: agentId1,
+            task: taskPda, claim: claimPda1, worker: deriveAgentPda(agentId1),
             authority: worker1.publicKey, systemProgram: SystemProgram.programId,
           }).signers([worker1]).rpc()
         ).to.be.rejected;
@@ -6228,8 +6234,8 @@ describe("test_1", () => {
 
         const claimPda = deriveClaimPda(taskPda, worker1.publicKey);
         await program.methods.claimTask().accounts({
-          task: taskPda, claim: claimPda, worker: agentId1,
-          authority: worker1.publicKey, systemProgram: SystemProgram.programId,
+          task: taskPda, claim: claimPda, worker: deriveAgentPda(agentId1),
+          authority: worker1.publicKey,
         }).signers([worker1]).rpc();
 
         const worker1Before = await provider.connection.getBalance(worker1.publicKey);
@@ -6237,7 +6243,7 @@ describe("test_1", () => {
         await program.methods.completeTask(
           Array.from(Buffer.from("proof".padEnd(32, "\0"))), null
         ).accounts({
-          task: taskPda, claim: claimPda, escrow: escrowPda, worker: agentId1,
+          task: taskPda, claim: claimPda, escrow: escrowPda, worker: deriveAgentPda(agentId1),
           protocolConfig: protocolPda, treasury: treasury.publicKey,
           authority: worker1.publicKey, systemProgram: SystemProgram.programId,
         }).signers([worker1]).rpc();
@@ -6270,20 +6276,20 @@ describe("test_1", () => {
         const claimPda2 = deriveClaimPda(taskPda, worker2.publicKey);
 
         await program.methods.claimTask().accounts({
-          task: taskPda, claim: claimPda1, worker: agentId1,
-          authority: worker1.publicKey, systemProgram: SystemProgram.programId,
+          task: taskPda, claim: claimPda1, worker: deriveAgentPda(agentId1),
+          authority: worker1.publicKey,
         }).signers([worker1]).rpc();
 
         await program.methods.claimTask().accounts({
-          task: taskPda, claim: claimPda2, worker: agentId2,
-          authority: worker2.publicKey, systemProgram: SystemProgram.programId,
+          task: taskPda, claim: claimPda2, worker: deriveAgentPda(agentId2),
+          authority: worker2.publicKey,
         }).signers([worker2]).rpc();
 
         // First completion - task still InProgress
         await program.methods.completeTask(
           Array.from(Buffer.from("proof1".padEnd(32, "\0"))), null
         ).accounts({
-          task: taskPda, claim: claimPda1, escrow: escrowPda, worker: agentId1,
+          task: taskPda, claim: claimPda1, escrow: escrowPda, worker: deriveAgentPda(agentId1),
           protocolConfig: protocolPda, treasury: treasury.publicKey,
           authority: worker1.publicKey, systemProgram: SystemProgram.programId,
         }).signers([worker1]).rpc();
@@ -6296,7 +6302,7 @@ describe("test_1", () => {
         await program.methods.completeTask(
           Array.from(Buffer.from("proof2".padEnd(32, "\0"))), null
         ).accounts({
-          task: taskPda, claim: claimPda2, escrow: escrowPda, worker: agentId2,
+          task: taskPda, claim: claimPda2, escrow: escrowPda, worker: deriveAgentPda(agentId2),
           protocolConfig: protocolPda, treasury: treasury.publicKey,
           authority: worker2.publicKey, systemProgram: SystemProgram.programId,
         }).signers([worker2]).rpc();
@@ -6330,8 +6336,8 @@ describe("test_1", () => {
         // Claim 1
         const claimPda1 = deriveClaimPda(taskPda, worker1.publicKey);
         await program.methods.claimTask().accounts({
-          task: taskPda, claim: claimPda1, worker: agentId1,
-          authority: worker1.publicKey, systemProgram: SystemProgram.programId,
+          task: taskPda, claim: claimPda1, worker: deriveAgentPda(agentId1),
+          authority: worker1.publicKey,
         }).signers([worker1]).rpc();
 
         task = await program.account.task.fetch(taskPda);
@@ -6340,8 +6346,8 @@ describe("test_1", () => {
         // Claim 2
         const claimPda2 = deriveClaimPda(taskPda, worker2.publicKey);
         await program.methods.claimTask().accounts({
-          task: taskPda, claim: claimPda2, worker: agentId2,
-          authority: worker2.publicKey, systemProgram: SystemProgram.programId,
+          task: taskPda, claim: claimPda2, worker: deriveAgentPda(agentId2),
+          authority: worker2.publicKey,
         }).signers([worker2]).rpc();
 
         task = await program.account.task.fetch(taskPda);
@@ -6350,8 +6356,8 @@ describe("test_1", () => {
         // Claim 3
         const claimPda3 = deriveClaimPda(taskPda, worker3.publicKey);
         await program.methods.claimTask().accounts({
-          task: taskPda, claim: claimPda3, worker: agentId3,
-          authority: worker3.publicKey, systemProgram: SystemProgram.programId,
+          task: taskPda, claim: claimPda3, worker: deriveAgentPda(agentId3),
+          authority: worker3.publicKey,
         }).signers([worker3]).rpc();
 
         task = await program.account.task.fetch(taskPda);
@@ -6379,18 +6385,18 @@ describe("test_1", () => {
         const claimPda3 = deriveClaimPda(taskPda, worker3.publicKey);
 
         await program.methods.claimTask().accounts({
-          task: taskPda, claim: claimPda1, worker: agentId1,
-          authority: worker1.publicKey, systemProgram: SystemProgram.programId,
+          task: taskPda, claim: claimPda1, worker: deriveAgentPda(agentId1),
+          authority: worker1.publicKey,
         }).signers([worker1]).rpc();
 
         await program.methods.claimTask().accounts({
-          task: taskPda, claim: claimPda2, worker: agentId2,
-          authority: worker2.publicKey, systemProgram: SystemProgram.programId,
+          task: taskPda, claim: claimPda2, worker: deriveAgentPda(agentId2),
+          authority: worker2.publicKey,
         }).signers([worker2]).rpc();
 
         await program.methods.claimTask().accounts({
-          task: taskPda, claim: claimPda3, worker: agentId3,
-          authority: worker3.publicKey, systemProgram: SystemProgram.programId,
+          task: taskPda, claim: claimPda3, worker: deriveAgentPda(agentId3),
+          authority: worker3.publicKey,
         }).signers([worker3]).rpc();
 
         let task = await program.account.task.fetch(taskPda);
@@ -6400,7 +6406,7 @@ describe("test_1", () => {
         await program.methods.completeTask(
           Array.from(Buffer.from("proof1".padEnd(32, "\0"))), null
         ).accounts({
-          task: taskPda, claim: claimPda1, escrow: escrowPda, worker: agentId1,
+          task: taskPda, claim: claimPda1, escrow: escrowPda, worker: deriveAgentPda(agentId1),
           protocolConfig: protocolPda, treasury: treasury.publicKey,
           authority: worker1.publicKey, systemProgram: SystemProgram.programId,
         }).signers([worker1]).rpc();
@@ -6412,7 +6418,7 @@ describe("test_1", () => {
         await program.methods.completeTask(
           Array.from(Buffer.from("proof2".padEnd(32, "\0"))), null
         ).accounts({
-          task: taskPda, claim: claimPda2, escrow: escrowPda, worker: agentId2,
+          task: taskPda, claim: claimPda2, escrow: escrowPda, worker: deriveAgentPda(agentId2),
           protocolConfig: protocolPda, treasury: treasury.publicKey,
           authority: worker2.publicKey, systemProgram: SystemProgram.programId,
         }).signers([worker2]).rpc();
@@ -6424,7 +6430,7 @@ describe("test_1", () => {
         await program.methods.completeTask(
           Array.from(Buffer.from("proof3".padEnd(32, "\0"))), null
         ).accounts({
-          task: taskPda, claim: claimPda3, escrow: escrowPda, worker: agentId3,
+          task: taskPda, claim: claimPda3, escrow: escrowPda, worker: deriveAgentPda(agentId3),
           protocolConfig: protocolPda, treasury: treasury.publicKey,
           authority: worker3.publicKey, systemProgram: SystemProgram.programId,
         }).signers([worker3]).rpc();
@@ -6824,13 +6830,13 @@ describe("test_1", () => {
         const claimPda2 = deriveClaimPda(taskPda, worker2.publicKey);
 
         await program.methods.claimTask().accounts({
-          task: taskPda, claim: claimPda1, worker: agentId1,
-          authority: worker1.publicKey, systemProgram: SystemProgram.programId,
+          task: taskPda, claim: claimPda1, worker: deriveAgentPda(agentId1),
+          authority: worker1.publicKey,
         }).signers([worker1]).rpc();
 
         await program.methods.claimTask().accounts({
-          task: taskPda, claim: claimPda2, worker: agentId2,
-          authority: worker2.publicKey, systemProgram: SystemProgram.programId,
+          task: taskPda, claim: claimPda2, worker: deriveAgentPda(agentId2),
+          authority: worker2.publicKey,
         }).signers([worker2]).rpc();
 
         const task = await program.account.task.fetch(taskPda);
@@ -6857,20 +6863,20 @@ describe("test_1", () => {
         const claimPda2 = deriveClaimPda(taskPda, worker2.publicKey);
 
         await program.methods.claimTask().accounts({
-          task: taskPda, claim: claimPda1, worker: agentId1,
-          authority: worker1.publicKey, systemProgram: SystemProgram.programId,
+          task: taskPda, claim: claimPda1, worker: deriveAgentPda(agentId1),
+          authority: worker1.publicKey,
         }).signers([worker1]).rpc();
 
         await program.methods.claimTask().accounts({
-          task: taskPda, claim: claimPda2, worker: agentId2,
-          authority: worker2.publicKey, systemProgram: SystemProgram.programId,
+          task: taskPda, claim: claimPda2, worker: deriveAgentPda(agentId2),
+          authority: worker2.publicKey,
         }).signers([worker2]).rpc();
 
         // Complete both
         await program.methods.completeTask(
           Array.from(Buffer.from("proof1".padEnd(32, "\0"))), null
         ).accounts({
-          task: taskPda, claim: claimPda1, escrow: escrowPda, worker: agentId1,
+          task: taskPda, claim: claimPda1, escrow: escrowPda, worker: deriveAgentPda(agentId1),
           protocolConfig: protocolPda, treasury: treasury.publicKey,
           authority: worker1.publicKey, systemProgram: SystemProgram.programId,
         }).signers([worker1]).rpc();
@@ -6878,7 +6884,7 @@ describe("test_1", () => {
         await program.methods.completeTask(
           Array.from(Buffer.from("proof2".padEnd(32, "\0"))), null
         ).accounts({
-          task: taskPda, claim: claimPda2, escrow: escrowPda, worker: agentId2,
+          task: taskPda, claim: claimPda2, escrow: escrowPda, worker: deriveAgentPda(agentId2),
           protocolConfig: protocolPda, treasury: treasury.publicKey,
           authority: worker2.publicKey, systemProgram: SystemProgram.programId,
         }).signers([worker2]).rpc();
@@ -6906,14 +6912,14 @@ describe("test_1", () => {
 
         const claimPda = deriveClaimPda(taskPda, worker1.publicKey);
         await program.methods.claimTask().accounts({
-          task: taskPda, claim: claimPda, worker: agentId1,
-          authority: worker1.publicKey, systemProgram: SystemProgram.programId,
+          task: taskPda, claim: claimPda, worker: deriveAgentPda(agentId1),
+          authority: worker1.publicKey,
         }).signers([worker1]).rpc();
 
         await program.methods.completeTask(
           Array.from(Buffer.from("proof".padEnd(32, "\0"))), null
         ).accounts({
-          task: taskPda, claim: claimPda, escrow: escrowPda, worker: agentId1,
+          task: taskPda, claim: claimPda, escrow: escrowPda, worker: deriveAgentPda(agentId1),
           protocolConfig: protocolPda, treasury: treasury.publicKey,
           authority: worker1.publicKey, systemProgram: SystemProgram.programId,
         }).signers([worker1]).rpc();

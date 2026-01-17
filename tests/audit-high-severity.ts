@@ -76,13 +76,16 @@ describe("audit-high-severity", () => {
       treasuryPubkey = config.treasury;
     } catch {
       await program.methods
-        .initializeProtocol(51, 100, 0)
+        .initializeProtocol(51, 100, new BN(0), 1, [provider.wallet.publicKey])
         .accounts({
           protocolConfig: protocolPda,
           treasury: treasury.publicKey,
           authority: provider.wallet.publicKey,
           systemProgram: SystemProgram.programId,
         })
+        .remainingAccounts([
+          { pubkey: provider.wallet.publicKey, isSigner: true, isWritable: false },
+        ])
         .rpc();
       treasuryPubkey = treasury.publicKey;
     }
@@ -98,12 +101,11 @@ describe("audit-high-severity", () => {
       await program.account.agentRegistration.fetch(agentPda);
     } catch {
       await program.methods
-        .registerAgent(Array.from(agentId), new BN(capabilities), "https://example.com", null)
-        .accounts({
+        .registerAgent(Array.from(agentId), new BN(capabilities), "https://example.com", null, new BN(LAMPORTS_PER_SOL))
+        .accountsPartial({
           agent: agentPda,
           protocolConfig: protocolPda,
           authority: authority.publicKey,
-          systemProgram: SystemProgram.programId,
         })
         .signers([authority])
         .rpc();
