@@ -1,70 +1,59 @@
-# AgenC Solana Coordination Module
+# AgenC Solana Coordination
 
-A decentralized multi-agent coordination layer for the [AgenC](https://github.com/tetsuo-ai/AgenC) framework, built on Solana.
+A decentralized multi-agent coordination protocol on Solana with privacy-preserving task completion using zero-knowledge proofs.
 
-## Overview
+[![Twitter](https://img.shields.io/badge/Twitter-Follow%20%407etsuo-1DA1F2)](https://x.com/7etsuo)
+[![Discord](https://img.shields.io/badge/Discord-Join%20Our%20Community-7289DA)](https://discord.gg/tetsuo-ai)
 
-This module enables trustless coordination between AgenC agents using the Solana blockchain:
+**Program ID**: `EopUaCV2svxj9j4hd7KjbrWfdjkspmm2BCBe7jGpKzKZ`
 
-- **On-chain Agent Registry**: Agents register with verifiable capabilities and endpoints
-- **Task Marketplace**: Agents post, claim, and complete tasks with automatic payments
-- **State Synchronization**: Trustless shared state via Program Derived Addresses (PDAs)
-- **Dispute Resolution**: Multi-signature consensus for conflict resolution
+## Features
 
-Designed for edge computing and embedded systems with minimal dependencies.
-
-## Devnet Security Package
-
-- [Security Audit (Devnet)](docs/SECURITY_AUDIT_DEVNET.md)
-- [Devnet Validation](docs/DEVNET_VALIDATION.md)
-- [Smoke Tests](docs/SMOKE_TESTS.md)
-- [Events and Observability](docs/EVENTS_OBSERVABILITY.md)
+- **On-chain Agent Registry** - Agents register with verifiable capabilities and endpoints
+- **Task Marketplace** - Create, claim, and complete tasks with automatic escrow payments
+- **Private Task Completion** - ZK proofs verify work without revealing outputs (Noir + Sunspot)
+- **Privacy-Preserving Payments** - Private deposits/withdrawals via Privacy Cash SDK
+- **Dispute Resolution** - Multisig governance for conflict resolution
+- **Rate Limiting** - Configurable throttles prevent spam
+- **Protocol Versioning** - Upgradeable without breaking changes
 
 ## Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                        AgenC Framework                          │
-├─────────────────────────────────────────────────────────────────┤
-│                    Communication Module                          │
-│  ┌───────────────┐  ┌───────────────┐  ┌───────────────┐       │
-│  │  Traditional  │  │    Solana     │  │    Other      │       │
-│  │  Networking   │  │  Blockchain   │  │   Protocols   │       │
-│  └───────────────┘  └───────────────┘  └───────────────┘       │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                  Solana Communication Layer                      │
+│                     TypeScript SDK                               │
 │  ┌─────────────────────────────────────────────────────────┐   │
-│  │              agenc_solana.h Interface                    │   │
-│  │  • agenc_agent_*     Agent lifecycle management          │   │
-│  │  • agenc_task_*      Task creation and execution         │   │
-│  │  • agenc_state_*     Shared state synchronization        │   │
-│  │  • agenc_message_*   Inter-agent messaging               │   │
-│  └─────────────────────────────────────────────────────────┘   │
-│                              │                                   │
-│  ┌─────────────────────────────────────────────────────────┐   │
-│  │              solana_comm.h Strategy                      │   │
-│  │  • Transaction building and signing                      │   │
-│  │  • Account data serialization                            │   │
-│  │  • RPC communication                                     │   │
-│  │  • Status management (AgenC pattern)                     │   │
+│  │  Privacy Cash SDK                                        │   │
+│  │  • deposit/withdraw (SOL, USDC, SPL tokens)              │   │
+│  │  • Private balance queries                               │   │
+│  │  • UTXO-based privacy model                              │   │
 │  └─────────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────┘
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                   Solana Blockchain                              │
+│                     Solana Blockchain                            │
 │  ┌─────────────────────────────────────────────────────────┐   │
-│  │           AgenC Coordination Program                     │   │
-│  │  • RegisterAgent    • CreateTask    • ClaimTask          │   │
-│  │  • CompleteTask     • UpdateState   • ResolveDispute     │   │
+│  │  AgenC Coordination Program (Rust/Anchor)                │   │
+│  │  • Agent Registry      • Task Marketplace                │   │
+│  │  • Escrow Management   • Dispute Resolution              │   │
+│  │  • ZK Proof Verification (Sunspot)                       │   │
 │  └─────────────────────────────────────────────────────────┘   │
 │  ┌─────────────────────────────────────────────────────────┐   │
-│  │           Program Derived Addresses (PDAs)               │   │
-│  │  • Agent accounts   • Task accounts   • State accounts   │   │
-│  │  • Escrow accounts  • Dispute accounts                   │   │
+│  │  Program Derived Addresses (PDAs)                        │   │
+│  │  • Agent accounts   • Task accounts   • Escrow accounts  │   │
+│  │  • Claim accounts   • Dispute accounts                   │   │
+│  └─────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                   Noir ZK Circuits                               │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │  task_completion circuit                                 │   │
+│  │  • Proves output satisfies constraint (without reveal)   │   │
+│  │  • Binds proof to task_id and agent_pubkey               │   │
+│  │  • Poseidon2 hash (Sunspot compatible)                   │   │
 │  └─────────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -73,367 +62,219 @@ Designed for edge computing and embedded systems with minimal dependencies.
 
 ```
 agenc-solana/
-├── programs/
-│   └── agenc-coordination/       # Anchor/Rust Solana program
-│       ├── src/
-│       │   ├── lib.rs           # Program entry point
-│       │   ├── state.rs         # Account structures
-│       │   ├── errors.rs        # Error codes
-│       │   ├── events.rs        # Event definitions
-│       │   └── instructions/    # Instruction handlers
-│       └── Cargo.toml
-├── src/
-│   └── communication/
-│       └── solana/              # C client library
-│           ├── include/
-│           │   ├── solana_types.h    # Core types
-│           │   ├── solana_comm.h     # Communication strategy
-│           │   ├── solana_rpc.h      # RPC client
-│           │   └── agenc_solana.h    # AgenC integration
-│           ├── src/
-│           │   ├── solana_comm.c     # Strategy implementation
-│           │   ├── solana_rpc.c      # RPC implementation
-│           │   ├── solana_status.c   # Status management
-│           │   ├── solana_utils.c    # Utilities
-│           │   └── agenc_solana.c    # AgenC integration
-│           ├── tests/
-│           └── Makefile
-├── examples/
-│   └── solana-multi-agent/      # Demo application
-│       ├── main.c
-│       └── Makefile
-├── docs/
-├── Anchor.toml
-└── README.md
+├── programs/agenc-coordination/   # Anchor/Rust Solana program
+│   └── src/
+│       ├── lib.rs                 # Program entry point
+│       ├── state.rs               # Account structures
+│       ├── errors.rs              # Error definitions
+│       ├── events.rs              # Event definitions
+│       └── instructions/          # 20 instruction handlers
+├── sdk/privacy-cash-sdk/          # TypeScript SDK for private payments
+├── circuits/task_completion/      # Noir ZK circuit for private completion
+├── tests/                         # Integration & security tests
+├── demo/                          # Demo scripts
+├── docs/                          # Documentation
+└── migrations/                    # Protocol version migrations
 ```
 
-## Prerequisites
+## Quick Start
 
-### For Solana Program Development
-- Rust 1.70+ and Cargo
+### Prerequisites
+
+- Rust 1.75+
 - Solana CLI 1.18+
-- Anchor 0.30+
+- Anchor 0.32+
+- Node.js 18+
+- nargo (for ZK circuits)
 
-### For C Client Library
-- GCC or Clang with C11 support
-- POSIX-compliant system (Linux, macOS, Windows with MinGW)
-- pthread support
-
-## Building
-
-### Build the Solana Program
+### Install Dependencies
 
 ```bash
-# Install Anchor if needed
+# Install Anchor
 cargo install --git https://github.com/coral-xyz/anchor anchor-cli
 
-# Build the program
-cd programs/agenc-coordination
+# Install Node dependencies
+yarn install
+
+# Install nargo for ZK circuits (optional)
+curl -L https://raw.githubusercontent.com/noir-lang/noirup/main/install | bash
+noirup
+```
+
+### Build
+
+```bash
+# Build Solana program
 anchor build
 
-# Get the program ID
-solana-keygen pubkey target/deploy/agenc_coordination-keypair.json
+# Build SDK
+cd sdk/privacy-cash-sdk && yarn build
 ```
 
-### Build the C Client Library
+### Test
 
 ```bash
-cd src/communication/solana
+# Run all tests
+anchor test
 
-# Build static library
-make
-
-# Run tests
-make check
-
-# Install to lib/
-make install
+# Run specific test suite
+yarn test
 ```
 
-### Build the Example
+### Run Demo
 
 ```bash
-cd examples/solana-multi-agent
+# Run private task completion demo
+yarn demo
 
-# Build and run
-make
-./multi_agent
+# With mainnet RPC (Helius)
+HELIUS_API_KEY=your_key yarn demo:mainnet
 ```
 
-## Deployment to Devnet
+## Program Instructions
 
-### 1. Configure Solana CLI
+### Agent Management
+| Instruction | Description |
+|-------------|-------------|
+| `register_agent` | Register agent with capabilities and stake |
+| `update_agent` | Update capabilities, endpoint, or status |
+| `deregister_agent` | Unregister and reclaim stake |
+
+### Task Lifecycle
+| Instruction | Description |
+|-------------|-------------|
+| `create_task` | Create task with escrow reward |
+| `claim_task` | Claim task to work on |
+| `complete_task` | Complete with public proof |
+| `complete_task_private` | Complete with ZK proof (output hidden) |
+| `cancel_task` | Cancel and refund escrow |
+| `expire_claim` | Expire stale claims |
+
+### Dispute Resolution
+| Instruction | Description |
+|-------------|-------------|
+| `initiate_dispute` | Start dispute with evidence |
+| `vote_dispute` | Vote on resolution |
+| `resolve_dispute` | Execute resolution |
+| `apply_dispute_slash` | Slash losing party's stake |
+
+## Privacy Features
+
+### Private Task Completion
+
+Tasks can be completed privately using zero-knowledge proofs:
+
+1. **Task Creator** sets a `constraint_hash` (hash of expected output)
+2. **Agent** completes work off-chain, generates ZK proof
+3. **Proof** verifies output matches constraint without revealing it
+4. **On-chain** verification via Sunspot verifier
+5. **Payment** released privately via Privacy Cash SDK
+
+```typescript
+// Generate ZK proof of task completion
+const proof = await generateTaskCompletionProof({
+  taskId,
+  agentPubkey,
+  constraintHash,
+  output,        // Private - not revealed
+  salt           // Private - randomness
+});
+
+// Submit to chain - output stays hidden
+await program.methods
+  .completeTaskPrivate(taskId, proof)
+  .rpc();
+```
+
+### Private Payments
+
+The Privacy Cash SDK enables private SOL/token transfers:
+
+```typescript
+import { PrivacyCash } from 'privacycash';
+
+const pc = new PrivacyCash(connection, wallet);
+
+// Deposit privately
+await pc.deposit(1_000_000_000); // 1 SOL
+
+// Check private balance
+const balance = await pc.getPrivateBalance();
+
+// Withdraw privately
+await pc.withdraw(500_000_000, recipientAddress);
+```
+
+## Agent Capabilities
+
+Agents register with capability flags (bitmask):
+
+| Capability | Value | Description |
+|------------|-------|-------------|
+| COMPUTE | 1 | General computation |
+| INFERENCE | 2 | ML inference |
+| STORAGE | 4 | Data storage |
+| NETWORK | 8 | Network relay |
+| SENSOR | 16 | Sensor data |
+| ACTUATOR | 32 | Physical actuation |
+| COORDINATOR | 64 | Task coordination |
+| ARBITER | 128 | Dispute resolution |
+| VALIDATOR | 256 | Result validation |
+| AGGREGATOR | 512 | Data aggregation |
+
+## Task Types
+
+| Type | Description |
+|------|-------------|
+| **Exclusive** | Single worker completes task, gets full reward |
+| **Collaborative** | Multiple workers contribute, reward split |
+| **Competitive** | First to complete wins, others get nothing |
+
+## Documentation
+
+- [Security Audit (Devnet)](docs/SECURITY_AUDIT_DEVNET.md)
+- [Security Audit (Mainnet)](docs/SECURITY_AUDIT_MAINNET.md)
+- [Deployment Guide](docs/DEPLOYMENT.md)
+- [Mainnet Migration](docs/MAINNET_MIGRATION.md)
+- [Fuzz Testing](docs/FUZZ_TESTING.md)
+- [Events & Observability](docs/EVENTS_OBSERVABILITY.md)
+- [Upgrade Guide](docs/UPGRADE_GUIDE.md)
+
+## Development
+
+### Run Local Validator
 
 ```bash
-# Set to devnet
-solana config set --url https://api.devnet.solana.com
+solana-test-validator
+```
 
-# Create keypair if needed
-solana-keygen new -o ~/.config/solana/id.json
+### Deploy to Devnet
 
-# Airdrop SOL for deployment
+```bash
+solana config set --url devnet
 solana airdrop 2
-```
-
-### 2. Deploy the Program
-
-```bash
-cd programs/agenc-coordination
-
-# Build with Anchor
-anchor build
-
-# Deploy
 anchor deploy --provider.cluster devnet
-
-# Note the program ID from output
 ```
 
-### 3. Initialize the Protocol
+### Run Security Tests
 
 ```bash
-# Using Anchor CLI or custom script
-anchor run initialize -- \
-  --dispute-threshold 51 \
-  --protocol-fee-bps 100 \
-  --min-stake 1000000
+# High severity tests
+yarn test tests/audit-high-severity.ts
+
+# Rate limiting tests
+yarn test tests/rate-limiting.ts
+
+# Coordination security tests
+yarn test tests/coordination-security.ts
 ```
 
-### 4. Update C Client with Program ID
+## Related
 
-Edit `src/communication/solana/include/solana_types.h` or pass the program ID at runtime:
+- [AgenC Framework](https://github.com/tetsuo-ai/AgenC) - Parent AI agent framework
+- [Whitepaper](WHITEPAPER.md) - Framework vision and architecture
+- [$TETSUO Token](https://solscan.io/token/8i51XNNpGaKaj4G4nDdmQh95v4FKAxw8mhtaRoKd9tE8) - `8i51XNNpGaKaj4G4nDdmQh95v4FKAxw8mhtaRoKd9tE8`
 
-```c
-SolanaCommConfig config = {
-    .rpc_endpoint = "https://api.devnet.solana.com",
-    .network = "devnet",
-    // ... other config
-};
-memcpy(config.program_id.bytes, your_program_id, 32);
-```
-# AgenC Framework – Whitepaper
+## License
 
-## $TETSUO on Solana
-
-**Contract Address**: `8i51XNNpGaKaj4G4nDdmQh95v4FKAxw8mhtaRoKd9tE8`
-
-[![Twitter](https://img.shields.io/badge/Twitter-Follow%20%407etsuo-1DA1F2)](https://x.com/7etsuo)
-[![Discord](https://img.shields.io/badge/Discord-Join%20Our%20Community-7289DA)](https://discord.gg/tetsuo-ai)
-
----
-
-![Agenc framework](https://github.com/user-attachments/assets/5cd95fb2-fb49-44b0-a420-4c519d144a94)
-
----
-
-### 1. Introduction
-The AgenC AI Agent Framework in C is designed to handle perception, cognition, planning, and action execution. The framework supports single and multi-agent configurations, through communication and synchronization interfaces.
-
----
-
-#### What is an AI Agent Framework
-
-An AI Agent Framework is a structure for autonomous decision-making in AI systems, similar to how a human brain's nervous system coordinates sensing, thinking, and acting. 
-
-By implementing the framework in C we get speed and compatibility across multiple hardware platforms.
-
----
-
-AgenC is an open-source AI agent framework built entirely in C. It aims to revolutionize edge computing and embedded AI by enabling sophisticated AI models to run on inexpensive, low-power hardware.
-
-## Market Impact & Adoption Potential
-
-### Shift in Edge Computing and IoT AI
-
-- **Closer-to-Device AI:** Enables AI processing near sensors and end-users, reducing reliance on cloud computation, lowering latency, and improving privacy.
-- **Expanding Markets:** With the Edge AI market projected to grow to over $270 billion by 2032, a lightweight framework is essential for unlocking new use cases—from smart home appliances to industrial IoT sensors.
-- **TinyML Adoption:** As device installs are expected to exceed 11 billion by 2027, a dedicated C agent framework positions AgenC to bring advanced AI to billions of resource-constrained devices.
-
-### Open-Source Innovation & Industry Collaboration
-
-- **Collective Development:** Open-source contributions allow industries such as automotive, robotics, aerospace, and healthcare devices to optimize the framework for specialized needs.
-- **Rapid Evolution:** Community-driven development accelerates innovation, similar to how Linux and OpenCV evolved through broad collaboration.
-- **Democratizing AI Deployment:** Open availability helps small startups, research labs, and hobbyists deploy state-of-the-art AI on affordable hardware.
-
-### Advancing AI in Embedded & Constrained Environments
-
-- **New Deployment Frontiers:** Brings advanced AI capabilities from high-end devices and data centers to microcontrollers and embedded systems.
-- **Real-World Examples:** Enables microcontrollers to perform tasks like real-time anomaly detection or drones to navigate using onboard neural networks.
-- **Expanding Use Cases:** Facilitates the creation of smart sensors, adaptive medical implants, and autonomous robotics that operate reliably in resource-limited environments.
-
-## Technical Advantages of a C-Based AI Framework
-
-### High Performance & Low-Level Efficiency
-
-- **Direct Hardware Utilization:** Compiled C code produces compact machine instructions with minimal overhead, avoiding the performance penalties of Python’s runtime interpretation and garbage collection.
-- **Optimized for Microcontrollers:** C/C++ implementations consistently outperform Python-based solutions in resource-constrained environments.
-
-### Real-Time Processing & Low Latency
-
-- **Predictable Timing:** C provides deterministic timing essential for high-frequency control loops and latency-critical tasks.
-- **Stable Performance:** Custom lightweight C libraries have demonstrated reliable performance (e.g., stable 100Hz inference on microcontroller-based systems).
-
-### Portability to Diverse Hardware
-
-- **Broad Compatibility:** C’s portability allows the framework to compile across architectures—from x86 servers to 8/16/32-bit microcontrollers—with minimal changes.
-- **Alignment with TinyML:** Supports deployment on bare-metal or simple RTOS setups, making it ideal for the vast number of microcontrollers in use today.
-
-### Security & Minimal Attack Surface
-
-- **Reduced Dependencies:** A lean C framework minimizes the need for large runtimes and numerous external libraries, lowering potential vulnerability points.
-- **Simplified Auditing:** Fewer software layers simplify security audits and help maintain a minimal attack surface.
-
-## Comparisons with Existing AI Frameworks
-
-### Efficiency vs. TensorFlow, PyTorch, and JAX
-
-- **Eliminating the Python Overhead:** Unlike TensorFlow and PyTorch—which rely on Python for high-level orchestration—a pure C framework avoids issues like GIL contention, Python bytecode interpretation, and increased memory usage.
-- **Lean Runtime:** Provides a more straightforward compiled approach that emphasizes efficiency, particularly on edge devices.
-
-### Usability and Development Experience
-
-- **Development Complexity:** While Python offers dynamic typing, interactive notebooks, and a rich ecosystem, C requires manual memory management and lower-level coding, resulting in a steeper learning curve.
-- **Enhanced Abstractions:** AgenC will supply robust abstractions and tools to improve usability, aiming to offer a development experience competitive with established frameworks.
-
-### Maintainability and Complexity
-
-- **Engineering Rigor:** Building a framework in C demands strong systems engineering practices to prevent memory leaks, buffer overflows, and race conditions.
-- **Simplified Architecture:** Eliminating the need to bridge Python and C++ layers can result in a leaner, more maintainable runtime suitable for long-term deployments.
-
-### Community and Ecosystem
-
-- **Initial Challenges:** Gaining traction against established frameworks like TensorFlow and PyTorch will require building a supportive community.
-- **New Contributor Base:** AgenC’s open-source nature is expected to attract embedded systems developers, robotics engineers, and low-level optimization experts who are underserved by current Python-centric tools.
-
-## Conclusion
-
-An open-source AI agent framework in C will catalyze a major shift in AI deployment—from centralized data centers and high-end devices to billions of resource-constrained, edge computing devices. By leveraging the performance, portability, and efficiency of C, AgenC aims to unlock innovative applications in embedded and real-time AI, making advanced AI capabilities accessible in every corner of the physical world.
-
----
-
-#### Framework Components
-The AI Agent Framework needs these core components.
-
-- **Perception Systems**: These handle all input - sensors, data feeds, user input, anything the AI needs to understand its environment. They clean and structure the raw data into something useful.
-
-- **Cognitive System**: This is the "brain" that processes information and makes decisions. It manages different AI models working together (like LLMs and neural networks), stores memories of past experiences, and plans actions.
-
-- **Action System**: Takes decisions and turns them into real actions. It manages timing, prioritizes tasks, and monitors results.
-
-- **Resource Manager**: Controls system resources like memory and processing power, making sure everything runs efficiently.
-
-- **Communication System**: Handles how all parts talk to each other and how the framework communicates with the outside world.
-
-These components are tied together! The key is building them in a way that's fast. This is why C is ideal.
-
----
-
-#### Core Functions
-
-- **Data Input**: Collects and standardizes data from sources such as sensors, databases, or user input.
-
-- **Decision Coordination**: Orchestrates AI components (e.g., language models, neural networks) to generate decisions and learn from outcomes.
-
-- **Action Execution**: Manages resource allocation, prioritizes tasks, and processes feedback to refine system performance.
-
-- **Significance**: A ready-made framework eliminates the need to build basic infrastructure repeatedly, allowing developers to focus on creating specific AI capabilities and behaviors.
-
----
-
-#### Practical Applications
-
-- Factory robotics that adapt and improve assembly tasks
-
-- Self-driving systems that make split-second navigation decisions
-
-- Trading platforms that analyze markets and execute automated trades
-
-- Virtual assistants that interpret user needs and perform relevant actions
-
-This type of framework is used for building advanced AI capable of learning, adapting, and interacting with real-world environments.
-
----
-
-### 2. High-Level Architecture
-The system is divided into key modules, each addressing specific concerns:
-
-1. **Agent Core** Manages agent lifecycle, configuration, and overall health. Houses the Agent Manager, Command Dispatcher, System Diagnostics, Health Monitor, and Configuration Optimizer.
-2. **Infrastructure** Provides logging, metrics collection, debugging facilities, testing frameworks, and deployment management.
-3. **Security** Secures the input pipeline and system interactions via input validation, authentication, access control, encryption, and auditing.
-4. **Perception** Collects and processes raw input from sensors. Normalizes data, detects events, and routes validated information to the next processing steps.
-5. **Memory** Stores data and maintains caches, query processing, and context. Prunes obsolete information while accumulating new experiences.
-6. **Knowledge** Manages ontologies, the knowledge graph, and supports information retrieval and conceptual linking for informed decision-making.
-7. **Cognitive** Handles inference, decision-making, learning, and performance evaluation. Manages the belief system and model-related tasks.
-8. **Planning** Schedules tasks, generates plans, evaluates strategies, and manages goals. Receives feedback for continuous plan refinement.
-9. **Action** Executes planned tasks, validates actions, monitors results, and can roll back or reprioritize as needed.
-10. **Resource Management** Monitors and balances resource usage, manages performance, and recovers from failures.
-11. **Communication** Synchronizes states and events among internal and external components. Routes messages, handles protocols, and manages errors.
-12. **Multi-Agent** Discovers other agents, provides collaboration protocols, shares resources, resolves conflicts, and negotiates to reach collective goals.
-13. **Training** Coordinates training processes, modifies behavior, tracks performance metrics, and manages adaptation and model versioning.
-
----
-
-### 3. UML Diagram Overview
-![UML](https://github.com/user-attachments/assets/31be890b-c898-4116-951a-06735f2296ac)
-The UML diagram outlines each module’s components. The diagram illustrates:
-- **Inheritance and Aggregation**: Each main subsystem groups related components.
-- **Inter-module Dependencies**: Arrows indicate where a subsystem depends on or directly interacts with another (e.g., Perception depends on Memory and Knowledge).
-
----
-
-### 4. Sequence Diagram Summary
-![Sequence Diagram](https://github.com/user-attachments/assets/e2c6af24-f21a-4391-a3da-820382bf28a2)
-The Sequence Diagram traces a typical execution flow:
-1. **Initialization**: Infrastructure and Security components start up and validate the system.
-2. **Input Processing**: Perception normalizes validated inputs and stores relevant data in Memory.
-3. **Cognitive Processing**: Cognitive requests contextual data from Knowledge and Memory, then prepares a decision.
-4. **Planning & Execution**: Planning checks resources and coordinates with Multi-Agent systems if necessary, then delegates tasks to Action.
-5. **Resource Allocation & Communication**: Action uses Resource Management to allocate resources and sends progress updates via Communication.
-6. **Training & Memory Updates**: Results feed back into Training and Memory, keeping the system’s models and stored data updated.
-
----
-
-### 5. State Diagram Summary
-![sate](https://github.com/user-attachments/assets/7945db21-89e0-47ff-b37c-735a9627d258)
-The State Diagram describes system states from startup to shutdown:
-- **SystemInitialization** and **SecurityCheck**: The system transitions to **Ready** if security checks pass; otherwise it enters an **Error** state.
-- **InputProcessing** and **CognitiveProcessing**: Valid inputs transition the system into advanced phases of knowledge query and planning.
-- **Planning, ResourceCheck, MultiAgentCoordination, Execution**: These states determine resource availability, multi-agent interactions, and task execution.
-- **Training & MemoryUpdate**: The system refines its knowledge and memory based on execution outcomes, looping back to **Ready**.
-- **Error Handling**: Errors engage System Diagnostics followed by AutoRecoverySystem, returning the system to **Ready** if successful.
-
----
-
-### 6. Swimlane Diagram Summary
-![Swimlane](https://github.com/user-attachments/assets/c6882211-14d3-417e-a9b2-20b999363b10)
-The Swimlane Diagram organizes components under distinct subsystems (e.g., AgentCore, Security, Perception, Memory, etc.). It shows:
-- **Security** (Input Validator) acting before Perception receives data.
-- **Cognitive** invoking Knowledge and Memory queries.
-- **Planning** leveraging ResourceManagement and coordinating with MultiAgent.
-- **Action** interacting with Communication and reporting to Training.
-- **Infrastructure** providing logging and diagnostics capabilities throughout.
-- **Dotted Lines** indicate cross-cutting concerns (e.g., authentication, logging) that are accessed by every component.
-
----
-
-### 7. Implementation Considerations
-**Language and Efficiency**  
-- C offers control over memory and execution flow, it is high-performance and cross platform.
-- Modularity and clear function boundaries help maintain code clarity.
-
-**Concurrency and Resource Management**  
-- Threading or event-driven models can be employed, with ResourceManagement for efficient load balancing and recovery from failures.
-
-**Security and Reliability**  
-- Input validation and access control guard against unauthorized data or operations.
-- Monitoring and diagnostics for detection of anomalies.
-
-**Extendibility**  
-- The architecture supports adding new modules or replacing sub-components (e.g., switching out a knowledge graph implementation without broad changes elsewhere).
-
----
-
-### 8. Conclusion
-The AI Agent Framework in C integrates perception, memory, knowledge, cognition, planning, action, multi-agent collaboration, and training. By structuring these subsystems as discrete modules, we get performance, maintainability, and scalability. The provided diagrams align component interactions, giving a high level view of how data flows through the system.
-
----
+MIT License - see LICENSE file for details.
