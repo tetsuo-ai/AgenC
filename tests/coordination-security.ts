@@ -82,30 +82,47 @@ describe("coordination-security", () => {
         Array.from(creatorAgentId),
         new BN(CAPABILITY_COMPUTE),
         "https://creator.example.com",
-        null
+        null,
+        new BN(1 * LAMPORTS_PER_SOL)  // stake_amount
       )
-      .accounts({
+      .accountsPartial({
         agent: creatorAgentPda,
         protocolConfig: protocolPda,
         authority: creator.publicKey,
-        systemProgram: SystemProgram.programId,
       })
       .signers([creator])
       .rpc();
   });
 
+  // Helper function to derive agent PDA
+  function deriveAgentPda(agentId: Buffer): PublicKey {
+    const [pda] = PublicKey.findProgramAddressSync(
+      [Buffer.from("agent"), agentId],
+      program.programId
+    );
+    return pda;
+  }
+
   describe("Happy Paths", () => {
     describe("Protocol Initialization", () => {
       it("Successfully initializes protocol", async () => {
-        const tx = await program.methods
-          .initializeProtocol(51, 100, 1 * LAMPORTS_PER_SOL)
-          .accounts({
-            protocolConfig: protocolPda,
-            treasury: treasury.publicKey,
-            authority: provider.wallet.publicKey,
-            systemProgram: SystemProgram.programId,
-          })
-          .rpc();
+        try {
+          const tx = await program.methods
+            .initializeProtocol(51, 100, new BN(LAMPORTS_PER_SOL), 1, [provider.wallet.publicKey])
+            .accounts({
+              protocolConfig: protocolPda,
+              treasury: treasury.publicKey,
+              authority: provider.wallet.publicKey,
+              systemProgram: SystemProgram.programId,
+            })
+            .remainingAccounts([
+              { pubkey: provider.wallet.publicKey, isSigner: true, isWritable: false },
+            ])
+            .rpc();
+        } catch (e) {
+          // Protocol may already be initialized
+          console.log("Protocol already initialized");
+        }
 
         const protocol = await program.account.protocolConfig.fetch(protocolPda);
         expect(protocol.authority.toString()).to.equal(provider.wallet.publicKey.toString());
@@ -156,13 +173,13 @@ describe("coordination-security", () => {
             Array.from(agentId1),
             new BN(CAPABILITY_COMPUTE | CAPABILITY_INFERENCE),
             "https://worker1.example.com",
-            null
+            null,
+            new BN(1 * LAMPORTS_PER_SOL)  // stake_amount
           )
-          .accounts({
+          .accountsPartial({
             agent: agentPda,
             protocolConfig: protocolPda,
             authority: worker1.publicKey,
-            systemProgram: SystemProgram.programId,
           })
           .signers([worker1])
           .rpc();
@@ -195,13 +212,13 @@ describe("coordination-security", () => {
             Array.from(agentId2),
             new BN(CAPABILITY_COMPUTE),
             "https://worker2.example.com",
-            null
+            null,
+            new BN(1 * LAMPORTS_PER_SOL)  // stake_amount
           )
-          .accounts({
+          .accountsPartial({
             agent: agentPda,
             protocolConfig: protocolPda,
             authority: worker2.publicKey,
-            systemProgram: SystemProgram.programId,
           })
           .signers([worker2])
           .rpc();
@@ -571,13 +588,13 @@ describe("coordination-security", () => {
             Array.from(agentId3),
             new BN(CAPABILITY_COMPUTE),
             "https://worker3.example.com",
-            null
+            null,
+            new BN(1 * LAMPORTS_PER_SOL)  // stake_amount
           )
-          .accounts({
+          .accountsPartial({
             agent: workerPda,
             protocolConfig: protocolPda,
             authority: worker3.publicKey,
-            systemProgram: SystemProgram.programId,
           })
           .signers([worker3])
           .rpc();

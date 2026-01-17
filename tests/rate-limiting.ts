@@ -57,6 +57,9 @@ describe("rate-limiting", () => {
           authority: provider.wallet.publicKey,
           systemProgram: SystemProgram.programId,
         })
+        .remainingAccounts([
+          { pubkey: provider.wallet.publicKey, isSigner: true, isWritable: false },
+        ])
         .rpc();
     } catch (e) {
       // Protocol may already be initialized
@@ -82,13 +85,13 @@ describe("rate-limiting", () => {
           Array.from(agentId),
           new BN(CAPABILITY_COMPUTE),
           "https://ratelimit-agent.example.com",
-          null
+          null,
+          new BN(LAMPORTS_PER_SOL)  // stake_amount
         )
-        .accounts({
+        .accountsPartial({
           agent: agentPda,
           protocolConfig: protocolPda,
           authority: creator.publicKey,
-          systemProgram: SystemProgram.programId,
         })
         .signers([creator])
         .rpc();
@@ -113,16 +116,16 @@ describe("rate-limiting", () => {
           new BN(0.1 * LAMPORTS_PER_SOL),
           1,
           new BN(0),
-          TASK_TYPE_EXCLUSIVE
+          TASK_TYPE_EXCLUSIVE,
+          null  // constraint_hash
         )
-        .accounts({
+        .accountsPartial({
           task: taskPda,
           escrow: escrowPda,
           protocolConfig: protocolPda,
           creatorAgent: agentPda,
           authority: creator.publicKey,
           creator: creator.publicKey,
-          systemProgram: SystemProgram.programId,
         })
         .signers([creator])
         .rpc();
@@ -182,16 +185,16 @@ describe("rate-limiting", () => {
           new BN(0.1 * LAMPORTS_PER_SOL),
           1,
           new BN(0),
-          TASK_TYPE_EXCLUSIVE
+          TASK_TYPE_EXCLUSIVE,
+          null  // constraint_hash
         )
-        .accounts({
+        .accountsPartial({
           task: taskPda,
           escrow: escrowPda,
           protocolConfig: protocolPda,
           creatorAgent: agentPda,
           authority: creator.publicKey,
           creator: creator.publicKey,
-          systemProgram: SystemProgram.programId,
         })
         .signers([creator])
         .rpc();
@@ -216,13 +219,13 @@ describe("rate-limiting", () => {
           Array.from(disputeAgentId),
           new BN(CAPABILITY_COMPUTE),
           "https://dispute-agent.example.com",
-          null
+          null,
+          new BN(LAMPORTS_PER_SOL)  // stake_amount
         )
-        .accounts({
+        .accountsPartial({
           agent: disputeAgentPda,
           protocolConfig: protocolPda,
           authority: worker.publicKey,
-          systemProgram: SystemProgram.programId,
         })
         .signers([worker])
         .rpc();
@@ -252,16 +255,16 @@ describe("rate-limiting", () => {
           new BN(0.5 * LAMPORTS_PER_SOL),
           1,
           new BN(0),
-          TASK_TYPE_EXCLUSIVE
+          TASK_TYPE_EXCLUSIVE,
+          null  // constraint_hash
         )
-        .accounts({
+        .accountsPartial({
           task: taskPda,
           escrow: escrowPda,
           protocolConfig: protocolPda,
           creatorAgent: creatorAgentPda,
           authority: creator.publicKey,
           creator: creator.publicKey,
-          systemProgram: SystemProgram.programId,
         })
         .signers([creator])
         .rpc();
@@ -269,13 +272,11 @@ describe("rate-limiting", () => {
       // Claim task to make it disputable
       await program.methods
         .claimTask()
-        .accounts({
-          protocolConfig: protocolPda,
+        .accountsPartial({
           task: taskPda,
           claim: claimPda,
           worker: disputeAgentPda,
           authority: worker.publicKey,
-          systemProgram: SystemProgram.programId,
         })
         .signers([worker])
         .rpc();

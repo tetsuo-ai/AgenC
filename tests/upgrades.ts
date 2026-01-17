@@ -97,13 +97,13 @@ describe("upgrades", () => {
           Array.from(creatorAgentId),
           new BN(1),
           "https://creator-upg.example.com",
-          null
+          null,
+          new BN(LAMPORTS_PER_SOL)  // stake_amount
         )
-        .accounts({
+        .accountsPartial({
           agent: creatorAgentPda,
           protocolConfig: protocolPda,
           authority: creator.publicKey,
-          systemProgram: SystemProgram.programId,
         })
         .signers([creator])
         .rpc();
@@ -161,17 +161,17 @@ describe("upgrades", () => {
           Buffer.from("Too old version".padEnd(64, "\0")),
           new BN(0),
           1,
+          new BN(0),
           0,
-          0
+          null  // constraint_hash
         )
-        .accounts({
+        .accountsPartial({
           task: taskPda,
           escrow: escrowPda,
           protocolConfig: protocolPda,
           creatorAgent: creatorAgentPda,
           authority: creator.publicKey,
           creator: creator.publicKey,
-          systemProgram: SystemProgram.programId,
         })
         .signers([creator])
         .rpc();
