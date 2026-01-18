@@ -5,24 +5,43 @@
 
 use std::hash::poseidon2_permutation;
 
+// Poseidon2 state size for BN254
+global POSEIDON_STATE_SIZE: u32 = 4;
+
+// Byte size for field packing
+global BYTES_PER_FIELD: Field = 256;
+
+// Standard sizes
+global PUBKEY_SIZE: u32 = 32;
+
 // Hash helper using poseidon2 permutation in sponge mode
 fn hash_4(input: [Field; 4]) -> Field {
-    let permuted = poseidon2_permutation(input, 4);
+    let permuted = poseidon2_permutation(input, POSEIDON_STATE_SIZE);
     permuted[0]
 }
 
 fn hash_2(a: Field, b: Field) -> Field {
     let input: [Field; 4] = [a, b, 0, 0];
-    let permuted = poseidon2_permutation(input, 4);
+    let permuted = poseidon2_permutation(input, POSEIDON_STATE_SIZE);
     permuted[0]
 }
 
+// Convert 32-byte array to field element (big-endian interpretation)
+fn bytes_to_field(bytes: [u8; 32]) -> Field {
+    let mut field: Field = 0;
+    for i in 0..PUBKEY_SIZE {
+        field = field * BYTES_PER_FIELD + (bytes[i] as Field);
+    }
+    field
+}
+
 fn main(
-    // Public inputs
-    task_id: pub Field,
+    // Public inputs (all as byte arrays for consistent on-chain encoding)
+    task_id: pub [u8; 32],
     agent_pubkey: pub [u8; 32],
     constraint_hash: pub Field,
     output_commitment: pub Field,
+    expected_binding: pub Field,  // Binding to prevent replay attacks
 
     // Private inputs
     output: [Field; 4],
@@ -30,78 +49,146 @@ fn main(
 ) {
     // 1. Verify output satisfies the task constraint
     let computed_constraint = hash_4(output);
-    assert(computed_constraint == constraint_hash, "Output does not satisfy task constraint");
+    assert(computed_constraint == constraint_hash);
 
     // 2. Verify the commitment is correctly formed
     let computed_commitment = hash_2(computed_constraint, salt);
-    assert(computed_commitment == output_commitment, "Commitment verification failed");
+    assert(computed_commitment == output_commitment);
 
-    // 3. Proof binding to task and agent
-    // Note: task_id and agent_pubkey are PUBLIC inputs, which means they are
-    // automatically bound to the proof by the ZK verification system. The verifier
-    // will check that the proof was generated with the exact public input values
-    // provided. This prevents proof replay attacks where an attacker tries to
-    // reuse a proof generated for a different task or agent.
-    //
-    // The computation below demonstrates the binding relationship but does not
-    // add additional security constraints since public inputs are inherently bound.
-    let mut agent_field: Field = 0;
-    for i in 0..32 {
-        agent_field = agent_field * 256 + (agent_pubkey[i] as Field);
-    }
-    let binding = hash_2(task_id, agent_field);
-    let _full_binding = hash_2(binding, output_commitment);
+    // 3. Bind proof to task and agent
+    let task_field = bytes_to_field(task_id);
+    let agent_field = bytes_to_field(agent_pubkey);
+    let binding = hash_2(task_field, agent_field);
+    let full_binding = hash_2(binding, output_commitment);
+
+    // CRITICAL: Assert binding matches expected (prevents replay attacks)
+    assert(full_binding == expected_binding);
 }
+
+// Helper to compute expected binding for tests
+fn compute_expected_binding(task_id: [u8; 32], agent_pubkey: [u8; 32], output_commitment: Field) -> Field {
+    let task_field = bytes_to_field(task_id);
+    let agent_field = bytes_to_field(agent_pubkey);
+    let binding = hash_2(task_field, agent_field);
+    hash_2(binding, output_commitment)
+}
+
+// ============================================================================
+// Test Fixtures - representative values for testing
+// ============================================================================
+
+// Task ID representing value 42 (0x2a) as big-endian 32-byte array
+global TEST_TASK_ID: [u8; 32] = [
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x2a
+];
+
+// Sequential bytes 0x01-0x20 representing a test agent pubkey
+global TEST_AGENT_PUBKEY: [u8; 32] = [
+    0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+    0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10,
+    0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18,
+    0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f, 0x20
+];
+
+// Wrong task ID (999 = 0x03e7)
+global WRONG_TASK_ID: [u8; 32] = [
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03, 0xe7
+];
+
+// Wrong agent (all 0xAA bytes)
+global WRONG_AGENT: [u8; 32] = [0xAA; 32];
+
+// Standard test output
+global TEST_OUTPUT: [Field; 4] = [1, 2, 3, 4];
+
+// Standard test salt
+global TEST_SALT: Field = 12345;
+
+// ============================================================================
+// Tests
+// ============================================================================
 
 #[test]
 fn test_valid_proof() {
-    let output: [Field; 4] = [1, 2, 3, 4];
-    let salt: Field = 12345;
-
-    let constraint_hash = hash_4(output);
-    let output_commitment = hash_2(constraint_hash, salt);
+    let constraint_hash = hash_4(TEST_OUTPUT);
+    let output_commitment = hash_2(constraint_hash, TEST_SALT);
 
     println(f"constraint_hash = {constraint_hash}");
     println(f"output_commitment = {output_commitment}");
 
-    let task_id: Field = 42;
-    let agent_pubkey: [u8; 32] = [
-        0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
-        0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10,
-        0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18,
-        0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f, 0x20
-    ];
+    let expected_binding = compute_expected_binding(TEST_TASK_ID, TEST_AGENT_PUBKEY, output_commitment);
 
-    main(task_id, agent_pubkey, constraint_hash, output_commitment, output, salt);
+    main(TEST_TASK_ID, TEST_AGENT_PUBKEY, constraint_hash, output_commitment, expected_binding, TEST_OUTPUT, TEST_SALT);
 }
 
 #[test(should_fail)]
 fn test_wrong_output_fails() {
-    let output: [Field; 4] = [1, 2, 3, 4];
     let wrong_output: [Field; 4] = [5, 6, 7, 8];
-    let salt: Field = 12345;
 
-    let constraint_hash = hash_4(output);
+    let constraint_hash = hash_4(TEST_OUTPUT);
     let wrong_constraint = hash_4(wrong_output);
-    let output_commitment = hash_2(wrong_constraint, salt);
+    let output_commitment = hash_2(wrong_constraint, TEST_SALT);
 
-    let task_id: Field = 42;
+    let task_id: [u8; 32] = [0; 32];
     let agent_pubkey: [u8; 32] = [0; 32];
 
-    main(task_id, agent_pubkey, constraint_hash, output_commitment, wrong_output, salt);
+    let expected_binding = compute_expected_binding(task_id, agent_pubkey, output_commitment);
+
+    main(task_id, agent_pubkey, constraint_hash, output_commitment, expected_binding, wrong_output, TEST_SALT);
 }
 
 #[test(should_fail)]
 fn test_wrong_salt_fails() {
-    let output: [Field; 4] = [1, 2, 3, 4];
-    let salt: Field = 12345;
     let wrong_salt: Field = 99999;
 
-    let constraint_hash = hash_4(output);
-    let output_commitment = hash_2(constraint_hash, salt);
+    let constraint_hash = hash_4(TEST_OUTPUT);
+    let output_commitment = hash_2(constraint_hash, TEST_SALT);
 
-    let task_id: Field = 42;
+    let task_id: [u8; 32] = [0; 32];
     let agent_pubkey: [u8; 32] = [0; 32];
 
-    main(task_id, agent_pubkey, constraint_hash, output_commitment, output, wrong_salt);
+    let expected_binding = compute_expected_binding(task_id, agent_pubkey, output_commitment);
+
+    main(task_id, agent_pubkey, constraint_hash, output_commitment, expected_binding, TEST_OUTPUT, wrong_salt);
+}
+
+#[test(should_fail)]
+fn test_wrong_task_id_fails() {
+    let constraint_hash = hash_4(TEST_OUTPUT);
+    let output_commitment = hash_2(constraint_hash, TEST_SALT);
+
+    // Compute binding with CORRECT task_id
+    let expected_binding = compute_expected_binding(TEST_TASK_ID, TEST_AGENT_PUBKEY, output_commitment);
+
+    // Try with WRONG task_id - binding won't match
+    main(WRONG_TASK_ID, TEST_AGENT_PUBKEY, constraint_hash, output_commitment, expected_binding, TEST_OUTPUT, TEST_SALT);
+}
+
+#[test(should_fail)]
+fn test_wrong_agent_fails() {
+    let constraint_hash = hash_4(TEST_OUTPUT);
+    let output_commitment = hash_2(constraint_hash, TEST_SALT);
+
+    // Compute binding with CORRECT agent
+    let expected_binding = compute_expected_binding(TEST_TASK_ID, TEST_AGENT_PUBKEY, output_commitment);
+
+    // Try with WRONG agent - binding won't match
+    main(TEST_TASK_ID, WRONG_AGENT, constraint_hash, output_commitment, expected_binding, TEST_OUTPUT, TEST_SALT);
+}
+
+#[test]
+fn test_correct_binding_succeeds() {
+    let constraint_hash = hash_4(TEST_OUTPUT);
+    let output_commitment = hash_2(constraint_hash, TEST_SALT);
+
+    // Compute correct binding
+    let expected_binding = compute_expected_binding(TEST_TASK_ID, TEST_AGENT_PUBKEY, output_commitment);
+
+    main(TEST_TASK_ID, TEST_AGENT_PUBKEY, constraint_hash, output_commitment, expected_binding, TEST_OUTPUT, TEST_SALT);
 }

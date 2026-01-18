@@ -18,6 +18,12 @@ export {
 export {
   generateProof,
   verifyProofLocally,
+  computeExpectedBinding,
+  computeConstraintHash,
+  computeCommitment,
+  generateSalt,
+  checkToolsAvailable,
+  pubkeyToField,
   ProofGenerationParams,
   ProofResult,
 } from './proofs';
@@ -31,6 +37,7 @@ export {
   TaskParams,
   TaskState,
   TaskStatus,
+  PrivateCompletionProof,
 } from './tasks';
 
 export {
@@ -39,6 +46,21 @@ export {
   PRIVACY_CASH_PROGRAM_ID,
   DEVNET_RPC,
   MAINNET_RPC,
+  // Size constants
+  HASH_SIZE,
+  RESULT_DATA_SIZE,
+  U64_SIZE,
+  DISCRIMINATOR_SIZE,
+  OUTPUT_FIELD_COUNT,
+  // Fee constants
+  PERCENT_BASE,
+  DEFAULT_FEE_PERCENT,
+  // ZK constants
+  PROOF_SIZE_BYTES,
+  VERIFICATION_COMPUTE_UNITS,
+  PUBLIC_INPUTS_COUNT,
+  // PDA seeds
+  SEEDS,
 } from './constants';
 
 // Version info

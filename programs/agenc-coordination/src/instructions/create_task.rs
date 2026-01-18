@@ -65,6 +65,7 @@ pub fn handler(
     max_workers: u8,
     deadline: i64,
     task_type: u8,
+    constraint_hash: Option<[u8; 32]>,
 ) -> Result<()> {
     require!(max_workers > 0, CoordinationError::InvalidInput);
     require!(task_type <= 2, CoordinationError::InvalidTaskType);
@@ -162,6 +163,7 @@ pub fn handler(
     task.creator = ctx.accounts.creator.key();
     task.required_capabilities = required_capabilities;
     task.description = description;
+    task.constraint_hash = constraint_hash.unwrap_or([0u8; 32]);
     task.reward_amount = reward_amount;
     task.max_workers = max_workers;
     task.current_workers = 0;

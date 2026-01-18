@@ -1,31 +1,66 @@
-//! Complete a task with ZK proof verification (private completion)
+//! Private task completion with ZK proof verification.
 //!
-//! This instruction allows an agent to prove task completion without revealing
-//! the actual output. Uses a Groth16 proof verified via CPI to a Sunspot verifier.
+//! Enables agents to prove task completion without revealing outputs.
+//! Uses Groth16 proofs verified via CPI to the Sunspot verifier.
+//!
+//! # Security Model
+//!
+//! The circuit enforces binding of proof to (task_id, agent_pubkey, output_commitment).
+//! On-chain, we build the public witness with task_id and agent_pubkey from actual accounts,
+//! preventing replay attacks even without computing the binding hash on-chain.
+//!
+//! # External Dependencies
+//!
+//! **IMPORTANT**: This module depends on the Sunspot Groth16 verifier program at
+//! `ZK_VERIFIER_PROGRAM_ID`. For production deployment:
+//! 1. Ensure the verifier program has been audited
+//! 2. Verify the deployed verifier matches the expected bytecode
+//! 3. The verifier must support the BN254 curve with the circuit's verification key
+//!
+//! # Public Witness Encoding
+//!
+//! The witness format matches Noir's public input encoding for `pub [u8; 32]`:
+//! - Each byte becomes a separate 32-byte big-endian field element
+//! - This results in 32 field elements per pubkey (not 1 field from byte conversion)
+//! - The SDK's `pubkeyToField` is only used for computing binding hashes, not witness encoding
+//! - Actual witness generation is handled by nargo/sunspot during proof creation
 
 use crate::errors::CoordinationError;
 use crate::events::{RewardDistributed, TaskCompleted};
+use crate::instructions::completion_helpers::{
+    calculate_reward_split, transfer_rewards, update_claim_state, update_protocol_stats,
+    update_task_state, update_worker_state,
+};
 use crate::state::{
-    AgentRegistration, ProtocolConfig, Task, TaskClaim, TaskEscrow, TaskStatus, TaskType,
+    AgentRegistration, ProtocolConfig, Task, TaskClaim, TaskEscrow, TaskStatus,
+    HASH_SIZE, RESULT_DATA_SIZE,
 };
 use crate::utils::version::check_version_compatible;
 use anchor_lang::prelude::*;
-use anchor_lang::solana_program::program::invoke;
 use anchor_lang::solana_program::instruction::Instruction;
+use anchor_lang::solana_program::program::invoke;
 
-/// Sunspot Groth16 verifier program ID (deployed to devnet)
+/// Sunspot Groth16 verifier program ID (BN254 curve).
+/// SECURITY: This program must be audited before production use.
+/// The verification key embedded in this program must match the task_completion circuit.
 pub const ZK_VERIFIER_PROGRAM_ID: Pubkey = pubkey!("8fHUGmjNzSh76r78v1rPt7BhWmAu2gXrvW9A2XXonwQQ");
 
-/// ZK proof for private task completion
-/// Contains Groth16 proof and public inputs matching the Noir circuit
+// ZK witness format constants
+// 32 (task_id bytes) + 32 (agent bytes) + 1 (constraint_hash) + 1 (output_commitment) + 1 (expected_binding)
+const PUBLIC_INPUTS_COUNT: usize = 67;
+const FIELD_SIZE: usize = HASH_SIZE;
+const WITNESS_HEADER_SIZE: usize = 12;
+const WITNESS_HEADER_PADDING: usize = 8;
+
+/// Expected Groth16 proof size in bytes (2 G1 points + 1 G2 point on BN254)
+const EXPECTED_PROOF_SIZE: usize = 388;
+
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
 pub struct PrivateCompletionProof {
-    /// Groth16 proof bytes (typically 256 bytes for BN254)
     pub proof_data: Vec<u8>,
-    /// Public input: hash of the task constraint
-    pub constraint_hash: [u8; 32],
-    /// Public input: commitment to the private output (hash(output || salt))
-    pub output_commitment: [u8; 32],
+    pub constraint_hash: [u8; HASH_SIZE],
+    pub output_commitment: [u8; HASH_SIZE],
+    pub expected_binding: [u8; HASH_SIZE],
 }
 
 #[derive(Accounts)]
@@ -75,7 +110,7 @@ pub struct CompleteTaskPrivate<'info> {
     )]
     pub treasury: UncheckedAccount<'info>,
 
-    /// CHECK: ZK verifier program (deployed Sunspot/Groth16 verifier)
+    /// CHECK: ZK verifier program
     #[account(
         constraint = zk_verifier.key() == ZK_VERIFIER_PROGRAM_ID @ CoordinationError::InvalidInput
     )]
@@ -87,6 +122,12 @@ pub struct CompleteTaskPrivate<'info> {
     pub system_program: Program<'info, System>,
 }
 
+/// Complete a task with private ZK proof verification.
+///
+/// # Arguments
+/// * `_task_id` - Required by Anchor's instruction macro for deserialization,
+///   but the actual task is identified by the task account PDA
+/// * `proof` - The ZK proof containing proof_data, constraint_hash, output_commitment, and expected_binding
 pub fn complete_task_private(
     ctx: Context<CompleteTaskPrivate>,
     _task_id: u64,
@@ -100,114 +141,60 @@ pub fn complete_task_private(
 
     check_version_compatible(&ctx.accounts.protocol_config)?;
 
-    let protocol_fee_bps = ctx.accounts.protocol_config.protocol_fee_bps;
-
-    // Validate task state
     require!(
         task.status == TaskStatus::InProgress,
         CoordinationError::TaskNotInProgress
     );
-
     require!(
         !claim.is_completed,
         CoordinationError::ClaimAlreadyCompleted
     );
 
-    // Verify ZK proof
-    verify_completion_proof(
+    // CRITICAL: Verify this is a private task (has a non-zero constraint_hash)
+    // Tasks without constraint_hash should use complete_task, not complete_task_private
+    require!(
+        task.constraint_hash != [0u8; HASH_SIZE],
+        CoordinationError::NotPrivateTask
+    );
+
+    // CRITICAL: Verify the proof's constraint_hash matches the task's stored constraint_hash
+    // This prevents attackers from proving an arbitrary constraint they can satisfy
+    require!(
+        proof.constraint_hash == task.constraint_hash,
+        CoordinationError::ConstraintHashMismatch
+    );
+
+    verify_zk_proof(
         &ctx.accounts.zk_verifier,
         &proof,
         task.key(),
         worker.authority,
-        &task.description, // Using description as constraint reference
     )?;
 
-    // Store commitment as proof hash (output remains private)
     claim.proof_hash = proof.output_commitment;
-    claim.result_data = [0u8; 64]; // No result data for private completion
+    // Private completions don't store result data on-chain (privacy preserved)
+    claim.result_data = [0u8; RESULT_DATA_SIZE];
     claim.is_completed = true;
     claim.completed_at = clock.unix_timestamp;
 
-    // Calculate reward (same as normal completion)
-    let reward_per_worker = if task.task_type == TaskType::Collaborative {
-        task.reward_amount
-            .checked_div(task.required_completions as u64)
-            .ok_or(CoordinationError::ArithmeticOverflow)?
-    } else {
-        task.reward_amount
-    };
+    let (worker_reward, protocol_fee) =
+        calculate_reward_split(task, ctx.accounts.protocol_config.protocol_fee_bps)?;
 
-    let protocol_fee = reward_per_worker
-        .checked_mul(protocol_fee_bps as u64)
-        .ok_or(CoordinationError::ArithmeticOverflow)?
-        .checked_div(10000)
-        .ok_or(CoordinationError::ArithmeticOverflow)?;
+    transfer_rewards(
+        escrow,
+        &ctx.accounts.authority.to_account_info(),
+        &ctx.accounts.treasury.to_account_info(),
+        worker_reward,
+        protocol_fee,
+    )?;
 
-    let worker_reward = reward_per_worker
-        .checked_sub(protocol_fee)
-        .ok_or(CoordinationError::ArithmeticOverflow)?;
-
-    // Transfer reward to worker
-    if worker_reward > 0 {
-        **escrow.to_account_info().try_borrow_mut_lamports()? -= worker_reward;
-        **ctx
-            .accounts
-            .authority
-            .to_account_info()
-            .try_borrow_mut_lamports()? += worker_reward;
-    }
-
-    // Transfer protocol fee to treasury
-    if protocol_fee > 0 {
-        **escrow.to_account_info().try_borrow_mut_lamports()? -= protocol_fee;
-        **ctx
-            .accounts
-            .treasury
-            .to_account_info()
-            .try_borrow_mut_lamports()? += protocol_fee;
-    }
-
-    claim.reward_paid = worker_reward;
-    escrow.distributed = escrow
-        .distributed
-        .checked_add(reward_per_worker)
-        .ok_or(CoordinationError::ArithmeticOverflow)?;
-
-    task.completions = task
-        .completions
-        .checked_add(1)
-        .ok_or(CoordinationError::ArithmeticOverflow)?;
-
-    let task_completed = task.completions >= task.required_completions;
-    if task_completed {
-        task.status = TaskStatus::Completed;
-        task.completed_at = clock.unix_timestamp;
-        task.result = [0u8; 64]; // Private: no result stored on-chain
-        escrow.is_closed = true;
-    }
-
-    worker.tasks_completed = worker
-        .tasks_completed
-        .checked_add(1)
-        .ok_or(CoordinationError::ArithmeticOverflow)?;
-    worker.total_earned = worker
-        .total_earned
-        .checked_add(worker_reward)
-        .ok_or(CoordinationError::ArithmeticOverflow)?;
-    worker.active_tasks = worker.active_tasks.saturating_sub(1);
-    worker.last_active = clock.unix_timestamp;
-    worker.reputation = worker.reputation.saturating_add(100).min(10000);
+    update_claim_state(claim, escrow, worker_reward, task.reward_amount)?;
+    // Pass None for result_data to preserve privacy
+    let task_completed = update_task_state(task, clock.unix_timestamp, escrow, None)?;
+    update_worker_state(worker, worker_reward, clock.unix_timestamp)?;
 
     if task_completed {
-        let config = &mut ctx.accounts.protocol_config;
-        config.completed_tasks = config
-            .completed_tasks
-            .checked_add(1)
-            .ok_or(CoordinationError::ArithmeticOverflow)?;
-        config.total_value_distributed = config
-            .total_value_distributed
-            .checked_add(reward_per_worker)
-            .ok_or(CoordinationError::ArithmeticOverflow)?;
+        update_protocol_stats(&mut ctx.accounts.protocol_config, task.reward_amount)?;
     }
 
     emit!(TaskCompleted {
@@ -229,71 +216,73 @@ pub fn complete_task_private(
     Ok(())
 }
 
-/// Number of public inputs in the Groth16 circuit (task_id + 32 agent bytes + constraint_hash + output_commitment)
-const NR_PUBLIC_INPUTS: usize = 35;
+// ============================================================================
+// ZK Proof Verification Helpers
+// ============================================================================
 
-/// Verify the ZK proof via CPI to the Sunspot/Groth16 verifier
-fn verify_completion_proof(
+/// Encode a pubkey as 32 separate field elements (one per byte) for the ZK witness.
+/// Each byte becomes a 32-byte field element with the byte in the last position.
+fn append_pubkey_as_field_elements(witness: &mut Vec<u8>, pubkey: &Pubkey) {
+    for byte in pubkey.to_bytes() {
+        let mut field = [0u8; FIELD_SIZE];
+        field[FIELD_SIZE - 1] = byte;
+        witness.extend_from_slice(&field);
+    }
+}
+
+fn build_public_witness(task_key: &Pubkey, agent: &Pubkey, proof: &PrivateCompletionProof) -> Vec<u8> {
+    let capacity = WITNESS_HEADER_SIZE + PUBLIC_INPUTS_COUNT * FIELD_SIZE;
+    let mut witness = Vec::with_capacity(capacity);
+
+    // Header: count (4 bytes LE) + padding (8 bytes) - Sunspot verifier format
+    witness.extend_from_slice(&(PUBLIC_INPUTS_COUNT as u32).to_le_bytes());
+    witness.extend_from_slice(&[0u8; WITNESS_HEADER_PADDING]);
+
+    // Public inputs 1-32: task_id (each byte as separate field element)
+    append_pubkey_as_field_elements(&mut witness, task_key);
+
+    // Public inputs 33-64: agent_pubkey (each byte as separate field element)
+    append_pubkey_as_field_elements(&mut witness, agent);
+
+    // Public input 65: constraint_hash
+    witness.extend_from_slice(&proof.constraint_hash);
+
+    // Public input 66: output_commitment
+    witness.extend_from_slice(&proof.output_commitment);
+
+    // Public input 67: expected_binding
+    witness.extend_from_slice(&proof.expected_binding);
+
+    witness
+}
+
+fn verify_zk_proof(
     verifier: &UncheckedAccount,
     proof: &PrivateCompletionProof,
     task_key: Pubkey,
-    agent_authority: Pubkey,
-    _task_description: &[u8; 64],
+    agent: Pubkey,
 ) -> Result<()> {
-    // Validate proof structure
+    // Validate proof size matches expected Groth16 proof format
     require!(
-        !proof.proof_data.is_empty(),
-        CoordinationError::InvalidInput
+        proof.proof_data.len() == EXPECTED_PROOF_SIZE,
+        CoordinationError::InvalidProofSize
     );
 
-    // Log public inputs for transparency
-    msg!("Verifying ZK proof for task: {}", task_key);
-    msg!("Agent authority: {}", agent_authority);
-    msg!("Constraint hash: {:?}", &proof.constraint_hash[..8]);
-    msg!("Output commitment: {:?}", &proof.output_commitment[..8]);
+    let witness = build_public_witness(&task_key, &agent, proof);
 
-    // Build the public witness for the verifier
-    // Format: 12-byte header (4 bytes nr_inputs + 4 bytes vector_type + 4 bytes padding)
-    //         followed by 35 x 32-byte field elements
-    let mut public_witness: Vec<u8> = Vec::with_capacity(12 + NR_PUBLIC_INPUTS * 32);
-
-    // Header: number of public inputs (little-endian u32) + type marker + padding
-    public_witness.extend_from_slice(&(NR_PUBLIC_INPUTS as u32).to_le_bytes());
-    public_witness.extend_from_slice(&[0u8; 8]); // Type and padding
-
-    // Public input 1: task_id (derived from task key - use first 32 bytes as field element)
-    public_witness.extend_from_slice(&task_key.to_bytes());
-
-    // Public inputs 2-33: agent_pubkey as 32 separate field elements (one byte per field)
-    for byte in agent_authority.to_bytes().iter() {
-        let mut field = [0u8; 32];
-        field[31] = *byte; // Put byte value in the least significant position
-        public_witness.extend_from_slice(&field);
-    }
-
-    // Public input 34: constraint_hash
-    public_witness.extend_from_slice(&proof.constraint_hash);
-
-    // Public input 35: output_commitment
-    public_witness.extend_from_slice(&proof.output_commitment);
-
-    // Build instruction data: proof bytes + public witness
     let mut instruction_data = proof.proof_data.clone();
-    instruction_data.extend_from_slice(&public_witness);
+    instruction_data.extend_from_slice(&witness);
 
-    // Create CPI instruction to the Sunspot verifier
     let ix = Instruction {
         program_id: verifier.key(),
         accounts: vec![],
         data: instruction_data,
     };
 
-    // Execute CPI - verifier will return error if proof is invalid
     invoke(&ix, &[]).map_err(|e| {
         msg!("ZK proof verification failed: {:?}", e);
-        CoordinationError::InvalidInput
+        CoordinationError::ZkVerificationFailed
     })?;
 
-    msg!("ZK proof verified successfully!");
     Ok(())
 }

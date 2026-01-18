@@ -2,8 +2,13 @@
 
 use crate::errors::CoordinationError;
 use crate::events::{RewardDistributed, TaskCompleted};
+use crate::instructions::completion_helpers::{
+    calculate_reward_split, transfer_rewards, update_claim_state, update_protocol_stats,
+    update_task_state, update_worker_state,
+};
 use crate::state::{
     AgentRegistration, ProtocolConfig, Task, TaskClaim, TaskEscrow, TaskStatus, TaskType,
+    HASH_SIZE, RESULT_DATA_SIZE,
 };
 use crate::utils::version::check_version_compatible;
 use anchor_lang::prelude::*;
@@ -62,8 +67,8 @@ pub struct CompleteTask<'info> {
 
 pub fn handler(
     ctx: Context<CompleteTask>,
-    proof_hash: [u8; 32],
-    result_data: Option<[u8; 64]>,
+    proof_hash: [u8; HASH_SIZE],
+    result_data: Option<[u8; RESULT_DATA_SIZE]>,
 ) -> Result<()> {
     let task = &mut ctx.accounts.task;
     let claim = &mut ctx.accounts.claim;
@@ -82,7 +87,7 @@ pub fn handler(
         CoordinationError::TaskNotInProgress
     );
 
-    // Enforce deadline (fix #62)
+    // Enforce deadline
     if task.deadline > 0 {
         require!(
             clock.unix_timestamp <= task.deadline,
@@ -96,120 +101,41 @@ pub fn handler(
         CoordinationError::ClaimAlreadyCompleted
     );
 
+    // For competitive tasks, ensure no one else has completed
+    if task.task_type == TaskType::Competitive {
+        require!(
+            task.completions == 0,
+            CoordinationError::CompetitiveTaskAlreadyWon
+        );
+    }
+
     // Update claim
+    let claim_result_data = result_data.unwrap_or([0u8; RESULT_DATA_SIZE]);
     claim.proof_hash = proof_hash;
-    claim.result_data = result_data.unwrap_or([0u8; 64]);
+    claim.result_data = claim_result_data;
     claim.is_completed = true;
     claim.completed_at = clock.unix_timestamp;
 
-    // Calculate reward
-    let reward_per_worker = match task.task_type {
-        TaskType::Collaborative => {
-            let base_reward = task
-                .reward_amount
-                .checked_div(task.required_completions as u64)
-                .ok_or(CoordinationError::ArithmeticOverflow)?;
-            let remainder = task
-                .reward_amount
-                .checked_rem(task.required_completions as u64)
-                .ok_or(CoordinationError::ArithmeticOverflow)?;
+    // Calculate rewards
+    let (worker_reward, protocol_fee) = calculate_reward_split(task, protocol_fee_bps)?;
 
-            if task.completions == task.required_completions.saturating_sub(1) {
-                base_reward
-                    .checked_add(remainder)
-                    .ok_or(CoordinationError::ArithmeticOverflow)?
-            } else {
-                base_reward
-            }
-        }
-        TaskType::Competitive => {
-            require!(
-                task.completions == 0,
-                CoordinationError::CompetitiveTaskAlreadyWon
-            );
-            task.reward_amount
-        }
-        TaskType::Exclusive => task.reward_amount,
-    };
+    // Transfer rewards
+    transfer_rewards(
+        escrow,
+        &ctx.accounts.authority.to_account_info(),
+        &ctx.accounts.treasury.to_account_info(),
+        worker_reward,
+        protocol_fee,
+    )?;
 
-    // Calculate protocol fee
-    let protocol_fee = reward_per_worker
-        .checked_mul(protocol_fee_bps as u64)
-        .ok_or(CoordinationError::ArithmeticOverflow)?
-        .checked_div(10000)
-        .ok_or(CoordinationError::ArithmeticOverflow)?;
-
-    let worker_reward = reward_per_worker
-        .checked_sub(protocol_fee)
-        .ok_or(CoordinationError::ArithmeticOverflow)?;
-
-    // Transfer reward to worker
-    if worker_reward > 0 {
-        **escrow.to_account_info().try_borrow_mut_lamports()? -= worker_reward;
-        **ctx
-            .accounts
-            .authority
-            .to_account_info()
-            .try_borrow_mut_lamports()? += worker_reward;
-    }
-
-    // Transfer protocol fee to treasury
-    if protocol_fee > 0 {
-        **escrow.to_account_info().try_borrow_mut_lamports()? -= protocol_fee;
-        **ctx
-            .accounts
-            .treasury
-            .to_account_info()
-            .try_borrow_mut_lamports()? += protocol_fee;
-    }
-
-    claim.reward_paid = worker_reward;
-    escrow.distributed = escrow
-        .distributed
-        .checked_add(reward_per_worker)
-        .ok_or(CoordinationError::ArithmeticOverflow)?;
-
-    // Update task completion count
-    task.completions = task
-        .completions
-        .checked_add(1)
-        .ok_or(CoordinationError::ArithmeticOverflow)?;
-
-    // Check if task is fully completed
-    let task_completed = task.completions >= task.required_completions;
-    if task_completed {
-        task.status = TaskStatus::Completed;
-        task.completed_at = clock.unix_timestamp;
-        task.result = claim.result_data;
-        escrow.is_closed = true;
-    }
-
-    // Update worker stats
-    worker.tasks_completed = worker
-        .tasks_completed
-        .checked_add(1)
-        .ok_or(CoordinationError::ArithmeticOverflow)?;
-    worker.total_earned = worker
-        .total_earned
-        .checked_add(worker_reward)
-        .ok_or(CoordinationError::ArithmeticOverflow)?;
-    worker.active_tasks = worker.active_tasks.saturating_sub(1);
-    worker.last_active = clock.unix_timestamp;
-
-    // Increase reputation for successful completion
-    worker.reputation = worker.reputation.saturating_add(100).min(10000);
+    // Update states
+    update_claim_state(claim, escrow, worker_reward, task.reward_amount)?;
+    let task_completed = update_task_state(task, clock.unix_timestamp, escrow, Some(claim_result_data))?;
+    update_worker_state(worker, worker_reward, clock.unix_timestamp)?;
 
     // Update protocol stats after other mutable borrows are done
     if task_completed {
-        let config = &mut ctx.accounts.protocol_config;
-        config.completed_tasks = config
-            .completed_tasks
-            .checked_add(1)
-            .ok_or(CoordinationError::ArithmeticOverflow)?;
-        config.total_value_distributed = config
-            .total_value_distributed
-            .checked_add(reward_per_worker)
-            .ok_or(CoordinationError::ArithmeticOverflow)?;
+        update_protocol_stats(&mut ctx.accounts.protocol_config, task.reward_amount)?;
     }
 
     emit!(TaskCompleted {

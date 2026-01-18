@@ -2,6 +2,7 @@
 
 use crate::errors::CoordinationError;
 use crate::events::ProtocolInitialized;
+use crate::instructions::constants::{MAX_PERCENT, MAX_PROTOCOL_FEE_BPS};
 use crate::state::{ProtocolConfig, CURRENT_PROTOCOL_VERSION, MIN_SUPPORTED_VERSION};
 use crate::utils::multisig::validate_multisig_owners;
 use anchor_lang::prelude::*;
@@ -36,11 +37,11 @@ pub fn handler(
 ) -> Result<()> {
     // Validate parameters BEFORE writing any config
     require!(
-        dispute_threshold > 0 && dispute_threshold <= 100,
+        dispute_threshold > 0 && dispute_threshold <= MAX_PERCENT,
         CoordinationError::InvalidDisputeThreshold
     );
     require!(
-        protocol_fee_bps <= 1000, // Max 10%
+        protocol_fee_bps <= MAX_PROTOCOL_FEE_BPS,
         CoordinationError::InvalidProtocolFee
     );
     require!(

@@ -2,6 +2,16 @@
 
 use anchor_lang::prelude::*;
 
+// ============================================================================
+// Size Constants
+// ============================================================================
+
+/// Size of cryptographic hashes and IDs (SHA256, Pubkey bytes)
+pub const HASH_SIZE: usize = 32;
+
+/// Size of result/description/value data fields
+pub const RESULT_DATA_SIZE: usize = 64;
+
 /// Agent capability flags (bitmask)
 pub mod capability {
     pub const COMPUTE: u64 = 1 << 0; // General computation
@@ -28,7 +38,7 @@ pub enum AgentStatus {
 }
 
 /// Task status
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Default, InitSpace)]
 #[repr(u8)]
 pub enum TaskStatus {
     #[default]
@@ -41,7 +51,7 @@ pub enum TaskStatus {
 }
 
 /// Task type
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Default, InitSpace)]
 #[repr(u8)]
 pub enum TaskType {
     #[default]
@@ -292,6 +302,7 @@ impl AgentRegistration {
 /// Task account
 /// PDA seeds: ["task", creator, task_id]
 #[account]
+#[derive(InitSpace)]
 pub struct Task {
     /// Unique task identifier
     pub task_id: [u8; 32],
@@ -301,6 +312,9 @@ pub struct Task {
     pub required_capabilities: u64,
     /// Task description or instruction hash
     pub description: [u8; 64],
+    /// Constraint hash for private task verification (hash of expected output)
+    /// For private tasks, workers must prove they know output that hashes to this value
+    pub constraint_hash: [u8; 32],
     /// Reward amount in lamports
     pub reward_amount: u64,
     /// Maximum workers allowed
@@ -338,6 +352,7 @@ impl Default for Task {
             creator: Pubkey::default(),
             required_capabilities: 0,
             description: [0u8; 64],
+            constraint_hash: [0u8; 32],
             reward_amount: 0,
             max_workers: 1,
             current_workers: 0,
@@ -357,11 +372,14 @@ impl Default for Task {
 }
 
 impl Task {
+    /// Prefer using `8 + Task::INIT_SPACE` (from #[derive(InitSpace)]).
+    /// This manual constant is kept for backwards compatibility.
     pub const SIZE: usize = 8 + // discriminator
         32 + // task_id
         32 + // creator
         8 +  // required_capabilities
         64 + // description
+        32 + // constraint_hash
         8 +  // reward_amount
         1 +  // max_workers
         1 +  // current_workers

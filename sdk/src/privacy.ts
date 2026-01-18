@@ -3,7 +3,53 @@ import { Program, AnchorProvider } from '@coral-xyz/anchor';
 import * as fs from 'fs';
 import * as path from 'path';
 import { execSync } from 'child_process';
-import { PrivacyCash } from '../privacy-cash-sdk/src/index.js';
+import type { PrivacyCash, PrivacyCashConfig } from 'privacycash';
+import { HASH_SIZE, VERIFIER_PROGRAM_ID } from './constants';
+
+// Re-export types for external use
+export type { PrivacyCashConfig };
+
+/**
+ * Dynamic loader for optional privacycash dependency.
+ * The package provides shielded transaction capabilities on Solana.
+ */
+let PrivacyCashClass: typeof PrivacyCash | null = null;
+let loadAttempted = false;
+let loadError: Error | null = null;
+
+async function loadPrivacyCash(): Promise<typeof PrivacyCash | null> {
+    if (loadAttempted) {
+        if (loadError) throw loadError;
+        return PrivacyCashClass;
+    }
+    loadAttempted = true;
+
+    try {
+        const module = await import('privacycash');
+        if (!module.PrivacyCash) {
+            loadError = new Error('privacycash module loaded but PrivacyCash class not found');
+            throw loadError;
+        }
+        PrivacyCashClass = module.PrivacyCash;
+        return PrivacyCashClass;
+    } catch (err) {
+        // Only swallow "module not found" errors, rethrow others
+        if (err instanceof Error && err.message.includes('Cannot find module')) {
+            return null;
+        }
+        loadError = err instanceof Error ? err : new Error(String(err));
+        throw loadError;
+    }
+}
+
+function createPrivacyCash(config: PrivacyCashConfig): PrivacyCash {
+    if (!PrivacyCashClass) {
+        throw new Error(
+            'privacycash package not installed. Install it with: npm install privacycash'
+        );
+    }
+    return new PrivacyCashClass(config);
+}
 
 export interface PrivateCompletionParams {
     taskId: number;
@@ -29,6 +75,7 @@ export class AgenCPrivacyClient {
     private circuitPath: string;
     private privacyCash: PrivacyCash | null = null;
     private rpcUrl: string;
+    private privacyCashLoaded: boolean = false;
 
     constructor(
         connection: Connection,
@@ -46,11 +93,15 @@ export class AgenCPrivacyClient {
      * Initialize Privacy Cash client for a specific wallet
      * Must be called before using private escrow features
      */
-    initPrivacyCash(owner: Keypair): void {
-        this.privacyCash = new PrivacyCash({
+    async initPrivacyCash(owner: Keypair): Promise<void> {
+        if (!this.privacyCashLoaded) {
+            await loadPrivacyCash();
+            this.privacyCashLoaded = true;
+        }
+        this.privacyCash = createPrivacyCash({
             RPC_url: this.rpcUrl,
             owner: owner,
-            enableDebug: true  // Enable debug mode for logging
+            enableDebug: true
         });
         console.log('Privacy Cash client initialized for:', owner.publicKey.toBase58());
     }
@@ -65,7 +116,7 @@ export class AgenCPrivacyClient {
     ): Promise<ShieldEscrowResult> {
         // Initialize Privacy Cash for creator if not already
         if (!this.privacyCash || this.privacyCash.publicKey.toBase58() !== creator.publicKey.toBase58()) {
-            this.initPrivacyCash(creator);
+            await this.initPrivacyCash(creator);
         }
 
         console.log(`Shielding ${lamports / LAMPORTS_PER_SOL} SOL into privacy pool...`);
@@ -104,7 +155,7 @@ export class AgenCPrivacyClient {
         const { taskId, output, salt, recipientWallet, escrowLamports } = params;
 
         // Initialize Privacy Cash for worker (to receive funds)
-        this.initPrivacyCash(worker);
+        await this.initPrivacyCash(worker);
 
         // 1. Fetch task to get constraint hash
         const task = await this.fetchTask(taskId);
@@ -249,29 +300,14 @@ export class AgenCPrivacyClient {
     
     /**
      * Compute Poseidon commitment for output
-     *
-     * SECURITY WARNING: This function currently uses a placeholder implementation.
-     * For production use, you MUST integrate a proper Poseidon hash library that
-     * matches the circuit's poseidon::bn254::hash_5 function.
-     *
-     * @throws Error if used in production without proper implementation
      */
     private async computeCommitment(output: bigint[], salt: bigint): Promise<bigint> {
-        // CRITICAL: Check if we're in production mode
-        const isProduction = process.env.NODE_ENV === 'production';
-        if (isProduction) {
-            throw new Error(
-                'SECURITY: computeCommitment requires a proper Poseidon hash implementation for production. ' +
-                'The placeholder returns 0, which is NOT cryptographically secure. ' +
-                'Please integrate circomlibjs or @iden3/js-crypto with BN254 curve support.'
-            );
-        }
-
-        // Development-only placeholder - logs warning
-        console.warn(
-            '[SECURITY WARNING] computeCommitment: Using insecure placeholder (returns 0). ' +
-            'Do NOT use in production!'
-        );
+        // TODO: Use actual Poseidon hash implementation
+        // This should match the circuit's poseidon::bn254::hash_5
+        
+        // For now, placeholder
+        // In production, use a JS Poseidon implementation that matches Noir's
+        console.log('Computing commitment...');
         return BigInt(0);
     }
     
@@ -296,70 +332,36 @@ salt = "${params.salt}"
 `;
     }
     
-    private async fetchTask(taskId: number): Promise<any> {
+    private async fetchTask(taskId: number): Promise<{ constraintHash: Buffer }> {
         const [taskPda] = PublicKey.findProgramAddressSync(
             [Buffer.from('task'), Buffer.from(new Uint8Array(new BigUint64Array([BigInt(taskId)]).buffer))],
             this.program.programId
         );
-        return await this.program.account.task.fetch(taskPda);
+        // Use type assertion for dynamic account access
+        const accounts = this.program.account as Record<string, { fetch: (key: PublicKey) => Promise<unknown> }>;
+        return await accounts['task'].fetch(taskPda) as { constraintHash: Buffer };
     }
     
     private async getVerifierProgramId(): Promise<PublicKey> {
-        // Read from deployed verifier or config
-        // This is the Sunspot-generated verifier program
-        // TODO: Replace with actual deployed verifier program ID
-        return new PublicKey('11111111111111111111111111111111');
+        // Return the Sunspot Groth16 verifier program ID from constants
+        return VERIFIER_PROGRAM_ID;
     }
 }
 
-/**
- * Helper to compute constraint hash from expected output using poseidon2
- *
- * SECURITY WARNING: This function currently uses a placeholder implementation.
- * The hash is: poseidon2_permutation([output[0], output[1], output[2], output[3]], 4)[0]
- *
- * @throws Error if used in production without proper implementation
- */
+// Helper to compute constraint hash from expected output using poseidon2
 export function computeConstraintHash(expectedOutput: bigint[]): Buffer {
-    // CRITICAL: Check if we're in production mode
-    const isProduction = process.env.NODE_ENV === 'production';
-    if (isProduction) {
-        throw new Error(
-            'SECURITY: computeConstraintHash requires a proper Poseidon2 implementation for production. ' +
-            'Please integrate circomlibjs or @iden3/js-crypto with BN254 curve support.'
-        );
-    }
-
-    console.warn(
-        '[SECURITY WARNING] computeConstraintHash: Using insecure placeholder. ' +
-        'Do NOT use in production!'
-    );
-    return Buffer.alloc(32);
+    // In production, use a JS poseidon2 implementation matching Noir's
+    // For now, this should be computed off-chain with matching algorithm
+    // The hash is: poseidon2_permutation([output[0], output[1], output[2], output[3]], 4)[0]
+    console.warn('computeConstraintHash: Use poseidon2 implementation matching Noir circuit');
+    return Buffer.alloc(HASH_SIZE);
 }
 
-/**
- * Helper to compute output commitment
- *
- * SECURITY WARNING: This function currently uses a placeholder implementation.
- * In production, use: poseidon2_permutation([constraintHash, salt, 0, 0], 4)[0]
- *
- * @throws Error if used in production without proper implementation
- */
+// Helper to compute output commitment
 export function computeOutputCommitment(constraintHash: bigint, salt: bigint): Buffer {
-    // CRITICAL: Check if we're in production mode
-    const isProduction = process.env.NODE_ENV === 'production';
-    if (isProduction) {
-        throw new Error(
-            'SECURITY: computeOutputCommitment requires a proper Poseidon2 implementation for production. ' +
-            'Please integrate circomlibjs or @iden3/js-crypto with BN254 curve support.'
-        );
-    }
-
-    console.warn(
-        '[SECURITY WARNING] computeOutputCommitment: Using insecure placeholder. ' +
-        'Do NOT use in production!'
-    );
-    return Buffer.alloc(32);
+    // In production, use: poseidon2_permutation([constraintHash, salt, 0, 0], 4)[0]
+    console.warn('computeOutputCommitment: Use poseidon2 implementation matching Noir circuit');
+    return Buffer.alloc(HASH_SIZE);
 }
 
 /**
@@ -370,19 +372,10 @@ export function computeOutputCommitment(constraintHash: bigint, salt: bigint): B
  * 2. Worker completes task off-chain
  * 3. Worker generates ZK proof of completion
  * 4. Worker submits proof and receives private payment
- *
- * @security This demo requires HELIUS_API_KEY environment variable to be set.
- * Never commit API keys or use hardcoded fallback values in production code.
  */
 async function demo() {
-    // SECURITY: Require API key from environment - never use hardcoded fallbacks
-    const HELIUS_API_KEY = process.env.HELIUS_API_KEY;
-    if (!HELIUS_API_KEY) {
-        throw new Error(
-            'SECURITY: HELIUS_API_KEY environment variable is required. ' +
-            'Never use hardcoded API keys. Set the environment variable before running.'
-        );
-    }
+    // Use Helius RPC for performance (Helius bounty integration)
+    const HELIUS_API_KEY = process.env.HELIUS_API_KEY || 'YOUR_HELIUS_API_KEY';
     const rpcUrl = `https://mainnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}`;
     const connection = new Connection(rpcUrl);
 

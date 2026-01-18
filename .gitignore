@@ -48,3 +48,8 @@ a g e n c _ p r o g r a m _ k e y . t x t
  
  
 node_modules/
+
+# Claude Code (local AI assistant config)
+.claude/*
+CLAUDE.md
+docs/*

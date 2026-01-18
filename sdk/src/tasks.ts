@@ -13,9 +13,31 @@ import {
   LAMPORTS_PER_SOL,
 } from '@solana/web3.js';
 import { Program, BN } from '@coral-xyz/anchor';
-import { PROGRAM_ID, SEEDS, TaskState } from './constants';
+import { PROGRAM_ID, SEEDS, TaskState, U64_SIZE, DISCRIMINATOR_SIZE, PERCENT_BASE, DEFAULT_FEE_PERCENT } from './constants';
 
 export { TaskState };
+
+/**
+ * Helper type for dynamic account access on Anchor programs.
+ * Anchor's generic Program type doesn't know about specific account types,
+ * so we use this to access accounts dynamically.
+ */
+type AccountFetcher = {
+  fetch: (key: PublicKey) => Promise<unknown>;
+  all: (filters?: Array<{ memcmp: { offset: number; bytes: string } }>) => Promise<Array<{ account: unknown; publicKey: PublicKey }>>;
+};
+
+function getAccount(program: Program, name: string): AccountFetcher {
+  const accounts = program.account as Record<string, AccountFetcher | undefined>;
+  const account = accounts[name];
+  if (!account) {
+    throw new Error(
+      `Account "${name}" not found in program. ` +
+      `Available accounts: ${Object.keys(accounts).join(', ') || 'none'}`
+    );
+  }
+  return account;
+}
 
 export interface TaskParams {
   /** Task description/title */
@@ -24,7 +46,12 @@ export interface TaskParams {
   escrowLamports: number;
   /** Deadline as Unix timestamp */
   deadline: number;
-  /** Constraint hash for private verification */
+  /**
+   * Constraint hash for private task verification.
+   * For private tasks, this is the Poseidon hash of the expected output.
+   * Workers must prove they know an output that hashes to this value.
+   * CRITICAL: Must be set for private tasks, verified on-chain during completion.
+   */
   constraintHash?: Buffer;
   /** Required skills (optional) */
   requiredSkills?: string[];
@@ -55,7 +82,7 @@ export interface TaskStatus {
  * Derive task PDA from task ID
  */
 export function deriveTaskPda(taskId: number, programId: PublicKey = PROGRAM_ID): PublicKey {
-  const taskIdBuffer = Buffer.alloc(8);
+  const taskIdBuffer = Buffer.alloc(U64_SIZE);
   taskIdBuffer.writeBigUInt64LE(BigInt(taskId));
 
   const [pda] = PublicKey.findProgramAddressSync(
@@ -109,8 +136,8 @@ export async function createTask(
     program.programId
   );
 
-  const protocolState = await program.account.protocolState.fetch(protocolPda);
-  const taskId = (protocolState as any).nextTaskId?.toNumber() || 0;
+  const protocolState = await getAccount(program, 'protocolState').fetch(protocolPda) as { nextTaskId?: BN };
+  const taskId = protocolState.nextTaskId?.toNumber() || 0;
 
   const taskPda = deriveTaskPda(taskId, program.programId);
   const escrowPda = deriveEscrowPda(taskPda, program.programId);
@@ -183,7 +210,7 @@ export async function completeTask(
   const claimPda = deriveClaimPda(taskPda, worker.publicKey, program.programId);
   const escrowPda = deriveEscrowPda(taskPda, program.programId);
 
-  const task = await program.account.task.fetch(taskPda);
+  const task = await getAccount(program, 'task').fetch(taskPda) as { creator: PublicKey };
 
   const tx = await program.methods
     .completeTask({
@@ -194,13 +221,20 @@ export async function completeTask(
       task: taskPda,
       taskClaim: claimPda,
       escrow: escrowPda,
-      creator: (task as any).creator,
+      creator: task.creator,
       systemProgram: SystemProgram.programId,
     })
     .signers([worker])
     .rpc();
 
   return { txSignature: tx };
+}
+
+export interface PrivateCompletionProof {
+  proofData: Buffer;
+  constraintHash: Buffer;
+  outputCommitment: Buffer;
+  expectedBinding: Buffer;
 }
 
 /**
@@ -211,23 +245,41 @@ export async function completeTaskPrivate(
   program: Program,
   worker: Keypair,
   taskId: number,
-  zkProof: Buffer,
-  publicWitness: Buffer,
+  proof: PrivateCompletionProof,
   verifierProgramId: PublicKey
 ): Promise<{ txSignature: string }> {
   const taskPda = deriveTaskPda(taskId, program.programId);
   const claimPda = deriveClaimPda(taskPda, worker.publicKey, program.programId);
+  const escrowPda = deriveEscrowPda(taskPda, program.programId);
+
+  const [workerAgentPda] = PublicKey.findProgramAddressSync(
+    [SEEDS.AGENT, worker.publicKey.toBuffer()],
+    program.programId
+  );
+
+  const [protocolPda] = PublicKey.findProgramAddressSync(
+    [SEEDS.PROTOCOL],
+    program.programId
+  );
+
+  const protocolState = await getAccount(program, 'protocolConfig').fetch(protocolPda) as { treasury: PublicKey };
 
   const tx = await program.methods
-    .completeTaskPrivate(taskId, {
-      zkProof: Array.from(zkProof),
-      publicWitness: Array.from(publicWitness),
+    .completeTaskPrivate(new BN(taskId), {
+      proofData: Array.from(proof.proofData),
+      constraintHash: Array.from(proof.constraintHash),
+      outputCommitment: Array.from(proof.outputCommitment),
+      expectedBinding: Array.from(proof.expectedBinding),
     })
     .accounts({
-      worker: worker.publicKey,
       task: taskPda,
-      taskClaim: claimPda,
+      claim: claimPda,
+      escrow: escrowPda,
+      worker: workerAgentPda,
+      protocolConfig: protocolPda,
+      treasury: protocolState.treasury,
       zkVerifier: verifierProgramId,
+      authority: worker.publicKey,
       systemProgram: SystemProgram.programId,
     })
     .signers([worker])
@@ -247,13 +299,14 @@ export async function getTask(
   const taskPda = deriveTaskPda(taskId, program.programId);
 
   try {
-    const task = await program.account.task.fetch(taskPda);
+    const task = await getAccount(program, 'task').fetch(taskPda);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const taskData = task as any;
 
     return {
       taskId,
       state: taskData.state as TaskState,
-      creator: taskData.creator,
+      creator: taskData.creator as PublicKey,
       escrowLamports: taskData.escrowLamports?.toNumber() || 0,
       deadline: taskData.deadline?.toNumber() || 0,
       constraintHash: taskData.constraintHash
@@ -275,21 +328,22 @@ export async function getTasksByCreator(
   program: Program,
   creator: PublicKey
 ): Promise<TaskStatus[]> {
-  const tasks = await program.account.task.all([
+  const tasks = await getAccount(program, 'task').all([
     {
       memcmp: {
-        offset: 8, // After discriminator
+        offset: DISCRIMINATOR_SIZE, // After discriminator
         bytes: creator.toBase58(),
       },
     },
   ]);
 
-  return tasks.map((t, idx) => {
+  return tasks.map((t: { account: unknown; publicKey: PublicKey }, idx: number) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const data = t.account as any;
     return {
       taskId: idx, // This is simplified; actual ID would need proper extraction
       state: data.state as TaskState,
-      creator: data.creator,
+      creator: data.creator as PublicKey,
       escrowLamports: data.escrowLamports?.toNumber() || 0,
       deadline: data.deadline?.toNumber() || 0,
       constraintHash: data.constraintHash ? Buffer.from(data.constraintHash) : null,
@@ -318,7 +372,7 @@ export function formatTaskState(state: TaskState): string {
  */
 export function calculateEscrowFee(
   escrowLamports: number,
-  feePercentage: number = 1
+  feePercentage: number = DEFAULT_FEE_PERCENT
 ): number {
-  return Math.floor((escrowLamports * feePercentage) / 100);
+  return Math.floor((escrowLamports * feePercentage) / PERCENT_BASE);
 }

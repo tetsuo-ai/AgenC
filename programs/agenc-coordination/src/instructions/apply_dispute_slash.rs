@@ -1,6 +1,7 @@
 //! Apply slashing to a worker after losing a dispute
 
 use crate::errors::CoordinationError;
+use crate::instructions::constants::PERCENT_BASE;
 use crate::state::{Dispute, DisputeStatus, ProtocolConfig, ResolutionType, Task, TaskClaim, AgentRegistration};
 use crate::utils::version::check_version_compatible;
 use anchor_lang::prelude::*;
@@ -67,7 +68,7 @@ pub fn handler(ctx: Context<ApplyDisputeSlash>) -> Result<()> {
 
     let approval_pct = dispute
         .votes_for
-        .checked_mul(100)
+        .checked_mul(PERCENT_BASE)
         .ok_or(CoordinationError::ArithmeticOverflow)?
         .checked_div(total_votes)
         .ok_or(CoordinationError::ArithmeticOverflow)?;
@@ -86,7 +87,7 @@ pub fn handler(ctx: Context<ApplyDisputeSlash>) -> Result<()> {
         .stake
         .checked_mul(config.slash_percentage as u64)
         .ok_or(CoordinationError::ArithmeticOverflow)?
-        .checked_div(100)
+        .checked_div(PERCENT_BASE)
         .ok_or(CoordinationError::ArithmeticOverflow)?;
 
     if slash_amount > 0 {

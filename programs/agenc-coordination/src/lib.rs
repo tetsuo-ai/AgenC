@@ -78,6 +78,7 @@ pub mod agenc_coordination {
     /// * `max_workers` - Maximum number of agents that can work on this task
     /// * `deadline` - Unix timestamp deadline (0 = no deadline)
     /// * `task_type` - 0=exclusive (single worker), 1=collaborative (multi-worker)
+    /// * `constraint_hash` - For private tasks: hash of expected output (None for non-private)
     pub fn create_task(
         ctx: Context<CreateTask>,
         task_id: [u8; 32],
@@ -87,6 +88,7 @@ pub mod agenc_coordination {
         max_workers: u8,
         deadline: i64,
         task_type: u8,
+        constraint_hash: Option<[u8; 32]>,
     ) -> Result<()> {
         instructions::create_task::handler(
             ctx,
@@ -97,6 +99,7 @@ pub mod agenc_coordination {
             max_workers,
             deadline,
             task_type,
+            constraint_hash,
         )
     }
 
