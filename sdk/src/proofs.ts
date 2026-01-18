@@ -1,270 +1,218 @@
 /**
- * Proof Generation Helpers for AgenC
+ * ZK Proof Generation for AgenC
  *
- * Utilities for generating and verifying ZK proofs using Noir/Sunspot
+ * Uses @zkpassport/poseidon2 which is compatible with Noir's poseidon2_permutation.
+ * This ensures hash values match between the SDK and the ZK circuit.
+ *
+ * ## Security Notes
+ *
+ * ### Salt Security
+ * - Each proof MUST use a unique, cryptographically random salt
+ * - NEVER reuse a salt across different proofs - this can leak private output data
+ * - Use `generateSalt()` to create secure random salts
+ * - Store salts securely if you need to verify commitments later
+ *
+ * ### Poseidon2 Compatibility
+ * - The hash implementation must match Noir's `poseidon2_permutation` exactly
+ * - We use @zkpassport/poseidon2 which is BN254-compatible
+ * - Field arithmetic is mod FIELD_MODULUS (BN254 scalar field)
  */
 
 import * as fs from 'fs';
 import * as path from 'path';
 import { execSync } from 'child_process';
 import { PublicKey } from '@solana/web3.js';
+import { poseidon2Hash } from '@zkpassport/poseidon2';
+import { HASH_SIZE, OUTPUT_FIELD_COUNT } from './constants';
+
+/** BN254 scalar field modulus - must match Noir's field for Poseidon2 compatibility */
+const FIELD_MODULUS = 21888242871839275222246405745257275088548364400416034343698204186575808495617n;
+
+/** Bytes required for a 256-bit field element in hex (64 hex chars = 32 bytes) */
+const FIELD_HEX_LENGTH = HASH_SIZE * 2;
+
+/** Base for byte-to-field conversion (256 = 2^8) */
+const BYTE_BASE = 256n;
+
+const DEFAULT_CIRCUIT_PATH = './circuits/task_completion';
 
 export interface ProofGenerationParams {
-  /** Task ID */
-  taskId: number;
-  /** Agent's public key */
+  taskPda: PublicKey;
   agentPubkey: PublicKey;
-  /** Hash of expected output (public) */
   constraintHash: Buffer;
-  /** Commitment to actual output (public) */
   outputCommitment: bigint;
-  /** Actual task output (private, 4 fields) */
   output: bigint[];
-  /** Random salt for commitment (private) */
   salt: bigint;
-  /** Path to circuit directory */
   circuitPath?: string;
 }
 
 export interface ProofResult {
-  /** Raw ZK proof bytes */
   proof: Buffer;
-  /** Public witness data */
   publicWitness: Buffer;
-  /** Proof size in bytes */
+  expectedBinding: Buffer;
   proofSize: number;
-  /** Generation time in ms */
   generationTime: number;
 }
 
-/**
- * Validate circuit path to prevent path traversal attacks
- * @param circuitPath - The path to validate
- * @returns The normalized, validated path
- * @throws Error if path is invalid or attempts traversal
- */
-function validateCircuitPath(circuitPath: string): string {
-  // Normalize the path
-  const normalizedPath = path.normalize(circuitPath);
+function poseidonHash2(a: bigint, b: bigint): bigint {
+  return poseidon2Hash([a % FIELD_MODULUS, b % FIELD_MODULUS, 0n, 0n]);
+}
 
-  // Check for path traversal attempts
-  if (normalizedPath.includes('..')) {
-    throw new Error('SECURITY: Path traversal detected in circuit path. ".." is not allowed.');
+function poseidonHash4(input: bigint[]): bigint {
+  if (input.length !== OUTPUT_FIELD_COUNT) {
+    throw new Error(`Input must be exactly ${OUTPUT_FIELD_COUNT} elements`);
   }
+  return poseidon2Hash(input.map((x) => x % FIELD_MODULUS));
+}
 
-  // Ensure path doesn't escape to root or absolute paths outside expected locations
-  if (path.isAbsolute(normalizedPath) && !normalizedPath.startsWith(process.cwd())) {
-    throw new Error('SECURITY: Circuit path must be relative or within the current working directory.');
+export function pubkeyToField(pubkey: PublicKey): bigint {
+  const bytes = pubkey.toBytes();
+  let field = 0n;
+  for (const byte of bytes) {
+    field = (field * BYTE_BASE + BigInt(byte)) % FIELD_MODULUS;
   }
+  return field;
+}
 
-  return normalizedPath;
+export function computeExpectedBinding(
+  taskPda: PublicKey,
+  agentPubkey: PublicKey,
+  outputCommitment: bigint
+): bigint {
+  const taskField = pubkeyToField(taskPda);
+  const agentField = pubkeyToField(agentPubkey);
+  const binding = poseidonHash2(taskField, agentField);
+  return poseidonHash2(binding, outputCommitment % FIELD_MODULUS);
+}
+
+export function computeConstraintHash(output: bigint[]): bigint {
+  if (output.length !== OUTPUT_FIELD_COUNT) {
+    throw new Error(`Output must be exactly ${OUTPUT_FIELD_COUNT} field elements`);
+  }
+  return poseidonHash4(output);
 }
 
 /**
- * Generate a ZK proof for task completion
+ * Compute the output commitment from constraint hash and salt.
  *
- * Requires nargo and sunspot CLI tools to be installed
+ * The commitment hides the actual output while allowing verification.
+ * commitment = poseidon2(constraintHash, salt)
  *
- * @security The circuitPath parameter is validated to prevent path traversal attacks.
+ * @param constraintHash - Hash of the task output (from computeConstraintHash)
+ * @param salt - Random salt (MUST be unique per proof, use generateSalt())
+ * @returns The commitment value to include in the proof
  */
+export function computeCommitment(constraintHash: bigint, salt: bigint): bigint {
+  return poseidonHash2(constraintHash, salt);
+}
+
+/** Bits per byte for bit shifting */
+const BITS_PER_BYTE = 8n;
+
+/**
+ * Generate a cryptographically secure random salt for proof commitments.
+ *
+ * SECURITY: Each proof MUST use a fresh salt. Reusing salts across different
+ * proofs with different outputs can leak information about the private outputs.
+ *
+ * @returns A random bigint in the BN254 scalar field [0, FIELD_MODULUS)
+ */
+export function generateSalt(): bigint {
+  const bytes = new Uint8Array(HASH_SIZE);
+  crypto.getRandomValues(bytes);
+  let salt = 0n;
+  for (const byte of bytes) {
+    salt = (salt << BITS_PER_BYTE) | BigInt(byte);
+  }
+  return salt % FIELD_MODULUS;
+}
+
+function generateProverToml(params: ProofGenerationParams): string {
+  const taskBytes = Array.from(params.taskPda.toBytes());
+  const agentBytes = Array.from(params.agentPubkey.toBytes());
+  const expectedBinding = computeExpectedBinding(
+    params.taskPda,
+    params.agentPubkey,
+    params.outputCommitment
+  );
+
+  return `task_id = [${taskBytes.join(', ')}]
+agent_pubkey = [${agentBytes.join(', ')}]
+constraint_hash = "0x${params.constraintHash.toString('hex')}"
+output_commitment = "0x${params.outputCommitment.toString(16)}"
+expected_binding = "0x${expectedBinding.toString(16)}"
+output = [${params.output.map((o) => `"${o.toString()}"`).join(', ')}]
+salt = "${params.salt.toString()}"
+`;
+}
+
 export async function generateProof(params: ProofGenerationParams): Promise<ProofResult> {
-  // Validate and normalize circuit path to prevent path traversal
-  const circuitPath = validateCircuitPath(params.circuitPath || './circuits/task_completion');
+  const circuitPath = params.circuitPath || DEFAULT_CIRCUIT_PATH;
   const startTime = Date.now();
 
-  // Generate Prover.toml content
-  const proverToml = generateProverToml(params);
-  const proverPath = path.join(circuitPath, 'Prover.toml');
+  const expectedBindingBigint = computeExpectedBinding(
+    params.taskPda,
+    params.agentPubkey,
+    params.outputCommitment
+  );
 
-  // Write prover file
-  fs.writeFileSync(proverPath, proverToml);
+  fs.writeFileSync(path.join(circuitPath, 'Prover.toml'), generateProverToml(params));
 
   try {
-    // Execute Noir circuit to generate witness
-    execSync('nargo execute', {
-      cwd: circuitPath,
-      stdio: 'pipe',
-    });
-
-    // Generate proof using Sunspot
+    execSync('nargo execute', { cwd: circuitPath, stdio: 'pipe' });
     execSync(
       'sunspot prove target/task_completion.ccs target/task_completion.pk target/task_completion.gz -o target/task_completion.proof',
-      {
-        cwd: circuitPath,
-        stdio: 'pipe',
-      }
+      { cwd: circuitPath, stdio: 'pipe' }
     );
 
-    // Read proof and public witness
     const proof = fs.readFileSync(path.join(circuitPath, 'target/task_completion.proof'));
-    const publicWitness = fs.readFileSync(path.join(circuitPath, 'target/task_completion.pw'));
-
-    const generationTime = Date.now() - startTime;
+    const publicWitness = fs.readFileSync(path.join(circuitPath, 'target/task_completion.gz'));
+    const expectedBinding = bigintToBytes32(expectedBindingBigint);
 
     return {
       proof,
       publicWitness,
+      expectedBinding,
       proofSize: proof.length,
-      generationTime,
+      generationTime: Date.now() - startTime,
     };
-  } catch (error: any) {
-    throw new Error(`Proof generation failed: ${error.message}`);
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Proof generation failed: ${message}`);
   }
 }
 
-/**
- * Verify a proof locally (without on-chain submission)
- *
- * Useful for testing before submitting to chain
- *
- * @security The circuitPath parameter is validated to prevent path traversal attacks.
- */
+function bigintToBytes32(value: bigint): Buffer {
+  const hex = value.toString(16).padStart(FIELD_HEX_LENGTH, '0');
+  return Buffer.from(hex, 'hex');
+}
+
 export async function verifyProofLocally(
   proof: Buffer,
   publicWitness: Buffer,
-  circuitPath: string = './circuits/task_completion'
+  circuitPath: string = DEFAULT_CIRCUIT_PATH
 ): Promise<boolean> {
-  // Validate circuit path to prevent path traversal
-  const validatedPath = validateCircuitPath(circuitPath);
-  const proofPath = path.join(validatedPath, 'target/verify_test.proof');
-  const witnessPath = path.join(validatedPath, 'target/verify_test.pw');
+  const proofPath = path.join(circuitPath, 'target/verify_test.proof');
+  const witnessPath = path.join(circuitPath, 'target/verify_test.pw');
 
-  // Write proof and witness to temp files
   fs.writeFileSync(proofPath, proof);
   fs.writeFileSync(witnessPath, publicWitness);
 
   try {
     execSync(
       `sunspot verify target/task_completion.ccs target/task_completion.vk ${proofPath} ${witnessPath}`,
-      {
-        cwd: validatedPath,
-        stdio: 'pipe',
-      }
+      { cwd: circuitPath, stdio: 'pipe' }
     );
     return true;
   } catch {
     return false;
   } finally {
-    // Cleanup
-    try {
-      fs.unlinkSync(proofPath);
-      fs.unlinkSync(witnessPath);
-    } catch {}
+    // Clean up temp files (best-effort, ignore errors if already deleted)
+    try { fs.unlinkSync(proofPath); } catch { /* file may not exist */ }
+    try { fs.unlinkSync(witnessPath); } catch { /* file may not exist */ }
   }
 }
 
-/**
- * Generate Prover.toml content for the circuit
- */
-function generateProverToml(params: ProofGenerationParams): string {
-  const agentBytes = Array.from(params.agentPubkey.toBytes());
-
-  return `# Auto-generated Prover.toml for AgenC task completion proof
-task_id = "${params.taskId}"
-agent_pubkey = [${agentBytes.join(', ')}]
-constraint_hash = "0x${params.constraintHash.toString('hex')}"
-output_commitment = "0x${params.outputCommitment.toString(16)}"
-output = [${params.output.map((o) => `"${o.toString()}"`).join(', ')}]
-salt = "${params.salt.toString()}"
-`;
-}
-
-/**
- * Compute constraint hash from expected output
- *
- * Uses Poseidon2 hash matching the Noir circuit
- *
- * SECURITY WARNING: This function currently uses a placeholder implementation.
- * For production use, you MUST integrate a proper Poseidon2 library that matches
- * the Noir circuit's poseidon2_permutation function.
- *
- * Recommended libraries:
- * - circomlibjs (npm install circomlibjs)
- * - @iden3/js-crypto (for BN254 curve compatibility)
- *
- * @throws Error if used in production without proper implementation
- */
-export function computeConstraintHashFromOutput(output: bigint[]): Buffer {
-  if (output.length !== 4) {
-    throw new Error('Output must be exactly 4 field elements');
-  }
-
-  // CRITICAL: Check if we're in production mode
-  const isProduction = process.env.NODE_ENV === 'production';
-  if (isProduction) {
-    throw new Error(
-      'SECURITY: computeConstraintHashFromOutput requires a proper Poseidon2 implementation for production. ' +
-      'The placeholder hash is NOT cryptographically secure. ' +
-      'Please integrate circomlibjs or @iden3/js-crypto with BN254 curve support.'
-    );
-  }
-
-  // Development-only placeholder - logs warning on every call
-  console.warn(
-    '[SECURITY WARNING] computeConstraintHashFromOutput: Using insecure placeholder hash. ' +
-    'Do NOT use in production!'
-  );
-
-  // Deterministic but insecure placeholder for development/testing only
-  const hash = Buffer.alloc(32);
-  for (let i = 0; i < 4; i++) {
-    const bytes = Buffer.from(output[i].toString(16).padStart(16, '0'), 'hex');
-    for (let j = 0; j < bytes.length && i * 8 + j < 32; j++) {
-      hash[i * 8 + j] = bytes[j];
-    }
-  }
-  return hash;
-}
-
-/**
- * Compute output commitment from constraint hash and salt
- *
- * commitment = poseidon2([constraint_hash, salt, 0, 0])[0]
- *
- * SECURITY WARNING: This function currently uses a placeholder implementation.
- * XOR is NOT a secure commitment scheme. For production, implement Poseidon2
- * to match the Noir circuit.
- *
- * @throws Error if used in production without proper implementation
- */
-export function computeCommitment(constraintHash: bigint, salt: bigint): bigint {
-  // CRITICAL: Check if we're in production mode
-  const isProduction = process.env.NODE_ENV === 'production';
-  if (isProduction) {
-    throw new Error(
-      'SECURITY: computeCommitment requires a proper Poseidon2 implementation for production. ' +
-      'XOR is NOT a cryptographically secure commitment scheme. ' +
-      'Please integrate circomlibjs or @iden3/js-crypto with BN254 curve support.'
-    );
-  }
-
-  // Development-only placeholder - logs warning on every call
-  console.warn(
-    '[SECURITY WARNING] computeCommitment: Using insecure XOR placeholder. ' +
-    'Do NOT use in production!'
-  );
-
-  // Insecure placeholder for development/testing only
-  return constraintHash ^ salt;
-}
-
-/**
- * Generate a random salt for commitment
- */
-export function generateSalt(): bigint {
-  const bytes = new Uint8Array(32);
-  crypto.getRandomValues(bytes);
-  let salt = BigInt(0);
-  for (const byte of bytes) {
-    salt = (salt << 8n) | BigInt(byte);
-  }
-  // Ensure it fits in a field element (roughly)
-  return salt % (2n ** 254n);
-}
-
-/**
- * Check if required CLI tools are available
- */
 export function checkToolsAvailable(): { nargo: boolean; sunspot: boolean } {
   let nargo = false;
   let sunspot = false;

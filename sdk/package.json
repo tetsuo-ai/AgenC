@@ -20,7 +20,9 @@
   "scripts": {
     "build": "tsup src/index.ts src/bin/agenc.ts --format cjs,esm --clean --external privacycash",
     "prepublishOnly": "npm run build",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "keywords": [
     "solana",
@@ -48,12 +50,14 @@
     "@solana/web3.js": "^1.95.0",
     "chalk": "^4.1.2",
     "commander": "^12.0.0",
-    "ora": "^5.4.1"
+    "ora": "^5.4.1",
+    "@zkpassport/poseidon2": "^0.6.2"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
     "tsup": "^8.0.0",
-    "typescript": "^5.0.0"
+    "typescript": "^5.0.0",
+    "vitest": "^2.0.0"
   },
   "peerDependencies": {
     "@coral-xyz/anchor": ">=0.29.0",

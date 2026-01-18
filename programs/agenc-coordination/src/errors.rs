@@ -72,6 +72,12 @@ pub enum CoordinationError {
     #[msg("Task has no workers")]
     NoWorkers,
 
+    #[msg("Proof constraint hash does not match task's stored constraint hash")]
+    ConstraintHashMismatch,
+
+    #[msg("Task is not a private task (no constraint hash set)")]
+    NotPrivateTask,
+
     // Claim errors (6200-6299)
     #[msg("Worker has already claimed this task")]
     AlreadyClaimed,
@@ -87,6 +93,12 @@ pub enum CoordinationError {
 
     #[msg("Invalid proof of work")]
     InvalidProof,
+
+    #[msg("ZK proof verification failed")]
+    ZkVerificationFailed,
+
+    #[msg("Invalid proof size - expected 388 bytes for Groth16")]
+    InvalidProofSize,
 
     // Dispute errors (6300-6399)
     #[msg("Dispute is not active")]

@@ -77,7 +77,7 @@ describe("audit-high-severity", () => {
     } catch {
       await program.methods
         .initializeProtocol(51, 100, new BN(0), 1, [provider.wallet.publicKey])
-        .accounts({
+        .accountsPartial({
           protocolConfig: protocolPda,
           treasury: treasury.publicKey,
           authority: provider.wallet.publicKey,
@@ -88,6 +88,27 @@ describe("audit-high-severity", () => {
         ])
         .rpc();
       treasuryPubkey = treasury.publicKey;
+    }
+
+    // Disable rate limiting for tests
+    try {
+      await program.methods
+        .updateRateLimits(
+          new BN(0),  // task_creation_cooldown = 0 (disabled)
+          0,          // max_tasks_per_24h = 0 (unlimited)
+          new BN(0),  // dispute_initiation_cooldown = 0 (disabled)
+          0,          // max_disputes_per_24h = 0 (unlimited)
+          new BN(0)   // min_stake_for_dispute = 0
+        )
+        .accountsPartial({
+          protocolConfig: protocolPda,
+        })
+        .remainingAccounts([
+          { pubkey: provider.wallet.publicKey, isSigner: true, isWritable: false },
+        ])
+        .rpc();
+    } catch (e: any) {
+      // May already be configured
     }
   };
 
@@ -196,45 +217,42 @@ describe("audit-high-severity", () => {
     const workerPda2 = deriveAgentPda(workerAgentId2);
     const workerPda3 = deriveAgentPda(workerAgentId3);
 
-    const claimPda1 = deriveClaimPda(taskPda, worker1.publicKey);
-    const claimPda2 = deriveClaimPda(taskPda, worker2.publicKey);
-    const claimPda3 = deriveClaimPda(taskPda, worker3.publicKey);
+    const claimPda1 = deriveClaimPda(taskPda, workerPda1);
+    const claimPda2 = deriveClaimPda(taskPda, workerPda2);
+    const claimPda3 = deriveClaimPda(taskPda, workerPda3);
 
     await program.methods
       .claimTask()
-      .accounts({
+      .accountsPartial({
         task: taskPda,
         claim: claimPda1,
         protocolConfig: protocolPda,
         worker: workerPda1,
         authority: worker1.publicKey,
-        systemProgram: SystemProgram.programId,
       })
       .signers([worker1])
       .rpc();
 
     await program.methods
       .claimTask()
-      .accounts({
+      .accountsPartial({
         task: taskPda,
         claim: claimPda2,
         protocolConfig: protocolPda,
         worker: workerPda2,
         authority: worker2.publicKey,
-        systemProgram: SystemProgram.programId,
       })
       .signers([worker2])
       .rpc();
 
     await program.methods
       .claimTask()
-      .accounts({
+      .accountsPartial({
         task: taskPda,
         claim: claimPda3,
         protocolConfig: protocolPda,
         worker: workerPda3,
         authority: worker3.publicKey,
-        systemProgram: SystemProgram.programId,
       })
       .signers([worker3])
       .rpc();
@@ -245,7 +263,7 @@ describe("audit-high-severity", () => {
 
     await program.methods
       .completeTask(Array.from(proofHash1), null)
-      .accounts({
+      .accountsPartial({
         task: taskPda,
         claim: claimPda1,
         escrow: escrowPda,
@@ -253,14 +271,13 @@ describe("audit-high-severity", () => {
         protocolConfig: protocolPda,
         treasury: treasuryPubkey,
         authority: worker1.publicKey,
-        systemProgram: SystemProgram.programId,
       })
       .signers([worker1])
       .rpc();
 
     await program.methods
       .completeTask(Array.from(proofHash2), null)
-      .accounts({
+      .accountsPartial({
         task: taskPda,
         claim: claimPda2,
         escrow: escrowPda,
@@ -268,14 +285,13 @@ describe("audit-high-severity", () => {
         protocolConfig: protocolPda,
         treasury: treasuryPubkey,
         authority: worker2.publicKey,
-        systemProgram: SystemProgram.programId,
       })
       .signers([worker2])
       .rpc();
 
     await program.methods
       .completeTask(Array.from(proofHash3), null)
-      .accounts({
+      .accountsPartial({
         task: taskPda,
         claim: claimPda3,
         escrow: escrowPda,
@@ -283,7 +299,6 @@ describe("audit-high-severity", () => {
         protocolConfig: protocolPda,
         treasury: treasuryPubkey,
         authority: worker3.publicKey,
-        systemProgram: SystemProgram.programId,
       })
       .signers([worker3])
       .rpc();
@@ -305,7 +320,7 @@ describe("audit-high-severity", () => {
     const taskId = Buffer.from("task-unauth-resolve-01".padEnd(32, "\0"));
     const taskPda = deriveTaskPda(creator.publicKey, taskId);
     const escrowPda = deriveEscrowPda(taskPda);
-    const claimPda = deriveClaimPda(taskPda, worker1.publicKey);
+    const claimPda = deriveClaimPda(taskPda, workerPda1);
 
     await program.methods
       .createTask(
@@ -328,13 +343,12 @@ describe("audit-high-severity", () => {
 
     await program.methods
       .claimTask()
-      .accounts({
+      .accountsPartial({
         task: taskPda,
         claim: claimPda,
         protocolConfig: protocolPda,
         worker: workerPda1,
         authority: worker1.publicKey,
-        systemProgram: SystemProgram.programId,
       })
       .signers([worker1])
       .rpc();
@@ -350,15 +364,15 @@ describe("audit-high-severity", () => {
         Array.from(disputeId),
         Array.from(taskId),
         Array.from(Buffer.from("evidence".padEnd(32, "\0"))),
-        RESOLUTION_TYPE_REFUND
+        RESOLUTION_TYPE_REFUND,
+        "Dispute evidence description"
       )
-      .accounts({
+      .accountsPartial({
         dispute: disputePda,
         task: taskPda,
         agent: workerPda1,
         protocolConfig: protocolPda,
         authority: worker1.publicKey,
-        systemProgram: SystemProgram.programId,
       })
       .signers([worker1])
       .rpc();
@@ -366,13 +380,12 @@ describe("audit-high-severity", () => {
     const votePda = deriveVotePda(disputePda, arbiterPda1);
     await program.methods
       .voteDispute(true)
-      .accounts({
+      .accountsPartial({
         dispute: disputePda,
         vote: votePda,
         arbiter: arbiterPda1,
         protocolConfig: protocolPda,
         authority: arbiter1.publicKey,
-        systemProgram: SystemProgram.programId,
       })
       .signers([arbiter1])
       .rpc();
@@ -380,7 +393,7 @@ describe("audit-high-severity", () => {
     try {
       await program.methods
         .resolveDispute()
-        .accounts({
+        .accountsPartial({
           dispute: disputePda,
           task: taskPda,
           escrow: escrowPda,
@@ -388,8 +401,7 @@ describe("audit-high-severity", () => {
           resolver: unauthorized.publicKey,
           creator: creator.publicKey,
           workerClaim: claimPda,
-          worker: worker1.publicKey,
-          systemProgram: SystemProgram.programId,
+          worker: deriveAgentPda(workerAgentId1),
         })
         .remainingAccounts([
           { pubkey: votePda, isSigner: false, isWritable: false },
@@ -431,31 +443,29 @@ describe("audit-high-severity", () => {
       .signers([creator])
       .rpc();
 
-    const claimPda1 = deriveClaimPda(taskPda, worker1.publicKey);
-    const claimPda2 = deriveClaimPda(taskPda, worker2.publicKey);
+    const claimPda1 = deriveClaimPda(taskPda, workerPda1);
+    const claimPda2 = deriveClaimPda(taskPda, workerPda2);
 
     await program.methods
       .claimTask()
-      .accounts({
+      .accountsPartial({
         task: taskPda,
         claim: claimPda1,
         protocolConfig: protocolPda,
         worker: workerPda1,
         authority: worker1.publicKey,
-        systemProgram: SystemProgram.programId,
       })
       .signers([worker1])
       .rpc();
 
     await program.methods
       .claimTask()
-      .accounts({
+      .accountsPartial({
         task: taskPda,
         claim: claimPda2,
         protocolConfig: protocolPda,
         worker: workerPda2,
         authority: worker2.publicKey,
-        systemProgram: SystemProgram.programId,
       })
       .signers([worker2])
       .rpc();
@@ -465,7 +475,7 @@ describe("audit-high-severity", () => {
 
     await program.methods
       .completeTask(Array.from(proofHash1), null)
-      .accounts({
+      .accountsPartial({
         task: taskPda,
         claim: claimPda1,
         escrow: escrowPda,
@@ -473,7 +483,6 @@ describe("audit-high-severity", () => {
         protocolConfig: protocolPda,
         treasury: treasuryPubkey,
         authority: worker1.publicKey,
-        systemProgram: SystemProgram.programId,
       })
       .signers([worker1])
       .rpc();
@@ -481,7 +490,7 @@ describe("audit-high-severity", () => {
     try {
       await program.methods
         .completeTask(Array.from(proofHash2), null)
-        .accounts({
+        .accountsPartial({
           task: taskPda,
           claim: claimPda2,
           escrow: escrowPda,
@@ -489,7 +498,6 @@ describe("audit-high-severity", () => {
           protocolConfig: protocolPda,
           treasury: treasuryPubkey,
           authority: worker2.publicKey,
-          systemProgram: SystemProgram.programId,
         })
         .signers([worker2])
         .rpc();
@@ -507,7 +515,7 @@ describe("audit-high-severity", () => {
     const taskId = Buffer.from("task-dispute-audit-01".padEnd(32, "\0"));
     const taskPda = deriveTaskPda(creator.publicKey, taskId);
     const escrowPda = deriveEscrowPda(taskPda);
-    const claimPda = deriveClaimPda(taskPda, worker1.publicKey);
+    const claimPda = deriveClaimPda(taskPda, workerPda1);
 
     await program.methods
       .createTask(
@@ -530,13 +538,12 @@ describe("audit-high-severity", () => {
 
     await program.methods
       .claimTask()
-      .accounts({
+      .accountsPartial({
         task: taskPda,
         claim: claimPda,
         protocolConfig: protocolPda,
         worker: workerPda1,
         authority: worker1.publicKey,
-        systemProgram: SystemProgram.programId,
       })
       .signers([worker1])
       .rpc();
@@ -552,15 +559,15 @@ describe("audit-high-severity", () => {
         Array.from(disputeId),
         Array.from(taskId),
         Array.from(Buffer.from("evidence".padEnd(32, "\0"))),
-        RESOLUTION_TYPE_REFUND
+        RESOLUTION_TYPE_REFUND,
+        "Dispute evidence description"
       )
-      .accounts({
+      .accountsPartial({
         dispute: disputePda,
         task: taskPda,
         agent: workerPda1,
         protocolConfig: protocolPda,
         authority: worker1.publicKey,
-        systemProgram: SystemProgram.programId,
       })
       .signers([worker1])
       .rpc();
@@ -568,13 +575,12 @@ describe("audit-high-severity", () => {
     const votePda = deriveVotePda(disputePda, arbiterPda1);
     await program.methods
       .voteDispute(true)
-      .accounts({
+      .accountsPartial({
         dispute: disputePda,
         vote: votePda,
         arbiter: arbiterPda1,
         protocolConfig: protocolPda,
         authority: arbiter1.publicKey,
-        systemProgram: SystemProgram.programId,
       })
       .signers([arbiter1])
       .rpc();
@@ -588,7 +594,7 @@ describe("audit-high-severity", () => {
 
     await program.methods
       .resolveDispute()
-      .accounts({
+      .accountsPartial({
         dispute: disputePda,
         task: taskPda,
         escrow: escrowPda,
@@ -597,7 +603,6 @@ describe("audit-high-severity", () => {
         creator: creator.publicKey,
         workerClaim: null,
         worker: null,
-        systemProgram: SystemProgram.programId,
       })
       .remainingAccounts([
         { pubkey: votePda, isSigner: false, isWritable: false },
@@ -608,7 +613,7 @@ describe("audit-high-severity", () => {
     try {
       await program.methods
         .deregisterAgent()
-        .accounts({
+        .accountsPartial({
           agent: arbiterPda1,
           protocolConfig: protocolPda,
           authority: arbiter1.publicKey,

@@ -3,7 +3,7 @@ name = "agenc-coordination"
 version = "0.1.0"
 description = "AgenC Decentralized Agent Coordination Protocol for Solana"
 edition = "2021"
-rust-version = "1.75"
+rust-version = "1.79"
 license = "MIT"
 repository = "https://github.com/tetsuo-ai/AgenC"
 
@@ -17,16 +17,12 @@ cpi = ["no-entrypoint"]
 no-entrypoint = []
 no-idl = []
 no-log-ix-name = []
-idl-build = ["anchor-lang/idl-build"]
+idl-build = ["anchor-lang/idl-build", "anchor-spl/idl-build"]
 init-if-needed = []
 
 [dependencies]
 anchor-lang = { version = "0.32.1", features = ["init-if-needed"] }
-anchor-spl  = { version = "0.32.1", default-features = false, features = ["token"] }
-
-# MSRV / toolchain compatibility pins (transitive dep pins)
-base64ct = "=1.8.3"
-toml_datetime = "=0.7.5"
+anchor-spl  = { version = "0.32.1", default-features = false, features = ["token", "token_2022"] }
 
 # SBPF-safe RNG
 getrandom = { version = "=0.2.12", default-features = false, features = ["custom"] }
@@ -35,6 +31,6 @@ getrandom = { version = "=0.2.12", default-features = false, features = ["custom
 getrandom = { version = "=0.2.12", default-features = false, features = ["custom"] }
 
 [dev-dependencies]
-solana-program-test = "=1.18.26"
+solana-program-test = "=2.3.1"
 solana-sdk          = "=2.3.1"
 tokio = { version = "1.0", features = ["full"] }

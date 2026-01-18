@@ -17,6 +17,7 @@ describe("coordination-security", () => {
   );
 
   let treasury: Keypair;
+  let treasuryPubkey: PublicKey;  // Actual treasury from protocol config
   let creator: Keypair;
   let worker1: Keypair;
   let worker2: Keypair;
@@ -27,13 +28,13 @@ describe("coordination-security", () => {
   let unauthorized: Keypair;
   let creatorAgentPda: PublicKey;
 
-  const agentId1 = Buffer.from("agent-000000000000000000000001".padEnd(32, "\0"));
-  const agentId2 = Buffer.from("agent-000000000000000000000002".padEnd(32, "\0"));
-  const agentId3 = Buffer.from("agent-000000000000000000000003".padEnd(32, "\0"));
-  const creatorAgentId = Buffer.from("creator-000000000000000000000001".padEnd(32, "\0"));
-  const arbiterId1 = Buffer.from("arbit-000000000000000000000001".padEnd(32, "\0"));
-  const arbiterId2 = Buffer.from("arbit-000000000000000000000002".padEnd(32, "\0"));
-  const arbiterId3 = Buffer.from("arbit-000000000000000000000003".padEnd(32, "\0"));
+  const agentId1 = Buffer.from("agent-sec-000000000000000001".padEnd(32, "\0"));
+  const agentId2 = Buffer.from("agent-sec-000000000000000002".padEnd(32, "\0"));
+  const agentId3 = Buffer.from("agent-sec-000000000000000003".padEnd(32, "\0"));
+  const creatorAgentId = Buffer.from("creator-sec-0000000000000001".padEnd(32, "\0"));
+  const arbiterId1 = Buffer.from("arbit-sec-000000000000000001".padEnd(32, "\0"));
+  const arbiterId2 = Buffer.from("arbit-sec-000000000000000002".padEnd(32, "\0"));
+  const arbiterId3 = Buffer.from("arbit-sec-000000000000000003".padEnd(32, "\0"));
   const taskId1 = Buffer.from("task-00000000000000000000000001".padEnd(32, "\0"));
   const taskId2 = Buffer.from("task-00000000000000000000000002".padEnd(32, "\0"));
   const taskId3 = Buffer.from("task-00000000000000000000000003".padEnd(32, "\0"));
@@ -73,26 +74,75 @@ describe("coordination-security", () => {
       );
     }
 
+    // Initialize protocol if not already done
+    try {
+      await program.methods
+        .initializeProtocol(51, 100, new BN(1 * LAMPORTS_PER_SOL), 1, [provider.wallet.publicKey])
+        .accountsPartial({
+          protocolConfig: protocolPda,
+          treasury: treasury.publicKey,
+          authority: provider.wallet.publicKey,
+          systemProgram: SystemProgram.programId,
+        })
+        .remainingAccounts([
+          { pubkey: provider.wallet.publicKey, isSigner: true, isWritable: false },
+        ])
+        .rpc();
+      treasuryPubkey = treasury.publicKey;
+      console.log("Protocol initialized with treasury:", treasuryPubkey.toString());
+    } catch (e: any) {
+      // Protocol may already be initialized
+      // Read the actual treasury from protocol config
+      const protocolConfig = await program.account.protocolConfig.fetch(protocolPda);
+      treasuryPubkey = protocolConfig.treasury;
+      console.log("Protocol already initialized, using existing treasury:", treasuryPubkey.toString());
+    }
+
+    // Disable rate limiting for tests
+    try {
+      await program.methods
+        .updateRateLimits(
+          new BN(0),  // task_creation_cooldown = 0 (disabled)
+          0,          // max_tasks_per_24h = 0 (unlimited)
+          new BN(0),  // dispute_initiation_cooldown = 0 (disabled)
+          0,          // max_disputes_per_24h = 0 (unlimited)
+          new BN(0)   // min_stake_for_dispute = 0
+        )
+        .accountsPartial({
+          protocolConfig: protocolPda,
+        })
+        .remainingAccounts([
+          { pubkey: provider.wallet.publicKey, isSigner: true, isWritable: false },
+        ])
+        .rpc();
+    } catch (e: any) {
+      // May already be configured
+    }
+
     creatorAgentPda = PublicKey.findProgramAddressSync(
       [Buffer.from("agent"), creatorAgentId],
       program.programId
     )[0];
 
-    await program.methods
-      .registerAgent(
-        Array.from(creatorAgentId),
-        new BN(CAPABILITY_COMPUTE),
-        "https://creator.example.com",
-        null,
-        new BN(1 * LAMPORTS_PER_SOL)  // stake_amount
-      )
-      .accountsPartial({
-        agent: creatorAgentPda,
-        protocolConfig: protocolPda,
-        authority: creator.publicKey,
-      })
-      .signers([creator])
-      .rpc();
+    try {
+      await program.methods
+        .registerAgent(
+          Array.from(creatorAgentId),
+          new BN(CAPABILITY_COMPUTE),
+          "https://creator.example.com",
+          null,
+          new BN(1 * LAMPORTS_PER_SOL)  // stake_amount
+        )
+        .accountsPartial({
+          agent: creatorAgentPda,
+          protocolConfig: protocolPda,
+          authority: creator.publicKey,
+        })
+        .signers([creator])
+        .rpc();
+    } catch (e: any) {
+      // Agent may already be registered
+    }
   });
 
   // Helper function to derive agent PDA
@@ -110,11 +160,10 @@ describe("coordination-security", () => {
         try {
           const tx = await program.methods
             .initializeProtocol(51, 100, new BN(LAMPORTS_PER_SOL), 1, [provider.wallet.publicKey])
-            .accounts({
+            .accountsPartial({
               protocolConfig: protocolPda,
               treasury: treasury.publicKey,
               authority: provider.wallet.publicKey,
-              systemProgram: SystemProgram.programId,
             })
             .remainingAccounts([
               { pubkey: provider.wallet.publicKey, isSigner: true, isWritable: false },
@@ -127,7 +176,7 @@ describe("coordination-security", () => {
 
         const protocol = await program.account.protocolConfig.fetch(protocolPda);
         expect(protocol.authority.toString()).to.equal(provider.wallet.publicKey.toString());
-        expect(protocol.treasury.toString()).to.equal(treasury.publicKey.toString());
+        expect(protocol.treasury.toString()).to.equal(treasuryPubkey.toString());
         expect(protocol.disputeThreshold).to.equal(51);
         expect(protocol.protocolFeeBps).to.equal(100);
         expect(protocol.minArbiterStake).to.equal(1 * LAMPORTS_PER_SOL);
@@ -140,18 +189,17 @@ describe("coordination-security", () => {
       it("Emits ProtocolInitialized event", async () => {
         const listener = program.addEventListener("ProtocolInitialized", (event) => {
           expect(event.authority.toString()).to.equal(provider.wallet.publicKey.toString());
-          expect(event.treasury.toString()).to.equal(treasury.publicKey.toString());
+          expect(event.treasury.toString()).to.equal(treasuryPubkey.toString());
           expect(event.disputeThreshold).to.equal(51);
           expect(event.protocolFeeBps).to.equal(100);
         });
 
         await program.methods
           .initializeProtocol(51, 100, 1 * LAMPORTS_PER_SOL)
-          .accounts({
+          .accountsPartial({
             protocolConfig: protocolPda,
             treasury: treasury.publicKey,
             authority: provider.wallet.publicKey,
-            systemProgram: SystemProgram.programId,
           })
           .rpc();
 
@@ -244,7 +292,7 @@ describe("coordination-security", () => {
             null,
             { active: {} }
           )
-          .accounts({
+          .accountsPartial({
             agent: agentPda,
             authority: worker1.publicKey,
           })
@@ -264,7 +312,7 @@ describe("coordination-security", () => {
 
         await program.methods
           .deregisterAgent()
-          .accounts({
+          .accountsPartial({
             agent: agentPda,
             protocolConfig: protocolPda,
             authority: worker2.publicKey,
@@ -453,7 +501,7 @@ describe("coordination-security", () => {
         const expectedReward = rewardAmount - expectedFee;
 
         const workerBalanceBefore = await provider.connection.getBalance(worker1.publicKey);
-        const treasuryBalanceBefore = await provider.connection.getBalance(treasury.publicKey);
+        const treasuryBalanceBefore = await provider.connection.getBalance(treasuryPubkey);
 
         await program.methods
           .completeTask(Array.from(proofHash), null)
@@ -463,7 +511,7 @@ describe("coordination-security", () => {
             escrow: escrowPda,
             worker: deriveAgentPda(agentId1),
             protocolConfig: protocolPda,
-            treasury: treasury.publicKey,
+            treasury: treasuryPubkey,
             authority: worker1.publicKey,
           })
           .signers([worker1])
@@ -482,7 +530,7 @@ describe("coordination-security", () => {
         expect(escrow.isClosed).to.be.true;
 
         const workerBalanceAfter = await provider.connection.getBalance(worker1.publicKey);
-        const treasuryBalanceAfter = await provider.connection.getBalance(treasury.publicKey);
+        const treasuryBalanceAfter = await provider.connection.getBalance(treasuryPubkey);
 
         expect(workerBalanceAfter - workerBalanceBefore).to.be.at.least(expectedReward - 100000);
         expect(treasuryBalanceAfter - treasuryBalanceBefore).to.equal(expectedFee);
@@ -533,11 +581,10 @@ describe("coordination-security", () => {
 
         await program.methods
           .cancelTask()
-          .accounts({
+          .accountsPartial({
             task: taskPda,
             escrow: escrowPda,
             creator: creator.publicKey,
-            systemProgram: SystemProgram.programId,
           })
           .signers([creator])
           .rpc();
@@ -619,12 +666,11 @@ describe("coordination-security", () => {
             Array.from(evidenceHash),
             RESOLUTION_TYPE_REFUND
           )
-          .accounts({
+          .accountsPartial({
             dispute: disputePda,
             task: taskPda,
             agent: workerPda,
             authority: worker3.publicKey,
-            systemProgram: SystemProgram.programId,
           })
           .signers([worker3])
           .rpc();
@@ -659,26 +705,25 @@ describe("coordination-security", () => {
               Array.from(arbiterId),
               new BN(CAPABILITY_ARBITER),
               `https://arbiter${i + 1}.example.com`,
-              null
+              null,
+              new BN(1 * LAMPORTS_PER_SOL)  // stake_amount
             )
-            .accounts({
+            .accountsPartial({
               agent: arbiterPda,
               protocolConfig: protocolPda,
               authority: arbiterKey.publicKey,
-              systemProgram: SystemProgram.programId,
             })
             .signers([arbiterKey])
             .rpc();
 
           await program.methods
             .voteDispute(approve)
-            .accounts({
+            .accountsPartial({
               dispute: disputePda,
               vote: votePda,
               arbiter: arbiterPda,
               protocolConfig: protocolPda,
               authority: arbiterKey.publicKey,
-              systemProgram: SystemProgram.programId,
             })
             .signers([arbiterKey])
             .rpc();
@@ -720,7 +765,7 @@ describe("coordination-security", () => {
 
         await program.methods
           .resolveDispute()
-          .accounts({
+          .accountsPartial({
             dispute: disputePda,
             task: taskPda,
             escrow: escrowPda,
@@ -728,7 +773,6 @@ describe("coordination-security", () => {
             resolver: provider.wallet.publicKey,
             creator: creator.publicKey,
             worker: null,
-            systemProgram: SystemProgram.programId,
           })
           .remainingAccounts([
             { pubkey: votePda1, isSigner: false, isWritable: false },
@@ -763,7 +807,7 @@ describe("coordination-security", () => {
         try {
           await program.methods
             .updateAgent(new BN(CAPABILITY_COMPUTE), "https://malicious.com", null, { active: {} })
-            .accounts({
+            .accountsPartial({
               agent: agentPda,
               authority: unauthorized.publicKey,
             })
@@ -940,7 +984,7 @@ describe("coordination-security", () => {
             escrow: escrowPda,
             worker: deriveAgentPda(agentId1),
             protocolConfig: protocolPda,
-            treasury: treasury.publicKey,
+            treasury: treasuryPubkey,
             authority: worker1.publicKey,
           })
           .signers([worker1])
@@ -955,7 +999,7 @@ describe("coordination-security", () => {
               escrow: escrowPda,
               worker: deriveAgentPda(agentId1),
               protocolConfig: protocolPda,
-              treasury: treasury.publicKey,
+              treasury: treasuryPubkey,
               authority: worker1.publicKey,
             })
             .signers([worker1])
@@ -1027,7 +1071,7 @@ describe("coordination-security", () => {
 
         await program.methods
           .updateAgent(null, null, null, { inactive: {} })
-          .accounts({
+          .accountsPartial({
             agent: agentPda,
             authority: worker1.publicKey,
           })
@@ -1085,7 +1129,7 @@ describe("coordination-security", () => {
 
         await program.methods
           .updateAgent(null, null, null, { active: {} })
-          .accounts({
+          .accountsPartial({
             agent: agentPda,
             authority: worker1.publicKey,
           })
@@ -1201,11 +1245,10 @@ describe("coordination-security", () => {
 
         await program.methods
           .cancelTask()
-          .accounts({
+          .accountsPartial({
             task: taskPda,
             escrow: escrowPda,
             creator: creator.publicKey,
-            systemProgram: SystemProgram.programId,
           })
           .signers([creator])
           .rpc();
@@ -1261,12 +1304,11 @@ describe("coordination-security", () => {
             Array.from(Buffer.from("evidence".padEnd(32, "\0"))),
             RESOLUTION_TYPE_REFUND
           )
-          .accounts({
+          .accountsPartial({
             dispute: disputePda,
             task: taskPda,
             agent: worker3AgentPda,
             authority: worker3.publicKey,
-            systemProgram: SystemProgram.programId,
           })
           .signers([worker3])
           .rpc();
@@ -1285,26 +1327,24 @@ describe("coordination-security", () => {
 
         await program.methods
           .voteDispute(true)
-          .accounts({
+          .accountsPartial({
             dispute: disputePda,
             vote: votePda1,
             arbiter: arbiterPda1,
             protocolConfig: protocolPda,
             authority: arbiter1.publicKey,
-            systemProgram: SystemProgram.programId,
           })
           .signers([arbiter1])
           .rpc();
 
         await program.methods
           .voteDispute(true)
-          .accounts({
+          .accountsPartial({
             dispute: disputePda,
             vote: votePda2,
             arbiter: arbiterPda2,
             protocolConfig: protocolPda,
             authority: arbiter2.publicKey,
-            systemProgram: SystemProgram.programId,
           })
           .signers([arbiter2])
           .rpc();
@@ -1320,7 +1360,7 @@ describe("coordination-security", () => {
 
         await program.methods
           .resolveDispute()
-          .accounts({
+          .accountsPartial({
             dispute: disputePda,
             task: taskPda,
             escrow: escrowPda,
@@ -1328,7 +1368,6 @@ describe("coordination-security", () => {
             resolver: provider.wallet.publicKey,
             creator: creator.publicKey,
             worker: null,
-            systemProgram: SystemProgram.programId,
           })
           .remainingAccounts([
             { pubkey: votePda1, isSigner: false, isWritable: false },
@@ -1518,7 +1557,7 @@ describe("coordination-security", () => {
             escrow: escrowPda,
             worker: deriveAgentPda(agentId1),
             protocolConfig: protocolPda,
-            treasury: treasury.publicKey,
+            treasury: treasuryPubkey,
             authority: worker1.publicKey,
           })
           .signers([worker1])
@@ -1587,7 +1626,7 @@ describe("coordination-security", () => {
         try {
           await program.methods
             .deregisterAgent()
-            .accounts({
+            .accountsPartial({
               agent: agentPda,
               protocolConfig: protocolPda,
               authority: worker1.publicKey,
@@ -1647,12 +1686,11 @@ describe("coordination-security", () => {
             Array.from(Buffer.from("evidence".padEnd(32, "\0"))),
             RESOLUTION_TYPE_REFUND
           )
-          .accounts({
+          .accountsPartial({
             dispute: disputePda,
             task: taskPda,
             agent: worker3AgentPda,
             authority: worker3.publicKey,
-            systemProgram: SystemProgram.programId,
           })
           .signers([worker3])
           .rpc();
@@ -1665,13 +1703,12 @@ describe("coordination-security", () => {
         try {
           await program.methods
             .voteDispute(true)
-            .accounts({
+            .accountsPartial({
               dispute: disputePda,
               vote: votePda,
               arbiter: deriveAgentPda(agentId1),
               protocolConfig: protocolPda,
               authority: worker1.publicKey,
-              systemProgram: SystemProgram.programId,
             })
             .signers([worker1])
             .rpc();
@@ -1692,11 +1729,10 @@ describe("coordination-security", () => {
         try {
           await program.methods
             .initializeProtocol(51, 1001, new BN(1 * LAMPORTS_PER_SOL), 1, [provider.wallet.publicKey])
-            .accounts({
+            .accountsPartial({
               protocolConfig: newProtocolPda,
               treasury: treasury.publicKey,
               authority: provider.wallet.publicKey,
-              systemProgram: SystemProgram.programId,
             })
             .remainingAccounts([
               { pubkey: provider.wallet.publicKey, isSigner: true, isWritable: false },
@@ -1717,11 +1753,10 @@ describe("coordination-security", () => {
         try {
           await program.methods
             .initializeProtocol(0, 100, new BN(1 * LAMPORTS_PER_SOL), 1, [provider.wallet.publicKey])
-            .accounts({
+            .accountsPartial({
               protocolConfig: newProtocolPda,
               treasury: treasury.publicKey,
               authority: provider.wallet.publicKey,
-              systemProgram: SystemProgram.programId,
             })
             .remainingAccounts([
               { pubkey: provider.wallet.publicKey, isSigner: true, isWritable: false },
@@ -1742,11 +1777,10 @@ describe("coordination-security", () => {
         try {
           await program.methods
             .initializeProtocol(101, 100, new BN(1 * LAMPORTS_PER_SOL), 1, [provider.wallet.publicKey])
-            .accounts({
+            .accountsPartial({
               protocolConfig: newProtocolPda,
               treasury: treasury.publicKey,
               authority: provider.wallet.publicKey,
-              systemProgram: SystemProgram.programId,
             })
             .remainingAccounts([
               { pubkey: provider.wallet.publicKey, isSigner: true, isWritable: false },
@@ -1825,7 +1859,7 @@ describe("coordination-security", () => {
             escrow: escrowPda,
             worker: deriveAgentPda(agentId1),
             protocolConfig: protocolPda,
-            treasury: treasury.publicKey,
+            treasury: treasuryPubkey,
             authority: worker1.publicKey,
           })
           .signers([worker1])

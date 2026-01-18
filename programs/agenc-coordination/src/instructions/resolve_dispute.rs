@@ -2,6 +2,7 @@
 
 use crate::errors::CoordinationError;
 use crate::events::DisputeResolved;
+use crate::instructions::constants::PERCENT_BASE;
 use crate::state::{
     AgentRegistration, Dispute, DisputeStatus, DisputeVote, ProtocolConfig, ResolutionType, Task,
     TaskClaim, TaskEscrow, TaskStatus,
@@ -104,7 +105,7 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
 
     // Calculate approval percentage
     let approval_pct = (dispute.votes_for as u64)
-        .checked_mul(100)
+        .checked_mul(PERCENT_BASE)
         .ok_or(CoordinationError::ArithmeticOverflow)?
         .checked_div(total_votes as u64)
         .ok_or(CoordinationError::ArithmeticOverflow)? as u8;

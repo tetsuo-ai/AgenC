@@ -1,5 +1,8 @@
 //! Instruction handlers for AgenC Coordination Protocol
 
+pub mod constants;
+pub mod completion_helpers;
+
 pub mod cancel_task;
 pub mod claim_task;
 pub mod complete_task;
