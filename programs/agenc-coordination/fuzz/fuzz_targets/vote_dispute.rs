@@ -66,16 +66,21 @@ proptest! {
             "Invariant violation: {:?}", result);
 
         if result.is_success() {
-            // Verify vote was recorded correctly
+            // Verify vote was recorded correctly - use checked arithmetic for test integrity
             if input.approve {
-                prop_assert!(dispute.votes_for == old_votes_for.saturating_add(1),
+                let expected = old_votes_for.checked_add(1).expect("Vote count overflow in test");
+                prop_assert!(dispute.votes_for == expected,
                     "Vote for not recorded");
             } else {
-                prop_assert!(dispute.votes_against == old_votes_against.saturating_add(1),
+                let expected = old_votes_against.checked_add(1).expect("Vote count overflow in test");
+                prop_assert!(dispute.votes_against == expected,
                     "Vote against not recorded");
             }
 
-            prop_assert!(dispute.total_voters == old_votes_for.saturating_add(old_votes_against).saturating_add(1),
+            let expected_total = old_votes_for.checked_add(old_votes_against)
+                .and_then(|v| v.checked_add(1))
+                .expect("Total voters overflow in test");
+            prop_assert!(dispute.total_voters == expected_total,
                 "Total voters not updated correctly");
         }
     }
