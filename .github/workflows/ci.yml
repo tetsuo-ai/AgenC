@@ -13,7 +13,7 @@ concurrency:
 
 env:
   SOLANA_VERSION: v1.18.26
-  ANCHOR_VERSION: 0.31.0
+  ANCHOR_VERSION: 0.32.1
   RUST_TOOLCHAIN: "1.85.0"
 
 jobs:
@@ -84,14 +84,14 @@ jobs:
           bash /tmp/solana_install.sh
           echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
 
-      - name: Install Anchor CLI
+      - name: Install Anchor CLI via AVM
         run: |
           set -euxo pipefail
-          # Download prebuilt anchor binary from solana-foundation releases
-          ANCHOR_URL="https://github.com/solana-foundation/anchor/releases/download/v${{ env.ANCHOR_VERSION }}/anchor-${{ env.ANCHOR_VERSION }}-x86_64-unknown-linux-gnu"
-          curl -fL "$ANCHOR_URL" -o /tmp/anchor
-          chmod +x /tmp/anchor
-          sudo mv /tmp/anchor /usr/local/bin/anchor
+          # Install AVM (Anchor Version Manager)
+          cargo install --git https://github.com/coral-xyz/anchor avm --force
+          # Install and activate specific anchor version
+          avm install ${{ env.ANCHOR_VERSION }}
+          avm use ${{ env.ANCHOR_VERSION }}
           anchor --version
 
       - name: Install JS deps
