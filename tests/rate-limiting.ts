@@ -404,13 +404,13 @@ describe("rate-limiting", () => {
           Array.from(lowStakeAgentId),
           new BN(CAPABILITY_COMPUTE),
           "https://lowstake-agent.example.com",
-          null
+          null,
+          new BN(0)  // stake_amount = 0 for low stake test
         )
-        .accounts({
+        .accountsPartial({
           agent: lowStakeAgentPda,
           protocolConfig: protocolPda,
           authority: lowStakeWorker.publicKey,
-          systemProgram: SystemProgram.programId,
         })
         .signers([lowStakeWorker])
         .rpc();
@@ -436,16 +436,16 @@ describe("rate-limiting", () => {
           new BN(0.5 * LAMPORTS_PER_SOL),
           1,
           new BN(0),
-          TASK_TYPE_EXCLUSIVE
+          TASK_TYPE_EXCLUSIVE,
+          null  // constraint_hash
         )
-        .accounts({
+        .accountsPartial({
           task: taskPda,
           escrow: escrowPda,
           protocolConfig: protocolPda,
           creatorAgent: creatorAgentPda,
           authority: creator.publicKey,
           creator: creator.publicKey,
-          systemProgram: SystemProgram.programId,
         })
         .signers([creator])
         .rpc();
@@ -507,13 +507,13 @@ describe("rate-limiting", () => {
           Array.from(agentId),
           new BN(CAPABILITY_COMPUTE),
           "https://24h-agent.example.com",
-          null
+          null,
+          new BN(LAMPORTS_PER_SOL)  // stake_amount
         )
-        .accounts({
+        .accountsPartial({
           agent: agentPda,
           protocolConfig: protocolPda,
           authority: testCreator.publicKey,
-          systemProgram: SystemProgram.programId,
         })
         .signers([testCreator])
         .rpc();
@@ -544,13 +544,13 @@ describe("rate-limiting", () => {
           Array.from(agentId),
           new BN(CAPABILITY_COMPUTE),
           "https://event-agent.example.com",
-          null
+          null,
+          new BN(LAMPORTS_PER_SOL)  // stake_amount
         )
-        .accounts({
+        .accountsPartial({
           agent: agentPda,
           protocolConfig: protocolPda,
           authority: eventCreator.publicKey,
-          systemProgram: SystemProgram.programId,
         })
         .signers([eventCreator])
         .rpc();
@@ -574,16 +574,16 @@ describe("rate-limiting", () => {
           new BN(0.1 * LAMPORTS_PER_SOL),
           1,
           new BN(0),
-          TASK_TYPE_EXCLUSIVE
+          TASK_TYPE_EXCLUSIVE,
+          null  // constraint_hash
         )
-        .accounts({
+        .accountsPartial({
           task: taskPda1,
           escrow: escrowPda1,
           protocolConfig: protocolPda,
           creatorAgent: agentPda,
           authority: eventCreator.publicKey,
           creator: eventCreator.publicKey,
-          systemProgram: SystemProgram.programId,
         })
         .signers([eventCreator])
         .rpc();
@@ -617,16 +617,16 @@ describe("rate-limiting", () => {
             new BN(0.1 * LAMPORTS_PER_SOL),
             1,
             new BN(0),
-            TASK_TYPE_EXCLUSIVE
+            TASK_TYPE_EXCLUSIVE,
+            null  // constraint_hash
           )
-          .accounts({
+          .accountsPartial({
             task: taskPda2,
             escrow: escrowPda2,
             protocolConfig: protocolPda,
             creatorAgent: agentPda,
             authority: eventCreator.publicKey,
             creator: eventCreator.publicKey,
-            systemProgram: SystemProgram.programId,
           })
           .signers([eventCreator])
           .rpc();
