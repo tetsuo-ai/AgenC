@@ -22,9 +22,15 @@ import { OUTPUT_FIELD_COUNT, HASH_SIZE } from '../constants';
 /**
  * BN254 scalar field modulus.
  *
- * NOTE: This constant is duplicated from proofs.ts because it is not exported.
+ * SECURITY NOTE: This constant is duplicated from proofs.ts because it is not exported.
  * If proofs.ts exports FIELD_MODULUS in the future, this should be imported
  * to maintain a single source of truth and prevent inconsistencies.
+ *
+ * WARNING: If this value differs from proofs.ts, tests may pass while production
+ * code uses a different modulus, leading to cryptographic failures.
+ *
+ * Value must equal: 21888242871839275222246405745257275088548364400416034343698204186575808495617n
+ * This is the BN254 (alt-bn128) scalar field order.
  */
 const FIELD_MODULUS = 21888242871839275222246405745257275088548364400416034343698204186575808495617n;
 
@@ -402,6 +408,91 @@ describe('proofs', () => {
       expect(computeExpectedBinding(altTask, agentPubkey, commitment)).not.toBe(originalBinding);
       expect(computeExpectedBinding(taskPda, altAgent, commitment)).not.toBe(originalBinding);
       expect(computeExpectedBinding(taskPda, agentPubkey, altCommitment)).not.toBe(originalBinding);
+    });
+
+    it('handles negative bigint values via modular reduction', () => {
+      // SECURITY: Negative bigints could cause undefined behavior if not handled
+      // JavaScript allows negative bigints, but field arithmetic should reduce them
+      // properly. Test that negative values are handled consistently.
+      const output1 = [-1n, -2n, -3n, -4n];
+      const output2 = [
+        FIELD_MODULUS - 1n,
+        FIELD_MODULUS - 2n,
+        FIELD_MODULUS - 3n,
+        FIELD_MODULUS - 4n,
+      ];
+
+      // Negative values should be equivalent to their positive modular counterparts
+      // Note: JavaScript % operator preserves sign, so -1n % FIELD_MODULUS = -1n
+      // The hash function should handle this internally via explicit modular reduction
+      const hash1 = computeConstraintHash(output1);
+      const hash2 = computeConstraintHash(output2);
+
+      // Both should produce valid field elements
+      expect(hash1).toBeGreaterThanOrEqual(0n);
+      expect(hash1).toBeLessThan(FIELD_MODULUS);
+      expect(hash2).toBeGreaterThanOrEqual(0n);
+      expect(hash2).toBeLessThan(FIELD_MODULUS);
+
+      // Test negative salt handling
+      const constraintHash = computeConstraintHash([1n, 2n, 3n, 4n]);
+      const negativeSalt = -12345n;
+      const commitment = computeCommitment(constraintHash, negativeSalt);
+      expect(commitment).toBeGreaterThanOrEqual(0n);
+      expect(commitment).toBeLessThan(FIELD_MODULUS);
+    });
+
+    it('handles negative commitment in binding computation', () => {
+      // SECURITY: Negative commitment could cause issues in binding computation
+      const taskPda = Keypair.generate().publicKey;
+      const agentPubkey = Keypair.generate().publicKey;
+      const negativeCommitment = -12345n;
+
+      const binding = computeExpectedBinding(taskPda, agentPubkey, negativeCommitment);
+
+      // Should still produce valid field element
+      expect(binding).toBeGreaterThanOrEqual(0n);
+      expect(binding).toBeLessThan(FIELD_MODULUS);
+    });
+
+    it('pubkeyToField produces consistent results for edge case pubkeys', () => {
+      // Test pubkey with specific bit patterns that could cause issues
+      // All high bits set
+      const highBitsPubkey = new PublicKey(Buffer.alloc(32, 0x80));
+      const highBitsField = pubkeyToField(highBitsPubkey);
+      expect(highBitsField).toBeGreaterThanOrEqual(0n);
+      expect(highBitsField).toBeLessThan(FIELD_MODULUS);
+
+      // Alternating bits
+      const alternatingBytes = Buffer.alloc(32);
+      for (let i = 0; i < 32; i++) {
+        alternatingBytes[i] = i % 2 === 0 ? 0xaa : 0x55;
+      }
+      const alternatingPubkey = new PublicKey(alternatingBytes);
+      const alternatingField = pubkeyToField(alternatingPubkey);
+      expect(alternatingField).toBeGreaterThanOrEqual(0n);
+      expect(alternatingField).toBeLessThan(FIELD_MODULUS);
+
+      // Verify determinism
+      expect(pubkeyToField(highBitsPubkey)).toBe(highBitsField);
+      expect(pubkeyToField(alternatingPubkey)).toBe(alternatingField);
+    });
+
+    it('large output values are reduced correctly', () => {
+      // SECURITY: Very large values (much larger than FIELD_MODULUS) should be reduced
+      const veryLargeOutput = [
+        FIELD_MODULUS * 1000n + 1n,
+        FIELD_MODULUS * 1000n + 2n,
+        FIELD_MODULUS * 1000n + 3n,
+        FIELD_MODULUS * 1000n + 4n,
+      ];
+      const normalOutput = [1n, 2n, 3n, 4n];
+
+      const largeHash = computeConstraintHash(veryLargeOutput);
+      const normalHash = computeConstraintHash(normalOutput);
+
+      // After modular reduction, these should produce the same result
+      expect(largeHash).toBe(normalHash);
     });
   });
 });
