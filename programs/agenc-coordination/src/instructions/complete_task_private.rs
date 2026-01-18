@@ -10,8 +10,8 @@ use crate::state::{
 };
 use crate::utils::version::check_version_compatible;
 use anchor_lang::prelude::*;
-use anchor_lang::solana_program::program::invoke;
 use anchor_lang::solana_program::instruction::Instruction;
+use anchor_lang::solana_program::program::invoke;
 
 /// Sunspot Groth16 verifier program ID (deployed to devnet)
 pub const ZK_VERIFIER_PROGRAM_ID: Pubkey = pubkey!("8fHUGmjNzSh76r78v1rPt7BhWmAu2gXrvW9A2XXonwQQ");

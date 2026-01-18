@@ -45,7 +45,10 @@ pub fn handler(ctx: Context<DeregisterAgent>) -> Result<()> {
 
     const VOTE_COOLDOWN: i64 = 24 * 60 * 60;
     require!(
-        clock.unix_timestamp.saturating_sub(agent.last_vote_timestamp) > VOTE_COOLDOWN,
+        clock
+            .unix_timestamp
+            .saturating_sub(agent.last_vote_timestamp)
+            > VOTE_COOLDOWN,
         CoordinationError::RecentVoteActivity
     );
 
