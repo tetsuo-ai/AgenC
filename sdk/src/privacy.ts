@@ -91,6 +91,16 @@ export interface ShieldEscrowResult {
     shieldedAmount: number;
 }
 
+/**
+ * Result of a private task completion withdrawal
+ */
+export interface WithdrawResult {
+    signature?: string;
+    success?: boolean;
+    amount?: number;
+    [key: string]: unknown; // Allow additional properties from PrivacyCash
+}
+
 export class AgenCPrivacyClient {
     private connection: Connection;
     private program: Program;
@@ -128,7 +138,9 @@ export class AgenCPrivacyClient {
             owner: owner,
             enableDebug: true
         });
-        console.log('Privacy Cash client initialized for:', owner.publicKey.toBase58());
+        // Security: Truncate public key in logs to avoid full exposure
+        const pubkeyStr = owner.publicKey.toBase58();
+        console.log('Privacy Cash client initialized for:', pubkeyStr.substring(0, 8) + '...' + pubkeyStr.substring(pubkeyStr.length - 4));
     }
 
     /**
@@ -176,7 +188,7 @@ export class AgenCPrivacyClient {
     async completeTaskPrivate(
         params: PrivateCompletionParams,
         worker: Keypair,
-    ): Promise<{ proofTxSignature: string; withdrawResult: any }> {
+    ): Promise<{ proofTxSignature: string; withdrawResult: WithdrawResult }> {
         const { taskId, output, salt, recipientWallet, escrowLamports } = params;
 
         // Initialize Privacy Cash for worker (to receive funds)
@@ -211,7 +223,11 @@ export class AgenCPrivacyClient {
         });
 
         const proofTxSignature = await this.connection.sendTransaction(tx, [worker]);
-        await this.connection.confirmTransaction(proofTxSignature);
+        // Security: Wait for confirmed commitment level to ensure transaction is finalized
+        const confirmation = await this.connection.confirmTransaction(proofTxSignature, 'confirmed');
+        if (confirmation.value.err) {
+            throw new Error(`Transaction failed: ${JSON.stringify(confirmation.value.err)}`);
+        }
         console.log('Proof verified on-chain:', proofTxSignature);
 
         // 5. Withdraw shielded escrow to worker via Privacy Cash
@@ -221,7 +237,7 @@ export class AgenCPrivacyClient {
         const withdrawResult = await this.privacyCash!.withdraw({
             lamports: escrowLamports,
             recipientAddress: recipientWallet.toBase58()
-        });
+        }) as WithdrawResult;
         console.log('Private payment completed!');
 
         return {
