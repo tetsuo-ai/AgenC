@@ -23,8 +23,9 @@ proptest! {
     fn fuzz_complete_task(input in any::<CompleteTaskInput>()) {
         // Setup valid preconditions
         let escrow_amount = input.task_reward.max(input.escrow_amount);
+        // Use checked arithmetic to properly handle underflow in test setup
         let distributed = input.escrow_distributed.min(
-            escrow_amount.saturating_sub(input.task_reward)
+            escrow_amount.checked_sub(input.task_reward).unwrap_or(0)
         );
 
         let mut task = SimulatedTask {
@@ -35,7 +36,10 @@ proptest! {
             current_workers: 1,
             required_capabilities: 0,
             deadline: 0,
-            completions: input.current_completions.min(input.required_completions.saturating_sub(1)),
+            // Use checked arithmetic to properly handle underflow in test setup
+            completions: input.current_completions.min(
+                input.required_completions.checked_sub(1).unwrap_or(0)
+            ),
             required_completions: input.required_completions.max(1),
             task_type: input.task_type.min(2),
         };
@@ -92,8 +96,10 @@ proptest! {
             prop_assert!(worker.reputation <= 10000,
                 "R1 violated: reputation {} > 10000", worker.reputation);
 
-            // R3: Reputation increment
-            let expected_rep = old_reputation.saturating_add(100).min(10000);
+            // R3: Reputation increment - use checked arithmetic for clarity
+            let expected_rep = old_reputation.checked_add(100)
+                .map(|r| r.min(10000))
+                .unwrap_or(10000);
             prop_assert!(worker.reputation == expected_rep,
                 "R3 violated: expected {} got {}",
                 expected_rep, worker.reputation);
