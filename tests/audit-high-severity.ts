@@ -16,6 +16,9 @@ describe("audit-high-severity", () => {
     program.programId
   );
 
+  // Generate unique run ID to prevent conflicts with persisted validator state
+  const runId = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+
   const CAPABILITY_COMPUTE = 1 << 0;
   const CAPABILITY_ARBITER = 1 << 7;
   const TASK_TYPE_COLLABORATIVE = 1;
@@ -31,11 +34,17 @@ describe("audit-high-severity", () => {
   let arbiter1: Keypair;
   let unauthorized: Keypair;
 
-  const creatorAgentId = Buffer.from("creator-audit-000000000001".padEnd(32, "\0"));
-  const workerAgentId1 = Buffer.from("worker-audit-000000000001".padEnd(32, "\0"));
-  const workerAgentId2 = Buffer.from("worker-audit-000000000002".padEnd(32, "\0"));
-  const workerAgentId3 = Buffer.from("worker-audit-000000000003".padEnd(32, "\0"));
-  const arbiterAgentId1 = Buffer.from("arbiter-audit-000000000001".padEnd(32, "\0"));
+  // Helper to generate unique IDs per test run
+  function makeId(prefix: string): Buffer {
+    return Buffer.from(`${prefix}-${runId}`.slice(0, 32).padEnd(32, "\0"));
+  }
+
+  // Use unique IDs per test run to avoid conflicts with persisted state
+  let creatorAgentId: Buffer;
+  let workerAgentId1: Buffer;
+  let workerAgentId2: Buffer;
+  let workerAgentId3: Buffer;
+  let arbiterAgentId1: Buffer;
 
   const deriveAgentPda = (agentId: Buffer) =>
     PublicKey.findProgramAddressSync([Buffer.from("agent"), agentId], program.programId)[0];
@@ -64,11 +73,14 @@ describe("audit-high-severity", () => {
   const airdrop = async (wallets: Keypair[]) => {
     for (const wallet of wallets) {
       await provider.connection.confirmTransaction(
-        await provider.connection.requestAirdrop(wallet.publicKey, 2 * LAMPORTS_PER_SOL),
+        await provider.connection.requestAirdrop(wallet.publicKey, 10 * LAMPORTS_PER_SOL),
         "confirmed"
       );
     }
   };
+
+  // Evidence must be at least 50 characters per initiate_dispute.rs requirements
+  const VALID_EVIDENCE = "This is valid dispute evidence that exceeds the minimum 50 character requirement for the dispute system.";
 
   const ensureProtocol = async () => {
     try {
@@ -143,7 +155,20 @@ describe("audit-high-severity", () => {
     arbiter1 = Keypair.generate();
     unauthorized = Keypair.generate();
 
-    await airdrop([treasury, creator, worker1, worker2, worker3, arbiter1, unauthorized]);
+    // Initialize unique IDs per test run
+    creatorAgentId = makeId("cre");
+    workerAgentId1 = makeId("w1");
+    workerAgentId2 = makeId("w2");
+    workerAgentId3 = makeId("w3");
+    arbiterAgentId1 = makeId("arb");
+
+    // Increase airdrop to prevent lamport depletion
+    for (const wallet of [treasury, creator, worker1, worker2, worker3, arbiter1, unauthorized]) {
+      await provider.connection.confirmTransaction(
+        await provider.connection.requestAirdrop(wallet.publicKey, 10 * LAMPORTS_PER_SOL),
+        "confirmed"
+      );
+    }
     await ensureProtocol();
 
     await ensureAgent(creatorAgentId, creator, CAPABILITY_COMPUTE);
@@ -151,6 +176,38 @@ describe("audit-high-severity", () => {
     await ensureAgent(workerAgentId2, worker2, CAPABILITY_COMPUTE);
     await ensureAgent(workerAgentId3, worker3, CAPABILITY_COMPUTE);
     await ensureAgent(arbiterAgentId1, arbiter1, CAPABILITY_ARBITER);
+  });
+
+  // Ensure all shared agents are active before each test
+  // This prevents cascading failures when a test deactivates an agent
+  beforeEach(async () => {
+    const agentsToCheck = [
+      { id: workerAgentId1, wallet: worker1 },
+      { id: workerAgentId2, wallet: worker2 },
+      { id: workerAgentId3, wallet: worker3 },
+      { id: creatorAgentId, wallet: creator },
+    ];
+
+    for (const agent of agentsToCheck) {
+      try {
+        const agentPda = deriveAgentPda(agent.id);
+        const agentAccount = await program.account.agentRegistration.fetch(agentPda);
+
+        // If agent is inactive, reactivate it
+        if (agentAccount.status && 'inactive' in agentAccount.status) {
+          await program.methods
+            .updateAgent(null, null, null, 1)  // 1 = Active
+            .accountsPartial({
+              agent: agentPda,
+              authority: agent.wallet.publicKey,
+            })
+            .signers([agent.wallet])
+            .rpc();
+        }
+      } catch (e: any) {
+        // Agent may not exist yet or other error - skip
+      }
+    }
   });
 
   it("rejects task creation without agent registration (issue #63)", async () => {
@@ -367,7 +424,7 @@ describe("audit-high-severity", () => {
         Array.from(taskId),
         Array.from(Buffer.from("evidence".padEnd(32, "\0"))),
         RESOLUTION_TYPE_REFUND,
-        "Dispute evidence description"
+        VALID_EVIDENCE
       )
       .accountsPartial({
         dispute: disputePda,
@@ -566,7 +623,7 @@ describe("audit-high-severity", () => {
         Array.from(taskId),
         Array.from(Buffer.from("evidence".padEnd(32, "\0"))),
         RESOLUTION_TYPE_REFUND,
-        "Dispute evidence description"
+        VALID_EVIDENCE
       )
       .accountsPartial({
         dispute: disputePda,

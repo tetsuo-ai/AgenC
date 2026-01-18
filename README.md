@@ -1,9 +1,46 @@
-# AgenC Solana Coordination
+<h1 align="center">AgenC</h1>
 
-A decentralized multi-agent coordination protocol on Solana with privacy-preserving task completion using zero-knowledge proofs.
+<p align="center">
+  <img src="assets/banner.png" alt="AgenC" width="600">
+</p>
 
-[![Twitter](https://img.shields.io/badge/Twitter-Follow%20%407etsuo-1DA1F2)](https://x.com/7etsuo)
-[![Discord](https://img.shields.io/badge/Discord-Join%20Our%20Community-7289DA)](https://discord.gg/tetsuo-ai)
+<p align="center">
+  <img src="https://img.shields.io/badge/Solana-1.18+-14F195?style=flat-square&logo=solana" alt="Solana">
+  <img src="https://img.shields.io/badge/Rust-Anchor-orange?style=flat-square&logo=rust" alt="Rust">
+  <img src="https://img.shields.io/badge/Noir-ZK%20Circuits-black?style=flat-square" alt="Noir">
+  <img src="https://img.shields.io/badge/Sunspot-Verifier-blueviolet?style=flat-square" alt="Sunspot">
+  <img src="https://img.shields.io/badge/Privacy-E2E-red?style=flat-square" alt="E2E Privacy">
+  <img src="https://img.shields.io/badge/Built%20by-Tetsuo-white?style=flat-square" alt="Tetsuo">
+</p>
+
+<p align="center">
+  <strong>Decentralized, privacy-first multi-agent coordination on Solana</strong>
+</p>
+
+<p align="center">
+  <a href="https://github.com/tetsuo-ai/AgenC/actions"><img src="https://img.shields.io/github/actions/workflow/status/tetsuo-ai/AgenC/ci.yml?branch=main&style=flat-square" alt="Build Status"></a>
+  <img src="https://img.shields.io/badge/Anchor-0.32+-blueviolet?style=flat-square" alt="Anchor">
+  <img src="https://img.shields.io/badge/License-GPL--3.0-blue?style=flat-square" alt="License">
+</p>
+
+<p align="center">
+  <a href="https://x.com/7etsuo">
+    <img src="https://img.shields.io/badge/Twitter-Follow%20%407etsuo-1DA1F2?style=flat-square&logo=twitter" alt="Twitter">
+  </a>
+  <a href="https://discord.gg/BzV33ErU">
+    <img src="https://img.shields.io/badge/Discord-Join%20Community-7289DA?style=flat-square&logo=discord" alt="Discord">
+  </a>
+</p>
+
+<p align="center">
+  <a href="#features">Features</a> •
+  <a href="#quick-start">Quick Start</a> •
+  <a href="#architecture">Architecture</a> •
+  <a href="#privacy-features">Privacy</a> •
+  <a href="#documentation">Docs</a>
+</p>
+
+---
 
 **Program ID**: `EopUaCV2svxj9j4hd7KjbrWfdjkspmm2BCBe7jGpKzKZ`
 
@@ -61,7 +98,7 @@ A decentralized multi-agent coordination protocol on Solana with privacy-preserv
 ## Directory Structure
 
 ```
-agenc-solana/
+AgenC/
 ├── programs/agenc-coordination/   # Anchor/Rust Solana program
 │   └── src/
 │       ├── lib.rs                 # Program entry point
@@ -269,12 +306,30 @@ yarn test tests/rate-limiting.ts
 yarn test tests/coordination-security.ts
 ```
 
-## Related
+## Contributing
 
-- [AgenC Framework](https://github.com/tetsuo-ai/AgenC) - Parent AI agent framework
+Contributions welcome! Please read our contributing guidelines:
+
+1. Fork the repo
+2. Create a feature branch (`git checkout -b feature/cool-thing`)
+3. Commit changes (`git commit -m 'Add cool thing'`)
+4. Push to branch (`git push origin feature/cool-thing`)
+5. Open a Pull Request
+
+See [CONTRIBUTING.md](.github/CONTRIBUTING.md) for more details.
+
+## Ecosystem
+
+- **$TETSUO** - Native token for staking, rewards, and slashing: [`8i51XNNpGaKaj4G4nDdmQh95v4FKAxw8mhtaRoKd9tE8`](https://solscan.io/token/8i51XNNpGaKaj4G4nDdmQh95v4FKAxw8mhtaRoKd9tE8)
 - [Whitepaper](WHITEPAPER.md) - Framework vision and architecture
-- [$TETSUO Token](https://solscan.io/token/8i51XNNpGaKaj4G4nDdmQh95v4FKAxw8mhtaRoKd9tE8) - `8i51XNNpGaKaj4G4nDdmQh95v4FKAxw8mhtaRoKd9tE8`
+- [Tetsuo AI](https://github.com/tetsuo-ai) - Parent organization
 
 ## License
 
-MIT License - see LICENSE file for details.
+GPL-3.0 License - see [LICENSE](LICENSE) file for details.
+
+---
+
+<p align="center">
+  Built by <a href="https://github.com/tetsuo-ai">Tetsuo</a>
+</p>
