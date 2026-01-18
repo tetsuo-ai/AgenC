@@ -3225,11 +3225,20 @@ describe("test_1", () => {
         const statePda = deriveStatePda(stateKey);
         const stateValue = Buffer.from("valid-value".padEnd(64, "\0"));
 
+        // Fetch current state version if it exists (for re-runs on persistent validator)
+        let expectedVersion = 0;
+        try {
+          const existingState = await program.account.coordinationState.fetch(statePda);
+          expectedVersion = existingState.version.toNumber();
+        } catch {
+          // State doesn't exist yet, version 0 is correct
+        }
+
         await program.methods
           .updateState(
             Array.from(stateKey),
             Array.from(stateValue),
-            new BN(0)
+            new BN(expectedVersion)
           )
           .accountsPartial({
             state: statePda,
@@ -3241,7 +3250,7 @@ describe("test_1", () => {
           .rpc();
 
         const state = await program.account.coordinationState.fetch(statePda);
-        expect(state.version.toNumber()).to.equal(1);
+        expect(state.version.toNumber()).to.equal(expectedVersion + 1);
       });
     });
 
@@ -7648,8 +7657,8 @@ describe("test_1", () => {
         const totalAgentsBefore = configBefore.totalAgents.toNumber();
         const completedTasksBefore = configBefore.completedTasks.toNumber();
 
-        // Create a task
-        const taskId = Buffer.from("stats-task-001".padEnd(32, "\0"));
+        // Create a task (use unique ID to avoid collision with earlier test)
+        const taskId = Buffer.from(`stats-task-002-${runId}`.padEnd(32, "\0"));
         const taskPda = deriveTaskPda(creator.publicKey, taskId);
         const escrowPda = deriveEscrowPda(taskPda);
 
