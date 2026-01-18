@@ -369,10 +369,29 @@ export function formatTaskState(state: TaskState): string {
 
 /**
  * Calculate escrow fee (protocol fee percentage)
+ * @param escrowLamports - Escrow amount in lamports (must be non-negative)
+ * @param feePercentage - Fee percentage (must be between 0 and PERCENT_BASE)
+ * @returns Fee amount in lamports
+ * @throws Error if inputs would cause overflow or are invalid
  */
 export function calculateEscrowFee(
   escrowLamports: number,
   feePercentage: number = DEFAULT_FEE_PERCENT
 ): number {
+  // Security: Validate inputs to prevent unexpected behavior
+  if (escrowLamports < 0 || !Number.isFinite(escrowLamports)) {
+    throw new Error('Invalid escrow amount: must be a non-negative finite number');
+  }
+  if (feePercentage < 0 || feePercentage > PERCENT_BASE || !Number.isFinite(feePercentage)) {
+    throw new Error(`Invalid fee percentage: must be between 0 and ${PERCENT_BASE}`);
+  }
+
+  // Security: Check for potential overflow before multiplication
+  // JavaScript's Number.MAX_SAFE_INTEGER is 2^53 - 1
+  const maxSafeMultiplier = Math.floor(Number.MAX_SAFE_INTEGER / PERCENT_BASE);
+  if (escrowLamports > maxSafeMultiplier) {
+    throw new Error('Escrow amount too large: would cause arithmetic overflow');
+  }
+
   return Math.floor((escrowLamports * feePercentage) / PERCENT_BASE);
 }

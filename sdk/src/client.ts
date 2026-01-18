@@ -6,8 +6,27 @@
 
 import { Connection, PublicKey, Keypair, LAMPORTS_PER_SOL } from '@solana/web3.js';
 import { Program, AnchorProvider, Wallet, Idl } from '@coral-xyz/anchor';
+import * as path from 'path';
 import { AgenCPrivacyClient } from './privacy';
 import { PROGRAM_ID, VERIFIER_PROGRAM_ID, DEVNET_RPC, MAINNET_RPC } from './constants';
+
+/**
+ * Validates a circuit path to prevent path traversal attacks.
+ * @param circuitPath - The circuit path to validate
+ * @returns true if the path is safe, false otherwise
+ */
+function isValidCircuitPath(circuitPath: string): boolean {
+  // Disallow absolute paths and path traversal
+  if (path.isAbsolute(circuitPath)) {
+    return false;
+  }
+  // Normalize and check for traversal attempts
+  const normalized = path.normalize(circuitPath);
+  if (normalized.startsWith('..') || normalized.includes('../')) {
+    return false;
+  }
+  return true;
+}
 
 export interface PrivacyClientConfig {
   /** Solana RPC endpoint URL */
@@ -32,9 +51,15 @@ export class PrivacyClient {
   private wallet: Keypair | null = null;
 
   constructor(config: PrivacyClientConfig = {}) {
+    // Validate circuit path before accepting it
+    const circuitPath = config.circuitPath || './circuits/task_completion';
+    if (!isValidCircuitPath(circuitPath)) {
+      throw new Error('Invalid circuit path: path traversal or absolute paths not allowed');
+    }
+
     this.config = {
       devnet: false,
-      circuitPath: './circuits/task_completion',
+      circuitPath,
       debug: false,
       ...config,
     };
@@ -47,8 +72,9 @@ export class PrivacyClient {
     }
 
     if (this.config.debug) {
+      // Security: Only log non-sensitive info in debug mode
       console.log('PrivacyClient initialized');
-      console.log('  RPC:', rpcUrl);
+      console.log('  Network:', this.config.devnet ? 'devnet' : 'mainnet');
       console.log('  Circuit:', this.config.circuitPath);
     }
   }
@@ -81,7 +107,9 @@ export class PrivacyClient {
     }
 
     if (this.config.debug) {
-      console.log('Wallet initialized:', wallet.publicKey.toBase58());
+      // Security: Truncate public key to avoid full exposure in logs
+      const pubkey = wallet.publicKey.toBase58();
+      console.log('Wallet initialized:', pubkey.substring(0, 8) + '...' + pubkey.substring(pubkey.length - 4));
     }
 
     // Initialize privacy client only if program is available
