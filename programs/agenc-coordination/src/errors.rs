@@ -187,6 +187,9 @@ pub enum CoordinationError {
     #[msg("Multisig signer cannot be default pubkey")]
     MultisigDefaultSigner,
 
+    #[msg("Multisig signer account not owned by System Program")]
+    MultisigSignerNotSystemOwned,
+
     // General errors (6600-6699)
     #[msg("Invalid input parameter")]
     InvalidInput,
