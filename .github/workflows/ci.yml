@@ -87,12 +87,12 @@ jobs:
       - name: Install Anchor CLI via AVM
         run: |
           set -euxo pipefail
-          # Ensure we're using the correct Rust toolchain (not Solana's bundled one)
+          # Ensure we're using the correct Rust toolchain
           rustup default ${{ env.RUST_TOOLCHAIN }}
           rustc --version
           cargo --version
-          # Install AVM (Anchor Version Manager)
-          cargo install --git https://github.com/coral-xyz/anchor avm --force
+          # Install AVM from crates.io (stable deps) instead of git
+          cargo install avm --force
           # Install and activate specific anchor version
           avm install ${{ env.ANCHOR_VERSION }}
           avm use ${{ env.ANCHOR_VERSION }}
