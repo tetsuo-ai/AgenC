@@ -301,17 +301,14 @@ describe("coordination-security", () => {
             Buffer.from("Process this data".padEnd(64, "\0")),
             new BN(rewardAmount),
             1,
-            0,
-            TASK_TYPE_EXCLUSIVE
+            new BN(0),
+            TASK_TYPE_EXCLUSIVE,
+            null  // constraint_hash
           )
-          .accounts({
-            task: taskPda,
-            escrow: escrowPda,
-            protocolConfig: protocolPda,
+          .accountsPartial({
             creatorAgent: creatorAgentPda,
             authority: creator.publicKey,
             creator: creator.publicKey,
-            systemProgram: SystemProgram.programId,
           })
           .signers([creator])
           .rpc();
@@ -348,17 +345,14 @@ describe("coordination-security", () => {
             Buffer.from("Collaborative task".padEnd(64, "\0")),
             new BN(3 * LAMPORTS_PER_SOL),
             3,
-            0,
-            TASK_TYPE_COLLABORATIVE
+            new BN(0),
+            TASK_TYPE_COLLABORATIVE,
+            null  // constraint_hash
           )
-          .accounts({
-            task: taskPda,
-            escrow: escrowPda,
-            protocolConfig: protocolPda,
+          .accountsPartial({
             creatorAgent: creatorAgentPda,
             authority: creator.publicKey,
             creator: creator.publicKey,
-            systemProgram: SystemProgram.programId,
           })
           .signers([creator])
           .rpc();
@@ -386,17 +380,14 @@ describe("coordination-security", () => {
             Buffer.from("Competitive task".padEnd(64, "\0")),
             new BN(1 * LAMPORTS_PER_SOL),
             5,
-            0,
-            TASK_TYPE_COMPETITIVE
+            new BN(0),
+            TASK_TYPE_COMPETITIVE,
+            null  // constraint_hash
           )
-          .accounts({
-            task: taskPda,
-            escrow: escrowPda,
-            protocolConfig: protocolPda,
+          .accountsPartial({
             creatorAgent: creatorAgentPda,
             authority: creator.publicKey,
             creator: creator.publicKey,
-            systemProgram: SystemProgram.programId,
           })
           .signers([creator])
           .rpc();
@@ -420,12 +411,11 @@ describe("coordination-security", () => {
 
         await program.methods
           .claimTask()
-          .accounts({
+          .accountsPartial({
             task: taskPda,
             claim: claimPda,
-            worker: agentId1,
+            worker: deriveAgentPda(agentId1),
             authority: worker1.publicKey,
-            systemProgram: SystemProgram.programId,
           })
           .signers([worker1])
           .rpc();
@@ -435,7 +425,7 @@ describe("coordination-security", () => {
         expect(task.status).to.deep.equal({ inProgress: {} });
 
         const claim = await program.account.taskClaim.fetch(claimPda);
-        expect(claim.worker.toString()).to.equal(worker1.publicKey.toString());
+        expect(claim.worker.toString()).to.equal(deriveAgentPda(agentId1).toString());
         expect(claim.isCompleted).to.be.false;
       });
 
@@ -463,15 +453,14 @@ describe("coordination-security", () => {
 
         await program.methods
           .completeTask(Array.from(proofHash), null)
-          .accounts({
+          .accountsPartial({
             task: taskPda,
             claim: claimPda,
             escrow: escrowPda,
-            worker: agentId1,
+            worker: deriveAgentPda(agentId1),
             protocolConfig: protocolPda,
             treasury: treasury.publicKey,
             authority: worker1.publicKey,
-            systemProgram: SystemProgram.programId,
           })
           .signers([worker1])
           .rpc();
@@ -526,17 +515,14 @@ describe("coordination-security", () => {
             Buffer.from("Cancelable task".padEnd(64, "\0")),
             new BN(rewardAmount),
             1,
-            0,
-            TASK_TYPE_EXCLUSIVE
+            new BN(0),
+            TASK_TYPE_EXCLUSIVE,
+            null  // constraint_hash
           )
-          .accounts({
-            task: taskPda,
-            escrow: escrowPda,
-            protocolConfig: protocolPda,
+          .accountsPartial({
             creatorAgent: creatorAgentPda,
             authority: creator.publicKey,
             creator: creator.publicKey,
-            systemProgram: SystemProgram.programId,
           })
           .signers([creator])
           .rpc();
@@ -606,17 +592,14 @@ describe("coordination-security", () => {
             Buffer.from("Dispute task".padEnd(64, "\0")),
             new BN(1 * LAMPORTS_PER_SOL),
             1,
-            0,
-            TASK_TYPE_EXCLUSIVE
+            new BN(0),
+            TASK_TYPE_EXCLUSIVE,
+            null  // constraint_hash
           )
-          .accounts({
-            task: taskPda,
-            escrow: escrowPda,
-            protocolConfig: protocolPda,
+          .accountsPartial({
             creatorAgent: creatorAgentPda,
             authority: creator.publicKey,
             creator: creator.publicKey,
-            systemProgram: SystemProgram.programId,
           })
           .signers([creator])
           .rpc();
@@ -803,33 +786,32 @@ describe("coordination-security", () => {
             Buffer.from("Test task".padEnd(64, "\0")),
             new BN(1 * LAMPORTS_PER_SOL),
             1,
-            0,
-            TASK_TYPE_EXCLUSIVE
+            new BN(0),
+            TASK_TYPE_EXCLUSIVE,
+            null  // constraint_hash
           )
-          .accounts({
-            task: taskPda,
-            escrow: escrowPda,
-            protocolConfig: protocolPda,
+          .accountsPartial({
             creatorAgent: creatorAgentPda,
             authority: creator.publicKey,
             creator: creator.publicKey,
-            systemProgram: SystemProgram.programId,
           })
           .signers([creator])
           .rpc();
 
-        await expect(
-          program.methods
+        try {
+          await program.methods
             .cancelTask()
-            .accounts({
+            .accountsPartial({
               task: taskPda,
               escrow: escrowPda,
               creator: unauthorized.publicKey,
-              systemProgram: SystemProgram.programId,
             })
             .signers([unauthorized])
-            .rpc()
-        ).to.be.rejected;
+            .rpc();
+          expect.fail("Should have failed");
+        } catch (e: any) {
+          expect(e.message).to.include("Error");
+        }
       });
     });
 
@@ -951,15 +933,14 @@ describe("coordination-security", () => {
 
         await program.methods
           .completeTask(Array.from(proofHash), null)
-          .accounts({
+          .accountsPartial({
             task: taskPda,
             claim: claimPda,
             escrow: escrowPda,
-            worker: agentId1,
+            worker: deriveAgentPda(agentId1),
             protocolConfig: protocolPda,
             treasury: treasury.publicKey,
             authority: worker1.publicKey,
-            systemProgram: SystemProgram.programId,
           })
           .signers([worker1])
           .rpc();
@@ -1535,15 +1516,14 @@ describe("coordination-security", () => {
 
         await program.methods
           .completeTask(Array.from(proofHash), null)
-          .accounts({
+          .accountsPartial({
             task: taskPda,
             claim: claimPda,
             escrow: escrowPda,
-            worker: agentId1,
+            worker: deriveAgentPda(agentId1),
             protocolConfig: protocolPda,
             treasury: treasury.publicKey,
             authority: worker1.publicKey,
-            systemProgram: SystemProgram.programId,
           })
           .signers([worker1])
           .rpc();
@@ -1827,15 +1807,14 @@ describe("coordination-security", () => {
 
         await program.methods
           .completeTask(Array.from(proofHash), null)
-          .accounts({
+          .accountsPartial({
             task: taskPda,
             claim: claimPda,
             escrow: escrowPda,
-            worker: agentId1,
+            worker: deriveAgentPda(agentId1),
             protocolConfig: protocolPda,
             treasury: treasury.publicKey,
             authority: worker1.publicKey,
-            systemProgram: SystemProgram.programId,
           })
           .signers([worker1])
           .rpc();
