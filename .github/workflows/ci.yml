@@ -84,25 +84,15 @@ jobs:
           bash /tmp/solana_install.sh
           echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
 
-      - name: Install Anchor CLI from source
+      - name: Install Anchor CLI
         run: |
           set -euxo pipefail
-          # Add cargo bin to PATH first
-          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
-          export PATH="$HOME/.cargo/bin:$PATH"
-          # Remove any avm shim that might interfere
-          rm -f "$HOME/.cargo/bin/anchor" 2>/dev/null || true
-          # Build and install anchor from source
-          git clone --depth 1 --branch "v${{ env.ANCHOR_VERSION }}" \
-            https://github.com/coral-xyz/anchor.git /tmp/anchor
-          cd /tmp/anchor
-          sed -i 's/version = 4/version = 3/' Cargo.lock
-          cargo update -p time --precise 0.3.36
-          cargo update -p base64ct --precise 1.6.0 || true
-          cargo install --path cli --locked --force
-          # Verify installation
-          which anchor
-          "$HOME/.cargo/bin/anchor" --version
+          # Download prebuilt anchor binary
+          ANCHOR_URL="https://github.com/coral-xyz/anchor/releases/download/v${{ env.ANCHOR_VERSION }}/anchor-x86_64-unknown-linux-gnu"
+          curl -fL "$ANCHOR_URL" -o /tmp/anchor
+          chmod +x /tmp/anchor
+          sudo mv /tmp/anchor /usr/local/bin/anchor
+          anchor --version
 
       - name: Install JS deps
         run: yarn install --frozen-lockfile
@@ -118,18 +108,16 @@ jobs:
         working-directory: programs/agenc-coordination
         run: |
           set -euxo pipefail
-          export PATH="$HOME/.cargo/bin:$PATH"
           solana config set --url http://127.0.0.1:8899
-          "$HOME/.cargo/bin/anchor" build --no-idl
+          anchor build --no-idl
           test -f target/deploy/agenc_coordination.so
 
       - name: anchor test
         working-directory: programs/agenc-coordination
         run: |
           set -euxo pipefail
-          export PATH="$HOME/.cargo/bin:$PATH"
           solana config set --url http://127.0.0.1:8899
-          "$HOME/.cargo/bin/anchor" test --skip-build
+          anchor test --skip-build
 
   security_scans:
     runs-on: ubuntu-latest
