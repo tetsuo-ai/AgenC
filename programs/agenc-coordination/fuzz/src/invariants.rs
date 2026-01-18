@@ -74,7 +74,13 @@ pub fn check_escrow_balance_conservation(
     distributed: u64,
     remaining_lamports: u64,
 ) -> EscrowInvariantResult {
-    let expected_remaining = amount.saturating_sub(distributed);
+    // Use checked_sub to detect underflow (which would indicate distributed > amount)
+    let expected_remaining = match amount.checked_sub(distributed) {
+        Some(r) => r,
+        None => {
+            return EscrowInvariantResult::DistributedExceedsAmount { distributed, amount };
+        }
+    };
     if remaining_lamports != expected_remaining {
         EscrowInvariantResult::BalanceConservationViolation {
             expected: expected_remaining,
@@ -181,9 +187,12 @@ pub fn check_worker_count(current_workers: u8, max_workers: u8) -> TaskInvariant
 pub fn check_completion_count(completions: u8, required_completions: u8) -> TaskInvariantResult {
     // Note: completions can exceed required in edge cases, but shouldn't trigger extra payments
     // The check is that we don't pay out more than required_completions worth of rewards
-    if completions > required_completions && completions > 0 {
-        // This is a warning, not necessarily an error if rewards are capped
-        TaskInvariantResult::Valid
+    if completions > required_completions {
+        // This indicates excess completions - may be a warning condition
+        TaskInvariantResult::CompletionsExceedRequired {
+            completions,
+            required: required_completions,
+        }
     } else {
         TaskInvariantResult::Valid
     }
@@ -310,7 +319,17 @@ pub fn check_dispute_threshold(
     threshold: u8,
     approved: bool,
 ) -> DisputeInvariantResult {
-    let total = votes_for.saturating_add(votes_against);
+    // Use checked_add to detect overflow in vote counting
+    let total = match votes_for.checked_add(votes_against) {
+        Some(t) => t,
+        None => {
+            // Overflow in vote counting - this is a serious invariant violation
+            return DisputeInvariantResult::InsufficientVotes {
+                total: u8::MAX,
+                required: 1
+            };
+        }
+    };
     if total == 0 {
         return DisputeInvariantResult::InsufficientVotes { total: 0, required: 1 };
     }
