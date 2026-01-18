@@ -83,7 +83,7 @@ export async function migrateProtocol(
   protocolPda: PublicKey,
   targetVersion: number,
   multisigSigners: Keypair[],
-  commitment: Commitment = "confirmed"
+  commitment: Commitment = "finalized"
 ): Promise<string> {
   validateVersion(targetVersion, "targetVersion");
 
@@ -147,7 +147,7 @@ export async function updateMinVersion(
   protocolPda: PublicKey,
   newMinVersion: number,
   multisigSigners: Keypair[],
-  commitment: Commitment = "confirmed"
+  commitment: Commitment = "finalized"
 ): Promise<string> {
   validateVersion(newMinVersion, "newMinVersion");
 
