@@ -12,6 +12,20 @@
  * - Execute multi-step workflows
  * - Generate verifiable outputs
  * - Operate autonomously with budget constraints
+ *
+ * ============================================================================
+ * SECURITY WARNING - DEMO CODE ONLY
+ * ============================================================================
+ * This file contains simulated/placeholder implementations that are NOT
+ * suitable for production use:
+ *
+ * 1. Keypairs are generated ephemerally - use secure storage in production
+ * 2. ZK proofs are zero-filled buffers - use actual proof generation
+ * 3. Constraint hashes are empty - use real cryptographic hashes
+ * 4. Hash functions are non-cryptographic - use proper crypto libraries
+ *
+ * DO NOT use this code in production without replacing these placeholders.
+ * ============================================================================
  */
 
 import { Connection, Keypair, PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js';
@@ -274,10 +288,18 @@ class TetsuoAgent {
     //   salt,
     // });
 
-    // WARNING: Simulated proof for demo only - these are zero-filled buffers!
-    // In production, use: const { proof, publicWitness } = await generateProof({...});
-    const proof = Buffer.alloc(388); // Groth16 proof size (DEMO: zeros)
-    const publicWitness = Buffer.alloc(35 * 32); // 35 public inputs (DEMO: zeros)
+    // SECURITY WARNING: Simulated proof for demo only!
+    // These zero-filled buffers will FAIL verification on-chain.
+    // In production, you MUST use actual proof generation:
+    //   const { proof, publicWitness } = await generateProof({...});
+    //
+    // A zero-filled proof cannot satisfy the ZK circuit constraints and
+    // will be rejected by the Sunspot verifier program.
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('Demo proof generation cannot be used in production. Implement real ZK proof generation.');
+    }
+    const proof = Buffer.alloc(388); // Groth16 proof size (DEMO ONLY: zeros - will fail verification!)
+    const publicWitness = Buffer.alloc(35 * 32); // 35 public inputs (DEMO ONLY: zeros)
 
     console.log(chalk.gray('  Proof size:'), proof.length, 'bytes');
     console.log(chalk.gray('  Public inputs:'), 35);
@@ -375,9 +397,17 @@ class TetsuoAgent {
 
   // Helper methods
   private hashTaskOutput(input: string): string {
-    // WARNING: This is a demo-only hash. In production, use a cryptographic hash:
-    // import { createHash } from 'crypto';
-    // return createHash('sha256').update(input).digest('hex');
+    // SECURITY WARNING: This is a NON-CRYPTOGRAPHIC demo hash!
+    // It provides NO security guarantees and is trivially reversible.
+    //
+    // In production, you MUST use a cryptographic hash:
+    //   import { createHash } from 'crypto';
+    //   return createHash('sha256').update(input).digest('hex');
+    //
+    // Or for ZK-friendly hashing, use Poseidon2 from the SDK.
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('Demo hash function cannot be used in production. Implement cryptographic hashing.');
+    }
     let hash = '';
     for (let i = 0; i < 64; i++) {
       hash += ((input.charCodeAt(i % input.length) + i) % 16).toString(16);
@@ -408,8 +438,15 @@ async function main() {
   console.log();
 
   // Create agent configuration
+  // SECURITY WARNING: Ephemeral keypair for demo only!
+  // In production, load keypair from secure storage:
+  //   - Hardware wallet
+  //   - Encrypted keystore file
+  //   - AWS KMS / HashiCorp Vault
+  //   - Environment variable with encrypted key
+  // Never commit real keypairs to source control!
   const agentConfig: TetsuoAgentConfig = {
-    wallet: Keypair.generate(), // DEMO ONLY: Load from secure storage in production
+    wallet: Keypair.generate(), // DEMO ONLY: Load from secure storage in production!
     capabilities: [
       'text-generation',
       'code-generation',
