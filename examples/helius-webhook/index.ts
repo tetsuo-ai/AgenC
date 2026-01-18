@@ -11,7 +11,11 @@ import express from 'express';
 import chalk from 'chalk';
 
 // Configuration
-const HELIUS_API_KEY = process.env.HELIUS_API_KEY || '9b627fa6-114a-4a92-843e-3ad38c64565a';
+const HELIUS_API_KEY = process.env.HELIUS_API_KEY;
+if (!HELIUS_API_KEY) {
+  console.error('Error: HELIUS_API_KEY environment variable is required');
+  process.exit(1);
+}
 const VERIFIER_PROGRAM_ID = '8fHUGmjNzSh76r78v1rPt7BhWmAu2gXrvW9A2XXonwQQ';
 const AGENC_PROGRAM_ID = 'EopUaCV2svxj9j4hd7KjbrWfdjkspmm2BCBe7jGpKzKZ';
 const WEBHOOK_PORT = process.env.PORT || 3000;
@@ -34,9 +38,9 @@ interface TransactionEvent {
   type: string;
   source: string;
   description?: string;
-  nativeTransfers?: any[];
-  tokenTransfers?: any[];
-  accountData?: any[];
+  nativeTransfers?: Array<{ from: string; to: string; amount: number }>;
+  tokenTransfers?: Array<{ from: string; to: string; mint: string; amount: number }>;
+  accountData?: Array<{ account: string; nativeBalanceChange: number; tokenBalanceChanges: unknown[] }>;
   instructions?: InstructionEvent[];
 }
 
@@ -44,7 +48,7 @@ interface InstructionEvent {
   programId: string;
   data: string;
   accounts: string[];
-  innerInstructions?: any[];
+  innerInstructions?: InstructionEvent[];
 }
 
 interface TaskCompletionEvent {
@@ -55,7 +59,8 @@ interface TaskCompletionEvent {
   txSignature: string;
 }
 
-// Event storage (in production, use a database)
+// WARNING: In-memory storage - data is lost on restart and not suitable for production.
+// Use a persistent database (PostgreSQL, Redis, etc.) for production deployments.
 const completedTasks: TaskCompletionEvent[] = [];
 
 /**
@@ -205,6 +210,13 @@ function startServer(): void {
 
   // Webhook endpoint
   app.post('/webhook', (req, res) => {
+    // Note: In production, verify webhook signature from Helius
+    // See: https://docs.helius.xyz/webhooks/webhook-security
+    const authHeader = req.headers['authorization'];
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      console.warn(chalk.yellow('Warning: Webhook received without authorization header'));
+      // In production, return 401 here
+    }
     const payload = req.body as WebhookPayload[];
 
     console.log(chalk.cyan('\n[Webhook Received]'), new Date().toISOString());
