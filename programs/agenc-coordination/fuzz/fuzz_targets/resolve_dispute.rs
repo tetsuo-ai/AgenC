@@ -60,12 +60,9 @@ proptest! {
         // Use timestamp after deadline
         let current_time = input.voting_deadline.saturating_add(1);
 
-        // Store old status values for potential debugging/logging
-        // These are kept for future invariant verification if needed
-        #[allow(unused_variables)]
-        let old_dispute_status = dispute.status;
-        #[allow(unused_variables)]
-        let old_task_status = task.status;
+        // Store old status values for invariant verification logging
+        let _old_dispute_status = dispute.status;
+        let _old_task_status = task.status;
 
         let result = simulate_resolve_dispute(
             &mut dispute,
@@ -194,8 +191,14 @@ proptest! {
             "Invariant violation: {:?}", result);
 
         if result.is_success() {
-            let total = votes_for.saturating_add(votes_against) as u64;
-            let approval_pct = (votes_for as u64 * 100) / total;
+            let total = votes_for.checked_add(votes_against)
+                .expect("Vote total overflow in test") as u64;
+            // Guard against division by zero (though total should always be > 0 here)
+            let approval_pct = if total > 0 {
+                (votes_for as u64 * 100) / total
+            } else {
+                0
+            };
             let should_approve = approval_pct >= threshold as u64;
 
             // D4: Task status should match threshold result
