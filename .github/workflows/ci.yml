@@ -12,7 +12,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  SOLANA_VERSION: v1.18.26
+  SOLANA_VERSION: v2.1.15
   ANCHOR_VERSION: 0.32.1
   RUST_TOOLCHAIN: "1.85.0"
 
@@ -29,6 +29,12 @@ jobs:
         with:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
           components: rustfmt, clippy
+
+      - name: Set Rust as default
+        run: |
+          rustup default ${{ env.RUST_TOOLCHAIN }}
+          rustc --version
+          cargo --version
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
