@@ -249,14 +249,29 @@ export class AgenCPrivacyClient {
     
     /**
      * Compute Poseidon commitment for output
+     *
+     * SECURITY WARNING: This function currently uses a placeholder implementation.
+     * For production use, you MUST integrate a proper Poseidon hash library that
+     * matches the circuit's poseidon::bn254::hash_5 function.
+     *
+     * @throws Error if used in production without proper implementation
      */
     private async computeCommitment(output: bigint[], salt: bigint): Promise<bigint> {
-        // TODO: Use actual Poseidon hash implementation
-        // This should match the circuit's poseidon::bn254::hash_5
-        
-        // For now, placeholder
-        // In production, use a JS Poseidon implementation that matches Noir's
-        console.log('Computing commitment...');
+        // CRITICAL: Check if we're in production mode
+        const isProduction = process.env.NODE_ENV === 'production';
+        if (isProduction) {
+            throw new Error(
+                'SECURITY: computeCommitment requires a proper Poseidon hash implementation for production. ' +
+                'The placeholder returns 0, which is NOT cryptographically secure. ' +
+                'Please integrate circomlibjs or @iden3/js-crypto with BN254 curve support.'
+            );
+        }
+
+        // Development-only placeholder - logs warning
+        console.warn(
+            '[SECURITY WARNING] computeCommitment: Using insecure placeholder (returns 0). ' +
+            'Do NOT use in production!'
+        );
         return BigInt(0);
     }
     
@@ -297,19 +312,53 @@ salt = "${params.salt}"
     }
 }
 
-// Helper to compute constraint hash from expected output using poseidon2
+/**
+ * Helper to compute constraint hash from expected output using poseidon2
+ *
+ * SECURITY WARNING: This function currently uses a placeholder implementation.
+ * The hash is: poseidon2_permutation([output[0], output[1], output[2], output[3]], 4)[0]
+ *
+ * @throws Error if used in production without proper implementation
+ */
 export function computeConstraintHash(expectedOutput: bigint[]): Buffer {
-    // In production, use a JS poseidon2 implementation matching Noir's
-    // For now, this should be computed off-chain with matching algorithm
-    // The hash is: poseidon2_permutation([output[0], output[1], output[2], output[3]], 4)[0]
-    console.warn('computeConstraintHash: Use poseidon2 implementation matching Noir circuit');
+    // CRITICAL: Check if we're in production mode
+    const isProduction = process.env.NODE_ENV === 'production';
+    if (isProduction) {
+        throw new Error(
+            'SECURITY: computeConstraintHash requires a proper Poseidon2 implementation for production. ' +
+            'Please integrate circomlibjs or @iden3/js-crypto with BN254 curve support.'
+        );
+    }
+
+    console.warn(
+        '[SECURITY WARNING] computeConstraintHash: Using insecure placeholder. ' +
+        'Do NOT use in production!'
+    );
     return Buffer.alloc(32);
 }
 
-// Helper to compute output commitment
+/**
+ * Helper to compute output commitment
+ *
+ * SECURITY WARNING: This function currently uses a placeholder implementation.
+ * In production, use: poseidon2_permutation([constraintHash, salt, 0, 0], 4)[0]
+ *
+ * @throws Error if used in production without proper implementation
+ */
 export function computeOutputCommitment(constraintHash: bigint, salt: bigint): Buffer {
-    // In production, use: poseidon2_permutation([constraintHash, salt, 0, 0], 4)[0]
-    console.warn('computeOutputCommitment: Use poseidon2 implementation matching Noir circuit');
+    // CRITICAL: Check if we're in production mode
+    const isProduction = process.env.NODE_ENV === 'production';
+    if (isProduction) {
+        throw new Error(
+            'SECURITY: computeOutputCommitment requires a proper Poseidon2 implementation for production. ' +
+            'Please integrate circomlibjs or @iden3/js-crypto with BN254 curve support.'
+        );
+    }
+
+    console.warn(
+        '[SECURITY WARNING] computeOutputCommitment: Using insecure placeholder. ' +
+        'Do NOT use in production!'
+    );
     return Buffer.alloc(32);
 }
 
@@ -321,10 +370,19 @@ export function computeOutputCommitment(constraintHash: bigint, salt: bigint): B
  * 2. Worker completes task off-chain
  * 3. Worker generates ZK proof of completion
  * 4. Worker submits proof and receives private payment
+ *
+ * @security This demo requires HELIUS_API_KEY environment variable to be set.
+ * Never commit API keys or use hardcoded fallback values in production code.
  */
 async function demo() {
-    // Use Helius RPC for performance (Helius bounty integration)
-    const HELIUS_API_KEY = process.env.HELIUS_API_KEY || 'YOUR_HELIUS_API_KEY';
+    // SECURITY: Require API key from environment - never use hardcoded fallbacks
+    const HELIUS_API_KEY = process.env.HELIUS_API_KEY;
+    if (!HELIUS_API_KEY) {
+        throw new Error(
+            'SECURITY: HELIUS_API_KEY environment variable is required. ' +
+            'Never use hardcoded API keys. Set the environment variable before running.'
+        );
+    }
     const rpcUrl = `https://mainnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}`;
     const connection = new Connection(rpcUrl);
 

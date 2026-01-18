@@ -38,12 +38,38 @@ export interface ProofResult {
 }
 
 /**
+ * Validate circuit path to prevent path traversal attacks
+ * @param circuitPath - The path to validate
+ * @returns The normalized, validated path
+ * @throws Error if path is invalid or attempts traversal
+ */
+function validateCircuitPath(circuitPath: string): string {
+  // Normalize the path
+  const normalizedPath = path.normalize(circuitPath);
+
+  // Check for path traversal attempts
+  if (normalizedPath.includes('..')) {
+    throw new Error('SECURITY: Path traversal detected in circuit path. ".." is not allowed.');
+  }
+
+  // Ensure path doesn't escape to root or absolute paths outside expected locations
+  if (path.isAbsolute(normalizedPath) && !normalizedPath.startsWith(process.cwd())) {
+    throw new Error('SECURITY: Circuit path must be relative or within the current working directory.');
+  }
+
+  return normalizedPath;
+}
+
+/**
  * Generate a ZK proof for task completion
  *
  * Requires nargo and sunspot CLI tools to be installed
+ *
+ * @security The circuitPath parameter is validated to prevent path traversal attacks.
  */
 export async function generateProof(params: ProofGenerationParams): Promise<ProofResult> {
-  const circuitPath = params.circuitPath || './circuits/task_completion';
+  // Validate and normalize circuit path to prevent path traversal
+  const circuitPath = validateCircuitPath(params.circuitPath || './circuits/task_completion');
   const startTime = Date.now();
 
   // Generate Prover.toml content
@@ -90,14 +116,18 @@ export async function generateProof(params: ProofGenerationParams): Promise<Proo
  * Verify a proof locally (without on-chain submission)
  *
  * Useful for testing before submitting to chain
+ *
+ * @security The circuitPath parameter is validated to prevent path traversal attacks.
  */
 export async function verifyProofLocally(
   proof: Buffer,
   publicWitness: Buffer,
   circuitPath: string = './circuits/task_completion'
 ): Promise<boolean> {
-  const proofPath = path.join(circuitPath, 'target/verify_test.proof');
-  const witnessPath = path.join(circuitPath, 'target/verify_test.pw');
+  // Validate circuit path to prevent path traversal
+  const validatedPath = validateCircuitPath(circuitPath);
+  const proofPath = path.join(validatedPath, 'target/verify_test.proof');
+  const witnessPath = path.join(validatedPath, 'target/verify_test.pw');
 
   // Write proof and witness to temp files
   fs.writeFileSync(proofPath, proof);
@@ -107,7 +137,7 @@ export async function verifyProofLocally(
     execSync(
       `sunspot verify target/task_completion.ccs target/task_completion.vk ${proofPath} ${witnessPath}`,
       {
-        cwd: circuitPath,
+        cwd: validatedPath,
         stdio: 'pipe',
       }
     );
@@ -143,19 +173,40 @@ salt = "${params.salt.toString()}"
  * Compute constraint hash from expected output
  *
  * Uses Poseidon2 hash matching the Noir circuit
- * Note: This is a placeholder - use a proper Poseidon2 implementation
+ *
+ * SECURITY WARNING: This function currently uses a placeholder implementation.
+ * For production use, you MUST integrate a proper Poseidon2 library that matches
+ * the Noir circuit's poseidon2_permutation function.
+ *
+ * Recommended libraries:
+ * - circomlibjs (npm install circomlibjs)
+ * - @iden3/js-crypto (for BN254 curve compatibility)
+ *
+ * @throws Error if used in production without proper implementation
  */
 export function computeConstraintHashFromOutput(output: bigint[]): Buffer {
   if (output.length !== 4) {
     throw new Error('Output must be exactly 4 field elements');
   }
 
-  // TODO: Implement actual Poseidon2 hash matching Noir's poseidon2_permutation
-  // For now, return placeholder
-  console.warn('computeConstraintHashFromOutput: Requires Poseidon2 implementation');
+  // CRITICAL: Check if we're in production mode
+  const isProduction = process.env.NODE_ENV === 'production';
+  if (isProduction) {
+    throw new Error(
+      'SECURITY: computeConstraintHashFromOutput requires a proper Poseidon2 implementation for production. ' +
+      'The placeholder hash is NOT cryptographically secure. ' +
+      'Please integrate circomlibjs or @iden3/js-crypto with BN254 curve support.'
+    );
+  }
 
+  // Development-only placeholder - logs warning on every call
+  console.warn(
+    '[SECURITY WARNING] computeConstraintHashFromOutput: Using insecure placeholder hash. ' +
+    'Do NOT use in production!'
+  );
+
+  // Deterministic but insecure placeholder for development/testing only
   const hash = Buffer.alloc(32);
-  // Simple placeholder hash for development
   for (let i = 0; i < 4; i++) {
     const bytes = Buffer.from(output[i].toString(16).padStart(16, '0'), 'hex');
     for (let j = 0; j < bytes.length && i * 8 + j < 32; j++) {
@@ -169,12 +220,31 @@ export function computeConstraintHashFromOutput(output: bigint[]): Buffer {
  * Compute output commitment from constraint hash and salt
  *
  * commitment = poseidon2([constraint_hash, salt, 0, 0])[0]
+ *
+ * SECURITY WARNING: This function currently uses a placeholder implementation.
+ * XOR is NOT a secure commitment scheme. For production, implement Poseidon2
+ * to match the Noir circuit.
+ *
+ * @throws Error if used in production without proper implementation
  */
 export function computeCommitment(constraintHash: bigint, salt: bigint): bigint {
-  // TODO: Implement actual Poseidon2 hash
-  console.warn('computeCommitment: Requires Poseidon2 implementation');
+  // CRITICAL: Check if we're in production mode
+  const isProduction = process.env.NODE_ENV === 'production';
+  if (isProduction) {
+    throw new Error(
+      'SECURITY: computeCommitment requires a proper Poseidon2 implementation for production. ' +
+      'XOR is NOT a cryptographically secure commitment scheme. ' +
+      'Please integrate circomlibjs or @iden3/js-crypto with BN254 curve support.'
+    );
+  }
 
-  // Placeholder
+  // Development-only placeholder - logs warning on every call
+  console.warn(
+    '[SECURITY WARNING] computeCommitment: Using insecure XOR placeholder. ' +
+    'Do NOT use in production!'
+  );
+
+  // Insecure placeholder for development/testing only
   return constraintHash ^ salt;
 }
 
