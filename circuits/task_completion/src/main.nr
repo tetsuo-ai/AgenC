@@ -30,13 +30,21 @@ fn main(
 ) {
     // 1. Verify output satisfies the task constraint
     let computed_constraint = hash_4(output);
-    assert(computed_constraint == constraint_hash);
+    assert(computed_constraint == constraint_hash, "Output does not satisfy task constraint");
 
     // 2. Verify the commitment is correctly formed
     let computed_commitment = hash_2(computed_constraint, salt);
-    assert(computed_commitment == output_commitment);
+    assert(computed_commitment == output_commitment, "Commitment verification failed");
 
-    // 3. Bind proof to task and agent
+    // 3. Proof binding to task and agent
+    // Note: task_id and agent_pubkey are PUBLIC inputs, which means they are
+    // automatically bound to the proof by the ZK verification system. The verifier
+    // will check that the proof was generated with the exact public input values
+    // provided. This prevents proof replay attacks where an attacker tries to
+    // reuse a proof generated for a different task or agent.
+    //
+    // The computation below demonstrates the binding relationship but does not
+    // add additional security constraints since public inputs are inherently bound.
     let mut agent_field: Field = 0;
     for i in 0..32 {
         agent_field = agent_field * 256 + (agent_pubkey[i] as Field);
