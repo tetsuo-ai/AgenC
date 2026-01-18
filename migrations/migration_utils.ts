@@ -6,7 +6,7 @@
 
 import * as anchor from "@coral-xyz/anchor";
 import { Program, AnchorProvider } from "@coral-xyz/anchor";
-import { PublicKey, Connection, Keypair, Commitment } from "@solana/web3.js";
+import { PublicKey, Keypair, Commitment } from "@solana/web3.js";
 
 /**
  * Custom error class for migration-related errors
