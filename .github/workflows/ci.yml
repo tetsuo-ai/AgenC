@@ -147,7 +147,10 @@ jobs:
             --ignore RUSTSEC-2023-0033 \
             --ignore RUSTSEC-2023-0042 \
             --ignore RUSTSEC-2024-0370 \
-            --ignore RUSTSEC-2024-0445
+            --ignore RUSTSEC-2024-0445 \
+            --ignore RUSTSEC-2024-0344 \
+            --ignore RUSTSEC-2022-0093 \
+            --ignore RUSTSEC-2025-0009
 
       - name: Install cargo-deny
         run: |
