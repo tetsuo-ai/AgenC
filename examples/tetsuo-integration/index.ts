@@ -136,7 +136,7 @@ class TetsuoAgent {
         requiredCapabilities: ['document-summarization', 'research'],
         rewardLamports: 0.5 * LAMPORTS_PER_SOL,
         deadline: Date.now() / 1000 + 3600,
-        constraintHash: Buffer.alloc(32),
+        constraintHash: Buffer.alloc(32), // DEMO ONLY: Real tasks require valid constraint hashes
         isPrivate: true,
       },
       {
@@ -146,7 +146,7 @@ class TetsuoAgent {
         requiredCapabilities: ['code-generation'],
         rewardLamports: 0.3 * LAMPORTS_PER_SOL,
         deadline: Date.now() / 1000 + 7200,
-        constraintHash: Buffer.alloc(32),
+        constraintHash: Buffer.alloc(32), // DEMO ONLY: Real tasks require valid constraint hashes
         isPrivate: true,
       },
       {
@@ -156,7 +156,7 @@ class TetsuoAgent {
         requiredCapabilities: ['translation'],
         rewardLamports: 0.2 * LAMPORTS_PER_SOL,
         deadline: Date.now() / 1000 + 1800,
-        constraintHash: Buffer.alloc(32),
+        constraintHash: Buffer.alloc(32), // DEMO ONLY: Real tasks require valid constraint hashes
         isPrivate: false,
       },
     ];
@@ -274,9 +274,10 @@ class TetsuoAgent {
     //   salt,
     // });
 
-    // Simulated proof for demo
-    const proof = Buffer.alloc(388); // Groth16 proof size
-    const publicWitness = Buffer.alloc(35 * 32); // 35 public inputs
+    // WARNING: Simulated proof for demo only - these are zero-filled buffers!
+    // In production, use: const { proof, publicWitness } = await generateProof({...});
+    const proof = Buffer.alloc(388); // Groth16 proof size (DEMO: zeros)
+    const publicWitness = Buffer.alloc(35 * 32); // 35 public inputs (DEMO: zeros)
 
     console.log(chalk.gray('  Proof size:'), proof.length, 'bytes');
     console.log(chalk.gray('  Public inputs:'), 35);
@@ -374,7 +375,9 @@ class TetsuoAgent {
 
   // Helper methods
   private hashTaskOutput(input: string): string {
-    // Simple hash for demo (use proper hash in production)
+    // WARNING: This is a demo-only hash. In production, use a cryptographic hash:
+    // import { createHash } from 'crypto';
+    // return createHash('sha256').update(input).digest('hex');
     let hash = '';
     for (let i = 0; i < 64; i++) {
       hash += ((input.charCodeAt(i % input.length) + i) % 16).toString(16);
@@ -406,7 +409,7 @@ async function main() {
 
   // Create agent configuration
   const agentConfig: TetsuoAgentConfig = {
-    wallet: Keypair.generate(),
+    wallet: Keypair.generate(), // DEMO ONLY: Load from secure storage in production
     capabilities: [
       'text-generation',
       'code-generation',
