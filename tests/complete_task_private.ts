@@ -119,7 +119,7 @@ describe("complete_task_private", () => {
         .initializeProtocol(51, 100, new BN(1 * LAMPORTS_PER_SOL), 1, [provider.wallet.publicKey])
         .accountsPartial({
           protocolConfig: protocolPda,
-          treasury: treasuryPubkey,
+          treasury: treasury.publicKey,
           authority: provider.wallet.publicKey,
           systemProgram: SystemProgram.programId,
         })
@@ -128,7 +128,7 @@ describe("complete_task_private", () => {
         ])
         .rpc();
       treasuryPubkey = treasury.publicKey;
-    } catch (e) {
+    } catch (e: unknown) {
       // Protocol may already be initialized from other tests
       // Read the actual treasury from protocol config
       const protocolConfig = await program.account.protocolConfig.fetch(protocolPda);
