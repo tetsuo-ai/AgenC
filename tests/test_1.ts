@@ -85,7 +85,7 @@ describe("test_1", () => {
         .initializeProtocol(51, 100, new BN(1 * LAMPORTS_PER_SOL), 1, [provider.wallet.publicKey])
         .accountsPartial({
           protocolConfig: protocolPda,
-          treasury: treasuryPubkey,
+          treasury: treasury.publicKey,
           authority: provider.wallet.publicKey,
           systemProgram: SystemProgram.programId,
         })
@@ -94,7 +94,7 @@ describe("test_1", () => {
         ])
         .rpc();
       treasuryPubkey = treasury.publicKey;
-    } catch (e: any) {
+    } catch (e: unknown) {
       // Protocol may already be initialized by another test file
       // Read the actual treasury from protocol config
       const protocolConfig = await program.account.protocolConfig.fetch(protocolPda);
@@ -362,8 +362,10 @@ describe("test_1", () => {
           .signers([unauthorized, creator])
           .rpc();
         expect.fail("Should have failed");
-      } catch (e: any) {
-        expect(e.message).to.exist;
+      } catch (e: unknown) {
+        // Verify error occurred - Anchor returns AnchorError with errorCode
+        const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
+        expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
       }
     });
 
@@ -396,8 +398,10 @@ describe("test_1", () => {
           .signers([creator])
           .rpc();
         expect.fail("Should have failed");
-      } catch (e: any) {
-        expect(e.message).to.exist;
+      } catch (e: unknown) {
+        // Verify error occurred - Anchor returns AnchorError with errorCode
+        const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
+        expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
       }
     });
 
@@ -432,8 +436,10 @@ describe("test_1", () => {
           .signers([creator])
           .rpc();
         expect.fail("Should have failed");
-      } catch (e: any) {
-        expect(e.message).to.exist;
+      } catch (e: unknown) {
+        // Verify error occurred - Anchor returns AnchorError with errorCode
+        const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
+        expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
       }
     });
 
@@ -466,8 +472,10 @@ describe("test_1", () => {
           .signers([creator])
           .rpc();
         expect.fail("Should have failed");
-      } catch (e: any) {
-        expect(e.message).to.exist;
+      } catch (e: unknown) {
+        // Verify error occurred - Anchor returns AnchorError with errorCode
+        const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
+        expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
       }
     });
   });
@@ -694,8 +702,10 @@ describe("test_1", () => {
           .signers([unauthorized])
           .rpc();
         expect.fail("Should have failed");
-      } catch (e: any) {
-        expect(e.message).to.exist;
+      } catch (e: unknown) {
+        // Verify error occurred - Anchor returns AnchorError with errorCode
+        const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
+        expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
       }
     });
 
@@ -751,8 +761,10 @@ describe("test_1", () => {
           .signers([worker1])
           .rpc();
         expect.fail("Should have failed");
-      } catch (e: any) {
-        expect(e.message).to.exist;
+      } catch (e: unknown) {
+        // Verify error occurred - Anchor returns AnchorError with errorCode
+        const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
+        expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
       }
 
       await program.methods
@@ -808,8 +820,10 @@ describe("test_1", () => {
           .signers([worker1])
           .rpc();
         expect.fail("Should have failed");
-      } catch (e: any) {
-        expect(e.message).to.exist;
+      } catch (e: unknown) {
+        // Verify error occurred - Anchor returns AnchorError with errorCode
+        const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
+        expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
       }
     });
 
@@ -883,8 +897,10 @@ describe("test_1", () => {
           .signers([worker2])
           .rpc();
         expect.fail("Should have failed");
-      } catch (e: any) {
-        expect(e.message).to.exist;
+      } catch (e: unknown) {
+        // Verify error occurred - Anchor returns AnchorError with errorCode
+        const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
+        expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
       }
     });
 
@@ -942,8 +958,10 @@ describe("test_1", () => {
           .signers([worker1])
           .rpc();
         expect.fail("Should have failed");
-      } catch (e: any) {
-        expect(e.message).to.exist;
+      } catch (e: unknown) {
+        // Verify error occurred - Anchor returns AnchorError with errorCode
+        const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
+        expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
       }
     });
 
@@ -978,8 +996,10 @@ describe("test_1", () => {
           .signers([creator])
           .rpc();
         expect.fail("Should have failed");
-      } catch (e: any) {
-        expect(e.message).to.exist;
+      } catch (e: unknown) {
+        // Verify error occurred - Anchor returns AnchorError with errorCode
+        const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
+        expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
       }
     });
 
@@ -1051,8 +1071,10 @@ describe("test_1", () => {
           .signers([worker3])
           .rpc();
         expect.fail("Should have failed");
-      } catch (e: any) {
-        expect(e.message).to.exist;
+      } catch (e: unknown) {
+        // Verify error occurred - Anchor returns AnchorError with errorCode
+        const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
+        expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
       }
     });
 
@@ -1102,8 +1124,10 @@ describe("test_1", () => {
           .signers([worker1])
           .rpc();
         expect.fail("Should have failed");
-      } catch (e: any) {
-        expect(e.message).to.exist;
+      } catch (e: unknown) {
+        // Verify error occurred - Anchor returns AnchorError with errorCode
+        const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
+        expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
       }
     });
   });
@@ -1179,8 +1203,10 @@ describe("test_1", () => {
           .signers([worker2])
           .rpc();
         expect.fail("Should have failed");
-      } catch (e: any) {
-        expect(e.message).to.exist;
+      } catch (e: unknown) {
+        // Verify error occurred - Anchor returns AnchorError with errorCode
+        const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
+        expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
       }
     });
 
@@ -1238,8 +1264,10 @@ describe("test_1", () => {
           .signers([worker1])
           .rpc();
         expect.fail("Should have failed");
-      } catch (e: any) {
-        expect(e.message).to.exist;
+      } catch (e: unknown) {
+        // Verify error occurred - Anchor returns AnchorError with errorCode
+        const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
+        expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
       }
     });
 
@@ -1419,8 +1447,10 @@ describe("test_1", () => {
           .signers([worker1])
           .rpc();
         expect.fail("Should have failed");
-      } catch (e: any) {
-        expect(e.message).to.exist;
+      } catch (e: unknown) {
+        // Verify error occurred - Anchor returns AnchorError with errorCode
+        const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
+        expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
       }
     });
   });
@@ -1598,8 +1628,10 @@ describe("test_1", () => {
           .signers([worker1])
           .rpc();
         expect.fail("Should have failed");
-      } catch (e: any) {
-        expect(e.message).to.exist;
+      } catch (e: unknown) {
+        // Verify error occurred - Anchor returns AnchorError with errorCode
+        const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
+        expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
       }
     });
   });
@@ -1946,8 +1978,10 @@ describe("test_1", () => {
             .signers([worker2])
             .rpc();
           expect.fail("Should have failed");
-        } catch (e: any) {
-          expect(e.message).to.exist;
+        } catch (e: unknown) {
+          // Verify error occurred - Anchor returns AnchorError with errorCode
+          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
         }
       });
 
@@ -2020,8 +2054,10 @@ describe("test_1", () => {
             .signers([creator])
             .rpc();
           expect.fail("Should have failed");
-        } catch (e: any) {
-          expect(e.message).to.exist;
+        } catch (e: unknown) {
+          // Verify error occurred - Anchor returns AnchorError with errorCode
+          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
         }
       });
 
@@ -2084,8 +2120,10 @@ describe("test_1", () => {
             .signers([worker1])
             .rpc();
           expect.fail("Should have failed");
-        } catch (e: any) {
-          expect(e.message).to.exist;
+        } catch (e: unknown) {
+          // Verify error occurred - Anchor returns AnchorError with errorCode
+          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
         }
       });
 
@@ -2193,8 +2231,10 @@ describe("test_1", () => {
             .signers([creator])
             .rpc();
           expect.fail("Should have failed");
-        } catch (e: any) {
-          expect(e.message).to.exist;
+        } catch (e: unknown) {
+          // Verify error occurred - Anchor returns AnchorError with errorCode
+          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
         }
       });
 
@@ -2337,8 +2377,10 @@ describe("test_1", () => {
             .signers([worker1])
             .rpc();
           expect.fail("Should have failed");
-        } catch (e: any) {
-          expect(e.message).to.exist;
+        } catch (e: unknown) {
+          // Verify error occurred - Anchor returns AnchorError with errorCode
+          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
         }
       });
     });
@@ -2515,8 +2557,10 @@ describe("test_1", () => {
             .signers([nonOwner])
             .rpc();
           expect.fail("Should have failed");
-        } catch (e: any) {
-          expect(e.message).to.exist;
+        } catch (e: unknown) {
+          // Verify error occurred - Anchor returns AnchorError with errorCode
+          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
         }
       });
 
@@ -2532,8 +2576,10 @@ describe("test_1", () => {
             .signers([worker2]) // Even though signing, authority doesn't match agent.authority
             .rpc();
           expect.fail("Should have failed");
-        } catch (e: any) {
-          expect(e.message).to.exist;
+        } catch (e: unknown) {
+          // Verify error occurred - Anchor returns AnchorError with errorCode
+          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
         }
       });
     });
@@ -2584,8 +2630,10 @@ describe("test_1", () => {
             .signers([nonOwner])
             .rpc();
           expect.fail("Should have failed");
-        } catch (e: any) {
-          expect(e.message).to.exist;
+        } catch (e: unknown) {
+          // Verify error occurred - Anchor returns AnchorError with errorCode
+          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
         }
       });
     });
@@ -2621,8 +2669,10 @@ describe("test_1", () => {
             .signers([creator])
             .rpc();
           expect.fail("Should have failed");
-        } catch (e: any) {
-          expect(e.message).to.exist;
+        } catch (e: unknown) {
+          // Verify error occurred - Anchor returns AnchorError with errorCode
+          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
         }
       });
     });
@@ -2672,8 +2722,10 @@ describe("test_1", () => {
             .signers([worker2])
             .rpc();
           expect.fail("Should have failed");
-        } catch (e: any) {
-          expect(e.message).to.exist;
+        } catch (e: unknown) {
+          // Verify error occurred - Anchor returns AnchorError with errorCode
+          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
         }
       });
 
@@ -2721,8 +2773,10 @@ describe("test_1", () => {
             .signers([worker1])
             .rpc();
           expect.fail("Should have failed");
-        } catch (e: any) {
-          expect(e.message).to.exist;
+        } catch (e: unknown) {
+          // Verify error occurred - Anchor returns AnchorError with errorCode
+          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
         }
       });
     });
@@ -2786,8 +2840,10 @@ describe("test_1", () => {
             .signers([worker2])
             .rpc();
           expect.fail("Should have failed");
-        } catch (e: any) {
-          expect(e.message).to.exist;
+        } catch (e: unknown) {
+          // Verify error occurred - Anchor returns AnchorError with errorCode
+          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
         }
       });
 
@@ -2850,8 +2906,10 @@ describe("test_1", () => {
             .signers([worker1])
             .rpc();
           expect.fail("Should have failed");
-        } catch (e: any) {
-          expect(e.message).to.exist;
+        } catch (e: unknown) {
+          // Verify error occurred - Anchor returns AnchorError with errorCode
+          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
         }
       });
 
@@ -2928,8 +2986,10 @@ describe("test_1", () => {
             .signers([worker1])
             .rpc();
           expect.fail("Should have failed");
-        } catch (e: any) {
-          expect(e.message).to.exist;
+        } catch (e: unknown) {
+          // Verify error occurred - Anchor returns AnchorError with errorCode
+          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
         }
       });
     });
@@ -2982,8 +3042,10 @@ describe("test_1", () => {
             .signers([nonCreator])
             .rpc();
           expect.fail("Should have failed");
-        } catch (e: any) {
-          expect(e.message).to.exist;
+        } catch (e: unknown) {
+          // Verify error occurred - Anchor returns AnchorError with errorCode
+          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
         }
       });
     });
@@ -3011,8 +3073,10 @@ describe("test_1", () => {
             .signers([worker2])
             .rpc();
           expect.fail("Should have failed");
-        } catch (e: any) {
-          expect(e.message).to.exist;
+        } catch (e: unknown) {
+          // Verify error occurred - Anchor returns AnchorError with errorCode
+          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
         }
       });
 
@@ -3104,8 +3168,10 @@ describe("test_1", () => {
             .signers([worker2])
             .rpc();
           expect.fail("Should have failed");
-        } catch (e: any) {
-          expect(e.message).to.exist;
+        } catch (e: unknown) {
+          // Verify error occurred - Anchor returns AnchorError with errorCode
+          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
         }
       });
     });
@@ -3226,8 +3292,10 @@ describe("test_1", () => {
             .signers([wrongSigner])
             .rpc();
           expect.fail("Should have failed");
-        } catch (e: any) {
-          expect(e.message).to.exist;
+        } catch (e: unknown) {
+          // Verify error occurred - Anchor returns AnchorError with errorCode
+          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
         }
       });
 
@@ -3308,8 +3376,10 @@ describe("test_1", () => {
             .signers([worker1])
             .rpc();
           expect.fail("Should have failed");
-        } catch (e: any) {
-          expect(e.message).to.exist;
+        } catch (e: unknown) {
+          // Verify error occurred - Anchor returns AnchorError with errorCode
+          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
         }
       });
     });
@@ -3391,8 +3461,10 @@ describe("test_1", () => {
             })
             .rpc();
           expect.fail("Should have failed");
-        } catch (e: any) {
-          expect(e.message).to.exist;
+        } catch (e: unknown) {
+          // Verify error occurred - Anchor returns AnchorError with errorCode
+          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
         }
       });
 
@@ -3485,8 +3557,10 @@ describe("test_1", () => {
             })
             .rpc();
           expect.fail("Should have failed");
-        } catch (e: any) {
-          expect(e.message).to.exist;
+        } catch (e: unknown) {
+          // Verify error occurred - Anchor returns AnchorError with errorCode
+          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
         }
       });
 
@@ -3546,8 +3620,10 @@ describe("test_1", () => {
           .signers([unauthorized])
           .rpc();
         expect.fail("Should have failed");
-      } catch (e: any) {
-        expect(e.message).to.exist;
+      } catch (e: unknown) {
+        // Verify error occurred - Anchor returns AnchorError with errorCode
+        const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
+        expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
       }
     });
 
@@ -3605,8 +3681,10 @@ describe("test_1", () => {
           .signers([worker2])
           .rpc();
         expect.fail("Should have failed");
-      } catch (e: any) {
-        expect(e.message).to.exist;
+      } catch (e: unknown) {
+        // Verify error occurred - Anchor returns AnchorError with errorCode
+        const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
+        expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
       }
     });
 
@@ -3674,8 +3752,10 @@ describe("test_1", () => {
           .signers([creator])
           .rpc();
         expect.fail("Should have failed");
-      } catch (e: any) {
-        expect(e.message).to.exist;
+      } catch (e: unknown) {
+        // Verify error occurred - Anchor returns AnchorError with errorCode
+        const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
+        expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
       }
     });
 
@@ -3734,8 +3814,10 @@ describe("test_1", () => {
           .signers([worker1])
           .rpc();
         expect.fail("Should have failed");
-      } catch (e: any) {
-        expect(e.message).to.exist;
+      } catch (e: unknown) {
+        // Verify error occurred - Anchor returns AnchorError with errorCode
+        const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
+        expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
       }
     });
   });
@@ -4280,8 +4362,10 @@ describe("test_1", () => {
             authority: worker1.publicKey,
           }).signers([worker1]).rpc();
           expect.fail("Should have failed");
-        } catch (e: any) {
-          expect(e.message).to.exist;
+        } catch (e: unknown) {
+          // Verify error occurred - Anchor returns AnchorError with errorCode
+          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
         }
 
         // Verify escrow balance didn't change on failed attempt
@@ -4340,8 +4424,10 @@ describe("test_1", () => {
             systemProgram: SystemProgram.programId,
           }).signers([creator]).rpc();
           expect.fail("Should have failed");
-        } catch (e: any) {
-          expect(e.message).to.exist;
+        } catch (e: unknown) {
+          // Verify error occurred - Anchor returns AnchorError with errorCode
+          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
         }
 
         // Verify no funds moved
@@ -4838,8 +4924,10 @@ describe("test_1", () => {
             .signers([worker1])
             .rpc();
           expect.fail("Should have failed");
-        } catch (e: any) {
-          expect(e.message).to.exist;
+        } catch (e: unknown) {
+          // Verify error occurred - Anchor returns AnchorError with errorCode
+          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
         }
       });
 
@@ -4908,8 +4996,10 @@ describe("test_1", () => {
             .signers([worker1])
             .rpc();
           expect.fail("Should have failed");
-        } catch (e: any) {
-          expect(e.message).to.exist;
+        } catch (e: unknown) {
+          // Verify error occurred - Anchor returns AnchorError with errorCode
+          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
         }
       });
 
@@ -4971,8 +5061,10 @@ describe("test_1", () => {
             .signers([worker1])
             .rpc();
           expect.fail("Should have failed");
-        } catch (e: any) {
-          expect(e.message).to.exist;
+        } catch (e: unknown) {
+          // Verify error occurred - Anchor returns AnchorError with errorCode
+          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
         }
       });
 
@@ -5055,8 +5147,10 @@ describe("test_1", () => {
             .signers([worker2])
             .rpc();
           expect.fail("Should have failed");
-        } catch (e: any) {
-          expect(e.message).to.exist;
+        } catch (e: unknown) {
+          // Verify error occurred - Anchor returns AnchorError with errorCode
+          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
         }
       });
     });
@@ -5159,8 +5253,10 @@ describe("test_1", () => {
             .signers([inactiveOwner])
             .rpc();
           expect.fail("Should have failed");
-        } catch (e: any) {
-          expect(e.message).to.exist;
+        } catch (e: unknown) {
+          // Verify error occurred - Anchor returns AnchorError with errorCode
+          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
         }
       });
 
@@ -5219,8 +5315,10 @@ describe("test_1", () => {
             .signers([worker2])
             .rpc();
           expect.fail("Should have failed");
-        } catch (e: any) {
-          expect(e.message).to.exist;
+        } catch (e: unknown) {
+          // Verify error occurred - Anchor returns AnchorError with errorCode
+          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
         }
       });
     });
@@ -5281,8 +5379,10 @@ describe("test_1", () => {
             .signers([worker1])
             .rpc();
           expect.fail("Should have failed");
-        } catch (e: any) {
-          expect(e.message).to.exist;
+        } catch (e: unknown) {
+          // Verify error occurred - Anchor returns AnchorError with errorCode
+          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
         }
 
         // Try with resolution_type = 255 (invalid)
@@ -5304,8 +5404,10 @@ describe("test_1", () => {
             .signers([worker1])
             .rpc();
           expect.fail("Should have failed");
-        } catch (e: any) {
-          expect(e.message).to.exist;
+        } catch (e: unknown) {
+          // Verify error occurred - Anchor returns AnchorError with errorCode
+          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
         }
       });
     });
@@ -5457,8 +5559,10 @@ describe("test_1", () => {
             authority: worker1.publicKey, systemProgram: SystemProgram.programId,
           }).signers([worker1]).rpc();
           expect.fail("Should have failed");
-        } catch (e: any) {
-          expect(e.message).to.exist;
+        } catch (e: unknown) {
+          // Verify error occurred - Anchor returns AnchorError with errorCode
+          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
         }
       });
 
@@ -5839,8 +5943,10 @@ describe("test_1", () => {
             worker: null, systemProgram: SystemProgram.programId,
           }).rpc();
           expect.fail("Should have failed");
-        } catch (e: any) {
-          expect(e.message).to.exist;
+        } catch (e: unknown) {
+          // Verify error occurred - Anchor returns AnchorError with errorCode
+          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
         }
       });
 
@@ -6860,8 +6966,10 @@ describe("test_1", () => {
             creator: creator.publicKey,
           }).signers([creator]).rpc();
           expect.fail("Should have failed");
-        } catch (e: any) {
-          expect(e.message).to.exist;
+        } catch (e: unknown) {
+          // Verify error occurred - Anchor returns AnchorError with errorCode
+          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
         }
       });
 
@@ -6904,8 +7012,10 @@ describe("test_1", () => {
             creator: creator.publicKey,
           }).signers([creator]).rpc();
           expect.fail("Should have failed");
-        } catch (e: any) {
-          expect(e.message).to.exist;
+        } catch (e: unknown) {
+          // Verify error occurred - Anchor returns AnchorError with errorCode
+          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
         }
       });
 
@@ -7258,8 +7368,10 @@ describe("test_1", () => {
             authority: busyAgentOwner.publicKey,
           }).signers([busyAgentOwner]).rpc();
           expect.fail("Should have failed");
-        } catch (e: any) {
-          expect(e.message).to.exist;
+        } catch (e: unknown) {
+          // Verify error occurred - Anchor returns AnchorError with errorCode
+          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
         }
 
         // Verify active_tasks is still 10

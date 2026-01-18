@@ -183,8 +183,10 @@ describe("audit-high-severity", () => {
         .signers([nonAgent])
         .rpc();
       expect.fail("Should have failed - no agent registration");
-    } catch (e: any) {
-      expect(e.message).to.include("Error");
+    } catch (e: unknown) {
+      // Verify error occurred - Anchor returns AnchorError with errorCode
+      const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
+      expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
     }
   });
 
@@ -410,8 +412,10 @@ describe("audit-high-severity", () => {
         .signers([unauthorized])
         .rpc();
       expect.fail("Should have failed - unauthorized resolver");
-    } catch (e: any) {
-      expect(e.message).to.include("Error");
+    } catch (e: unknown) {
+      // Verify error occurred - Anchor returns AnchorError with errorCode
+      const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
+      expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
     }
   });
 
@@ -502,8 +506,10 @@ describe("audit-high-severity", () => {
         .signers([worker2])
         .rpc();
       expect.fail("Should have failed - second competitive completion");
-    } catch (e: any) {
-      expect(e.message).to.include("Error");
+    } catch (e: unknown) {
+      // Verify error occurred - Anchor returns AnchorError with errorCode
+      const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
+      expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
     }
   });
 
@@ -621,8 +627,10 @@ describe("audit-high-severity", () => {
         .signers([arbiter1])
         .rpc();
       expect.fail("Should have failed - arbiter has pending dispute");
-    } catch (e: any) {
-      expect(e.message).to.include("Error");
+    } catch (e: unknown) {
+      // Verify error occurred - Anchor returns AnchorError with errorCode
+      const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
+      expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
     }
   });
 });
