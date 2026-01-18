@@ -225,17 +225,17 @@ describe("upgrades", () => {
           Buffer.from("Too new version".padEnd(64, "\0")),
           new BN(0),
           1,
+          new BN(0),
           0,
-          0
+          null  // constraint_hash
         )
-        .accounts({
+        .accountsPartial({
           task: taskPda,
           escrow: escrowPda,
           protocolConfig: protocolPda,
           creatorAgent: creatorAgentPda,
           authority: creator.publicKey,
           creator: creator.publicKey,
-          systemProgram: SystemProgram.programId,
         })
         .signers([creator])
         .rpc();

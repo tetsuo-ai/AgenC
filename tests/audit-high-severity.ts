@@ -142,29 +142,29 @@ describe("audit-high-severity", () => {
     const escrowPda = deriveEscrowPda(taskPda);
     const nonAgentPda = deriveAgentPda(nonAgentId);
 
-    await expect(
-      program.methods
+    try {
+      await program.methods
         .createTask(
           Array.from(taskId),
           new BN(CAPABILITY_COMPUTE),
           Buffer.from("No agent task".padEnd(64, "\0")),
           new BN(10),
           1,
-          0,
-          TASK_TYPE_COMPETITIVE
+          new BN(0),
+          TASK_TYPE_COMPETITIVE,
+          null  // constraint_hash
         )
-        .accounts({
-          task: taskPda,
-          escrow: escrowPda,
-          protocolConfig: protocolPda,
+        .accountsPartial({
           creatorAgent: nonAgentPda,
           authority: nonAgent.publicKey,
           creator: nonAgent.publicKey,
-          systemProgram: SystemProgram.programId,
         })
         .signers([nonAgent])
-        .rpc()
-    ).to.be.rejected;
+        .rpc();
+      expect.fail("Should have failed - no agent registration");
+    } catch (e: any) {
+      expect(e.message).to.include("Error");
+    }
   });
 
   it("pays remainder to last collaborative worker (issue #64)", async () => {
@@ -180,17 +180,14 @@ describe("audit-high-severity", () => {
         Buffer.from("Remainder task".padEnd(64, "\0")),
         new BN(10),
         3,
-        0,
-        TASK_TYPE_COLLABORATIVE
+        new BN(0),
+        TASK_TYPE_COLLABORATIVE,
+        null  // constraint_hash
       )
-      .accounts({
-        task: taskPda,
-        escrow: escrowPda,
-        protocolConfig: protocolPda,
+      .accountsPartial({
         creatorAgent: creatorAgentPda,
         authority: creator.publicKey,
         creator: creator.publicKey,
-        systemProgram: SystemProgram.programId,
       })
       .signers([creator])
       .rpc();
@@ -317,17 +314,14 @@ describe("audit-high-severity", () => {
         Buffer.from("Dispute auth test".padEnd(64, "\0")),
         new BN(5),
         1,
-        0,
-        TASK_TYPE_COMPETITIVE
+        new BN(0),
+        TASK_TYPE_COMPETITIVE,
+        null  // constraint_hash
       )
-      .accounts({
-        task: taskPda,
-        escrow: escrowPda,
-        protocolConfig: protocolPda,
+      .accountsPartial({
         creatorAgent: creatorAgentPda,
         authority: creator.publicKey,
         creator: creator.publicKey,
-        systemProgram: SystemProgram.programId,
       })
       .signers([creator])
       .rpc();
@@ -383,8 +377,8 @@ describe("audit-high-severity", () => {
       .signers([arbiter1])
       .rpc();
 
-    await expect(
-      program.methods
+    try {
+      await program.methods
         .resolveDispute()
         .accounts({
           dispute: disputePda,
@@ -402,8 +396,11 @@ describe("audit-high-severity", () => {
           { pubkey: arbiterPda1, isSigner: false, isWritable: true },
         ])
         .signers([unauthorized])
-        .rpc()
-    ).to.be.rejected;
+        .rpc();
+      expect.fail("Should have failed - unauthorized resolver");
+    } catch (e: any) {
+      expect(e.message).to.include("Error");
+    }
   });
 
   it("rejects second competitive completion (issue #66)", async () => {
@@ -422,17 +419,14 @@ describe("audit-high-severity", () => {
         Buffer.from("Competitive audit".padEnd(64, "\0")),
         new BN(9),
         2,
-        0,
-        TASK_TYPE_COMPETITIVE
+        new BN(0),
+        TASK_TYPE_COMPETITIVE,
+        null  // constraint_hash
       )
-      .accounts({
-        task: taskPda,
-        escrow: escrowPda,
-        protocolConfig: protocolPda,
+      .accountsPartial({
         creatorAgent: creatorAgentPda,
         authority: creator.publicKey,
         creator: creator.publicKey,
-        systemProgram: SystemProgram.programId,
       })
       .signers([creator])
       .rpc();
@@ -484,8 +478,8 @@ describe("audit-high-severity", () => {
       .signers([worker1])
       .rpc();
 
-    await expect(
-      program.methods
+    try {
+      await program.methods
         .completeTask(Array.from(proofHash2), null)
         .accounts({
           task: taskPda,
@@ -498,8 +492,11 @@ describe("audit-high-severity", () => {
           systemProgram: SystemProgram.programId,
         })
         .signers([worker2])
-        .rpc()
-    ).to.be.rejected;
+        .rpc();
+      expect.fail("Should have failed - second competitive completion");
+    } catch (e: any) {
+      expect(e.message).to.include("Error");
+    }
   });
 
   it("blocks arbiter deregistration right after voting (issue #67)", async () => {
@@ -519,17 +516,14 @@ describe("audit-high-severity", () => {
         Buffer.from("Dispute vote test".padEnd(64, "\0")),
         new BN(7),
         1,
-        0,
-        TASK_TYPE_COMPETITIVE
+        new BN(0),
+        TASK_TYPE_COMPETITIVE,
+        null  // constraint_hash
       )
-      .accounts({
-        task: taskPda,
-        escrow: escrowPda,
-        protocolConfig: protocolPda,
+      .accountsPartial({
         creatorAgent: creatorAgentPda,
         authority: creator.publicKey,
         creator: creator.publicKey,
-        systemProgram: SystemProgram.programId,
       })
       .signers([creator])
       .rpc();
@@ -611,8 +605,8 @@ describe("audit-high-severity", () => {
       ])
       .rpc();
 
-    await expect(
-      program.methods
+    try {
+      await program.methods
         .deregisterAgent()
         .accounts({
           agent: arbiterPda1,
@@ -620,7 +614,10 @@ describe("audit-high-severity", () => {
           authority: arbiter1.publicKey,
         })
         .signers([arbiter1])
-        .rpc()
-    ).to.be.rejected;
+        .rpc();
+      expect.fail("Should have failed - arbiter has pending dispute");
+    } catch (e: any) {
+      expect(e.message).to.include("Error");
+    }
   });
 });

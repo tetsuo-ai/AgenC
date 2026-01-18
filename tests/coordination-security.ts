@@ -41,6 +41,7 @@ describe("coordination-security", () => {
 
   const CAPABILITY_COMPUTE = 1 << 0;
   const CAPABILITY_INFERENCE = 1 << 1;
+  const CAPABILITY_STORAGE = 1 << 1;  // Same as inference for test purposes
   const CAPABILITY_ARBITER = 1 << 7;
 
   const TASK_TYPE_EXCLUSIVE = 0;
@@ -271,9 +272,12 @@ describe("coordination-security", () => {
           .signers([worker2])
           .rpc();
 
-        await expect(
-          program.account.agentRegistration.fetch(agentPda)
-        ).to.be.rejected;
+        try {
+          await program.account.agentRegistration.fetch(agentPda);
+          expect.fail("Should have failed - agent was deregistered");
+        } catch (e: any) {
+          // Expected: Account should not exist after deregistration
+        }
 
         const protocol = await program.account.protocolConfig.fetch(protocolPda);
         expect(protocol.totalAgents.toNumber()).to.equal(1);
@@ -756,16 +760,19 @@ describe("coordination-security", () => {
           program.programId
         );
 
-        await expect(
-          program.methods
+        try {
+          await program.methods
             .updateAgent(new BN(CAPABILITY_COMPUTE), "https://malicious.com", null, { active: {} })
             .accounts({
               agent: agentPda,
               authority: unauthorized.publicKey,
             })
             .signers([unauthorized])
-            .rpc()
-        ).to.be.rejected;
+            .rpc();
+          expect.fail("Should have failed - unauthorized agent update");
+        } catch (e: any) {
+          expect(e.message).to.include("Error");
+        }
       });
 
       it("Fails when non-creator tries to cancel task", async () => {
@@ -838,46 +845,44 @@ describe("coordination-security", () => {
             Buffer.from("Double claim test".padEnd(64, "\0")),
             new BN(1 * LAMPORTS_PER_SOL),
             2,
-            0,
-            TASK_TYPE_COLLABORATIVE
+            new BN(0),
+            TASK_TYPE_COLLABORATIVE,
+            null  // constraint_hash
           )
-          .accounts({
-            task: taskPda,
-            escrow: escrowPda,
-            protocolConfig: protocolPda,
+          .accountsPartial({
             creatorAgent: creatorAgentPda,
             authority: creator.publicKey,
             creator: creator.publicKey,
-            systemProgram: SystemProgram.programId,
           })
           .signers([creator])
           .rpc();
 
         await program.methods
           .claimTask()
-          .accounts({
+          .accountsPartial({
             task: taskPda,
             claim: claimPda,
-            worker: agentId1,
+            worker: deriveAgentPda(agentId1),
             authority: worker1.publicKey,
-            systemProgram: SystemProgram.programId,
           })
           .signers([worker1])
           .rpc();
 
-        await expect(
-          program.methods
+        try {
+          await program.methods
             .claimTask()
-            .accounts({
+            .accountsPartial({
               task: taskPda,
               claim: claimPda,
-              worker: agentId1,
+              worker: deriveAgentPda(agentId1),
               authority: worker1.publicKey,
-              systemProgram: SystemProgram.programId,
             })
             .signers([worker1])
-            .rpc()
-        ).to.be.rejected;
+            .rpc();
+          expect.fail("Should have failed - double claim");
+        } catch (e: any) {
+          expect(e.message).to.include("Error");
+        }
       });
 
       it("Fails when worker tries to complete task twice", async () => {
@@ -902,29 +907,25 @@ describe("coordination-security", () => {
             Buffer.from("Double complete test".padEnd(64, "\0")),
             new BN(1 * LAMPORTS_PER_SOL),
             1,
-            0,
-            TASK_TYPE_EXCLUSIVE
+            new BN(0),
+            TASK_TYPE_EXCLUSIVE,
+            null  // constraint_hash
           )
-          .accounts({
-            task: taskPda,
-            escrow: escrowPda,
-            protocolConfig: protocolPda,
+          .accountsPartial({
             creatorAgent: creatorAgentPda,
             authority: creator.publicKey,
             creator: creator.publicKey,
-            systemProgram: SystemProgram.programId,
           })
           .signers([creator])
           .rpc();
 
         await program.methods
           .claimTask()
-          .accounts({
+          .accountsPartial({
             task: taskPda,
             claim: claimPda,
-            worker: agentId1,
+            worker: deriveAgentPda(agentId1),
             authority: worker1.publicKey,
-            systemProgram: SystemProgram.programId,
           })
           .signers([worker1])
           .rpc();
@@ -945,22 +946,24 @@ describe("coordination-security", () => {
           .signers([worker1])
           .rpc();
 
-        await expect(
-          program.methods
+        try {
+          await program.methods
             .completeTask(Array.from(proofHash), null)
-            .accounts({
+            .accountsPartial({
               task: taskPda,
               claim: claimPda,
               escrow: escrowPda,
-              worker: agentId1,
+              worker: deriveAgentPda(agentId1),
               protocolConfig: protocolPda,
               treasury: treasury.publicKey,
               authority: worker1.publicKey,
-              systemProgram: SystemProgram.programId,
             })
             .signers([worker1])
-            .rpc()
-        ).to.be.rejected;
+            .rpc();
+          expect.fail("Should have failed - double completion");
+        } catch (e: any) {
+          expect(e.message).to.include("Error");
+        }
       });
     });
 
@@ -987,34 +990,33 @@ describe("coordination-security", () => {
             Buffer.from("Capability test".padEnd(64, "\0")),
             new BN(1 * LAMPORTS_PER_SOL),
             1,
-            0,
-            TASK_TYPE_EXCLUSIVE
+            new BN(0),
+            TASK_TYPE_EXCLUSIVE,
+            null  // constraint_hash
           )
-          .accounts({
-            task: taskPda,
-            escrow: escrowPda,
-            protocolConfig: protocolPda,
+          .accountsPartial({
             creatorAgent: creatorAgentPda,
             authority: creator.publicKey,
             creator: creator.publicKey,
-            systemProgram: SystemProgram.programId,
           })
           .signers([creator])
           .rpc();
 
-        await expect(
-          program.methods
+        try {
+          await program.methods
             .claimTask()
-            .accounts({
+            .accountsPartial({
               task: taskPda,
               claim: claimPda,
-              worker: agentId1,
+              worker: deriveAgentPda(agentId1),
               authority: worker1.publicKey,
-              systemProgram: SystemProgram.programId,
             })
             .signers([worker1])
-            .rpc()
-        ).to.be.rejected;
+            .rpc();
+          expect.fail("Should have failed - worker lacks capabilities");
+        } catch (e: any) {
+          expect(e.message).to.include("Error");
+        }
       });
 
       it("Fails when inactive agent tries to claim task", async () => {
@@ -1053,34 +1055,33 @@ describe("coordination-security", () => {
             Buffer.from("Inactive agent test".padEnd(64, "\0")),
             new BN(1 * LAMPORTS_PER_SOL),
             1,
-            0,
-            TASK_TYPE_EXCLUSIVE
+            new BN(0),
+            TASK_TYPE_EXCLUSIVE,
+            null  // constraint_hash
           )
-          .accounts({
-            task: taskPda,
-            escrow: escrowPda,
-            protocolConfig: protocolPda,
+          .accountsPartial({
             creatorAgent: creatorAgentPda,
             authority: creator.publicKey,
             creator: creator.publicKey,
-            systemProgram: SystemProgram.programId,
           })
           .signers([creator])
           .rpc();
 
-        await expect(
-          program.methods
+        try {
+          await program.methods
             .claimTask()
-            .accounts({
+            .accountsPartial({
               task: taskPda,
               claim: claimPda,
-              worker: agentId1,
+              worker: deriveAgentPda(agentId1),
               authority: worker1.publicKey,
-              systemProgram: SystemProgram.programId,
             })
             .signers([worker1])
-            .rpc()
-        ).to.be.rejected;
+            .rpc();
+          expect.fail("Should have failed - inactive agent");
+        } catch (e: any) {
+          expect(e.message).to.include("Error");
+        }
 
         await program.methods
           .updateAgent(null, null, null, { active: {} })
@@ -1115,16 +1116,13 @@ describe("coordination-security", () => {
             new BN(1 * LAMPORTS_PER_SOL),
             1,
             new BN(pastDeadline),
-            TASK_TYPE_EXCLUSIVE
+            TASK_TYPE_EXCLUSIVE,
+            null  // constraint_hash
           )
-          .accounts({
-            task: taskPda,
-            escrow: escrowPda,
-            protocolConfig: protocolPda,
+          .accountsPartial({
             creatorAgent: creatorAgentPda,
             authority: creator.publicKey,
             creator: creator.publicKey,
-            systemProgram: SystemProgram.programId,
           })
           .signers([creator])
           .rpc();
@@ -1134,19 +1132,21 @@ describe("coordination-security", () => {
           program.programId
         );
 
-        await expect(
-          program.methods
+        try {
+          await program.methods
             .claimTask()
-            .accounts({
+            .accountsPartial({
               task: taskPda,
               claim: claimPda,
-              worker: agentId1,
+              worker: deriveAgentPda(agentId1),
               authority: worker1.publicKey,
-              systemProgram: SystemProgram.programId,
             })
             .signers([worker1])
-            .rpc()
-        ).to.be.rejected;
+            .rpc();
+          expect.fail("Should have failed - task expired");
+        } catch (e: any) {
+          expect(e.message).to.include("Error");
+        }
       });
 
       it("Successfully cancels expired task with no completions", async () => {
@@ -1170,16 +1170,13 @@ describe("coordination-security", () => {
             new BN(1 * LAMPORTS_PER_SOL),
             1,
             new BN(nearFutureDeadline),
-            TASK_TYPE_EXCLUSIVE
+            TASK_TYPE_EXCLUSIVE,
+            null  // constraint_hash
           )
-          .accounts({
-            task: taskPda,
-            escrow: escrowPda,
-            protocolConfig: protocolPda,
+          .accountsPartial({
             creatorAgent: creatorAgentPda,
             authority: creator.publicKey,
             creator: creator.publicKey,
-            systemProgram: SystemProgram.programId,
           })
           .signers([creator])
           .rpc();
@@ -1191,12 +1188,11 @@ describe("coordination-security", () => {
 
         await program.methods
           .claimTask()
-          .accounts({
+          .accountsPartial({
             task: taskPda,
             claim: claimPda,
-            worker: agentId1,
+            worker: deriveAgentPda(agentId1),
             authority: worker1.publicKey,
-            systemProgram: SystemProgram.programId,
           })
           .signers([worker1])
           .rpc();
@@ -1243,17 +1239,14 @@ describe("coordination-security", () => {
             Buffer.from("Threshold test".padEnd(64, "\0")),
             new BN(1 * LAMPORTS_PER_SOL),
             1,
-            0,
-            TASK_TYPE_EXCLUSIVE
+            new BN(0),
+            TASK_TYPE_EXCLUSIVE,
+            null  // constraint_hash
           )
-          .accounts({
-            task: taskPda,
-            escrow: escrowPda,
-            protocolConfig: protocolPda,
+          .accountsPartial({
             creatorAgent: creatorAgentPda,
             authority: creator.publicKey,
             creator: creator.publicKey,
-            systemProgram: SystemProgram.programId,
           })
           .signers([creator])
           .rpc();
@@ -1359,17 +1352,14 @@ describe("coordination-security", () => {
             Buffer.from("Max workers test".padEnd(64, "\0")),
             new BN(1 * LAMPORTS_PER_SOL),
             2,
-            0,
-            TASK_TYPE_COLLABORATIVE
+            new BN(0),
+            TASK_TYPE_COLLABORATIVE,
+            null  // constraint_hash
           )
-          .accounts({
-            task: taskPda,
-            escrow: escrowPda,
-            protocolConfig: protocolPda,
+          .accountsPartial({
             creatorAgent: creatorAgentPda,
             authority: creator.publicKey,
             creator: creator.publicKey,
-            systemProgram: SystemProgram.programId,
           })
           .signers([creator])
           .rpc();
@@ -1385,24 +1375,22 @@ describe("coordination-security", () => {
 
         await program.methods
           .claimTask()
-          .accounts({
+          .accountsPartial({
             task: taskPda,
             claim: claimPda1,
-            worker: agentId1,
+            worker: deriveAgentPda(agentId1),
             authority: worker1.publicKey,
-            systemProgram: SystemProgram.programId,
           })
           .signers([worker1])
           .rpc();
 
         await program.methods
           .claimTask()
-          .accounts({
+          .accountsPartial({
             task: taskPda,
             claim: claimPda2,
-            worker: agentId3,
+            worker: deriveAgentPda(agentId3),
             authority: worker3.publicKey,
-            systemProgram: SystemProgram.programId,
           })
           .signers([worker3])
           .rpc();
@@ -1431,30 +1419,32 @@ describe("coordination-security", () => {
             Array.from(extraAgentId),
             new BN(CAPABILITY_COMPUTE),
             "https://extra.com",
-            null
+            null,
+            new BN(LAMPORTS_PER_SOL)  // stake_amount
           )
-          .accounts({
+          .accountsPartial({
             agent: extraAgentPda,
             protocolConfig: protocolPda,
             authority: extraWorker.publicKey,
-            systemProgram: SystemProgram.programId,
           })
           .signers([extraWorker])
           .rpc();
 
-        await expect(
-          program.methods
+        try {
+          await program.methods
             .claimTask()
-            .accounts({
+            .accountsPartial({
               task: taskPda,
               claim: claimPda3,
-              worker: extraAgentId,
+              worker: deriveAgentPda(extraAgentId),
               authority: extraWorker.publicKey,
-              systemProgram: SystemProgram.programId,
             })
             .signers([extraWorker])
-            .rpc()
-        ).to.be.rejected;
+            .rpc();
+          expect.fail("Should have failed - max workers exceeded");
+        } catch (e: any) {
+          expect(e.message).to.include("Error");
+        }
       });
     });
 
@@ -1477,17 +1467,14 @@ describe("coordination-security", () => {
             Buffer.from("Zero reward task".padEnd(64, "\0")),
             new BN(0),
             1,
-            0,
-            TASK_TYPE_EXCLUSIVE
+            new BN(0),
+            TASK_TYPE_EXCLUSIVE,
+            null  // constraint_hash
           )
-          .accounts({
-            task: taskPda,
-            escrow: escrowPda,
-            protocolConfig: protocolPda,
+          .accountsPartial({
             creatorAgent: creatorAgentPda,
             authority: creator.publicKey,
             creator: creator.publicKey,
-            systemProgram: SystemProgram.programId,
           })
           .signers([creator])
           .rpc();
@@ -1502,12 +1489,11 @@ describe("coordination-security", () => {
 
         await program.methods
           .claimTask()
-          .accounts({
+          .accountsPartial({
             task: taskPda,
             claim: claimPda,
-            worker: agentId1,
+            worker: deriveAgentPda(agentId1),
             authority: worker1.publicKey,
-            systemProgram: SystemProgram.programId,
           })
           .signers([worker1])
           .rpc();
@@ -1555,17 +1541,14 @@ describe("coordination-security", () => {
             Buffer.from("Deregister test".padEnd(64, "\0")),
             new BN(1 * LAMPORTS_PER_SOL),
             1,
-            0,
-            TASK_TYPE_EXCLUSIVE
+            new BN(0),
+            TASK_TYPE_EXCLUSIVE,
+            null  // constraint_hash
           )
-          .accounts({
-            task: taskPda,
-            escrow: escrowPda,
-            protocolConfig: protocolPda,
+          .accountsPartial({
             creatorAgent: creatorAgentPda,
             authority: creator.publicKey,
             creator: creator.publicKey,
-            systemProgram: SystemProgram.programId,
           })
           .signers([creator])
           .rpc();
@@ -1577,12 +1560,11 @@ describe("coordination-security", () => {
 
         await program.methods
           .claimTask()
-          .accounts({
+          .accountsPartial({
             task: taskPda,
             claim: claimPda,
-            worker: agentId1,
+            worker: deriveAgentPda(agentId1),
             authority: worker1.publicKey,
-            systemProgram: SystemProgram.programId,
           })
           .signers([worker1])
           .rpc();
@@ -1592,8 +1574,8 @@ describe("coordination-security", () => {
           program.programId
         );
 
-        await expect(
-          program.methods
+        try {
+          await program.methods
             .deregisterAgent()
             .accounts({
               agent: agentPda,
@@ -1601,8 +1583,11 @@ describe("coordination-security", () => {
               authority: worker1.publicKey,
             })
             .signers([worker1])
-            .rpc()
-        ).to.be.rejected;
+            .rpc();
+          expect.fail("Should have failed - agent has active tasks");
+        } catch (e: any) {
+          expect(e.message).to.include("Error");
+        }
       });
     });
 
@@ -1630,17 +1615,14 @@ describe("coordination-security", () => {
             Buffer.from("Non-arbiter test".padEnd(64, "\0")),
             new BN(1 * LAMPORTS_PER_SOL),
             1,
-            0,
-            TASK_TYPE_EXCLUSIVE
+            new BN(0),
+            TASK_TYPE_EXCLUSIVE,
+            null  // constraint_hash
           )
-          .accounts({
-            task: taskPda,
-            escrow: escrowPda,
-            protocolConfig: protocolPda,
+          .accountsPartial({
             creatorAgent: creatorAgentPda,
             authority: creator.publicKey,
             creator: creator.publicKey,
-            systemProgram: SystemProgram.programId,
           })
           .signers([creator])
           .rpc();
@@ -1663,24 +1645,27 @@ describe("coordination-security", () => {
           .rpc();
 
         const [votePda] = PublicKey.findProgramAddressSync(
-          [Buffer.from("vote"), disputePda.toBuffer(), worker1.publicKey.toBuffer()],
+          [Buffer.from("vote"), disputePda.toBuffer(), deriveAgentPda(agentId1).toBuffer()],
           program.programId
         );
 
-        await expect(
-          program.methods
+        try {
+          await program.methods
             .voteDispute(true)
             .accounts({
               dispute: disputePda,
               vote: votePda,
-              arbiter: agentId1,
+              arbiter: deriveAgentPda(agentId1),
               protocolConfig: protocolPda,
               authority: worker1.publicKey,
               systemProgram: SystemProgram.programId,
             })
             .signers([worker1])
-            .rpc()
-        ).to.be.rejected;
+            .rpc();
+          expect.fail("Should have failed - non-arbiter voting");
+        } catch (e: any) {
+          expect(e.message).to.include("Error");
+        }
       });
     });
 
@@ -1691,17 +1676,23 @@ describe("coordination-security", () => {
           program.programId
         )[0];
 
-        await expect(
-          program.methods
-            .initializeProtocol(51, 1001, 1 * LAMPORTS_PER_SOL)
+        try {
+          await program.methods
+            .initializeProtocol(51, 1001, new BN(1 * LAMPORTS_PER_SOL), 1, [provider.wallet.publicKey])
             .accounts({
               protocolConfig: newProtocolPda,
               treasury: treasury.publicKey,
               authority: provider.wallet.publicKey,
               systemProgram: SystemProgram.programId,
             })
-            .rpc()
-        ).to.be.rejected;
+            .remainingAccounts([
+              { pubkey: provider.wallet.publicKey, isSigner: true, isWritable: false },
+            ])
+            .rpc();
+          expect.fail("Should have failed - invalid fee");
+        } catch (e: any) {
+          expect(e.message).to.include("Error");
+        }
       });
 
       it("Fails to initialize with invalid dispute threshold (0)", async () => {
@@ -1710,17 +1701,23 @@ describe("coordination-security", () => {
           program.programId
         )[0];
 
-        await expect(
-          program.methods
-            .initializeProtocol(0, 100, 1 * LAMPORTS_PER_SOL)
+        try {
+          await program.methods
+            .initializeProtocol(0, 100, new BN(1 * LAMPORTS_PER_SOL), 1, [provider.wallet.publicKey])
             .accounts({
               protocolConfig: newProtocolPda,
               treasury: treasury.publicKey,
               authority: provider.wallet.publicKey,
               systemProgram: SystemProgram.programId,
             })
-            .rpc()
-        ).to.be.rejected;
+            .remainingAccounts([
+              { pubkey: provider.wallet.publicKey, isSigner: true, isWritable: false },
+            ])
+            .rpc();
+          expect.fail("Should have failed - invalid dispute threshold");
+        } catch (e: any) {
+          expect(e.message).to.include("Error");
+        }
       });
 
       it("Fails to initialize with invalid dispute threshold (> 100)", async () => {
@@ -1729,17 +1726,23 @@ describe("coordination-security", () => {
           program.programId
         )[0];
 
-        await expect(
-          program.methods
-            .initializeProtocol(101, 100, 1 * LAMPORTS_PER_SOL)
+        try {
+          await program.methods
+            .initializeProtocol(101, 100, new BN(1 * LAMPORTS_PER_SOL), 1, [provider.wallet.publicKey])
             .accounts({
               protocolConfig: newProtocolPda,
               treasury: treasury.publicKey,
               authority: provider.wallet.publicKey,
               systemProgram: SystemProgram.programId,
             })
-            .rpc()
-        ).to.be.rejected;
+            .remainingAccounts([
+              { pubkey: provider.wallet.publicKey, isSigner: true, isWritable: false },
+            ])
+            .rpc();
+          expect.fail("Should have failed - invalid dispute threshold > 100");
+        } catch (e: any) {
+          expect(e.message).to.include("Error");
+        }
       });
     });
 
@@ -1765,17 +1768,14 @@ describe("coordination-security", () => {
             Buffer.from("Fund leak test".padEnd(64, "\0")),
             new BN(rewardAmount),
             1,
-            0,
-            TASK_TYPE_EXCLUSIVE
+            new BN(0),
+            TASK_TYPE_EXCLUSIVE,
+            null  // constraint_hash
           )
-          .accounts({
-            task: taskPda,
-            escrow: escrowPda,
-            protocolConfig: protocolPda,
+          .accountsPartial({
             creatorAgent: creatorAgentPda,
             authority: creator.publicKey,
             creator: creator.publicKey,
-            systemProgram: SystemProgram.programId,
           })
           .signers([creator])
           .rpc();
@@ -1793,12 +1793,11 @@ describe("coordination-security", () => {
 
         await program.methods
           .claimTask()
-          .accounts({
+          .accountsPartial({
             task: taskPda,
             claim: claimPda,
-            worker: agentId1,
+            worker: deriveAgentPda(agentId1),
             authority: worker1.publicKey,
-            systemProgram: SystemProgram.programId,
           })
           .signers([worker1])
           .rpc();
