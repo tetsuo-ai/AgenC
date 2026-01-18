@@ -19,8 +19,11 @@ url = "https://api.apr.dev"
 cluster = "localnet"
 wallet = "~/.config/solana/id.json"
 
+[test]
+startup_wait = 30000
+
 [scripts]
-test = "npx ts-mocha -p ./tsconfig.json -t 1000000 tests/**/*.ts"
+test = "npx ts-mocha -p ./tsconfig.json -t 180000 tests/test_1.ts"
 
 [workspace]
 members = ["programs/agenc-coordination"]

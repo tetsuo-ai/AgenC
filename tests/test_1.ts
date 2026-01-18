@@ -83,21 +83,88 @@ describe("test_1", () => {
   // Counter for generating unique agent names within tests
   let testAgentCounter = 0;
 
+  // Pre-funded worker pool for fast test execution
+  const workerPool: Array<{ wallet: Keypair; agentId: Buffer; agentPda: PublicKey; inUse: boolean }> = [];
+  const WORKER_POOL_SIZE = 50; // Pre-create workers to avoid airdrop delays
+
+  // Initialize worker pool (called once in before())
+  async function initializeWorkerPool() {
+    const wallets: Keypair[] = [];
+    const airdropSigs: string[] = [];
+
+    // Generate all wallets and request airdrops in parallel (no waiting)
+    for (let i = 0; i < WORKER_POOL_SIZE; i++) {
+      const wallet = Keypair.generate();
+      wallets.push(wallet);
+      // Fire off airdrop without waiting
+      const sig = await provider.connection.requestAirdrop(wallet.publicKey, 10 * LAMPORTS_PER_SOL);
+      airdropSigs.push(sig);
+    }
+
+    // Confirm all airdrops in one batch
+    await Promise.all(airdropSigs.map(sig =>
+      provider.connection.confirmTransaction(sig, "confirmed")
+    ));
+
+    // Register all workers in parallel
+    const registerPromises = wallets.map(async (wallet, i) => {
+      const agentId = makeAgentId(`pool${i}`);
+      const agentPda = deriveAgentPda(agentId);
+
+      await program.methods
+        .registerAgent(
+          Array.from(agentId),
+          new BN(CAPABILITY_COMPUTE | CAPABILITY_INFERENCE),
+          `https://pool-worker-${i}.example.com`,
+          null,
+          new BN(LAMPORTS_PER_SOL / 10)
+        )
+        .accountsPartial({
+          agent: agentPda,
+          protocolConfig: protocolPda,
+          authority: wallet.publicKey,
+        })
+        .signers([wallet])
+        .rpc({ skipPreflight: true });
+
+      workerPool.push({ wallet, agentId, agentPda, inUse: false });
+    });
+
+    await Promise.all(registerPromises);
+  }
+
+  // Get a worker from the pool (fast - no airdrop needed)
+  function getPooledWorker(): { wallet: Keypair; agentId: Buffer; agentPda: PublicKey } {
+    const worker = workerPool.find(w => !w.inUse);
+    if (!worker) {
+      throw new Error("Worker pool exhausted! Increase WORKER_POOL_SIZE");
+    }
+    worker.inUse = true;
+    return { wallet: worker.wallet, agentId: worker.agentId, agentPda: worker.agentPda };
+  }
+
   // Helper to create a fresh worker agent for a test (avoids MaxActiveTasksReached)
+  // Now uses pool when possible, falls back to creating new worker if pool exhausted
   async function createFreshWorker(capabilities: number = CAPABILITY_COMPUTE): Promise<{
     wallet: Keypair;
     agentId: Buffer;
     agentPda: PublicKey;
   }> {
+    // Try to get from pool first (fast path)
+    const poolWorker = workerPool.find(w => !w.inUse);
+    if (poolWorker) {
+      poolWorker.inUse = true;
+      return { wallet: poolWorker.wallet, agentId: poolWorker.agentId, agentPda: poolWorker.agentPda };
+    }
+
+    // Fallback: create new worker (slow path)
     testAgentCounter++;
     const wallet = Keypair.generate();
     const agentId = makeAgentId(`tw${testAgentCounter}`);
     const agentPda = deriveAgentPda(agentId);
 
-    await provider.connection.confirmTransaction(
-      await provider.connection.requestAirdrop(wallet.publicKey, 5 * LAMPORTS_PER_SOL),
-      "confirmed"
-    );
+    const sig = await provider.connection.requestAirdrop(wallet.publicKey, 5 * LAMPORTS_PER_SOL);
+    await provider.connection.confirmTransaction(sig, "confirmed");
 
     await program.methods
       .registerAgent(
@@ -113,7 +180,7 @@ describe("test_1", () => {
         authority: wallet.publicKey,
       })
       .signers([wallet])
-      .rpc();
+      .rpc({ skipPreflight: true });
 
     return { wallet, agentId, agentPda };
   }
@@ -134,12 +201,12 @@ describe("test_1", () => {
     const airdropAmount = 100 * LAMPORTS_PER_SOL;
     const wallets = [treasury, creator, worker1, worker2, worker3];
 
-    for (const wallet of wallets) {
-      await provider.connection.confirmTransaction(
-        await provider.connection.requestAirdrop(wallet.publicKey, airdropAmount),
-        "confirmed"
-      );
-    }
+    // Request all airdrops in parallel (don't wait for each one)
+    const airdropSigs = await Promise.all(
+      wallets.map(wallet => provider.connection.requestAirdrop(wallet.publicKey, airdropAmount))
+    );
+    // Confirm all at once
+    await Promise.all(airdropSigs.map(sig => provider.connection.confirmTransaction(sig, "confirmed")));
 
     try {
       await program.methods
@@ -153,7 +220,7 @@ describe("test_1", () => {
         .remainingAccounts([
           { pubkey: provider.wallet.publicKey, isSigner: true, isWritable: false },
         ])
-        .rpc();
+        .rpc({ skipPreflight: true });
       treasuryPubkey = treasury.publicKey;
     } catch (e: unknown) {
       // Protocol may already be initialized by another test file
@@ -178,7 +245,7 @@ describe("test_1", () => {
         .remainingAccounts([
           { pubkey: provider.wallet.publicKey, isSigner: true, isWritable: false },
         ])
-        .rpc();
+        .rpc({ skipPreflight: true });
     } catch (e: any) {
       // May already be configured
     }
@@ -209,13 +276,16 @@ describe("test_1", () => {
             authority: agent.wallet.publicKey,
           })
           .signers([agent.wallet])
-          .rpc();
+          .rpc({ skipPreflight: true });
       } catch (e: any) {
         if (!e.message?.includes("already in use")) {
           throw e;
         }
       }
     }
+
+    // Initialize worker pool for fast test execution
+    await initializeWorkerPool();
   });
 
   // Ensure all shared agents are active before each test
@@ -3704,9 +3774,9 @@ describe("test_1", () => {
 
         // Verify dispute has 0 votes
         const dispute = await program.account.dispute.fetch(disputePda);
-        expect(dispute.votesFor).to.equal(0);
-        expect(dispute.votesAgainst).to.equal(0);
-        expect(dispute.totalVoters).to.equal(0);
+        expect(typeof dispute.votesFor === 'object' ? dispute.votesFor.toNumber() : dispute.votesFor).to.equal(0);
+        expect(typeof dispute.votesAgainst === 'object' ? dispute.votesAgainst.toNumber() : dispute.votesAgainst).to.equal(0);
+        expect(typeof dispute.totalVoters === 'object' ? dispute.totalVoters.toNumber() : dispute.totalVoters).to.equal(0);
 
         // Resolution would fail with VotingNotEnded and InsufficientVotes
         // We can't test the InsufficientVotes path without time manipulation
@@ -5838,7 +5908,8 @@ describe("test_1", () => {
           authority: worker.wallet.publicKey, protocolConfig: protocolPda, systemProgram: SystemProgram.programId,
         }).signers([worker.wallet]).rpc();
 
-        // Create arbiter with ARBITER capability but zero stake
+        // Try to create arbiter with ARBITER capability but zero stake
+        // The program should reject registration of arbiters with insufficient stake
         const lowStakeOwner = Keypair.generate();
         const lowStakeId = makeAgentId("arb-lowstk");
         const lowStakePda = deriveAgentPda(lowStakeId);
@@ -5848,26 +5919,19 @@ describe("test_1", () => {
           "confirmed"
         );
 
-        await program.methods.registerAgent(
-          Array.from(lowStakeId),
-          new BN(CAPABILITY_ARBITER),
-          "https://lowstake.example.com",
-          null,
-          new BN(0)  // zero stake for this test
-        ).accountsPartial({
-          agent: lowStakePda, protocolConfig: protocolPda,
-          authority: lowStakeOwner.publicKey,
-        }).signers([lowStakeOwner]).rpc();
-
-        // Arbiter has stake = 0, min_arbiter_stake = 1 SOL, should fail
-        const votePda = deriveVotePda(disputePda, lowStakePda);
+        // Program requires min_arbiter_stake for ARBITER capability registration
         try {
-          await program.methods.voteDispute(true).accountsPartial({
-            dispute: disputePda, vote: votePda,
-            arbiter: lowStakePda, protocolConfig: protocolPda,
+          await program.methods.registerAgent(
+            Array.from(lowStakeId),
+            new BN(CAPABILITY_ARBITER),
+            "https://lowstake.example.com",
+            null,
+            new BN(0)  // zero stake - should fail for arbiter
+          ).accountsPartial({
+            agent: lowStakePda, protocolConfig: protocolPda,
             authority: lowStakeOwner.publicKey,
           }).signers([lowStakeOwner]).rpc();
-          expect.fail("Should have rejected low stake arbiter");
+          expect.fail("Should have rejected low stake arbiter registration");
         } catch (e: any) {
           expect(e.message).to.include("InsufficientStake");
         }
@@ -6061,9 +6125,9 @@ describe("test_1", () => {
 
         // Verify initial vote counts
         const disputeBefore = await program.account.dispute.fetch(disputePda);
-        expect(disputeBefore.votesFor).to.equal(0);
-        expect(disputeBefore.votesAgainst).to.equal(0);
-        expect(disputeBefore.totalVoters).to.equal(0);
+        expect(typeof disputeBefore.votesFor === 'object' ? disputeBefore.votesFor.toNumber() : disputeBefore.votesFor).to.equal(0);
+        expect(typeof disputeBefore.votesAgainst === 'object' ? disputeBefore.votesAgainst.toNumber() : disputeBefore.votesAgainst).to.equal(0);
+        expect(typeof disputeBefore.totalVoters === 'object' ? disputeBefore.totalVoters.toNumber() : disputeBefore.totalVoters).to.equal(0);
       });
 
       it("Active agent status required to vote", async () => {
@@ -6232,7 +6296,9 @@ describe("test_1", () => {
 
         // Verify zero votes initially
         const dispute = await program.account.dispute.fetch(disputePda);
-        expect(dispute.votesFor + dispute.votesAgainst).to.equal(0);
+        const votesForNum = typeof dispute.votesFor === 'object' ? dispute.votesFor.toNumber() : dispute.votesFor;
+        const votesAgainstNum = typeof dispute.votesAgainst === 'object' ? dispute.votesAgainst.toNumber() : dispute.votesAgainst;
+        expect(votesForNum + votesAgainstNum).to.equal(0);
       });
 
       it("Dispute status changes to Resolved after resolution (verified in existing #22 tests)", async () => {
@@ -6434,7 +6500,8 @@ describe("test_1", () => {
         // min_arbiter_stake may vary based on how protocol was initialized
         expect(config.minArbiterStake.toNumber()).to.be.at.least(0);
 
-        // Create arbiter with zero stake
+        // Try to create arbiter with zero stake - should fail
+        // The program requires min_arbiter_stake for ARBITER capability
         const zeroStakeOwner = Keypair.generate();
         const zeroStakeId = makeAgentId("stake-0");
         const zeroStakePda = deriveAgentPda(zeroStakeId);
@@ -6444,20 +6511,21 @@ describe("test_1", () => {
           "confirmed"
         );
 
-        await program.methods.registerAgent(
-          Array.from(zeroStakeId),
-          new BN(1 << 7), // ARBITER capability
-          "https://zero-stake.example.com",
-          null,
-          new BN(0)  // zero stake for this test
-        ).accountsPartial({
-          agent: zeroStakePda, protocolConfig: protocolPda,
-          authority: zeroStakeOwner.publicKey,
-        }).signers([zeroStakeOwner]).rpc();
-
-        // Verify agent has zero stake
-        const agent = await program.account.agentRegistration.fetch(zeroStakePda);
-        expect(agent.stake.toNumber()).to.equal(0);
+        try {
+          await program.methods.registerAgent(
+            Array.from(zeroStakeId),
+            new BN(1 << 7), // ARBITER capability
+            "https://zero-stake.example.com",
+            null,
+            new BN(0)  // zero stake - should fail for arbiter
+          ).accountsPartial({
+            agent: zeroStakePda, protocolConfig: protocolPda,
+            authority: zeroStakeOwner.publicKey,
+          }).signers([zeroStakeOwner]).rpc();
+          expect.fail("Should have rejected zero-stake arbiter registration");
+        } catch (e: any) {
+          expect(e.message).to.include("InsufficientStake");
+        }
       });
 
       it("Stake is tracked in agent.stake field", async () => {
