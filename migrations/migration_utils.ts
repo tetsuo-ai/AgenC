@@ -5,8 +5,34 @@
  */
 
 import * as anchor from "@coral-xyz/anchor";
-import { Program } from "@coral-xyz/anchor";
-import { PublicKey, Connection, Keypair } from "@solana/web3.js";
+import { Program, AnchorProvider } from "@coral-xyz/anchor";
+import { PublicKey, Connection, Keypair, Commitment } from "@solana/web3.js";
+
+/**
+ * Custom error class for migration-related errors
+ */
+export class MigrationError extends Error {
+  constructor(
+    message: string,
+    public readonly code: string,
+    public readonly cause?: unknown
+  ) {
+    super(message);
+    this.name = "MigrationError";
+  }
+}
+
+/**
+ * Validate version number is a positive integer
+ */
+function validateVersion(version: number, paramName: string): void {
+  if (!Number.isInteger(version) || version < 0) {
+    throw new MigrationError(
+      `${paramName} must be a non-negative integer, got: ${version}`,
+      "INVALID_VERSION"
+    );
+  }
+}
 
 /**
  * Get the current protocol version from on-chain state
@@ -15,11 +41,19 @@ export async function getProtocolVersion(
   program: Program<any>,
   protocolPda: PublicKey
 ): Promise<{ version: number; minSupported: number }> {
-  const config = await program.account.protocolConfig.fetch(protocolPda);
-  return {
-    version: config.protocolVersion,
-    minSupported: config.minSupportedVersion,
-  };
+  try {
+    const config = await program.account.protocolConfig.fetch(protocolPda);
+    return {
+      version: config.protocolVersion,
+      minSupported: config.minSupportedVersion,
+    };
+  } catch (error) {
+    throw new MigrationError(
+      `Failed to fetch protocol config from ${protocolPda.toBase58()}`,
+      "FETCH_CONFIG_FAILED",
+      error
+    );
+  }
 }
 
 /**
@@ -30,6 +64,7 @@ export async function isMigrationNeeded(
   protocolPda: PublicKey,
   targetVersion: number
 ): Promise<boolean> {
+  validateVersion(targetVersion, "targetVersion");
   const { version } = await getProtocolVersion(program, protocolPda);
   return version < targetVersion;
 }
@@ -41,56 +76,125 @@ export async function isMigrationNeeded(
  * @param protocolPda - Protocol config PDA
  * @param targetVersion - Version to migrate to
  * @param multisigSigners - Array of multisig signer keypairs
+ * @param commitment - Transaction confirmation commitment level (default: "confirmed")
  */
 export async function migrateProtocol(
   program: Program<any>,
   protocolPda: PublicKey,
   targetVersion: number,
-  multisigSigners: Keypair[]
+  multisigSigners: Keypair[],
+  commitment: Commitment = "confirmed"
 ): Promise<string> {
+  validateVersion(targetVersion, "targetVersion");
+
+  if (!multisigSigners || multisigSigners.length === 0) {
+    throw new MigrationError(
+      "At least one multisig signer is required",
+      "NO_SIGNERS"
+    );
+  }
+
   const remainingAccounts = multisigSigners.map((signer) => ({
     pubkey: signer.publicKey,
     isSigner: true,
     isWritable: false,
   }));
 
-  const tx = await program.methods
-    .migrateProtocol(targetVersion)
-    .accounts({
-      protocolConfig: protocolPda,
-    })
-    .remainingAccounts(remainingAccounts)
-    .signers(multisigSigners)
-    .rpc();
+  try {
+    const tx = await program.methods
+      .migrateProtocol(targetVersion)
+      .accounts({
+        protocolConfig: protocolPda,
+      })
+      .remainingAccounts(remainingAccounts)
+      .signers(multisigSigners)
+      .rpc();
 
-  return tx;
+    // Confirm transaction to ensure it landed on-chain
+    const connection = program.provider.connection;
+    await connection.confirmTransaction(tx, commitment);
+
+    return tx;
+  } catch (error) {
+    // Check if this is an Anchor program error
+    if (error && typeof error === "object" && "error" in error) {
+      const anchorError = error as { error?: { errorCode?: { code: string }; errorMessage?: string } };
+      throw new MigrationError(
+        `Migration to version ${targetVersion} failed: ${anchorError.error?.errorMessage || "Unknown error"}`,
+        anchorError.error?.errorCode?.code || "MIGRATION_FAILED",
+        error
+      );
+    }
+    throw new MigrationError(
+      `Migration to version ${targetVersion} failed`,
+      "MIGRATION_FAILED",
+      error
+    );
+  }
 }
 
 /**
  * Update minimum supported version
+ *
+ * @param program - Anchor program instance
+ * @param protocolPda - Protocol config PDA
+ * @param newMinVersion - New minimum supported version
+ * @param multisigSigners - Array of multisig signer keypairs
+ * @param commitment - Transaction confirmation commitment level (default: "confirmed")
  */
 export async function updateMinVersion(
   program: Program<any>,
   protocolPda: PublicKey,
   newMinVersion: number,
-  multisigSigners: Keypair[]
+  multisigSigners: Keypair[],
+  commitment: Commitment = "confirmed"
 ): Promise<string> {
+  validateVersion(newMinVersion, "newMinVersion");
+
+  if (!multisigSigners || multisigSigners.length === 0) {
+    throw new MigrationError(
+      "At least one multisig signer is required",
+      "NO_SIGNERS"
+    );
+  }
+
   const remainingAccounts = multisigSigners.map((signer) => ({
     pubkey: signer.publicKey,
     isSigner: true,
     isWritable: false,
   }));
 
-  const tx = await program.methods
-    .updateMinVersion(newMinVersion)
-    .accounts({
-      protocolConfig: protocolPda,
-    })
-    .remainingAccounts(remainingAccounts)
-    .signers(multisigSigners)
-    .rpc();
+  try {
+    const tx = await program.methods
+      .updateMinVersion(newMinVersion)
+      .accounts({
+        protocolConfig: protocolPda,
+      })
+      .remainingAccounts(remainingAccounts)
+      .signers(multisigSigners)
+      .rpc();
 
-  return tx;
+    // Confirm transaction to ensure it landed on-chain
+    const connection = program.provider.connection;
+    await connection.confirmTransaction(tx, commitment);
+
+    return tx;
+  } catch (error) {
+    // Check if this is an Anchor program error
+    if (error && typeof error === "object" && "error" in error) {
+      const anchorError = error as { error?: { errorCode?: { code: string }; errorMessage?: string } };
+      throw new MigrationError(
+        `Update min version to ${newMinVersion} failed: ${anchorError.error?.errorMessage || "Unknown error"}`,
+        anchorError.error?.errorCode?.code || "UPDATE_MIN_VERSION_FAILED",
+        error
+      );
+    }
+    throw new MigrationError(
+      `Update min version to ${newMinVersion} failed`,
+      "UPDATE_MIN_VERSION_FAILED",
+      error
+    );
+  }
 }
 
 /**
@@ -101,6 +205,8 @@ export async function verifyMigration(
   protocolPda: PublicKey,
   expectedVersion: number
 ): Promise<{ success: boolean; actualVersion: number; message: string }> {
+  validateVersion(expectedVersion, "expectedVersion");
+
   const { version } = await getProtocolVersion(program, protocolPda);
 
   if (version === expectedVersion) {
@@ -133,6 +239,8 @@ export async function getMigrationStatus(
   needsUpgrade: boolean;
   status: "current" | "migratable" | "too_old" | "too_new";
 }> {
+  validateVersion(programVersion, "programVersion");
+
   const { version, minSupported } = await getProtocolVersion(program, protocolPda);
 
   let status: "current" | "migratable" | "too_old" | "too_new";
