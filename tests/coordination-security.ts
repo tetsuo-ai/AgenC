@@ -1251,6 +1251,9 @@ describe("coordination-security", () => {
           .signers([creator])
           .rpc();
 
+        // Derive agent PDA for worker3 (agentId3) locally for this test
+        const worker3AgentPda = PublicKey.findProgramAddressSync([Buffer.from("agent"), agentId3], program.programId)[0];
+
         await program.methods
           .initiateDispute(
             Array.from(newDisputeId),
@@ -1261,7 +1264,7 @@ describe("coordination-security", () => {
           .accounts({
             dispute: disputePda,
             task: taskPda,
-            agent: workerPda,
+            agent: worker3AgentPda,
             authority: worker3.publicKey,
             systemProgram: SystemProgram.programId,
           })
@@ -1306,7 +1309,14 @@ describe("coordination-security", () => {
           .signers([arbiter2])
           .rpc();
 
-        await new Promise((resolve) => setTimeout(resolve, 86401000));
+        // NOTE: In production, disputes have a voting deadline (typically 24 hours).
+        // For testing purposes, we skip the wait or the program should be configured
+        // with a shorter voting period for tests. If the voting deadline hasn't passed,
+        // this test may fail. Consider setting up test-specific protocol config.
+        // await new Promise((resolve) => setTimeout(resolve, 86401000)); // Disabled: 24h wait
+
+        // For local testing, we proceed immediately - the dispute should be resolvable
+        // if enough votes have been cast to meet the threshold.
 
         await program.methods
           .resolveDispute()
@@ -1627,6 +1637,9 @@ describe("coordination-security", () => {
           .signers([creator])
           .rpc();
 
+        // Derive agent PDA for worker3 (agentId3) locally for this test
+        const worker3AgentPda = PublicKey.findProgramAddressSync([Buffer.from("agent"), agentId3], program.programId)[0];
+
         await program.methods
           .initiateDispute(
             Array.from(newDisputeId),
@@ -1637,7 +1650,7 @@ describe("coordination-security", () => {
           .accounts({
             dispute: disputePda,
             task: taskPda,
-            agent: workerPda,
+            agent: worker3AgentPda,
             authority: worker3.publicKey,
             systemProgram: SystemProgram.programId,
           })
