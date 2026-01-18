@@ -1,6 +1,7 @@
 //! Multisig approval helpers
 
 use anchor_lang::prelude::*;
+use anchor_lang::system_program;
 
 use crate::errors::CoordinationError;
 use crate::state::ProtocolConfig;
@@ -37,6 +38,14 @@ pub fn require_multisig(config: &ProtocolConfig, remaining_accounts: &[AccountIn
     for account in remaining_accounts {
         if !account.is_signer {
             continue;
+        }
+
+        // Security: Validate that signer accounts are owned by the System Program
+        // This prevents malicious actors from passing program-owned accounts with
+        // manipulated is_signer flags. Only regular wallet accounts (System-owned)
+        // can be valid multisig signers.
+        if account.owner != &system_program::ID {
+            return Err(error!(CoordinationError::MultisigSignerNotSystemOwned));
         }
 
         for (index, owner) in config.multisig_owners[..owners_len].iter().enumerate() {
