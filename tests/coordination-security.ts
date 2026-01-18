@@ -226,7 +226,7 @@ describe("coordination-security", () => {
         expect(protocol.totalTasks).to.be.at.least(0);
       });
 
-      it("Emits ProtocolInitialized event", async () => {
+      it("Emits ProtocolInitialized event", async function() {
         // Skip this test if protocol is already initialized
         // Event emission only happens on first initialization
         this.skip();
