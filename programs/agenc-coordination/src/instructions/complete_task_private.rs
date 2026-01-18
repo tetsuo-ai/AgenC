@@ -32,7 +32,7 @@ use crate::instructions::completion_helpers::{
     update_task_state, update_worker_state,
 };
 use crate::state::{
-    AgentRegistration, ProtocolConfig, Task, TaskClaim, TaskEscrow, TaskStatus,
+    AgentRegistration, ProtocolConfig, Task, TaskClaim, TaskEscrow, TaskStatus, TaskType,
     HASH_SIZE, RESULT_DATA_SIZE,
 };
 use crate::utils::version::check_version_compatible;
@@ -163,6 +163,15 @@ pub fn complete_task_private(
         proof.constraint_hash == task.constraint_hash,
         CoordinationError::ConstraintHashMismatch
     );
+
+    // CRITICAL: For competitive tasks, ensure no one else has completed (fix: double-reward vulnerability)
+    // This check must happen BEFORE proof verification to prevent wasted compute on invalid completions
+    if task.task_type == TaskType::Competitive {
+        require!(
+            task.completions == 0,
+            CoordinationError::CompetitiveTaskAlreadyWon
+        );
+    }
 
     verify_zk_proof(
         &ctx.accounts.zk_verifier,

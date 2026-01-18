@@ -206,6 +206,9 @@ pub enum CoordinationError {
     #[msg("String too long")]
     StringTooLong,
 
+    #[msg("Account owner validation failed: account not owned by this program")]
+    InvalidAccountOwner,
+
     // Rate limiting errors (6700-6799)
     #[msg("Rate limit exceeded: maximum actions per 24h window reached")]
     RateLimitExceeded,
