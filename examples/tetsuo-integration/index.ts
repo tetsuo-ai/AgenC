@@ -31,7 +31,29 @@
 import { Connection, Keypair, PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js';
 import chalk from 'chalk';
 
+// ============================================================================
+// PRODUCTION GUARD - Fail fast if demo code is used in production
+// ============================================================================
+const IS_DEMO_MODE = process.env.NODE_ENV !== 'production';
+
+if (!IS_DEMO_MODE) {
+  console.error(chalk.red('\n============================================================================'));
+  console.error(chalk.red('FATAL ERROR: This demo file cannot be used in production!'));
+  console.error(chalk.red('============================================================================'));
+  console.error(chalk.yellow('This file contains simulated implementations that provide NO security:'));
+  console.error(chalk.yellow('  - Ephemeral keypairs (keys lost on restart)'));
+  console.error(chalk.yellow('  - Zero-filled ZK proofs (will fail verification)'));
+  console.error(chalk.yellow('  - Non-cryptographic hash functions (trivially reversible)'));
+  console.error(chalk.yellow('\nTo use AgenC in production, implement:'));
+  console.error(chalk.yellow('  1. Secure keypair storage (hardware wallet, KMS, etc.)'));
+  console.error(chalk.yellow('  2. Real ZK proof generation via @agenc/sdk'));
+  console.error(chalk.yellow('  3. Poseidon2 or SHA-256 for cryptographic hashing'));
+  console.error(chalk.red('============================================================================\n'));
+  process.exit(1);
+}
+
 // AgenC SDK imports (from @agenc/sdk)
+// In production, uncomment and use:
 // import { PrivacyClient, generateProof, generateSalt, VERIFIER_PROGRAM_ID } from '@agenc/sdk';
 
 // Simulated imports for demo
@@ -321,7 +343,18 @@ class TetsuoAgent {
       throw new Error(`Task ${taskId} not found`);
     }
 
+    // SECURITY: Validate proof parameters before submission
+    // These validations ensure the parameters are properly formed
+    if (proof.length !== 388) {
+      throw new Error(`Invalid proof size: expected 388 bytes, got ${proof.length}`);
+    }
+    if (publicWitness.length !== 35 * 32) {
+      throw new Error(`Invalid public witness size: expected ${35 * 32} bytes, got ${publicWitness.length}`);
+    }
+
     console.log(chalk.cyan(`\nSubmitting proof for task #${taskId}...`));
+    console.log(chalk.gray('  Proof size:'), proof.length, 'bytes');
+    console.log(chalk.gray('  Public witness size:'), publicWitness.length, 'bytes');
 
     // In production:
     // 1. Submit proof to on-chain verifier
@@ -415,13 +448,19 @@ class TetsuoAgent {
     return hash;
   }
 
+  /**
+   * Generate cryptographically secure random salt for ZK commitment
+   * Uses Web Crypto API which provides CSPRNG
+   */
   private generateSalt(): bigint {
     const bytes = new Uint8Array(32);
+    // SECURITY: crypto.getRandomValues uses CSPRNG - this is production-safe
     crypto.getRandomValues(bytes);
     let salt = BigInt(0);
     for (const byte of bytes) {
       salt = (salt << 8n) | BigInt(byte);
     }
+    // Reduce modulo 2^254 to fit within field element bounds
     return salt % (2n ** 254n);
   }
 }
