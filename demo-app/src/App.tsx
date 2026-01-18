@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Connection } from '@solana/web3.js'
 import Header from './components/Header'
 import StepIndicator from './components/StepIndicator'
@@ -37,12 +37,24 @@ const STEPS = [
   { id: 6, title: 'Private Withdraw', description: 'Receive unlinkable payment' },
 ]
 
-const DEVNET_RPC = 'https://api.devnet.solana.com'
+// RPC endpoint configuration - use environment variable with fallback for demo
+const DEVNET_RPC = import.meta.env.VITE_SOLANA_RPC_URL || 'https://api.devnet.solana.com'
+
+// Connection error state type
+interface ConnectionState {
+  connection: Connection | null
+  error: string | null
+  isConnecting: boolean
+}
 
 function App() {
   const [currentStep, setCurrentStep] = useState(1)
   const [isComplete, setIsComplete] = useState(false)
-  const [connection, setConnection] = useState<Connection | null>(null)
+  const [connectionState, setConnectionState] = useState<ConnectionState>({
+    connection: null,
+    error: null,
+    isConnecting: true,
+  })
   const [taskState, setTaskState] = useState<TaskState>({
     taskId: '',
     requirements: '',
@@ -55,10 +67,30 @@ function App() {
     txSignatures: {},
   })
 
-  useEffect(() => {
-    const conn = new Connection(DEVNET_RPC, 'confirmed')
-    setConnection(conn)
+  // Initialize connection with error handling
+  const initializeConnection = useCallback(async () => {
+    setConnectionState(prev => ({ ...prev, isConnecting: true, error: null }))
+    try {
+      const conn = new Connection(DEVNET_RPC, {
+        commitment: 'confirmed',
+        confirmTransactionInitialTimeout: 60000,
+      })
+      // Verify connection is working by fetching slot
+      await conn.getSlot()
+      setConnectionState({ connection: conn, error: null, isConnecting: false })
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to connect to Solana network'
+      console.error('Connection initialization failed:', errorMessage)
+      setConnectionState({ connection: null, error: errorMessage, isConnecting: false })
+    }
   }, [])
+
+  useEffect(() => {
+    initializeConnection()
+  }, [initializeConnection])
+
+  // Provide connection from state for backward compatibility
+  const connection = connectionState.connection
 
   const handleNextStep = () => {
     if (currentStep < 6) {
@@ -143,10 +175,30 @@ function App() {
           {renderStep()}
         </div>
 
-        {/* Network indicator */}
+        {/* Network indicator with connection status */}
         <div className="fixed bottom-4 right-4 flex items-center gap-2 px-3 py-2 bg-tetsuo-800 rounded-lg border border-tetsuo-700">
-          <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-          <span className="text-xs text-tetsuo-400">Devnet</span>
+          {connectionState.isConnecting ? (
+            <>
+              <div className="w-2 h-2 bg-yellow-500 rounded-full animate-pulse" />
+              <span className="text-xs text-tetsuo-400">Connecting...</span>
+            </>
+          ) : connectionState.error ? (
+            <>
+              <div className="w-2 h-2 bg-red-500 rounded-full" />
+              <span className="text-xs text-red-400">Disconnected</span>
+              <button
+                onClick={initializeConnection}
+                className="text-xs text-tetsuo-300 hover:text-white underline ml-1"
+              >
+                Retry
+              </button>
+            </>
+          ) : (
+            <>
+              <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+              <span className="text-xs text-tetsuo-400">Devnet</span>
+            </>
+          )}
         </div>
       </main>
     </div>
