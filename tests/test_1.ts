@@ -79,87 +79,59 @@ describe("test_1", () => {
       );
     }
 
-    await program.methods
-      .initializeProtocol(51, 100, new BN(1 * LAMPORTS_PER_SOL), 1, [provider.wallet.publicKey])
-      .accounts({
-        protocolConfig: protocolPda,
-        treasury: treasury.publicKey,
-        authority: provider.wallet.publicKey,
-        systemProgram: SystemProgram.programId,
-      })
-      .remainingAccounts([
-        { pubkey: provider.wallet.publicKey, isSigner: true, isWritable: false },
-      ])
-      .rpc();
+    try {
+      await program.methods
+        .initializeProtocol(51, 100, new BN(1 * LAMPORTS_PER_SOL), 1, [provider.wallet.publicKey])
+        .accounts({
+          protocolConfig: protocolPda,
+          treasury: treasury.publicKey,
+          authority: provider.wallet.publicKey,
+          systemProgram: SystemProgram.programId,
+        })
+        .remainingAccounts([
+          { pubkey: provider.wallet.publicKey, isSigner: true, isWritable: false },
+        ])
+        .rpc();
+    } catch (e: any) {
+      // Protocol may already be initialized by another test file
+      if (!e.message?.includes("already in use")) {
+        throw e;
+      }
+    }
 
     creatorAgentPda = deriveAgentPda(creatorAgentId);
-    await program.methods
-      .registerAgent(
-        Array.from(creatorAgentId),
-        new BN(CAPABILITY_COMPUTE),
-        "https://creator.example.com",
-        null,
-        new BN(1 * LAMPORTS_PER_SOL)  // stake_amount
-      )
-      .accountsPartial({
-        agent: creatorAgentPda,
-        protocolConfig: protocolPda,
-        authority: creator.publicKey,
-        systemProgram: SystemProgram.programId,
-      })
-      .signers([creator])
-      .rpc();
 
-    await program.methods
-      .registerAgent(
-        Array.from(agentId1),
-        new BN(CAPABILITY_COMPUTE | CAPABILITY_INFERENCE),
-        "https://worker1.example.com",
-        null,
-        new BN(1 * LAMPORTS_PER_SOL)  // stake_amount
-      )
-      .accountsPartial({
-        agent: deriveAgentPda(agentId1),
-        protocolConfig: protocolPda,
-        authority: worker1.publicKey,
-        systemProgram: SystemProgram.programId,
-      })
-      .signers([worker1])
-      .rpc();
+    // Register agents (handle already registered gracefully)
+    const agents = [
+      { id: creatorAgentId, capabilities: CAPABILITY_COMPUTE, endpoint: "https://creator.example.com", wallet: creator },
+      { id: agentId1, capabilities: CAPABILITY_COMPUTE | CAPABILITY_INFERENCE, endpoint: "https://worker1.example.com", wallet: worker1 },
+      { id: agentId2, capabilities: CAPABILITY_COMPUTE, endpoint: "https://worker2.example.com", wallet: worker2 },
+      { id: agentId3, capabilities: CAPABILITY_COMPUTE, endpoint: "https://worker3.example.com", wallet: worker3 },
+    ];
 
-    await program.methods
-      .registerAgent(
-        Array.from(agentId2),
-        new BN(CAPABILITY_COMPUTE),
-        "https://worker2.example.com",
-        null,
-        new BN(1 * LAMPORTS_PER_SOL)  // stake_amount
-      )
-      .accountsPartial({
-        agent: deriveAgentPda(agentId2),
-        protocolConfig: protocolPda,
-        authority: worker2.publicKey,
-        systemProgram: SystemProgram.programId,
-      })
-      .signers([worker2])
-      .rpc();
-
-    await program.methods
-      .registerAgent(
-        Array.from(agentId3),
-        new BN(CAPABILITY_COMPUTE),
-        "https://worker3.example.com",
-        null,
-        new BN(1 * LAMPORTS_PER_SOL)  // stake_amount
-      )
-      .accountsPartial({
-        agent: deriveAgentPda(agentId3),
-        protocolConfig: protocolPda,
-        authority: worker3.publicKey,
-        systemProgram: SystemProgram.programId,
-      })
-      .signers([worker3])
-      .rpc();
+    for (const agent of agents) {
+      try {
+        await program.methods
+          .registerAgent(
+            Array.from(agent.id),
+            new BN(agent.capabilities),
+            agent.endpoint,
+            null,
+            new BN(1 * LAMPORTS_PER_SOL)
+          )
+          .accountsPartial({
+            agent: deriveAgentPda(agent.id),
+            protocolConfig: protocolPda,
+            authority: agent.wallet.publicKey,
+          })
+          .signers([agent.wallet])
+          .rpc();
+      } catch (e: any) {
+        if (!e.message?.includes("already in use")) {
+          throw e;
+        }
+      }
+    }
   });
 
   describe("create_task Happy Paths", () => {
