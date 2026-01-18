@@ -9,12 +9,22 @@
 
 import express from 'express';
 import chalk from 'chalk';
+import crypto from 'crypto';
 
 // Configuration
 const HELIUS_API_KEY = process.env.HELIUS_API_KEY;
 if (!HELIUS_API_KEY) {
   console.error('Error: HELIUS_API_KEY environment variable is required');
   process.exit(1);
+}
+
+// SECURITY: Webhook secret for signature verification
+// Generate via: openssl rand -hex 32
+// Set this in your Helius webhook configuration
+const HELIUS_WEBHOOK_SECRET = process.env.HELIUS_WEBHOOK_SECRET;
+if (!HELIUS_WEBHOOK_SECRET) {
+  console.warn(chalk.yellow('Warning: HELIUS_WEBHOOK_SECRET not set. Webhook signature verification disabled.'));
+  console.warn(chalk.yellow('  This is a security risk in production. Set HELIUS_WEBHOOK_SECRET to enable verification.'));
 }
 const VERIFIER_PROGRAM_ID = '8fHUGmjNzSh76r78v1rPt7BhWmAu2gXrvW9A2XXonwQQ';
 const AGENC_PROGRAM_ID = 'EopUaCV2svxj9j4hd7KjbrWfdjkspmm2BCBe7jGpKzKZ';
@@ -57,6 +67,89 @@ interface TaskCompletionEvent {
   proofVerified: boolean;
   timestamp: number;
   txSignature: string;
+}
+
+// Rate limiting configuration
+interface RateLimitEntry {
+  count: number;
+  resetTime: number;
+}
+const RATE_LIMIT_MAX = 100; // Max requests per window
+const RATE_LIMIT_WINDOW_MS = 60000; // 1 minute window
+const rateLimitMap = new Map<string, RateLimitEntry>();
+
+/**
+ * Check rate limit for an IP address
+ * SECURITY: Prevents DoS attacks on webhook endpoint
+ */
+function checkRateLimit(ip: string): boolean {
+  const now = Date.now();
+  const entry = rateLimitMap.get(ip);
+
+  if (!entry || now > entry.resetTime) {
+    rateLimitMap.set(ip, { count: 1, resetTime: now + RATE_LIMIT_WINDOW_MS });
+    return true;
+  }
+
+  if (entry.count >= RATE_LIMIT_MAX) {
+    return false;
+  }
+
+  entry.count++;
+  return true;
+}
+
+/**
+ * Verify Helius webhook signature
+ * SECURITY: Prevents webhook spoofing attacks
+ * @see https://docs.helius.xyz/webhooks/webhook-security
+ */
+function verifyWebhookSignature(payload: string, signature: string | undefined): boolean {
+  if (!HELIUS_WEBHOOK_SECRET) {
+    // Signature verification disabled - warn but allow in development
+    return true;
+  }
+
+  if (!signature) {
+    return false;
+  }
+
+  const expectedSignature = crypto
+    .createHmac('sha256', HELIUS_WEBHOOK_SECRET)
+    .update(payload)
+    .digest('hex');
+
+  // Use timing-safe comparison to prevent timing attacks
+  try {
+    return crypto.timingSafeEqual(
+      Buffer.from(signature),
+      Buffer.from(expectedSignature)
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Validate webhook payload structure
+ * SECURITY: Prevents malformed payload processing
+ */
+function isValidWebhookPayload(payload: unknown): payload is WebhookPayload[] {
+  if (!Array.isArray(payload)) {
+    return false;
+  }
+
+  for (const item of payload) {
+    if (typeof item !== 'object' || item === null) {
+      return false;
+    }
+    // Check required fields exist
+    if (!('txnSignature' in item) || !('events' in item)) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 // WARNING: In-memory storage - data is lost on restart and not suitable for production.
@@ -208,16 +301,42 @@ function startServer(): void {
     res.json({ status: 'ok', completedTasks: completedTasks.length });
   });
 
-  // Webhook endpoint
-  app.post('/webhook', (req, res) => {
-    // Note: In production, verify webhook signature from Helius
-    // See: https://docs.helius.xyz/webhooks/webhook-security
-    const authHeader = req.headers['authorization'];
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      console.warn(chalk.yellow('Warning: Webhook received without authorization header'));
-      // In production, return 401 here
+  // Webhook endpoint with security checks
+  app.post('/webhook', express.raw({ type: 'application/json' }), (req, res) => {
+    // SECURITY: Rate limiting
+    const clientIp = req.ip || req.socket.remoteAddress || 'unknown';
+    if (!checkRateLimit(clientIp)) {
+      console.warn(chalk.red('Rate limit exceeded for IP:'), clientIp);
+      res.status(429).json({ error: 'Rate limit exceeded' });
+      return;
     }
-    const payload = req.body as WebhookPayload[];
+
+    // SECURITY: Verify webhook signature
+    const signature = req.headers['x-helius-signature'] as string | undefined;
+    const rawBody = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
+
+    if (!verifyWebhookSignature(rawBody, signature)) {
+      console.warn(chalk.red('Invalid webhook signature from IP:'), clientIp);
+      res.status(401).json({ error: 'Invalid signature' });
+      return;
+    }
+
+    // Parse and validate payload
+    let payload: unknown;
+    try {
+      payload = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
+    } catch {
+      console.warn(chalk.red('Invalid JSON payload'));
+      res.status(400).json({ error: 'Invalid JSON' });
+      return;
+    }
+
+    // SECURITY: Validate payload structure
+    if (!isValidWebhookPayload(payload)) {
+      console.warn(chalk.red('Invalid webhook payload structure'));
+      res.status(400).json({ error: 'Invalid payload structure' });
+      return;
+    }
 
     console.log(chalk.cyan('\n[Webhook Received]'), new Date().toISOString());
 
@@ -405,7 +524,8 @@ switch (command) {
     console.log('  npx tsx index.ts delete <id>         Delete webhook');
     console.log();
     console.log(chalk.gray('Environment:'));
-    console.log('  HELIUS_API_KEY     Your Helius API key');
-    console.log('  PORT               Server port (default: 3000)');
+    console.log('  HELIUS_API_KEY         Your Helius API key');
+    console.log('  HELIUS_WEBHOOK_SECRET  Webhook signature secret (required for production)');
+    console.log('  PORT                   Server port (default: 3000)');
     console.log();
 }
