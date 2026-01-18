@@ -76,7 +76,24 @@ interface RateLimitEntry {
 }
 const RATE_LIMIT_MAX = 100; // Max requests per window
 const RATE_LIMIT_WINDOW_MS = 60000; // 1 minute window
+const RATE_LIMIT_CLEANUP_INTERVAL_MS = 300000; // Cleanup expired entries every 5 minutes
 const rateLimitMap = new Map<string, RateLimitEntry>();
+
+/**
+ * Cleanup expired rate limit entries to prevent memory leak
+ * SECURITY: Prevents unbounded memory growth from rate limit tracking
+ */
+function cleanupRateLimitEntries(): void {
+  const now = Date.now();
+  for (const [ip, entry] of rateLimitMap.entries()) {
+    if (now > entry.resetTime) {
+      rateLimitMap.delete(ip);
+    }
+  }
+}
+
+// Periodic cleanup of expired rate limit entries
+setInterval(cleanupRateLimitEntries, RATE_LIMIT_CLEANUP_INTERVAL_MS);
 
 /**
  * Check rate limit for an IP address
@@ -106,6 +123,11 @@ function checkRateLimit(ip: string): boolean {
  */
 function verifyWebhookSignature(payload: string, signature: string | undefined): boolean {
   if (!HELIUS_WEBHOOK_SECRET) {
+    // SECURITY: In production, signature verification MUST be enabled
+    if (process.env.NODE_ENV === 'production') {
+      console.error(chalk.red('FATAL: HELIUS_WEBHOOK_SECRET required in production'));
+      return false;
+    }
     // Signature verification disabled - warn but allow in development
     return true;
   }
@@ -157,9 +179,42 @@ function isValidWebhookPayload(payload: unknown): payload is WebhookPayload[] {
 const completedTasks: TaskCompletionEvent[] = [];
 
 /**
+ * Validate webhook URL format
+ * SECURITY: Prevents SSRF and ensures valid HTTPS endpoint
+ */
+function isValidWebhookUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    // Only allow HTTPS in production for security
+    if (process.env.NODE_ENV === 'production' && parsed.protocol !== 'https:') {
+      return false;
+    }
+    // Allow http/https only
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      return false;
+    }
+    // Block localhost and private IPs in production
+    if (process.env.NODE_ENV === 'production') {
+      const hostname = parsed.hostname.toLowerCase();
+      if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname.startsWith('192.168.') || hostname.startsWith('10.') || hostname.startsWith('172.')) {
+        return false;
+      }
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Create a Helius webhook subscription
  */
 async function createWebhook(webhookUrl: string): Promise<string> {
+  // SECURITY: Validate webhook URL before creating
+  if (!isValidWebhookUrl(webhookUrl)) {
+    throw new Error('Invalid webhook URL. Must be a valid HTTPS URL (HTTP allowed in development only).');
+  }
+
   const response = await fetch(`${HELIUS_API_URL}/webhooks?api-key=${HELIUS_API_KEY}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -184,10 +239,19 @@ async function createWebhook(webhookUrl: string): Promise<string> {
   return data.webhookID;
 }
 
+/** Helius webhook response structure */
+interface HeliusWebhook {
+  webhookID: string;
+  webhookURL: string;
+  transactionTypes: string[];
+  accountAddresses: string[];
+  webhookType: string;
+}
+
 /**
  * List existing webhooks
  */
-async function listWebhooks(): Promise<any[]> {
+async function listWebhooks(): Promise<HeliusWebhook[]> {
   const response = await fetch(`${HELIUS_API_URL}/webhooks?api-key=${HELIUS_API_KEY}`);
 
   if (!response.ok) {
@@ -279,7 +343,8 @@ function decodeAgencInstruction(data: string): { type: string; taskId: number } 
     const bytes = Buffer.from(data, 'base64');
     // Check instruction discriminator for complete_task_private
     // Actual discriminator would be derived from anchor
-    const discriminator = bytes.slice(0, 8);
+    // Note: discriminator check would compare against known values in production
+    const _discriminator = bytes.slice(0, 8);
     return {
       type: 'complete_task_private',
       taskId: bytes.readUInt32LE(8),
