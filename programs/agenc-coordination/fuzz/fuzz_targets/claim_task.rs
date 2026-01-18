@@ -304,4 +304,67 @@ mod edge_cases {
         let result = simulate_claim_task(&mut task, &mut worker, 100);
         assert!(result.is_error());
     }
+
+    /// Test that deadline = 0 means no deadline (always claimable if other conditions met)
+    #[test]
+    fn test_claim_no_deadline() {
+        let mut task = SimulatedTask {
+            status: task_status::OPEN,
+            max_workers: 5,
+            deadline: 0, // No deadline
+            ..Default::default()
+        };
+
+        let mut worker = SimulatedAgent {
+            status: 1,
+            capabilities: 0xFF,
+            ..Default::default()
+        };
+
+        // Should succeed even with very large timestamp
+        let result = simulate_claim_task(&mut task, &mut worker, i64::MAX);
+        assert!(result.is_success());
+    }
+
+    /// Test claim exactly at deadline boundary (should fail)
+    #[test]
+    fn test_claim_exactly_at_deadline() {
+        let mut task = SimulatedTask {
+            status: task_status::OPEN,
+            max_workers: 5,
+            deadline: 1000,
+            ..Default::default()
+        };
+
+        let mut worker = SimulatedAgent {
+            status: 1,
+            capabilities: 0xFF,
+            ..Default::default()
+        };
+
+        // At exactly deadline should fail
+        let result = simulate_claim_task(&mut task, &mut worker, 1000);
+        assert!(result.is_error());
+    }
+
+    /// Test claim one timestamp before deadline (should succeed)
+    #[test]
+    fn test_claim_just_before_deadline() {
+        let mut task = SimulatedTask {
+            status: task_status::OPEN,
+            max_workers: 5,
+            deadline: 1000,
+            ..Default::default()
+        };
+
+        let mut worker = SimulatedAgent {
+            status: 1,
+            capabilities: 0xFF,
+            ..Default::default()
+        };
+
+        // One before deadline should succeed
+        let result = simulate_claim_task(&mut task, &mut worker, 999);
+        assert!(result.is_success());
+    }
 }

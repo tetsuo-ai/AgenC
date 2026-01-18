@@ -373,4 +373,108 @@ mod edge_cases {
         assert_eq!(dispute.votes_against, 1);
         assert_eq!(dispute.votes_for, 0);
     }
+
+    /// Test vote exactly at voting deadline boundary (should fail)
+    #[test]
+    fn test_vote_exactly_at_deadline() {
+        let mut dispute = SimulatedDispute {
+            status: dispute_status::ACTIVE,
+            voting_deadline: 1000,
+            ..Default::default()
+        };
+
+        let arbiter = SimulatedAgent {
+            capabilities: 1 << 7,
+            status: 1,
+            stake: 1_000_000,
+            ..Default::default()
+        };
+
+        let config = SimulatedConfig {
+            min_arbiter_stake: 0,
+            ..Default::default()
+        };
+
+        // Exactly at deadline should fail (D3: voting window enforcement)
+        let result = simulate_vote_dispute(&mut dispute, &arbiter, &config, true, 1000);
+        assert!(result.is_error());
+    }
+
+    /// Test vote one timestamp before deadline (should succeed)
+    #[test]
+    fn test_vote_just_before_deadline() {
+        let mut dispute = SimulatedDispute {
+            status: dispute_status::ACTIVE,
+            voting_deadline: 1000,
+            ..Default::default()
+        };
+
+        let arbiter = SimulatedAgent {
+            capabilities: 1 << 7,
+            status: 1,
+            stake: 1_000_000,
+            ..Default::default()
+        };
+
+        let config = SimulatedConfig {
+            min_arbiter_stake: 0,
+            ..Default::default()
+        };
+
+        // One before deadline should succeed
+        let result = simulate_vote_dispute(&mut dispute, &arbiter, &config, true, 999);
+        assert!(result.is_success());
+    }
+
+    /// Test vote with exact minimum stake requirement
+    #[test]
+    fn test_vote_exact_min_stake() {
+        let mut dispute = SimulatedDispute {
+            status: dispute_status::ACTIVE,
+            voting_deadline: 1000,
+            ..Default::default()
+        };
+
+        let arbiter = SimulatedAgent {
+            capabilities: 1 << 7,
+            status: 1,
+            stake: 1_000_000, // Exact minimum
+            ..Default::default()
+        };
+
+        let config = SimulatedConfig {
+            min_arbiter_stake: 1_000_000,
+            ..Default::default()
+        };
+
+        // Exact minimum stake should succeed
+        let result = simulate_vote_dispute(&mut dispute, &arbiter, &config, true, 100);
+        assert!(result.is_success());
+    }
+
+    /// Test vote with one less than minimum stake (should fail)
+    #[test]
+    fn test_vote_below_min_stake() {
+        let mut dispute = SimulatedDispute {
+            status: dispute_status::ACTIVE,
+            voting_deadline: 1000,
+            ..Default::default()
+        };
+
+        let arbiter = SimulatedAgent {
+            capabilities: 1 << 7,
+            status: 1,
+            stake: 999_999, // One below minimum
+            ..Default::default()
+        };
+
+        let config = SimulatedConfig {
+            min_arbiter_stake: 1_000_000,
+            ..Default::default()
+        };
+
+        // Below minimum stake should fail
+        let result = simulate_vote_dispute(&mut dispute, &arbiter, &config, true, 100);
+        assert!(result.is_error());
+    }
 }
