@@ -38,7 +38,34 @@ const STEPS = [
 ]
 
 // RPC endpoint configuration - use environment variable with fallback for demo
-const DEVNET_RPC = import.meta.env.VITE_SOLANA_RPC_URL || 'https://api.devnet.solana.com'
+// Security: Validate and sanitize RPC URL to prevent injection attacks
+const getRpcEndpoint = (): string => {
+  const customRpc = import.meta.env.VITE_SOLANA_RPC_URL
+  const defaultRpc = 'https://api.devnet.solana.com'
+
+  if (!customRpc) {
+    return defaultRpc
+  }
+
+  try {
+    const url = new URL(customRpc)
+    // Security: Warn if non-HTTPS endpoint is used in production-like environment
+    if (url.protocol !== 'https:' && !url.hostname.includes('localhost') && !url.hostname.includes('127.0.0.1')) {
+      console.warn('[Security] Non-HTTPS RPC endpoint detected. Use HTTPS in production.')
+    }
+    // Only allow http/https protocols
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+      console.error('[Security] Invalid RPC URL protocol. Using default endpoint.')
+      return defaultRpc
+    }
+    return customRpc
+  } catch {
+    console.error('[Security] Invalid RPC URL format. Using default endpoint.')
+    return defaultRpc
+  }
+}
+
+const DEVNET_RPC = getRpcEndpoint()
 
 // Connection error state type
 interface ConnectionState {
