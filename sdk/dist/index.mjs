@@ -1,6 +1,7 @@
 // src/client.ts
 import { Connection as Connection2, LAMPORTS_PER_SOL as LAMPORTS_PER_SOL2 } from "@solana/web3.js";
 import { Program, AnchorProvider, Wallet } from "@coral-xyz/anchor";
+import * as path2 from "path";
 
 // src/privacy.ts
 import { Connection, PublicKey as PublicKey2, Transaction, LAMPORTS_PER_SOL } from "@solana/web3.js";
@@ -42,6 +43,19 @@ var SEEDS = {
 };
 
 // src/privacy.ts
+function validateCircuitPath(circuitPath) {
+  if (path.isAbsolute(circuitPath)) {
+    throw new Error("Security: Absolute circuit paths are not allowed");
+  }
+  const normalized = path.normalize(circuitPath);
+  if (normalized.startsWith("..") || normalized.includes("../")) {
+    throw new Error("Security: Path traversal in circuit path is not allowed");
+  }
+  const dangerousChars = /[;&|`$(){}[\]<>!]/;
+  if (dangerousChars.test(circuitPath)) {
+    throw new Error("Security: Circuit path contains disallowed characters");
+  }
+}
 var PrivacyCashClass = null;
 var loadAttempted = false;
 var loadError = null;
@@ -83,6 +97,7 @@ var AgenCPrivacyClient = class {
   rpcUrl;
   privacyCashLoaded = false;
   constructor(connection, program, circuitPath = "./circuits/task_completion", rpcUrl) {
+    validateCircuitPath(circuitPath);
     this.connection = connection;
     this.program = program;
     this.circuitPath = circuitPath;
@@ -179,6 +194,7 @@ var AgenCPrivacyClient = class {
    */
   async generateTaskCompletionProof(params) {
     const { taskId, agentPubkey, constraintHash, outputCommitment, output, salt } = params;
+    validateCircuitPath(this.circuitPath);
     const proverToml = this.generateProverToml({
       taskId,
       agentPubkey: Array.from(agentPubkey.toBytes()),
@@ -189,16 +205,16 @@ var AgenCPrivacyClient = class {
     });
     const proverPath = path.join(this.circuitPath, "Prover.toml");
     fs.writeFileSync(proverPath, proverToml);
-    execSync("nargo execute", { cwd: this.circuitPath });
+    execSync("nargo execute", { cwd: this.circuitPath, stdio: "pipe", timeout: 12e4 });
     execSync(
       "sunspot prove target/task_completion.ccs target/task_completion.pk target/task_completion.gz -o target/task_completion.proof",
-      { cwd: this.circuitPath }
+      { cwd: this.circuitPath, stdio: "pipe", timeout: 3e5 }
     );
     const zkProof = fs.readFileSync(
       path.join(this.circuitPath, "target/task_completion.proof")
     );
     const publicWitness = fs.readFileSync(
-      path.join(this.circuitPath, "target/task_completion.pw")
+      path.join(this.circuitPath, "target/task_completion.gz")
     );
     return { zkProof, publicWitness };
   }
@@ -234,9 +250,20 @@ var AgenCPrivacyClient = class {
   }
   /**
    * Compute Poseidon commitment for output
+   *
+   * SECURITY WARNING: This is a placeholder implementation that returns 0n.
+   * In production, this MUST use a real Poseidon2 implementation that matches
+   * the Noir circuit's poseidon2_permutation function.
+   *
+   * @throws Error in production mode (NODE_ENV=production)
    */
   async computeCommitment(output, salt) {
-    console.log("Computing commitment...");
+    if (process.env.NODE_ENV === "production") {
+      throw new Error(
+        "Security: computeCommitment placeholder cannot be used in production. Implement Poseidon2 hash matching the Noir circuit."
+      );
+    }
+    console.warn("[SECURITY WARNING] Using placeholder computeCommitment - NOT FOR PRODUCTION");
     return BigInt(0);
   }
   /**
@@ -266,6 +293,16 @@ salt = "${params.salt}"
 };
 
 // src/client.ts
+function isValidCircuitPath(circuitPath) {
+  if (path2.isAbsolute(circuitPath)) {
+    return false;
+  }
+  const normalized = path2.normalize(circuitPath);
+  if (normalized.startsWith("..") || normalized.includes("../")) {
+    return false;
+  }
+  return true;
+}
 var PrivacyClient = class {
   connection;
   program = null;
@@ -273,9 +310,13 @@ var PrivacyClient = class {
   config;
   wallet = null;
   constructor(config = {}) {
+    const circuitPath = config.circuitPath || "./circuits/task_completion";
+    if (!isValidCircuitPath(circuitPath)) {
+      throw new Error("Invalid circuit path: path traversal or absolute paths not allowed");
+    }
     this.config = {
       devnet: false,
-      circuitPath: "./circuits/task_completion",
+      circuitPath,
       debug: false,
       ...config
     };
@@ -286,7 +327,7 @@ var PrivacyClient = class {
     }
     if (this.config.debug) {
       console.log("PrivacyClient initialized");
-      console.log("  RPC:", rpcUrl);
+      console.log("  Network:", this.config.devnet ? "devnet" : "mainnet");
       console.log("  Circuit:", this.config.circuitPath);
     }
   }
@@ -313,7 +354,8 @@ var PrivacyClient = class {
       console.warn("No IDL provided - some features may not be available");
     }
     if (this.config.debug) {
-      console.log("Wallet initialized:", wallet.publicKey.toBase58());
+      const pubkey = wallet.publicKey.toBase58();
+      console.log("Wallet initialized:", pubkey.substring(0, 8) + "..." + pubkey.substring(pubkey.length - 4));
     }
     if (this.program) {
       this.privacyClient = new AgenCPrivacyClient(
@@ -392,9 +434,22 @@ var PrivacyClient = class {
 
 // src/proofs.ts
 import * as fs2 from "fs";
-import * as path2 from "path";
+import * as path3 from "path";
 import { execSync as execSync2 } from "child_process";
 import { poseidon2Hash } from "@zkpassport/poseidon2";
+function validateCircuitPath2(circuitPath) {
+  if (path3.isAbsolute(circuitPath)) {
+    throw new Error("Security: Absolute circuit paths are not allowed");
+  }
+  const normalized = path3.normalize(circuitPath);
+  if (normalized.startsWith("..") || normalized.includes("../")) {
+    throw new Error("Security: Path traversal in circuit path is not allowed");
+  }
+  const dangerousChars = /[;&|`$(){}[\]<>!]/;
+  if (dangerousChars.test(circuitPath)) {
+    throw new Error("Security: Circuit path contains disallowed characters");
+  }
+}
 var FIELD_MODULUS = 21888242871839275222246405745257275088548364400416034343698204186575808495617n;
 var FIELD_HEX_LENGTH = HASH_SIZE * 2;
 var BYTE_BASE = 256n;
@@ -460,21 +515,29 @@ salt = "${params.salt.toString()}"
 }
 async function generateProof(params) {
   const circuitPath = params.circuitPath || DEFAULT_CIRCUIT_PATH;
+  validateCircuitPath2(circuitPath);
   const startTime = Date.now();
   const expectedBindingBigint = computeExpectedBinding(
     params.taskPda,
     params.agentPubkey,
     params.outputCommitment
   );
-  fs2.writeFileSync(path2.join(circuitPath, "Prover.toml"), generateProverToml(params));
+  const proverTomlPath = path3.join(circuitPath, "Prover.toml");
+  const proofOutputPath = path3.join(circuitPath, "target/task_completion.proof");
+  const witnessPath = path3.join(circuitPath, "target/task_completion.gz");
+  const targetDir = path3.join(circuitPath, "target");
+  if (!fs2.existsSync(targetDir)) {
+    fs2.mkdirSync(targetDir, { recursive: true });
+  }
+  fs2.writeFileSync(proverTomlPath, generateProverToml(params));
   try {
-    execSync2("nargo execute", { cwd: circuitPath, stdio: "pipe" });
+    execSync2("nargo execute", { cwd: circuitPath, stdio: "pipe", timeout: 12e4 });
     execSync2(
       "sunspot prove target/task_completion.ccs target/task_completion.pk target/task_completion.gz -o target/task_completion.proof",
-      { cwd: circuitPath, stdio: "pipe" }
+      { cwd: circuitPath, stdio: "pipe", timeout: 3e5 }
     );
-    const proof = fs2.readFileSync(path2.join(circuitPath, "target/task_completion.proof"));
-    const publicWitness = fs2.readFileSync(path2.join(circuitPath, "target/task_completion.gz"));
+    const proof = fs2.readFileSync(proofOutputPath);
+    const publicWitness = fs2.readFileSync(witnessPath);
     const expectedBinding = bigintToBytes32(expectedBindingBigint);
     return {
       proof,
@@ -493,14 +556,18 @@ function bigintToBytes32(value) {
   return Buffer.from(hex, "hex");
 }
 async function verifyProofLocally(proof, publicWitness, circuitPath = DEFAULT_CIRCUIT_PATH) {
-  const proofPath = path2.join(circuitPath, "target/verify_test.proof");
-  const witnessPath = path2.join(circuitPath, "target/verify_test.pw");
+  validateCircuitPath2(circuitPath);
+  const uniqueSuffix = `${Date.now()}_${Math.random().toString(36).substring(2, 10)}`;
+  const proofPath = path3.join(circuitPath, `target/verify_test_${uniqueSuffix}.proof`);
+  const witnessPath = path3.join(circuitPath, `target/verify_test_${uniqueSuffix}.pw`);
+  const relativeProofPath = `target/verify_test_${uniqueSuffix}.proof`;
+  const relativeWitnessPath = `target/verify_test_${uniqueSuffix}.pw`;
   fs2.writeFileSync(proofPath, proof);
   fs2.writeFileSync(witnessPath, publicWitness);
   try {
     execSync2(
-      `sunspot verify target/task_completion.ccs target/task_completion.vk ${proofPath} ${witnessPath}`,
-      { cwd: circuitPath, stdio: "pipe" }
+      `sunspot verify target/task_completion.ccs target/task_completion.vk ${relativeProofPath} ${relativeWitnessPath}`,
+      { cwd: circuitPath, stdio: "pipe", timeout: 6e4 }
     );
     return true;
   } catch {
