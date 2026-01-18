@@ -74,7 +74,7 @@ fn run_claim_task_fuzz(iterations: usize) -> (usize, usize) {
     for i in 0..iterations {
         let input = any::<ClaimTaskInput>()
             .new_tree(&mut runner)
-            .unwrap()
+            .expect("Failed to generate ClaimTaskInput")
             .current();
 
         let mut task = SimulatedTask {
@@ -124,7 +124,7 @@ fn run_complete_task_fuzz(iterations: usize) -> (usize, usize) {
     for i in 0..iterations {
         let input = any::<CompleteTaskInput>()
             .new_tree(&mut runner)
-            .unwrap()
+            .expect("Failed to generate CompleteTaskInput")
             .current();
 
         // Ensure escrow amount >= reward to avoid trivial failures
@@ -194,7 +194,7 @@ fn run_vote_dispute_fuzz(iterations: usize) -> (usize, usize) {
     for i in 0..iterations {
         let input = any::<VoteDisputeInput>()
             .new_tree(&mut runner)
-            .unwrap()
+            .expect("Failed to generate VoteDisputeInput")
             .current();
 
         let mut dispute = SimulatedDispute {
@@ -259,7 +259,7 @@ fn run_resolve_dispute_fuzz(iterations: usize) -> (usize, usize) {
     for i in 0..iterations {
         let input = any::<ResolveDisputeInput>()
             .new_tree(&mut runner)
-            .unwrap()
+            .expect("Failed to generate ResolveDisputeInput")
             .current();
 
         // Ensure we have at least one vote
