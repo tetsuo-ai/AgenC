@@ -161,6 +161,9 @@ export async function createTask(
     .signers([creator])
     .rpc();
 
+  // Security: Wait for transaction confirmation before returning
+  await connection.confirmTransaction(tx, 'confirmed');
+
   return { taskId, txSignature: tx };
 }
 
@@ -192,6 +195,9 @@ export async function claimTask(
     })
     .signers([agent])
     .rpc();
+
+  // Security: Wait for transaction confirmation before returning
+  await connection.confirmTransaction(tx, 'confirmed');
 
   return { txSignature: tx };
 }
@@ -226,6 +232,9 @@ export async function completeTask(
     })
     .signers([worker])
     .rpc();
+
+  // Security: Wait for transaction confirmation before returning
+  await connection.confirmTransaction(tx, 'confirmed');
 
   return { txSignature: tx };
 }
@@ -285,6 +294,9 @@ export async function completeTaskPrivate(
     .signers([worker])
     .rpc();
 
+  // Security: Wait for transaction confirmation before returning
+  await connection.confirmTransaction(tx, 'confirmed');
+
   return { txSignature: tx };
 }
 
@@ -300,13 +312,30 @@ export async function getTask(
 
   try {
     const task = await getAccount(program, 'task').fetch(taskPda);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const taskData = task as any;
+
+    // Security: Type guard to validate fetched account data structure
+    interface TaskAccountData {
+      state?: number;
+      creator?: PublicKey;
+      escrowLamports?: { toNumber: () => number };
+      deadline?: { toNumber: () => number };
+      constraintHash?: number[] | Uint8Array | null;
+      claimedBy?: PublicKey | null;
+      completedAt?: { toNumber: () => number } | null;
+    }
+
+    const taskData = task as TaskAccountData;
+
+    // Validate required fields exist
+    if (taskData.creator === undefined || taskData.state === undefined) {
+      console.warn('Task account data missing required fields');
+      return null;
+    }
 
     return {
       taskId,
       state: taskData.state as TaskState,
-      creator: taskData.creator as PublicKey,
+      creator: taskData.creator,
       escrowLamports: taskData.escrowLamports?.toNumber() || 0,
       deadline: taskData.deadline?.toNumber() || 0,
       constraintHash: taskData.constraintHash
@@ -337,20 +366,43 @@ export async function getTasksByCreator(
     },
   ]);
 
-  return tasks.map((t: { account: unknown; publicKey: PublicKey }, idx: number) => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const data = t.account as any;
-    return {
-      taskId: idx, // This is simplified; actual ID would need proper extraction
+  // Security: Type guard for task account data
+  interface TaskAccountData {
+    state?: number;
+    creator?: PublicKey;
+    escrowLamports?: { toNumber: () => number };
+    deadline?: { toNumber: () => number };
+    constraintHash?: number[] | Uint8Array | null;
+    claimedBy?: PublicKey | null;
+    completedAt?: { toNumber: () => number } | null;
+    taskId?: { toNumber: () => number };
+  }
+
+  const result: TaskStatus[] = [];
+
+  for (let idx = 0; idx < tasks.length; idx++) {
+    const t = tasks[idx];
+    const data = t.account as TaskAccountData;
+
+    // Validate required fields exist
+    if (data.creator === undefined || data.state === undefined) {
+      console.warn(`Task at index ${idx} missing required fields, skipping`);
+      continue;
+    }
+
+    result.push({
+      taskId: data.taskId?.toNumber() ?? idx, // Use actual taskId if available, fallback to index
       state: data.state as TaskState,
-      creator: data.creator as PublicKey,
+      creator: data.creator,
       escrowLamports: data.escrowLamports?.toNumber() || 0,
       deadline: data.deadline?.toNumber() || 0,
       constraintHash: data.constraintHash ? Buffer.from(data.constraintHash) : null,
       claimedBy: data.claimedBy || null,
       completedAt: data.completedAt?.toNumber() || null,
-    };
-  });
+    });
+  }
+
+  return result;
 }
 
 /**

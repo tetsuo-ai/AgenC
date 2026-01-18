@@ -140,10 +140,20 @@ export class PrivacyClient {
 
   /**
    * Shield SOL into the privacy pool
+   * @param lamports - Amount in lamports to shield (must be positive integer)
+   * @throws Error if lamports is invalid or client not initialized
    */
   async shield(lamports: number): Promise<{ txSignature: string; amount: number }> {
     if (!this.wallet || !this.privacyClient) {
       throw new Error('Client not initialized. Call init() first.');
+    }
+
+    // Security: Validate lamports input to prevent unexpected behavior
+    if (!Number.isInteger(lamports) || lamports <= 0) {
+      throw new Error('Invalid lamports amount: must be a positive integer');
+    }
+    if (lamports > Number.MAX_SAFE_INTEGER) {
+      throw new Error('Lamports amount exceeds safe integer limit');
     }
 
     const result = await this.privacyClient.shieldEscrow(this.wallet, lamports);
