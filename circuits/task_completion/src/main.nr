@@ -27,6 +27,9 @@ fn hash_2(a: Field, b: Field) -> Field {
 }
 
 // Convert 32-byte array to field element (big-endian interpretation)
+// WARNING: Values exceeding the BN254 field modulus (~2^254) will wrap.
+// This is acceptable for Ed25519 pubkeys and typical task_ids, but callers
+// should ensure inputs don't exceed the modulus to avoid potential collisions.
 fn bytes_to_field(bytes: [u8; 32]) -> Field {
     let mut field: Field = 0;
     for i in 0..PUBKEY_SIZE {
@@ -49,11 +52,11 @@ fn main(
 ) {
     // 1. Verify output satisfies the task constraint
     let computed_constraint = hash_4(output);
-    assert(computed_constraint == constraint_hash);
+    assert(computed_constraint == constraint_hash, "Output hash does not match constraint_hash");
 
     // 2. Verify the commitment is correctly formed
     let computed_commitment = hash_2(computed_constraint, salt);
-    assert(computed_commitment == output_commitment);
+    assert(computed_commitment == output_commitment, "Commitment does not match output_commitment");
 
     // 3. Bind proof to task and agent
     let task_field = bytes_to_field(task_id);
@@ -62,7 +65,7 @@ fn main(
     let full_binding = hash_2(binding, output_commitment);
 
     // CRITICAL: Assert binding matches expected (prevents replay attacks)
-    assert(full_binding == expected_binding);
+    assert(full_binding == expected_binding, "Binding mismatch - possible replay attack");
 }
 
 // Helper to compute expected binding for tests
