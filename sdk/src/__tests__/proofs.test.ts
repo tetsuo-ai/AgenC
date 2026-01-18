@@ -16,23 +16,9 @@ import {
   computeConstraintHash,
   computeCommitment,
   generateSalt,
+  FIELD_MODULUS,
 } from '../proofs';
 import { OUTPUT_FIELD_COUNT, HASH_SIZE } from '../constants';
-
-/**
- * BN254 scalar field modulus.
- *
- * SECURITY NOTE: This constant is duplicated from proofs.ts because it is not exported.
- * If proofs.ts exports FIELD_MODULUS in the future, this should be imported
- * to maintain a single source of truth and prevent inconsistencies.
- *
- * WARNING: If this value differs from proofs.ts, tests may pass while production
- * code uses a different modulus, leading to cryptographic failures.
- *
- * Value must equal: 21888242871839275222246405745257275088548364400416034343698204186575808495617n
- * This is the BN254 (alt-bn128) scalar field order.
- */
-const FIELD_MODULUS = 21888242871839275222246405745257275088548364400416034343698204186575808495617n;
 
 describe('proofs', () => {
   describe('pubkeyToField', () => {
