@@ -3251,7 +3251,7 @@ describe("test_1", () => {
         const taskId = Buffer.from("auth-task-008".padEnd(32, "\0"));
         const taskPda = deriveTaskPda(creator.publicKey, taskId);
         const escrowPda = deriveEscrowPda(taskPda);
-        const disputeId = Buffer.from("dispute-001".padEnd(32, "\0"));
+        const disputeId = Buffer.from(`dispute-001-${runId}`.padEnd(32, "\0"));
         const disputePda = deriveDisputePda(disputeId);
 
         await program.methods
@@ -3358,7 +3358,7 @@ describe("test_1", () => {
         const taskId = Buffer.from("auth-task-009".padEnd(32, "\0"));
         const taskPda = deriveTaskPda(creator.publicKey, taskId);
         const escrowPda = deriveEscrowPda(taskPda);
-        const disputeId = Buffer.from("dispute-002".padEnd(32, "\0"));
+        const disputeId = Buffer.from(`dispute-002-${runId}`.padEnd(32, "\0"));
         const disputePda = deriveDisputePda(disputeId);
 
         await program.methods
@@ -3451,7 +3451,7 @@ describe("test_1", () => {
         const taskId = Buffer.from("auth-task-010".padEnd(32, "\0"));
         const taskPda = deriveTaskPda(creator.publicKey, taskId);
         const escrowPda = deriveEscrowPda(taskPda);
-        const disputeId = Buffer.from("dispute-003".padEnd(32, "\0"));
+        const disputeId = Buffer.from(`dispute-003-${runId}`.padEnd(32, "\0"));
         const disputePda = deriveDisputePda(disputeId);
 
         await program.methods
@@ -3540,7 +3540,7 @@ describe("test_1", () => {
         const taskId = Buffer.from("auth-task-011".padEnd(32, "\0"));
         const taskPda = deriveTaskPda(creator.publicKey, taskId);
         const escrowPda = deriveEscrowPda(taskPda);
-        const disputeId = Buffer.from("dispute-004".padEnd(32, "\0"));
+        const disputeId = Buffer.from(`dispute-004-${runId}`.padEnd(32, "\0"));
         const disputePda = deriveDisputePda(disputeId);
 
         await program.methods
@@ -3629,7 +3629,7 @@ describe("test_1", () => {
         const taskId = Buffer.from("auth-task-012".padEnd(32, "\0"));
         const taskPda = deriveTaskPda(creator.publicKey, taskId);
         const escrowPda = deriveEscrowPda(taskPda);
-        const disputeId = Buffer.from("dispute-005".padEnd(32, "\0"));
+        const disputeId = Buffer.from(`dispute-005-${runId}`.padEnd(32, "\0"));
         const disputePda = deriveDisputePda(disputeId);
 
         await program.methods
@@ -4808,10 +4808,10 @@ describe("test_1", () => {
     describe("Valid dispute initiation", () => {
       it("Can dispute InProgress task", async () => {
         const worker = await createFreshWorker();
-        const taskId = Buffer.from("dispute-valid-001".padEnd(32, "\0"));
+        const taskId = Buffer.from(`dispute-valid-001-${runId}`.padEnd(32, "\0"));
         const taskPda = deriveTaskPda(creator.publicKey, taskId);
         const escrowPda = deriveEscrowPda(taskPda);
-        const disputeId = Buffer.from("dispute-v-001".padEnd(32, "\0"));
+        const disputeId = Buffer.from(`dispute-v-001-${runId}`.padEnd(32, "\0"));
         const disputePda = deriveDisputePda(disputeId);
 
         await program.methods
@@ -4879,10 +4879,10 @@ describe("test_1", () => {
 
       it("Dispute creates with correct voting_deadline (24 hours from creation)", async () => {
         const worker = await createFreshWorker();
-        const taskId = Buffer.from("dispute-valid-002".padEnd(32, "\0"));
+        const taskId = Buffer.from(`dispute-valid-002-${runId}`.padEnd(32, "\0"));
         const taskPda = deriveTaskPda(creator.publicKey, taskId);
         const escrowPda = deriveEscrowPda(taskPda);
-        const disputeId = Buffer.from("dispute-v-002".padEnd(32, "\0"));
+        const disputeId = Buffer.from(`dispute-v-002-${runId}`.padEnd(32, "\0"));
         const disputePda = deriveDisputePda(disputeId);
 
         await program.methods
@@ -4949,10 +4949,10 @@ describe("test_1", () => {
 
       it("Task status changes to Disputed after initiation", async () => {
         const worker = await createFreshWorker();
-        const taskId = Buffer.from("dispute-valid-003".padEnd(32, "\0"));
+        const taskId = Buffer.from(`dispute-valid-003-${runId}`.padEnd(32, "\0"));
         const taskPda = deriveTaskPda(creator.publicKey, taskId);
         const escrowPda = deriveEscrowPda(taskPda);
-        const disputeId = Buffer.from("dispute-v-003".padEnd(32, "\0"));
+        const disputeId = Buffer.from(`dispute-v-003-${runId}`.padEnd(32, "\0"));
         const disputePda = deriveDisputePda(disputeId);
 
         await program.methods
@@ -5015,10 +5015,10 @@ describe("test_1", () => {
       it("All resolution types (0, 1, 2) are accepted", async () => {
         const worker = await createFreshWorker();
         // Test resolution type 0 (Refund)
-        const taskId0 = Buffer.from("dispute-valid-004a".padEnd(32, "\0"));
+        const taskId0 = Buffer.from(`dispute-valid-004a-${runId}`.padEnd(32, "\0"));
         const taskPda0 = deriveTaskPda(creator.publicKey, taskId0);
         const escrowPda0 = deriveEscrowPda(taskPda0);
-        const disputeId0 = Buffer.from("dispute-v-004a".padEnd(32, "\0"));
+        const disputeId0 = Buffer.from(`dispute-v-004a-${runId}`.padEnd(32, "\0"));
         const disputePda0 = deriveDisputePda(disputeId0);
 
         await program.methods.createTask(
@@ -5058,10 +5058,10 @@ describe("test_1", () => {
     describe("Invalid task states for dispute", () => {
       it("Cannot dispute Open task", async () => {
         const worker = await createFreshWorker();
-        const taskId = Buffer.from("dispute-inv-001".padEnd(32, "\0"));
+        const taskId = Buffer.from(`dispute-inv-001-${runId}`.padEnd(32, "\0"));
         const taskPda = deriveTaskPda(creator.publicKey, taskId);
         const escrowPda = deriveEscrowPda(taskPda);
-        const disputeId = Buffer.from("dispute-i-001".padEnd(32, "\0"));
+        const disputeId = Buffer.from(`dispute-i-001-${runId}`.padEnd(32, "\0"));
         const disputePda = deriveDisputePda(disputeId);
 
         await program.methods
@@ -5121,10 +5121,10 @@ describe("test_1", () => {
 
       it("Cannot dispute Completed task", async () => {
         const worker = await createFreshWorker();
-        const taskId = Buffer.from("dispute-inv-002".padEnd(32, "\0"));
+        const taskId = Buffer.from(`dispute-inv-002-${runId}`.padEnd(32, "\0"));
         const taskPda = deriveTaskPda(creator.publicKey, taskId);
         const escrowPda = deriveEscrowPda(taskPda);
-        const disputeId = Buffer.from("dispute-i-002".padEnd(32, "\0"));
+        const disputeId = Buffer.from(`dispute-i-002-${runId}`.padEnd(32, "\0"));
         const disputePda = deriveDisputePda(disputeId);
 
         await program.methods
@@ -5196,10 +5196,10 @@ describe("test_1", () => {
 
       it("Cannot dispute Cancelled task", async () => {
         const worker = await createFreshWorker();
-        const taskId = Buffer.from("dispute-inv-003".padEnd(32, "\0"));
+        const taskId = Buffer.from(`dispute-inv-003-${runId}`.padEnd(32, "\0"));
         const taskPda = deriveTaskPda(creator.publicKey, taskId);
         const escrowPda = deriveEscrowPda(taskPda);
-        const disputeId = Buffer.from("dispute-i-003".padEnd(32, "\0"));
+        const disputeId = Buffer.from(`dispute-i-003-${runId}`.padEnd(32, "\0"));
         const disputePda = deriveDisputePda(disputeId);
 
         await program.methods
@@ -5265,12 +5265,12 @@ describe("test_1", () => {
       it("Cannot dispute already Disputed task (duplicate dispute)", async () => {
         const worker = await createFreshWorker();
         const worker2 = await createFreshWorker();
-        const taskId = Buffer.from("dispute-inv-004".padEnd(32, "\0"));
+        const taskId = Buffer.from(`dispute-inv-004-${runId}`.padEnd(32, "\0"));
         const taskPda = deriveTaskPda(creator.publicKey, taskId);
         const escrowPda = deriveEscrowPda(taskPda);
-        const disputeId1 = Buffer.from("dispute-i-004a".padEnd(32, "\0"));
+        const disputeId1 = Buffer.from(`dispute-i-004a-${runId}`.padEnd(32, "\0"));
         const disputePda1 = deriveDisputePda(disputeId1);
-        const disputeId2 = Buffer.from("dispute-i-004b".padEnd(32, "\0"));
+        const disputeId2 = Buffer.from(`dispute-i-004b-${runId}`.padEnd(32, "\0"));
         const disputePda2 = deriveDisputePda(disputeId2);
 
         await program.methods
@@ -5399,10 +5399,10 @@ describe("test_1", () => {
         expect(agent.status).to.deep.equal({ inactive: {} });
 
         // Create a task for dispute
-        const taskId = Buffer.from("dispute-inv-005".padEnd(32, "\0"));
+        const taskId = Buffer.from(`dispute-inv-005-${runId}`.padEnd(32, "\0"));
         const taskPda = deriveTaskPda(creator.publicKey, taskId);
         const escrowPda = deriveEscrowPda(taskPda);
-        const disputeId = Buffer.from("dispute-i-005".padEnd(32, "\0"));
+        const disputeId = Buffer.from(`dispute-i-005-${runId}`.padEnd(32, "\0"));
         const disputePda = deriveDisputePda(disputeId);
 
         await program.methods
@@ -5465,10 +5465,10 @@ describe("test_1", () => {
       });
 
       it("Wrong agent authority rejected", async () => {
-        const taskId = Buffer.from("dispute-inv-006".padEnd(32, "\0"));
+        const taskId = Buffer.from(`dispute-inv-006-${runId}`.padEnd(32, "\0"));
         const taskPda = deriveTaskPda(creator.publicKey, taskId);
         const escrowPda = deriveEscrowPda(taskPda);
-        const disputeId = Buffer.from("dispute-i-006".padEnd(32, "\0"));
+        const disputeId = Buffer.from(`dispute-i-006-${runId}`.padEnd(32, "\0"));
         const disputePda = deriveDisputePda(disputeId);
 
         await program.methods
@@ -5535,10 +5535,10 @@ describe("test_1", () => {
 
     describe("Invalid resolution type", () => {
       it("resolution_type > 2 is rejected", async () => {
-        const taskId = Buffer.from("dispute-inv-007".padEnd(32, "\0"));
+        const taskId = Buffer.from(`dispute-inv-007-${runId}`.padEnd(32, "\0"));
         const taskPda = deriveTaskPda(creator.publicKey, taskId);
         const escrowPda = deriveEscrowPda(taskPda);
-        const disputeId = Buffer.from("dispute-i-007".padEnd(32, "\0"));
+        const disputeId = Buffer.from(`dispute-i-007-${runId}`.padEnd(32, "\0"));
         const disputePda = deriveDisputePda(disputeId);
 
         await program.methods
@@ -5629,10 +5629,10 @@ describe("test_1", () => {
 
     describe("Dispute initialization details", () => {
       it("Dispute fields are correctly initialized", async () => {
-        const taskId = Buffer.from("dispute-detail-001".padEnd(32, "\0"));
+        const taskId = Buffer.from(`dispute-detail-001-${runId}`.padEnd(32, "\0"));
         const taskPda = deriveTaskPda(creator.publicKey, taskId);
         const escrowPda = deriveEscrowPda(taskPda);
-        const disputeId = Buffer.from("dispute-d-001".padEnd(32, "\0"));
+        const disputeId = Buffer.from(`dispute-d-001-${runId}`.padEnd(32, "\0"));
         const disputePda = deriveDisputePda(disputeId);
         const evidenceHash = Buffer.from("my-evidence-hash-12345".padEnd(32, "\0"));
 
@@ -5710,10 +5710,10 @@ describe("test_1", () => {
       it("Only agents with ARBITER capability (1 << 7 = 128) can vote", async () => {
         const worker = await createFreshWorker();
         // Create task and dispute
-        const taskId = Buffer.from("vote-test-001".padEnd(32, "\0"));
+        const taskId = Buffer.from(`vote-test-001-${runId}`.padEnd(32, "\0"));
         const taskPda = deriveTaskPda(creator.publicKey, taskId);
         const escrowPda = deriveEscrowPda(taskPda);
-        const disputeId = Buffer.from("vote-d-001".padEnd(32, "\0"));
+        const disputeId = Buffer.from(`vote-d-001-${runId}`.padEnd(32, "\0"));
         const disputePda = deriveDisputePda(disputeId);
 
         await program.methods.createTask(
@@ -5788,10 +5788,10 @@ describe("test_1", () => {
       it("Arbiter must have sufficient stake (>= protocol_config.min_arbiter_stake)", async () => {
         const worker = await createFreshWorker();
         // Create task and dispute
-        const taskId = Buffer.from("vote-test-002".padEnd(32, "\0"));
+        const taskId = Buffer.from(`vote-test-002-${runId}`.padEnd(32, "\0"));
         const taskPda = deriveTaskPda(creator.publicKey, taskId);
         const escrowPda = deriveEscrowPda(taskPda);
-        const disputeId = Buffer.from("vote-d-002".padEnd(32, "\0"));
+        const disputeId = Buffer.from(`vote-d-002-${runId}`.padEnd(32, "\0"));
         const disputePda = deriveDisputePda(disputeId);
 
         await program.methods.createTask(
@@ -5857,10 +5857,10 @@ describe("test_1", () => {
       it("Cannot vote after voting_deadline", async () => {
         const worker = await createFreshWorker();
         // Create task and dispute with short deadline (simulated by using past time check)
-        const taskId = Buffer.from("vote-test-003".padEnd(32, "\0"));
+        const taskId = Buffer.from(`vote-test-003-${runId}`.padEnd(32, "\0"));
         const taskPda = deriveTaskPda(creator.publicKey, taskId);
         const escrowPda = deriveEscrowPda(taskPda);
-        const disputeId = Buffer.from("vote-d-003".padEnd(32, "\0"));
+        const disputeId = Buffer.from(`vote-d-003-${runId}`.padEnd(32, "\0"));
         const disputePda = deriveDisputePda(disputeId);
 
         await program.methods.createTask(
@@ -5919,10 +5919,10 @@ describe("test_1", () => {
       it("Cannot vote twice on same dispute (PDA prevents duplicate vote accounts)", async () => {
         const worker = await createFreshWorker();
         // Create task and dispute
-        const taskId = Buffer.from("vote-test-004".padEnd(32, "\0"));
+        const taskId = Buffer.from(`vote-test-004-${runId}`.padEnd(32, "\0"));
         const taskPda = deriveTaskPda(creator.publicKey, taskId);
         const escrowPda = deriveEscrowPda(taskPda);
-        const disputeId = Buffer.from("vote-d-004".padEnd(32, "\0"));
+        const disputeId = Buffer.from(`vote-d-004-${runId}`.padEnd(32, "\0"));
         const disputePda = deriveDisputePda(disputeId);
 
         await program.methods.createTask(
@@ -6008,10 +6008,10 @@ describe("test_1", () => {
 
         // Check initial vote counts would be 0 on new dispute
         // Create task and dispute
-        const taskId = Buffer.from("vote-test-005".padEnd(32, "\0"));
+        const taskId = Buffer.from(`vote-test-005-${runId}`.padEnd(32, "\0"));
         const taskPda = deriveTaskPda(creator.publicKey, taskId);
         const escrowPda = deriveEscrowPda(taskPda);
-        const disputeId = Buffer.from("vote-d-005".padEnd(32, "\0"));
+        const disputeId = Buffer.from(`vote-d-005-${runId}`.padEnd(32, "\0"));
         const disputePda = deriveDisputePda(disputeId);
 
         await program.methods.createTask(
@@ -6050,10 +6050,10 @@ describe("test_1", () => {
       it("Active agent status required to vote", async () => {
         const worker = await createFreshWorker();
         // Create task and dispute
-        const taskId = Buffer.from("vote-test-006".padEnd(32, "\0"));
+        const taskId = Buffer.from(`vote-test-006-${runId}`.padEnd(32, "\0"));
         const taskPda = deriveTaskPda(creator.publicKey, taskId);
         const escrowPda = deriveEscrowPda(taskPda);
-        const disputeId = Buffer.from("vote-d-006".padEnd(32, "\0"));
+        const disputeId = Buffer.from(`vote-d-006-${runId}`.padEnd(32, "\0"));
         const disputePda = deriveDisputePda(disputeId);
 
         await program.methods.createTask(
@@ -6130,10 +6130,10 @@ describe("test_1", () => {
     describe("Resolution tests", () => {
       it("Cannot resolve before voting_deadline", async () => {
         const worker = await createFreshWorker();
-        const taskId = Buffer.from("resolve-test-001".padEnd(32, "\0"));
+        const taskId = Buffer.from(`resolve-test-001-${runId}`.padEnd(32, "\0"));
         const taskPda = deriveTaskPda(creator.publicKey, taskId);
         const escrowPda = deriveEscrowPda(taskPda);
-        const disputeId = Buffer.from("resolve-d-001".padEnd(32, "\0"));
+        const disputeId = Buffer.from(`resolve-d-001-${runId}`.padEnd(32, "\0"));
         const disputePda = deriveDisputePda(disputeId);
 
         await program.methods.createTask(
@@ -6180,10 +6180,10 @@ describe("test_1", () => {
         const worker = await createFreshWorker();
         // This test requires waiting for voting deadline - covered in existing tests
         // Verify the logic exists by checking dispute state
-        const taskId = Buffer.from("resolve-test-002".padEnd(32, "\0"));
+        const taskId = Buffer.from(`resolve-test-002-${runId}`.padEnd(32, "\0"));
         const taskPda = deriveTaskPda(creator.publicKey, taskId);
         const escrowPda = deriveEscrowPda(taskPda);
-        const disputeId = Buffer.from("resolve-d-002".padEnd(32, "\0"));
+        const disputeId = Buffer.from(`resolve-d-002-${runId}`.padEnd(32, "\0"));
         const disputePda = deriveDisputePda(disputeId);
 
         await program.methods.createTask(
@@ -6220,10 +6220,10 @@ describe("test_1", () => {
         const worker = await createFreshWorker();
         // This functionality is tested in the existing resolve_dispute tests
         // Verify dispute starts as Active
-        const taskId = Buffer.from("resolve-test-003".padEnd(32, "\0"));
+        const taskId = Buffer.from(`resolve-test-003-${runId}`.padEnd(32, "\0"));
         const taskPda = deriveTaskPda(creator.publicKey, taskId);
         const escrowPda = deriveEscrowPda(taskPda);
-        const disputeId = Buffer.from("resolve-d-003".padEnd(32, "\0"));
+        const disputeId = Buffer.from(`resolve-d-003-${runId}`.padEnd(32, "\0"));
         const disputePda = deriveDisputePda(disputeId);
 
         await program.methods.createTask(
