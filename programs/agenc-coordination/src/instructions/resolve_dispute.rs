@@ -212,6 +212,17 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
             let vote_info = &ctx.remaining_accounts[i];
             let arbiter_info = &ctx.remaining_accounts[i + 1];
 
+            // CRITICAL: Validate account ownership before deserialization (fix: unsafe deserialization)
+            // Without this check, attackers could pass fake accounts not owned by this program
+            require!(
+                vote_info.owner == &crate::ID,
+                CoordinationError::InvalidAccountOwner
+            );
+            require!(
+                arbiter_info.owner == &crate::ID,
+                CoordinationError::InvalidAccountOwner
+            );
+
             // Validate vote account
             let vote_data = vote_info.try_borrow_data()?;
             let vote = DisputeVote::try_deserialize(&mut &vote_data[8..])?;
