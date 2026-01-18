@@ -384,6 +384,7 @@ describe("rate-limiting", () => {
   describe("Stake Requirement for Disputes", () => {
     let lowStakeAgentId: Buffer;
     let lowStakeAgentPda: PublicKey;
+    let lowStakeWorkerAuthority: Keypair;  // Store the authority keypair for use in tests
 
     before(async () => {
       lowStakeAgentId = Buffer.from("agent-lowstake-001".padEnd(32, "\0"));
@@ -392,9 +393,9 @@ describe("rate-limiting", () => {
         program.programId
       );
 
-      const lowStakeWorker = Keypair.generate();
+      lowStakeWorkerAuthority = Keypair.generate();
       await provider.connection.confirmTransaction(
-        await provider.connection.requestAirdrop(lowStakeWorker.publicKey, 10 * LAMPORTS_PER_SOL),
+        await provider.connection.requestAirdrop(lowStakeWorkerAuthority.publicKey, 10 * LAMPORTS_PER_SOL),
         "confirmed"
       );
 
@@ -410,9 +411,9 @@ describe("rate-limiting", () => {
         .accountsPartial({
           agent: lowStakeAgentPda,
           protocolConfig: protocolPda,
-          authority: lowStakeWorker.publicKey,
+          authority: lowStakeWorkerAuthority.publicKey,
         })
-        .signers([lowStakeWorker])
+        .signers([lowStakeWorkerAuthority])
         .rpc();
     });
 
@@ -456,13 +457,8 @@ describe("rate-limiting", () => {
         program.programId
       );
 
-      const lowStakeWorker = Keypair.generate();
-      await provider.connection.confirmTransaction(
-        await provider.connection.requestAirdrop(lowStakeWorker.publicKey, 2 * LAMPORTS_PER_SOL),
-        "confirmed"
-      );
-
       // Agent has 0 stake, but protocol requires 0.5 SOL minimum
+      // Use the same authority that registered the lowStakeAgent
       try {
         await program.methods
           .initiateDispute(
@@ -476,10 +472,10 @@ describe("rate-limiting", () => {
             task: taskPda,
             agent: lowStakeAgentPda,
             protocolConfig: protocolPda,
-            authority: lowStakeWorker.publicKey,
+            authority: lowStakeWorkerAuthority.publicKey,
             systemProgram: SystemProgram.programId,
           })
-          .signers([lowStakeWorker])
+          .signers([lowStakeWorkerAuthority])
           .rpc();
         expect.fail("Should have failed due to insufficient stake");
       } catch (e: any) {
