@@ -37,6 +37,15 @@ const STEPS = [
   { id: 6, title: 'Private Withdraw', description: 'Receive unlinkable payment' },
 ]
 
+// Trusted RPC endpoints allowlist for production security
+const TRUSTED_RPC_DOMAINS = [
+  'api.devnet.solana.com',
+  'api.testnet.solana.com',
+  'api.mainnet-beta.solana.com',
+  'localhost',
+  '127.0.0.1',
+]
+
 // RPC endpoint configuration - use environment variable with fallback for demo
 // Security: Validate and sanitize RPC URL to prevent injection attacks
 const getRpcEndpoint = (): string => {
@@ -49,15 +58,30 @@ const getRpcEndpoint = (): string => {
 
   try {
     const url = new URL(customRpc)
-    // Security: Warn if non-HTTPS endpoint is used in production-like environment
-    if (url.protocol !== 'https:' && !url.hostname.includes('localhost') && !url.hostname.includes('127.0.0.1')) {
-      console.warn('[Security] Non-HTTPS RPC endpoint detected. Use HTTPS in production.')
-    }
-    // Only allow http/https protocols
+
+    // Security: Only allow http/https protocols
     if (url.protocol !== 'http:' && url.protocol !== 'https:') {
       console.error('[Security] Invalid RPC URL protocol. Using default endpoint.')
       return defaultRpc
     }
+
+    // Security: Warn if non-HTTPS endpoint is used in production-like environment
+    const isLocalhost = url.hostname === 'localhost' || url.hostname === '127.0.0.1'
+    if (url.protocol !== 'https:' && !isLocalhost) {
+      console.warn('[Security] Non-HTTPS RPC endpoint detected. Use HTTPS in production.')
+    }
+
+    // Security: Check if domain is in trusted allowlist (configurable via env)
+    const allowCustomDomains = import.meta.env.VITE_ALLOW_CUSTOM_RPC === 'true'
+    const isTrustedDomain = TRUSTED_RPC_DOMAINS.some(domain =>
+      url.hostname === domain || url.hostname.endsWith('.' + domain)
+    )
+
+    if (!isTrustedDomain && !allowCustomDomains) {
+      console.warn('[Security] RPC URL domain not in trusted allowlist. Set VITE_ALLOW_CUSTOM_RPC=true to allow custom domains.')
+      return defaultRpc
+    }
+
     return customRpc
   } catch {
     console.error('[Security] Invalid RPC URL format. Using default endpoint.')
@@ -100,7 +124,7 @@ function App() {
     try {
       const conn = new Connection(DEVNET_RPC, {
         commitment: 'confirmed',
-        confirmTransactionInitialTimeout: 60000,
+        confirmTransactionInitialTimeout: Number(import.meta.env.VITE_TX_TIMEOUT) || 60000,
       })
       // Verify connection is working by fetching slot
       await conn.getSlot()
@@ -147,6 +171,8 @@ function App() {
       proofData: '',
       txSignatures: {},
     })
+    // Re-initialize connection to ensure clean state
+    initializeConnection()
   }
 
   const updateTaskState = (updates: Partial<TaskState>) => {
