@@ -133,7 +133,10 @@ pub fn update_worker_state(
         .total_earned
         .checked_add(reward)
         .ok_or(CoordinationError::ArithmeticOverflow)?;
-    worker.active_tasks = worker.active_tasks.saturating_sub(1);
+    worker.active_tasks = worker
+        .active_tasks
+        .checked_sub(1)
+        .ok_or(CoordinationError::ArithmeticOverflow)?;
     worker.last_active = timestamp;
     worker.reputation = worker
         .reputation

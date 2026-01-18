@@ -58,6 +58,11 @@ pub fn handler(
                     protocol_config_info.key() == expected_pda,
                     CoordinationError::InvalidInput
                 );
+                // Validate account ownership before deserializing (defense in depth)
+                require!(
+                    protocol_config_info.owner == ctx.program_id,
+                    CoordinationError::InvalidAccountOwner
+                );
                 let protocol_data = protocol_config_info.try_borrow_data()?;
                 let config = ProtocolConfig::try_deserialize(&mut &protocol_data[8..])?;
                 require!(

@@ -52,7 +52,10 @@ pub fn handler(ctx: Context<ExpireClaim>) -> Result<()> {
     );
 
     // Decrement task worker count
-    task.current_workers = task.current_workers.saturating_sub(1);
+    task.current_workers = task
+        .current_workers
+        .checked_sub(1)
+        .ok_or(CoordinationError::ArithmeticOverflow)?;
 
     // Reopen task if no workers left
     if task.current_workers == 0 {
@@ -60,7 +63,10 @@ pub fn handler(ctx: Context<ExpireClaim>) -> Result<()> {
     }
 
     // Decrement worker active tasks
-    worker.active_tasks = worker.active_tasks.saturating_sub(1);
+    worker.active_tasks = worker
+        .active_tasks
+        .checked_sub(1)
+        .ok_or(CoordinationError::ArithmeticOverflow)?;
 
     Ok(())
 }
