@@ -100,7 +100,10 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
     }
 
     // Calculate total votes and check threshold
-    let total_votes = dispute.votes_for.saturating_add(dispute.votes_against);
+    let total_votes = dispute
+        .votes_for
+        .checked_add(dispute.votes_against)
+        .ok_or(CoordinationError::ArithmeticOverflow)?;
     require!(total_votes > 0, CoordinationError::InsufficientVotes);
 
     // Calculate approval percentage

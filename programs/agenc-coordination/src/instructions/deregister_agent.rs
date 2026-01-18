@@ -51,7 +51,10 @@ pub fn handler(ctx: Context<DeregisterAgent>) -> Result<()> {
 
     // Update protocol stats
     let config = &mut ctx.accounts.protocol_config;
-    config.total_agents = config.total_agents.saturating_sub(1);
+    config.total_agents = config
+        .total_agents
+        .checked_sub(1)
+        .ok_or(CoordinationError::ArithmeticOverflow)?;
 
     emit!(AgentDeregistered {
         agent_id: agent.agent_id,
