@@ -25,6 +25,28 @@ import { PublicKey } from '@solana/web3.js';
 import { poseidon2Hash } from '@zkpassport/poseidon2';
 import { HASH_SIZE, OUTPUT_FIELD_COUNT } from './constants';
 
+/**
+ * Validates a circuit path to prevent path traversal and command injection.
+ * @param circuitPath - The circuit path to validate
+ * @throws Error if the path is invalid
+ */
+function validateCircuitPath(circuitPath: string): void {
+  // Disallow absolute paths
+  if (path.isAbsolute(circuitPath)) {
+    throw new Error('Security: Absolute circuit paths are not allowed');
+  }
+  // Normalize and check for traversal attempts
+  const normalized = path.normalize(circuitPath);
+  if (normalized.startsWith('..') || normalized.includes('../')) {
+    throw new Error('Security: Path traversal in circuit path is not allowed');
+  }
+  // Check for shell metacharacters that could enable command injection
+  const dangerousChars = /[;&|`$(){}[\]<>!]/;
+  if (dangerousChars.test(circuitPath)) {
+    throw new Error('Security: Circuit path contains disallowed characters');
+  }
+}
+
 /** BN254 scalar field modulus - must match Noir's field for Poseidon2 compatibility */
 const FIELD_MODULUS = 21888242871839275222246405745257275088548364400416034343698204186575808495617n;
 
@@ -148,6 +170,10 @@ salt = "${params.salt.toString()}"
 
 export async function generateProof(params: ProofGenerationParams): Promise<ProofResult> {
   const circuitPath = params.circuitPath || DEFAULT_CIRCUIT_PATH;
+
+  // Security: Validate circuit path to prevent command injection and path traversal
+  validateCircuitPath(circuitPath);
+
   const startTime = Date.now();
 
   const expectedBindingBigint = computeExpectedBinding(
@@ -156,17 +182,30 @@ export async function generateProof(params: ProofGenerationParams): Promise<Proo
     params.outputCommitment
   );
 
-  fs.writeFileSync(path.join(circuitPath, 'Prover.toml'), generateProverToml(params));
+  // Security: Use path.join to construct safe file paths
+  const proverTomlPath = path.join(circuitPath, 'Prover.toml');
+  const proofOutputPath = path.join(circuitPath, 'target/task_completion.proof');
+  const witnessPath = path.join(circuitPath, 'target/task_completion.gz');
+
+  // Security: Verify the target directory exists before writing
+  const targetDir = path.join(circuitPath, 'target');
+  if (!fs.existsSync(targetDir)) {
+    fs.mkdirSync(targetDir, { recursive: true });
+  }
+
+  fs.writeFileSync(proverTomlPath, generateProverToml(params));
 
   try {
-    execSync('nargo execute', { cwd: circuitPath, stdio: 'pipe' });
+    // Security: Use cwd option to confine command execution to circuit directory
+    // Commands are hardcoded to prevent injection
+    execSync('nargo execute', { cwd: circuitPath, stdio: 'pipe', timeout: 120000 });
     execSync(
       'sunspot prove target/task_completion.ccs target/task_completion.pk target/task_completion.gz -o target/task_completion.proof',
-      { cwd: circuitPath, stdio: 'pipe' }
+      { cwd: circuitPath, stdio: 'pipe', timeout: 300000 }
     );
 
-    const proof = fs.readFileSync(path.join(circuitPath, 'target/task_completion.proof'));
-    const publicWitness = fs.readFileSync(path.join(circuitPath, 'target/task_completion.gz'));
+    const proof = fs.readFileSync(proofOutputPath);
+    const publicWitness = fs.readFileSync(witnessPath);
     const expectedBinding = bigintToBytes32(expectedBindingBigint);
 
     return {
@@ -192,16 +231,26 @@ export async function verifyProofLocally(
   publicWitness: Buffer,
   circuitPath: string = DEFAULT_CIRCUIT_PATH
 ): Promise<boolean> {
-  const proofPath = path.join(circuitPath, 'target/verify_test.proof');
-  const witnessPath = path.join(circuitPath, 'target/verify_test.pw');
+  // Security: Validate circuit path to prevent command injection and path traversal
+  validateCircuitPath(circuitPath);
+
+  // Security: Use unique filenames to avoid race conditions with concurrent verifications
+  const uniqueSuffix = `${Date.now()}_${Math.random().toString(36).substring(2, 10)}`;
+  const proofPath = path.join(circuitPath, `target/verify_test_${uniqueSuffix}.proof`);
+  const witnessPath = path.join(circuitPath, `target/verify_test_${uniqueSuffix}.pw`);
+
+  // Security: Derive relative paths for the command to avoid path injection
+  const relativeProofPath = `target/verify_test_${uniqueSuffix}.proof`;
+  const relativeWitnessPath = `target/verify_test_${uniqueSuffix}.pw`;
 
   fs.writeFileSync(proofPath, proof);
   fs.writeFileSync(witnessPath, publicWitness);
 
   try {
+    // Security: Use hardcoded command structure with controlled relative paths
     execSync(
-      `sunspot verify target/task_completion.ccs target/task_completion.vk ${proofPath} ${witnessPath}`,
-      { cwd: circuitPath, stdio: 'pipe' }
+      `sunspot verify target/task_completion.ccs target/task_completion.vk ${relativeProofPath} ${relativeWitnessPath}`,
+      { cwd: circuitPath, stdio: 'pipe', timeout: 60000 }
     );
     return true;
   } catch {

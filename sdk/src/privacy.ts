@@ -6,6 +6,28 @@ import { execSync } from 'child_process';
 import type { PrivacyCash, PrivacyCashConfig } from 'privacycash';
 import { HASH_SIZE, VERIFIER_PROGRAM_ID } from './constants';
 
+/**
+ * Validates a circuit path to prevent path traversal and command injection.
+ * @param circuitPath - The circuit path to validate
+ * @throws Error if the path is invalid
+ */
+function validateCircuitPath(circuitPath: string): void {
+  // Disallow absolute paths
+  if (path.isAbsolute(circuitPath)) {
+    throw new Error('Security: Absolute circuit paths are not allowed');
+  }
+  // Normalize and check for traversal attempts
+  const normalized = path.normalize(circuitPath);
+  if (normalized.startsWith('..') || normalized.includes('../')) {
+    throw new Error('Security: Path traversal in circuit path is not allowed');
+  }
+  // Check for shell metacharacters that could enable command injection
+  const dangerousChars = /[;&|`$(){}[\]<>!]/;
+  if (dangerousChars.test(circuitPath)) {
+    throw new Error('Security: Circuit path contains disallowed characters');
+  }
+}
+
 // Re-export types for external use
 export type { PrivacyCashConfig };
 
@@ -83,6 +105,9 @@ export class AgenCPrivacyClient {
         circuitPath: string = './circuits/task_completion',
         rpcUrl?: string
     ) {
+        // Security: Validate circuit path to prevent path traversal
+        validateCircuitPath(circuitPath);
+
         this.connection = connection;
         this.program = program;
         this.circuitPath = circuitPath;
@@ -217,7 +242,10 @@ export class AgenCPrivacyClient {
         salt: bigint;
     }): Promise<{ zkProof: Buffer; publicWitness: Buffer }> {
         const { taskId, agentPubkey, constraintHash, outputCommitment, output, salt } = params;
-        
+
+        // Security: Re-validate circuit path before use
+        validateCircuitPath(this.circuitPath);
+
         // Write Prover.toml with actual values
         const proverToml = this.generateProverToml({
             taskId,
@@ -227,25 +255,26 @@ export class AgenCPrivacyClient {
             output: output.map(o => o.toString()),
             salt: salt.toString(),
         });
-        
+
         const proverPath = path.join(this.circuitPath, 'Prover.toml');
         fs.writeFileSync(proverPath, proverToml);
-        
-        // Execute Noir circuit to generate witness
-        execSync('nargo execute', { cwd: this.circuitPath });
-        
+
+        // Security: Execute with timeouts and confined cwd to prevent runaway processes
+        execSync('nargo execute', { cwd: this.circuitPath, stdio: 'pipe', timeout: 120000 });
+
         // Generate proof using Sunspot
-        execSync('sunspot prove target/task_completion.ccs target/task_completion.pk target/task_completion.gz -o target/task_completion.proof', 
-            { cwd: this.circuitPath });
-        
+        execSync('sunspot prove target/task_completion.ccs target/task_completion.pk target/task_completion.gz -o target/task_completion.proof',
+            { cwd: this.circuitPath, stdio: 'pipe', timeout: 300000 });
+
         // Read proof and public witness
         const zkProof = fs.readFileSync(
             path.join(this.circuitPath, 'target/task_completion.proof')
         );
+        // Note: Use .gz extension to match the actual witness file (not .pw)
         const publicWitness = fs.readFileSync(
-            path.join(this.circuitPath, 'target/task_completion.pw')
+            path.join(this.circuitPath, 'target/task_completion.gz')
         );
-        
+
         return { zkProof, publicWitness };
     }
     
@@ -300,14 +329,25 @@ export class AgenCPrivacyClient {
     
     /**
      * Compute Poseidon commitment for output
+     *
+     * SECURITY WARNING: This is a placeholder implementation that returns 0n.
+     * In production, this MUST use a real Poseidon2 implementation that matches
+     * the Noir circuit's poseidon2_permutation function.
+     *
+     * @throws Error in production mode (NODE_ENV=production)
      */
     private async computeCommitment(output: bigint[], salt: bigint): Promise<bigint> {
+        // Security: Fail in production if using placeholder
+        if (process.env.NODE_ENV === 'production') {
+            throw new Error(
+                'Security: computeCommitment placeholder cannot be used in production. ' +
+                'Implement Poseidon2 hash matching the Noir circuit.'
+            );
+        }
+
         // TODO: Use actual Poseidon hash implementation
         // This should match the circuit's poseidon::bn254::hash_5
-        
-        // For now, placeholder
-        // In production, use a JS Poseidon implementation that matches Noir's
-        console.log('Computing commitment...');
+        console.warn('[SECURITY WARNING] Using placeholder computeCommitment - NOT FOR PRODUCTION');
         return BigInt(0);
     }
     
@@ -348,19 +388,47 @@ salt = "${params.salt}"
     }
 }
 
-// Helper to compute constraint hash from expected output using poseidon2
+/**
+ * Helper to compute constraint hash from expected output using poseidon2
+ *
+ * SECURITY WARNING: This is a placeholder that returns an empty buffer.
+ * In production, this MUST use Poseidon2 matching the Noir circuit.
+ *
+ * @throws Error in production mode (NODE_ENV=production)
+ */
 export function computeConstraintHash(expectedOutput: bigint[]): Buffer {
-    // In production, use a JS poseidon2 implementation matching Noir's
-    // For now, this should be computed off-chain with matching algorithm
-    // The hash is: poseidon2_permutation([output[0], output[1], output[2], output[3]], 4)[0]
-    console.warn('computeConstraintHash: Use poseidon2 implementation matching Noir circuit');
+    // Security: Fail in production if using placeholder
+    if (process.env.NODE_ENV === 'production') {
+        throw new Error(
+            'Security: computeConstraintHash placeholder cannot be used in production. ' +
+            'Implement Poseidon2 hash matching the Noir circuit: ' +
+            'poseidon2_permutation([output[0], output[1], output[2], output[3]], 4)[0]'
+        );
+    }
+
+    console.warn('[SECURITY WARNING] computeConstraintHash: Using placeholder - NOT FOR PRODUCTION');
     return Buffer.alloc(HASH_SIZE);
 }
 
-// Helper to compute output commitment
+/**
+ * Helper to compute output commitment
+ *
+ * SECURITY WARNING: This is a placeholder that returns an empty buffer.
+ * In production, this MUST use Poseidon2 matching the Noir circuit.
+ *
+ * @throws Error in production mode (NODE_ENV=production)
+ */
 export function computeOutputCommitment(constraintHash: bigint, salt: bigint): Buffer {
-    // In production, use: poseidon2_permutation([constraintHash, salt, 0, 0], 4)[0]
-    console.warn('computeOutputCommitment: Use poseidon2 implementation matching Noir circuit');
+    // Security: Fail in production if using placeholder
+    if (process.env.NODE_ENV === 'production') {
+        throw new Error(
+            'Security: computeOutputCommitment placeholder cannot be used in production. ' +
+            'Implement Poseidon2 hash matching the Noir circuit: ' +
+            'poseidon2_permutation([constraintHash, salt, 0, 0], 4)[0]'
+        );
+    }
+
+    console.warn('[SECURITY WARNING] computeOutputCommitment: Using placeholder - NOT FOR PRODUCTION');
     return Buffer.alloc(HASH_SIZE);
 }
 
@@ -374,8 +442,14 @@ export function computeOutputCommitment(constraintHash: bigint, salt: bigint): B
  * 4. Worker submits proof and receives private payment
  */
 async function demo() {
-    // Use Helius RPC for performance (Helius bounty integration)
-    const HELIUS_API_KEY = process.env.HELIUS_API_KEY || 'YOUR_HELIUS_API_KEY';
+    // Security: Require API key from environment variable - never use hardcoded placeholders
+    const HELIUS_API_KEY = process.env.HELIUS_API_KEY;
+    if (!HELIUS_API_KEY) {
+        throw new Error(
+            'Security: HELIUS_API_KEY environment variable is required. ' +
+            'Set it before running the demo: export HELIUS_API_KEY=your_key_here'
+        );
+    }
     const rpcUrl = `https://mainnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}`;
     const connection = new Connection(rpcUrl);
 
