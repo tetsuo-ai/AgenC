@@ -137,9 +137,15 @@ pub fn simulate_claim_task(
 
     // Execute the claim
     let old_status = task.status;
-    task.current_workers = task.current_workers.saturating_add(1);
+    task.current_workers = match task.current_workers.checked_add(1) {
+        Some(w) => w,
+        None => return SimulationResult::Error("ArithmeticOverflow: current_workers".to_string()),
+    };
     task.status = task_status::IN_PROGRESS;
-    worker.active_tasks = worker.active_tasks.saturating_add(1);
+    worker.active_tasks = match worker.active_tasks.checked_add(1) {
+        Some(a) => a,
+        None => return SimulationResult::Error("ArithmeticOverflow: active_tasks".to_string()),
+    };
 
     // Post-condition invariant checks
 
@@ -234,7 +240,10 @@ pub fn simulate_complete_task(
     let old_distributed = escrow.distributed;
     escrow.distributed = new_distributed;
 
-    task.completions = task.completions.saturating_add(1);
+    task.completions = match task.completions.checked_add(1) {
+        Some(c) => c,
+        None => return SimulationResult::Error("ArithmeticOverflow: completions".to_string()),
+    };
 
     let task_completed = task.completions >= task.required_completions;
     let old_status = task.status;
@@ -244,13 +253,22 @@ pub fn simulate_complete_task(
     }
 
     // Update worker stats
-    worker.tasks_completed = worker.tasks_completed.saturating_add(1);
-    worker.total_earned = worker.total_earned.saturating_add(worker_reward);
-    worker.active_tasks = worker.active_tasks.saturating_sub(1);
+    worker.tasks_completed = match worker.tasks_completed.checked_add(1) {
+        Some(c) => c,
+        None => return SimulationResult::Error("ArithmeticOverflow: tasks_completed".to_string()),
+    };
+    worker.total_earned = match worker.total_earned.checked_add(worker_reward) {
+        Some(e) => e,
+        None => return SimulationResult::Error("ArithmeticOverflow: total_earned".to_string()),
+    };
+    worker.active_tasks = match worker.active_tasks.checked_sub(1) {
+        Some(a) => a,
+        None => return SimulationResult::Error("ArithmeticUnderflow: active_tasks".to_string()),
+    };
 
-    // R1 & R3: Update reputation
+    // R1 & R3: Update reputation (capped at 10000)
     let old_reputation = worker.reputation;
-    worker.reputation = worker.reputation.saturating_add(100).min(10000);
+    worker.reputation = worker.reputation.checked_add(100).unwrap_or(10000).min(10000);
 
     // Post-condition invariant checks
 
@@ -396,7 +414,10 @@ pub fn simulate_resolve_dispute(
     }
 
     // Check we have votes
-    let total_votes = dispute.votes_for.saturating_add(dispute.votes_against);
+    let total_votes = match dispute.votes_for.checked_add(dispute.votes_against) {
+        Some(t) => t,
+        None => return SimulationResult::Error("ArithmeticOverflow: total_votes".to_string()),
+    };
     if total_votes == 0 {
         return SimulationResult::Error("InsufficientVotes".to_string());
     }
@@ -445,7 +466,14 @@ pub fn simulate_resolve_dispute(
     }
 
     dispute.status = dispute_status::RESOLVED;
-    escrow.distributed = escrow.distributed.saturating_add(remaining_funds);
+    escrow.distributed = match escrow.distributed.checked_add(remaining_funds) {
+        Some(d) => d,
+        None => {
+            return SimulationResult::InvariantViolation(
+                "E3: distributed overflow when adding remaining funds".to_string(),
+            )
+        }
+    };
     escrow.is_closed = true;
 
     // Post-condition invariant checks
