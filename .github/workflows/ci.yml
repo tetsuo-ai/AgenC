@@ -54,6 +54,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            pkg-config \
+            libudev-dev \
+            llvm \
+            libclang-dev \
+            protobuf-compiler \
+            libssl-dev
+
       - name: Install Node
         uses: actions/setup-node@v4
         with:
@@ -87,7 +99,7 @@ jobs:
       - name: Install Anchor CLI
         run: |
           set -euxo pipefail
-          # Download prebuilt anchor binary directly (bypasses avm issues)
+          # Download prebuilt anchor binary (bypasses avm/cargo compilation issues)
           ANCHOR_URL="https://github.com/solana-foundation/anchor/releases/download/v${{ env.ANCHOR_VERSION }}/anchor-${{ env.ANCHOR_VERSION }}-x86_64-unknown-linux-gnu"
           curl -fL "$ANCHOR_URL" -o /tmp/anchor
           chmod +x /tmp/anchor
