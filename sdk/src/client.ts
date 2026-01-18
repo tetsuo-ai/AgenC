@@ -5,7 +5,7 @@
  */
 
 import { Connection, PublicKey, Keypair, LAMPORTS_PER_SOL } from '@solana/web3.js';
-import { Program, AnchorProvider, Wallet } from '@coral-xyz/anchor';
+import { Program, AnchorProvider, Wallet, Idl } from '@coral-xyz/anchor';
 import { AgenCPrivacyClient } from './privacy';
 import { PROGRAM_ID, VERIFIER_PROGRAM_ID, DEVNET_RPC, MAINNET_RPC } from './constants';
 
@@ -20,6 +20,8 @@ export interface PrivacyClientConfig {
   wallet?: Keypair;
   /** Enable debug logging */
   debug?: boolean;
+  /** Program IDL (required for full functionality) */
+  idl?: Idl;
 }
 
 export class PrivacyClient {
@@ -52,9 +54,11 @@ export class PrivacyClient {
   }
 
   /**
-   * Initialize the client with a wallet
+   * Initialize the client with a wallet and optional IDL
+   * @param wallet - The wallet keypair to use for signing
+   * @param idl - Optional IDL for the AgenC program (required for full functionality)
    */
-  async init(wallet: Keypair): Promise<void> {
+  async init(wallet: Keypair, idl?: Idl): Promise<void> {
     this.wallet = wallet;
 
     // Create Anchor provider and program
@@ -65,20 +69,31 @@ export class PrivacyClient {
       { commitment: 'confirmed' }
     );
 
-    // Load program IDL (in production, fetch from chain or bundle)
-    // For now, we'll work without the full program interface
+    // Initialize program if IDL is provided
+    const programIdl = idl || this.config.idl;
+    if (programIdl) {
+      this.program = new Program(programIdl, provider);
+      if (this.config.debug) {
+        console.log('Program initialized with IDL');
+      }
+    } else if (this.config.debug) {
+      console.warn('No IDL provided - some features may not be available');
+    }
+
     if (this.config.debug) {
       console.log('Wallet initialized:', wallet.publicKey.toBase58());
     }
 
-    // Initialize privacy client
-    this.privacyClient = new AgenCPrivacyClient(
-      this.connection,
-      this.program!,
-      this.config.circuitPath,
-      this.connection.rpcEndpoint
-    );
-    await this.privacyClient.initPrivacyCash(wallet);
+    // Initialize privacy client only if program is available
+    if (this.program) {
+      this.privacyClient = new AgenCPrivacyClient(
+        this.connection,
+        this.program,
+        this.config.circuitPath,
+        this.connection.rpcEndpoint
+      );
+      await this.privacyClient.initPrivacyCash(wallet);
+    }
   }
 
   /**
