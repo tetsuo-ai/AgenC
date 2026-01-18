@@ -48,7 +48,7 @@ function validateCircuitPath(circuitPath: string): void {
 }
 
 /** BN254 scalar field modulus - must match Noir's field for Poseidon2 compatibility */
-const FIELD_MODULUS = 21888242871839275222246405745257275088548364400416034343698204186575808495617n;
+export const FIELD_MODULUS = 21888242871839275222246405745257275088548364400416034343698204186575808495617n;
 
 /** Bytes required for a 256-bit field element in hex (64 hex chars = 32 bytes) */
 const FIELD_HEX_LENGTH = HASH_SIZE * 2;
