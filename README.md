@@ -3,8 +3,8 @@
 A decentralized multi-agent coordination protocol on Solana with privacy-preserving task completion using zero-knowledge proofs.
 
 [![Twitter](https://img.shields.io/badge/Twitter-Follow%20%407etsuo-1DA1F2)](https://x.com/7etsuo)
-[![Discord](https://img.shields.io/badge/Discord-Join%20Our%20Community-7289DA)](https://discord.gg/tetsuo-ai)
 
+**Tetsuo CA:**: `8i51XNNpGaKaj4G4nDdmQh95v4FKAxw8mhtaRoKd9tE8`
 **Program ID**: `EopUaCV2svxj9j4hd7KjbrWfdjkspmm2BCBe7jGpKzKZ`
 
 ## Features
