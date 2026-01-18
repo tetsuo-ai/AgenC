@@ -24,6 +24,9 @@ describe("rate-limiting", () => {
   const CAPABILITY_COMPUTE = 1 << 0;
 
   const TASK_TYPE_EXCLUSIVE = 0;
+
+  // Evidence must be at least 50 characters per initiate_dispute.rs requirements
+  const VALID_EVIDENCE = "This is valid dispute evidence that exceeds the minimum 50 character requirement for the dispute system.";
   const creatorAgentId = Buffer.from("agent-ratelimit-task001".padEnd(32, "\0"));
 
   before(async () => {
@@ -307,7 +310,8 @@ describe("rate-limiting", () => {
           Array.from(disputeId),
           Array.from(taskId),
           Array.from(Buffer.from("evidence".padEnd(32, "\0"))),
-          0 // REFUND
+          0, // REFUND
+          VALID_EVIDENCE
         )
         .accountsPartial({
           dispute: disputePda,
@@ -342,7 +346,8 @@ describe("rate-limiting", () => {
             Array.from(disputeId),
             Array.from(taskId),
             Array.from(Buffer.from("evidence".padEnd(32, "\0"))),
-            0
+            0,
+            VALID_EVIDENCE
           )
           .accountsPartial({
             dispute: disputePda,
@@ -481,7 +486,8 @@ describe("rate-limiting", () => {
             Array.from(disputeId),
             Array.from(taskId),
             Array.from(Buffer.from("evidence".padEnd(32, "\0"))),
-            0
+            0,
+            VALID_EVIDENCE
           )
           .accountsPartial({
             dispute: disputePda,
