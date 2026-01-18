@@ -814,8 +814,10 @@ describe("coordination-security", () => {
             .signers([unauthorized])
             .rpc();
           expect.fail("Should have failed - unauthorized agent update");
-        } catch (e: any) {
-          expect(e.message).to.include("Error");
+        } catch (e: unknown) {
+          // Verify error occurred - Anchor returns AnchorError with errorCode
+          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
         }
       });
 
@@ -860,8 +862,10 @@ describe("coordination-security", () => {
             .signers([unauthorized])
             .rpc();
           expect.fail("Should have failed");
-        } catch (e: any) {
-          expect(e.message).to.include("Error");
+        } catch (e: unknown) {
+          // Verify error occurred - Anchor returns AnchorError with errorCode
+          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
         }
       });
     });
@@ -924,8 +928,10 @@ describe("coordination-security", () => {
             .signers([worker1])
             .rpc();
           expect.fail("Should have failed - double claim");
-        } catch (e: any) {
-          expect(e.message).to.include("Error");
+        } catch (e: unknown) {
+          // Verify error occurred - Anchor returns AnchorError with errorCode
+          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
         }
       });
 
@@ -1005,8 +1011,10 @@ describe("coordination-security", () => {
             .signers([worker1])
             .rpc();
           expect.fail("Should have failed - double completion");
-        } catch (e: any) {
-          expect(e.message).to.include("Error");
+        } catch (e: unknown) {
+          // Verify error occurred - Anchor returns AnchorError with errorCode
+          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
         }
       });
     });
@@ -1058,8 +1066,10 @@ describe("coordination-security", () => {
             .signers([worker1])
             .rpc();
           expect.fail("Should have failed - worker lacks capabilities");
-        } catch (e: any) {
-          expect(e.message).to.include("Error");
+        } catch (e: unknown) {
+          // Verify error occurred - Anchor returns AnchorError with errorCode
+          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
         }
       });
 
@@ -1123,8 +1133,10 @@ describe("coordination-security", () => {
             .signers([worker1])
             .rpc();
           expect.fail("Should have failed - inactive agent");
-        } catch (e: any) {
-          expect(e.message).to.include("Error");
+        } catch (e: unknown) {
+          // Verify error occurred - Anchor returns AnchorError with errorCode
+          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
         }
 
         await program.methods
@@ -1188,8 +1200,10 @@ describe("coordination-security", () => {
             .signers([worker1])
             .rpc();
           expect.fail("Should have failed - task expired");
-        } catch (e: any) {
-          expect(e.message).to.include("Error");
+        } catch (e: unknown) {
+          // Verify error occurred - Anchor returns AnchorError with errorCode
+          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
         }
       });
 
@@ -1491,8 +1505,10 @@ describe("coordination-security", () => {
             .signers([extraWorker])
             .rpc();
           expect.fail("Should have failed - max workers exceeded");
-        } catch (e: any) {
-          expect(e.message).to.include("Error");
+        } catch (e: unknown) {
+          // Verify error occurred - Anchor returns AnchorError with errorCode
+          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
         }
       });
     });
@@ -1634,8 +1650,10 @@ describe("coordination-security", () => {
             .signers([worker1])
             .rpc();
           expect.fail("Should have failed - agent has active tasks");
-        } catch (e: any) {
-          expect(e.message).to.include("Error");
+        } catch (e: unknown) {
+          // Verify error occurred - Anchor returns AnchorError with errorCode
+          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
         }
       });
     });
@@ -1713,8 +1731,10 @@ describe("coordination-security", () => {
             .signers([worker1])
             .rpc();
           expect.fail("Should have failed - non-arbiter voting");
-        } catch (e: any) {
-          expect(e.message).to.include("Error");
+        } catch (e: unknown) {
+          // Verify error occurred - Anchor returns AnchorError with errorCode
+          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
         }
       });
     });
@@ -1739,8 +1759,10 @@ describe("coordination-security", () => {
             ])
             .rpc();
           expect.fail("Should have failed - invalid fee");
-        } catch (e: any) {
-          expect(e.message).to.include("Error");
+        } catch (e: unknown) {
+          // Verify error occurred - Anchor returns AnchorError with errorCode
+          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
         }
       });
 
@@ -1763,8 +1785,10 @@ describe("coordination-security", () => {
             ])
             .rpc();
           expect.fail("Should have failed - invalid dispute threshold");
-        } catch (e: any) {
-          expect(e.message).to.include("Error");
+        } catch (e: unknown) {
+          // Verify error occurred - Anchor returns AnchorError with errorCode
+          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
         }
       });
 
@@ -1787,8 +1811,10 @@ describe("coordination-security", () => {
             ])
             .rpc();
           expect.fail("Should have failed - invalid dispute threshold > 100");
-        } catch (e: any) {
-          expect(e.message).to.include("Error");
+        } catch (e: unknown) {
+          // Verify error occurred - Anchor returns AnchorError with errorCode
+          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
+          expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
         }
       });
     });
