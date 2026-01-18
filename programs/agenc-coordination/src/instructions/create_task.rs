@@ -106,11 +106,11 @@ pub fn handler(
 
     // Check 24h window limit
     if config.max_tasks_per_24h > 0 {
-        // Reset window if 24h has passed
+        // Reset window if 24h has passed (use > to prevent boundary race condition)
         if clock
             .unix_timestamp
             .saturating_sub(creator_agent.rate_limit_window_start)
-            >= WINDOW_24H
+            > WINDOW_24H
         {
             creator_agent.rate_limit_window_start = clock.unix_timestamp;
             creator_agent.task_count_24h = 0;

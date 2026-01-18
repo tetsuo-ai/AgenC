@@ -40,6 +40,15 @@ pub struct ApplyDisputeSlash<'info> {
         bump = protocol_config.bump
     )]
     pub protocol_config: Account<'info, ProtocolConfig>,
+
+    /// Authority that can apply slash - must be dispute initiator or protocol authority
+    #[account(
+        constraint = (
+            authority.key() == dispute.initiator ||
+            authority.key() == protocol_config.authority
+        ) @ CoordinationError::UnauthorizedResolver
+    )]
+    pub authority: Signer<'info>,
 }
 
 pub fn handler(ctx: Context<ApplyDisputeSlash>) -> Result<()> {

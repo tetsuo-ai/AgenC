@@ -143,6 +143,16 @@ pub fn handler(
         .checked_sub(protocol_fee)
         .ok_or(CoordinationError::ArithmeticOverflow)?;
 
+    // Solvency check: verify escrow has sufficient funds before transfer
+    let total_payout = worker_reward
+        .checked_add(protocol_fee)
+        .ok_or(CoordinationError::ArithmeticOverflow)?;
+    let escrow_balance = escrow.to_account_info().lamports();
+    require!(
+        escrow_balance >= total_payout,
+        CoordinationError::InsufficientEscrowBalance
+    );
+
     // Transfer reward to worker
     if worker_reward > 0 {
         **escrow.to_account_info().try_borrow_mut_lamports()? -= worker_reward;

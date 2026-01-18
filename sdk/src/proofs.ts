@@ -9,6 +9,47 @@ import * as path from 'path';
 import { execSync } from 'child_process';
 import { PublicKey } from '@solana/web3.js';
 
+/** Allowlist of valid circuit names */
+const VALID_CIRCUIT_NAMES = ['task_completion', 'payment_proof', 'identity_proof'] as const;
+
+/**
+ * Sanitize and validate circuit path to prevent command injection
+ * @throws Error if path is invalid or contains dangerous characters
+ */
+function sanitizeCircuitPath(circuitPath: string): string {
+  // Normalize the path
+  const normalized = path.normalize(circuitPath);
+
+  // Check for path traversal attempts
+  if (normalized.includes('..')) {
+    throw new Error('Invalid circuit path: path traversal not allowed');
+  }
+
+  // Check for dangerous shell characters
+  const dangerousChars = /[;&|`$(){}[\]<>\\'"!#*?~\n\r]/;
+  if (dangerousChars.test(normalized)) {
+    throw new Error('Invalid circuit path: contains disallowed characters');
+  }
+
+  // Extract circuit name from path and validate against allowlist
+  const circuitName = path.basename(normalized);
+  if (!VALID_CIRCUIT_NAMES.includes(circuitName as typeof VALID_CIRCUIT_NAMES[number])) {
+    throw new Error(`Invalid circuit name: ${circuitName}. Allowed: ${VALID_CIRCUIT_NAMES.join(', ')}`);
+  }
+
+  // Verify the path exists and is a directory
+  if (!fs.existsSync(normalized)) {
+    throw new Error(`Circuit path does not exist: ${normalized}`);
+  }
+
+  const stats = fs.statSync(normalized);
+  if (!stats.isDirectory()) {
+    throw new Error(`Circuit path is not a directory: ${normalized}`);
+  }
+
+  return normalized;
+}
+
 export interface ProofGenerationParams {
   /** Task ID */
   taskId: number;
@@ -43,7 +84,8 @@ export interface ProofResult {
  * Requires nargo and sunspot CLI tools to be installed
  */
 export async function generateProof(params: ProofGenerationParams): Promise<ProofResult> {
-  const circuitPath = params.circuitPath || './circuits/task_completion';
+  // Sanitize circuit path to prevent command injection
+  const circuitPath = sanitizeCircuitPath(params.circuitPath || './circuits/task_completion');
   const startTime = Date.now();
 
   // Generate Prover.toml content
@@ -55,12 +97,14 @@ export async function generateProof(params: ProofGenerationParams): Promise<Proo
 
   try {
     // Execute Noir circuit to generate witness
+    // Using cwd option instead of string interpolation for safety
     execSync('nargo execute', {
       cwd: circuitPath,
       stdio: 'pipe',
     });
 
     // Generate proof using Sunspot
+    // Command uses only static strings; circuitPath is validated and only used as cwd
     execSync(
       'sunspot prove target/task_completion.ccs target/task_completion.pk target/task_completion.gz -o target/task_completion.proof',
       {
@@ -96,18 +140,21 @@ export async function verifyProofLocally(
   publicWitness: Buffer,
   circuitPath: string = './circuits/task_completion'
 ): Promise<boolean> {
-  const proofPath = path.join(circuitPath, 'target/verify_test.proof');
-  const witnessPath = path.join(circuitPath, 'target/verify_test.pw');
+  // Sanitize circuit path to prevent command injection
+  const sanitizedPath = sanitizeCircuitPath(circuitPath);
+  const proofPath = path.join(sanitizedPath, 'target/verify_test.proof');
+  const witnessPath = path.join(sanitizedPath, 'target/verify_test.pw');
 
   // Write proof and witness to temp files
   fs.writeFileSync(proofPath, proof);
   fs.writeFileSync(witnessPath, publicWitness);
 
   try {
+    // Use static command with cwd; proof/witness paths are constructed from sanitized base
     execSync(
-      `sunspot verify target/task_completion.ccs target/task_completion.vk ${proofPath} ${witnessPath}`,
+      'sunspot verify target/task_completion.ccs target/task_completion.vk target/verify_test.proof target/verify_test.pw',
       {
-        cwd: circuitPath,
+        cwd: sanitizedPath,
         stdio: 'pipe',
       }
     );

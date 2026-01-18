@@ -188,6 +188,9 @@ pub enum CoordinationError {
     #[msg("Insufficient funds")]
     InsufficientFunds,
 
+    #[msg("Escrow has insufficient balance for payout")]
+    InsufficientEscrowBalance,
+
     #[msg("Account data is corrupted")]
     CorruptedData,
 

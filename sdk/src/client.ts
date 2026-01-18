@@ -71,14 +71,22 @@ export class PrivacyClient {
       console.log('Wallet initialized:', wallet.publicKey.toBase58());
     }
 
-    // Initialize privacy client
-    this.privacyClient = new AgenCPrivacyClient(
-      this.connection,
-      this.program!,
-      this.config.circuitPath,
-      this.connection.rpcEndpoint
-    );
-    await this.privacyClient.initPrivacyCash(wallet);
+    // Initialize privacy client only if program is available
+    // Note: For privacy-only operations (shield/withdraw), program is not required
+    if (this.program) {
+      this.privacyClient = new AgenCPrivacyClient(
+        this.connection,
+        this.program,
+        this.config.circuitPath,
+        this.connection.rpcEndpoint
+      );
+      await this.privacyClient.initPrivacyCash(wallet);
+    } else {
+      // For privacy-only mode without on-chain program interaction
+      if (this.config.debug) {
+        console.log('Program not initialized - privacy-only mode');
+      }
+    }
   }
 
   /**
