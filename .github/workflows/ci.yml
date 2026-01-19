@@ -132,12 +132,19 @@ jobs:
           # - Platform-tools bundles rustc 1.84.x
           # - anchor-syn 0.32.1 requires rustc 1.89.0+ for Span::local_file()
 
-          # Step 1: Build program without IDL (uses platform-tools, works with old Rust)
-          anchor build --no-idl
+          # Step 1: Build BPF program directly with cargo-build-sbf
+          # This bypasses anchor's wrapper and goes straight to BPF compilation
+          cargo build-sbf
           test -f target/deploy/agenc_coordination.so
 
-          # Step 2: Generate IDL separately (uses system Rust 1.89.0+)
-          RUSTUP_TOOLCHAIN=stable anchor idl build
+          # Step 2: Generate IDL with anchor idl build
+          # The -- --lib flag tells cargo to skip test dependencies that have
+          # proc-macro incompatibilities with recent Rust versions
+          mkdir -p target/idl target/types
+          anchor idl build \
+            -o target/idl/agenc_coordination.json \
+            -t target/types/agenc_coordination.ts \
+            -- --lib
           test -f target/idl/agenc_coordination.json
           test -f target/types/agenc_coordination.ts
 
