@@ -134,7 +134,12 @@ jobs:
 
           # Step 1: Build BPF program directly with cargo-build-sbf
           # This bypasses anchor's wrapper and goes straight to BPF compilation
-          cargo build-sbf
+          cargo build-sbf --manifest-path programs/agenc-coordination/Cargo.toml
+
+          # Copy artifacts to workspace root (where anchor test expects them)
+          mkdir -p target/deploy
+          cp programs/agenc-coordination/target/deploy/agenc_coordination.so target/deploy/
+          cp programs/agenc-coordination/target/deploy/agenc_coordination-keypair.json target/deploy/
           test -f target/deploy/agenc_coordination.so
 
           # Step 2: Generate IDL with anchor idl build
