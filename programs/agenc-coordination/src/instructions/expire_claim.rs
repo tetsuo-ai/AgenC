@@ -43,7 +43,10 @@ pub fn handler(ctx: Context<ExpireClaim>) -> Result<()> {
     let clock = Clock::get()?;
 
     // Can only expire incomplete claims
-    require!(!claim.is_completed, CoordinationError::ClaimAlreadyCompleted);
+    require!(
+        !claim.is_completed,
+        CoordinationError::ClaimAlreadyCompleted
+    );
 
     // Check claim has expired
     require!(

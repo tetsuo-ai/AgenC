@@ -95,7 +95,8 @@ pub fn handler(ctx: Context<ClaimTask>) -> Result<()> {
     let expires_at = if task.deadline > 0 {
         task.deadline
     } else {
-        clock.unix_timestamp
+        clock
+            .unix_timestamp
             .checked_add(config.max_claim_duration)
             .ok_or(CoordinationError::ArithmeticOverflow)?
     };

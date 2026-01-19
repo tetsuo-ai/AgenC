@@ -239,7 +239,11 @@ fn append_pubkey_as_field_elements(witness: &mut Vec<u8>, pubkey: &Pubkey) {
     }
 }
 
-fn build_public_witness(task_key: &Pubkey, agent: &Pubkey, proof: &PrivateCompletionProof) -> Vec<u8> {
+fn build_public_witness(
+    task_key: &Pubkey,
+    agent: &Pubkey,
+    proof: &PrivateCompletionProof,
+) -> Vec<u8> {
     let capacity = WITNESS_HEADER_SIZE + PUBLIC_INPUTS_COUNT * FIELD_SIZE;
     let mut witness = Vec::with_capacity(capacity);
 

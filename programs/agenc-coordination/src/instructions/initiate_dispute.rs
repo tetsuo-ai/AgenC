@@ -87,10 +87,7 @@ pub fn handler(
     require!(resolution_type <= 2, CoordinationError::InvalidInput);
 
     let evidence_len = evidence.len();
-    require!(
-        evidence_len >= 50,
-        CoordinationError::InsufficientEvidence
-    );
+    require!(evidence_len >= 50, CoordinationError::InsufficientEvidence);
     require!(evidence_len <= 1000, CoordinationError::EvidenceTooLong);
 
     // === Rate Limiting Checks ===
