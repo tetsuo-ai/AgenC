@@ -133,10 +133,13 @@ export class AgenCPrivacyClient {
             await loadPrivacyCash();
             this.privacyCashLoaded = true;
         }
+        // Security: Only enable debug mode when explicitly requested via environment
+        // Debug mode can expose sensitive transaction details
+        const enableDebug = process.env.AGENC_DEBUG === 'true';
         this.privacyCash = createPrivacyCash({
             RPC_url: this.rpcUrl,
             owner: owner,
-            enableDebug: true
+            enableDebug
         });
         // Security: Truncate public key in logs to avoid full exposure
         const pubkeyStr = owner.publicKey.toBase58();

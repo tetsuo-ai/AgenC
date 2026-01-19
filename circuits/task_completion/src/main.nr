@@ -14,12 +14,17 @@ global BYTES_PER_FIELD: Field = 256;
 // Standard sizes
 global PUBKEY_SIZE: u32 = 32;
 
-// Hash helper using poseidon2 permutation in sponge mode
+// Hash 4 field elements using Poseidon2 permutation in sponge mode
+// Returns the first element of the permuted state as the hash output
+// Security: Poseidon2 is a ZK-friendly algebraic hash function providing collision resistance
 fn hash_4(input: [Field; 4]) -> Field {
     let permuted = poseidon2_permutation(input, POSEIDON_STATE_SIZE);
     permuted[0]
 }
 
+// Hash 2 field elements using Poseidon2 permutation
+// Inputs are padded with zeros to fill the 4-element state
+// Security: Zero-padding is safe as Poseidon2 uses fixed-size input
 fn hash_2(a: Field, b: Field) -> Field {
     let input: [Field; 4] = [a, b, 0, 0];
     let permuted = poseidon2_permutation(input, POSEIDON_STATE_SIZE);
@@ -27,10 +32,15 @@ fn hash_2(a: Field, b: Field) -> Field {
 }
 
 // Convert 32-byte array to field element (big-endian interpretation)
-// WARNING: Values exceeding the BN254 field modulus (~2^254) will wrap.
-// This is acceptable for Ed25519 pubkeys and typical task_ids, but callers
-// should ensure inputs don't exceed the modulus to avoid potential collisions.
+// NOTE: Ed25519 pubkeys are always < 2^252 (curve order), well within BN254 field modulus (~2^254).
+// Task IDs should be validated by the on-chain program to be within safe bounds.
+// Security: We validate the high byte isn't suspiciously large to catch obviously oversized values.
 fn bytes_to_field(bytes: [u8; 32]) -> Field {
+    // BN254 scalar field modulus starts with 0x30644e72...
+    // Any input with first byte > 0x30 definitely exceeds the modulus
+    // This is a heuristic check - full modulus comparison would be expensive in-circuit
+    assert(bytes[0] <= 0x30, "Input may exceed field modulus - first byte too large");
+
     let mut field: Field = 0;
     for i in 0..PUBKEY_SIZE {
         field = field * BYTES_PER_FIELD + (bytes[i] as Field);
@@ -104,8 +114,14 @@ global WRONG_TASK_ID: [u8; 32] = [
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03, 0xe7
 ];
 
-// Wrong agent (all 0xAA bytes)
-global WRONG_AGENT: [u8; 32] = [0xAA; 32];
+// Wrong agent (different from TEST_AGENT_PUBKEY but within valid field range)
+// Using 0x20 as first byte to satisfy field modulus check (must be <= 0x30)
+global WRONG_AGENT: [u8; 32] = [
+    0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27,
+    0x28, 0x29, 0x2a, 0x2b, 0x2c, 0x2d, 0x2e, 0x2f,
+    0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37,
+    0x38, 0x39, 0x3a, 0x3b, 0x3c, 0x3d, 0x3e, 0x3f
+];
 
 // Standard test output
 global TEST_OUTPUT: [Field; 4] = [1, 2, 3, 4];
@@ -191,4 +207,14 @@ fn test_correct_binding_succeeds() {
     let expected_binding = compute_expected_binding(TEST_TASK_ID, TEST_AGENT_PUBKEY, output_commitment);
 
     main(TEST_TASK_ID, TEST_AGENT_PUBKEY, constraint_hash, output_commitment, expected_binding, TEST_OUTPUT, TEST_SALT);
+}
+
+// Test that oversized field inputs are rejected (security fix MAIN-001)
+#[test(should_fail)]
+fn test_field_overflow_rejected() {
+    // Input with first byte 0x40 exceeds BN254 field modulus heuristic check (> 0x30)
+    let oversized_input: [u8; 32] = [0x40; 32];
+
+    // This should fail due to the field overflow check in bytes_to_field
+    let _ = bytes_to_field(oversized_input);
 }

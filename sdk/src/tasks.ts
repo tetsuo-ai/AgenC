@@ -80,8 +80,21 @@ export interface TaskStatus {
 
 /**
  * Derive task PDA from task ID
+ * @param taskId - Task ID (must be a non-negative integer)
+ * @param programId - Program ID (defaults to PROGRAM_ID)
+ * @returns Task PDA public key
+ * @throws Error if taskId is invalid
  */
 export function deriveTaskPda(taskId: number, programId: PublicKey = PROGRAM_ID): PublicKey {
+  // Security: Validate taskId is a valid non-negative integer
+  if (!Number.isInteger(taskId) || taskId < 0) {
+    throw new Error('Invalid taskId: must be a non-negative integer');
+  }
+  // Security: Check taskId fits in u64 range
+  if (taskId > Number.MAX_SAFE_INTEGER) {
+    throw new Error('Invalid taskId: exceeds maximum safe integer');
+  }
+
   const taskIdBuffer = Buffer.alloc(U64_SIZE);
   taskIdBuffer.writeBigUInt64LE(BigInt(taskId));
 
@@ -344,7 +357,17 @@ export async function getTask(
       claimedBy: taskData.claimedBy || null,
       completedAt: taskData.completedAt?.toNumber() || null,
     };
-  } catch {
+  } catch (error) {
+    // Security: Distinguish between "account not found" and other errors
+    // Account not found is expected for non-existent tasks, but other errors should be logged
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    if (errorMessage.includes('Account does not exist') ||
+        errorMessage.includes('could not find account')) {
+      // Task doesn't exist - this is a normal case
+      return null;
+    }
+    // Log unexpected errors for debugging while still returning null for API compatibility
+    console.warn(`getTask(${taskId}) encountered unexpected error:`, errorMessage);
     return null;
   }
 }

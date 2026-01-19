@@ -140,6 +140,8 @@ pub fn update_worker_state(
         .checked_sub(1)
         .ok_or(CoordinationError::ArithmeticOverflow)?;
     worker.last_active = timestamp;
+    // Reputation uses saturating_add intentionally - reputation overflow to MAX_REPUTATION
+    // is the intended behavior (capped at 10000), not an error condition
     worker.reputation = worker
         .reputation
         .saturating_add(REPUTATION_PER_COMPLETION)

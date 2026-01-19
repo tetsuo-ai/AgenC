@@ -191,6 +191,12 @@ pub fn simulate_complete_task(
         return SimulationResult::Error("TaskNotInProgress".to_string());
     }
 
+    // CRITICAL: Check competitive task single-completion invariant
+    // Competitive tasks (task_type == 2) must check completions == 0 before paying rewards
+    if task.task_type == 2 && task.completions > 0 {
+        return SimulationResult::Error("CompetitiveTaskAlreadyWon".to_string());
+    }
+
     // E4: Check escrow not closed
     if escrow.is_closed {
         return SimulationResult::Error("EscrowAlreadyClosed".to_string());
@@ -273,10 +279,13 @@ pub fn simulate_complete_task(
     // Post-condition invariant checks
 
     // E2: Monotonic distribution
-    if let EscrowInvariantResult::DistributedExceedsAmount { .. } =
+    if let EscrowInvariantResult::MonotonicityViolation { old_distributed: old, new_distributed: new } =
         check_escrow_monotonic_distribution(old_distributed, escrow.distributed)
     {
-        return SimulationResult::InvariantViolation("E2: Distribution decreased".to_string());
+        return SimulationResult::InvariantViolation(format!(
+            "E2: Distribution decreased from {} to {}",
+            old, new
+        ));
     }
 
     // T1: Valid state transition
@@ -627,6 +636,7 @@ mod tests {
         };
 
         let mut worker = setup_valid_worker();
+        worker.active_tasks = 1; // Worker must have claimed the task first
         let config = SimulatedConfig::default();
 
         let result = simulate_complete_task(
@@ -726,6 +736,65 @@ mod tests {
 
             prop_assert!(task.current_workers <= task.max_workers,
                 "current_workers {} > max_workers {}", task.current_workers, task.max_workers);
+        }
+    }
+
+    #[test]
+    fn test_competitive_task_double_completion_rejected() {
+        // Competitive task type = 2
+        let mut task = SimulatedTask {
+            task_id: [1u8; 32],
+            status: task_status::IN_PROGRESS,
+            reward_amount: 1_000_000,
+            max_workers: 5,
+            current_workers: 2,
+            required_capabilities: 0,
+            deadline: 0,
+            completions: 0,  // First completion hasn't happened yet
+            required_completions: 1,
+            task_type: 2, // COMPETITIVE
+        };
+
+        let mut escrow = SimulatedEscrow {
+            amount: 1_000_000,
+            distributed: 0,
+            is_closed: false,
+        };
+
+        let mut worker1 = setup_valid_worker();
+        worker1.agent_id[0] = 1;
+        worker1.active_tasks = 1;
+
+        let mut worker2 = setup_valid_worker();
+        worker2.agent_id[0] = 2;
+        worker2.active_tasks = 1;
+
+        let config = SimulatedConfig::default();
+
+        // First completion should succeed
+        let result1 = simulate_complete_task(
+            &mut task,
+            &mut escrow,
+            &mut worker1,
+            &config,
+            [0u8; 32],
+        );
+        assert!(result1.is_success(), "First completion should succeed: {:?}", result1);
+
+        // Reset task status for second attempt (simulating before task marked completed)
+        task.status = task_status::IN_PROGRESS;
+
+        // Second completion should be rejected due to CompetitiveTaskAlreadyWon
+        let result2 = simulate_complete_task(
+            &mut task,
+            &mut escrow,
+            &mut worker2,
+            &config,
+            [0u8; 32],
+        );
+        assert!(result2.is_error(), "Second completion should be rejected: {:?}", result2);
+        if let SimulationResult::Error(msg) = result2 {
+            assert_eq!(msg, "CompetitiveTaskAlreadyWon", "Expected CompetitiveTaskAlreadyWon error");
         }
     }
 }
