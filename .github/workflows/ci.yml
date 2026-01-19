@@ -126,6 +126,8 @@ jobs:
           fi
 
       - name: anchor build
+        env:
+          RUSTUP_TOOLCHAIN: ${{ env.RUST_TOOLCHAIN }}
         run: |
           set -euxo pipefail
           anchor build
