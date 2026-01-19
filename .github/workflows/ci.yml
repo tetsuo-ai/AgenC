@@ -12,9 +12,9 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  SOLANA_VERSION: v2.1.15
+  SOLANA_VERSION: v3.0.13
   ANCHOR_VERSION: 0.32.1
-  RUST_TOOLCHAIN: "1.85.0"
+  RUST_TOOLCHAIN: stable
 
 jobs:
   rust_checks:
@@ -55,8 +55,6 @@ jobs:
 
   anchor_build:
     runs-on: ubuntu-latest
-    env:
-      ANCHOR_IDL_BUILD_PROGRAM_PATH: .
     steps:
       - uses: actions/checkout@v4
 
@@ -81,6 +79,12 @@ jobs:
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
+
+      - name: Set Rust as default
+        run: |
+          rustup default ${{ env.RUST_TOOLCHAIN }}
+          rustc --version
+          cargo --version
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
@@ -124,21 +128,35 @@ jobs:
       - name: anchor build
         run: |
           set -euxo pipefail
-          anchor build --no-idl
-          # Verify .so was created
-          test -f programs/agenc-coordination/target/deploy/agenc_coordination.so
+          # Two-step build to work around Rust version mismatch:
+          # - Platform-tools bundles rustc 1.84.x
+          # - anchor-syn 0.32.1 requires rustc 1.89.0+ for Span::local_file()
+
+          # Step 1: Build BPF program directly with cargo-build-sbf
+          # This bypasses anchor's wrapper and goes straight to BPF compilation
+          cargo build-sbf --manifest-path programs/agenc-coordination/Cargo.toml
+
+          # Copy artifacts to workspace root (where anchor test expects them)
+          mkdir -p target/deploy
+          cp programs/agenc-coordination/target/deploy/agenc_coordination.so target/deploy/
+          cp programs/agenc-coordination/target/deploy/agenc_coordination-keypair.json target/deploy/
+          test -f target/deploy/agenc_coordination.so
+
+          # Step 2: Generate IDL with anchor idl build
+          # The -- --lib flag tells cargo to skip test dependencies that have
+          # proc-macro incompatibilities with recent Rust versions
+          mkdir -p target/idl target/types
+          anchor idl build \
+            -o target/idl/agenc_coordination.json \
+            -t target/types/agenc_coordination.ts \
+            -- --lib
+          test -f target/idl/agenc_coordination.json
+          test -f target/types/agenc_coordination.ts
 
       - name: anchor test
         run: |
           set -euxo pipefail
           solana config set --url http://127.0.0.1:8899
-
-          # Create symlink so validator finds the .so file
-          # Anchor workspace builds to programs/*/target but validator expects target/deploy/
-          mkdir -p target/deploy
-          ln -sf "$(pwd)/programs/agenc-coordination/target/deploy/agenc_coordination.so" target/deploy/agenc_coordination.so
-
-          # Run tests with --skip-build since we already built
           anchor test --skip-build || {
             echo "=== Validator log ==="
             cat .anchor/test-ledger/test-ledger-log.txt 2>/dev/null || echo "No validator log found"
