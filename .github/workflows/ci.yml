@@ -80,6 +80,12 @@ jobs:
         with:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
 
+      - name: Set Rust as default
+        run: |
+          rustup default ${{ env.RUST_TOOLCHAIN }}
+          rustc --version
+          cargo --version
+
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
         with:
