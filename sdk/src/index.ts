@@ -18,14 +18,18 @@ export {
 export {
   generateProof,
   verifyProofLocally,
+  computeHashesViaNargo,
+  generateSalt,
+  checkToolsAvailable,
+  FIELD_MODULUS,
+  // Types
+  ProofGenerationParams,
+  ProofResult,
+  HashResult,
+  // Legacy (deprecated - use computeHashesViaNargo instead)
   computeExpectedBinding,
   computeConstraintHash,
   computeCommitment,
-  generateSalt,
-  checkToolsAvailable,
-  pubkeyToField,
-  ProofGenerationParams,
-  ProofResult,
 } from './proofs';
 
 export {

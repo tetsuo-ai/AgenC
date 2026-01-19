@@ -122,9 +122,6 @@ fn test_valid_proof() {
     let constraint_hash = hash_4(TEST_OUTPUT);
     let output_commitment = hash_2(constraint_hash, TEST_SALT);
 
-    println(f"constraint_hash = {constraint_hash}");
-    println(f"output_commitment = {output_commitment}");
-
     let expected_binding = compute_expected_binding(TEST_TASK_ID, TEST_AGENT_PUBKEY, output_commitment);
 
     main(TEST_TASK_ID, TEST_AGENT_PUBKEY, constraint_hash, output_commitment, expected_binding, TEST_OUTPUT, TEST_SALT);
