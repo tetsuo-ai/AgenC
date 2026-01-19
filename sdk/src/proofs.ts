@@ -269,12 +269,24 @@ export function checkToolsAvailable(): { nargo: boolean; sunspot: boolean } {
   try {
     execSync('nargo --version', { stdio: 'pipe' });
     nargo = true;
-  } catch {}
+  } catch (error) {
+    // Expected: command not found or not in PATH
+    // Only log unexpected errors for debugging
+    if (error instanceof Error && !error.message.includes('ENOENT') && !error.message.includes('not found')) {
+      console.debug('nargo check failed with unexpected error:', error.message);
+    }
+  }
 
   try {
     execSync('sunspot --version', { stdio: 'pipe' });
     sunspot = true;
-  } catch {}
+  } catch (error) {
+    // Expected: command not found or not in PATH
+    // Only log unexpected errors for debugging
+    if (error instanceof Error && !error.message.includes('ENOENT') && !error.message.includes('not found')) {
+      console.debug('sunspot check failed with unexpected error:', error.message);
+    }
+  }
 
   return { nargo, sunspot };
 }
