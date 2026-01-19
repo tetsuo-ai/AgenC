@@ -12,9 +12,9 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  SOLANA_VERSION: v2.1.15
+  SOLANA_VERSION: v3.0.13
   ANCHOR_VERSION: 0.32.1
-  RUST_TOOLCHAIN: "1.89.0"
+  RUST_TOOLCHAIN: stable
 
 jobs:
   rust_checks:
