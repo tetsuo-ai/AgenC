@@ -121,18 +121,12 @@ jobs:
             solana-keygen new --no-bip39-passphrase -o ~/.config/solana/id.json
           fi
 
-      - name: anchor build
-        run: |
-          set -euxo pipefail
-          solana config set --url http://127.0.0.1:8899
-          anchor build --no-idl
-          test -f programs/agenc-coordination/target/deploy/agenc_coordination.so
-
       - name: anchor test
         run: |
           set -euxo pipefail
           solana config set --url http://127.0.0.1:8899
-          anchor test --skip-build
+          # anchor test builds, starts validator, deploys, and runs tests
+          anchor test
 
   security_scans:
     runs-on: ubuntu-latest
