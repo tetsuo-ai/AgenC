@@ -208,9 +208,33 @@ export class PrivacyClient {
 
   /**
    * Parse SOL string to lamports
+   *
+   * Note: For large SOL amounts (> ~9 million SOL), consider using BigInt
+   * to avoid floating point precision issues. This method validates inputs
+   * and throws on invalid values.
+   *
+   * @param sol - SOL amount as string or number
+   * @returns lamports as number (safe for amounts < MAX_SAFE_INTEGER / LAMPORTS_PER_SOL)
+   * @throws Error if input is invalid or would cause precision loss
    */
   static parseSol(sol: string | number): number {
     const value = typeof sol === 'string' ? parseFloat(sol) : sol;
+
+    // Security: Validate input is a valid number
+    if (!Number.isFinite(value) || value < 0) {
+      throw new Error('Invalid SOL amount: must be a non-negative finite number');
+    }
+
+    // Security: Check for potential precision loss
+    // Numbers larger than this can lose precision when converted to lamports
+    const maxSafeSol = Number.MAX_SAFE_INTEGER / LAMPORTS_PER_SOL;
+    if (value > maxSafeSol) {
+      throw new Error(
+        `SOL amount ${value} exceeds safe precision limit (${maxSafeSol.toFixed(9)} SOL). ` +
+        'Use BigInt for larger amounts.'
+      );
+    }
+
     return Math.floor(value * LAMPORTS_PER_SOL);
   }
 }
