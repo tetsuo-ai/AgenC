@@ -14,7 +14,7 @@ concurrency:
 env:
   SOLANA_VERSION: v2.1.15
   ANCHOR_VERSION: 0.32.1
-  RUST_TOOLCHAIN: "1.85.0"
+  RUST_TOOLCHAIN: "1.89.0"
 
 jobs:
   rust_checks:
