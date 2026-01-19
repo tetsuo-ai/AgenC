@@ -55,8 +55,6 @@ jobs:
 
   anchor_build:
     runs-on: ubuntu-latest
-    env:
-      ANCHOR_IDL_BUILD_PROGRAM_PATH: .
     steps:
       - uses: actions/checkout@v4
 
@@ -124,21 +122,16 @@ jobs:
       - name: anchor build
         run: |
           set -euxo pipefail
-          anchor build --no-idl
-          # Verify .so was created
-          test -f programs/agenc-coordination/target/deploy/agenc_coordination.so
+          anchor build
+          # Verify build artifacts at workspace root
+          test -f target/deploy/agenc_coordination.so
+          test -f target/idl/agenc_coordination.json
+          test -f target/types/agenc_coordination.ts
 
       - name: anchor test
         run: |
           set -euxo pipefail
           solana config set --url http://127.0.0.1:8899
-
-          # Create symlink so validator finds the .so file
-          # Anchor workspace builds to programs/*/target but validator expects target/deploy/
-          mkdir -p target/deploy
-          ln -sf "$(pwd)/programs/agenc-coordination/target/deploy/agenc_coordination.so" target/deploy/agenc_coordination.so
-
-          # Run tests with --skip-build since we already built
           anchor test --skip-build || {
             echo "=== Validator log ==="
             cat .anchor/test-ledger/test-ledger-log.txt 2>/dev/null || echo "No validator log found"
