@@ -126,15 +126,18 @@ jobs:
           fi
 
       - name: anchor build
-        env:
-          RUSTUP_TOOLCHAIN: ${{ env.RUST_TOOLCHAIN }}
         run: |
           set -euxo pipefail
-          # Pin proc-macro2 to avoid breaking change in 1.0.95+ (local_file API change)
-          cargo update -p proc-macro2 --precise 1.0.94
-          anchor build
-          # Verify build artifacts at workspace root
+          # Two-step build to work around Rust version mismatch:
+          # - Platform-tools bundles rustc 1.84.x
+          # - anchor-syn 0.32.1 requires rustc 1.89.0+ for Span::local_file()
+
+          # Step 1: Build program without IDL (uses platform-tools, works with old Rust)
+          anchor build --no-idl
           test -f target/deploy/agenc_coordination.so
+
+          # Step 2: Generate IDL separately (uses system Rust 1.89.0+)
+          RUSTUP_TOOLCHAIN=stable anchor idl build
           test -f target/idl/agenc_coordination.json
           test -f target/types/agenc_coordination.ts
 

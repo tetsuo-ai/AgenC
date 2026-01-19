@@ -12,7 +12,7 @@ name = "agenc_coordination"
 crate-type = ["cdylib", "lib"]
 
 [features]
-default = ["idl-build"]
+default = []
 cpi = ["no-entrypoint"]
 no-entrypoint = []
 no-idl = []
