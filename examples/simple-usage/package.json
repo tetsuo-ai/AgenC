@@ -1,0 +1,16 @@
+{
+  "name": "@agenc/simple-usage",
+  "version": "1.0.0",
+  "description": "Minimal example of AgenC SDK usage",
+  "type": "module",
+  "scripts": {
+    "start": "npx tsx index.ts"
+  },
+  "dependencies": {
+    "@agenc/sdk": "file:../../sdk",
+    "@solana/web3.js": "^1.90.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.7.0"
+  }
+}

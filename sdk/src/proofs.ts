@@ -287,21 +287,61 @@ export async function verifyProofLocally(
   }
 }
 
-export function checkToolsAvailable(): { nargo: boolean; sunspot: boolean } {
-  let nargo = false;
-  let sunspot = false;
+export interface ToolsStatus {
+  nargo: boolean;
+  sunspot: boolean;
+  nargoVersion?: string;
+  sunspotVersion?: string;
+}
+
+/**
+ * Check if required tools (nargo, sunspot) are available.
+ * @returns Status of each tool including version if available
+ */
+export function checkToolsAvailable(): ToolsStatus {
+  const result: ToolsStatus = { nargo: false, sunspot: false };
 
   try {
-    execSync('nargo --version', { stdio: 'pipe' });
-    nargo = true;
+    const nargoOutput = execSync('nargo --version', { stdio: 'pipe', encoding: 'utf-8' });
+    result.nargo = true;
+    result.nargoVersion = nargoOutput.trim();
   } catch {}
 
   try {
-    execSync('sunspot --version', { stdio: 'pipe' });
-    sunspot = true;
+    const sunspotOutput = execSync('sunspot --version', { stdio: 'pipe', encoding: 'utf-8' });
+    result.sunspot = true;
+    result.sunspotVersion = sunspotOutput.trim();
   } catch {}
 
-  return { nargo, sunspot };
+  return result;
+}
+
+/**
+ * Throws an error with installation instructions if required tools are missing.
+ * @param requireSunspot - Whether sunspot is required (default: true)
+ */
+export function requireTools(requireSunspot: boolean = true): void {
+  const tools = checkToolsAvailable();
+
+  if (!tools.nargo) {
+    throw new Error(
+      'nargo not found. Install with:\n' +
+      '  curl -L https://raw.githubusercontent.com/noir-lang/noirup/main/install | bash\n' +
+      '  noirup\n\n' +
+      'See: https://noir-lang.org/docs/getting_started/installation'
+    );
+  }
+
+  if (requireSunspot && !tools.sunspot) {
+    throw new Error(
+      'sunspot not found. Install with:\n' +
+      '  1. Install Go 1.21+\n' +
+      '  2. git clone https://github.com/Sunspot-Network/sunspot\n' +
+      '  3. cd sunspot/go && go build -o sunspot\n' +
+      '  4. Add to PATH\n\n' +
+      'See: circuits/README.md for detailed instructions'
+    );
+  }
 }
 
 // Legacy exports for backwards compatibility (these use JS hashes which may not match circuit)
