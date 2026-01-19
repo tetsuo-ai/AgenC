@@ -24,6 +24,10 @@ init-if-needed = []
 anchor-lang = { version = "0.32.1", features = ["init-if-needed"] }
 anchor-spl  = { version = "0.32.1", default-features = false, features = ["token", "token_2022"] }
 
+# MSRV compatibility: Solana BPF toolchain uses rustc 1.79.0-dev
+# indexmap 2.12.1+ requires rustc 1.82, so pin to last compatible version
+indexmap = "=2.12.0"
+
 # SBPF-safe RNG
 getrandom = { version = "=0.2.12", default-features = false, features = ["custom"] }
 
