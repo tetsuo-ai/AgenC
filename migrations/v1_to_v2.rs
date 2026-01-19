@@ -82,6 +82,43 @@
 // ```
 
 // ============================================================================
+// Security Considerations
+// ============================================================================
+//
+// CRITICAL: All migration code must adhere to these security requirements:
+//
+// 1. Version Validation
+//    - Always check current version BEFORE applying migration
+//    - Prevent double-migration by requiring exact source version
+//    - Example: require!(config.version == 1, "Expected v1 for migration");
+//
+// 2. Authorization
+//    - Migration instruction MUST require admin/authority signature
+//    - Use multisig for mainnet migrations (never single-signer)
+//    - Validate signer matches protocol authority
+//
+// 3. Atomicity
+//    - Migration must either fully succeed or fully revert
+//    - Update version number LAST, after all data changes
+//    - If any step fails, the entire transaction should fail
+//
+// 4. Data Integrity
+//    - Validate account discriminator before deserialization
+//    - Check account owner == program_id
+//    - Verify existing field values are in valid ranges
+//    - Log all changed values for audit trail
+//
+// 5. Compute Budget
+//    - Large migrations may exceed compute limits (200k CU default)
+//    - Consider batched migrations for many accounts
+//    - Test with compute budget on devnet before mainnet
+//
+// 6. Account Size Changes
+//    - Use realloc constraint for size increases
+//    - Ensure payer has sufficient funds for rent increase
+//    - Zero-initialize new space to prevent data leaks
+//
+// ============================================================================
 // Migration Verification Checklist
 // ============================================================================
 //
@@ -90,6 +127,9 @@
 // [ ] SIZE calculation is correct
 // [ ] Default impl includes new fields
 // [ ] Migration logic handles all cases
+// [ ] Version validation prevents double-migration (SECURITY)
+// [ ] Authority constraint enforced (SECURITY)
+// [ ] Compute budget tested and sufficient (SECURITY)
 // [ ] Tests pass on localnet
 // [ ] Tests pass on devnet
 //
@@ -99,6 +139,7 @@
 // [ ] Existing fields unchanged
 // [ ] All instructions still work
 // [ ] No account corruption
+// [ ] Audit log shows expected values (SECURITY)
 //
 // ============================================================================
 // Rollback Plan
