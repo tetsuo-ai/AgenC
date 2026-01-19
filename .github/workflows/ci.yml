@@ -122,7 +122,6 @@ jobs:
           fi
 
       - name: anchor build
-        working-directory: programs/agenc-coordination
         run: |
           set -euxo pipefail
           solana config set --url http://127.0.0.1:8899
@@ -130,7 +129,6 @@ jobs:
           test -f target/deploy/agenc_coordination.so
 
       - name: anchor test
-        working-directory: programs/agenc-coordination
         run: |
           set -euxo pipefail
           solana config set --url http://127.0.0.1:8899
