@@ -23,6 +23,7 @@ pub mod update_rate_limits;
 pub mod update_state;
 pub mod vote_dispute;
 
+#[allow(ambiguous_glob_reexports)]
 pub use apply_dispute_slash::*;
 #[allow(ambiguous_glob_reexports)]
 pub use cancel_task::*;

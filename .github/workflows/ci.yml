@@ -126,6 +126,9 @@ jobs:
           set -euxo pipefail
           solana config set --url http://127.0.0.1:8899
           anchor build --no-idl
+          # Debug: show where .so files are located
+          find . -name "*.so" -path "*/deploy/*" 2>/dev/null || true
+          ls -la target/deploy/ || true
           test -f target/deploy/agenc_coordination.so
 
       - name: anchor test
