@@ -126,7 +126,11 @@ jobs:
           set -euxo pipefail
           solana config set --url http://127.0.0.1:8899
           # anchor test builds, starts validator, deploys, and runs tests
-          anchor test
+          anchor test || {
+            echo "=== Validator log ==="
+            cat .anchor/test-ledger/test-ledger-log.txt 2>/dev/null || echo "No validator log found"
+            exit 1
+          }
 
   security_scans:
     runs-on: ubuntu-latest
