@@ -627,6 +627,7 @@ mod tests {
         };
 
         let mut worker = setup_valid_worker();
+        worker.active_tasks = 1; // Worker must have claimed the task first
         let config = SimulatedConfig::default();
 
         let result = simulate_complete_task(
