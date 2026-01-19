@@ -114,6 +114,15 @@ pub struct DisputeResolved {
     pub timestamp: i64,
 }
 
+/// Emitted when a dispute expires without resolution
+#[event]
+pub struct DisputeExpired {
+    pub dispute_id: [u8; 32],
+    pub task_id: [u8; 32],
+    pub refund_amount: u64,
+    pub timestamp: i64,
+}
+
 /// Emitted when protocol is initialized
 #[event]
 pub struct ProtocolInitialized {

@@ -44,11 +44,12 @@ pub fn handler(ctx: Context<DeregisterAgent>) -> Result<()> {
     );
 
     const VOTE_COOLDOWN: i64 = 24 * 60 * 60;
+    let time_since_vote = clock
+        .unix_timestamp
+        .checked_sub(agent.last_vote_timestamp)
+        .ok_or(CoordinationError::ArithmeticOverflow)?;
     require!(
-        clock
-            .unix_timestamp
-            .saturating_sub(agent.last_vote_timestamp)
-            > VOTE_COOLDOWN,
+        time_since_vote > VOTE_COOLDOWN,
         CoordinationError::RecentVoteActivity
     );
 

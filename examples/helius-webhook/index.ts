@@ -196,7 +196,19 @@ function isValidWebhookUrl(url: string): boolean {
     // Block localhost and private IPs in production
     if (process.env.NODE_ENV === 'production') {
       const hostname = parsed.hostname.toLowerCase();
-      if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname.startsWith('192.168.') || hostname.startsWith('10.') || hostname.startsWith('172.')) {
+      // Block private/internal networks to prevent SSRF
+      if (
+        hostname === 'localhost' ||
+        hostname === '127.0.0.1' ||
+        hostname === '::1' ||
+        hostname.startsWith('192.168.') ||
+        hostname.startsWith('10.') ||
+        // 172.16.0.0 - 172.31.255.255 is private (172.16-31.x.x)
+        /^172\.(1[6-9]|2[0-9]|3[01])\./.test(hostname) ||
+        hostname.startsWith('169.254.') || // Link-local
+        hostname.startsWith('fc') || // IPv6 unique local (fc00::/7)
+        hostname.startsWith('fd')
+      ) {
         return false;
       }
     }
@@ -518,13 +530,19 @@ async function subscribeToLogs(): Promise<void> {
   });
 
   ws.on('message', (data: Buffer) => {
-    const message = JSON.parse(data.toString());
+    let message: { method?: string; params?: { result?: { value?: { signature?: string; logs?: string[] } } } };
+    try {
+      message = JSON.parse(data.toString());
+    } catch {
+      console.error('Invalid JSON received via WebSocket');
+      return;
+    }
 
     if (message.method === 'logsNotification') {
-      const result = message.params.result;
+      const result = message.params?.result;
       console.log(chalk.cyan('\n[Log Notification]'));
-      console.log(chalk.gray('  Signature:'), result.value.signature);
-      console.log(chalk.gray('  Logs:'), result.value.logs?.slice(0, 3));
+      console.log(chalk.gray('  Signature:'), result?.value?.signature);
+      console.log(chalk.gray('  Logs:'), result?.value?.logs?.slice(0, 3));
     }
   });
 

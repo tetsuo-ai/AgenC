@@ -228,7 +228,8 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
 
             // Validate vote account
             let vote_data = vote_info.try_borrow_data()?;
-            let vote = DisputeVote::try_deserialize(&mut &vote_data[8..])?;
+            // try_deserialize expects full data including discriminator
+            let vote = DisputeVote::try_deserialize(&mut &**vote_data)?;
             require!(
                 vote.dispute == dispute.key(),
                 CoordinationError::InvalidInput
@@ -243,8 +244,14 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
 
             // Decrement active_dispute_votes on arbiter
             let mut arbiter_data = arbiter_info.try_borrow_mut_data()?;
-            let mut arbiter = AgentRegistration::try_deserialize(&mut &arbiter_data[8..])?;
-            arbiter.active_dispute_votes = arbiter.active_dispute_votes.saturating_sub(1);
+            // try_deserialize expects full data including discriminator
+            let mut arbiter = AgentRegistration::try_deserialize(&mut &**arbiter_data)?;
+            // Use checked_sub to catch accounting errors - underflow here indicates a bug
+            arbiter.active_dispute_votes = arbiter
+                .active_dispute_votes
+                .checked_sub(1)
+                .ok_or(CoordinationError::ArithmeticOverflow)?;
+            // Serialize back, skipping discriminator (already validated during deserialize)
             arbiter.try_serialize(&mut &mut arbiter_data[8..])?;
         }
     } else {
