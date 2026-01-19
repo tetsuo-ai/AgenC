@@ -130,7 +130,8 @@ pub fn handler(
 
     // Update states
     update_claim_state(claim, escrow, worker_reward, task.reward_amount)?;
-    let task_completed = update_task_state(task, clock.unix_timestamp, escrow, Some(claim_result_data))?;
+    let task_completed =
+        update_task_state(task, clock.unix_timestamp, escrow, Some(claim_result_data))?;
     update_worker_state(worker, worker_reward, clock.unix_timestamp)?;
 
     // Update protocol stats after other mutable borrows are done

@@ -229,8 +229,14 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
             // Validate vote account
             let vote_data = vote_info.try_borrow_data()?;
             let vote = DisputeVote::try_deserialize(&mut &vote_data[8..])?;
-            require!(vote.dispute == dispute.key(), CoordinationError::InvalidInput);
-            require!(vote.voter == arbiter_info.key(), CoordinationError::InvalidInput);
+            require!(
+                vote.dispute == dispute.key(),
+                CoordinationError::InvalidInput
+            );
+            require!(
+                vote.voter == arbiter_info.key(),
+                CoordinationError::InvalidInput
+            );
             drop(vote_data);
 
             require!(arbiter_info.is_writable, CoordinationError::InvalidInput);
@@ -242,7 +248,10 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
             arbiter.try_serialize(&mut &mut arbiter_data[8..])?;
         }
     } else {
-        require!(ctx.remaining_accounts.is_empty(), CoordinationError::InvalidInput);
+        require!(
+            ctx.remaining_accounts.is_empty(),
+            CoordinationError::InvalidInput
+        );
     }
 
     dispute.status = DisputeStatus::Resolved;

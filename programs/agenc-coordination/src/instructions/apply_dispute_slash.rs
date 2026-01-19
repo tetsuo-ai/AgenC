@@ -2,7 +2,9 @@
 
 use crate::errors::CoordinationError;
 use crate::instructions::constants::PERCENT_BASE;
-use crate::state::{Dispute, DisputeStatus, ProtocolConfig, ResolutionType, Task, TaskClaim, AgentRegistration};
+use crate::state::{
+    AgentRegistration, Dispute, DisputeStatus, ProtocolConfig, ResolutionType, Task, TaskClaim,
+};
 use crate::utils::version::check_version_compatible;
 use anchor_lang::prelude::*;
 
@@ -54,7 +56,10 @@ pub fn handler(ctx: Context<ApplyDisputeSlash>) -> Result<()> {
         dispute.status == DisputeStatus::Resolved,
         CoordinationError::DisputeNotResolved
     );
-    require!(!dispute.slash_applied, CoordinationError::SlashAlreadyApplied);
+    require!(
+        !dispute.slash_applied,
+        CoordinationError::SlashAlreadyApplied
+    );
     require!(
         worker_agent.key() == ctx.accounts.worker_claim.worker,
         CoordinationError::UnauthorizedAgent

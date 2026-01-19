@@ -3,18 +3,20 @@
 //! Used by both `complete_task` (public) and `complete_task_private` (ZK) instructions.
 
 use crate::errors::CoordinationError;
-use crate::instructions::constants::{BASIS_POINTS_DIVISOR, MAX_REPUTATION, REPUTATION_PER_COMPLETION};
-use crate::state::{AgentRegistration, ProtocolConfig, Task, TaskClaim, TaskEscrow, TaskStatus, TaskType, RESULT_DATA_SIZE};
+use crate::instructions::constants::{
+    BASIS_POINTS_DIVISOR, MAX_REPUTATION, REPUTATION_PER_COMPLETION,
+};
+use crate::state::{
+    AgentRegistration, ProtocolConfig, Task, TaskClaim, TaskEscrow, TaskStatus, TaskType,
+    RESULT_DATA_SIZE,
+};
 use anchor_lang::prelude::*;
 
 /// Calculate worker reward and protocol fee from task reward amount.
 ///
 /// For collaborative tasks, splits reward among required completions.
 /// For exclusive/competitive tasks, uses full reward amount.
-pub fn calculate_reward_split(
-    task: &Task,
-    protocol_fee_bps: u16,
-) -> Result<(u64, u64)> {
+pub fn calculate_reward_split(task: &Task, protocol_fee_bps: u16) -> Result<(u64, u64)> {
     let reward_per_worker = calculate_reward_per_worker(task)?;
 
     let protocol_fee = reward_per_worker
@@ -146,10 +148,7 @@ pub fn update_worker_state(
 }
 
 /// Update protocol statistics after task completion.
-pub fn update_protocol_stats(
-    config: &mut Account<ProtocolConfig>,
-    reward: u64,
-) -> Result<()> {
+pub fn update_protocol_stats(config: &mut Account<ProtocolConfig>, reward: u64) -> Result<()> {
     config.completed_tasks = config
         .completed_tasks
         .checked_add(1)
