@@ -1,6 +1,7 @@
 //! Expire a dispute after the maximum duration
 
 use crate::errors::CoordinationError;
+use crate::events::DisputeExpired;
 use crate::state::{Dispute, DisputeStatus, ProtocolConfig, Task, TaskEscrow, TaskStatus};
 use crate::utils::version::check_version_compatible;
 use anchor_lang::prelude::*;
@@ -79,6 +80,13 @@ pub fn handler(ctx: Context<ExpireDispute>) -> Result<()> {
     dispute.status = DisputeStatus::Expired;
     dispute.resolved_at = clock.unix_timestamp;
     escrow.is_closed = true;
+
+    emit!(DisputeExpired {
+        dispute_id: dispute.dispute_id,
+        task_id: task.task_id,
+        refund_amount: remaining_funds,
+        timestamp: clock.unix_timestamp,
+    });
 
     Ok(())
 }

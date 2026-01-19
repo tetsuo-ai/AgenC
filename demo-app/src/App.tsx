@@ -73,9 +73,13 @@ const getRpcEndpoint = (): string => {
 
     // Security: Check if domain is in trusted allowlist (configurable via env)
     const allowCustomDomains = import.meta.env.VITE_ALLOW_CUSTOM_RPC === 'true'
-    const isTrustedDomain = TRUSTED_RPC_DOMAINS.some(domain =>
-      url.hostname === domain || url.hostname.endsWith('.' + domain)
-    )
+    const isTrustedDomain = TRUSTED_RPC_DOMAINS.some(domain => {
+      if (url.hostname === domain) return true;
+      // For subdomains, ensure the trusted domain is a proper suffix
+      // Skip subdomain matching for localhost-like domains to prevent DNS rebinding
+      if (domain === 'localhost' || domain === '127.0.0.1') return false;
+      return url.hostname.endsWith('.' + domain);
+    })
 
     if (!isTrustedDomain && !allowCustomDomains) {
       console.warn('[Security] RPC URL domain not in trusted allowlist. Set VITE_ALLOW_CUSTOM_RPC=true to allow custom domains.')
@@ -124,7 +128,10 @@ function App() {
     try {
       const conn = new Connection(DEVNET_RPC, {
         commitment: 'confirmed',
-        confirmTransactionInitialTimeout: Number(import.meta.env.VITE_TX_TIMEOUT) || 60000,
+        confirmTransactionInitialTimeout: (() => {
+          const timeout = Number(import.meta.env.VITE_TX_TIMEOUT);
+          return Number.isFinite(timeout) && timeout > 0 ? timeout : 60000;
+        })(),
       })
       // Verify connection is working by fetching slot
       await conn.getSlot()
