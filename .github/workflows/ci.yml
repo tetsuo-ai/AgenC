@@ -130,6 +130,8 @@ jobs:
           RUSTUP_TOOLCHAIN: ${{ env.RUST_TOOLCHAIN }}
         run: |
           set -euxo pipefail
+          # Pin proc-macro2 to avoid breaking change in 1.0.95+ (local_file API change)
+          cargo update -p proc-macro2 --precise 1.0.94
           anchor build
           # Verify build artifacts at workspace root
           test -f target/deploy/agenc_coordination.so
