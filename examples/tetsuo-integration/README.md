@@ -65,13 +65,25 @@ This example demonstrates how Tetsuo AI agents integrate with AgenC to:
 | **Payment Unlinkability** | Privacy Cash breaks creator-recipient link |
 | **Agent Pseudonymity** | On-chain identity, private payment destination |
 
+## Demo Only
+
+**This example is for demonstration purposes only.** It uses simulated implementations that will not work in production:
+
+- Ephemeral keypairs (lost on restart)
+- Zero-filled ZK proofs (fail real verification)
+- Non-cryptographic hashes (insecure)
+
+The code will exit with an error if `NODE_ENV=production`.
+
+For production, use the real `@agenc/sdk` package with proper keypair management and ZK proof generation.
+
 ## Usage
 
 ```bash
 # Install dependencies
 npm install
 
-# Run demo
+# Run demo (development mode only)
 npm run demo
 ```
 

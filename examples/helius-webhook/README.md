@@ -101,6 +101,24 @@ function emitTaskCompletion(event: TaskCompletionEvent) {
 }
 ```
 
+## Security
+
+**Production Requirements:**
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `HELIUS_WEBHOOK_SECRET` | **Yes** | Webhook signature verification secret from Helius dashboard |
+| `NODE_ENV` | Recommended | Set to `production` to enforce security checks |
+
+Without `HELIUS_WEBHOOK_SECRET`, the webhook endpoint cannot verify that requests originate from Helius. The server will reject all webhooks in production mode if this is not set.
+
+```bash
+# Production deployment
+export NODE_ENV=production
+export HELIUS_WEBHOOK_SECRET=your-webhook-secret-from-helius
+npm run server
+```
+
 ## Helius API Key
 
 Get your API key at: https://dev.helius.xyz/
