@@ -121,12 +121,25 @@ jobs:
             solana-keygen new --no-bip39-passphrase -o ~/.config/solana/id.json
           fi
 
+      - name: anchor build
+        run: |
+          set -euxo pipefail
+          anchor build --no-idl
+          # Verify .so was created
+          test -f programs/agenc-coordination/target/deploy/agenc_coordination.so
+
       - name: anchor test
         run: |
           set -euxo pipefail
           solana config set --url http://127.0.0.1:8899
-          # anchor test builds, starts validator, deploys, and runs tests
-          anchor test || {
+
+          # Create symlink so validator finds the .so file
+          # Anchor workspace builds to programs/*/target but validator expects target/deploy/
+          mkdir -p target/deploy
+          ln -sf "$(pwd)/programs/agenc-coordination/target/deploy/agenc_coordination.so" target/deploy/agenc_coordination.so
+
+          # Run tests with --skip-build since we already built
+          anchor test --skip-build || {
             echo "=== Validator log ==="
             cat .anchor/test-ledger/test-ledger-log.txt 2>/dev/null || echo "No validator log found"
             exit 1
