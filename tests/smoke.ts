@@ -1,435 +1,409 @@
+/**
+ * AgenC Devnet Smoke Tests
+ *
+ * Quick verification of core protocol functionality.
+ * Run with: anchor test --skip-local-validator
+ */
+
 import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
-import { PublicKey, Keypair, LAMPORTS_PER_SOL } from "@solana/web3.js";
+import { PublicKey, Keypair, SystemProgram, LAMPORTS_PER_SOL } from "@solana/web3.js";
 import { assert } from "chai";
 import BN from "bn.js";
+import { AgencCoordination } from "../target/types/agenc_coordination";
 
-// Update this with your deployed program ID
-const PROGRAM_ID = new PublicKey("EopUaCV2svxj9j4hd7KjbrWfdjkspmm2BCBe7jGpKzKZ");
-
-const AIRDROP_SOL = 2;
-const MIN_BALANCE_SOL = 1;
-const MAX_AIRDROP_ATTEMPTS = 5;
-const BASE_DELAY_MS = 500;
-const MAX_DELAY_MS = 8000;
-
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
-const isRateLimitError = (message: string) =>
-  message.includes("429") || message.toLowerCase().includes("too many requests");
-
-const ensureBalance = async (
-  connection: anchor.web3.Connection,
-  keypair: Keypair,
-  minLamports: number
-) => {
-  const pubkey = keypair.publicKey;
-  const existing = await connection.getBalance(pubkey);
-  if (existing >= minLamports) {
-    console.log(
-      `  Skipping airdrop for ${pubkey
-        .toBase58()
-        .slice(0, 8)}... balance ${(
-        existing / LAMPORTS_PER_SOL
-      ).toFixed(2)} SOL`
-    );
-    return;
-  }
-
-  for (let attempt = 0; attempt < MAX_AIRDROP_ATTEMPTS; attempt += 1) {
-    try {
-      const sig = await connection.requestAirdrop(
-        pubkey,
-        AIRDROP_SOL * LAMPORTS_PER_SOL
-      );
-      await connection.confirmTransaction(sig, "confirmed");
-      console.log(`  Funded ${pubkey.toBase58().slice(0, 8)}...`);
-      return;
-    } catch (e) {
-      const message = e instanceof Error ? e.message : String(e);
-      const delayMs = Math.min(MAX_DELAY_MS, BASE_DELAY_MS * 2 ** attempt);
-      if (isRateLimitError(message)) {
-        console.log(
-          `  Faucet rate limited (HTTP 429) for ${pubkey
-            .toBase58()
-            .slice(0, 8)}..., retrying in ${delayMs}ms`
-        );
-      } else {
-        console.log(
-          `  Airdrop attempt ${attempt + 1} failed for ${pubkey
-            .toBase58()
-            .slice(0, 8)}...: ${message}`
-        );
-      }
-      if (attempt === MAX_AIRDROP_ATTEMPTS - 1) {
-        throw new Error(
-          `Airdrop failed for ${pubkey
-            .toBase58()
-            .slice(0, 8)} after ${MAX_AIRDROP_ATTEMPTS} attempts`
-        );
-      }
-      await sleep(delayMs);
-    }
-  }
-};
-
-describe("AgenC Devnet Smoke Tests", () => {
+describe("AgenC Smoke Tests", () => {
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
-  const payer = (provider.wallet as any).payer as Keypair | undefined;
 
-  // Test accounts
-  let protocolAuthority: Keypair;
-  let treasury: Keypair;
-  let agent1: Keypair;
-  let agent2: Keypair;
-  let taskCreator: Keypair;
+  const program = anchor.workspace.AgencCoordination as Program<AgencCoordination>;
+
+  // Unique run ID to avoid conflicts with persisted state
+  const runId = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 
   // PDAs
-  let protocolConfigPda: PublicKey;
-  let agent1Pda: PublicKey;
-  let agent2Pda: PublicKey;
-  let taskPda: PublicKey;
-  let escrowPda: PublicKey;
+  const [protocolPda] = PublicKey.findProgramAddressSync(
+    [Buffer.from("protocol")],
+    program.programId
+  );
 
-  // Task params
-  const taskId = new BN(1);
-  const taskReward = new BN(0.1 * LAMPORTS_PER_SOL); // 0.1 SOL
+  // Test accounts
+  let treasury: Keypair;
+  let agent: Keypair;
+  let taskCreator: Keypair;
+  let agentId: Buffer;
+  let agentPda: PublicKey;
+
+  // Constants
+  const CAPABILITY_COMPUTE = 1 << 0;
+  const CAPABILITY_ARBITER = 1 << 7;
+
+  function deriveTaskPda(creatorPubkey: PublicKey, taskId: Buffer): PublicKey {
+    return PublicKey.findProgramAddressSync(
+      [Buffer.from("task"), creatorPubkey.toBuffer(), taskId],
+      program.programId
+    )[0];
+  }
+
+  function deriveEscrowPda(taskPda: PublicKey): PublicKey {
+    return PublicKey.findProgramAddressSync(
+      [Buffer.from("escrow"), taskPda.toBuffer()],
+      program.programId
+    )[0];
+  }
+
+  function deriveClaimPda(taskPda: PublicKey, workerPda: PublicKey): PublicKey {
+    return PublicKey.findProgramAddressSync(
+      [Buffer.from("claim"), taskPda.toBuffer(), workerPda.toBuffer()],
+      program.programId
+    )[0];
+  }
 
   before(async () => {
     console.log("\n========================================");
-    console.log("AgenC Smoke Test - Devnet");
+    console.log("AgenC Smoke Tests");
+    console.log("Program ID:", program.programId.toBase58());
+    console.log("Run ID:", runId);
     console.log("========================================\n");
 
-    // Generate test keypairs
-    protocolAuthority = payer ?? Keypair.generate();
+    // Generate test accounts
     treasury = Keypair.generate();
-    agent1 = Keypair.generate();
-    agent2 = Keypair.generate();
+    agent = Keypair.generate();
     taskCreator = Keypair.generate();
+    agentId = Buffer.from(`smoke-${runId}`.slice(0, 32).padEnd(32, "\0"));
+    agentPda = PublicKey.findProgramAddressSync(
+      [Buffer.from("agent"), agentId],
+      program.programId
+    )[0];
 
-    // Airdrop SOL to test accounts
-    console.log("Airdropping SOL to test accounts...");
-
-    if (payer) {
-      console.log(
-        `  Reusing provider wallet for protocol authority: ${payer.publicKey.toBase58()}`
-      );
-    }
-
-    const accounts = [protocolAuthority, agent1, agent2, taskCreator];
-    for (const account of accounts) {
-      await ensureBalance(
-        provider.connection,
-        account,
-        MIN_BALANCE_SOL * LAMPORTS_PER_SOL
-      );
-    }
-
-    // Derive PDAs
-    [protocolConfigPda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("protocol_config")],
-      PROGRAM_ID
+    // Fund test accounts
+    console.log("Funding test accounts...");
+    const wallets = [treasury, agent, taskCreator];
+    const airdropSigs = await Promise.all(
+      wallets.map(w => provider.connection.requestAirdrop(w.publicKey, 10 * LAMPORTS_PER_SOL))
     );
-
-    [agent1Pda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("agent"), agent1.publicKey.toBuffer()],
-      PROGRAM_ID
+    await Promise.all(
+      airdropSigs.map(sig => provider.connection.confirmTransaction(sig, "confirmed"))
     );
-
-    [agent2Pda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("agent"), agent2.publicKey.toBuffer()],
-      PROGRAM_ID
-    );
-
-    [taskPda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("task"), taskId.toArrayLike(Buffer, "le", 8)],
-      PROGRAM_ID
-    );
-
-    [escrowPda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("escrow"), taskPda.toBuffer()],
-      PROGRAM_ID
-    );
-
-    console.log("\nTest accounts ready.");
-    console.log(`  Protocol Authority: ${protocolAuthority.publicKey.toBase58()}`);
-    console.log(`  Treasury: ${treasury.publicKey.toBase58()}`);
-    console.log(`  Agent 1: ${agent1.publicKey.toBase58()}`);
-    console.log(`  Agent 2: ${agent2.publicKey.toBase58()}`);
-    console.log(`  Task Creator: ${taskCreator.publicKey.toBase58()}`);
+    console.log("  Accounts funded\n");
   });
 
   describe("1. Protocol Initialization", () => {
-    it("should initialize the protocol config", async () => {
-      console.log("\n[TEST] Initializing protocol...");
-      
-      // Call initialize instruction
-      // Adjust based on your actual IDL
-      const tx = await provider.connection.sendTransaction(
-        new anchor.web3.Transaction(),
-        [protocolAuthority]
-      );
-      
-      console.log(`  TX: ${tx}`);
-      console.log("  Protocol initialized successfully");
+    it("initializes protocol config", async () => {
+      try {
+        await program.methods
+          .initializeProtocol(
+            51,                              // dispute_quorum_percent
+            100,                             // dispute_vote_period
+            new BN(LAMPORTS_PER_SOL / 100),  // min_stake
+            1,                               // min_multisig_signers
+            [provider.wallet.publicKey]      // multisig_signers
+          )
+          .accountsPartial({
+            protocolConfig: protocolPda,
+            treasury: treasury.publicKey,
+            authority: provider.wallet.publicKey,
+            systemProgram: SystemProgram.programId,
+          })
+          .remainingAccounts([
+            { pubkey: provider.wallet.publicKey, isSigner: true, isWritable: false },
+          ])
+          .rpc({ skipPreflight: true });
+
+        console.log("  Protocol initialized");
+      } catch (e: any) {
+        // Protocol may already be initialized
+        if (e.message?.includes("already in use")) {
+          console.log("  Protocol already initialized (OK)");
+        } else {
+          throw e;
+        }
+      }
+
+      // Verify protocol config exists
+      const config = await program.account.protocolConfig.fetch(protocolPda);
+      assert.isTrue(config.isInitialized, "Protocol should be initialized");
+      console.log("  Treasury:", config.treasury.toBase58());
     });
   });
 
   describe("2. Agent Registration", () => {
-    it("should register agent 1 with COMPUTE capability", async () => {
-      console.log("\n[TEST] Registering Agent 1...");
-      
-      const capabilities = 0x01; // COMPUTE
-      const endpoint = "https://agent1.example.com";
-      const stakeAmount = new BN(0.05 * LAMPORTS_PER_SOL);
+    it("registers an agent with COMPUTE capability", async () => {
+      await program.methods
+        .registerAgent(
+          Array.from(agentId),
+          new BN(CAPABILITY_COMPUTE | CAPABILITY_ARBITER),
+          `https://smoke-test-${runId}.example.com`,
+          null,
+          new BN(LAMPORTS_PER_SOL / 10)
+        )
+        .accountsPartial({
+          agent: agentPda,
+          protocolConfig: protocolPda,
+          authority: agent.publicKey,
+        })
+        .signers([agent])
+        .rpc({ skipPreflight: true });
 
-      // Call register_agent instruction
-      // Adjust based on your actual IDL
-      
-      console.log(`  Agent 1 registered with capabilities: ${capabilities}`);
-      console.log(`  Stake: ${stakeAmount.toNumber() / LAMPORTS_PER_SOL} SOL`);
+      // Verify agent registration
+      const agentAccount = await program.account.agentRegistration.fetch(agentPda);
+      assert.equal(
+        agentAccount.authority.toBase58(),
+        agent.publicKey.toBase58(),
+        "Agent authority should match"
+      );
+      assert.isTrue(
+        agentAccount.capabilities.toNumber() & CAPABILITY_COMPUTE,
+        "Agent should have COMPUTE capability"
+      );
+      console.log("  Agent registered:", agentPda.toBase58().slice(0, 16) + "...");
     });
 
-    it("should register agent 2 with INFERENCE capability", async () => {
-      console.log("\n[TEST] Registering Agent 2...");
-      
-      const capabilities = 0x02; // INFERENCE
-      const endpoint = "https://agent2.example.com";
-      const stakeAmount = new BN(0.05 * LAMPORTS_PER_SOL);
-
-      // Call register_agent instruction
-      
-      console.log(`  Agent 2 registered with capabilities: ${capabilities}`);
-    });
-
-    it("should query agent state", async () => {
-      console.log("\n[TEST] Querying agent states...");
-      
-      // Fetch agent accounts
-      // const agent1Account = await program.account.agent.fetch(agent1Pda);
-      
-      console.log("  Agent states verified");
+    it("queries agent state correctly", async () => {
+      const agentAccount = await program.account.agentRegistration.fetch(agentPda);
+      assert.equal(agentAccount.status, 1, "Agent should be Active (status=1)");
+      assert.isTrue(agentAccount.stake.toNumber() > 0, "Agent should have stake");
+      console.log("  Agent status: Active");
+      console.log("  Agent stake:", agentAccount.stake.toNumber() / LAMPORTS_PER_SOL, "SOL");
     });
   });
 
-  describe("3. Task Creation with Escrow", () => {
-    it("should create a task with escrowed reward", async () => {
-      console.log("\n[TEST] Creating task with escrow...");
-      
-      const requiredCapabilities = 0x01; // COMPUTE
-      const description = "Test compute task";
-      const deadline = new BN(Date.now() / 1000 + 3600); // 1 hour
+  describe("3. Task Lifecycle", () => {
+    const taskId = Buffer.from(`task-${runId}`.slice(0, 32).padEnd(32, "\0"));
+    let taskPda: PublicKey;
+    let escrowPda: PublicKey;
+    let claimPda: PublicKey;
+    const taskReward = new BN(LAMPORTS_PER_SOL / 10); // 0.1 SOL
 
-      // Call create_task instruction
-      
-      console.log(`  Task ID: ${taskId.toString()}`);
-      console.log(`  Reward: ${taskReward.toNumber() / LAMPORTS_PER_SOL} SOL`);
-      console.log(`  Escrow PDA: ${escrowPda.toBase58()}`);
+    before(() => {
+      taskPda = deriveTaskPda(taskCreator.publicKey, taskId);
+      escrowPda = deriveEscrowPda(taskPda);
+      claimPda = deriveClaimPda(taskPda, agentPda);
     });
 
-    it("should verify escrow balance", async () => {
-      console.log("\n[TEST] Verifying escrow balance...");
-      
+    it("creates a task with escrowed reward", async () => {
+      const creatorBalanceBefore = await provider.connection.getBalance(taskCreator.publicKey);
+
+      await program.methods
+        .createTask(
+          Array.from(taskId),
+          new BN(CAPABILITY_COMPUTE),
+          Buffer.from("Smoke test task".padEnd(64, "\0")),
+          null,  // No constraint hash (public task)
+          taskReward,
+          1,     // max_workers
+          0,     // task_type: Exclusive
+          new BN(0)  // deadline: none
+        )
+        .accountsPartial({
+          task: taskPda,
+          escrow: escrowPda,
+          creator: taskCreator.publicKey,
+          protocolConfig: protocolPda,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([taskCreator])
+        .rpc({ skipPreflight: true });
+
+      // Verify task created
+      const task = await program.account.task.fetch(taskPda);
+      assert.equal(task.status, 0, "Task should be Open (status=0)");
+      assert.equal(
+        task.rewardAmount.toNumber(),
+        taskReward.toNumber(),
+        "Task reward should match"
+      );
+
+      // Verify escrow funded
       const escrowBalance = await provider.connection.getBalance(escrowPda);
-      console.log(`  Escrow balance: ${escrowBalance / LAMPORTS_PER_SOL} SOL`);
-      
-      // assert.equal(escrowBalance, taskReward.toNumber(), "Escrow should hold task reward");
-    });
-  });
+      assert.isTrue(escrowBalance >= taskReward.toNumber(), "Escrow should hold reward");
 
-  describe("4. Task Claiming", () => {
-    it("should allow agent 1 to claim the task", async () => {
-      console.log("\n[TEST] Agent 1 claiming task...");
-      
-      // Call claim_task instruction
-      
-      console.log("  Task claimed successfully");
+      console.log("  Task created:", taskPda.toBase58().slice(0, 16) + "...");
+      console.log("  Escrow balance:", escrowBalance / LAMPORTS_PER_SOL, "SOL");
     });
 
-    it("should reject claim from agent without matching capabilities", async () => {
-      console.log("\n[TEST] Verifying capability check...");
-      
-      // Try to claim with agent2 (INFERENCE) on COMPUTE task
-      // Should fail
-      
-      console.log("  Capability check passed - invalid claim rejected");
+    it("allows agent to claim the task", async () => {
+      await program.methods
+        .claimTask()
+        .accountsPartial({
+          task: taskPda,
+          claim: claimPda,
+          worker: agentPda,
+          authority: agent.publicKey,
+          protocolConfig: protocolPda,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([agent])
+        .rpc({ skipPreflight: true });
+
+      // Verify claim
+      const claim = await program.account.taskClaim.fetch(claimPda);
+      assert.equal(claim.worker.toBase58(), agentPda.toBase58(), "Claim worker should match");
+      assert.isFalse(claim.isCompleted, "Claim should not be completed yet");
+
+      // Verify task status updated
+      const task = await program.account.task.fetch(taskPda);
+      assert.equal(task.status, 1, "Task should be InProgress (status=1)");
+      assert.equal(task.currentWorkers, 1, "Task should have 1 worker");
+
+      console.log("  Task claimed by agent");
     });
 
-    it("should verify task state is now CLAIMED", async () => {
-      console.log("\n[TEST] Verifying task state...");
-      
-      // Fetch task account
-      // const taskAccount = await program.account.task.fetch(taskPda);
-      // assert.equal(taskAccount.status, "Claimed");
-      
-      console.log("  Task status: CLAIMED");
-    });
-  });
+    it("allows agent to complete the task", async () => {
+      const agentBalanceBefore = await provider.connection.getBalance(agent.publicKey);
+      const config = await program.account.protocolConfig.fetch(protocolPda);
 
-  describe("5. Task Completion", () => {
-    it("should allow agent 1 to complete the task", async () => {
-      console.log("\n[TEST] Agent 1 completing task...");
-      
-      const resultHash = Buffer.alloc(32);
-      resultHash.write("test_result_hash_12345");
+      const resultData = Buffer.alloc(64);
+      resultData.write("smoke_test_result");
+      const proofHash = Buffer.alloc(32);
+      proofHash.write("proof_hash_smoke");
 
-      // Call complete_task instruction
-      
+      await program.methods
+        .completeTask(Array.from(proofHash), Array.from(resultData))
+        .accountsPartial({
+          task: taskPda,
+          claim: claimPda,
+          escrow: escrowPda,
+          worker: agentPda,
+          authority: agent.publicKey,
+          treasury: config.treasury,
+          protocolConfig: protocolPda,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([agent])
+        .rpc({ skipPreflight: true });
+
+      // Verify completion
+      const claim = await program.account.taskClaim.fetch(claimPda);
+      assert.isTrue(claim.isCompleted, "Claim should be completed");
+
+      const task = await program.account.task.fetch(taskPda);
+      assert.equal(task.status, 3, "Task should be Completed (status=3)");
+      assert.equal(task.completions, 1, "Task should have 1 completion");
+
+      // Verify reward paid
+      const agentBalanceAfter = await provider.connection.getBalance(agent.publicKey);
+      assert.isTrue(
+        agentBalanceAfter > agentBalanceBefore,
+        "Agent balance should increase"
+      );
+
       console.log("  Task completed");
+      console.log("  Reward received:", (agentBalanceAfter - agentBalanceBefore) / LAMPORTS_PER_SOL, "SOL");
     });
 
-    it("should verify reward distribution", async () => {
-      console.log("\n[TEST] Verifying reward distribution...");
-      
-      const agent1Balance = await provider.connection.getBalance(agent1.publicKey);
-      console.log(`  Agent 1 balance: ${agent1Balance / LAMPORTS_PER_SOL} SOL`);
-      
-      const escrowBalance = await provider.connection.getBalance(escrowPda);
-      console.log(`  Escrow balance: ${escrowBalance / LAMPORTS_PER_SOL} SOL (should be 0)`);
-    });
-
-    it("should verify reputation update", async () => {
-      console.log("\n[TEST] Verifying reputation update...");
-      
-      // Fetch agent account
-      // const agent1Account = await program.account.agent.fetch(agent1Pda);
-      // console.log(`  Agent 1 reputation: ${agent1Account.reputation}`);
-      // console.log(`  Tasks completed: ${agent1Account.tasksCompleted}`);
-      
-      console.log("  Reputation updated");
+    it("verifies agent reputation updated", async () => {
+      const agentAccount = await program.account.agentRegistration.fetch(agentPda);
+      assert.equal(agentAccount.tasksCompleted, 1, "Agent should have 1 task completed");
+      assert.isTrue(agentAccount.totalEarned.toNumber() > 0, "Agent should have earnings");
+      console.log("  Tasks completed:", agentAccount.tasksCompleted);
+      console.log("  Total earned:", agentAccount.totalEarned.toNumber() / LAMPORTS_PER_SOL, "SOL");
     });
   });
 
-  describe("6. Task Cancellation Flow", () => {
-    const cancelTaskId = new BN(2);
+  describe("4. Task Cancellation", () => {
+    const cancelTaskId = Buffer.from(`cancel-${runId}`.slice(0, 32).padEnd(32, "\0"));
     let cancelTaskPda: PublicKey;
     let cancelEscrowPda: PublicKey;
+    const cancelReward = new BN(LAMPORTS_PER_SOL / 20);
 
-    before(async () => {
-      [cancelTaskPda] = PublicKey.findProgramAddressSync(
-        [Buffer.from("task"), cancelTaskId.toArrayLike(Buffer, "le", 8)],
-        PROGRAM_ID
-      );
-      [cancelEscrowPda] = PublicKey.findProgramAddressSync(
-        [Buffer.from("escrow"), cancelTaskPda.toBuffer()],
-        PROGRAM_ID
-      );
+    before(() => {
+      cancelTaskPda = deriveTaskPda(taskCreator.publicKey, cancelTaskId);
+      cancelEscrowPda = deriveEscrowPda(cancelTaskPda);
     });
 
-    it("should create a task for cancellation test", async () => {
-      console.log("\n[TEST] Creating task for cancellation...");
-      
-      // Call create_task
-      
-      console.log(`  Task ${cancelTaskId.toString()} created`);
+    it("creates a task for cancellation", async () => {
+      await program.methods
+        .createTask(
+          Array.from(cancelTaskId),
+          new BN(CAPABILITY_COMPUTE),
+          Buffer.from("Task to cancel".padEnd(64, "\0")),
+          null,
+          cancelReward,
+          1,
+          0,
+          new BN(0)
+        )
+        .accountsPartial({
+          task: cancelTaskPda,
+          escrow: cancelEscrowPda,
+          creator: taskCreator.publicKey,
+          protocolConfig: protocolPda,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([taskCreator])
+        .rpc({ skipPreflight: true });
+
+      console.log("  Task created for cancellation");
     });
 
-    it("should allow creator to cancel unclaimed task", async () => {
-      console.log("\n[TEST] Cancelling unclaimed task...");
-      
-      // Call cancel_task
-      
+    it("allows creator to cancel unclaimed task", async () => {
+      const creatorBalanceBefore = await provider.connection.getBalance(taskCreator.publicKey);
+
+      await program.methods
+        .cancelTask()
+        .accountsPartial({
+          task: cancelTaskPda,
+          escrow: cancelEscrowPda,
+          creator: taskCreator.publicKey,
+          protocolConfig: protocolPda,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([taskCreator])
+        .rpc({ skipPreflight: true });
+
+      // Verify task cancelled
+      const task = await program.account.task.fetch(cancelTaskPda);
+      assert.equal(task.status, 4, "Task should be Cancelled (status=4)");
+
+      // Verify refund
+      const creatorBalanceAfter = await provider.connection.getBalance(taskCreator.publicKey);
+      assert.isTrue(
+        creatorBalanceAfter > creatorBalanceBefore,
+        "Creator should receive refund"
+      );
+
       console.log("  Task cancelled");
-    });
-
-    it("should refund escrow to creator", async () => {
-      console.log("\n[TEST] Verifying escrow refund...");
-      
-      const escrowBalance = await provider.connection.getBalance(cancelEscrowPda);
-      console.log(`  Escrow balance: ${escrowBalance / LAMPORTS_PER_SOL} SOL (should be 0)`);
+      console.log("  Refund received:", (creatorBalanceAfter - creatorBalanceBefore) / LAMPORTS_PER_SOL, "SOL");
     });
   });
 
-  describe("7. Dispute Flow", () => {
-    const disputeTaskId = new BN(3);
-    let disputeTaskPda: PublicKey;
-    let disputePda: PublicKey;
+  describe("5. Agent Deregistration", () => {
+    it("allows agent to deregister and receive stake", async () => {
+      // First update agent to have no active tasks
+      const agentAccount = await program.account.agentRegistration.fetch(agentPda);
+      const stakeAmount = agentAccount.stake.toNumber();
+      const agentBalanceBefore = await provider.connection.getBalance(agent.publicKey);
 
-    before(async () => {
-      [disputeTaskPda] = PublicKey.findProgramAddressSync(
-        [Buffer.from("task"), disputeTaskId.toArrayLike(Buffer, "le", 8)],
-        PROGRAM_ID
+      await program.methods
+        .deregisterAgent()
+        .accountsPartial({
+          agent: agentPda,
+          authority: agent.publicKey,
+          protocolConfig: protocolPda,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([agent])
+        .rpc({ skipPreflight: true });
+
+      // Verify stake returned
+      const agentBalanceAfter = await provider.connection.getBalance(agent.publicKey);
+      const balanceIncrease = agentBalanceAfter - agentBalanceBefore;
+
+      // Account for transaction fees
+      assert.isTrue(
+        balanceIncrease > stakeAmount * 0.9,
+        "Agent should receive most of stake back"
       );
-      [disputePda] = PublicKey.findProgramAddressSync(
-        [Buffer.from("dispute"), disputeTaskPda.toBuffer()],
-        PROGRAM_ID
-      );
-    });
 
-    it("should create and claim a task for dispute test", async () => {
-      console.log("\n[TEST] Setting up dispute test task...");
-      
-      // Create task, claim with agent1
-      
-      console.log("  Dispute test task ready");
-    });
-
-    it("should allow creator to initiate dispute", async () => {
-      console.log("\n[TEST] Initiating dispute...");
-      
-      const reason = "Result did not meet requirements";
-      
-      // Call initiate_dispute
-      
-      console.log("  Dispute initiated");
-    });
-
-    it("should allow voting on dispute", async () => {
-      console.log("\n[TEST] Voting on dispute...");
-      
-      // Call vote_dispute with agent2 as arbiter
-      
-      console.log("  Vote recorded");
-    });
-
-    it("should resolve dispute after voting period", async () => {
-      console.log("\n[TEST] Resolving dispute...");
-      
-      // Call resolve_dispute
-      
-      console.log("  Dispute resolved");
+      console.log("  Agent deregistered");
+      console.log("  Stake returned:", balanceIncrease / LAMPORTS_PER_SOL, "SOL");
     });
   });
 
-  describe("8. Agent Deregistration", () => {
-    it("should allow agent to deregister", async () => {
-      console.log("\n[TEST] Deregistering agent 2...");
-      
-      // Call deregister_agent
-      
-      console.log("  Agent 2 deregistered");
-    });
-
-    it("should return stake to agent", async () => {
-      console.log("\n[TEST] Verifying stake return...");
-      
-      const agent2Balance = await provider.connection.getBalance(agent2.publicKey);
-      console.log(`  Agent 2 balance: ${agent2Balance / LAMPORTS_PER_SOL} SOL`);
-    });
-  });
-
-  describe("9. Protocol Stats", () => {
-    it("should verify protocol statistics", async () => {
-      console.log("\n[TEST] Checking protocol stats...");
-      
-      // Fetch protocol config
-      // const config = await program.account.protocolConfig.fetch(protocolConfigPda);
-      
-      console.log("  Total agents registered: X");
-      console.log("  Total tasks created: X");
-      console.log("  Total disputes: X");
-      console.log("  Treasury balance: X SOL");
-    });
-  });
-
-  after(async () => {
+  after(() => {
     console.log("\n========================================");
-    console.log("Smoke Test Summary");
-    console.log("========================================");
-    console.log("Program ID:", PROGRAM_ID.toBase58());
-    console.log("\nAll smoke tests completed.");
-    console.log("Review results above for any failures.");
+    console.log("Smoke Tests Complete");
     console.log("========================================\n");
   });
 });
