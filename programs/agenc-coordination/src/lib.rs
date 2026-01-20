@@ -282,4 +282,13 @@ pub mod agenc_coordination {
     pub fn update_min_version(ctx: Context<UpdateMinVersion>, new_min_version: u8) -> Result<()> {
         instructions::migrate::update_min_version_handler(ctx, new_min_version)
     }
+
+    /// Emit a task for cross-chain execution.
+    pub fn emit_cross_chain_task(
+        ctx: Context<EmitCrossChainTask>,
+        target_chain: u16,
+        nonce: u64,
+    ) -> Result<()> {
+        instructions::emit_cross_chain_task(ctx, target_chain, nonce)
+    }
 }
