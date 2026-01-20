@@ -100,6 +100,12 @@ pub enum CoordinationError {
     #[msg("Invalid proof size - expected 388 bytes for Groth16")]
     InvalidProofSize,
 
+    #[msg("Invalid proof binding: expected_binding cannot be all zeros")]
+    InvalidProofBinding,
+
+    #[msg("Invalid output commitment: output_commitment cannot be all zeros")]
+    InvalidOutputCommitment,
+
     // Dispute errors (6300-6399)
     #[msg("Dispute is not active")]
     DisputeNotActive,
