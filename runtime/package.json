@@ -1,0 +1,61 @@
+{
+  "name": "@agenc/runtime",
+  "version": "1.0.0",
+  "description": "AI Agent Runtime for AgenC protocol - automated task execution with privacy",
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsup src/index.ts --format cjs,esm --dts",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "solana",
+    "ai",
+    "agent",
+    "runtime",
+    "privacy",
+    "zk-proofs",
+    "agenc"
+  ],
+  "author": "AgenC Team",
+  "license": "MIT",
+  "dependencies": {
+    "@agenc/sdk": "^1.0.0",
+    "@coral-xyz/anchor": ">=0.30.0",
+    "@solana/web3.js": ">=1.90.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.0.9",
+    "tsup": "^8.0.0",
+    "typescript": "^5.0.0"
+  },
+  "peerDependencies": {
+    "@coral-xyz/anchor": ">=0.30.0",
+    "@solana/web3.js": ">=1.90.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tetsuo-ai/AgenC.git",
+    "directory": "runtime"
+  },
+  "bugs": {
+    "url": "https://github.com/tetsuo-ai/AgenC/issues"
+  }
+}
