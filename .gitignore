@@ -42,14 +42,21 @@ keys/
 # OS
 .DS_Store
 Thumbs.db
-a g e n c _ p r o g r a m _ k e y . t x t 
- 
- n u l 
- 
- 
+
+# Node
 node_modules/
+
+# SDK build artifacts
+sdk/dist/
+
+# Circuit artifacts (keep source, ignore compiled)
+circuits/**/target/
+circuits/**/*.proof
+circuits/**/*.pk
+circuits/**/*.vk
+circuits/**/*.ccs
+circuits/**/*.gz
 
 # Claude Code (local AI assistant config)
 .claude/*
 CLAUDE.md
-docs/*

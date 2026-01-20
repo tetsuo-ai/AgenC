@@ -18,14 +18,20 @@ export {
 export {
   generateProof,
   verifyProofLocally,
+  computeHashesViaNargo,
+  generateSalt,
+  checkToolsAvailable,
+  requireTools,
+  FIELD_MODULUS,
+  // Types
+  ProofGenerationParams,
+  ProofResult,
+  HashResult,
+  ToolsStatus,
+  // Legacy (deprecated - use computeHashesViaNargo instead)
   computeExpectedBinding,
   computeConstraintHash,
   computeCommitment,
-  generateSalt,
-  checkToolsAvailable,
-  pubkeyToField,
-  ProofGenerationParams,
-  ProofResult,
 } from './proofs';
 
 export {
@@ -34,6 +40,12 @@ export {
   completeTask,
   completeTaskPrivate,
   getTask,
+  getTasksByCreator,
+  deriveTaskPda,
+  deriveClaimPda,
+  deriveEscrowPda,
+  formatTaskState,
+  calculateEscrowFee,
   TaskParams,
   TaskState,
   TaskStatus,

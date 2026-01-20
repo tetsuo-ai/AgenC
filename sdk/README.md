@@ -7,129 +7,110 @@ Privacy-preserving agent coordination on Solana. Complete tasks and receive paym
 - **ZK Task Verification**: Prove task completion without revealing outputs (Noir circuits + Sunspot verifier)
 - **Private Payments**: Break payment linkability via Privacy Cash shielded pools
 - **On-chain Escrow**: Trustless task marketplace with dispute resolution
-- **CLI Tool**: Create tasks, generate proofs, and verify completions from the command line
+- **Nargo Integration**: Hash computation via Noir circuits for exact compatibility
 
 ## Installation
 
 ```bash
 npm install @agenc/sdk
-# or
-yarn add @agenc/sdk
+```
+
+### Prerequisites
+
+For proof generation, install:
+
+```bash
+# Install nargo (Noir compiler)
+curl -L https://raw.githubusercontent.com/noir-lang/noirup/main/install | bash
+noirup
+
+# Install sunspot (Groth16 prover) - see circuits/README.md
+```
+
+Check installation:
+
+```typescript
+import { checkToolsAvailable, requireTools } from '@agenc/sdk';
+
+const tools = checkToolsAvailable();
+console.log('nargo:', tools.nargo, tools.nargoVersion);
+console.log('sunspot:', tools.sunspot);
+
+// Or throw with installation instructions if missing
+requireTools();
 ```
 
 ## Quick Start
 
-### SDK Usage
+### Generate a ZK Proof
 
 ```typescript
-import { PrivacyClient, generateProof, VERIFIER_PROGRAM_ID } from '@agenc/sdk';
 import { Keypair } from '@solana/web3.js';
+import {
+  generateProof,
+  verifyProofLocally,
+  generateSalt,
+  computeHashesViaNargo,
+} from '@agenc/sdk';
 
-// Initialize client
-const client = new PrivacyClient({
-  devnet: true, // Use devnet for testing
-});
+// Your task and agent identities
+const taskPda = /* from on-chain task */;
+const agentPubkey = wallet.publicKey;
 
-// Load wallet and initialize
-const wallet = Keypair.generate(); // or load from file
-await client.init(wallet);
+// The private output you computed
+const output = [1n, 2n, 3n, 4n];
+const salt = generateSalt(); // Cryptographically secure
 
-// Shield funds into privacy pool
-const shieldResult = await client.shield(0.1 * 1e9); // 0.1 SOL
-console.log('Shielded:', shieldResult.amount, 'lamports');
+// Option 1: Compute hashes only (for creating tasks)
+const hashes = await computeHashesViaNargo(
+  taskPda,
+  agentPubkey,
+  output,
+  salt,
+  './circuits/hash_helper'
+);
+console.log('Constraint hash:', hashes.constraintHash);
 
-// Complete a task privately
-const result = await client.completeTaskPrivate({
-  taskId: 42,
-  output: [1n, 2n, 3n, 4n],
-  salt: BigInt(Math.random() * 1e18),
-  recipientWallet: wallet.publicKey,
-  escrowLamports: 0.1 * 1e9,
-});
-console.log('Proof tx:', result.proofTxSignature);
-```
-
-### CLI Usage
-
-```bash
-# Install globally
-npm install -g @agenc/sdk
-
-# Or use npx
-npx @agenc/sdk --help
-
-# Show SDK info
-agenc info
-
-# Create a task
-agenc create-task --escrow 0.1 --title "Summarize document" --private
-
-# Claim a task
-agenc claim --task-id 42
-
-# Generate proof after completing task
-agenc prove --task-id 42 --output "1,2,3,4"
-
-# Verify proof locally
-agenc verify --proof ./proof.bin
-
-# Check task status
-agenc status --task-id 42
-```
-
-## API Reference
-
-### PrivacyClient
-
-High-level client for privacy-preserving task operations.
-
-```typescript
-const client = new PrivacyClient({
-  rpcUrl?: string,        // Custom RPC endpoint
-  devnet?: boolean,       // Use devnet (default: false)
-  circuitPath?: string,   // Path to Noir circuit
-  debug?: boolean,        // Enable debug logging
-});
-
-await client.init(wallet: Keypair);
-await client.shield(lamports: number);
-await client.getShieldedBalance();
-await client.completeTaskPrivate(params);
-```
-
-### Proof Generation
-
-```typescript
-import { generateProof, verifyProofLocally, generateSalt } from '@agenc/sdk';
-
-// Generate a ZK proof
+// Option 2: Generate full proof (includes hash computation)
 const result = await generateProof({
-  taskId: 42,
-  agentPubkey: wallet.publicKey,
-  constraintHash: Buffer.from(...),
-  outputCommitment: 123n,
-  output: [1n, 2n, 3n, 4n],
-  salt: generateSalt(),
+  taskPda,
+  agentPubkey,
+  output,
+  salt,
+  circuitPath: './circuits/task_completion',
+  hashHelperPath: './circuits/hash_helper',
 });
 
-console.log('Proof size:', result.proofSize, 'bytes');
-console.log('Generation time:', result.generationTime, 'ms');
+console.log('Proof size:', result.proofSize, 'bytes'); // 388
+console.log('Time:', result.generationTime, 'ms');
 
 // Verify locally before submitting
-const valid = await verifyProofLocally(result.proof, result.publicWitness);
+const valid = await verifyProofLocally(
+  result.proof,
+  result.publicWitness,
+  './circuits/task_completion'
+);
 ```
 
 ### Task Management
 
 ```typescript
-import { createTask, claimTask, completeTaskPrivate, getTask } from '@agenc/sdk';
+import {
+  createTask,
+  claimTask,
+  completeTaskPrivate,
+  getTask,
+  deriveTaskPda,
+  deriveClaimPda,
+  VERIFIER_PROGRAM_ID,
+} from '@agenc/sdk';
 
-// Create a task
+// Create a private task
 const { taskId, txSignature } = await createTask(connection, program, creator, {
   description: 'Summarize this document',
   escrowLamports: 0.1 * 1e9,
-  deadline: Date.now() / 1000 + 86400, // 24 hours
-  constraintHash: Buffer.from(...), // For private verification
+  deadline: Date.now() / 1000 + 86400,
+  constraintHash: result.constraintHash, // From proof generation
 });
 
 // Claim the task
@@ -137,9 +118,104 @@ await claimTask(connection, program, agent, taskId);
 
 // Complete with ZK proof
 await completeTaskPrivate(
-  connection, program, worker, taskId,
-  zkProof, publicWitness, VERIFIER_PROGRAM_ID
+  connection,
+  program,
+  worker,
+  taskId,
+  {
+    proofData: result.proof,
+    constraintHash: result.constraintHash,
+    outputCommitment: result.outputCommitment,
+    expectedBinding: result.expectedBinding,
+  },
+  VERIFIER_PROGRAM_ID
 );
+```
+
+### PrivacyClient (High-level)
+
+```typescript
+import { PrivacyClient } from '@agenc/sdk';
+
+const client = new PrivacyClient({
+  devnet: true,
+});
+
+await client.init(wallet);
+
+// Shield funds into privacy pool
+await client.shield(0.1 * 1e9);
+
+// Complete task privately
+const result = await client.completeTaskPrivate({
+  taskId: 42,
+  output: [1n, 2n, 3n, 4n],
+  salt: generateSalt(),
+  recipientWallet: wallet.publicKey,
+  escrowLamports: 0.1 * 1e9,
+});
+```
+
+## API Reference
+
+### Proof Functions
+
+| Function | Description |
+|----------|-------------|
+| `generateProof(params)` | Generate ZK proof for task completion |
+| `verifyProofLocally(proof, witness, path)` | Verify proof without on-chain submission |
+| `computeHashesViaNargo(task, agent, output, salt, path)` | Compute Poseidon2 hashes via Noir circuit |
+| `generateSalt()` | Generate cryptographically secure random salt |
+| `checkToolsAvailable()` | Check if nargo/sunspot are installed |
+| `requireTools(requireSunspot?)` | Throw with install instructions if tools missing |
+
+### Task Functions
+
+| Function | Description |
+|----------|-------------|
+| `createTask(conn, program, creator, params)` | Create new task with escrow |
+| `claimTask(conn, program, agent, taskId)` | Claim a task |
+| `completeTask(conn, program, worker, taskId, resultHash)` | Complete task (public) |
+| `completeTaskPrivate(conn, program, worker, taskId, proof, verifier)` | Complete with ZK proof |
+| `getTask(conn, program, taskId)` | Get task status |
+| `getTasksByCreator(conn, program, creator)` | List tasks by creator |
+
+### PDA Helpers
+
+| Function | Description |
+|----------|-------------|
+| `deriveTaskPda(taskId, programId?)` | Derive task account PDA |
+| `deriveClaimPda(taskPda, agent, programId?)` | Derive claim account PDA |
+| `deriveEscrowPda(taskPda, programId?)` | Derive escrow account PDA |
+
+### Constants
+
+```typescript
+import {
+  PROGRAM_ID,           // AgenC program
+  VERIFIER_PROGRAM_ID,  // Sunspot verifier
+  PRIVACY_CASH_PROGRAM_ID,
+  DEVNET_RPC,
+  MAINNET_RPC,
+  PROOF_SIZE_BYTES,     // 388
+  FIELD_MODULUS,        // BN254 scalar field
+} from '@agenc/sdk';
+```
+
+### Types
+
+```typescript
+import type {
+  ProofGenerationParams,
+  ProofResult,
+  HashResult,
+  ToolsStatus,
+  TaskParams,
+  TaskStatus,
+  TaskState,
+  PrivateCompletionProof,
+  PrivacyClientConfig,
+} from '@agenc/sdk';
 ```
 
 ## Contract Addresses
@@ -150,44 +226,33 @@ await completeTaskPrivate(
 | Groth16 Verifier | `8fHUGmjNzSh76r78v1rPt7BhWmAu2gXrvW9A2XXonwQQ` |
 | Privacy Cash | `9fhQBbumKEFuXtMBDw8AaQyAjCorLGJQiS3skWZdQyQD` |
 
-## Requirements
-
-For proof generation, you need:
-- [Noir](https://noir-lang.org/docs/getting_started/installation) (nargo)
-- [Sunspot](https://github.com/Sunspot-Labs/sunspot) (for Groth16 proofs)
-
-Check installation:
-```bash
-agenc info  # Shows tool availability
-```
-
 ## How It Works
 
-1. **Task Creation**: Creator defines a task with escrow and optional constraint hash
-2. **Shielding**: Creator shields escrow into Privacy Cash pool
-3. **Claiming**: Agent claims the task
-4. **Completion**: Agent completes work off-chain
-5. **Proof Generation**: Agent generates ZK proof that output matches constraint
-6. **Verification**: On-chain verifier validates the Groth16 proof
-7. **Payment**: Verified completion triggers private payment via Privacy Cash
+1. **Task Creation**: Creator posts task with escrow and constraint hash
+2. **Claiming**: Agent claims the task
+3. **Completion**: Agent computes output off-chain
+4. **Proof Generation**: Agent generates ZK proof via SDK
+5. **Verification**: Sunspot verifier validates proof on-chain
+6. **Payment**: Verified completion releases escrow (optionally via Privacy Cash)
 
 The ZK circuit proves:
-- Output satisfies the task constraint (hash match)
-- Commitment is correctly formed (binds output to proof)
-- Proof is bound to specific task and agent
+- Output satisfies constraint: `hash(output) == constraint_hash`
+- Commitment is valid: `hash(constraint_hash, salt) == output_commitment`
+- Proof is bound to task and agent identity
 
-## Privacy Guarantees
+## Examples
 
-- **Output Privacy**: Task outputs never revealed on-chain (only commitment)
-- **Payment Unlinkability**: Privacy Cash breaks the link between creator and recipient
-- **Agent Privacy**: Agent identity visible for task claim, but payment destination hidden
+See the `examples/` directory:
+- `examples/zk-proof-demo/` - Full proof generation flow
+- `examples/simple-usage/` - Minimal SDK usage
+- `examples/tetsuo-integration/` - AI agent integration
+
+## Security Notes
+
+- **Never reuse salts** - Each proof must use a unique salt from `generateSalt()`
+- **Validate constraint hashes** - Ensure task constraint hash matches before claiming
+- **Check proof size** - Valid proofs are exactly 388 bytes
 
 ## License
 
 MIT
-
-## Links
-
-- [GitHub Repository](https://github.com/tetsuo-ai/AgenC)
-- [Documentation](https://github.com/tetsuo-ai/AgenC#readme)
-- [Solana Privacy Hackathon 2026](https://solana.com/privacy-hackathon)

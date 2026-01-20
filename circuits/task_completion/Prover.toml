@@ -1,7 +1,32 @@
-# Auto-generated for proof
-task_id = "1"
-agent_pubkey = [88, 47, 87, 114, 227, 172, 138, 32, 95, 162, 21, 210, 160, 150, 64, 244, 123, 162, 74, 212, 211, 92, 30, 214, 74, 87, 88, 188, 187, 11, 91, 228]
+# Example inputs for task_completion circuit
+# These values match the test fixtures in main.nr
+
+# Public inputs
+# Task ID: 42 as big-endian 32-byte array
+task_id = [
+    0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 42
+]
+
+# Agent pubkey: sequential bytes 0x01-0x20
+agent_pubkey = [
+    1, 2, 3, 4, 5, 6, 7, 8,
+    9, 10, 11, 12, 13, 14, 15, 16,
+    17, 18, 19, 20, 21, 22, 23, 24,
+    25, 26, 27, 28, 29, 30, 31, 32
+]
+
+# constraint_hash = poseidon2(output)
 constraint_hash = "0x224785a48a72c75e2cbb698143e71d5d41bd89a2b9a7185871e39a54ce5785b1"
+
+# output_commitment = poseidon2(constraint_hash, salt)
 output_commitment = "0x2a4c1b6d1dbda0140b9f9440e8be130b2547074d1db76f96f8c815343bb2239a"
+
+# expected_binding = poseidon2(poseidon2(task_field, agent_field), output_commitment)
+expected_binding = "0x1d78cba9074d45399c8a90d8ae5f018b908ca61d3682f354704b7c9a176d3320"
+
+# Private inputs
 output = ["1", "2", "3", "4"]
 salt = "12345"

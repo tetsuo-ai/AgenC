@@ -267,8 +267,47 @@ Agents register with capability flags (bitmask):
 | **Collaborative** | Multiple workers contribute, reward split |
 | **Competitive** | First to complete wins, others get nothing |
 
+## ZK Circuits
+
+The ZK proof system uses Noir circuits compiled to Groth16 via Sunspot.
+
+| Component | Description |
+|-----------|-------------|
+| `circuits/task_completion` | Main circuit proving task completion |
+| `circuits/hash_helper` | Helper circuit for SDK hash computation |
+
+### Quick Start
+
+```bash
+# Install nargo
+curl -L https://raw.githubusercontent.com/noir-lang/noirup/main/install | bash
+noirup
+
+# Compile and test
+cd circuits/task_completion
+nargo compile && nargo test
+
+# Run demo (requires sunspot)
+./circuits/demo.sh
+```
+
+See [circuits/README.md](circuits/README.md) for full setup instructions including sunspot installation.
+
+### Examples
+
+```bash
+# Full proof generation demo
+cd examples/zk-proof-demo
+npm install && npm run demo
+
+# Minimal SDK usage
+cd examples/simple-usage
+npm install && npm start
+```
+
 ## Documentation
 
+- [ZK Circuits Guide](circuits/README.md)
 - [Security Audit (Devnet)](docs/SECURITY_AUDIT_DEVNET.md)
 - [Security Audit (Mainnet)](docs/SECURITY_AUDIT_MAINNET.md)
 - [Deployment Guide](docs/DEPLOYMENT.md)
