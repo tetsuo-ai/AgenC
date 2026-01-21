@@ -56,6 +56,7 @@ pub struct CreateTask<'info> {
     pub system_program: Program<'info, System>,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn handler(
     ctx: Context<CreateTask>,
     task_id: [u8; 32],

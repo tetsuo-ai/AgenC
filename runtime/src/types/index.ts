@@ -3,6 +3,13 @@
  * @packageDocumentation
  */
 
+// Protocol configuration types
+export {
+  ProtocolConfig,
+  parseProtocolConfig,
+  MAX_MULTISIG_OWNERS,
+} from './protocol.js';
+
 // Error types, constants, and helpers
 export {
   // Constants

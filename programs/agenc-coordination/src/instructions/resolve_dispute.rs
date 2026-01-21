@@ -107,10 +107,11 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
     require!(total_votes > 0, CoordinationError::InsufficientVotes);
 
     // Calculate approval percentage
-    let approval_pct = (dispute.votes_for as u64)
+    let approval_pct = dispute
+        .votes_for
         .checked_mul(PERCENT_BASE)
         .ok_or(CoordinationError::ArithmeticOverflow)?
-        .checked_div(total_votes as u64)
+        .checked_div(total_votes)
         .ok_or(CoordinationError::ArithmeticOverflow)? as u8;
 
     // Determine outcome based on threshold
