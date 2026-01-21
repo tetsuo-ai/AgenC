@@ -35,3 +35,31 @@ export class AgentRuntime {
     return this.config.rpcUrl;
   }
 }
+
+// Error types, constants, and helpers
+export {
+  // Error constants
+  RuntimeErrorCodes,
+  AnchorErrorCodes,
+  // Error types
+  type RuntimeErrorCode,
+  type AnchorErrorCode,
+  type AnchorErrorName,
+  type ParsedAnchorError,
+  // Error classes
+  RuntimeError,
+  AgentNotRegisteredError,
+  AgentAlreadyRegisteredError,
+  ValidationError,
+  RateLimitError,
+  InsufficientStakeError,
+  ActiveTasksError,
+  PendingDisputeVotesError,
+  RecentVoteActivityError,
+  // Error helper functions
+  isAnchorError,
+  parseAnchorError,
+  getAnchorErrorName,
+  getAnchorErrorMessage,
+  isRuntimeError,
+} from './types/index.js';
