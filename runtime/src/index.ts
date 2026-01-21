@@ -116,3 +116,11 @@ export {
   getDefaultKeypairPath,
   loadDefaultKeypair,
 } from './types/wallet';
+
+// Logger utilities
+export {
+  Logger,
+  LogLevel,
+  createLogger,
+  silentLogger,
+} from './utils/index.js';
