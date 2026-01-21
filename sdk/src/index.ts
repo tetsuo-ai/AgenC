@@ -22,6 +22,7 @@ export {
   generateSalt,
   checkToolsAvailable,
   requireTools,
+  pubkeyToField,
   FIELD_MODULUS,
   // Types
   ProofGenerationParams,

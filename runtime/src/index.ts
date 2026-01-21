@@ -63,3 +63,15 @@ export {
   getAnchorErrorMessage,
   isRuntimeError,
 } from './types/index.js';
+
+// Wallet types and helpers
+export {
+  Wallet,
+  SignMessageWallet,
+  KeypairFileError,
+  keypairToWallet,
+  loadKeypairFromFile,
+  loadKeypairFromFileSync,
+  getDefaultKeypairPath,
+  loadDefaultKeypair,
+} from './types/wallet';

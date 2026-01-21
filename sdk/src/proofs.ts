@@ -349,6 +349,27 @@ export function requireTools(requireSunspot: boolean = true): void {
 
 import { poseidon2Hash } from '@zkpassport/poseidon2';
 
+/** Base for byte-to-field conversion */
+const BYTE_BASE = 256n;
+
+/**
+ * Convert a PublicKey to a field element.
+ *
+ * Interprets the 32-byte public key as a big-endian integer and reduces
+ * it modulo the BN254 scalar field.
+ *
+ * @param pubkey - The public key to convert
+ * @returns The field element representation
+ */
+export function pubkeyToField(pubkey: PublicKey): bigint {
+  const bytes = pubkey.toBytes();
+  let field = 0n;
+  for (const byte of bytes) {
+    field = (field * BYTE_BASE + BigInt(byte)) % FIELD_MODULUS;
+  }
+  return field;
+}
+
 /** @deprecated Use computeHashesViaNargo instead - JS hash may not match circuit */
 export function computeConstraintHash(output: bigint[]): bigint {
   console.warn('DEPRECATED: computeConstraintHash uses JS Poseidon2 which may not match circuit. Use computeHashesViaNargo instead.');
@@ -371,15 +392,6 @@ export function computeExpectedBinding(
   outputCommitment: bigint
 ): bigint {
   console.warn('DEPRECATED: computeExpectedBinding uses JS Poseidon2 which may not match circuit. Use computeHashesViaNargo instead.');
-  const BYTE_BASE = 256n;
-  const pubkeyToField = (pubkey: PublicKey): bigint => {
-    const bytes = pubkey.toBytes();
-    let field = 0n;
-    for (const byte of bytes) {
-      field = (field * BYTE_BASE + BigInt(byte)) % FIELD_MODULUS;
-    }
-    return field;
-  };
   const taskField = pubkeyToField(taskPda);
   const agentField = pubkeyToField(agentPubkey);
   const binding = poseidon2Hash([taskField, agentField, 0n, 0n]);
