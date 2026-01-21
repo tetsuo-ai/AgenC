@@ -288,19 +288,22 @@ describe("test_1", () => {
     await initializeWorkerPool();
   });
 
-  // Ensure all shared agents are active before each test
+  // Ensure all shared agents exist and are active before each test
   // This prevents cascading failures when a test deactivates an agent
+  // and ensures agents are registered even if before() had issues
   beforeEach(async () => {
     const agentsToCheck = [
-      { id: agentId1, wallet: worker1, name: "agentId1" },
-      { id: agentId2, wallet: worker2, name: "agentId2" },
-      { id: agentId3, wallet: worker3, name: "agentId3" },
-      { id: creatorAgentId, wallet: creator, name: "creatorAgentId" },
+      { id: agentId1, wallet: worker1, name: "agentId1", capabilities: CAPABILITY_COMPUTE | CAPABILITY_INFERENCE, endpoint: "https://worker1.example.com" },
+      { id: agentId2, wallet: worker2, name: "agentId2", capabilities: CAPABILITY_COMPUTE, endpoint: "https://worker2.example.com" },
+      { id: agentId3, wallet: worker3, name: "agentId3", capabilities: CAPABILITY_COMPUTE, endpoint: "https://worker3.example.com" },
+      { id: creatorAgentId, wallet: creator, name: "creatorAgentId", capabilities: CAPABILITY_COMPUTE, endpoint: "https://creator.example.com" },
     ];
 
+    const failedAgents: string[] = [];
+
     for (const agent of agentsToCheck) {
+      const agentPda = deriveAgentPda(agent.id);
       try {
-        const agentPda = deriveAgentPda(agent.id);
         const agentAccount = await program.account.agentRegistration.fetch(agentPda);
 
         // If agent is inactive, reactivate it (status values: 0=Inactive, 1=Active)
@@ -315,8 +318,35 @@ describe("test_1", () => {
             .rpc();
         }
       } catch (e: any) {
-        // Agent may not exist yet - will be registered in before() hook
+        // Agent doesn't exist or fetch failed - try to register it
+        try {
+          await program.methods
+            .registerAgent(
+              Array.from(agent.id),
+              new BN(agent.capabilities),
+              agent.endpoint,
+              null,
+              new BN(LAMPORTS_PER_SOL / 100)
+            )
+            .accountsPartial({
+              agent: agentPda,
+              protocolConfig: protocolPda,
+              authority: agent.wallet.publicKey,
+            })
+            .signers([agent.wallet])
+            .rpc({ skipPreflight: true });
+        } catch (regError: any) {
+          // If registration fails with "already in use", agent was registered by another test
+          if (!regError.message?.includes("already in use")) {
+            failedAgents.push(agent.name);
+            console.error(`Failed to register agent ${agent.name}:`, regError.message);
+          }
+        }
       }
+    }
+
+    if (failedAgents.length > 0) {
+      throw new Error(`Failed to register agents: ${failedAgents.join(', ')}`);
     }
   });
 

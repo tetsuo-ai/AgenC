@@ -1,4 +1,5 @@
 #![allow(unexpected_cfgs)]
+#![allow(clippy::too_many_arguments)]
 //! AgenC Coordination Protocol
 //!
 //! A decentralized multi-agent coordination layer for the AgenC framework.
@@ -79,6 +80,7 @@ pub mod agenc_coordination {
     /// * `deadline` - Unix timestamp deadline (0 = no deadline)
     /// * `task_type` - 0=exclusive (single worker), 1=collaborative (multi-worker)
     /// * `constraint_hash` - For private tasks: hash of expected output (None for non-private)
+    #[allow(clippy::too_many_arguments)]
     pub fn create_task(
         ctx: Context<CreateTask>,
         task_id: [u8; 32],
