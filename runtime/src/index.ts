@@ -93,6 +93,18 @@ export {
   createCapabilityMask,
   parseAgentState,
   computeRateLimitState,
+  // PDA derivation helpers
+  deriveAgentPda,
+  deriveProtocolPda,
+  findAgentPda,
+  findProtocolPda,
+  // Event subscriptions
+  subscribeToAgentRegistered,
+  subscribeToAgentUpdated,
+  subscribeToAgentDeregistered,
+  subscribeToAllAgentEvents,
+  // AgentManager class
+  AgentManager,
   // Agent types
   type AgentCapability,
   type CapabilityName,
@@ -103,6 +115,15 @@ export {
   type AgentRegisteredEvent,
   type AgentUpdatedEvent,
   type AgentDeregisteredEvent,
+  // PDA types
+  type PdaWithBump,
+  // Event types
+  type AgentEventCallback,
+  type EventSubscription,
+  type AgentEventCallbacks,
+  type EventSubscriptionOptions,
+  // AgentManager types
+  type AgentManagerConfig,
 } from './types/index.js';
 
 // Wallet types and helpers
