@@ -12,8 +12,9 @@
       "require": "./dist/index.js"
     }
   },
-  "files": ["dist", "README.md"],
+  "files": ["dist", "idl", "README.md"],
   "scripts": {
+    "prebuild": "node scripts/copy-idl.js",
     "build": "tsup src/index.ts --format cjs,esm --dts --clean",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",

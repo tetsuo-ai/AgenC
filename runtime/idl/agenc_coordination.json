@@ -1,0 +1,4688 @@
+{
+  "address": "EopUaCV2svxj9j4hd7KjbrWfdjkspmm2BCBe7jGpKzKZ",
+  "metadata": {
+    "name": "agenc_coordination",
+    "version": "0.1.0",
+    "spec": "0.1.0",
+    "description": "AgenC Decentralized Agent Coordination Protocol for Solana",
+    "repository": "https://github.com/tetsuo-ai/AgenC"
+  },
+  "instructions": [
+    {
+      "name": "apply_dispute_slash",
+      "docs": [
+        "Apply slashing to a worker after losing a dispute."
+      ],
+      "discriminator": [
+        195,
+        168,
+        20,
+        83,
+        250,
+        122,
+        11,
+        187
+      ],
+      "accounts": [
+        {
+          "name": "dispute",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  105,
+                  115,
+                  112,
+                  117,
+                  116,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "dispute.dispute_id",
+                "account": "Dispute"
+              }
+            ]
+          }
+        },
+        {
+          "name": "task",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  97,
+                  115,
+                  107
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "task.creator",
+                "account": "Task"
+              },
+              {
+                "kind": "account",
+                "path": "task.task_id",
+                "account": "Task"
+              }
+            ]
+          }
+        },
+        {
+          "name": "worker_claim",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  108,
+                  97,
+                  105,
+                  109
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "task"
+              },
+              {
+                "kind": "account",
+                "path": "worker_claim.worker",
+                "account": "TaskClaim"
+              }
+            ]
+          }
+        },
+        {
+          "name": "worker_agent",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  103,
+                  101,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "worker_agent.agent_id",
+                "account": "AgentRegistration"
+              }
+            ]
+          }
+        },
+        {
+          "name": "protocol_config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "cancel_task",
+      "docs": [
+        "Cancel an unclaimed or expired task and reclaim funds."
+      ],
+      "discriminator": [
+        69,
+        228,
+        134,
+        187,
+        134,
+        105,
+        238,
+        48
+      ],
+      "accounts": [
+        {
+          "name": "task",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  97,
+                  115,
+                  107
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "task.creator",
+                "account": "Task"
+              },
+              {
+                "kind": "account",
+                "path": "task.task_id",
+                "account": "Task"
+              }
+            ]
+          }
+        },
+        {
+          "name": "escrow",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  115,
+                  99,
+                  114,
+                  111,
+                  119
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "task"
+              }
+            ]
+          }
+        },
+        {
+          "name": "creator",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "task"
+          ]
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "claim_task",
+      "docs": [
+        "Claim a task to signal intent to work on it.",
+        "Agent must have required capabilities and task must be claimable."
+      ],
+      "discriminator": [
+        49,
+        222,
+        219,
+        238,
+        155,
+        68,
+        221,
+        136
+      ],
+      "accounts": [
+        {
+          "name": "task",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  97,
+                  115,
+                  107
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "task.creator",
+                "account": "Task"
+              },
+              {
+                "kind": "account",
+                "path": "task.task_id",
+                "account": "Task"
+              }
+            ]
+          }
+        },
+        {
+          "name": "claim",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  108,
+                  97,
+                  105,
+                  109
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "task"
+              },
+              {
+                "kind": "account",
+                "path": "worker"
+              }
+            ]
+          }
+        },
+        {
+          "name": "protocol_config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "worker",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  103,
+                  101,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "worker.agent_id",
+                "account": "AgentRegistration"
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "worker"
+          ]
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "complete_task",
+      "docs": [
+        "Submit proof of work and mark task portion as complete.",
+        "For collaborative tasks, multiple completions may be needed.",
+        "",
+        "# Arguments",
+        "* `ctx` - Context with task, worker claim, and reward accounts",
+        "* `proof_hash` - 32-byte hash of the proof of work",
+        "* `result_data` - Optional result data or pointer"
+      ],
+      "discriminator": [
+        109,
+        167,
+        192,
+        41,
+        129,
+        108,
+        220,
+        196
+      ],
+      "accounts": [
+        {
+          "name": "task",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  97,
+                  115,
+                  107
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "task.creator",
+                "account": "Task"
+              },
+              {
+                "kind": "account",
+                "path": "task.task_id",
+                "account": "Task"
+              }
+            ]
+          }
+        },
+        {
+          "name": "claim",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  108,
+                  97,
+                  105,
+                  109
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "task"
+              },
+              {
+                "kind": "account",
+                "path": "worker"
+              }
+            ]
+          }
+        },
+        {
+          "name": "escrow",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  115,
+                  99,
+                  114,
+                  111,
+                  119
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "task"
+              }
+            ]
+          }
+        },
+        {
+          "name": "worker",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  103,
+                  101,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "worker.agent_id",
+                "account": "AgentRegistration"
+              }
+            ]
+          }
+        },
+        {
+          "name": "protocol_config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury",
+          "writable": true
+        },
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "worker"
+          ]
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "proof_hash",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "result_data",
+          "type": {
+            "option": {
+              "array": [
+                "u8",
+                64
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "complete_task_private",
+      "docs": [
+        "Complete a task with private proof verification."
+      ],
+      "discriminator": [
+        117,
+        181,
+        96,
+        96,
+        194,
+        254,
+        58,
+        35
+      ],
+      "accounts": [
+        {
+          "name": "task",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  97,
+                  115,
+                  107
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "task.creator",
+                "account": "Task"
+              },
+              {
+                "kind": "account",
+                "path": "task.task_id",
+                "account": "Task"
+              }
+            ]
+          }
+        },
+        {
+          "name": "claim",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  108,
+                  97,
+                  105,
+                  109
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "task"
+              },
+              {
+                "kind": "account",
+                "path": "worker"
+              }
+            ]
+          }
+        },
+        {
+          "name": "escrow",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  115,
+                  99,
+                  114,
+                  111,
+                  119
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "task"
+              }
+            ]
+          }
+        },
+        {
+          "name": "worker",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  103,
+                  101,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "worker.agent_id",
+                "account": "AgentRegistration"
+              }
+            ]
+          }
+        },
+        {
+          "name": "protocol_config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury",
+          "writable": true
+        },
+        {
+          "name": "zk_verifier"
+        },
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "worker"
+          ]
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "task_id",
+          "type": "u64"
+        },
+        {
+          "name": "proof",
+          "type": {
+            "defined": {
+              "name": "PrivateCompletionProof"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "create_task",
+      "docs": [
+        "Create a new task with requirements and optional reward.",
+        "Tasks are stored in a PDA derived from the creator and task ID.",
+        "",
+        "# Arguments",
+        "* `ctx` - Context with task account and creator",
+        "* `task_id` - Unique identifier for the task",
+        "* `required_capabilities` - Bitmask of required agent capabilities",
+        "* `description` - Task description or instruction hash",
+        "* `reward_amount` - SOL or token reward for completion",
+        "* `max_workers` - Maximum number of agents that can work on this task",
+        "* `deadline` - Unix timestamp deadline (0 = no deadline)",
+        "* `task_type` - 0=exclusive (single worker), 1=collaborative (multi-worker)",
+        "* `constraint_hash` - For private tasks: hash of expected output (None for non-private)"
+      ],
+      "discriminator": [
+        194,
+        80,
+        6,
+        180,
+        232,
+        127,
+        48,
+        171
+      ],
+      "accounts": [
+        {
+          "name": "task",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  97,
+                  115,
+                  107
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "creator"
+              },
+              {
+                "kind": "arg",
+                "path": "task_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "escrow",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  115,
+                  99,
+                  114,
+                  111,
+                  119
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "task"
+              }
+            ]
+          }
+        },
+        {
+          "name": "protocol_config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "creator_agent",
+          "docs": [
+            "Creator's agent registration for rate limiting (required)"
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  103,
+                  101,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "creator_agent.agent_id",
+                "account": "AgentRegistration"
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "docs": [
+            "The authority that owns the creator_agent"
+          ],
+          "signer": true,
+          "relations": [
+            "creator_agent"
+          ]
+        },
+        {
+          "name": "creator",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "task_id",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "required_capabilities",
+          "type": "u64"
+        },
+        {
+          "name": "description",
+          "type": {
+            "array": [
+              "u8",
+              64
+            ]
+          }
+        },
+        {
+          "name": "reward_amount",
+          "type": "u64"
+        },
+        {
+          "name": "max_workers",
+          "type": "u8"
+        },
+        {
+          "name": "deadline",
+          "type": "i64"
+        },
+        {
+          "name": "task_type",
+          "type": "u8"
+        },
+        {
+          "name": "constraint_hash",
+          "type": {
+            "option": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "deregister_agent",
+      "docs": [
+        "Deregister an agent and reclaim rent.",
+        "Agent must have no active tasks."
+      ],
+      "discriminator": [
+        227,
+        208,
+        166,
+        164,
+        48,
+        69,
+        111,
+        1
+      ],
+      "accounts": [
+        {
+          "name": "agent",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  103,
+                  101,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "agent.agent_id",
+                "account": "AgentRegistration"
+              }
+            ]
+          }
+        },
+        {
+          "name": "protocol_config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "agent"
+          ]
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "expire_claim",
+      "docs": [
+        "Expire a stale claim to free up task slot.",
+        "Can only be called after claim.expires_at has passed."
+      ],
+      "discriminator": [
+        176,
+        78,
+        241,
+        29,
+        159,
+        81,
+        26,
+        6
+      ],
+      "accounts": [
+        {
+          "name": "task",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  97,
+                  115,
+                  107
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "task.creator",
+                "account": "Task"
+              },
+              {
+                "kind": "account",
+                "path": "task.task_id",
+                "account": "Task"
+              }
+            ]
+          }
+        },
+        {
+          "name": "claim",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  108,
+                  97,
+                  105,
+                  109
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "task"
+              },
+              {
+                "kind": "account",
+                "path": "worker"
+              }
+            ]
+          }
+        },
+        {
+          "name": "worker",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  103,
+                  101,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "worker.agent_id",
+                "account": "AgentRegistration"
+              }
+            ]
+          }
+        },
+        {
+          "name": "rent_recipient",
+          "writable": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "expire_dispute",
+      "docs": [
+        "Expire a dispute after the maximum duration has passed."
+      ],
+      "discriminator": [
+        241,
+        116,
+        178,
+        182,
+        234,
+        173,
+        61,
+        120
+      ],
+      "accounts": [
+        {
+          "name": "dispute",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  105,
+                  115,
+                  112,
+                  117,
+                  116,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "dispute.dispute_id",
+                "account": "Dispute"
+              }
+            ]
+          }
+        },
+        {
+          "name": "task",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  97,
+                  115,
+                  107
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "task.creator",
+                "account": "Task"
+              },
+              {
+                "kind": "account",
+                "path": "task.task_id",
+                "account": "Task"
+              }
+            ]
+          }
+        },
+        {
+          "name": "escrow",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  115,
+                  99,
+                  114,
+                  111,
+                  119
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "task"
+              }
+            ]
+          }
+        },
+        {
+          "name": "protocol_config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "creator",
+          "writable": true
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "initialize_protocol",
+      "docs": [
+        "Initialize the protocol configuration.",
+        "Called once to set up global parameters."
+      ],
+      "discriminator": [
+        188,
+        233,
+        252,
+        106,
+        134,
+        146,
+        202,
+        91
+      ],
+      "accounts": [
+        {
+          "name": "protocol_config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury"
+        },
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "dispute_threshold",
+          "type": "u8"
+        },
+        {
+          "name": "protocol_fee_bps",
+          "type": "u16"
+        },
+        {
+          "name": "min_stake",
+          "type": "u64"
+        },
+        {
+          "name": "multisig_threshold",
+          "type": "u8"
+        },
+        {
+          "name": "multisig_owners",
+          "type": {
+            "vec": "pubkey"
+          }
+        }
+      ]
+    },
+    {
+      "name": "initiate_dispute",
+      "docs": [
+        "Initiate a conflict resolution process.",
+        "Creates a dispute that requires multi-sig consensus to resolve.",
+        "",
+        "# Arguments",
+        "* `ctx` - Context with dispute account",
+        "* `dispute_id` - Unique identifier for the dispute",
+        "* `task_id` - Related task ID",
+        "* `evidence_hash` - Hash of evidence supporting the dispute",
+        "* `resolution_type` - 0=refund, 1=complete, 2=split"
+      ],
+      "discriminator": [
+        128,
+        242,
+        160,
+        23,
+        44,
+        61,
+        171,
+        37
+      ],
+      "accounts": [
+        {
+          "name": "dispute",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  105,
+                  115,
+                  112,
+                  117,
+                  116,
+                  101
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "dispute_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "task",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  97,
+                  115,
+                  107
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "task.creator",
+                "account": "Task"
+              },
+              {
+                "kind": "account",
+                "path": "task.task_id",
+                "account": "Task"
+              }
+            ]
+          }
+        },
+        {
+          "name": "agent",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  103,
+                  101,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "agent.agent_id",
+                "account": "AgentRegistration"
+              }
+            ]
+          }
+        },
+        {
+          "name": "protocol_config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "agent"
+          ]
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "dispute_id",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "task_id",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "evidence_hash",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "resolution_type",
+          "type": "u8"
+        },
+        {
+          "name": "evidence",
+          "type": "string"
+        }
+      ]
+    },
+    {
+      "name": "migrate_protocol",
+      "docs": [
+        "Migrate protocol to a new version (multisig gated).",
+        "Handles state migration when upgrading the program.",
+        "",
+        "# Arguments",
+        "* `target_version` - The version to migrate to"
+      ],
+      "discriminator": [
+        182,
+        254,
+        253,
+        220,
+        0,
+        144,
+        234,
+        250
+      ],
+      "accounts": [
+        {
+          "name": "protocol_config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "target_version",
+          "type": "u8"
+        }
+      ]
+    },
+    {
+      "name": "register_agent",
+      "docs": [
+        "Register a new agent on-chain with its capabilities and metadata.",
+        "Creates a unique PDA for the agent that serves as its on-chain identity.",
+        "",
+        "# Arguments",
+        "* `ctx` - Context containing agent account and signer",
+        "* `agent_id` - Unique 32-byte identifier for the agent",
+        "* `capabilities` - Bitmask of agent capabilities (see AgentCapability)",
+        "* `endpoint` - Network endpoint for off-chain communication",
+        "* `metadata_uri` - Optional URI to extended metadata (IPFS/Arweave)"
+      ],
+      "discriminator": [
+        135,
+        157,
+        66,
+        195,
+        2,
+        113,
+        175,
+        30
+      ],
+      "accounts": [
+        {
+          "name": "agent",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  103,
+                  101,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "agent_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "protocol_config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "agent_id",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "capabilities",
+          "type": "u64"
+        },
+        {
+          "name": "endpoint",
+          "type": "string"
+        },
+        {
+          "name": "metadata_uri",
+          "type": {
+            "option": "string"
+          }
+        },
+        {
+          "name": "stake_amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "resolve_dispute",
+      "docs": [
+        "Execute the resolved dispute outcome.",
+        "Requires sufficient votes to meet threshold."
+      ],
+      "discriminator": [
+        231,
+        6,
+        202,
+        6,
+        96,
+        103,
+        12,
+        230
+      ],
+      "accounts": [
+        {
+          "name": "dispute",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  105,
+                  115,
+                  112,
+                  117,
+                  116,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "dispute.dispute_id",
+                "account": "Dispute"
+              }
+            ]
+          }
+        },
+        {
+          "name": "task",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  97,
+                  115,
+                  107
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "task.creator",
+                "account": "Task"
+              },
+              {
+                "kind": "account",
+                "path": "task.task_id",
+                "account": "Task"
+              }
+            ]
+          }
+        },
+        {
+          "name": "escrow",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  115,
+                  99,
+                  114,
+                  111,
+                  119
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "task"
+              }
+            ]
+          }
+        },
+        {
+          "name": "protocol_config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "resolver",
+          "signer": true
+        },
+        {
+          "name": "creator",
+          "writable": true
+        },
+        {
+          "name": "worker_claim",
+          "docs": [
+            "Worker's claim proving they worked on task (fix #59)",
+            "Required for Complete/Split resolutions that pay a worker"
+          ],
+          "optional": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  108,
+                  97,
+                  105,
+                  109
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "task"
+              },
+              {
+                "kind": "account",
+                "path": "worker_claim.worker",
+                "account": "TaskClaim"
+              }
+            ]
+          }
+        },
+        {
+          "name": "worker",
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "update_agent",
+      "docs": [
+        "Update an existing agent's registration data.",
+        "Only the agent's authority can modify its registration."
+      ],
+      "discriminator": [
+        85,
+        2,
+        178,
+        9,
+        119,
+        139,
+        102,
+        164
+      ],
+      "accounts": [
+        {
+          "name": "agent",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  103,
+                  101,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "agent.agent_id",
+                "account": "AgentRegistration"
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "signer": true,
+          "relations": [
+            "agent"
+          ]
+        }
+      ],
+      "args": [
+        {
+          "name": "capabilities",
+          "type": {
+            "option": "u64"
+          }
+        },
+        {
+          "name": "endpoint",
+          "type": {
+            "option": "string"
+          }
+        },
+        {
+          "name": "metadata_uri",
+          "type": {
+            "option": "string"
+          }
+        },
+        {
+          "name": "status",
+          "type": {
+            "option": "u8"
+          }
+        }
+      ]
+    },
+    {
+      "name": "update_min_version",
+      "docs": [
+        "Update minimum supported protocol version (multisig gated).",
+        "Used to deprecate old versions after migration grace period.",
+        "",
+        "# Arguments",
+        "* `new_min_version` - The new minimum supported version"
+      ],
+      "discriminator": [
+        149,
+        215,
+        23,
+        120,
+        114,
+        69,
+        110,
+        37
+      ],
+      "accounts": [
+        {
+          "name": "protocol_config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "new_min_version",
+          "type": "u8"
+        }
+      ]
+    },
+    {
+      "name": "update_protocol_fee",
+      "docs": [
+        "Update the protocol fee (multisig gated)."
+      ],
+      "discriminator": [
+        170,
+        136,
+        6,
+        60,
+        43,
+        130,
+        81,
+        96
+      ],
+      "accounts": [
+        {
+          "name": "protocol_config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "protocol_fee_bps",
+          "type": "u16"
+        }
+      ]
+    },
+    {
+      "name": "update_rate_limits",
+      "docs": [
+        "Update rate limiting configuration (multisig gated).",
+        "Parameters can be tuned post-deployment without program upgrade.",
+        "",
+        "# Arguments",
+        "* `task_creation_cooldown` - Seconds between task creations (0 = disabled)",
+        "* `max_tasks_per_24h` - Maximum tasks per agent per 24h (0 = unlimited)",
+        "* `dispute_initiation_cooldown` - Seconds between disputes (0 = disabled)",
+        "* `max_disputes_per_24h` - Maximum disputes per agent per 24h (0 = unlimited)",
+        "* `min_stake_for_dispute` - Minimum stake required to initiate dispute"
+      ],
+      "discriminator": [
+        247,
+        36,
+        121,
+        254,
+        22,
+        16,
+        226,
+        1
+      ],
+      "accounts": [
+        {
+          "name": "protocol_config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "task_creation_cooldown",
+          "type": "i64"
+        },
+        {
+          "name": "max_tasks_per_24h",
+          "type": "u8"
+        },
+        {
+          "name": "dispute_initiation_cooldown",
+          "type": "i64"
+        },
+        {
+          "name": "max_disputes_per_24h",
+          "type": "u8"
+        },
+        {
+          "name": "min_stake_for_dispute",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "update_state",
+      "docs": [
+        "Update shared coordination state.",
+        "Used for broadcasting state changes to other agents.",
+        "",
+        "# Arguments",
+        "* `ctx` - Context with coordination PDA",
+        "* `state_key` - Key identifying the state variable",
+        "* `state_value` - New value for the state",
+        "* `version` - Expected current version (for optimistic locking)"
+      ],
+      "discriminator": [
+        135,
+        112,
+        215,
+        75,
+        247,
+        185,
+        53,
+        176
+      ],
+      "accounts": [
+        {
+          "name": "state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  97,
+                  116,
+                  101
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "state_key"
+              }
+            ]
+          }
+        },
+        {
+          "name": "agent",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  103,
+                  101,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "agent.agent_id",
+                "account": "AgentRegistration"
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "agent"
+          ]
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "state_key",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "state_value",
+          "type": {
+            "array": [
+              "u8",
+              64
+            ]
+          }
+        },
+        {
+          "name": "version",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "vote_dispute",
+      "docs": [
+        "Vote on a dispute resolution.",
+        "Arbiters must be registered agents with arbitration capability."
+      ],
+      "discriminator": [
+        23,
+        190,
+        211,
+        170,
+        65,
+        223,
+        4,
+        243
+      ],
+      "accounts": [
+        {
+          "name": "dispute",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  105,
+                  115,
+                  112,
+                  117,
+                  116,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "dispute.dispute_id",
+                "account": "Dispute"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vote",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  111,
+                  116,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "dispute"
+              },
+              {
+                "kind": "account",
+                "path": "arbiter"
+              }
+            ]
+          }
+        },
+        {
+          "name": "arbiter",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  103,
+                  101,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "arbiter.agent_id",
+                "account": "AgentRegistration"
+              }
+            ]
+          }
+        },
+        {
+          "name": "protocol_config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "arbiter"
+          ]
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "approve",
+          "type": "bool"
+        }
+      ]
+    }
+  ],
+  "accounts": [
+    {
+      "name": "AgentRegistration",
+      "discriminator": [
+        130,
+        53,
+        100,
+        103,
+        121,
+        77,
+        148,
+        19
+      ]
+    },
+    {
+      "name": "CoordinationState",
+      "discriminator": [
+        11,
+        232,
+        15,
+        241,
+        234,
+        143,
+        35,
+        252
+      ]
+    },
+    {
+      "name": "Dispute",
+      "discriminator": [
+        36,
+        49,
+        241,
+        67,
+        40,
+        36,
+        241,
+        74
+      ]
+    },
+    {
+      "name": "DisputeVote",
+      "discriminator": [
+        166,
+        202,
+        140,
+        76,
+        65,
+        35,
+        254,
+        149
+      ]
+    },
+    {
+      "name": "ProtocolConfig",
+      "discriminator": [
+        207,
+        91,
+        250,
+        28,
+        152,
+        179,
+        215,
+        209
+      ]
+    },
+    {
+      "name": "Task",
+      "discriminator": [
+        79,
+        34,
+        229,
+        55,
+        88,
+        90,
+        55,
+        84
+      ]
+    },
+    {
+      "name": "TaskClaim",
+      "discriminator": [
+        115,
+        77,
+        242,
+        98,
+        7,
+        81,
+        209,
+        137
+      ]
+    },
+    {
+      "name": "TaskEscrow",
+      "discriminator": [
+        209,
+        72,
+        197,
+        54,
+        17,
+        55,
+        3,
+        187
+      ]
+    }
+  ],
+  "events": [
+    {
+      "name": "AgentDeregistered",
+      "discriminator": [
+        132,
+        69,
+        246,
+        19,
+        135,
+        65,
+        28,
+        134
+      ]
+    },
+    {
+      "name": "AgentRegistered",
+      "discriminator": [
+        191,
+        78,
+        217,
+        54,
+        232,
+        100,
+        189,
+        85
+      ]
+    },
+    {
+      "name": "AgentUpdated",
+      "discriminator": [
+        210,
+        179,
+        162,
+        250,
+        123,
+        250,
+        210,
+        166
+      ]
+    },
+    {
+      "name": "DisputeExpired",
+      "discriminator": [
+        28,
+        47,
+        191,
+        124,
+        204,
+        113,
+        101,
+        116
+      ]
+    },
+    {
+      "name": "DisputeInitiated",
+      "discriminator": [
+        150,
+        109,
+        93,
+        252,
+        198,
+        4,
+        183,
+        153
+      ]
+    },
+    {
+      "name": "DisputeResolved",
+      "discriminator": [
+        121,
+        64,
+        249,
+        153,
+        139,
+        128,
+        236,
+        187
+      ]
+    },
+    {
+      "name": "DisputeVoteCast",
+      "discriminator": [
+        193,
+        34,
+        94,
+        69,
+        4,
+        179,
+        143,
+        87
+      ]
+    },
+    {
+      "name": "MigrationCompleted",
+      "discriminator": [
+        223,
+        45,
+        123,
+        192,
+        106,
+        249,
+        6,
+        241
+      ]
+    },
+    {
+      "name": "ProtocolInitialized",
+      "discriminator": [
+        173,
+        122,
+        168,
+        254,
+        9,
+        118,
+        76,
+        132
+      ]
+    },
+    {
+      "name": "ProtocolVersionUpdated",
+      "discriminator": [
+        233,
+        202,
+        182,
+        241,
+        6,
+        134,
+        81,
+        48
+      ]
+    },
+    {
+      "name": "RateLimitHit",
+      "discriminator": [
+        157,
+        150,
+        77,
+        158,
+        30,
+        167,
+        242,
+        145
+      ]
+    },
+    {
+      "name": "RewardDistributed",
+      "discriminator": [
+        36,
+        65,
+        223,
+        38,
+        136,
+        162,
+        10,
+        30
+      ]
+    },
+    {
+      "name": "StateUpdated",
+      "discriminator": [
+        187,
+        220,
+        147,
+        37,
+        52,
+        210,
+        78,
+        173
+      ]
+    },
+    {
+      "name": "TaskCancelled",
+      "discriminator": [
+        158,
+        101,
+        220,
+        187,
+        16,
+        141,
+        141,
+        64
+      ]
+    },
+    {
+      "name": "TaskClaimed",
+      "discriminator": [
+        208,
+        90,
+        243,
+        116,
+        80,
+        15,
+        228,
+        202
+      ]
+    },
+    {
+      "name": "TaskCompleted",
+      "discriminator": [
+        132,
+        223,
+        98,
+        152,
+        2,
+        9,
+        57,
+        128
+      ]
+    },
+    {
+      "name": "TaskCreated",
+      "discriminator": [
+        49,
+        174,
+        6,
+        7,
+        71,
+        159,
+        69,
+        175
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "AgentAlreadyRegistered",
+      "msg": "Agent is already registered"
+    },
+    {
+      "code": 6001,
+      "name": "AgentNotFound",
+      "msg": "Agent not found"
+    },
+    {
+      "code": 6002,
+      "name": "AgentNotActive",
+      "msg": "Agent is not active"
+    },
+    {
+      "code": 6003,
+      "name": "InsufficientCapabilities",
+      "msg": "Agent has insufficient capabilities"
+    },
+    {
+      "code": 6004,
+      "name": "MaxActiveTasksReached",
+      "msg": "Agent has reached maximum active tasks"
+    },
+    {
+      "code": 6005,
+      "name": "AgentHasActiveTasks",
+      "msg": "Agent has active tasks and cannot be deregistered"
+    },
+    {
+      "code": 6006,
+      "name": "UnauthorizedAgent",
+      "msg": "Only the agent authority can perform this action"
+    },
+    {
+      "code": 6007,
+      "name": "AgentRegistrationRequired",
+      "msg": "Agent registration required to create tasks"
+    },
+    {
+      "code": 6008,
+      "name": "TaskNotFound",
+      "msg": "Task not found"
+    },
+    {
+      "code": 6009,
+      "name": "TaskNotOpen",
+      "msg": "Task is not open for claims"
+    },
+    {
+      "code": 6010,
+      "name": "TaskFullyClaimed",
+      "msg": "Task has reached maximum workers"
+    },
+    {
+      "code": 6011,
+      "name": "TaskExpired",
+      "msg": "Task has expired"
+    },
+    {
+      "code": 6012,
+      "name": "TaskNotExpired",
+      "msg": "Task deadline has not passed"
+    },
+    {
+      "code": 6013,
+      "name": "DeadlinePassed",
+      "msg": "Task deadline has passed"
+    },
+    {
+      "code": 6014,
+      "name": "TaskNotInProgress",
+      "msg": "Task is not in progress"
+    },
+    {
+      "code": 6015,
+      "name": "TaskAlreadyCompleted",
+      "msg": "Task is already completed"
+    },
+    {
+      "code": 6016,
+      "name": "TaskCannotBeCancelled",
+      "msg": "Task cannot be cancelled"
+    },
+    {
+      "code": 6017,
+      "name": "UnauthorizedTaskAction",
+      "msg": "Only the task creator can perform this action"
+    },
+    {
+      "code": 6018,
+      "name": "InvalidCreator",
+      "msg": "Invalid creator"
+    },
+    {
+      "code": 6019,
+      "name": "InvalidTaskType",
+      "msg": "Invalid task type"
+    },
+    {
+      "code": 6020,
+      "name": "CompetitiveTaskAlreadyWon",
+      "msg": "Competitive task already completed by another worker"
+    },
+    {
+      "code": 6021,
+      "name": "NoWorkers",
+      "msg": "Task has no workers"
+    },
+    {
+      "code": 6022,
+      "name": "ConstraintHashMismatch",
+      "msg": "Proof constraint hash does not match task's stored constraint hash"
+    },
+    {
+      "code": 6023,
+      "name": "NotPrivateTask",
+      "msg": "Task is not a private task (no constraint hash set)"
+    },
+    {
+      "code": 6024,
+      "name": "AlreadyClaimed",
+      "msg": "Worker has already claimed this task"
+    },
+    {
+      "code": 6025,
+      "name": "NotClaimed",
+      "msg": "Worker has not claimed this task"
+    },
+    {
+      "code": 6026,
+      "name": "ClaimAlreadyCompleted",
+      "msg": "Claim has already been completed"
+    },
+    {
+      "code": 6027,
+      "name": "ClaimNotExpired",
+      "msg": "Claim has not expired yet"
+    },
+    {
+      "code": 6028,
+      "name": "InvalidProof",
+      "msg": "Invalid proof of work"
+    },
+    {
+      "code": 6029,
+      "name": "ZkVerificationFailed",
+      "msg": "ZK proof verification failed"
+    },
+    {
+      "code": 6030,
+      "name": "InvalidProofSize",
+      "msg": "Invalid proof size - expected 388 bytes for Groth16"
+    },
+    {
+      "code": 6031,
+      "name": "InvalidProofBinding",
+      "msg": "Invalid proof binding: expected_binding cannot be all zeros"
+    },
+    {
+      "code": 6032,
+      "name": "InvalidOutputCommitment",
+      "msg": "Invalid output commitment: output_commitment cannot be all zeros"
+    },
+    {
+      "code": 6033,
+      "name": "DisputeNotActive",
+      "msg": "Dispute is not active"
+    },
+    {
+      "code": 6034,
+      "name": "VotingEnded",
+      "msg": "Voting period has ended"
+    },
+    {
+      "code": 6035,
+      "name": "VotingNotEnded",
+      "msg": "Voting period has not ended"
+    },
+    {
+      "code": 6036,
+      "name": "AlreadyVoted",
+      "msg": "Already voted on this dispute"
+    },
+    {
+      "code": 6037,
+      "name": "NotArbiter",
+      "msg": "Not authorized to vote (not an arbiter)"
+    },
+    {
+      "code": 6038,
+      "name": "InsufficientVotes",
+      "msg": "Insufficient votes to resolve"
+    },
+    {
+      "code": 6039,
+      "name": "DisputeAlreadyResolved",
+      "msg": "Dispute has already been resolved"
+    },
+    {
+      "code": 6040,
+      "name": "UnauthorizedResolver",
+      "msg": "Only protocol authority or dispute initiator can resolve disputes"
+    },
+    {
+      "code": 6041,
+      "name": "ActiveDisputeVotes",
+      "msg": "Agent has active dispute votes pending resolution"
+    },
+    {
+      "code": 6042,
+      "name": "RecentVoteActivity",
+      "msg": "Agent must wait 24 hours after voting before deregistering"
+    },
+    {
+      "code": 6043,
+      "name": "InsufficientEvidence",
+      "msg": "Insufficient dispute evidence provided"
+    },
+    {
+      "code": 6044,
+      "name": "EvidenceTooLong",
+      "msg": "Dispute evidence exceeds maximum allowed length"
+    },
+    {
+      "code": 6045,
+      "name": "DisputeNotExpired",
+      "msg": "Dispute has not expired"
+    },
+    {
+      "code": 6046,
+      "name": "SlashAlreadyApplied",
+      "msg": "Dispute slashing already applied"
+    },
+    {
+      "code": 6047,
+      "name": "DisputeNotResolved",
+      "msg": "Dispute has not been resolved"
+    },
+    {
+      "code": 6048,
+      "name": "VersionMismatch",
+      "msg": "State version mismatch (concurrent modification)"
+    },
+    {
+      "code": 6049,
+      "name": "StateKeyExists",
+      "msg": "State key already exists"
+    },
+    {
+      "code": 6050,
+      "name": "StateNotFound",
+      "msg": "State not found"
+    },
+    {
+      "code": 6051,
+      "name": "ProtocolAlreadyInitialized",
+      "msg": "Protocol is already initialized"
+    },
+    {
+      "code": 6052,
+      "name": "ProtocolNotInitialized",
+      "msg": "Protocol is not initialized"
+    },
+    {
+      "code": 6053,
+      "name": "InvalidProtocolFee",
+      "msg": "Invalid protocol fee (must be <= 1000 bps)"
+    },
+    {
+      "code": 6054,
+      "name": "InvalidDisputeThreshold",
+      "msg": "Invalid dispute threshold"
+    },
+    {
+      "code": 6055,
+      "name": "InsufficientStake",
+      "msg": "Insufficient stake for arbiter registration"
+    },
+    {
+      "code": 6056,
+      "name": "MultisigInvalidThreshold",
+      "msg": "Invalid multisig threshold"
+    },
+    {
+      "code": 6057,
+      "name": "MultisigInvalidSigners",
+      "msg": "Invalid multisig signer configuration"
+    },
+    {
+      "code": 6058,
+      "name": "MultisigNotEnoughSigners",
+      "msg": "Not enough multisig signers"
+    },
+    {
+      "code": 6059,
+      "name": "MultisigDuplicateSigner",
+      "msg": "Duplicate multisig signer provided"
+    },
+    {
+      "code": 6060,
+      "name": "MultisigDefaultSigner",
+      "msg": "Multisig signer cannot be default pubkey"
+    },
+    {
+      "code": 6061,
+      "name": "MultisigSignerNotSystemOwned",
+      "msg": "Multisig signer account not owned by System Program"
+    },
+    {
+      "code": 6062,
+      "name": "InvalidInput",
+      "msg": "Invalid input parameter"
+    },
+    {
+      "code": 6063,
+      "name": "ArithmeticOverflow",
+      "msg": "Arithmetic overflow"
+    },
+    {
+      "code": 6064,
+      "name": "VoteOverflow",
+      "msg": "Vote count overflow"
+    },
+    {
+      "code": 6065,
+      "name": "InsufficientFunds",
+      "msg": "Insufficient funds"
+    },
+    {
+      "code": 6066,
+      "name": "CorruptedData",
+      "msg": "Account data is corrupted"
+    },
+    {
+      "code": 6067,
+      "name": "StringTooLong",
+      "msg": "String too long"
+    },
+    {
+      "code": 6068,
+      "name": "InvalidAccountOwner",
+      "msg": "Account owner validation failed: account not owned by this program"
+    },
+    {
+      "code": 6069,
+      "name": "RateLimitExceeded",
+      "msg": "Rate limit exceeded: maximum actions per 24h window reached"
+    },
+    {
+      "code": 6070,
+      "name": "CooldownNotElapsed",
+      "msg": "Cooldown period has not elapsed since last action"
+    },
+    {
+      "code": 6071,
+      "name": "InsufficientStakeForDispute",
+      "msg": "Insufficient stake to initiate dispute"
+    },
+    {
+      "code": 6072,
+      "name": "VersionMismatchProtocol",
+      "msg": "Protocol version mismatch: account version incompatible with current program"
+    },
+    {
+      "code": 6073,
+      "name": "AccountVersionTooOld",
+      "msg": "Account version too old: migration required"
+    },
+    {
+      "code": 6074,
+      "name": "AccountVersionTooNew",
+      "msg": "Account version too new: program upgrade required"
+    },
+    {
+      "code": 6075,
+      "name": "InvalidMigrationSource",
+      "msg": "Migration not allowed: invalid source version"
+    },
+    {
+      "code": 6076,
+      "name": "InvalidMigrationTarget",
+      "msg": "Migration not allowed: invalid target version"
+    },
+    {
+      "code": 6077,
+      "name": "UnauthorizedUpgrade",
+      "msg": "Only upgrade authority can perform this action"
+    }
+  ],
+  "types": [
+    {
+      "name": "AgentDeregistered",
+      "docs": [
+        "Emitted when an agent deregisters"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "agent_id",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "AgentRegistered",
+      "docs": [
+        "Emitted when a new agent registers"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "agent_id",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "capabilities",
+            "type": "u64"
+          },
+          {
+            "name": "endpoint",
+            "type": "string"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "AgentRegistration",
+      "docs": [
+        "Agent registration account",
+        "PDA seeds: [\"agent\", agent_id]"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "agent_id",
+            "docs": [
+              "Unique agent identifier"
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "authority",
+            "docs": [
+              "Agent's signing authority"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "capabilities",
+            "docs": [
+              "Capability bitmask"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "status",
+            "docs": [
+              "Agent status"
+            ],
+            "type": {
+              "defined": {
+                "name": "AgentStatus"
+              }
+            }
+          },
+          {
+            "name": "endpoint",
+            "docs": [
+              "Network endpoint (max 128 chars)"
+            ],
+            "type": "string"
+          },
+          {
+            "name": "metadata_uri",
+            "docs": [
+              "Extended metadata URI (max 128 chars)"
+            ],
+            "type": "string"
+          },
+          {
+            "name": "registered_at",
+            "docs": [
+              "Registration timestamp"
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "last_active",
+            "docs": [
+              "Last activity timestamp"
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "tasks_completed",
+            "docs": [
+              "Total tasks completed"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "total_earned",
+            "docs": [
+              "Total rewards earned"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "reputation",
+            "docs": [
+              "Reputation score (0-10000)"
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "active_tasks",
+            "docs": [
+              "Active task count"
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "stake",
+            "docs": [
+              "Stake amount (for arbiters)"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "bump",
+            "docs": [
+              "Bump seed"
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "last_task_created",
+            "docs": [
+              "Timestamp of last task creation"
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "last_dispute_initiated",
+            "docs": [
+              "Timestamp of last dispute initiated"
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "task_count_24h",
+            "docs": [
+              "Number of tasks created in current 24h window"
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "dispute_count_24h",
+            "docs": [
+              "Number of disputes initiated in current 24h window"
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "rate_limit_window_start",
+            "docs": [
+              "Start of current rate limit window (unix timestamp)"
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "active_dispute_votes",
+            "docs": [
+              "Active dispute votes pending resolution"
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "last_vote_timestamp",
+            "docs": [
+              "Timestamp of last dispute vote"
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "last_state_update",
+            "docs": [
+              "Timestamp of last state update"
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "_reserved",
+            "docs": [
+              "Reserved for future use"
+            ],
+            "type": {
+              "array": [
+                "u8",
+                6
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "AgentStatus",
+      "docs": [
+        "Agent status"
+      ],
+      "repr": {
+        "kind": "rust"
+      },
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Inactive"
+          },
+          {
+            "name": "Active"
+          },
+          {
+            "name": "Busy"
+          },
+          {
+            "name": "Suspended"
+          }
+        ]
+      }
+    },
+    {
+      "name": "AgentUpdated",
+      "docs": [
+        "Emitted when an agent updates its registration"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "agent_id",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "capabilities",
+            "type": "u64"
+          },
+          {
+            "name": "status",
+            "type": "u8"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "CoordinationState",
+      "docs": [
+        "Shared coordination state",
+        "PDA seeds: [\"state\", state_key]"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "state_key",
+            "docs": [
+              "State key"
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "state_value",
+            "docs": [
+              "State value"
+            ],
+            "type": {
+              "array": [
+                "u8",
+                64
+              ]
+            }
+          },
+          {
+            "name": "last_updater",
+            "docs": [
+              "Last updater"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "version",
+            "docs": [
+              "Version for optimistic locking"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "updated_at",
+            "docs": [
+              "Last update timestamp"
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "bump",
+            "docs": [
+              "Bump seed"
+            ],
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Dispute",
+      "docs": [
+        "Dispute account for conflict resolution",
+        "PDA seeds: [\"dispute\", dispute_id]"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "dispute_id",
+            "docs": [
+              "Dispute identifier"
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "task",
+            "docs": [
+              "Related task"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "initiator",
+            "docs": [
+              "Initiator"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "evidence_hash",
+            "docs": [
+              "Evidence hash"
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "resolution_type",
+            "docs": [
+              "Proposed resolution type"
+            ],
+            "type": {
+              "defined": {
+                "name": "ResolutionType"
+              }
+            }
+          },
+          {
+            "name": "status",
+            "docs": [
+              "Dispute status"
+            ],
+            "type": {
+              "defined": {
+                "name": "DisputeStatus"
+              }
+            }
+          },
+          {
+            "name": "created_at",
+            "docs": [
+              "Creation timestamp"
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "resolved_at",
+            "docs": [
+              "Resolution timestamp"
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "votes_for",
+            "docs": [
+              "Votes for approval"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "votes_against",
+            "docs": [
+              "Votes against"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "total_voters",
+            "docs": [
+              "Total eligible voters"
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "voting_deadline",
+            "docs": [
+              "Voting deadline"
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "expires_at",
+            "docs": [
+              "Dispute expiration timestamp"
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "slash_applied",
+            "docs": [
+              "Whether slashing has been applied"
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "bump",
+            "docs": [
+              "Bump seed"
+            ],
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "DisputeExpired",
+      "docs": [
+        "Emitted when a dispute expires without resolution"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "dispute_id",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "task_id",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "refund_amount",
+            "type": "u64"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "DisputeInitiated",
+      "docs": [
+        "Emitted when a dispute is initiated"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "dispute_id",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "task_id",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "initiator",
+            "type": "pubkey"
+          },
+          {
+            "name": "resolution_type",
+            "type": "u8"
+          },
+          {
+            "name": "voting_deadline",
+            "type": "i64"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "DisputeResolved",
+      "docs": [
+        "Emitted when a dispute is resolved"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "dispute_id",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "resolution_type",
+            "type": "u8"
+          },
+          {
+            "name": "votes_for",
+            "type": "u64"
+          },
+          {
+            "name": "votes_against",
+            "type": "u64"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "DisputeStatus",
+      "docs": [
+        "Dispute status"
+      ],
+      "repr": {
+        "kind": "rust"
+      },
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Active"
+          },
+          {
+            "name": "Resolved"
+          },
+          {
+            "name": "Expired"
+          }
+        ]
+      }
+    },
+    {
+      "name": "DisputeVote",
+      "docs": [
+        "Vote record for dispute",
+        "PDA seeds: [\"vote\", dispute, voter]"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "dispute",
+            "docs": [
+              "Dispute being voted on"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "voter",
+            "docs": [
+              "Voter (arbiter)"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "approved",
+            "docs": [
+              "Vote (true = approve, false = reject)"
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "voted_at",
+            "docs": [
+              "Vote timestamp"
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "bump",
+            "docs": [
+              "Bump seed"
+            ],
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "DisputeVoteCast",
+      "docs": [
+        "Emitted when a vote is cast on a dispute"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "dispute_id",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "voter",
+            "type": "pubkey"
+          },
+          {
+            "name": "approved",
+            "type": "bool"
+          },
+          {
+            "name": "votes_for",
+            "type": "u64"
+          },
+          {
+            "name": "votes_against",
+            "type": "u64"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "MigrationCompleted",
+      "docs": [
+        "Emitted when protocol migration is completed"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "from_version",
+            "type": "u8"
+          },
+          {
+            "name": "to_version",
+            "type": "u8"
+          },
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PrivateCompletionProof",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "proof_data",
+            "type": "bytes"
+          },
+          {
+            "name": "constraint_hash",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "output_commitment",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "expected_binding",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "ProtocolConfig",
+      "docs": [
+        "Protocol configuration account",
+        "PDA seeds: [\"protocol\"]"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "authority",
+            "docs": [
+              "Protocol authority"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "treasury",
+            "docs": [
+              "Treasury for protocol fees"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "dispute_threshold",
+            "docs": [
+              "Minimum votes needed to resolve dispute (percentage, 1-100)"
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "protocol_fee_bps",
+            "docs": [
+              "Protocol fee in basis points (1/100th of a percent)"
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "min_arbiter_stake",
+            "docs": [
+              "Minimum stake required to register as arbiter"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "min_agent_stake",
+            "docs": [
+              "Minimum stake required to register as agent"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "max_claim_duration",
+            "docs": [
+              "Max duration (seconds) a claim can stay active without completion"
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "max_dispute_duration",
+            "docs": [
+              "Max duration (seconds) a dispute can remain active"
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "total_agents",
+            "docs": [
+              "Total registered agents"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "total_tasks",
+            "docs": [
+              "Total tasks created"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "completed_tasks",
+            "docs": [
+              "Total tasks completed"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "total_value_distributed",
+            "docs": [
+              "Total value distributed"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "bump",
+            "docs": [
+              "Bump seed for PDA"
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "multisig_threshold",
+            "docs": [
+              "Multisig threshold"
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "multisig_owners_len",
+            "docs": [
+              "Length of configured multisig owners"
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "task_creation_cooldown",
+            "docs": [
+              "Minimum cooldown between task creations (seconds, 0 = disabled)"
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "max_tasks_per_24h",
+            "docs": [
+              "Maximum tasks an agent can create per 24h window (0 = unlimited)"
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "dispute_initiation_cooldown",
+            "docs": [
+              "Minimum cooldown between dispute initiations (seconds, 0 = disabled)"
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "max_disputes_per_24h",
+            "docs": [
+              "Maximum disputes an agent can initiate per 24h window (0 = unlimited)"
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "min_stake_for_dispute",
+            "docs": [
+              "Minimum stake required to initiate a dispute (griefing resistance)"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "slash_percentage",
+            "docs": [
+              "Percentage of stake slashed on losing dispute (0-100)"
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "protocol_version",
+            "docs": [
+              "Current protocol version (for upgrades)"
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "min_supported_version",
+            "docs": [
+              "Minimum supported version for backward compatibility"
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "_padding",
+            "docs": [
+              "Padding for alignment/future use"
+            ],
+            "type": {
+              "array": [
+                "u8",
+                2
+              ]
+            }
+          },
+          {
+            "name": "multisig_owners",
+            "docs": [
+              "Multisig owners (fixed-size)"
+            ],
+            "type": {
+              "array": [
+                "pubkey",
+                5
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "ProtocolInitialized",
+      "docs": [
+        "Emitted when protocol is initialized"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "treasury",
+            "type": "pubkey"
+          },
+          {
+            "name": "dispute_threshold",
+            "type": "u8"
+          },
+          {
+            "name": "protocol_fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ProtocolVersionUpdated",
+      "docs": [
+        "Emitted when protocol version is updated"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "old_version",
+            "type": "u8"
+          },
+          {
+            "name": "new_version",
+            "type": "u8"
+          },
+          {
+            "name": "min_supported_version",
+            "type": "u8"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "RateLimitHit",
+      "docs": [
+        "Emitted when a rate limit is hit"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "agent_id",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "action_type",
+            "type": "u8"
+          },
+          {
+            "name": "limit_type",
+            "type": "u8"
+          },
+          {
+            "name": "current_count",
+            "type": "u8"
+          },
+          {
+            "name": "max_count",
+            "type": "u8"
+          },
+          {
+            "name": "cooldown_remaining",
+            "type": "i64"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ResolutionType",
+      "docs": [
+        "Dispute resolution type"
+      ],
+      "repr": {
+        "kind": "rust"
+      },
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Refund"
+          },
+          {
+            "name": "Complete"
+          },
+          {
+            "name": "Split"
+          }
+        ]
+      }
+    },
+    {
+      "name": "RewardDistributed",
+      "docs": [
+        "Emitted for reward distribution"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "task_id",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "recipient",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "protocol_fee",
+            "type": "u64"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "StateUpdated",
+      "docs": [
+        "Emitted when coordination state is updated"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "state_key",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "updater",
+            "type": "pubkey"
+          },
+          {
+            "name": "version",
+            "type": "u64"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Task",
+      "docs": [
+        "Task account",
+        "PDA seeds: [\"task\", creator, task_id]"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "task_id",
+            "docs": [
+              "Unique task identifier"
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "creator",
+            "docs": [
+              "Task creator (paying party)"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "required_capabilities",
+            "docs": [
+              "Required capability bitmask"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "description",
+            "docs": [
+              "Task description or instruction hash"
+            ],
+            "type": {
+              "array": [
+                "u8",
+                64
+              ]
+            }
+          },
+          {
+            "name": "constraint_hash",
+            "docs": [
+              "Constraint hash for private task verification (hash of expected output)",
+              "For private tasks, workers must prove they know output that hashes to this value"
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "reward_amount",
+            "docs": [
+              "Reward amount in lamports"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "max_workers",
+            "docs": [
+              "Maximum workers allowed"
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "current_workers",
+            "docs": [
+              "Current worker count"
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "status",
+            "docs": [
+              "Task status"
+            ],
+            "type": {
+              "defined": {
+                "name": "TaskStatus"
+              }
+            }
+          },
+          {
+            "name": "task_type",
+            "docs": [
+              "Task type"
+            ],
+            "type": {
+              "defined": {
+                "name": "TaskType"
+              }
+            }
+          },
+          {
+            "name": "created_at",
+            "docs": [
+              "Creation timestamp"
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "deadline",
+            "docs": [
+              "Deadline timestamp (0 = no deadline)"
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "completed_at",
+            "docs": [
+              "Completion timestamp"
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "escrow",
+            "docs": [
+              "Escrow account for reward"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "result",
+            "docs": [
+              "Result data or pointer"
+            ],
+            "type": {
+              "array": [
+                "u8",
+                64
+              ]
+            }
+          },
+          {
+            "name": "completions",
+            "docs": [
+              "Number of completions (for collaborative tasks)"
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "required_completions",
+            "docs": [
+              "Required completions"
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "bump",
+            "docs": [
+              "Bump seed"
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "_reserved",
+            "docs": [
+              "Reserved"
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "TaskCancelled",
+      "docs": [
+        "Emitted when a task is cancelled"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "task_id",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "creator",
+            "type": "pubkey"
+          },
+          {
+            "name": "refund_amount",
+            "type": "u64"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "TaskClaim",
+      "docs": [
+        "Worker's claim on a task",
+        "PDA seeds: [\"claim\", task, worker_agent]"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "task",
+            "docs": [
+              "Task being claimed"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "worker",
+            "docs": [
+              "Worker agent"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "claimed_at",
+            "docs": [
+              "Claim timestamp"
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "expires_at",
+            "docs": [
+              "Expiration timestamp for claim"
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "completed_at",
+            "docs": [
+              "Completion timestamp"
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "proof_hash",
+            "docs": [
+              "Proof of work hash"
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "result_data",
+            "docs": [
+              "Result data"
+            ],
+            "type": {
+              "array": [
+                "u8",
+                64
+              ]
+            }
+          },
+          {
+            "name": "is_completed",
+            "docs": [
+              "Is completed"
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "is_validated",
+            "docs": [
+              "Is validated"
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "reward_paid",
+            "docs": [
+              "Reward paid"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "bump",
+            "docs": [
+              "Bump seed"
+            ],
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "TaskClaimed",
+      "docs": [
+        "Emitted when an agent claims a task"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "task_id",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "worker",
+            "type": "pubkey"
+          },
+          {
+            "name": "current_workers",
+            "type": "u8"
+          },
+          {
+            "name": "max_workers",
+            "type": "u8"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "TaskCompleted",
+      "docs": [
+        "Emitted when a task is completed"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "task_id",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "worker",
+            "type": "pubkey"
+          },
+          {
+            "name": "proof_hash",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "reward_paid",
+            "type": "u64"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "TaskCreated",
+      "docs": [
+        "Emitted when a new task is created"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "task_id",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "creator",
+            "type": "pubkey"
+          },
+          {
+            "name": "required_capabilities",
+            "type": "u64"
+          },
+          {
+            "name": "reward_amount",
+            "type": "u64"
+          },
+          {
+            "name": "task_type",
+            "type": "u8"
+          },
+          {
+            "name": "deadline",
+            "type": "i64"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "TaskEscrow",
+      "docs": [
+        "Task escrow account",
+        "PDA seeds: [\"escrow\", task]"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "task",
+            "docs": [
+              "Task this escrow belongs to"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "docs": [
+              "Total amount deposited"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "distributed",
+            "docs": [
+              "Amount already distributed"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "is_closed",
+            "docs": [
+              "Is closed"
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "bump",
+            "docs": [
+              "Bump seed"
+            ],
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "TaskStatus",
+      "docs": [
+        "Task status"
+      ],
+      "repr": {
+        "kind": "rust"
+      },
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Open"
+          },
+          {
+            "name": "InProgress"
+          },
+          {
+            "name": "PendingValidation"
+          },
+          {
+            "name": "Completed"
+          },
+          {
+            "name": "Cancelled"
+          },
+          {
+            "name": "Disputed"
+          }
+        ]
+      }
+    },
+    {
+      "name": "TaskType",
+      "docs": [
+        "Task type"
+      ],
+      "repr": {
+        "kind": "rust"
+      },
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Exclusive"
+          },
+          {
+            "name": "Collaborative"
+          },
+          {
+            "name": "Competitive"
+          }
+        ]
+      }
+    }
+  ]
+}
