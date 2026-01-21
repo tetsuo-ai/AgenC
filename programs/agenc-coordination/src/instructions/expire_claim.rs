@@ -60,8 +60,9 @@ pub fn handler(ctx: Context<ExpireClaim>) -> Result<()> {
         .checked_sub(1)
         .ok_or(CoordinationError::ArithmeticOverflow)?;
 
-    // Reopen task if no workers left
-    if task.current_workers == 0 {
+    // Reopen task if no workers left AND task is still in progress
+    // (Don't reopen cancelled/completed/disputed tasks - prevents zombie task attack)
+    if task.current_workers == 0 && task.status == TaskStatus::InProgress {
         task.status = TaskStatus::Open;
     }
 
