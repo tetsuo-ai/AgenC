@@ -74,6 +74,35 @@ export {
   getAnchorErrorName,
   getAnchorErrorMessage,
   isRuntimeError,
+  // Agent constants
+  AgentCapabilities,
+  AGENT_REGISTRATION_SIZE,
+  AGENT_ID_LENGTH,
+  MAX_ENDPOINT_LENGTH,
+  MAX_METADATA_URI_LENGTH,
+  MAX_REPUTATION,
+  MAX_U8,
+  CAPABILITY_NAMES,
+  // Agent enum
+  AgentStatus,
+  // Agent functions
+  agentStatusToString,
+  isValidAgentStatus,
+  hasCapability,
+  getCapabilityNames,
+  createCapabilityMask,
+  parseAgentState,
+  computeRateLimitState,
+  // Agent types
+  type AgentCapability,
+  type CapabilityName,
+  type AgentState,
+  type AgentRegistrationParams,
+  type AgentUpdateParams,
+  type RateLimitState,
+  type AgentRegisteredEvent,
+  type AgentUpdatedEvent,
+  type AgentDeregisteredEvent,
 } from './types/index.js';
 
 // Wallet types and helpers
