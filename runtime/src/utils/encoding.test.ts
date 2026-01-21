@@ -171,23 +171,32 @@ describe('agentIdFromString', () => {
     expect(id.every((b) => b === 97)).toBe(true); // 97 = 'a'
   });
 
-  it('XOR-folds strings longer than 32 bytes', () => {
+  it('hashes strings longer than 32 bytes', () => {
     const longStr = 'a'.repeat(64);
     const id = agentIdFromString(longStr);
     expect(id.length).toBe(32);
-    // Since 'a' XOR 'a' = 0, result should be all zeros
-    expect(id.every((b) => b === 0)).toBe(true);
+    // Should NOT be all zeros (unlike old XOR-fold behavior)
+    expect(id.some((b) => b !== 0)).toBe(true);
   });
 
-  it('XOR-folds strings with repeating pattern', () => {
-    // 'ab' repeated 32 times = 64 bytes
-    // Position i gets: char[i] XOR char[i+32]
-    // Since pattern repeats every 2 chars: char[i] == char[i+32]
-    // So result is all zeros (x XOR x = 0)
-    const longStr = 'ab'.repeat(32);
-    const id = agentIdFromString(longStr);
-    expect(id.length).toBe(32);
-    expect(id.every((b) => b === 0)).toBe(true);
+  it('produces different IDs for different long strings with repeating patterns', () => {
+    // These strings would have collided with XOR-fold but should be unique with hashing
+    const id1 = agentIdFromString('a'.repeat(64));
+    const id2 = agentIdFromString('b'.repeat(64));
+    const id3 = agentIdFromString('ab'.repeat(32));
+    const id4 = agentIdFromString('abc'.repeat(22)); // 66 chars
+
+    // All should be 32 bytes
+    expect(id1.length).toBe(32);
+    expect(id2.length).toBe(32);
+    expect(id3.length).toBe(32);
+    expect(id4.length).toBe(32);
+
+    // All should be unique
+    expect(agentIdsEqual(id1, id2)).toBe(false);
+    expect(agentIdsEqual(id1, id3)).toBe(false);
+    expect(agentIdsEqual(id2, id3)).toBe(false);
+    expect(agentIdsEqual(id3, id4)).toBe(false);
   });
 
   it('handles empty string', () => {
@@ -425,6 +434,17 @@ describe('solToLamports', () => {
   it('throws on Infinity input', () => {
     expect(() => solToLamports(Infinity)).toThrow('Invalid SOL amount');
     expect(() => solToLamports(-Infinity)).toThrow('Invalid SOL amount');
+  });
+
+  it('throws on negative number input', () => {
+    expect(() => solToLamports(-1)).toThrow('Invalid SOL amount');
+    expect(() => solToLamports(-0.5)).toThrow('Invalid SOL amount');
+    expect(() => solToLamports(-0.000000001)).toThrow('Invalid SOL amount');
+  });
+
+  it('throws on negative string input', () => {
+    expect(() => solToLamports('-1')).toThrow('Invalid SOL amount');
+    expect(() => solToLamports('-0.5')).toThrow('Invalid SOL amount');
   });
 });
 

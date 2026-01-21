@@ -86,7 +86,7 @@ export function bytesToHex(bytes: Uint8Array, prefix = false): string {
 /**
  * Convert a string to a 32-byte agent ID
  * Uses UTF-8 encoding, padded with zeros if short (≤32 bytes),
- * or XOR-folded if long (>32 bytes)
+ * or hashed if long (>32 bytes) to avoid collisions.
  * @param str - String to convert
  * @returns 32-byte Uint8Array
  * @example
@@ -104,12 +104,43 @@ export function agentIdFromString(str: string): Uint8Array {
     const result = new Uint8Array(32);
     result.set(encoded);
     return result;
-  } else {
-    // XOR-fold if too long
+  }
+
+  // For longer strings, use SHA-256 hash (Node.js) or FNV-1a mixing (browser)
+  // Try Node's crypto.createHash (sync)
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { createHash } = require('crypto');
+    const hash = createHash('sha256').update(encoded).digest();
+    return new Uint8Array(hash);
+  } catch {
+    // Fallback: FNV-1a style mixing algorithm for browser environments
+    // This avoids the collision issues of simple XOR-folding
     const result = new Uint8Array(32);
+    let h1 = 0x811c9dc5; // FNV offset basis
+    let h2 = 0x1000193; // Secondary state
+
     for (let i = 0; i < encoded.length; i++) {
-      result[i % 32] ^= encoded[i];
+      // Mix byte into both state variables
+      h1 ^= encoded[i];
+      h1 = Math.imul(h1, 0x01000193); // FNV prime
+      h2 ^= encoded[i];
+      h2 = Math.imul(h2, 0x85ebca6b); // Different prime
+
+      // Distribute state across result bytes
+      const pos = i % 32;
+      result[pos] ^= (h1 >>> 24) & 0xff;
+      result[(pos + 8) % 32] ^= (h1 >>> 16) & 0xff;
+      result[(pos + 16) % 32] ^= (h2 >>> 8) & 0xff;
+      result[(pos + 24) % 32] ^= h2 & 0xff;
     }
+
+    // Final mixing pass to ensure all bytes are influenced
+    for (let i = 0; i < 32; i++) {
+      h1 = Math.imul(h1 ^ result[i], 0x01000193);
+      result[i] ^= (h1 >>> (i % 24)) & 0xff;
+    }
+
     return result;
   }
 }
@@ -148,7 +179,8 @@ export function agentIdToShortString(agentId: Uint8Array, chars = 6): string {
 }
 
 /**
- * Compare two agent IDs for equality
+ * Compare two agent IDs for equality using constant-time comparison
+ * This prevents timing side-channel attacks when comparing sensitive IDs.
  * @param a - First agent ID
  * @param b - Second agent ID
  * @returns true if the IDs are equal, false otherwise
@@ -161,10 +193,14 @@ export function agentIdToShortString(agentId: Uint8Array, chars = 6): string {
  */
 export function agentIdsEqual(a: Uint8Array, b: Uint8Array): boolean {
   if (a.length !== b.length) return false;
+
+  // Constant-time comparison: always compare all bytes regardless of differences
+  // This prevents timing attacks that could leak information about the ID
+  let result = 0;
   for (let i = 0; i < a.length; i++) {
-    if (a[i] !== b[i]) return false;
+    result |= a[i] ^ b[i];
   }
-  return true;
+  return result === 0;
 }
 
 /**
@@ -186,9 +222,9 @@ export function lamportsToSol(lamports: bigint): string {
 
 /**
  * Convert SOL to lamports
- * @param sol - Amount in SOL (number or string)
+ * @param sol - Amount in SOL (number or string), must be non-negative
  * @returns Amount in lamports as bigint
- * @throws Error if input is not a valid number
+ * @throws Error if input is not a valid non-negative number
  * @example
  * ```typescript
  * solToLamports(1.5); // 1_500_000_000n
@@ -198,8 +234,8 @@ export function lamportsToSol(lamports: bigint): string {
  */
 export function solToLamports(sol: number | string): bigint {
   const solNum = typeof sol === 'string' ? parseFloat(sol) : sol;
-  if (!Number.isFinite(solNum)) {
-    throw new Error('Invalid SOL amount: must be a finite number');
+  if (!Number.isFinite(solNum) || solNum < 0) {
+    throw new Error('Invalid SOL amount: must be a non-negative finite number');
   }
   return BigInt(Math.round(solNum * 1e9));
 }
