@@ -36,8 +36,12 @@ export class AgentRuntime {
   }
 }
 
-// Error types, constants, and helpers
+// Types (protocol and errors)
 export {
+  // Protocol types
+  ProtocolConfig,
+  parseProtocolConfig,
+  MAX_MULTISIG_OWNERS,
   // Error constants
   RuntimeErrorCodes,
   AnchorErrorCodes,
