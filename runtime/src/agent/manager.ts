@@ -89,7 +89,7 @@ const VOTE_COOLDOWN_SECONDS = 86400;
  * const agentId = generateAgentId();
  * const state = await manager.register({
  *   agentId,
- *   capabilities: Capability.COMPUTE | Capability.INFERENCE,
+ *   capabilities: AgentCapabilities.COMPUTE | AgentCapabilities.INFERENCE,
  *   endpoint: 'https://my-agent.example.com',
  *   stakeAmount: 1_000_000_000n, // 1 SOL
  * });
@@ -148,7 +148,7 @@ export class AgentManager {
    * ```typescript
    * const state = await manager.register({
    *   agentId: generateAgentId(),
-   *   capabilities: Capability.COMPUTE | Capability.INFERENCE,
+   *   capabilities: AgentCapabilities.COMPUTE | AgentCapabilities.INFERENCE,
    *   endpoint: 'https://my-agent.example.com',
    *   stakeAmount: 1_000_000_000n,
    * });
@@ -334,7 +334,7 @@ export class AgentManager {
    * @example
    * ```typescript
    * await manager.update({
-   *   capabilities: Capability.COMPUTE | Capability.INFERENCE | Capability.STORAGE,
+   *   capabilities: AgentCapabilities.COMPUTE | AgentCapabilities.INFERENCE | AgentCapabilities.STORAGE,
    *   endpoint: 'https://new-endpoint.example.com',
    * });
    * ```
@@ -416,7 +416,7 @@ export class AgentManager {
    *
    * @example
    * ```typescript
-   * await manager.updateCapabilities(Capability.COMPUTE | Capability.INFERENCE);
+   * await manager.updateCapabilities(AgentCapabilities.COMPUTE | AgentCapabilities.INFERENCE);
    * ```
    */
   async updateCapabilities(capabilities: bigint): Promise<AgentState> {
@@ -613,6 +613,13 @@ export class AgentManager {
    * ```
    */
   subscribeToEvents(callbacks: AgentEventCallbacks): EventSubscription {
+    // Clean up previous subscription to prevent leaks
+    if (this.eventSubscription) {
+      // Fire-and-forget: we don't need to wait for cleanup to complete
+      void this.eventSubscription.unsubscribe();
+      this.eventSubscription = null;
+    }
+
     // Filter by this agent's ID if registered
     const options = this.agentId ? { agentId: this.agentId } : undefined;
 
