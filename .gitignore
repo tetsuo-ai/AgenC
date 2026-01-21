@@ -49,6 +49,9 @@ node_modules/
 # SDK build artifacts
 sdk/dist/
 
+# Runtime build artifacts
+runtime/dist/
+
 # Circuit artifacts (keep source, ignore compiled)
 circuits/**/target/
 circuits/**/*.proof
