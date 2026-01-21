@@ -3301,6 +3301,108 @@ describe("test_1", () => {
           expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
         }
       });
+
+      it("Does not reopen cancelled task when claim expires (zombie task fix #138)", async () => {
+        // This test verifies the fix for the zombie task attack where expire_claim
+        // could reset a cancelled task's status to Open, creating tasks with empty
+        // escrows that would trap workers.
+        const worker = await createFreshWorker();
+        const taskId = Buffer.from(`zombie-fix-${runId}`.padEnd(32, "\0"));
+        const taskPda = deriveTaskPda(creator.publicKey, taskId);
+        const escrowPda = deriveEscrowPda(taskPda);
+
+        // Get the on-chain clock time to set deadline relative to it
+        const slot = await provider.connection.getSlot();
+        const blockTime = await provider.connection.getBlockTime(slot);
+        // Set deadline to 4 seconds from now
+        const shortDeadline = (blockTime || Math.floor(Date.now() / 1000)) + 4;
+
+        // 1. Create task with short deadline
+        await program.methods
+          .createTask(
+            Array.from(taskId),
+            new BN(CAPABILITY_COMPUTE),
+            Buffer.from("Zombie task fix test".padEnd(64, "\0")),
+            new BN(LAMPORTS_PER_SOL / 100),
+            1,
+            new BN(shortDeadline),
+            TASK_TYPE_EXCLUSIVE,
+            null
+          )
+          .accountsPartial({
+            task: taskPda,
+            escrow: escrowPda,
+            protocolConfig: protocolPda,
+            creatorAgent: creatorAgentPda,
+            authority: creator.publicKey,
+            creator: creator.publicKey,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([creator])
+          .rpc();
+
+        // 2. Worker claims task (status becomes InProgress, claim.expires_at = deadline)
+        const claimPda = deriveClaimPda(taskPda, worker.agentPda);
+        await program.methods
+          .claimTask()
+          .accountsPartial({
+            task: taskPda,
+            claim: claimPda,
+            worker: worker.agentPda,
+            authority: worker.wallet.publicKey,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([worker.wallet])
+          .rpc();
+
+        let task = await program.account.task.fetch(taskPda);
+        expect(task.status).to.deep.equal({ inProgress: {} });
+        expect(task.currentWorkers).to.equal(1);
+
+        // 3. Wait for deadline to pass
+        await new Promise(resolve => setTimeout(resolve, 6000));
+
+        // Verify on-chain clock has passed the deadline
+        const currentSlot = await provider.connection.getSlot();
+        const currentBlockTime = await provider.connection.getBlockTime(currentSlot);
+        if (currentBlockTime && currentBlockTime <= task.deadline.toNumber()) {
+          console.log(`Skipping: on-chain clock (${currentBlockTime}) hasn't passed deadline (${task.deadline.toNumber()})`);
+          return;
+        }
+
+        // 4. Creator cancels task (status becomes Cancelled)
+        await program.methods
+          .cancelTask()
+          .accountsPartial({
+            task: taskPda,
+            escrow: escrowPda,
+            creator: creator.publicKey,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([creator])
+          .rpc();
+
+        task = await program.account.task.fetch(taskPda);
+        expect(task.status).to.deep.equal({ cancelled: {} });
+
+        // 5. Call expire_claim on the worker's expired claim
+        // Before the fix, this would reset status to Open (zombie task)
+        await program.methods
+          .expireClaim()
+          .accountsPartial({
+            task: taskPda,
+            claim: claimPda,
+            worker: worker.agentPda,
+            rentRecipient: creator.publicKey,
+            systemProgram: SystemProgram.programId,
+          })
+          .rpc();
+
+        // 6. Verify task.status is still Cancelled (NOT Open)
+        task = await program.account.task.fetch(taskPda);
+        expect(task.status).to.deep.equal({ cancelled: {} });
+        expect(task.currentWorkers).to.equal(0);
+      });
     });
 
     describe("update_state", () => {
