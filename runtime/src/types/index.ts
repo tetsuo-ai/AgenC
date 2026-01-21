@@ -60,6 +60,18 @@ export {
   createCapabilityMask,
   parseAgentState,
   computeRateLimitState,
+  // PDA derivation helpers
+  deriveAgentPda,
+  deriveProtocolPda,
+  findAgentPda,
+  findProtocolPda,
+  // Event subscriptions
+  subscribeToAgentRegistered,
+  subscribeToAgentUpdated,
+  subscribeToAgentDeregistered,
+  subscribeToAllAgentEvents,
+  // AgentManager class
+  AgentManager,
   // Types
   type AgentCapability,
   type CapabilityName,
@@ -70,4 +82,10 @@ export {
   type AgentRegisteredEvent,
   type AgentUpdatedEvent,
   type AgentDeregisteredEvent,
+  type PdaWithBump,
+  type AgentEventCallback,
+  type EventSubscription,
+  type AgentEventCallbacks,
+  type EventSubscriptionOptions,
+  type AgentManagerConfig,
 } from '../agent/index.js';

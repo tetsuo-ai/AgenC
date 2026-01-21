@@ -50,3 +50,27 @@ export {
   type AgentUpdatedEvent,
   type AgentDeregisteredEvent,
 } from './types.js';
+
+// PDA derivation helpers
+export {
+  deriveAgentPda,
+  deriveProtocolPda,
+  findAgentPda,
+  findProtocolPda,
+  type PdaWithBump,
+} from './pda.js';
+
+// Event subscription utilities
+export {
+  subscribeToAgentRegistered,
+  subscribeToAgentUpdated,
+  subscribeToAgentDeregistered,
+  subscribeToAllAgentEvents,
+  type AgentEventCallback,
+  type EventSubscription,
+  type AgentEventCallbacks,
+  type EventSubscriptionOptions,
+} from './events.js';
+
+// AgentManager class
+export { AgentManager, type AgentManagerConfig } from './manager.js';
