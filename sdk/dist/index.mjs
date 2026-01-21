@@ -112,12 +112,14 @@ var AgenCPrivacyClient = class {
       await loadPrivacyCash();
       this.privacyCashLoaded = true;
     }
+    const enableDebug = process.env.AGENC_DEBUG === "true";
     this.privacyCash = createPrivacyCash({
       RPC_url: this.rpcUrl,
       owner,
-      enableDebug: true
+      enableDebug
     });
-    console.log("Privacy Cash client initialized for:", owner.publicKey.toBase58());
+    const pubkeyStr = owner.publicKey.toBase58();
+    console.log("Privacy Cash client initialized for:", pubkeyStr.substring(0, 8) + "..." + pubkeyStr.substring(pubkeyStr.length - 4));
   }
   /**
    * Shield escrow funds into Privacy Cash pool
@@ -176,7 +178,10 @@ var AgenCPrivacyClient = class {
       worker: worker.publicKey
     });
     const proofTxSignature = await this.connection.sendTransaction(tx, [worker]);
-    await this.connection.confirmTransaction(proofTxSignature);
+    const confirmation = await this.connection.confirmTransaction(proofTxSignature, "confirmed");
+    if (confirmation.value.err) {
+      throw new Error(`Transaction failed: ${JSON.stringify(confirmation.value.err)}`);
+    }
     console.log("Proof verified on-chain:", proofTxSignature);
     console.log("Step 3/3: Withdrawing shielded escrow via Privacy Cash...");
     const withdrawResult = await this.privacyCash.withdraw({
@@ -381,10 +386,18 @@ var PrivacyClient = class {
   }
   /**
    * Shield SOL into the privacy pool
+   * @param lamports - Amount in lamports to shield (must be positive integer)
+   * @throws Error if lamports is invalid or client not initialized
    */
   async shield(lamports) {
     if (!this.wallet || !this.privacyClient) {
       throw new Error("Client not initialized. Call init() first.");
+    }
+    if (!Number.isInteger(lamports) || lamports <= 0) {
+      throw new Error("Invalid lamports amount: must be a positive integer");
+    }
+    if (lamports > Number.MAX_SAFE_INTEGER) {
+      throw new Error("Lamports amount exceeds safe integer limit");
     }
     const result = await this.privacyClient.shieldEscrow(this.wallet, lamports);
     return {
@@ -425,9 +438,26 @@ var PrivacyClient = class {
   }
   /**
    * Parse SOL string to lamports
+   *
+   * Note: For large SOL amounts (> ~9 million SOL), consider using BigInt
+   * to avoid floating point precision issues. This method validates inputs
+   * and throws on invalid values.
+   *
+   * @param sol - SOL amount as string or number
+   * @returns lamports as number (safe for amounts < MAX_SAFE_INTEGER / LAMPORTS_PER_SOL)
+   * @throws Error if input is invalid or would cause precision loss
    */
   static parseSol(sol) {
     const value = typeof sol === "string" ? parseFloat(sol) : sol;
+    if (!Number.isFinite(value) || value < 0) {
+      throw new Error("Invalid SOL amount: must be a non-negative finite number");
+    }
+    const maxSafeSol = Number.MAX_SAFE_INTEGER / LAMPORTS_PER_SOL2;
+    if (value > maxSafeSol) {
+      throw new Error(
+        `SOL amount ${value} exceeds safe precision limit (${maxSafeSol.toFixed(9)} SOL). Use BigInt for larger amounts.`
+      );
+    }
     return Math.floor(value * LAMPORTS_PER_SOL2);
   }
 };
@@ -452,40 +482,8 @@ function validateCircuitPath2(circuitPath) {
 }
 var FIELD_MODULUS = 21888242871839275222246405745257275088548364400416034343698204186575808495617n;
 var FIELD_HEX_LENGTH = HASH_SIZE * 2;
-var BYTE_BASE = 256n;
 var DEFAULT_CIRCUIT_PATH = "./circuits/task_completion";
-function poseidonHash2(a, b) {
-  return poseidon2Hash([a % FIELD_MODULUS, b % FIELD_MODULUS, 0n, 0n]);
-}
-function poseidonHash4(input) {
-  if (input.length !== OUTPUT_FIELD_COUNT) {
-    throw new Error(`Input must be exactly ${OUTPUT_FIELD_COUNT} elements`);
-  }
-  return poseidon2Hash(input.map((x) => x % FIELD_MODULUS));
-}
-function pubkeyToField(pubkey) {
-  const bytes = pubkey.toBytes();
-  let field = 0n;
-  for (const byte of bytes) {
-    field = (field * BYTE_BASE + BigInt(byte)) % FIELD_MODULUS;
-  }
-  return field;
-}
-function computeExpectedBinding(taskPda, agentPubkey, outputCommitment) {
-  const taskField = pubkeyToField(taskPda);
-  const agentField = pubkeyToField(agentPubkey);
-  const binding = poseidonHash2(taskField, agentField);
-  return poseidonHash2(binding, outputCommitment % FIELD_MODULUS);
-}
-function computeConstraintHash(output) {
-  if (output.length !== OUTPUT_FIELD_COUNT) {
-    throw new Error(`Output must be exactly ${OUTPUT_FIELD_COUNT} field elements`);
-  }
-  return poseidonHash4(output);
-}
-function computeCommitment(constraintHash, salt) {
-  return poseidonHash2(constraintHash, salt);
-}
+var DEFAULT_HASH_HELPER_PATH = "./circuits/hash_helper";
 var BITS_PER_BYTE = 8n;
 function generateSalt() {
   const bytes = new Uint8Array(HASH_SIZE);
@@ -496,40 +494,80 @@ function generateSalt() {
   }
   return salt % FIELD_MODULUS;
 }
-function generateProverToml(params) {
-  const taskBytes = Array.from(params.taskPda.toBytes());
-  const agentBytes = Array.from(params.agentPubkey.toBytes());
-  const expectedBinding = computeExpectedBinding(
-    params.taskPda,
-    params.agentPubkey,
-    params.outputCommitment
-  );
+async function computeHashesViaNargo(taskPda, agentPubkey, output, salt, hashHelperPath = DEFAULT_HASH_HELPER_PATH) {
+  validateCircuitPath2(hashHelperPath);
+  if (output.length !== OUTPUT_FIELD_COUNT) {
+    throw new Error(`Output must be exactly ${OUTPUT_FIELD_COUNT} field elements`);
+  }
+  const taskBytes = Array.from(taskPda.toBytes());
+  const agentBytes = Array.from(agentPubkey.toBytes());
+  const proverToml = `task_id = [${taskBytes.join(", ")}]
+agent_pubkey = [${agentBytes.join(", ")}]
+output = [${output.map((o) => `"${o.toString()}"`).join(", ")}]
+salt = "${salt.toString()}"
+`;
+  const proverTomlPath = path3.join(hashHelperPath, "Prover.toml");
+  fs2.writeFileSync(proverTomlPath, proverToml);
+  try {
+    const result = execSync2("nargo execute", {
+      cwd: hashHelperPath,
+      encoding: "utf-8",
+      timeout: 6e4
+    });
+    const outputMatch = result.match(/Circuit output: \((0x[0-9a-fA-F]+), (0x[0-9a-fA-F]+), (0x[0-9a-fA-F]+)\)/);
+    if (!outputMatch) {
+      throw new Error(`Failed to parse hash_helper output: ${result}`);
+    }
+    return {
+      constraintHash: BigInt(outputMatch[1]),
+      outputCommitment: BigInt(outputMatch[2]),
+      expectedBinding: BigInt(outputMatch[3])
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Hash computation failed: ${message}`);
+  }
+}
+function generateProverToml(taskPda, agentPubkey, output, salt, hashes) {
+  const taskBytes = Array.from(taskPda.toBytes());
+  const agentBytes = Array.from(agentPubkey.toBytes());
   return `task_id = [${taskBytes.join(", ")}]
 agent_pubkey = [${agentBytes.join(", ")}]
-constraint_hash = "0x${params.constraintHash.toString("hex")}"
-output_commitment = "0x${params.outputCommitment.toString(16)}"
-expected_binding = "0x${expectedBinding.toString(16)}"
-output = [${params.output.map((o) => `"${o.toString()}"`).join(", ")}]
-salt = "${params.salt.toString()}"
+constraint_hash = "0x${hashes.constraintHash.toString(16).padStart(FIELD_HEX_LENGTH, "0")}"
+output_commitment = "0x${hashes.outputCommitment.toString(16).padStart(FIELD_HEX_LENGTH, "0")}"
+expected_binding = "0x${hashes.expectedBinding.toString(16).padStart(FIELD_HEX_LENGTH, "0")}"
+output = [${output.map((o) => `"${o.toString()}"`).join(", ")}]
+salt = "${salt.toString()}"
 `;
+}
+function bigintToBytes32(value) {
+  const hex = value.toString(16).padStart(FIELD_HEX_LENGTH, "0");
+  return Buffer.from(hex, "hex");
 }
 async function generateProof(params) {
   const circuitPath = params.circuitPath || DEFAULT_CIRCUIT_PATH;
+  const hashHelperPath = params.hashHelperPath || DEFAULT_HASH_HELPER_PATH;
   validateCircuitPath2(circuitPath);
+  validateCircuitPath2(hashHelperPath);
   const startTime = Date.now();
-  const expectedBindingBigint = computeExpectedBinding(
+  const hashes = await computeHashesViaNargo(
     params.taskPda,
     params.agentPubkey,
-    params.outputCommitment
+    params.output,
+    params.salt,
+    hashHelperPath
   );
   const proverTomlPath = path3.join(circuitPath, "Prover.toml");
-  const proofOutputPath = path3.join(circuitPath, "target/task_completion.proof");
-  const witnessPath = path3.join(circuitPath, "target/task_completion.gz");
   const targetDir = path3.join(circuitPath, "target");
   if (!fs2.existsSync(targetDir)) {
     fs2.mkdirSync(targetDir, { recursive: true });
   }
-  fs2.writeFileSync(proverTomlPath, generateProverToml(params));
+  fs2.writeFileSync(
+    proverTomlPath,
+    generateProverToml(params.taskPda, params.agentPubkey, params.output, params.salt, hashes)
+  );
+  const proofOutputPath = path3.join(circuitPath, "target/task_completion.proof");
+  const witnessPath = path3.join(circuitPath, "target/task_completion.gz");
   try {
     execSync2("nargo execute", { cwd: circuitPath, stdio: "pipe", timeout: 12e4 });
     execSync2(
@@ -538,11 +576,12 @@ async function generateProof(params) {
     );
     const proof = fs2.readFileSync(proofOutputPath);
     const publicWitness = fs2.readFileSync(witnessPath);
-    const expectedBinding = bigintToBytes32(expectedBindingBigint);
     return {
       proof,
       publicWitness,
-      expectedBinding,
+      constraintHash: bigintToBytes32(hashes.constraintHash),
+      outputCommitment: bigintToBytes32(hashes.outputCommitment),
+      expectedBinding: bigintToBytes32(hashes.expectedBinding),
       proofSize: proof.length,
       generationTime: Date.now() - startTime
     };
@@ -550,10 +589,6 @@ async function generateProof(params) {
     const message = error instanceof Error ? error.message : String(error);
     throw new Error(`Proof generation failed: ${message}`);
   }
-}
-function bigintToBytes32(value) {
-  const hex = value.toString(16).padStart(FIELD_HEX_LENGTH, "0");
-  return Buffer.from(hex, "hex");
 }
 async function verifyProofLocally(proof, publicWitness, circuitPath = DEFAULT_CIRCUIT_PATH) {
   validateCircuitPath2(circuitPath);
@@ -584,19 +619,60 @@ async function verifyProofLocally(proof, publicWitness, circuitPath = DEFAULT_CI
   }
 }
 function checkToolsAvailable() {
-  let nargo = false;
-  let sunspot = false;
+  const result = { nargo: false, sunspot: false };
   try {
-    execSync2("nargo --version", { stdio: "pipe" });
-    nargo = true;
+    const nargoOutput = execSync2("nargo --version", { stdio: "pipe", encoding: "utf-8" });
+    result.nargo = true;
+    result.nargoVersion = nargoOutput.trim();
   } catch {
   }
   try {
-    execSync2("sunspot --version", { stdio: "pipe" });
-    sunspot = true;
+    const sunspotOutput = execSync2("sunspot --version", { stdio: "pipe", encoding: "utf-8" });
+    result.sunspot = true;
+    result.sunspotVersion = sunspotOutput.trim();
   } catch {
   }
-  return { nargo, sunspot };
+  return result;
+}
+function requireTools(requireSunspot = true) {
+  const tools = checkToolsAvailable();
+  if (!tools.nargo) {
+    throw new Error(
+      "nargo not found. Install with:\n  curl -L https://raw.githubusercontent.com/noir-lang/noirup/main/install | bash\n  noirup\n\nSee: https://noir-lang.org/docs/getting_started/installation"
+    );
+  }
+  if (requireSunspot && !tools.sunspot) {
+    throw new Error(
+      "sunspot not found. Install with:\n  1. Install Go 1.21+\n  2. git clone https://github.com/Sunspot-Network/sunspot\n  3. cd sunspot/go && go build -o sunspot\n  4. Add to PATH\n\nSee: circuits/README.md for detailed instructions"
+    );
+  }
+}
+var BYTE_BASE = 256n;
+function pubkeyToField(pubkey) {
+  const bytes = pubkey.toBytes();
+  let field = 0n;
+  for (const byte of bytes) {
+    field = (field * BYTE_BASE + BigInt(byte)) % FIELD_MODULUS;
+  }
+  return field;
+}
+function computeConstraintHash(output) {
+  console.warn("DEPRECATED: computeConstraintHash uses JS Poseidon2 which may not match circuit. Use computeHashesViaNargo instead.");
+  if (output.length !== OUTPUT_FIELD_COUNT) {
+    throw new Error(`Output must be exactly ${OUTPUT_FIELD_COUNT} field elements`);
+  }
+  return poseidon2Hash(output.map((x) => x % FIELD_MODULUS));
+}
+function computeCommitment(constraintHash, salt) {
+  console.warn("DEPRECATED: computeCommitment uses JS Poseidon2 which may not match circuit. Use computeHashesViaNargo instead.");
+  return poseidon2Hash([constraintHash % FIELD_MODULUS, salt % FIELD_MODULUS, 0n, 0n]);
+}
+function computeExpectedBinding(taskPda, agentPubkey, outputCommitment) {
+  console.warn("DEPRECATED: computeExpectedBinding uses JS Poseidon2 which may not match circuit. Use computeHashesViaNargo instead.");
+  const taskField = pubkeyToField(taskPda);
+  const agentField = pubkeyToField(agentPubkey);
+  const binding = poseidon2Hash([taskField, agentField, 0n, 0n]);
+  return poseidon2Hash([binding, outputCommitment % FIELD_MODULUS, 0n, 0n]);
 }
 
 // src/tasks.ts
@@ -616,6 +692,12 @@ function getAccount(program, name) {
   return account;
 }
 function deriveTaskPda(taskId, programId = PROGRAM_ID) {
+  if (!Number.isInteger(taskId) || taskId < 0) {
+    throw new Error("Invalid taskId: must be a non-negative integer");
+  }
+  if (taskId > Number.MAX_SAFE_INTEGER) {
+    throw new Error("Invalid taskId: exceeds maximum safe integer");
+  }
   const taskIdBuffer = Buffer.alloc(U64_SIZE);
   taskIdBuffer.writeBigUInt64LE(BigInt(taskId));
   const [pda] = PublicKey4.findProgramAddressSync(
@@ -661,6 +743,7 @@ async function createTask(connection, program, creator, params) {
     protocolState: protocolPda,
     systemProgram: SystemProgram.programId
   }).signers([creator]).rpc();
+  await connection.confirmTransaction(tx, "confirmed");
   return { taskId, txSignature: tx };
 }
 async function claimTask(connection, program, agent, taskId) {
@@ -677,6 +760,7 @@ async function claimTask(connection, program, agent, taskId) {
     taskClaim: claimPda,
     systemProgram: SystemProgram.programId
   }).signers([agent]).rpc();
+  await connection.confirmTransaction(tx, "confirmed");
   return { txSignature: tx };
 }
 async function completeTask(connection, program, worker, taskId, resultHash) {
@@ -694,6 +778,7 @@ async function completeTask(connection, program, worker, taskId, resultHash) {
     creator: task.creator,
     systemProgram: SystemProgram.programId
   }).signers([worker]).rpc();
+  await connection.confirmTransaction(tx, "confirmed");
   return { txSignature: tx };
 }
 async function completeTaskPrivate(connection, program, worker, taskId, proof, verifierProgramId) {
@@ -725,6 +810,7 @@ async function completeTaskPrivate(connection, program, worker, taskId, proof, v
     authority: worker.publicKey,
     systemProgram: SystemProgram.programId
   }).signers([worker]).rpc();
+  await connection.confirmTransaction(tx, "confirmed");
   return { txSignature: tx };
 }
 async function getTask(connection, program, taskId) {
@@ -732,6 +818,10 @@ async function getTask(connection, program, taskId) {
   try {
     const task = await getAccount(program, "task").fetch(taskPda);
     const taskData = task;
+    if (taskData.creator === void 0 || taskData.state === void 0) {
+      console.warn("Task account data missing required fields");
+      return null;
+    }
     return {
       taskId,
       state: taskData.state,
@@ -742,9 +832,69 @@ async function getTask(connection, program, taskId) {
       claimedBy: taskData.claimedBy || null,
       completedAt: taskData.completedAt?.toNumber() || null
     };
-  } catch {
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    if (errorMessage.includes("Account does not exist") || errorMessage.includes("could not find account")) {
+      return null;
+    }
+    console.warn(`getTask(${taskId}) encountered unexpected error:`, errorMessage);
     return null;
   }
+}
+async function getTasksByCreator(connection, program, creator) {
+  const tasks = await getAccount(program, "task").all([
+    {
+      memcmp: {
+        offset: DISCRIMINATOR_SIZE,
+        // After discriminator
+        bytes: creator.toBase58()
+      }
+    }
+  ]);
+  const result = [];
+  for (let idx = 0; idx < tasks.length; idx++) {
+    const t = tasks[idx];
+    const data = t.account;
+    if (data.creator === void 0 || data.state === void 0) {
+      console.warn(`Task at index ${idx} missing required fields, skipping`);
+      continue;
+    }
+    result.push({
+      taskId: data.taskId?.toNumber() ?? idx,
+      // Use actual taskId if available, fallback to index
+      state: data.state,
+      creator: data.creator,
+      escrowLamports: data.escrowLamports?.toNumber() || 0,
+      deadline: data.deadline?.toNumber() || 0,
+      constraintHash: data.constraintHash ? Buffer.from(data.constraintHash) : null,
+      claimedBy: data.claimedBy || null,
+      completedAt: data.completedAt?.toNumber() || null
+    });
+  }
+  return result;
+}
+function formatTaskState(state) {
+  const states = {
+    [0 /* Open */]: "Open",
+    [1 /* Claimed */]: "Claimed",
+    [2 /* Completed */]: "Completed",
+    [3 /* Disputed */]: "Disputed",
+    [4 /* Cancelled */]: "Cancelled"
+  };
+  return states[state] || "Unknown";
+}
+function calculateEscrowFee(escrowLamports, feePercentage = DEFAULT_FEE_PERCENT) {
+  if (escrowLamports < 0 || !Number.isFinite(escrowLamports)) {
+    throw new Error("Invalid escrow amount: must be a non-negative finite number");
+  }
+  if (feePercentage < 0 || feePercentage > PERCENT_BASE || !Number.isFinite(feePercentage)) {
+    throw new Error(`Invalid fee percentage: must be between 0 and ${PERCENT_BASE}`);
+  }
+  const maxSafeMultiplier = Math.floor(Number.MAX_SAFE_INTEGER / PERCENT_BASE);
+  if (escrowLamports > maxSafeMultiplier) {
+    throw new Error("Escrow amount too large: would cause arithmetic overflow");
+  }
+  return Math.floor(escrowLamports * feePercentage / PERCENT_BASE);
 }
 
 // src/index.ts
@@ -753,6 +903,7 @@ export {
   DEFAULT_FEE_PERCENT,
   DEVNET_RPC,
   DISCRIMINATOR_SIZE,
+  FIELD_MODULUS,
   HASH_SIZE,
   MAINNET_RPC,
   OUTPUT_FIELD_COUNT,
@@ -769,6 +920,7 @@ export {
   VERIFICATION_COMPUTE_UNITS,
   VERIFIER_PROGRAM_ID,
   VERSION,
+  calculateEscrowFee,
   checkToolsAvailable,
   claimTask,
   completeTask,
@@ -776,10 +928,17 @@ export {
   computeCommitment,
   computeConstraintHash,
   computeExpectedBinding,
+  computeHashesViaNargo,
   createTask,
+  deriveClaimPda,
+  deriveEscrowPda,
+  deriveTaskPda,
+  formatTaskState,
   generateProof,
   generateSalt,
   getTask,
+  getTasksByCreator,
   pubkeyToField,
+  requireTools,
   verifyProofLocally
 };
