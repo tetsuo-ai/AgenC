@@ -1,4 +1,15 @@
 import { PublicKey } from '@solana/web3.js';
+import {
+  Capability,
+  ALL_CAPABILITY_NAMES,
+  hasCapability,
+  getCapabilityNames,
+  parseCapabilities,
+  type CapabilityName,
+} from './capabilities.js';
+
+// Re-export capability functions from canonical source
+export { hasCapability, getCapabilityNames, type CapabilityName };
 
 // ============================================================================
 // Constants (no magic numbers)
@@ -23,12 +34,16 @@ export const MAX_REPUTATION = 10000;
 export const MAX_U8 = 255;
 
 // ============================================================================
-// Capability Constants (matches state.rs capability module)
+// Capability Constants (aliases for backwards compatibility)
 // ============================================================================
 
 /**
  * Agent capability bitmask constants.
  * Each capability is a power of 2 allowing bitwise combination.
+ *
+ * @remarks
+ * This is an alias for {@link Capability} for backwards compatibility.
+ * Prefer using `Capability` from `./capabilities.js` for new code.
  *
  * @example
  * ```typescript
@@ -39,48 +54,16 @@ export const MAX_U8 = 255;
  * if (hasCapability(caps, AgentCapabilities.INFERENCE)) { ... }
  * ```
  */
-export const AgentCapabilities = {
-  /** General computation capability */
-  COMPUTE: 1n << 0n,
-  /** Machine learning inference capability */
-  INFERENCE: 1n << 1n,
-  /** Data storage capability */
-  STORAGE: 1n << 2n,
-  /** Network relay capability */
-  NETWORK: 1n << 3n,
-  /** Sensor data collection capability */
-  SENSOR: 1n << 4n,
-  /** Physical actuation capability */
-  ACTUATOR: 1n << 5n,
-  /** Task coordination capability */
-  COORDINATOR: 1n << 6n,
-  /** Dispute arbitration capability (requires min stake) */
-  ARBITER: 1n << 7n,
-  /** Result validation capability */
-  VALIDATOR: 1n << 8n,
-  /** Data aggregation capability */
-  AGGREGATOR: 1n << 9n,
-} as const;
+export const AgentCapabilities = Capability;
 
 /** Type for individual capability values */
 export type AgentCapability = (typeof AgentCapabilities)[keyof typeof AgentCapabilities];
 
-/** All capability names for iteration */
-export const CAPABILITY_NAMES = [
-  'COMPUTE',
-  'INFERENCE',
-  'STORAGE',
-  'NETWORK',
-  'SENSOR',
-  'ACTUATOR',
-  'COORDINATOR',
-  'ARBITER',
-  'VALIDATOR',
-  'AGGREGATOR',
-] as const;
-
-/** Type for capability name strings */
-export type CapabilityName = (typeof CAPABILITY_NAMES)[number];
+/**
+ * All capability names for iteration.
+ * @remarks Alias for {@link ALL_CAPABILITY_NAMES} for backwards compatibility.
+ */
+export const CAPABILITY_NAMES = ALL_CAPABILITY_NAMES;
 
 // ============================================================================
 // AgentStatus Enum (matches state.rs AgentStatus)
@@ -153,49 +136,14 @@ export function isValidAgentStatus(value: number): value is AgentStatus {
 // Capability Helper Functions
 // ============================================================================
 
-/**
- * Checks if a capability bitmask includes a specific capability.
- *
- * @param capabilities - The capability bitmask (u64 as bigint)
- * @param capability - The capability to check for
- * @returns True if the capability is present
- *
- * @example
- * ```typescript
- * const caps = AgentCapabilities.COMPUTE | AgentCapabilities.INFERENCE;
- * hasCapability(caps, AgentCapabilities.COMPUTE);   // true
- * hasCapability(caps, AgentCapabilities.STORAGE);   // false
- * ```
- */
-export function hasCapability(capabilities: bigint, capability: bigint): boolean {
-  return (capabilities & capability) !== 0n;
-}
-
-/**
- * Gets an array of capability names for a given capability bitmask.
- *
- * @param capabilities - The capability bitmask (u64 as bigint)
- * @returns Array of capability name strings
- *
- * @example
- * ```typescript
- * const caps = AgentCapabilities.COMPUTE | AgentCapabilities.ARBITER;
- * getCapabilityNames(caps); // ["COMPUTE", "ARBITER"]
- * ```
- */
-export function getCapabilityNames(capabilities: bigint): CapabilityName[] {
-  const names: CapabilityName[] = [];
-  for (const name of CAPABILITY_NAMES) {
-    const cap = AgentCapabilities[name];
-    if (hasCapability(capabilities, cap)) {
-      names.push(name);
-    }
-  }
-  return names;
-}
+// Note: hasCapability and getCapabilityNames are imported from ./capabilities.js
+// and re-exported above for backwards compatibility.
 
 /**
  * Creates a capability bitmask from an array of capability names.
+ *
+ * @remarks
+ * This is a wrapper around {@link parseCapabilities} that accepts readonly arrays.
  *
  * @param names - Array of capability names
  * @returns Combined capability bitmask
@@ -207,14 +155,7 @@ export function getCapabilityNames(capabilities: bigint): CapabilityName[] {
  * ```
  */
 export function createCapabilityMask(names: readonly CapabilityName[]): bigint {
-  let mask = 0n;
-  for (const name of names) {
-    const cap = AgentCapabilities[name];
-    if (cap !== undefined) {
-      mask |= cap;
-    }
-  }
-  return mask;
+  return parseCapabilities([...names]);
 }
 
 // ============================================================================

@@ -3,6 +3,22 @@
  * @packageDocumentation
  */
 
+// Re-export capabilities module (canonical source for capability constants)
+export {
+  Capability,
+  ALL_CAPABILITIES,
+  ALL_CAPABILITY_NAMES,
+  combineCapabilities,
+  hasCapability,
+  hasAllCapabilities,
+  hasAnyCapability,
+  getCapabilityNames,
+  parseCapabilities,
+  formatCapabilities,
+  countCapabilities,
+  type CapabilityName,
+} from './capabilities.js';
+
 export {
   // Constants
   AgentCapabilities,
@@ -20,15 +36,12 @@ export {
   // Functions
   agentStatusToString,
   isValidAgentStatus,
-  hasCapability,
-  getCapabilityNames,
   createCapabilityMask,
   parseAgentState,
   computeRateLimitState,
 
   // Types
   type AgentCapability,
-  type CapabilityName,
   type AgentState,
   type AgentRegistrationParams,
   type AgentUpdateParams,
