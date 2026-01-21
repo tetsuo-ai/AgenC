@@ -124,3 +124,16 @@ export {
   createLogger,
   silentLogger,
 } from './utils/index.js';
+
+// Encoding utilities
+export {
+  generateAgentId,
+  hexToBytes,
+  bytesToHex,
+  agentIdFromString,
+  agentIdToString,
+  agentIdToShortString,
+  agentIdsEqual,
+  lamportsToSol,
+  solToLamports,
+} from './utils/index.js';
