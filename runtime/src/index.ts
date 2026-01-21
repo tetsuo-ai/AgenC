@@ -1,0 +1,37 @@
+/**
+ * @agenc/runtime - Agent runtime infrastructure for AgenC
+ * @packageDocumentation
+ */
+
+// Re-export SDK constants for convenience
+export {
+  PROGRAM_ID,
+  VERIFIER_PROGRAM_ID,
+  DEVNET_RPC,
+  MAINNET_RPC,
+  HASH_SIZE,
+  SEEDS,
+  TaskState,
+  TaskStatus,
+} from '@agenc/sdk';
+
+export const VERSION = '0.1.0';
+
+/** Runtime configuration options */
+export interface AgentRuntimeConfig {
+  rpcUrl: string;
+  commitment?: 'processed' | 'confirmed' | 'finalized';
+}
+
+/** Placeholder AgentRuntime class */
+export class AgentRuntime {
+  private readonly config: AgentRuntimeConfig;
+
+  constructor(config: AgentRuntimeConfig) {
+    this.config = config;
+  }
+
+  get rpcUrl(): string {
+    return this.config.rpcUrl;
+  }
+}
