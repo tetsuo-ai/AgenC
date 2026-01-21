@@ -15,6 +15,14 @@ export {
   TaskStatus,
 } from '@agenc/sdk';
 
+// IDL exports
+export {
+  IDL,
+  type AgencCoordination,
+  createProgram,
+  createReadOnlyProgram,
+} from './idl.js';
+
 export const VERSION = '0.1.0';
 
 /** Runtime configuration options */
