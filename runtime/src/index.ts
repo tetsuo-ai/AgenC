@@ -124,6 +124,8 @@ export {
   type EventSubscriptionOptions,
   // AgentManager types
   type AgentManagerConfig,
+  type ProtocolConfigCacheOptions,
+  type GetProtocolConfigOptions,
 } from './types/index.js';
 
 // Wallet types and helpers

@@ -88,4 +88,6 @@ export {
   type AgentEventCallbacks,
   type EventSubscriptionOptions,
   type AgentManagerConfig,
+  type ProtocolConfigCacheOptions,
+  type GetProtocolConfigOptions,
 } from '../agent/index.js';

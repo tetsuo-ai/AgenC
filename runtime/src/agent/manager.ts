@@ -50,6 +50,59 @@ import { Logger, silentLogger } from '../utils/logger.js';
 import { agentIdToShortString } from '../utils/encoding.js';
 
 /**
+ * Options for protocol config cache behavior.
+ *
+ * The cache provides automatic TTL-based expiration, promise deduplication
+ * to prevent thundering herd, and optional stale-while-revalidate semantics.
+ */
+export interface ProtocolConfigCacheOptions {
+  /**
+   * Time-to-live in milliseconds.
+   * After this duration, cached data is considered stale and will be refreshed
+   * on the next access.
+   *
+   * - Set to 0 to disable caching (always fetch fresh)
+   * - Set to Infinity to cache indefinitely (manual invalidation only)
+   *
+   * @default 300000 (5 minutes)
+   */
+  ttlMs?: number;
+
+  /**
+   * If true, returns stale cached data when a fetch fails, rather than
+   * propagating the error. This provides resilience against temporary
+   * RPC failures at the cost of potentially stale data.
+   *
+   * Only applies when stale data exists in the cache. If no cached data
+   * exists, errors are always propagated.
+   *
+   * Note: This takes precedence even when `forceRefresh: true` is used.
+   * If you need guaranteed fresh data or failure, set this to false.
+   *
+   * @default false
+   */
+  returnStaleOnError?: boolean;
+}
+
+/**
+ * Options for getProtocolConfig method.
+ */
+export interface GetProtocolConfigOptions {
+  /**
+   * If true, bypasses cached data and ensures a fetch from chain.
+   * The fetched data will still be cached for subsequent calls.
+   *
+   * Note: If a fetch is already in progress (from another concurrent call),
+   * this will await that fetch rather than starting a redundant one.
+   * The result will still be fresh data, just potentially shared with
+   * other callers.
+   *
+   * @default false
+   */
+  forceRefresh?: boolean;
+}
+
+/**
  * Configuration for AgentManager
  */
 export interface AgentManagerConfig {
@@ -61,7 +114,26 @@ export interface AgentManagerConfig {
   programId?: PublicKey;
   /** Logger instance (defaults to silent logger) */
   logger?: Logger;
+  /**
+   * Protocol config cache options.
+   * If not provided, uses default TTL of 5 minutes with no stale fallback.
+   */
+  protocolConfigCache?: ProtocolConfigCacheOptions;
 }
+
+/**
+ * Internal structure for cached protocol config with metadata.
+ * @internal
+ */
+interface CachedProtocolConfig {
+  /** The cached protocol configuration */
+  value: ProtocolConfig;
+  /** Unix timestamp (ms) when the value was fetched */
+  fetchedAt: number;
+}
+
+/** Default cache TTL: 5 minutes */
+const DEFAULT_PROTOCOL_CONFIG_TTL_MS = 5 * 60 * 1000;
 
 /**
  * 24 hours in seconds (for dispute vote cooldown check)
@@ -108,7 +180,7 @@ export class AgentManager {
   private readonly logger: Logger;
   private readonly program: Program<AgencCoordination>;
 
-  // Cached state
+  // Cached agent state
   private cachedState: AgentState | null = null;
   private agentPda: PublicKey | null = null;
   private agentId: Uint8Array | null = null;
@@ -116,11 +188,42 @@ export class AgentManager {
   // Active event subscriptions
   private eventSubscription: EventSubscription | null = null;
 
+  // Protocol config cache
+  private readonly protocolConfigTtlMs: number;
+  private readonly protocolConfigReturnStaleOnError: boolean;
+  private protocolConfigCache: CachedProtocolConfig | null = null;
+  /**
+   * In-flight fetch promise for protocol config.
+   * Used to deduplicate concurrent requests (thundering herd prevention).
+   * When multiple callers request the config simultaneously during a cache miss,
+   * they all await the same promise rather than triggering redundant RPC calls.
+   */
+  private protocolConfigFetchPromise: Promise<ProtocolConfig> | null = null;
+  /**
+   * Generation counter for cache invalidation.
+   * Incremented on each invalidation. Fetches capture the generation at start
+   * and only update the cache if the generation hasn't changed, preventing
+   * stale data from an in-flight fetch from overwriting a post-invalidation state.
+   */
+  private protocolConfigCacheGeneration = 0;
+
   constructor(config: AgentManagerConfig) {
     this.connection = config.connection;
     this.wallet = config.wallet;
     this.programId = config.programId ?? PROGRAM_ID;
     this.logger = config.logger ?? silentLogger;
+
+    // Initialize protocol config cache settings
+    const cacheOptions = config.protocolConfigCache ?? {};
+    this.protocolConfigTtlMs = cacheOptions.ttlMs ?? DEFAULT_PROTOCOL_CONFIG_TTL_MS;
+    this.protocolConfigReturnStaleOnError = cacheOptions.returnStaleOnError ?? false;
+
+    // Validate cache TTL (must be non-negative number, not NaN)
+    if (this.protocolConfigTtlMs < 0 || Number.isNaN(this.protocolConfigTtlMs)) {
+      throw new ValidationError(
+        `Protocol config cache TTL must be a non-negative number, got: ${this.protocolConfigTtlMs}`
+      );
+    }
 
     // Create Anchor provider and program
     const provider = new AnchorProvider(
@@ -580,14 +683,158 @@ export class AgentManager {
   }
 
   /**
-   * Get protocol configuration.
+   * Get protocol configuration with intelligent caching.
    *
-   * @returns Protocol config
+   * This method implements a robust caching strategy:
+   * - **TTL-based expiration**: Cached data expires after the configured TTL
+   * - **Promise deduplication**: Concurrent calls share a single RPC request
+   * - **Error isolation**: Failed fetches don't poison the cache
+   * - **Stale fallback** (optional): Returns stale data if fetch fails
+   *
+   * @param options - Optional configuration for this specific call
+   * @param options.forceRefresh - Bypass cache and fetch fresh data
+   * @returns Protocol configuration (do not mutate - shared with cache)
+   *
+   * @example
+   * ```typescript
+   * // Normal usage (uses cache)
+   * const config = await manager.getProtocolConfig();
+   *
+   * // Force fresh data after protocol update
+   * const freshConfig = await manager.getProtocolConfig({ forceRefresh: true });
+   * ```
    */
-  async getProtocolConfig(): Promise<ProtocolConfig> {
-    const protocolPda = findProtocolPda(this.programId);
-    const rawData = await this.program.account.protocolConfig.fetch(protocolPda);
-    return parseProtocolConfig(rawData);
+  async getProtocolConfig(options?: GetProtocolConfigOptions): Promise<ProtocolConfig> {
+    const forceRefresh = options?.forceRefresh ?? false;
+
+    // Fast path: return cached value if fresh and not forcing refresh
+    if (!forceRefresh) {
+      const cached = this.getCachedProtocolConfigIfFresh();
+      if (cached !== null) {
+        this.logger.debug('Returning cached protocol config');
+        return cached;
+      }
+    }
+
+    // Deduplicate concurrent requests: if a fetch is already in progress,
+    // piggyback on it rather than starting a new one.
+    // All callers await the same promise and get the same result/error handling.
+    if (this.protocolConfigFetchPromise !== null) {
+      this.logger.debug('Waiting for in-flight protocol config fetch');
+      return this.protocolConfigFetchPromise;
+    }
+
+    // Start a new fetch with error handling baked into the promise.
+    // This ensures ALL callers (including piggybacking ones) get the same
+    // stale-fallback behavior, not just the initiating caller.
+    this.logger.debug('Fetching protocol config from chain');
+
+    // Create the promise chain and capture the reference so we can
+    // conditionally clear it in finally (avoiding clobbering a newer fetch)
+    const fetchPromise = this.fetchAndCacheProtocolConfig()
+      .catch((error) => {
+        // If configured and we have stale data, return it instead of throwing
+        if (this.protocolConfigReturnStaleOnError && this.protocolConfigCache !== null) {
+          this.logger.warn(
+            'Protocol config fetch failed, returning stale cached data',
+            error instanceof Error ? error.message : String(error)
+          );
+          return this.protocolConfigCache.value;
+        }
+        throw error;
+      })
+      .finally(() => {
+        // Only clear the promise if it's still this fetch's promise.
+        // If invalidation occurred and a new fetch started, don't clobber it.
+        if (this.protocolConfigFetchPromise === fetchPromise) {
+          this.protocolConfigFetchPromise = null;
+        }
+      });
+
+    this.protocolConfigFetchPromise = fetchPromise;
+    return fetchPromise;
+  }
+
+  /**
+   * Invalidate the protocol config cache.
+   *
+   * Call this when you know the protocol config has changed on-chain
+   * (e.g., after observing a ProtocolUpdated event) to ensure the next
+   * call to getProtocolConfig() fetches fresh data.
+   *
+   * This method:
+   * - Clears the cached value
+   * - Increments the cache generation (prevents in-flight fetches from caching stale data)
+   * - Clears any in-flight fetch promise (new callers will start a fresh fetch)
+   *
+   * Callers who already received the in-flight promise will still get their result,
+   * but the data won't be cached due to the generation mismatch.
+   *
+   * @example
+   * ```typescript
+   * // After protocol update event
+   * manager.invalidateProtocolConfigCache();
+   * const freshConfig = await manager.getProtocolConfig(); // Guaranteed fresh fetch
+   * ```
+   */
+  invalidateProtocolConfigCache(): void {
+    this.protocolConfigCache = null;
+    this.protocolConfigCacheGeneration++;
+    // Also clear the in-flight promise so new callers start a fresh fetch.
+    // Existing callers who already have the promise reference will still
+    // receive their result, but the data won't be cached (generation mismatch).
+    this.protocolConfigFetchPromise = null;
+    this.logger.debug('Protocol config cache invalidated');
+  }
+
+  /**
+   * Get the cached protocol config without fetching.
+   *
+   * Returns the cached value regardless of whether it's stale, or null if
+   * nothing is cached. Useful for synchronous access when you've previously
+   * populated the cache and want to avoid async operations.
+   *
+   * To check freshness, use isProtocolConfigCacheFresh().
+   *
+   * **Important**: Do not mutate the returned object as it's shared with
+   * the internal cache. Mutations would corrupt cached data.
+   *
+   * @returns Cached protocol config or null if not cached
+   *
+   * @example
+   * ```typescript
+   * // Pre-populate cache
+   * await manager.getProtocolConfig();
+   *
+   * // Later, synchronous access
+   * const cached = manager.getCachedProtocolConfig();
+   * if (cached) {
+   *   console.log(`Min stake: ${cached.minAgentStake}`);
+   * }
+   * ```
+   */
+  getCachedProtocolConfig(): ProtocolConfig | null {
+    return this.protocolConfigCache?.value ?? null;
+  }
+
+  /**
+   * Check if the protocol config cache contains fresh (non-stale) data.
+   *
+   * @returns True if cache exists and is within TTL
+   *
+   * @example
+   * ```typescript
+   * if (manager.isProtocolConfigCacheFresh()) {
+   *   // Safe to use getCachedProtocolConfig() synchronously
+   *   const config = manager.getCachedProtocolConfig()!;
+   * } else {
+   *   // Need to fetch
+   *   const config = await manager.getProtocolConfig();
+   * }
+   * ```
+   */
+  isProtocolConfigCacheFresh(): boolean {
+    return this.getCachedProtocolConfigIfFresh() !== null;
   }
 
   // ==========================================================================
@@ -829,5 +1076,71 @@ export class AgentManager {
   private async fetchAndCacheState(): Promise<AgentState> {
     const rawData = await this.program.account.agentRegistration.fetch(this.agentPda!);
     return parseAgentState(rawData);
+  }
+
+  // ==========================================================================
+  // Private Helpers - Protocol Config Cache
+  // ==========================================================================
+
+  /**
+   * Get cached protocol config if it exists and is still fresh (within TTL).
+   *
+   * @returns Cached protocol config or null if missing/stale
+   */
+  private getCachedProtocolConfigIfFresh(): ProtocolConfig | null {
+    if (this.protocolConfigCache === null) {
+      return null;
+    }
+
+    // TTL of 0 means caching is disabled
+    if (this.protocolConfigTtlMs === 0) {
+      return null;
+    }
+
+    // Check if cache has expired
+    const age = Date.now() - this.protocolConfigCache.fetchedAt;
+    if (age >= this.protocolConfigTtlMs) {
+      this.logger.debug(
+        `Protocol config cache stale (age: ${age}ms, ttl: ${this.protocolConfigTtlMs}ms)`
+      );
+      return null;
+    }
+
+    return this.protocolConfigCache.value;
+  }
+
+  /**
+   * Fetch protocol config from chain and update the cache.
+   *
+   * This is the core fetch operation. It does NOT handle promise deduplication
+   * or error fallback - that logic is in getProtocolConfig().
+   *
+   * Uses a generation counter to prevent stale data from an in-flight fetch
+   * from overwriting a post-invalidation cache state.
+   *
+   * @returns Fetched protocol config (always returned, but may not be cached)
+   */
+  private async fetchAndCacheProtocolConfig(): Promise<ProtocolConfig> {
+    // Capture generation at start of fetch
+    const startGeneration = this.protocolConfigCacheGeneration;
+
+    const protocolPda = findProtocolPda(this.programId);
+    const rawData = await this.program.account.protocolConfig.fetch(protocolPda);
+    const config = parseProtocolConfig(rawData);
+
+    // Only update cache if generation hasn't changed (no invalidation during fetch)
+    if (this.protocolConfigCacheGeneration === startGeneration) {
+      this.protocolConfigCache = {
+        value: config,
+        fetchedAt: Date.now(),
+      };
+      this.logger.debug('Protocol config fetched and cached');
+    } else {
+      this.logger.debug(
+        'Protocol config fetched but cache was invalidated during fetch, not caching'
+      );
+    }
+
+    return config;
   }
 }
