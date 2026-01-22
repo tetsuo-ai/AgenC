@@ -439,3 +439,130 @@ describe('AgentManager error classes', () => {
     });
   });
 });
+
+describe('AgentManager protocol config caching', () => {
+  describe('cache configuration', () => {
+    it('uses default TTL when not specified', () => {
+      const config = createConfig();
+      // No protocolConfigCache specified
+      const manager = new AgentManager(config);
+
+      expect(manager).toBeInstanceOf(AgentManager);
+    });
+
+    it('accepts custom TTL', () => {
+      const config = createConfig({
+        protocolConfigCache: { ttlMs: 60000 }, // 1 minute
+      });
+      const manager = new AgentManager(config);
+
+      expect(manager).toBeInstanceOf(AgentManager);
+    });
+
+    it('accepts TTL of 0 (caching disabled)', () => {
+      const config = createConfig({
+        protocolConfigCache: { ttlMs: 0 },
+      });
+      const manager = new AgentManager(config);
+
+      expect(manager).toBeInstanceOf(AgentManager);
+    });
+
+    it('accepts TTL of Infinity (cache forever)', () => {
+      const config = createConfig({
+        protocolConfigCache: { ttlMs: Infinity },
+      });
+      const manager = new AgentManager(config);
+
+      expect(manager).toBeInstanceOf(AgentManager);
+    });
+
+    it('rejects negative TTL', () => {
+      const config = createConfig({
+        protocolConfigCache: { ttlMs: -1 },
+      });
+
+      expect(() => new AgentManager(config)).toThrow(ValidationError);
+      expect(() => new AgentManager(config)).toThrow('non-negative');
+    });
+
+    it('rejects NaN TTL', () => {
+      const config = createConfig({
+        protocolConfigCache: { ttlMs: NaN },
+      });
+
+      expect(() => new AgentManager(config)).toThrow(ValidationError);
+      expect(() => new AgentManager(config)).toThrow('non-negative number');
+    });
+
+    it('accepts returnStaleOnError option', () => {
+      const config = createConfig({
+        protocolConfigCache: {
+          ttlMs: 60000,
+          returnStaleOnError: true,
+        },
+      });
+      const manager = new AgentManager(config);
+
+      expect(manager).toBeInstanceOf(AgentManager);
+    });
+  });
+
+  describe('getCachedProtocolConfig', () => {
+    it('returns null when cache is empty', () => {
+      const manager = new AgentManager(createConfig());
+
+      expect(manager.getCachedProtocolConfig()).toBeNull();
+    });
+  });
+
+  describe('isProtocolConfigCacheFresh', () => {
+    it('returns false when cache is empty', () => {
+      const manager = new AgentManager(createConfig());
+
+      expect(manager.isProtocolConfigCacheFresh()).toBe(false);
+    });
+  });
+
+  describe('invalidateProtocolConfigCache', () => {
+    it('completes without error when cache is empty', () => {
+      const manager = new AgentManager(createConfig());
+
+      // Should not throw
+      manager.invalidateProtocolConfigCache();
+    });
+
+    it('clears cached value', () => {
+      const manager = new AgentManager(createConfig());
+
+      // Invalidate empty cache
+      manager.invalidateProtocolConfigCache();
+
+      // Verify still null
+      expect(manager.getCachedProtocolConfig()).toBeNull();
+    });
+  });
+
+  describe('getProtocolConfig options', () => {
+    it('accepts forceRefresh option', async () => {
+      const manager = new AgentManager(createConfig());
+
+      // Will fail due to no connection, but validates the option is accepted
+      await expect(
+        manager.getProtocolConfig({ forceRefresh: true })
+      ).rejects.toThrow();
+    });
+
+    it('accepts empty options object', async () => {
+      const manager = new AgentManager(createConfig());
+
+      await expect(manager.getProtocolConfig({})).rejects.toThrow();
+    });
+
+    it('accepts no options (default behavior)', async () => {
+      const manager = new AgentManager(createConfig());
+
+      await expect(manager.getProtocolConfig()).rejects.toThrow();
+    });
+  });
+});
