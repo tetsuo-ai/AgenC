@@ -73,4 +73,9 @@ export {
 } from './events.js';
 
 // AgentManager class
-export { AgentManager, type AgentManagerConfig } from './manager.js';
+export {
+  AgentManager,
+  type AgentManagerConfig,
+  type ProtocolConfigCacheOptions,
+  type GetProtocolConfigOptions,
+} from './manager.js';
