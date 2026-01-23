@@ -69,13 +69,23 @@ export const PERCENT_BASE = 100;
 /** Default protocol fee percentage */
 export const DEFAULT_FEE_PERCENT = 1;
 
-/** Task states */
+/**
+ * Task states matching on-chain TaskStatus enum.
+ * Values MUST match programs/agenc-coordination/src/state.rs:TaskStatus
+ */
 export enum TaskState {
+  /** Task is open for claims */
   Open = 0,
-  Claimed = 1,
-  Completed = 2,
-  Disputed = 3,
+  /** Task has been claimed and is being worked on */
+  InProgress = 1,
+  /** Task is awaiting validation */
+  PendingValidation = 2,
+  /** Task has been completed successfully */
+  Completed = 3,
+  /** Task has been cancelled by creator */
   Cancelled = 4,
+  /** Task is in dispute resolution */
+  Disputed = 5,
 }
 
 /** PDA seeds */
