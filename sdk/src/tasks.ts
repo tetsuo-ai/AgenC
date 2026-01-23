@@ -434,12 +434,13 @@ export async function getTasksByCreator(
 export function formatTaskState(state: TaskState): string {
   const states: Record<TaskState, string> = {
     [TaskState.Open]: 'Open',
-    [TaskState.Claimed]: 'Claimed',
+    [TaskState.InProgress]: 'In Progress',
+    [TaskState.PendingValidation]: 'Pending Validation',
     [TaskState.Completed]: 'Completed',
-    [TaskState.Disputed]: 'Disputed',
     [TaskState.Cancelled]: 'Cancelled',
+    [TaskState.Disputed]: 'Disputed',
   };
-  return states[state] || 'Unknown';
+  return states[state] ?? 'Unknown';
 }
 
 /**

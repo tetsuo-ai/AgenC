@@ -28,10 +28,11 @@ var PERCENT_BASE = 100;
 var DEFAULT_FEE_PERCENT = 1;
 var TaskState = /* @__PURE__ */ ((TaskState2) => {
   TaskState2[TaskState2["Open"] = 0] = "Open";
-  TaskState2[TaskState2["Claimed"] = 1] = "Claimed";
-  TaskState2[TaskState2["Completed"] = 2] = "Completed";
-  TaskState2[TaskState2["Disputed"] = 3] = "Disputed";
+  TaskState2[TaskState2["InProgress"] = 1] = "InProgress";
+  TaskState2[TaskState2["PendingValidation"] = 2] = "PendingValidation";
+  TaskState2[TaskState2["Completed"] = 3] = "Completed";
   TaskState2[TaskState2["Cancelled"] = 4] = "Cancelled";
+  TaskState2[TaskState2["Disputed"] = 5] = "Disputed";
   return TaskState2;
 })(TaskState || {});
 var SEEDS = {
@@ -876,12 +877,13 @@ async function getTasksByCreator(connection, program, creator) {
 function formatTaskState(state) {
   const states = {
     [0 /* Open */]: "Open",
-    [1 /* Claimed */]: "Claimed",
-    [2 /* Completed */]: "Completed",
-    [3 /* Disputed */]: "Disputed",
-    [4 /* Cancelled */]: "Cancelled"
+    [1 /* InProgress */]: "In Progress",
+    [2 /* PendingValidation */]: "Pending Validation",
+    [3 /* Completed */]: "Completed",
+    [4 /* Cancelled */]: "Cancelled",
+    [5 /* Disputed */]: "Disputed"
   };
-  return states[state] || "Unknown";
+  return states[state] ?? "Unknown";
 }
 function calculateEscrowFee(escrowLamports, feePercentage = DEFAULT_FEE_PERCENT) {
   if (escrowLamports < 0 || !Number.isFinite(escrowLamports)) {
