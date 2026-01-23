@@ -78,11 +78,25 @@ pub fn handler(ctx: Context<ApplyDisputeSlash>) -> Result<()> {
         .checked_div(total_votes)
         .ok_or(CoordinationError::ArithmeticOverflow)?;
 
+    // Determine if the dispute was approved (votes_for >= threshold percentage)
     let approved = approval_pct >= config.dispute_threshold as u64;
+
+    // Determine if the worker lost the dispute and should be slashed:
+    // - If dispute is APPROVED:
+    //   - Refund: Worker failed, creator gets money back -> worker lost (slash)
+    //   - Split: Partial failure, funds split -> worker lost (slash)
+    //   - Complete: Worker vindicated, gets paid -> worker won (no slash)
+    // - If dispute is REJECTED (not approved):
+    //   - Arbiters ruled in worker's favor -> worker won (no slash)
+    //
+    // Fix for issue #136: Previously, rejected disputes incorrectly set worker_lost=true,
+    // causing innocent workers to be slashed even when arbiters ruled in their favor.
     let worker_lost = if approved {
+        // Dispute approved: slash worker unless resolution favors them (Complete)
         dispute.resolution_type != ResolutionType::Complete
     } else {
-        true
+        // Dispute rejected: worker was vindicated, do NOT slash
+        false
     };
 
     require!(worker_lost, CoordinationError::InvalidInput);
