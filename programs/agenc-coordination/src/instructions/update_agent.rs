@@ -43,6 +43,11 @@ pub fn handler(
     }
 
     if let Some(s) = status {
+        // Prevent suspended agents from changing their own status (only protocol authority can unsuspend)
+        if s != 3 && agent.status == AgentStatus::Suspended {
+            return Err(CoordinationError::AgentSuspended.into());
+        }
+
         agent.status = match s {
             0 => AgentStatus::Inactive,
             1 => AgentStatus::Active,

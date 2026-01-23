@@ -29,6 +29,9 @@ pub enum CoordinationError {
     #[msg("Agent registration required to create tasks")]
     AgentRegistrationRequired,
 
+    #[msg("Agent is suspended and cannot change status")]
+    AgentSuspended,
+
     // Task errors (6100-6199)
     #[msg("Task not found")]
     TaskNotFound,
