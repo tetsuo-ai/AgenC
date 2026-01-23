@@ -25,24 +25,8 @@ export {
 
 export const VERSION = '0.1.0';
 
-/** Runtime configuration options */
-export interface AgentRuntimeConfig {
-  rpcUrl: string;
-  commitment?: 'processed' | 'confirmed' | 'finalized';
-}
-
-/** Placeholder AgentRuntime class */
-export class AgentRuntime {
-  private readonly config: AgentRuntimeConfig;
-
-  constructor(config: AgentRuntimeConfig) {
-    this.config = config;
-  }
-
-  get rpcUrl(): string {
-    return this.config.rpcUrl;
-  }
-}
+// AgentRuntime
+export { AgentRuntime } from './runtime.js';
 
 // Types (protocol and errors)
 export {
@@ -126,6 +110,9 @@ export {
   type AgentManagerConfig,
   type ProtocolConfigCacheOptions,
   type GetProtocolConfigOptions,
+  // AgentRuntime types
+  type AgentRuntimeConfig,
+  isKeypair,
 } from './types/index.js';
 
 // Wallet types and helpers
@@ -138,7 +125,7 @@ export {
   loadKeypairFromFileSync,
   getDefaultKeypairPath,
   loadDefaultKeypair,
-} from './types/wallet';
+} from './types/wallet.js';
 
 // Logger utilities
 export {
