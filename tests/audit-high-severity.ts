@@ -690,4 +690,95 @@ describe("audit-high-severity", () => {
       expect(anchorError.error?.errorCode?.code || anchorError.message).to.exist;
     }
   });
+
+  it("prevents suspended agent from bypassing suspension via update_agent (issue #151)", async () => {
+    // Create an agent owned by protocol authority (so it can be suspended)
+    const suspendTestAgentId = makeId("susp");
+    const suspendTestAgentPda = deriveAgentPda(suspendTestAgentId);
+
+    // Register agent with protocol authority as owner
+    await program.methods
+      .registerAgent(
+        Array.from(suspendTestAgentId),
+        new BN(CAPABILITY_COMPUTE),
+        "https://example.com",
+        null,
+        new BN(LAMPORTS_PER_SOL)
+      )
+      .accountsPartial({
+        agent: suspendTestAgentPda,
+        protocolConfig: protocolPda,
+        authority: provider.wallet.publicKey,
+      })
+      .rpc();
+
+    // Verify agent is active
+    let agentAccount = await program.account.agentRegistration.fetch(suspendTestAgentPda);
+    expect('active' in agentAccount.status).to.be.true;
+
+    // Suspend the agent (requires protocol config in remaining accounts)
+    await program.methods
+      .updateAgent(null, null, null, 3) // 3 = Suspended
+      .accountsPartial({
+        agent: suspendTestAgentPda,
+        authority: provider.wallet.publicKey,
+      })
+      .remainingAccounts([
+        { pubkey: protocolPda, isSigner: false, isWritable: false },
+      ])
+      .rpc();
+
+    // Verify agent is now suspended
+    agentAccount = await program.account.agentRegistration.fetch(suspendTestAgentPda);
+    expect('suspended' in agentAccount.status).to.be.true;
+
+    // Try to bypass suspension by setting status to Active (should fail)
+    try {
+      await program.methods
+        .updateAgent(null, null, null, 1) // 1 = Active
+        .accountsPartial({
+          agent: suspendTestAgentPda,
+          authority: provider.wallet.publicKey,
+        })
+        .rpc();
+      expect.fail("Should have failed - suspended agent cannot change own status to Active");
+    } catch (e: unknown) {
+      const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
+      expect(anchorError.error?.errorCode?.code).to.equal("AgentSuspended");
+    }
+
+    // Also try Inactive (0) - should fail
+    try {
+      await program.methods
+        .updateAgent(null, null, null, 0) // 0 = Inactive
+        .accountsPartial({
+          agent: suspendTestAgentPda,
+          authority: provider.wallet.publicKey,
+        })
+        .rpc();
+      expect.fail("Should have failed - suspended agent cannot change own status to Inactive");
+    } catch (e: unknown) {
+      const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
+      expect(anchorError.error?.errorCode?.code).to.equal("AgentSuspended");
+    }
+
+    // Also try Busy (2) - should fail
+    try {
+      await program.methods
+        .updateAgent(null, null, null, 2) // 2 = Busy
+        .accountsPartial({
+          agent: suspendTestAgentPda,
+          authority: provider.wallet.publicKey,
+        })
+        .rpc();
+      expect.fail("Should have failed - suspended agent cannot change own status to Busy");
+    } catch (e: unknown) {
+      const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
+      expect(anchorError.error?.errorCode?.code).to.equal("AgentSuspended");
+    }
+
+    // Verify agent is still suspended after all attempts
+    agentAccount = await program.account.agentRegistration.fetch(suspendTestAgentPda);
+    expect('suspended' in agentAccount.status).to.be.true;
+  });
 });
