@@ -91,3 +91,6 @@ export {
   type ProtocolConfigCacheOptions,
   type GetProtocolConfigOptions,
 } from '../agent/index.js';
+
+// Runtime configuration types
+export { AgentRuntimeConfig, isKeypair } from './config.js';

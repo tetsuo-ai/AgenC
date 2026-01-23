@@ -3,7 +3,7 @@
  * @module
  */
 
-export { Logger, LogLevel, createLogger, silentLogger } from './logger';
+export { Logger, LogLevel, createLogger, silentLogger } from './logger.js';
 
 export {
   generateAgentId,
