@@ -95,4 +95,7 @@ export const SEEDS = {
   CLAIM: Buffer.from('claim'),
   AGENT: Buffer.from('agent'),
   ESCROW: Buffer.from('escrow'),
+  DISPUTE: Buffer.from('dispute'),
+  VOTE: Buffer.from('vote'),
+  AUTHORITY_VOTE: Buffer.from('authority_vote'),
 } as const;

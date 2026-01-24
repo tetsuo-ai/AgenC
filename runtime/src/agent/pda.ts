@@ -110,3 +110,55 @@ export function findAgentPda(
 export function findProtocolPda(programId: PublicKey = PROGRAM_ID): PublicKey {
   return deriveProtocolPda(programId).address;
 }
+
+/**
+ * Derives the authority vote PDA and bump seed.
+ * Used to prevent Sybil attacks on dispute voting (one vote per authority per dispute).
+ * Seeds: ["authority_vote", dispute, authority]
+ *
+ * @param disputePda - Dispute account PDA
+ * @param authority - Authority (wallet) public key
+ * @param programId - Program ID (defaults to PROGRAM_ID)
+ * @returns PDA address and bump seed
+ *
+ * @example
+ * ```typescript
+ * const { address, bump } = deriveAuthorityVotePda(disputePda, authority);
+ * console.log(`Authority vote PDA: ${address.toBase58()}, bump: ${bump}`);
+ * ```
+ */
+export function deriveAuthorityVotePda(
+  disputePda: PublicKey,
+  authority: PublicKey,
+  programId: PublicKey = PROGRAM_ID
+): PdaWithBump {
+  const [address, bump] = PublicKey.findProgramAddressSync(
+    [Buffer.from('authority_vote'), disputePda.toBuffer(), authority.toBuffer()],
+    programId
+  );
+
+  return { address, bump };
+}
+
+/**
+ * Finds the authority vote PDA address (without bump).
+ * Convenience wrapper around deriveAuthorityVotePda for when only the address is needed.
+ *
+ * @param disputePda - Dispute account PDA
+ * @param authority - Authority (wallet) public key
+ * @param programId - Program ID (defaults to PROGRAM_ID)
+ * @returns PDA address
+ *
+ * @example
+ * ```typescript
+ * const authorityVotePda = findAuthorityVotePda(disputePda, authority);
+ * const vote = await program.account.authorityDisputeVote.fetch(authorityVotePda);
+ * ```
+ */
+export function findAuthorityVotePda(
+  disputePda: PublicKey,
+  authority: PublicKey,
+  programId: PublicKey = PROGRAM_ID
+): PublicKey {
+  return deriveAuthorityVotePda(disputePda, authority, programId).address;
+}

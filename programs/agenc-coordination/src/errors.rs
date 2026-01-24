@@ -140,6 +140,9 @@ pub enum CoordinationError {
     #[msg("Agent must wait 24 hours after voting before deregistering")]
     RecentVoteActivity,
 
+    #[msg("Authority has already voted on this dispute")]
+    AuthorityAlreadyVoted,
+
     #[msg("Insufficient dispute evidence provided")]
     InsufficientEvidence,
 
