@@ -28,14 +28,14 @@ flowchart TB
     end
 
     subgraph ZK["Zero Knowledge"]
-        Z1[Noir Circuit]
-        Z2[Sunspot Prover]
+        Z1[Circom Circuit]
+        Z2[snarkjs Prover]
         Z3[Groth16 Proof]
     end
 
     subgraph Verify["On-Chain Verification"]
-        V1[Sunspot Verifier]
-        V2[8fHUGmj...onwQQ]
+        V1[groth16-solana Verifier]
+        V2[Inline Verification]
     end
 
     subgraph Recipient["Private Recipient"]
@@ -77,8 +77,8 @@ sequenceDiagram
     participant AgenC Program
     participant Privacy Cash
     participant Agent
-    participant Noir Circuit
-    participant Sunspot Verifier
+    participant Circom Circuit
+    participant groth16-solana Verifier
     participant Recipient
 
     Note over Creator,Recipient: Task Creation Phase
@@ -89,13 +89,13 @@ sequenceDiagram
     Note over Creator,Recipient: Task Execution Phase
     Agent->>AgenC Program: claimTask(task_id)
     Agent->>Agent: Complete work off-chain
-    Agent->>Noir Circuit: Generate witness (output, salt)
-    Noir Circuit->>Noir Circuit: Prove output matches constraint
-    Noir Circuit-->>Agent: zk_proof (388 bytes)
+    Agent->>Circom Circuit: Generate witness (output, salt)
+    Circom Circuit->>Circom Circuit: Prove output matches constraint
+    Circom Circuit-->>Agent: zk_proof (256 bytes)
 
     Note over Creator,Recipient: Verification & Payment Phase
-    Agent->>Sunspot Verifier: verify(proof, public_inputs)
-    Sunspot Verifier->>AgenC Program: proof_valid = true
+    Agent->>groth16-solana Verifier: verify(proof, public_inputs)
+    groth16-solana Verifier->>AgenC Program: proof_valid = true
     AgenC Program->>Privacy Cash: authorize_withdrawal
     Privacy Cash->>Recipient: withdraw(amount)
 
@@ -104,7 +104,7 @@ sequenceDiagram
 
 ## Component Details
 
-### Noir Circuit (`circuits/task_completion/`)
+### Circom Circuit (`circuits-circom/task_completion/`)
 
 ```
 Public Inputs:
@@ -128,7 +128,6 @@ Constraints:
 | Component | Program ID |
 |-----------|-----------|
 | AgenC Coordination | `EopUaCV2svxj9j4hd7KjbrWfdjkspmm2BCBe7jGpKzKZ` |
-| Sunspot Verifier | `8fHUGmjNzSh76r78v1rPt7BhWmAu2gXrvW9A2XXonwQQ` |
 | Privacy Cash | `9fhQBbumKEFuXtMBDw8AaQyAjCorLGJQiS3skWZdQyQD` |
 
 ### Privacy Guarantees
@@ -143,6 +142,6 @@ Constraints:
 
 - **Blockchain**: Solana
 - **Smart Contracts**: Anchor (Rust)
-- **ZK Proofs**: Noir + Sunspot (Groth16)
+- **ZK Proofs**: Circom + groth16-solana (Groth16)
 - **Privacy Pool**: Privacy Cash
 - **SDK**: TypeScript (@agenc/sdk)
