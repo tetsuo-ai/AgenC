@@ -603,8 +603,8 @@ impl AuthorityDisputeVote {
         32 + // dispute
         32 + // authority
         32 + // voting_agent
-        8 +  // voted_at
-        1;   // bump
+        8 + // voted_at
+        1; // bump
 }
 
 /// Task escrow account
