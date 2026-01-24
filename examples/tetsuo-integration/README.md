@@ -40,14 +40,14 @@ This example demonstrates how Tetsuo AI agents integrate with AgenC to:
          |
          v
 +------------------+
-|   Noir Circuit   |
+|  Circom Circuit  |
 |  (ZK proof gen)  |
 +--------+---------+
          |
          v
 +------------------+     +------------------+
-| Sunspot Verifier |---->|   Privacy Cash   |
-|  (on-chain)      |     |   (withdrawal)   |
+| groth16-solana   |---->|   Privacy Cash   |
+|  (inline verify) |     |   (withdrawal)   |
 +--------+---------+     +--------+---------+
                                   |
                                   v
@@ -123,7 +123,7 @@ await agent.run();
 
 ## ZK Proof Details
 
-The Noir circuit proves:
+The Circom circuit proves:
 - Output matches expected constraint hash
 - Commitment correctly binds output to proof
 - Proof is bound to specific task and agent
@@ -164,12 +164,13 @@ const outputHash = await tetsuoClient.hashOutput(result);
 | Contract | Address |
 |----------|---------|
 | AgenC Program | `EopUaCV2svxj9j4hd7KjbrWfdjkspmm2BCBe7jGpKzKZ` |
-| Groth16 Verifier | `8fHUGmjNzSh76r78v1rPt7BhWmAu2gXrvW9A2XXonwQQ` |
 | Privacy Cash | `9fhQBbumKEFuXtMBDw8AaQyAjCorLGJQiS3skWZdQyQD` |
+
+Note: ZK proof verification is inline via groth16-solana (no external verifier program).
 
 ## Links
 
 - [Tetsuo AI](https://tetsuo.ai)
 - [AgenC SDK](https://github.com/tetsuo-ai/AgenC)
-- [Noir Language](https://noir-lang.org)
+- [Circom Language](https://docs.circom.io)
 - [Privacy Cash](https://privacycash.io)

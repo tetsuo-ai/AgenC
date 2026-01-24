@@ -42,7 +42,7 @@ The existing non-private path still works. Privacy is opt-in.
          |                                |
          |     [agent works off-chain]    |
          |                                |
-         |    generate ZK proof (Noir)    |
+         |   generate ZK proof (Circom)   |
          |                                |
          |   complete_task_private        |
          |<-------------------------------|
@@ -58,9 +58,9 @@ The existing non-private path still works. Privacy is opt-in.
 
 | Component | Description | Location |
 |-----------|-------------|----------|
-| Noir Circuit | Proves task completion without revealing output | `circuits/task_completion/` |
-| Groth16 Verifier | On-chain proof verification via Sunspot | Deployed to devnet |
-| complete_task_private | New Anchor instruction with CPI to verifier | `programs/agenc-coordination/` |
+| Circom Circuit | Proves task completion without revealing output | `circuits-circom/task_completion/` |
+| Groth16 Verifier | On-chain proof verification via groth16-solana | Inline in program |
+| complete_task_private | Anchor instruction with inline verification | `programs/agenc-coordination/` |
 | Privacy Cash Integration | Breaks payment linkability | `sdk/src/privacy.ts` |
 | Demo Script | Full E2E demonstration | `demo/` |
 
@@ -68,17 +68,17 @@ The existing non-private path still works. Privacy is opt-in.
 
 **Devnet:**
 
-- Groth16 Verifier: `8fHUGmjNzSh76r78v1rPt7BhWmAu2gXrvW9A2XXonwQQ`
-- AgenC Program: [existing program ID]
+- AgenC Program: `EopUaCV2svxj9j4hd7KjbrWfdjkspmm2BCBe7jGpKzKZ`
 - Privacy Cash: `9fhQBbumKEFuXtMBDw8AaQyAjCorLGJQiS3skWZdQyQD`
+
+Note: Groth16 verification is now inline via groth16-solana (no external verifier program).
 
 ## Prerequisites
 
 - Rust 1.82+
 - Solana CLI 2.2.20+
 - Node.js 18+
-- Noir 1.0.0-beta.13
-- Sunspot CLI
+- circom + snarkjs (for circuit compilation)
 
 ## Setup
 
@@ -89,10 +89,9 @@ cd AgenC
 # Install dependencies
 npm install
 
-# Build Noir circuit
-cd circuits/task_completion
-nargo compile
-nargo test
+# Build Circom circuit
+cd circuits-circom/task_completion
+circom circuit.circom --r1cs --wasm --sym
 
 # Build Anchor program
 cd ../..
@@ -111,29 +110,31 @@ npm run demo
 
 ## How the ZK Circuit Works
 
-The Noir circuit proves three things without revealing the output:
+The Circom circuit proves three things without revealing the output:
 
 1. **Output satisfies constraint** - The private output matches the public constraint hash
 2. **Commitment is valid** - The output commitment was correctly formed
 3. **Proof is bound** - The proof is tied to this specific task ID and agent
 
-```noir
-fn main(
-    task_id: pub Field,
-    agent_pubkey: pub [u8; 32],
-    constraint_hash: pub Field,
-    output_commitment: pub Field,
-    output: [Field; 4],        // PRIVATE
-    salt: Field,               // PRIVATE
-) {
+```circom
+template TaskCompletion() {
+    signal input task_id[32];      // PUBLIC
+    signal input agent_pubkey[32]; // PUBLIC
+    signal input constraint_hash;   // PUBLIC
+    signal input output_commitment; // PUBLIC
+    signal input output[4];         // PRIVATE
+    signal input salt;              // PRIVATE
+
     // Verify output satisfies constraint
-    let computed = pedersen_hash(output);
-    assert(computed == constraint_hash);
-    
+    component hash1 = Poseidon(4);
+    hash1.inputs <== output;
+    constraint_hash === hash1.out;
+
     // Verify commitment
-    let commitment_preimage = [output[0], output[1], output[2], output[3], salt];
-    let computed_commitment = pedersen_hash(commitment_preimage);
-    assert(computed_commitment == output_commitment);
+    component hash2 = Poseidon(2);
+    hash2.inputs[0] <== constraint_hash;
+    hash2.inputs[1] <== salt;
+    output_commitment === hash2.out;
 }
 ```
 
@@ -155,7 +156,7 @@ This means observers cannot determine which task creator paid which agent.
 
 | Bounty | Fit | Notes |
 |--------|-----|-------|
-| Aztec Noir | Primary | Using Noir directly for ZK circuit |
+| Circom/Groth16 | Primary | Using Circom with groth16-solana |
 | Privacy Cash | Primary | Integration for unlinkable payments |
 | Track 2: Privacy Tooling | Primary | Infrastructure for private agents |
 | Helius | Secondary | RPC for transaction handling |
@@ -164,9 +165,9 @@ This means observers cannot determine which task creator paid which agent.
 ## Testing
 
 ```bash
-# Circuit tests
-cd circuits/task_completion
-nargo test
+# Circuit tests (via snarkjs)
+cd circuits-circom/task_completion
+npm test
 
 # Anchor tests
 anchor test
