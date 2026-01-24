@@ -31,6 +31,9 @@ indexmap = "=2.12.0"
 # SBPF-safe RNG
 getrandom = { version = "=0.2.12", default-features = false, features = ["custom"] }
 
+# Groth16 proof verification (audited by OtterSec, Neodyme, Zellic)
+groth16-solana = "0.2"
+
 [target.'cfg(target_os = "solana")'.dependencies]
 getrandom = { version = "=0.2.12", default-features = false, features = ["custom"] }
 

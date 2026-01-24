@@ -100,7 +100,7 @@ pub enum CoordinationError {
     #[msg("ZK proof verification failed")]
     ZkVerificationFailed,
 
-    #[msg("Invalid proof size - expected 388 bytes for Groth16")]
+    #[msg("Invalid proof size - expected 256 bytes for Groth16")]
     InvalidProofSize,
 
     #[msg("Invalid proof binding: expected_binding cannot be all zeros")]
