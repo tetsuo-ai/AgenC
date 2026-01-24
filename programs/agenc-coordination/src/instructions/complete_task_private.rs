@@ -237,7 +237,11 @@ pub fn complete_task_private(
 
 /// Encode a pubkey as 32 separate field elements (one per byte) for the ZK witness.
 /// Each byte becomes a 32-byte big-endian field element with the byte in the last position.
-fn append_pubkey_as_field_elements(inputs: &mut [[u8; 32]; PUBLIC_INPUTS_COUNT], offset: usize, pubkey: &Pubkey) {
+fn append_pubkey_as_field_elements(
+    inputs: &mut [[u8; 32]; PUBLIC_INPUTS_COUNT],
+    offset: usize,
+    pubkey: &Pubkey,
+) {
     for (i, byte) in pubkey.to_bytes().iter().enumerate() {
         inputs[offset + i][FIELD_SIZE - 1] = *byte;
     }
@@ -271,15 +275,11 @@ fn build_public_inputs(
 }
 
 /// Groth16 proof component sizes (BN254 curve)
-const PROOF_A_SIZE: usize = 64;  // G1 point
+const PROOF_A_SIZE: usize = 64; // G1 point
 const PROOF_B_SIZE: usize = 128; // G2 point
-const PROOF_C_SIZE: usize = 64;  // G1 point
+const PROOF_C_SIZE: usize = 64; // G1 point
 
-fn verify_zk_proof(
-    proof: &PrivateCompletionProof,
-    task_key: Pubkey,
-    agent: Pubkey,
-) -> Result<()> {
+fn verify_zk_proof(proof: &PrivateCompletionProof, task_key: Pubkey, agent: Pubkey) -> Result<()> {
     // Validate proof size matches expected Groth16 proof format
     require!(
         proof.proof_data.len() == EXPECTED_PROOF_SIZE,
@@ -303,17 +303,11 @@ fn verify_zk_proof(
         .map_err(|_| CoordinationError::InvalidProofSize)?;
 
     // Verify the Groth16 proof using groth16-solana
-    let mut verifier = Groth16Verifier::new(
-        &proof_a,
-        &proof_b,
-        &proof_c,
-        &public_inputs,
-        &vk,
-    )
-    .map_err(|e| {
-        msg!("Failed to create Groth16 verifier: {:?}", e);
-        CoordinationError::ZkVerificationFailed
-    })?;
+    let mut verifier = Groth16Verifier::new(&proof_a, &proof_b, &proof_c, &public_inputs, &vk)
+        .map_err(|e| {
+            msg!("Failed to create Groth16 verifier: {:?}", e);
+            CoordinationError::ZkVerificationFailed
+        })?;
 
     verifier.verify().map_err(|e| {
         msg!("ZK proof verification failed: {:?}", e);
