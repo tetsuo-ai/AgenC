@@ -31,7 +31,8 @@
     "privacy",
     "zk",
     "zero-knowledge",
-    "noir",
+    "circom",
+    "groth16",
     "agents",
     "coordination",
     "escrow",
@@ -50,11 +51,11 @@
   "dependencies": {
     "@coral-xyz/anchor": ">=0.29.0",
     "@solana/web3.js": ">=1.90.0",
-    "@zkpassport/poseidon2": "^0.6.2",
     "chalk": "^4.1.2",
     "commander": "^12.0.0",
     "ora": "^5.4.1",
-    "poseidon-lite": "^0.3.0"
+    "poseidon-lite": "^0.3.0",
+    "snarkjs": "^0.7.0"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
