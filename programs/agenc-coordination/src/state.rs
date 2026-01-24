@@ -580,6 +580,33 @@ impl DisputeVote {
         1; // bump
 }
 
+/// Authority-level vote record to prevent Sybil attacks
+/// One authority can only vote once per dispute, regardless of how many agents they control
+/// PDA seeds: ["authority_vote", dispute, authority]
+#[account]
+#[derive(Default)]
+pub struct AuthorityDisputeVote {
+    /// Dispute being voted on
+    pub dispute: Pubkey,
+    /// Authority (wallet) that voted
+    pub authority: Pubkey,
+    /// The agent used to cast this vote
+    pub voting_agent: Pubkey,
+    /// Vote timestamp
+    pub voted_at: i64,
+    /// Bump seed
+    pub bump: u8,
+}
+
+impl AuthorityDisputeVote {
+    pub const SIZE: usize = 8 +  // discriminator
+        32 + // dispute
+        32 + // authority
+        32 + // voting_agent
+        8 +  // voted_at
+        1;   // bump
+}
+
 /// Task escrow account
 /// PDA seeds: ["escrow", task]
 #[account]

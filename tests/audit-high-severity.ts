@@ -70,6 +70,12 @@ describe("audit-high-severity", () => {
       program.programId
     )[0];
 
+  const deriveAuthorityVotePda = (disputePda: PublicKey, authority: PublicKey) =>
+    PublicKey.findProgramAddressSync(
+      [Buffer.from("authority_vote"), disputePda.toBuffer(), authority.toBuffer()],
+      program.programId
+    )[0];
+
   const airdrop = async (wallets: Keypair[]) => {
     for (const wallet of wallets) {
       await provider.connection.confirmTransaction(
@@ -437,11 +443,13 @@ describe("audit-high-severity", () => {
       .rpc();
 
     const votePda = deriveVotePda(disputePda, arbiterPda1);
+    const authorityVotePda = deriveAuthorityVotePda(disputePda, arbiter1.publicKey);
     await program.methods
       .voteDispute(true)
       .accountsPartial({
         dispute: disputePda,
         vote: votePda,
+        authorityVote: authorityVotePda,
         arbiter: arbiterPda1,
         protocolConfig: protocolPda,
         authority: arbiter1.publicKey,
@@ -636,11 +644,13 @@ describe("audit-high-severity", () => {
       .rpc();
 
     const votePda = deriveVotePda(disputePda, arbiterPda1);
+    const authorityVotePda = deriveAuthorityVotePda(disputePda, arbiter1.publicKey);
     await program.methods
       .voteDispute(true)
       .accountsPartial({
         dispute: disputePda,
         vote: votePda,
+        authorityVote: authorityVotePda,
         arbiter: arbiterPda1,
         protocolConfig: protocolPda,
         authority: arbiter1.publicKey,

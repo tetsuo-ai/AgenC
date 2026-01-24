@@ -57,6 +57,8 @@ export {
   deriveProtocolPda,
   findAgentPda,
   findProtocolPda,
+  deriveAuthorityVotePda,
+  findAuthorityVotePda,
   type PdaWithBump,
 } from './pda.js';
 
