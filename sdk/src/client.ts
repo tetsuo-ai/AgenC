@@ -8,7 +8,7 @@ import { Connection, PublicKey, Keypair, LAMPORTS_PER_SOL } from '@solana/web3.j
 import { Program, AnchorProvider, Wallet, Idl } from '@coral-xyz/anchor';
 import * as path from 'path';
 import { AgenCPrivacyClient } from './privacy';
-import { PROGRAM_ID, VERIFIER_PROGRAM_ID, DEVNET_RPC, MAINNET_RPC } from './constants';
+import { PROGRAM_ID, DEVNET_RPC, MAINNET_RPC } from './constants';
 
 /**
  * Validates a circuit path to prevent path traversal attacks.
