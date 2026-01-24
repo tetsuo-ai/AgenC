@@ -1,7 +1,7 @@
 //! Private task completion with ZK proof verification.
 //!
 //! Enables agents to prove task completion without revealing outputs.
-//! Uses Groth16 proofs verified via CPI to the Sunspot verifier.
+//! Uses inline Groth16 verification via groth16-solana (audited by OtterSec, Neodyme, Zellic).
 //!
 //! # Security Model
 //!
@@ -29,21 +29,12 @@
 //! If an attacker tries to submit a proof generated for different accounts,
 //! the witness mismatch causes ZK verification to fail.
 //!
-//! # External Dependencies
-//!
-//! **IMPORTANT**: This module depends on the Sunspot Groth16 verifier program at
-//! `ZK_VERIFIER_PROGRAM_ID`. For production deployment:
-//! 1. Ensure the verifier program has been audited
-//! 2. Verify the deployed verifier matches the expected bytecode
-//! 3. The verifier must support the BN254 curve with the circuit's verification key
-//!
 //! # Public Witness Encoding
 //!
-//! The witness format matches Noir's public input encoding for `pub [u8; 32]`:
-//! - Each byte becomes a separate 32-byte big-endian field element
-//! - This results in 32 field elements per pubkey (not 1 field from byte conversion)
-//! - The SDK's `pubkeyToField` is only used for computing binding hashes, not witness encoding
-//! - Actual witness generation is handled by nargo/sunspot during proof creation
+//! The witness format matches Circom's public input encoding:
+//! - Each byte of task_id and agent_pubkey becomes a separate field element
+//! - Field elements are 32 bytes big-endian (BN254 scalar field)
+//! - Total: 32 (task bytes) + 32 (agent bytes) + 3 (hashes) = 67 public inputs
 
 use crate::errors::CoordinationError;
 use crate::events::{RewardDistributed, TaskCompleted};
@@ -56,24 +47,18 @@ use crate::state::{
     HASH_SIZE, RESULT_DATA_SIZE,
 };
 use crate::utils::version::check_version_compatible;
+use crate::verifying_key::get_verifying_key;
 use anchor_lang::prelude::*;
-use anchor_lang::solana_program::instruction::Instruction;
-use anchor_lang::solana_program::program::invoke;
+use groth16_solana::groth16::Groth16Verifier;
 
-/// Sunspot Groth16 verifier program ID (BN254 curve).
-/// SECURITY: This program must be audited before production use.
-/// The verification key embedded in this program must match the task_completion circuit.
-pub const ZK_VERIFIER_PROGRAM_ID: Pubkey = pubkey!("8fHUGmjNzSh76r78v1rPt7BhWmAu2gXrvW9A2XXonwQQ");
-
-// ZK witness format constants
+// ZK proof format constants
 // 32 (task_id bytes) + 32 (agent bytes) + 1 (constraint_hash) + 1 (output_commitment) + 1 (expected_binding)
 const PUBLIC_INPUTS_COUNT: usize = 67;
 const FIELD_SIZE: usize = HASH_SIZE;
-const WITNESS_HEADER_SIZE: usize = 12;
-const WITNESS_HEADER_PADDING: usize = 8;
 
 /// Expected Groth16 proof size in bytes (2 G1 points + 1 G2 point on BN254)
-const EXPECTED_PROOF_SIZE: usize = 388;
+/// groth16-solana format: 256 bytes (compressed)
+const EXPECTED_PROOF_SIZE: usize = 256;
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
 pub struct PrivateCompletionProof {
@@ -129,12 +114,6 @@ pub struct CompleteTaskPrivate<'info> {
         constraint = treasury.key() == protocol_config.treasury @ CoordinationError::InvalidInput
     )]
     pub treasury: UncheckedAccount<'info>,
-
-    /// CHECK: ZK verifier program
-    #[account(
-        constraint = zk_verifier.key() == ZK_VERIFIER_PROGRAM_ID @ CoordinationError::InvalidInput
-    )]
-    pub zk_verifier: UncheckedAccount<'info>,
 
     #[account(mut)]
     pub authority: Signer<'info>,
@@ -205,12 +184,7 @@ pub fn complete_task_private(
         );
     }
 
-    verify_zk_proof(
-        &ctx.accounts.zk_verifier,
-        &proof,
-        task.key(),
-        worker.authority,
-    )?;
+    verify_zk_proof(&proof, task.key(), worker.authority)?;
 
     claim.proof_hash = proof.output_commitment;
     // Private completions don't store result data on-chain (privacy preserved)
@@ -262,47 +236,46 @@ pub fn complete_task_private(
 // ============================================================================
 
 /// Encode a pubkey as 32 separate field elements (one per byte) for the ZK witness.
-/// Each byte becomes a 32-byte field element with the byte in the last position.
-fn append_pubkey_as_field_elements(witness: &mut Vec<u8>, pubkey: &Pubkey) {
-    for byte in pubkey.to_bytes() {
-        let mut field = [0u8; FIELD_SIZE];
-        field[FIELD_SIZE - 1] = byte;
-        witness.extend_from_slice(&field);
+/// Each byte becomes a 32-byte big-endian field element with the byte in the last position.
+fn append_pubkey_as_field_elements(inputs: &mut [[u8; 32]; PUBLIC_INPUTS_COUNT], offset: usize, pubkey: &Pubkey) {
+    for (i, byte) in pubkey.to_bytes().iter().enumerate() {
+        inputs[offset + i][FIELD_SIZE - 1] = *byte;
     }
 }
 
-fn build_public_witness(
+/// Build public inputs array for groth16-solana verification.
+/// Format: 67 field elements, each 32 bytes big-endian.
+fn build_public_inputs(
     task_key: &Pubkey,
     agent: &Pubkey,
     proof: &PrivateCompletionProof,
-) -> Vec<u8> {
-    let capacity = WITNESS_HEADER_SIZE + PUBLIC_INPUTS_COUNT * FIELD_SIZE;
-    let mut witness = Vec::with_capacity(capacity);
+) -> [[u8; 32]; PUBLIC_INPUTS_COUNT] {
+    let mut inputs = [[0u8; 32]; PUBLIC_INPUTS_COUNT];
 
-    // Header: count (4 bytes LE) + padding (8 bytes) - Sunspot verifier format
-    witness.extend_from_slice(&(PUBLIC_INPUTS_COUNT as u32).to_le_bytes());
-    witness.extend_from_slice(&[0u8; WITNESS_HEADER_PADDING]);
+    // Public inputs 0-31: task_id (each byte as separate field element)
+    append_pubkey_as_field_elements(&mut inputs, 0, task_key);
 
-    // Public inputs 1-32: task_id (each byte as separate field element)
-    append_pubkey_as_field_elements(&mut witness, task_key);
+    // Public inputs 32-63: agent_pubkey (each byte as separate field element)
+    append_pubkey_as_field_elements(&mut inputs, 32, agent);
 
-    // Public inputs 33-64: agent_pubkey (each byte as separate field element)
-    append_pubkey_as_field_elements(&mut witness, agent);
+    // Public input 64: constraint_hash
+    inputs[64] = proof.constraint_hash;
 
-    // Public input 65: constraint_hash
-    witness.extend_from_slice(&proof.constraint_hash);
+    // Public input 65: output_commitment
+    inputs[65] = proof.output_commitment;
 
-    // Public input 66: output_commitment
-    witness.extend_from_slice(&proof.output_commitment);
+    // Public input 66: expected_binding
+    inputs[66] = proof.expected_binding;
 
-    // Public input 67: expected_binding
-    witness.extend_from_slice(&proof.expected_binding);
-
-    witness
+    inputs
 }
 
+/// Groth16 proof component sizes (BN254 curve)
+const PROOF_A_SIZE: usize = 64;  // G1 point
+const PROOF_B_SIZE: usize = 128; // G2 point
+const PROOF_C_SIZE: usize = 64;  // G1 point
+
 fn verify_zk_proof(
-    verifier: &UncheckedAccount,
     proof: &PrivateCompletionProof,
     task_key: Pubkey,
     agent: Pubkey,
@@ -313,18 +286,36 @@ fn verify_zk_proof(
         CoordinationError::InvalidProofSize
     );
 
-    let witness = build_public_witness(&task_key, &agent, proof);
+    let public_inputs = build_public_inputs(&task_key, &agent, proof);
+    let vk = get_verifying_key();
 
-    let mut instruction_data = proof.proof_data.clone();
-    instruction_data.extend_from_slice(&witness);
+    // Split proof into components: proof_a (G1), proof_b (G2), proof_c (G1)
+    let proof_a: [u8; PROOF_A_SIZE] = proof.proof_data[0..PROOF_A_SIZE]
+        .try_into()
+        .map_err(|_| CoordinationError::InvalidProofSize)?;
 
-    let ix = Instruction {
-        program_id: verifier.key(),
-        accounts: vec![],
-        data: instruction_data,
-    };
+    let proof_b: [u8; PROOF_B_SIZE] = proof.proof_data[PROOF_A_SIZE..PROOF_A_SIZE + PROOF_B_SIZE]
+        .try_into()
+        .map_err(|_| CoordinationError::InvalidProofSize)?;
 
-    invoke(&ix, &[]).map_err(|e| {
+    let proof_c: [u8; PROOF_C_SIZE] = proof.proof_data[PROOF_A_SIZE + PROOF_B_SIZE..]
+        .try_into()
+        .map_err(|_| CoordinationError::InvalidProofSize)?;
+
+    // Verify the Groth16 proof using groth16-solana
+    let mut verifier = Groth16Verifier::new(
+        &proof_a,
+        &proof_b,
+        &proof_c,
+        &public_inputs,
+        &vk,
+    )
+    .map_err(|e| {
+        msg!("Failed to create Groth16 verifier: {:?}", e);
+        CoordinationError::ZkVerificationFailed
+    })?;
+
+    verifier.verify().map_err(|e| {
         msg!("ZK proof verification failed: {:?}", e);
         CoordinationError::ZkVerificationFailed
     })?;
