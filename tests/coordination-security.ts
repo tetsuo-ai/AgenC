@@ -727,6 +727,10 @@ describe("coordination-security", () => {
             [Buffer.from("vote"), disputePda.toBuffer(), arbiterPda.toBuffer()],
             program.programId
           );
+          const [authorityVotePda] = PublicKey.findProgramAddressSync(
+            [Buffer.from("authority_vote"), disputePda.toBuffer(), arbiterKey.publicKey.toBuffer()],
+            program.programId
+          );
 
           await program.methods
             .registerAgent(
@@ -749,6 +753,7 @@ describe("coordination-security", () => {
             .accountsPartial({
               dispute: disputePda,
               vote: votePda,
+              authorityVote: authorityVotePda,
               arbiter: arbiterPda,
               protocolConfig: protocolPda,
               authority: arbiterKey.publicKey,
@@ -758,8 +763,9 @@ describe("coordination-security", () => {
         }
 
         const dispute = await program.account.dispute.fetch(disputePda);
-        expect(dispute.votesFor).to.equal(2);
-        expect(dispute.votesAgainst).to.equal(1);
+        // Votes are stake-weighted (1 SOL each arbiter)
+        expect(dispute.votesFor.toNumber()).to.equal(2 * LAMPORTS_PER_SOL);
+        expect(dispute.votesAgainst.toNumber()).to.equal(1 * LAMPORTS_PER_SOL);
         expect(dispute.totalVoters).to.equal(3);
       });
 
@@ -1368,12 +1374,21 @@ describe("coordination-security", () => {
           [Buffer.from("vote"), disputePda.toBuffer(), arbiterPda2.toBuffer()],
           program.programId
         );
+        const [authorityVotePda1] = PublicKey.findProgramAddressSync(
+          [Buffer.from("authority_vote"), disputePda.toBuffer(), arbiter1.publicKey.toBuffer()],
+          program.programId
+        );
+        const [authorityVotePda2] = PublicKey.findProgramAddressSync(
+          [Buffer.from("authority_vote"), disputePda.toBuffer(), arbiter2.publicKey.toBuffer()],
+          program.programId
+        );
 
         await program.methods
           .voteDispute(true)
           .accountsPartial({
             dispute: disputePda,
             vote: votePda1,
+            authorityVote: authorityVotePda1,
             arbiter: arbiterPda1,
             protocolConfig: protocolPda,
             authority: arbiter1.publicKey,
@@ -1386,6 +1401,7 @@ describe("coordination-security", () => {
           .accountsPartial({
             dispute: disputePda,
             vote: votePda2,
+            authorityVote: authorityVotePda2,
             arbiter: arbiterPda2,
             protocolConfig: protocolPda,
             authority: arbiter2.publicKey,
@@ -1749,6 +1765,10 @@ describe("coordination-security", () => {
           [Buffer.from("vote"), disputePda.toBuffer(), deriveAgentPda(agentId1).toBuffer()],
           program.programId
         );
+        const [authorityVotePda] = PublicKey.findProgramAddressSync(
+          [Buffer.from("authority_vote"), disputePda.toBuffer(), worker1.publicKey.toBuffer()],
+          program.programId
+        );
 
         try {
           await program.methods
@@ -1756,6 +1776,7 @@ describe("coordination-security", () => {
             .accountsPartial({
               dispute: disputePda,
               vote: votePda,
+              authorityVote: authorityVotePda,
               arbiter: deriveAgentPda(agentId1),
               protocolConfig: protocolPda,
               authority: worker1.publicKey,

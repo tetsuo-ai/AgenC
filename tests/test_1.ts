@@ -1883,6 +1883,14 @@ describe("test_1", () => {
     )[0];
   }
 
+  // Helper function to derive authority vote PDA (for Sybil attack prevention)
+  function deriveAuthorityVotePda(disputePda: PublicKey, authority: PublicKey): PublicKey {
+    return PublicKey.findProgramAddressSync(
+      [Buffer.from("authority_vote"), disputePda.toBuffer(), authority.toBuffer()],
+      program.programId
+    )[0];
+  }
+
   // Capability constants
   const CAPABILITY_ARBITER = 1 << 7;
 
@@ -3650,6 +3658,7 @@ describe("test_1", () => {
         // Try to vote with wrong authority
         const votePda = deriveVotePda(disputePda, arbiterAgentPda);
         const wrongSigner = Keypair.generate();
+        const authorityVotePda = deriveAuthorityVotePda(disputePda, wrongSigner.publicKey);
         await provider.connection.confirmTransaction(
           await provider.connection.requestAirdrop(wrongSigner.publicKey, 1 * LAMPORTS_PER_SOL),
           "confirmed"
@@ -3661,6 +3670,7 @@ describe("test_1", () => {
             .accountsPartial({
               dispute: disputePda,
               vote: votePda,
+              authorityVote: authorityVotePda,
               arbiter: arbiterAgentPda, // Correct arbiter agent
               protocolConfig: protocolPda,
               authority: wrongSigner.publicKey, // But wrong signer
@@ -3741,6 +3751,7 @@ describe("test_1", () => {
 
         // Worker's agent doesn't have ARBITER capability
         const votePda = deriveVotePda(disputePda, worker.agentPda);
+        const authorityVotePda = deriveAuthorityVotePda(disputePda, worker.wallet.publicKey);
 
         try {
           await program.methods
@@ -3748,6 +3759,7 @@ describe("test_1", () => {
             .accountsPartial({
               dispute: disputePda,
               vote: votePda,
+              authorityVote: authorityVotePda,
               arbiter: worker.agentPda, // Agent without ARBITER capability
               protocolConfig: protocolPda,
               authority: worker.wallet.publicKey,
@@ -5998,9 +6010,11 @@ describe("test_1", () => {
 
         // Non-arbiter (worker has COMPUTE, not ARBITER) should fail to vote
         const votePdaNonArbiter = deriveVotePda(disputePda, worker.agentPda);
+        const authorityVotePdaNonArbiter = deriveAuthorityVotePda(disputePda, worker.wallet.publicKey);
         try {
           await program.methods.voteDispute(true).accountsPartial({
             dispute: disputePda, vote: votePdaNonArbiter,
+            authorityVote: authorityVotePdaNonArbiter,
             arbiter: worker.agentPda, protocolConfig: protocolPda,
             authority: worker.wallet.publicKey, systemProgram: SystemProgram.programId,
           }).signers([worker.wallet]).rpc();
@@ -6335,9 +6349,11 @@ describe("test_1", () => {
 
         // Inactive arbiter should not be able to vote
         const votePda = deriveVotePda(disputePda, inactiveArbiterPda);
+        const authorityVotePda = deriveAuthorityVotePda(disputePda, inactiveArbiterOwner.publicKey);
         try {
           await program.methods.voteDispute(true).accountsPartial({
             dispute: disputePda, vote: votePda,
+            authorityVote: authorityVotePda,
             arbiter: inactiveArbiterPda, protocolConfig: protocolPda,
             authority: inactiveArbiterOwner.publicKey,
           }).signers([inactiveArbiterOwner]).rpc();
