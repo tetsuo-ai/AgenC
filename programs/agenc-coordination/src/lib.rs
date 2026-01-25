@@ -15,6 +15,7 @@ pub mod events;
 pub mod instructions;
 pub mod state;
 pub mod utils;
+pub mod verifying_key;
 
 use instructions::*;
 

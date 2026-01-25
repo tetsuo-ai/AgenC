@@ -7,8 +7,8 @@
  * - Proof size validation
  * - Error conditions
  *
- * Note: Full ZK proof verification requires the Sunspot verifier program
- * to be deployed. These tests focus on pre-verification validation.
+ * Note: Full ZK proof verification uses inline groth16-solana.
+ * These tests focus on pre-verification validation checks.
  */
 
 import * as anchor from "@coral-xyz/anchor";
@@ -31,8 +31,7 @@ describe("complete_task_private", () => {
 
   // Test constants
   const HASH_SIZE = 32;
-  const EXPECTED_PROOF_SIZE = 388;
-  const ZK_VERIFIER_PROGRAM_ID = new PublicKey("8fHUGmjNzSh76r78v1rPt7BhWmAu2gXrvW9A2XXonwQQ");
+  const EXPECTED_PROOF_SIZE = 256; // groth16-solana format: 64 (G1) + 128 (G2) + 64 (G1)
 
   let treasury: Keypair;
   let treasuryPubkey: PublicKey;  // Actual treasury from protocol config
@@ -265,7 +264,7 @@ describe("complete_task_private", () => {
 
     it("rejects proof with wrong size (too small)", async () => {
       const proof = createTestProof({
-        proofSize: 100, // Should be 388
+        proofSize: 100, // Should be 256
         constraintHash: privateConstraintHash,
       });
 
@@ -279,7 +278,6 @@ describe("complete_task_private", () => {
             worker: workerAgentPda,
             protocolConfig: protocolPda,
             treasury: treasuryPubkey,
-            zkVerifier: ZK_VERIFIER_PROGRAM_ID,
             authority: worker.publicKey,
             systemProgram: SystemProgram.programId,
           })
@@ -293,7 +291,7 @@ describe("complete_task_private", () => {
 
     it("rejects proof with wrong size (too large)", async () => {
       const proof = createTestProof({
-        proofSize: 500, // Should be 388
+        proofSize: 500, // Should be 256
         constraintHash: privateConstraintHash,
       });
 
@@ -307,7 +305,6 @@ describe("complete_task_private", () => {
             worker: workerAgentPda,
             protocolConfig: protocolPda,
             treasury: treasuryPubkey,
-            zkVerifier: ZK_VERIFIER_PROGRAM_ID,
             authority: worker.publicKey,
             systemProgram: SystemProgram.programId,
           })
@@ -336,7 +333,6 @@ describe("complete_task_private", () => {
             worker: workerAgentPda,
             protocolConfig: protocolPda,
             treasury: treasuryPubkey,
-            zkVerifier: ZK_VERIFIER_PROGRAM_ID,
             authority: worker.publicKey,
             systemProgram: SystemProgram.programId,
           })
@@ -419,7 +415,6 @@ describe("complete_task_private", () => {
             worker: workerAgentPda,
             protocolConfig: protocolPda,
             treasury: treasuryPubkey,
-            zkVerifier: ZK_VERIFIER_PROGRAM_ID,
             authority: worker.publicKey,
             systemProgram: SystemProgram.programId,
           })
@@ -495,7 +490,6 @@ describe("complete_task_private", () => {
             worker: workerAgentPda,
             protocolConfig: protocolPda,
             treasury: treasuryPubkey,
-            zkVerifier: ZK_VERIFIER_PROGRAM_ID,
             authority: worker.publicKey,
             systemProgram: SystemProgram.programId,
           })
