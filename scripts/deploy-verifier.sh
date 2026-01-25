@@ -1,5 +1,22 @@
 #!/bin/bash
-# Deploy Sunspot verifier keys to Solana
+# DEPRECATED: This script was used for deploying Sunspot verifier keys.
+#
+# The project has migrated to groth16-solana with inline verification.
+# The verification key is now embedded directly in the program code
+# (see: programs/agenc-coordination/src/verifying_key.rs)
+#
+# This script is kept for historical reference only.
+#
+# See Issue #158 for migration details.
+
+echo "DEPRECATED: This script is no longer needed."
+echo "groth16-solana verification key is embedded in the program."
+echo "See: programs/agenc-coordination/src/verifying_key.rs"
+exit 0
+
+# --- Legacy code below ---
+
+# Deploy Sunspot verifier keys to Solana (DEPRECATED)
 #
 # This script uploads the verification key to an on-chain account
 # for use with the Sunspot verifier program.

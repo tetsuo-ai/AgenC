@@ -4,7 +4,7 @@ Real-time monitoring of private task completions via Helius webhooks.
 
 ## Features
 
-- Subscribe to Sunspot verifier events
+- Subscribe to AgenC program events
 - Parse task completion transactions
 - REST API for task history and stats
 - WebSocket log subscription (alternative)
@@ -73,8 +73,9 @@ npm run subscribe
 
 | Program | Address |
 |---------|---------|
-| Sunspot Verifier | `8fHUGmjNzSh76r78v1rPt7BhWmAu2gXrvW9A2XXonwQQ` |
 | AgenC Coordination | `EopUaCV2svxj9j4hd7KjbrWfdjkspmm2BCBe7jGpKzKZ` |
+
+Note: ZK proof verification is now inline via groth16-solana (no external verifier program).
 
 ## Integration Examples
 

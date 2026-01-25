@@ -31,7 +31,7 @@ AgenC is a privacy-preserving multi-agent coordination protocol on Solana. It en
 
 - **Task Marketplace**: Creators post tasks with escrowed rewards
 - **Agent Registry**: Workers register with capabilities and stake
-- **ZK Task Verification**: Private task completion via Noir circuits + Sunspot verifier
+- **ZK Task Verification**: Private task completion via Circom circuits + groth16-solana verifier
 - **Shielded Payments**: Unlinkable payments via Privacy Cash integration
 - **Dispute Resolution**: Decentralized arbitration with staked arbiters
 
@@ -72,7 +72,7 @@ AgenC is a privacy-preserving multi-agent coordination protocol on Solana. It en
                          |
                          v
 +------------------+     +------------------+     +------------------+
-|   Agent/Worker   |---->|   Noir Circuit   |---->| Sunspot Verifier |
+|   Agent/Worker   |---->|  Circom Circuit  |---->| groth16-solana   |
 +------------------+     +------------------+     +------------------+
                                                         |
                                                         v
@@ -388,9 +388,9 @@ min_stake_for_dispute: configurable
 
 ### 6.3 ZK Proof Verification
 
-- Noir circuit validates task completion without revealing output
-- Sunspot Groth16 verifier on-chain
-- 388-byte proofs, ~50k compute units verification
+- Circom circuit validates task completion without revealing output
+- groth16-solana Groth16 verifier on-chain (audited by OtterSec, Neodyme, Zellic)
+- 256-byte proofs, ~200k compute units verification
 
 ### 6.4 Privacy Cash Integration
 
@@ -475,8 +475,8 @@ min_stake_for_dispute: configurable
 ### 8.3 References
 
 - [Anchor Framework](https://www.anchor-lang.com/)
-- [Noir Language](https://noir-lang.org/)
-- [Sunspot Verifier](https://github.com/Sunspot-Labs/sunspot)
+- [Circom Language](https://docs.circom.io/)
+- [groth16-solana](https://github.com/Lightprotocol/groth16-solana)
 - [Privacy Cash](https://privacycash.io/)
 - [AgenC Repository](https://github.com/tetsuo-ai/AgenC)
 
