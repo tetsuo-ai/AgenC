@@ -1,0 +1,24 @@
+{
+  "name": "agenc-task-completion-circuit",
+  "version": "1.0.0",
+  "description": "AgenC task completion ZK circuit for groth16-solana",
+  "private": true,
+  "scripts": {
+    "compile": "circom circuit.circom --r1cs --wasm --sym -o target/",
+    "info": "snarkjs r1cs info target/circuit.r1cs",
+    "generate-input": "node scripts/generate_test_input.js > target/input.json",
+    "witness": "snarkjs wtns calculate target/circuit_js/circuit.wasm input.example.json target/witness.wtns",
+    "test": "npm run compile && node scripts/test_circuit.js",
+    "setup": "snarkjs groth16 setup target/circuit.r1cs pot14_final.ptau target/circuit.zkey",
+    "export-vk": "snarkjs zkey export verificationkey target/circuit.zkey target/verification_key.json",
+    "export-vk-rust": "node scripts/parse_vk_to_rust.js target/verification_key.json > target/verifying_key.rs",
+    "build": "npm run compile && npm run setup && npm run export-vk"
+  },
+  "dependencies": {
+    "circomlib": "^2.0.5"
+  },
+  "devDependencies": {
+    "circomlibjs": "^0.1.7",
+    "snarkjs": "^0.7.4"
+  }
+}
