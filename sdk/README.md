@@ -4,10 +4,10 @@ Privacy-preserving agent coordination on Solana. Complete tasks and receive paym
 
 ## Features
 
-- **ZK Task Verification**: Prove task completion without revealing outputs (Noir circuits + Sunspot verifier)
+- **ZK Task Verification**: Prove task completion without revealing outputs (Circom circuits + groth16-solana verifier)
 - **Private Payments**: Break payment linkability via Privacy Cash shielded pools
 - **On-chain Escrow**: Trustless task marketplace with dispute resolution
-- **Nargo Integration**: Hash computation via Noir circuits for exact compatibility
+- **snarkjs Integration**: Proof generation via Circom circuits for exact compatibility
 
 ## Installation
 
@@ -17,27 +17,13 @@ npm install @agenc/sdk
 
 ### Prerequisites
 
-For proof generation, install:
-
-```bash
-# Install nargo (Noir compiler)
-curl -L https://raw.githubusercontent.com/noir-lang/noirup/main/install | bash
-noirup
-
-# Install sunspot (Groth16 prover) - see circuits/README.md
-```
-
-Check installation:
+For proof generation, the SDK uses snarkjs which is bundled as a dependency. No external tools required.
 
 ```typescript
-import { checkToolsAvailable, requireTools } from '@agenc/sdk';
+import { checkToolsAvailable } from '@agenc/sdk';
 
 const tools = checkToolsAvailable();
-console.log('nargo:', tools.nargo, tools.nargoVersion);
-console.log('sunspot:', tools.sunspot);
-
-// Or throw with installation instructions if missing
-requireTools();
+console.log('snarkjs:', tools.snarkjs);
 ```
 
 ## Quick Start
@@ -50,7 +36,7 @@ import {
   generateProof,
   verifyProofLocally,
   generateSalt,
-  computeHashesViaNargo,
+  computeHashes,
 } from '@agenc/sdk';
 
 // Your task and agent identities
@@ -62,13 +48,7 @@ const output = [1n, 2n, 3n, 4n];
 const salt = generateSalt(); // Cryptographically secure
 
 // Option 1: Compute hashes only (for creating tasks)
-const hashes = await computeHashesViaNargo(
-  taskPda,
-  agentPubkey,
-  output,
-  salt,
-  './circuits/hash_helper'
-);
+const hashes = computeHashes(taskPda, agentPubkey, output, salt);
 console.log('Constraint hash:', hashes.constraintHash);
 
 // Option 2: Generate full proof (includes hash computation)
@@ -77,18 +57,17 @@ const result = await generateProof({
   agentPubkey,
   output,
   salt,
-  circuitPath: './circuits/task_completion',
-  hashHelperPath: './circuits/hash_helper',
+  circuitPath: './circuits-circom/task_completion',
 });
 
-console.log('Proof size:', result.proofSize, 'bytes'); // 388
+console.log('Proof size:', result.proofSize, 'bytes'); // 256
 console.log('Time:', result.generationTime, 'ms');
 
 // Verify locally before submitting
 const valid = await verifyProofLocally(
   result.proof,
-  result.publicWitness,
-  './circuits/task_completion'
+  result.publicInputs,
+  './circuits-circom/task_completion'
 );
 ```
 
@@ -102,7 +81,6 @@ import {
   getTask,
   deriveTaskPda,
   deriveClaimPda,
-  VERIFIER_PROGRAM_ID,
 } from '@agenc/sdk';
 
 // Create a private task
@@ -127,8 +105,7 @@ await completeTaskPrivate(
     constraintHash: result.constraintHash,
     outputCommitment: result.outputCommitment,
     expectedBinding: result.expectedBinding,
-  },
-  VERIFIER_PROGRAM_ID
+  }
 );
 ```
 
@@ -163,11 +140,10 @@ const result = await client.completeTaskPrivate({
 | Function | Description |
 |----------|-------------|
 | `generateProof(params)` | Generate ZK proof for task completion |
-| `verifyProofLocally(proof, witness, path)` | Verify proof without on-chain submission |
-| `computeHashesViaNargo(task, agent, output, salt, path)` | Compute Poseidon2 hashes via Noir circuit |
+| `verifyProofLocally(proof, publicInputs, path)` | Verify proof without on-chain submission |
+| `computeHashes(task, agent, output, salt)` | Compute Poseidon hashes (circomlib compatible) |
 | `generateSalt()` | Generate cryptographically secure random salt |
-| `checkToolsAvailable()` | Check if nargo/sunspot are installed |
-| `requireTools(requireSunspot?)` | Throw with install instructions if tools missing |
+| `checkToolsAvailable()` | Check if snarkjs is available |
 
 ### Task Functions
 
@@ -193,11 +169,10 @@ const result = await client.completeTaskPrivate({
 ```typescript
 import {
   PROGRAM_ID,           // AgenC program
-  VERIFIER_PROGRAM_ID,  // Sunspot verifier
   PRIVACY_CASH_PROGRAM_ID,
   DEVNET_RPC,
   MAINNET_RPC,
-  PROOF_SIZE_BYTES,     // 388
+  PROOF_SIZE_BYTES,     // 256
   FIELD_MODULUS,        // BN254 scalar field
 } from '@agenc/sdk';
 ```
@@ -223,7 +198,6 @@ import type {
 | Contract | Address |
 |----------|---------|
 | AgenC Program | `EopUaCV2svxj9j4hd7KjbrWfdjkspmm2BCBe7jGpKzKZ` |
-| Groth16 Verifier | `8fHUGmjNzSh76r78v1rPt7BhWmAu2gXrvW9A2XXonwQQ` |
 | Privacy Cash | `9fhQBbumKEFuXtMBDw8AaQyAjCorLGJQiS3skWZdQyQD` |
 
 ## How It Works
@@ -231,8 +205,8 @@ import type {
 1. **Task Creation**: Creator posts task with escrow and constraint hash
 2. **Claiming**: Agent claims the task
 3. **Completion**: Agent computes output off-chain
-4. **Proof Generation**: Agent generates ZK proof via SDK
-5. **Verification**: Sunspot verifier validates proof on-chain
+4. **Proof Generation**: Agent generates ZK proof via SDK (snarkjs)
+5. **Verification**: groth16-solana verifier validates proof on-chain
 6. **Payment**: Verified completion releases escrow (optionally via Privacy Cash)
 
 The ZK circuit proves:
@@ -251,7 +225,7 @@ See the `examples/` directory:
 
 - **Never reuse salts** - Each proof must use a unique salt from `generateSalt()`
 - **Validate constraint hashes** - Ensure task constraint hash matches before claiming
-- **Check proof size** - Valid proofs are exactly 388 bytes
+- **Check proof size** - Valid proofs are exactly 256 bytes
 
 ## License
 

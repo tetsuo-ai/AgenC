@@ -1,8 +1,24 @@
-# AgenC ZK Circuits
+# AgenC ZK Circuits (DEPRECATED)
+
+> **⚠️ DEPRECATED**: This directory contains the old Noir-based circuits.
+> The project has migrated to Circom circuits with groth16-solana verification.
+> See [`circuits-circom/`](../circuits-circom/) for the current implementation.
+
+## Migration Notice
+
+The ZK proof system has been migrated from:
+- **Old**: Noir + Sunspot (388-byte proofs, external verifier)
+- **New**: Circom + groth16-solana (256-byte proofs, inline verification)
+
+See [Issue #158](https://github.com/tetsuo-ai/AgenC/issues/158) for migration details.
+
+---
+
+## Legacy Documentation (Noir)
 
 Zero-knowledge circuits for private task completion verification on Solana.
 
-## Overview
+### Overview
 
 AgenC uses ZK proofs to let agents prove task completion without revealing their outputs. The system consists of:
 

@@ -7,8 +7,8 @@
 <p align="center">
   <img src="https://img.shields.io/badge/Solana-1.18+-14F195?style=flat-square&logo=solana" alt="Solana">
   <img src="https://img.shields.io/badge/Rust-Anchor-orange?style=flat-square&logo=rust" alt="Rust">
-  <img src="https://img.shields.io/badge/Noir-ZK%20Circuits-black?style=flat-square" alt="Noir">
-  <img src="https://img.shields.io/badge/Sunspot-Verifier-blueviolet?style=flat-square" alt="Sunspot">
+  <img src="https://img.shields.io/badge/Circom-ZK%20Circuits-black?style=flat-square" alt="Circom">
+  <img src="https://img.shields.io/badge/groth16--solana-Verifier-blueviolet?style=flat-square" alt="groth16-solana">
   <img src="https://img.shields.io/badge/Privacy-E2E-red?style=flat-square" alt="E2E Privacy">
   <img src="https://img.shields.io/badge/Built%20by-Tetsuo-white?style=flat-square" alt="Tetsuo">
 </p>
@@ -48,7 +48,7 @@
 
 - **On-chain Agent Registry** - Agents register with verifiable capabilities and endpoints
 - **Task Marketplace** - Create, claim, and complete tasks with automatic escrow payments
-- **Private Task Completion** - ZK proofs verify work without revealing outputs (Noir + Sunspot)
+- **Private Task Completion** - ZK proofs verify work without revealing outputs (Circom + groth16-solana)
 - **Privacy-Preserving Payments** - Private deposits/withdrawals via Privacy Cash SDK
 - **Dispute Resolution** - Multisig governance for conflict resolution
 - **Rate Limiting** - Configurable throttles prevent spam
@@ -74,7 +74,7 @@
 │  │  AgenC Coordination Program (Rust/Anchor)                │   │
 │  │  • Agent Registry      • Task Marketplace                │   │
 │  │  • Escrow Management   • Dispute Resolution              │   │
-│  │  • ZK Proof Verification (Sunspot)                       │   │
+│  │  • ZK Proof Verification (groth16-solana)                │   │
 │  └─────────────────────────────────────────────────────────┘   │
 │  ┌─────────────────────────────────────────────────────────┐   │
 │  │  Program Derived Addresses (PDAs)                        │   │
@@ -85,12 +85,12 @@
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                   Noir ZK Circuits                               │
+│                   Circom ZK Circuits                             │
 │  ┌─────────────────────────────────────────────────────────┐   │
 │  │  task_completion circuit                                 │   │
 │  │  • Proves output satisfies constraint (without reveal)   │   │
 │  │  • Binds proof to task_id and agent_pubkey               │   │
-│  │  • Poseidon2 hash (Sunspot compatible)                   │   │
+│  │  • Poseidon hash (circomlib compatible)                  │   │
 │  └─────────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -107,7 +107,7 @@ AgenC/
 │       ├── events.rs              # Event definitions
 │       └── instructions/          # 20 instruction handlers
 ├── sdk/privacy-cash-sdk/          # TypeScript SDK for private payments
-├── circuits/task_completion/      # Noir ZK circuit for private completion
+├── circuits-circom/task_completion/ # Circom ZK circuit for private completion
 ├── tests/                         # Integration & security tests
 ├── demo/                          # Demo scripts
 ├── docs/                          # Documentation
@@ -122,7 +122,7 @@ AgenC/
 - Solana CLI 1.18+
 - Anchor 0.32+
 - Node.js 18+
-- nargo (for ZK circuits)
+- circom + snarkjs (for ZK circuits)
 
 ### Install Dependencies
 
@@ -133,9 +133,8 @@ cargo install --git https://github.com/coral-xyz/anchor anchor-cli
 # Install Node dependencies
 yarn install
 
-# Install nargo for ZK circuits (optional)
-curl -L https://raw.githubusercontent.com/noir-lang/noirup/main/install | bash
-noirup
+# Install circom for ZK circuits (optional)
+npm install -g circom snarkjs
 ```
 
 ### Build
@@ -204,7 +203,7 @@ Tasks can be completed privately using zero-knowledge proofs:
 1. **Task Creator** sets a `constraint_hash` (hash of expected output)
 2. **Agent** completes work off-chain, generates ZK proof
 3. **Proof** verifies output matches constraint without revealing it
-4. **On-chain** verification via Sunspot verifier
+4. **On-chain** verification via groth16-solana verifier
 5. **Payment** released privately via Privacy Cash SDK
 
 ```typescript
@@ -269,29 +268,27 @@ Agents register with capability flags (bitmask):
 
 ## ZK Circuits
 
-The ZK proof system uses Noir circuits compiled to Groth16 via Sunspot.
+The ZK proof system uses Circom circuits with Groth16 proofs verified via groth16-solana.
 
 | Component | Description |
 |-----------|-------------|
-| `circuits/task_completion` | Main circuit proving task completion |
-| `circuits/hash_helper` | Helper circuit for SDK hash computation |
+| `circuits-circom/task_completion` | Main circuit proving task completion |
 
 ### Quick Start
 
 ```bash
-# Install nargo
-curl -L https://raw.githubusercontent.com/noir-lang/noirup/main/install | bash
-noirup
+# Install circom and snarkjs
+npm install -g circom snarkjs
 
-# Compile and test
-cd circuits/task_completion
-nargo compile && nargo test
+# Compile circuit
+cd circuits-circom/task_completion
+circom circuit.circom --r1cs --wasm --sym
 
-# Run demo (requires sunspot)
-./circuits/demo.sh
+# Generate proof (via SDK)
+npx ts-node examples/generate-proof.ts
 ```
 
-See [circuits/README.md](circuits/README.md) for full setup instructions including sunspot installation.
+See [circuits-circom/README.md](circuits-circom/README.md) for full setup instructions including trusted setup.
 
 ### Examples
 
