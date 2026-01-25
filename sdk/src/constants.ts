@@ -11,9 +11,6 @@ import { PublicKey } from '@solana/web3.js';
 /** AgenC Coordination Program ID */
 export const PROGRAM_ID = new PublicKey('EopUaCV2svxj9j4hd7KjbrWfdjkspmm2BCBe7jGpKzKZ');
 
-/** Sunspot Groth16 Verifier Program ID */
-export const VERIFIER_PROGRAM_ID = new PublicKey('8fHUGmjNzSh76r78v1rPt7BhWmAu2gXrvW9A2XXonwQQ');
-
 /** Privacy Cash Program ID */
 export const PRIVACY_CASH_PROGRAM_ID = new PublicKey('9fhQBbumKEFuXtMBDw8AaQyAjCorLGJQiS3skWZdQyQD');
 
@@ -50,8 +47,8 @@ export const OUTPUT_FIELD_COUNT = 4;
 // ZK Proof Constants
 // ============================================================================
 
-/** Proof size in bytes (Groth16) */
-export const PROOF_SIZE_BYTES = 388;
+/** Proof size in bytes (Groth16 via groth16-solana) */
+export const PROOF_SIZE_BYTES = 256;
 
 /** Approximate verification compute units */
 export const VERIFICATION_COMPUTE_UNITS = 50_000;

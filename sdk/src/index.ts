@@ -4,7 +4,7 @@
  * AgenC enables agents to complete tasks and receive payments with full privacy:
  * - ZK proofs verify task completion without revealing outputs
  * - Privacy Cash breaks payment linkability via shielded pools
- * - Sunspot on-chain verifier validates Noir circuit proofs
+ * - Inline groth16-solana verifier validates Circom circuit proofs
  */
 
 // Privacy exports available when privacycash is installed
@@ -18,21 +18,21 @@ export {
 export {
   generateProof,
   verifyProofLocally,
-  computeHashesViaNargo,
+  computeHashes,
   generateSalt,
   checkToolsAvailable,
   requireTools,
   pubkeyToField,
   FIELD_MODULUS,
+  // Hash computation functions
+  computeExpectedBinding,
+  computeConstraintHash,
+  computeCommitment,
   // Types
   ProofGenerationParams,
   ProofResult,
   HashResult,
   ToolsStatus,
-  // Legacy (deprecated - use computeHashesViaNargo instead)
-  computeExpectedBinding,
-  computeConstraintHash,
-  computeCommitment,
 } from './proofs';
 
 export {
@@ -55,7 +55,6 @@ export {
 
 export {
   PROGRAM_ID,
-  VERIFIER_PROGRAM_ID,
   PRIVACY_CASH_PROGRAM_ID,
   DEVNET_RPC,
   MAINNET_RPC,

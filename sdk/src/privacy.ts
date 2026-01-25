@@ -4,7 +4,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { execSync } from 'child_process';
 import type { PrivacyCash, PrivacyCashConfig } from 'privacycash';
-import { HASH_SIZE, VERIFIER_PROGRAM_ID } from './constants';
+import { HASH_SIZE } from './constants';
 
 /**
  * Validates a circuit path to prevent path traversal and command injection.
@@ -320,10 +320,7 @@ export class AgenCPrivacyClient {
             this.program.programId
         );
 
-        // Get verifier program ID (deployed via Sunspot)
-        const verifierProgramId = await this.getVerifierProgramId();
-
-        // Build instruction - simplified to just verify ZK proof
+        // Build instruction - ZK proof verified inline via groth16-solana
         // Privacy Cash withdrawal happens separately via their SDK
         const ix = await this.program.methods
             .completeTaskPrivate(taskId, {
@@ -334,7 +331,6 @@ export class AgenCPrivacyClient {
                 worker,
                 task: taskPda,
                 taskClaim: claimPda,
-                zkVerifier: verifierProgramId,
                 systemProgram: PublicKey.default,
             })
             .instruction();
@@ -401,10 +397,6 @@ salt = "${params.salt}"
         return await accounts['task'].fetch(taskPda) as { constraintHash: Buffer };
     }
     
-    private async getVerifierProgramId(): Promise<PublicKey> {
-        // Return the Sunspot Groth16 verifier program ID from constants
-        return VERIFIER_PROGRAM_ID;
-    }
 }
 
 /**

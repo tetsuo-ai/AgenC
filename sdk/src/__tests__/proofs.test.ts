@@ -8,17 +8,18 @@
  * 4. Salt generation produces valid field elements
  */
 
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { PublicKey, Keypair } from '@solana/web3.js';
 import {
   pubkeyToField,
   computeExpectedBinding,
   computeConstraintHash,
   computeCommitment,
+  computeHashes,
   generateSalt,
   FIELD_MODULUS,
 } from '../proofs';
-import { OUTPUT_FIELD_COUNT, HASH_SIZE } from '../constants';
+import { OUTPUT_FIELD_COUNT } from '../constants';
 
 describe('proofs', () => {
   describe('pubkeyToField', () => {
@@ -242,6 +243,42 @@ describe('proofs', () => {
     });
   });
 
+  describe('computeHashes', () => {
+    it('computes all hashes in one call', () => {
+      const taskPda = Keypair.generate().publicKey;
+      const agentPubkey = Keypair.generate().publicKey;
+      const output = [1n, 2n, 3n, 4n];
+      const salt = generateSalt();
+
+      const result = computeHashes(taskPda, agentPubkey, output, salt);
+
+      expect(result.constraintHash).toBeGreaterThanOrEqual(0n);
+      expect(result.constraintHash).toBeLessThan(FIELD_MODULUS);
+      expect(result.outputCommitment).toBeGreaterThanOrEqual(0n);
+      expect(result.outputCommitment).toBeLessThan(FIELD_MODULUS);
+      expect(result.expectedBinding).toBeGreaterThanOrEqual(0n);
+      expect(result.expectedBinding).toBeLessThan(FIELD_MODULUS);
+    });
+
+    it('produces consistent results with individual functions', () => {
+      const taskPda = Keypair.generate().publicKey;
+      const agentPubkey = Keypair.generate().publicKey;
+      const output = [1n, 2n, 3n, 4n];
+      const salt = 12345n;
+
+      const result = computeHashes(taskPda, agentPubkey, output, salt);
+
+      // Verify against individual function calls
+      const constraintHash = computeConstraintHash(output);
+      const outputCommitment = computeCommitment(constraintHash, salt);
+      const expectedBinding = computeExpectedBinding(taskPda, agentPubkey, outputCommitment);
+
+      expect(result.constraintHash).toBe(constraintHash);
+      expect(result.outputCommitment).toBe(outputCommitment);
+      expect(result.expectedBinding).toBe(expectedBinding);
+    });
+  });
+
   describe('end-to-end proof parameter generation', () => {
     it('generates consistent parameters for proof creation', () => {
       // Simulate the full proof parameter generation flow
@@ -300,9 +337,6 @@ describe('proofs', () => {
       expect(constraintHash).toBeGreaterThan(0n);
       expect(outputCommitment).toBeGreaterThan(0n);
       expect(expectedBinding).toBeGreaterThan(0n);
-
-      // NOTE: Debug logging removed for security - avoid leaking test values in CI/CD logs
-      // If you need to debug circuit compatibility, temporarily add console.log statements
     });
   });
 
@@ -409,8 +443,6 @@ describe('proofs', () => {
       ];
 
       // Negative values should be equivalent to their positive modular counterparts
-      // Note: JavaScript % operator preserves sign, so -1n % FIELD_MODULUS = -1n
-      // The hash function should handle this internally via explicit modular reduction
       const hash1 = computeConstraintHash(output1);
       const hash2 = computeConstraintHash(output2);
 
