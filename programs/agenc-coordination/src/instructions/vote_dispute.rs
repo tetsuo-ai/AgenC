@@ -3,7 +3,8 @@
 use crate::errors::CoordinationError;
 use crate::events::DisputeVoteCast;
 use crate::state::{
-    capability, AgentRegistration, AgentStatus, Dispute, DisputeStatus, DisputeVote, ProtocolConfig,
+    capability, AgentRegistration, AgentStatus, AuthorityDisputeVote, Dispute, DisputeStatus,
+    DisputeVote, ProtocolConfig,
 };
 use crate::utils::version::check_version_compatible;
 use anchor_lang::prelude::*;
@@ -25,6 +26,17 @@ pub struct VoteDispute<'info> {
         bump
     )]
     pub vote: Account<'info, DisputeVote>,
+
+    /// Authority-level vote tracking to prevent Sybil attacks (fix #101)
+    /// One authority can only vote once per dispute, regardless of how many agents they control
+    #[account(
+        init,
+        payer = authority,
+        space = AuthorityDisputeVote::SIZE,
+        seeds = [b"authority_vote", dispute.key().as_ref(), authority.key().as_ref()],
+        bump
+    )]
+    pub authority_vote: Account<'info, AuthorityDisputeVote>,
 
     #[account(
         mut,
@@ -89,6 +101,15 @@ pub fn handler(ctx: Context<VoteDispute>, approve: bool) -> Result<()> {
     vote.approved = approve;
     vote.voted_at = clock.unix_timestamp;
     vote.bump = ctx.bumps.vote;
+
+    // Record authority-level vote (prevents Sybil attacks - fix #101)
+    // The `init` constraint on authority_vote already prevents duplicate votes per authority
+    let authority_vote_account = &mut ctx.accounts.authority_vote;
+    authority_vote_account.dispute = dispute.key();
+    authority_vote_account.authority = ctx.accounts.authority.key();
+    authority_vote_account.voting_agent = arbiter.key();
+    authority_vote_account.voted_at = clock.unix_timestamp;
+    authority_vote_account.bump = ctx.bumps.authority_vote;
 
     // Update dispute vote counts
     if approve {

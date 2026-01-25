@@ -2174,6 +2174,45 @@
           }
         },
         {
+          "name": "authority_vote",
+          "docs": [
+            "Authority-level vote tracking to prevent Sybil attacks (fix #101)",
+            "One authority can only vote once per dispute, regardless of how many agents they control"
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  117,
+                  116,
+                  104,
+                  111,
+                  114,
+                  105,
+                  116,
+                  121,
+                  95,
+                  118,
+                  111,
+                  116,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "dispute"
+              },
+              {
+                "kind": "account",
+                "path": "authority"
+              }
+            ]
+          }
+        },
+        {
           "name": "arbiter",
           "writable": true,
           "pda": {
@@ -2249,6 +2288,19 @@
         77,
         148,
         19
+      ]
+    },
+    {
+      "name": "AuthorityDisputeVote",
+      "discriminator": [
+        194,
+        81,
+        47,
+        196,
+        187,
+        81,
+        110,
+        137
       ]
     },
     {
@@ -2609,351 +2661,361 @@
     },
     {
       "code": 6008,
+      "name": "AgentSuspended",
+      "msg": "Agent is suspended and cannot change status"
+    },
+    {
+      "code": 6009,
       "name": "TaskNotFound",
       "msg": "Task not found"
     },
     {
-      "code": 6009,
+      "code": 6010,
       "name": "TaskNotOpen",
       "msg": "Task is not open for claims"
     },
     {
-      "code": 6010,
+      "code": 6011,
       "name": "TaskFullyClaimed",
       "msg": "Task has reached maximum workers"
     },
     {
-      "code": 6011,
+      "code": 6012,
       "name": "TaskExpired",
       "msg": "Task has expired"
     },
     {
-      "code": 6012,
+      "code": 6013,
       "name": "TaskNotExpired",
       "msg": "Task deadline has not passed"
     },
     {
-      "code": 6013,
+      "code": 6014,
       "name": "DeadlinePassed",
       "msg": "Task deadline has passed"
     },
     {
-      "code": 6014,
+      "code": 6015,
       "name": "TaskNotInProgress",
       "msg": "Task is not in progress"
     },
     {
-      "code": 6015,
+      "code": 6016,
       "name": "TaskAlreadyCompleted",
       "msg": "Task is already completed"
     },
     {
-      "code": 6016,
+      "code": 6017,
       "name": "TaskCannotBeCancelled",
       "msg": "Task cannot be cancelled"
     },
     {
-      "code": 6017,
+      "code": 6018,
       "name": "UnauthorizedTaskAction",
       "msg": "Only the task creator can perform this action"
     },
     {
-      "code": 6018,
+      "code": 6019,
       "name": "InvalidCreator",
       "msg": "Invalid creator"
     },
     {
-      "code": 6019,
+      "code": 6020,
       "name": "InvalidTaskType",
       "msg": "Invalid task type"
     },
     {
-      "code": 6020,
+      "code": 6021,
       "name": "CompetitiveTaskAlreadyWon",
       "msg": "Competitive task already completed by another worker"
     },
     {
-      "code": 6021,
+      "code": 6022,
       "name": "NoWorkers",
       "msg": "Task has no workers"
     },
     {
-      "code": 6022,
+      "code": 6023,
       "name": "ConstraintHashMismatch",
       "msg": "Proof constraint hash does not match task's stored constraint hash"
     },
     {
-      "code": 6023,
+      "code": 6024,
       "name": "NotPrivateTask",
       "msg": "Task is not a private task (no constraint hash set)"
     },
     {
-      "code": 6024,
+      "code": 6025,
       "name": "AlreadyClaimed",
       "msg": "Worker has already claimed this task"
     },
     {
-      "code": 6025,
+      "code": 6026,
       "name": "NotClaimed",
       "msg": "Worker has not claimed this task"
     },
     {
-      "code": 6026,
+      "code": 6027,
       "name": "ClaimAlreadyCompleted",
       "msg": "Claim has already been completed"
     },
     {
-      "code": 6027,
+      "code": 6028,
       "name": "ClaimNotExpired",
       "msg": "Claim has not expired yet"
     },
     {
-      "code": 6028,
+      "code": 6029,
       "name": "InvalidProof",
       "msg": "Invalid proof of work"
     },
     {
-      "code": 6029,
+      "code": 6030,
       "name": "ZkVerificationFailed",
       "msg": "ZK proof verification failed"
     },
     {
-      "code": 6030,
+      "code": 6031,
       "name": "InvalidProofSize",
       "msg": "Invalid proof size - expected 388 bytes for Groth16"
     },
     {
-      "code": 6031,
+      "code": 6032,
       "name": "InvalidProofBinding",
       "msg": "Invalid proof binding: expected_binding cannot be all zeros"
     },
     {
-      "code": 6032,
+      "code": 6033,
       "name": "InvalidOutputCommitment",
       "msg": "Invalid output commitment: output_commitment cannot be all zeros"
     },
     {
-      "code": 6033,
+      "code": 6034,
       "name": "DisputeNotActive",
       "msg": "Dispute is not active"
     },
     {
-      "code": 6034,
+      "code": 6035,
       "name": "VotingEnded",
       "msg": "Voting period has ended"
     },
     {
-      "code": 6035,
+      "code": 6036,
       "name": "VotingNotEnded",
       "msg": "Voting period has not ended"
     },
     {
-      "code": 6036,
+      "code": 6037,
       "name": "AlreadyVoted",
       "msg": "Already voted on this dispute"
     },
     {
-      "code": 6037,
+      "code": 6038,
       "name": "NotArbiter",
       "msg": "Not authorized to vote (not an arbiter)"
     },
     {
-      "code": 6038,
+      "code": 6039,
       "name": "InsufficientVotes",
       "msg": "Insufficient votes to resolve"
     },
     {
-      "code": 6039,
+      "code": 6040,
       "name": "DisputeAlreadyResolved",
       "msg": "Dispute has already been resolved"
     },
     {
-      "code": 6040,
+      "code": 6041,
       "name": "UnauthorizedResolver",
       "msg": "Only protocol authority or dispute initiator can resolve disputes"
     },
     {
-      "code": 6041,
+      "code": 6042,
       "name": "ActiveDisputeVotes",
       "msg": "Agent has active dispute votes pending resolution"
     },
     {
-      "code": 6042,
+      "code": 6043,
       "name": "RecentVoteActivity",
       "msg": "Agent must wait 24 hours after voting before deregistering"
     },
     {
-      "code": 6043,
+      "code": 6044,
+      "name": "AuthorityAlreadyVoted",
+      "msg": "Authority has already voted on this dispute"
+    },
+    {
+      "code": 6045,
       "name": "InsufficientEvidence",
       "msg": "Insufficient dispute evidence provided"
     },
     {
-      "code": 6044,
+      "code": 6046,
       "name": "EvidenceTooLong",
       "msg": "Dispute evidence exceeds maximum allowed length"
     },
     {
-      "code": 6045,
+      "code": 6047,
       "name": "DisputeNotExpired",
       "msg": "Dispute has not expired"
     },
     {
-      "code": 6046,
+      "code": 6048,
       "name": "SlashAlreadyApplied",
       "msg": "Dispute slashing already applied"
     },
     {
-      "code": 6047,
+      "code": 6049,
       "name": "DisputeNotResolved",
       "msg": "Dispute has not been resolved"
     },
     {
-      "code": 6048,
+      "code": 6050,
       "name": "VersionMismatch",
       "msg": "State version mismatch (concurrent modification)"
     },
     {
-      "code": 6049,
+      "code": 6051,
       "name": "StateKeyExists",
       "msg": "State key already exists"
     },
     {
-      "code": 6050,
+      "code": 6052,
       "name": "StateNotFound",
       "msg": "State not found"
     },
     {
-      "code": 6051,
+      "code": 6053,
       "name": "ProtocolAlreadyInitialized",
       "msg": "Protocol is already initialized"
     },
     {
-      "code": 6052,
+      "code": 6054,
       "name": "ProtocolNotInitialized",
       "msg": "Protocol is not initialized"
     },
     {
-      "code": 6053,
+      "code": 6055,
       "name": "InvalidProtocolFee",
       "msg": "Invalid protocol fee (must be <= 1000 bps)"
     },
     {
-      "code": 6054,
+      "code": 6056,
       "name": "InvalidDisputeThreshold",
       "msg": "Invalid dispute threshold"
     },
     {
-      "code": 6055,
+      "code": 6057,
       "name": "InsufficientStake",
       "msg": "Insufficient stake for arbiter registration"
     },
     {
-      "code": 6056,
+      "code": 6058,
       "name": "MultisigInvalidThreshold",
       "msg": "Invalid multisig threshold"
     },
     {
-      "code": 6057,
+      "code": 6059,
       "name": "MultisigInvalidSigners",
       "msg": "Invalid multisig signer configuration"
     },
     {
-      "code": 6058,
+      "code": 6060,
       "name": "MultisigNotEnoughSigners",
       "msg": "Not enough multisig signers"
     },
     {
-      "code": 6059,
+      "code": 6061,
       "name": "MultisigDuplicateSigner",
       "msg": "Duplicate multisig signer provided"
     },
     {
-      "code": 6060,
+      "code": 6062,
       "name": "MultisigDefaultSigner",
       "msg": "Multisig signer cannot be default pubkey"
     },
     {
-      "code": 6061,
+      "code": 6063,
       "name": "MultisigSignerNotSystemOwned",
       "msg": "Multisig signer account not owned by System Program"
     },
     {
-      "code": 6062,
+      "code": 6064,
       "name": "InvalidInput",
       "msg": "Invalid input parameter"
     },
     {
-      "code": 6063,
+      "code": 6065,
       "name": "ArithmeticOverflow",
       "msg": "Arithmetic overflow"
     },
     {
-      "code": 6064,
+      "code": 6066,
       "name": "VoteOverflow",
       "msg": "Vote count overflow"
     },
     {
-      "code": 6065,
+      "code": 6067,
       "name": "InsufficientFunds",
       "msg": "Insufficient funds"
     },
     {
-      "code": 6066,
+      "code": 6068,
       "name": "CorruptedData",
       "msg": "Account data is corrupted"
     },
     {
-      "code": 6067,
+      "code": 6069,
       "name": "StringTooLong",
       "msg": "String too long"
     },
     {
-      "code": 6068,
+      "code": 6070,
       "name": "InvalidAccountOwner",
       "msg": "Account owner validation failed: account not owned by this program"
     },
     {
-      "code": 6069,
+      "code": 6071,
       "name": "RateLimitExceeded",
       "msg": "Rate limit exceeded: maximum actions per 24h window reached"
     },
     {
-      "code": 6070,
+      "code": 6072,
       "name": "CooldownNotElapsed",
       "msg": "Cooldown period has not elapsed since last action"
     },
     {
-      "code": 6071,
+      "code": 6073,
       "name": "InsufficientStakeForDispute",
       "msg": "Insufficient stake to initiate dispute"
     },
     {
-      "code": 6072,
+      "code": 6074,
       "name": "VersionMismatchProtocol",
       "msg": "Protocol version mismatch: account version incompatible with current program"
     },
     {
-      "code": 6073,
+      "code": 6075,
       "name": "AccountVersionTooOld",
       "msg": "Account version too old: migration required"
     },
     {
-      "code": 6074,
+      "code": 6076,
       "name": "AccountVersionTooNew",
       "msg": "Account version too new: program upgrade required"
     },
     {
-      "code": 6075,
+      "code": 6077,
       "name": "InvalidMigrationSource",
       "msg": "Migration not allowed: invalid source version"
     },
     {
-      "code": 6076,
+      "code": 6078,
       "name": "InvalidMigrationTarget",
       "msg": "Migration not allowed: invalid target version"
     },
     {
-      "code": 6077,
+      "code": 6079,
       "name": "UnauthorizedUpgrade",
       "msg": "Only upgrade authority can perform this action"
     }
@@ -3264,6 +3326,54 @@
           {
             "name": "timestamp",
             "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "AuthorityDisputeVote",
+      "docs": [
+        "Authority-level vote record to prevent Sybil attacks",
+        "One authority can only vote once per dispute, regardless of how many agents they control",
+        "PDA seeds: [\"authority_vote\", dispute, authority]"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "dispute",
+            "docs": [
+              "Dispute being voted on"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "authority",
+            "docs": [
+              "Authority (wallet) that voted"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "voting_agent",
+            "docs": [
+              "The agent used to cast this vote"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "voted_at",
+            "docs": [
+              "Vote timestamp"
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "bump",
+            "docs": [
+              "Bump seed"
+            ],
+            "type": "u8"
           }
         ]
       }

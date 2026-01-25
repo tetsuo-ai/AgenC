@@ -65,6 +65,8 @@ export {
   deriveProtocolPda,
   findAgentPda,
   findProtocolPda,
+  deriveAuthorityVotePda,
+  findAuthorityVotePda,
   // Event subscriptions
   subscribeToAgentRegistered,
   subscribeToAgentUpdated,
