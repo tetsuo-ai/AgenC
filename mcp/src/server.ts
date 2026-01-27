@@ -5,6 +5,9 @@ import { registerTaskTools } from './tools/tasks.js';
 import { registerProtocolTools } from './tools/protocol.js';
 import { registerDisputeTools } from './tools/disputes.js';
 import { registerConnectionTools } from './tools/connection.js';
+import { registerTestingTools } from './tools/testing.js';
+import { registerCircuitTools } from './tools/circuits.js';
+import { registerInspectorTools } from './tools/inspector.js';
 
 export function createServer(): McpServer {
   const server = new McpServer({
@@ -18,6 +21,9 @@ export function createServer(): McpServer {
   registerTaskTools(server);
   registerProtocolTools(server);
   registerDisputeTools(server);
+  registerTestingTools(server);
+  registerCircuitTools(server);
+  registerInspectorTools(server);
 
   // Register MCP resources
   registerResources(server);
