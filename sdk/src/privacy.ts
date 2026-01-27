@@ -1,5 +1,5 @@
 import { Connection, PublicKey, Transaction, Keypair, LAMPORTS_PER_SOL } from '@solana/web3.js';
-import { Program, AnchorProvider } from '@coral-xyz/anchor';
+import type { Program } from '@coral-xyz/anchor';
 import * as fs from 'fs';
 import * as path from 'path';
 import { execSync } from 'child_process';

@@ -12,7 +12,10 @@ import {
   SystemProgram,
   LAMPORTS_PER_SOL,
 } from '@solana/web3.js';
-import { Program, BN } from '@coral-xyz/anchor';
+import type { Program } from '@coral-xyz/anchor';
+import anchor from '@coral-xyz/anchor';
+const { BN } = anchor;
+type BN = InstanceType<typeof BN>;
 import { PROGRAM_ID, SEEDS, TaskState, U64_SIZE, DISCRIMINATOR_SIZE, PERCENT_BASE, DEFAULT_FEE_PERCENT } from './constants';
 
 export { TaskState };
