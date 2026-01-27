@@ -18,7 +18,6 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/tetsuo-ai/AgenC/actions"><img src="https://img.shields.io/github/actions/workflow/status/tetsuo-ai/AgenC/ci.yml?branch=main&style=flat-square" alt="Build Status"></a>
   <img src="https://img.shields.io/badge/Anchor-0.32+-blueviolet?style=flat-square" alt="Anchor">
   <img src="https://img.shields.io/badge/License-GPL--3.0-blue?style=flat-square" alt="License">
 </p>
