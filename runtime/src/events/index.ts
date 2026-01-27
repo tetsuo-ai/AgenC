@@ -1,7 +1,8 @@
 /**
  * Phase 2 Event Monitoring
  *
- * Type definitions and parse functions for all non-agent protocol events.
+ * Type definitions, parse functions, and subscription utilities
+ * for all non-agent protocol events.
  * Agent events are handled in agent/events.ts (Phase 1).
  *
  * @module
@@ -75,3 +76,29 @@ export {
   parseMigrationCompletedEvent,
   parseProtocolVersionUpdatedEvent,
 } from './parse.js';
+
+export {
+  subscribeToTaskCreated,
+  subscribeToTaskClaimed,
+  subscribeToTaskCompleted,
+  subscribeToTaskCancelled,
+  subscribeToAllTaskEvents,
+} from './task.js';
+
+export {
+  subscribeToDisputeInitiated,
+  subscribeToDisputeVoteCast,
+  subscribeToDisputeResolved,
+  subscribeToDisputeExpired,
+  subscribeToAllDisputeEvents,
+} from './dispute.js';
+
+export {
+  subscribeToStateUpdated,
+  subscribeToProtocolInitialized,
+  subscribeToRewardDistributed,
+  subscribeToRateLimitHit,
+  subscribeToMigrationCompleted,
+  subscribeToProtocolVersionUpdated,
+  subscribeToAllProtocolEvents,
+} from './protocol.js';
