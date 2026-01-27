@@ -155,12 +155,17 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
                 task.completed_at = clock.unix_timestamp;
             }
             ResolutionType::Split => {
-                // Split requires valid worker_claim if worker provided
-                let half = remaining_funds
-                    .checked_div(2)
-                    .ok_or(CoordinationError::ArithmeticOverflow)?;
+                // Split remaining funds between creator and worker.
+                // Use remaining_funds > 0 (not half > 0) to handle the edge case
+                // where remaining_funds = 1 and half rounds down to 0.
+                if remaining_funds > 0 {
+                    let half = remaining_funds
+                        .checked_div(2)
+                        .ok_or(CoordinationError::ArithmeticOverflow)?;
+                    let other_half = remaining_funds
+                        .checked_sub(half)
+                        .ok_or(CoordinationError::ArithmeticOverflow)?;
 
-                if half > 0 {
                     **escrow.to_account_info().try_borrow_mut_lamports()? -= remaining_funds;
                     **ctx
                         .accounts
@@ -174,15 +179,14 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
                             ctx.accounts.worker_claim.is_some(),
                             CoordinationError::NotClaimed
                         );
-                        **worker.to_account_info().try_borrow_mut_lamports()? +=
-                            remaining_funds - half;
+                        **worker.to_account_info().try_borrow_mut_lamports()? += other_half;
                     } else {
                         // If no worker, give all to creator
                         **ctx
                             .accounts
                             .creator
                             .to_account_info()
-                            .try_borrow_mut_lamports()? += remaining_funds - half;
+                            .try_borrow_mut_lamports()? += other_half;
                     }
                 }
                 task.status = TaskStatus::Cancelled;
