@@ -1,21 +1,35 @@
 /**
  * @agenc/runtime - Agent runtime infrastructure for AgenC
+ *
+ * This is the main entry point for the @agenc/runtime package.
+ * It re-exports all public APIs including agent management, types,
+ * utilities, and key constants from @agenc/sdk.
+ *
  * @packageDocumentation
  */
 
 // Re-export SDK constants for convenience
 export {
   PROGRAM_ID,
-  VERIFIER_PROGRAM_ID,
+  PRIVACY_CASH_PROGRAM_ID,
   DEVNET_RPC,
   MAINNET_RPC,
-  HASH_SIZE,
   SEEDS,
+  HASH_SIZE,
+  RESULT_DATA_SIZE,
+  U64_SIZE,
+  DISCRIMINATOR_SIZE,
+  OUTPUT_FIELD_COUNT,
+  PROOF_SIZE_BYTES,
+  VERIFICATION_COMPUTE_UNITS,
+  PUBLIC_INPUTS_COUNT,
+  PERCENT_BASE,
+  DEFAULT_FEE_PERCENT,
   TaskState,
   TaskStatus,
 } from '@agenc/sdk';
 
-// IDL exports
+// IDL and program creation
 export {
   IDL,
   type AgencCoordination,
@@ -25,10 +39,10 @@ export {
 
 export const VERSION = '0.1.0';
 
-// AgentRuntime
+// Runtime class
 export { AgentRuntime } from './runtime.js';
 
-// Types (protocol and errors)
+// Types (protocol, errors, wallet, config) — all via types barrel
 export {
   // Protocol types
   ProtocolConfig,
@@ -112,22 +126,19 @@ export {
   type AgentManagerConfig,
   type ProtocolConfigCacheOptions,
   type GetProtocolConfigOptions,
-  // AgentRuntime types
-  type AgentRuntimeConfig,
-  isKeypair,
-} from './types/index.js';
-
-// Wallet types and helpers
-export {
-  Wallet,
-  SignMessageWallet,
+  // Wallet types and helpers
+  type Wallet,
+  type SignMessageWallet,
   KeypairFileError,
   keypairToWallet,
   loadKeypairFromFile,
   loadKeypairFromFileSync,
   getDefaultKeypairPath,
   loadDefaultKeypair,
-} from './types/wallet.js';
+  // AgentRuntime types
+  type AgentRuntimeConfig,
+  isKeypair,
+} from './types/index.js';
 
 // Logger utilities
 export {

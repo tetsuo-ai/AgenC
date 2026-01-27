@@ -94,5 +94,17 @@ export {
   type GetProtocolConfigOptions,
 } from '../agent/index.js';
 
+// Wallet types and helpers
+export {
+  type Wallet,
+  type SignMessageWallet,
+  KeypairFileError,
+  keypairToWallet,
+  loadKeypairFromFile,
+  loadKeypairFromFileSync,
+  getDefaultKeypairPath,
+  loadDefaultKeypair,
+} from './wallet.js';
+
 // Runtime configuration types
-export { AgentRuntimeConfig, isKeypair } from './config.js';
+export { type AgentRuntimeConfig, isKeypair } from './config.js';
