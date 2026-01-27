@@ -1,56 +1,46 @@
 /**
  * Phase 2 Event Monitoring
  *
- * Type definitions, parse functions, and subscription utilities
- * for all non-agent protocol events.
+ * Type definitions, parse functions, subscription utilities,
+ * and EventMonitor for all non-agent protocol events.
  * Agent events are handled in agent/events.ts (Phase 1).
  *
  * @module
  */
 
+// Types
 export {
+  // Shared types
+  type EventCallback,
+  // NOTE: EventSubscription is NOT re-exported here to avoid
+  // duplicate export with agent/events.ts path
+
   // Enums
   TaskType,
   ResolutionType,
   RateLimitActionType,
   RateLimitType,
-  // Shared types
-  type EventCallback,
-  type EventSubscription,
-  // Task raw events
-  type RawTaskCreatedEvent,
-  type RawTaskClaimedEvent,
-  type RawTaskCompletedEvent,
-  type RawTaskCancelledEvent,
-  // Dispute raw events
-  type RawDisputeInitiatedEvent,
-  type RawDisputeVoteCastEvent,
-  type RawDisputeResolvedEvent,
-  type RawDisputeExpiredEvent,
-  // Protocol raw events
-  type RawStateUpdatedEvent,
-  type RawProtocolInitializedEvent,
-  type RawRewardDistributedEvent,
-  type RawRateLimitHitEvent,
-  type RawMigrationCompletedEvent,
-  type RawProtocolVersionUpdatedEvent,
-  // Task parsed events
+
+  // Task event types (parsed)
   type TaskCreatedEvent,
   type TaskClaimedEvent,
   type TaskCompletedEvent,
   type TaskCancelledEvent,
-  // Dispute parsed events
+
+  // Dispute event types (parsed)
   type DisputeInitiatedEvent,
   type DisputeVoteCastEvent,
   type DisputeResolvedEvent,
   type DisputeExpiredEvent,
-  // Protocol parsed events
+
+  // Protocol event types (parsed)
   type StateUpdatedEvent,
   type ProtocolInitializedEvent,
   type RewardDistributedEvent,
   type RateLimitHitEvent,
   type MigrationCompletedEvent,
   type ProtocolVersionUpdatedEvent,
+
   // Callback interfaces
   type TaskEventCallbacks,
   type TaskEventFilterOptions,
@@ -60,6 +50,11 @@ export {
   type ProtocolEventFilterOptions,
 } from './types.js';
 
+// NOTE: Raw event interfaces (RawTaskCreatedEvent, etc.) are intentionally NOT
+// exported from this barrel. They are implementation details used by parse functions
+// and subscribe internals. Test files import them directly from './types.js'.
+
+// Parse functions (exported for advanced use cases / testing)
 export {
   parseTaskCreatedEvent,
   parseTaskClaimedEvent,
@@ -77,6 +72,7 @@ export {
   parseProtocolVersionUpdatedEvent,
 } from './parse.js';
 
+// Task subscriptions
 export {
   subscribeToTaskCreated,
   subscribeToTaskClaimed,
@@ -85,6 +81,7 @@ export {
   subscribeToAllTaskEvents,
 } from './task.js';
 
+// Dispute subscriptions
 export {
   subscribeToDisputeInitiated,
   subscribeToDisputeVoteCast,
@@ -93,6 +90,7 @@ export {
   subscribeToAllDisputeEvents,
 } from './dispute.js';
 
+// Protocol subscriptions
 export {
   subscribeToStateUpdated,
   subscribeToProtocolInitialized,
@@ -102,3 +100,10 @@ export {
   subscribeToProtocolVersionUpdated,
   subscribeToAllProtocolEvents,
 } from './protocol.js';
+
+// EventMonitor class
+export {
+  EventMonitor,
+  type EventMonitorConfig,
+  type EventMonitorMetrics,
+} from './monitor.js';
