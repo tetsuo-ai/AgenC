@@ -8,23 +8,17 @@ export default defineConfig({
   clean: true,
   platform: 'node',
   target: 'node18',
-  // Bundle these dependencies into the output to avoid ESM/CJS interop
-  // issues at runtime. @coral-xyz/anchor is CJS-only and causes failures
-  // when consumed as an external dependency in both CJS and ESM contexts.
-  noExternal: [
-    '@coral-xyz/anchor',
-    '@solana/web3.js',
-    '@agenc/runtime',
-    '@agenc/sdk',
-  ],
+  // Bundle everything - resolving anchor interop at build time
+  noExternal: [/.*/],
   esbuildOptions(options) {
-    // Force CJS resolution throughout the dependency tree.
-    // esbuild's export map resolution picks .mjs files from @agenc/sdk
-    // and @agenc/runtime, which triggers broken ESM interop with
-    // @coral-xyz/anchor. Alias to CJS entry points directly.
+    // Force resolution to CJS entry points.
+    // The SDK/Runtime .mjs files have broken anchor interop,
+    // so we resolve to .js (CJS) entries where require() works.
     options.alias = {
       '@agenc/sdk': path.resolve(__dirname, '../sdk/dist/index.js'),
       '@agenc/runtime': path.resolve(__dirname, '../runtime/dist/index.js'),
     };
+    // Mark native Node modules as external
+    options.external = ['fs', 'path', 'os', 'crypto', 'http', 'https', 'net', 'tls', 'stream', 'url', 'zlib', 'events', 'util', 'buffer', 'assert', 'child_process', 'worker_threads', 'node:*'];
   },
 });

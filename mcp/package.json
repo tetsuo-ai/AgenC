@@ -2,7 +2,7 @@
   "name": "@agenc/mcp",
   "version": "0.1.0",
   "description": "Model Context Protocol server for AgenC development — exposes protocol operations as MCP tools",
-  "main": "dist/index.js",
+  "main": "dist/index.cjs",
   "types": "dist/index.d.ts",
   "bin": {
     "agenc-mcp": "./dist/index.js"
@@ -58,10 +58,15 @@
     "@solana/web3.js": ">=1.90.0"
   },
   "peerDependenciesMeta": {
-    "@coral-xyz/anchor": { "optional": true },
-    "@solana/web3.js": { "optional": true }
+    "@coral-xyz/anchor": {
+      "optional": true
+    },
+    "@solana/web3.js": {
+      "optional": true
+    }
   },
   "engines": {
     "node": ">=18.0.0"
-  }
+  },
+  "type": "module"
 }

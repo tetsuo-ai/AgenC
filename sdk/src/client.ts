@@ -6,7 +6,7 @@
 
 import { Connection, PublicKey, Keypair, LAMPORTS_PER_SOL } from '@solana/web3.js';
 import type { Idl } from '@coral-xyz/anchor';
-import anchor from '@coral-xyz/anchor';
+import * as anchor from '@coral-xyz/anchor';
 const { Program, AnchorProvider, Wallet } = anchor;
 type Program = InstanceType<typeof Program>;
 type AnchorProvider = InstanceType<typeof AnchorProvider>;
