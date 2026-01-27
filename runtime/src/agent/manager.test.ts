@@ -111,6 +111,16 @@ describe('AgentManager', () => {
     });
   });
 
+  describe('getProgram', () => {
+    it('should return the program instance', () => {
+      const manager = new AgentManager(createConfig());
+      const program = manager.getProgram();
+
+      expect(program).toBeDefined();
+      expect(program.programId).toEqual(PROGRAM_ID);
+    });
+  });
+
   describe('requireRegistered errors', () => {
     it('getState throws AgentNotRegisteredError when not registered', async () => {
       const manager = new AgentManager(createConfig());
