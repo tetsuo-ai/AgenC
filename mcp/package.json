@@ -3,7 +3,6 @@
   "version": "0.1.0",
   "description": "Model Context Protocol server for AgenC development — exposes protocol operations as MCP tools",
   "main": "dist/index.js",
-  "module": "dist/index.mjs",
   "types": "dist/index.d.ts",
   "bin": {
     "agenc-mcp": "./dist/index.js"
@@ -11,13 +10,15 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.mjs",
-      "require": "./dist/index.js"
+      "default": "./dist/index.js"
     }
   },
-  "files": ["dist", "README.md"],
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "scripts": {
-    "build": "tsup src/index.ts --format cjs,esm --dts --clean",
+    "build": "tsup",
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "npm run build"
   },
@@ -39,8 +40,8 @@
     "directory": "mcp"
   },
   "dependencies": {
-    "@agenc/sdk": "file:../sdk",
     "@agenc/runtime": "file:../runtime",
+    "@agenc/sdk": "file:../sdk",
     "@modelcontextprotocol/sdk": "^1.6.1",
     "zod": "^3.24.2"
   },
@@ -49,11 +50,16 @@
     "@solana/web3.js": "^1.95.0",
     "@types/node": "^20.0.0",
     "tsup": "^8.0.0",
+    "tsx": "^4.21.0",
     "typescript": "^5.0.0"
   },
   "peerDependencies": {
     "@coral-xyz/anchor": ">=0.29.0",
     "@solana/web3.js": ">=1.90.0"
+  },
+  "peerDependenciesMeta": {
+    "@coral-xyz/anchor": { "optional": true },
+    "@solana/web3.js": { "optional": true }
   },
   "engines": {
     "node": ">=18.0.0"
