@@ -108,3 +108,42 @@ export {
 
 // Runtime configuration types
 export { type AgentRuntimeConfig, isKeypair } from './config.js';
+
+// Event monitoring types (Phase 2)
+export {
+  // Enums
+  TaskType,
+  ResolutionType,
+  RateLimitActionType,
+  RateLimitType,
+
+  // Task event types
+  type TaskCreatedEvent,
+  type TaskClaimedEvent,
+  type TaskCompletedEvent,
+  type TaskCancelledEvent,
+  type TaskEventCallbacks,
+  type TaskEventFilterOptions,
+
+  // Dispute event types
+  type DisputeInitiatedEvent,
+  type DisputeVoteCastEvent,
+  type DisputeResolvedEvent,
+  type DisputeExpiredEvent,
+  type DisputeEventCallbacks,
+  type DisputeEventFilterOptions,
+
+  // Protocol event types
+  type StateUpdatedEvent,
+  type ProtocolInitializedEvent,
+  type RewardDistributedEvent,
+  type RateLimitHitEvent,
+  type MigrationCompletedEvent,
+  type ProtocolVersionUpdatedEvent,
+  type ProtocolEventCallbacks,
+  type ProtocolEventFilterOptions,
+
+  // EventMonitor types
+  type EventMonitorConfig,
+  type EventMonitorMetrics,
+} from '../events/index.js';
