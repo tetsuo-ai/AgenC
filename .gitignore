@@ -64,3 +64,4 @@ circuits/**/*.gz
 # Claude Code (local AI assistant config)
 .claude/*
 CLAUDE.md
+.mcp.json
