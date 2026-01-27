@@ -8,6 +8,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Connection, Keypair, Transaction, VersionedTransaction } from '@solana/web3.js';
 import { AgentRuntime } from './runtime.js';
+import { EventMonitor } from './events/index.js';
 import { ValidationError } from './types/errors.js';
 import type { Wallet } from './types/wallet.js';
 import { AGENT_ID_LENGTH } from './agent/types.js';
@@ -275,6 +276,62 @@ describe('AgentRuntime', () => {
 
       // Should only be called twice (SIGINT + SIGTERM), not four times
       expect(process.on).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('createEventMonitor', () => {
+    it('returns an EventMonitor instance', () => {
+      const keypair = Keypair.generate();
+      const runtime = new AgentRuntime({
+        connection: mockConnection,
+        wallet: keypair,
+        capabilities: 1n,
+      });
+
+      const monitor = runtime.createEventMonitor();
+      expect(monitor).toBeInstanceOf(EventMonitor);
+    });
+
+    it('returns a new instance on each call', () => {
+      const keypair = Keypair.generate();
+      const runtime = new AgentRuntime({
+        connection: mockConnection,
+        wallet: keypair,
+        capabilities: 1n,
+      });
+
+      const monitor1 = runtime.createEventMonitor();
+      const monitor2 = runtime.createEventMonitor();
+      expect(monitor1).not.toBe(monitor2);
+    });
+
+    it('returns a monitor that is not yet running', () => {
+      const keypair = Keypair.generate();
+      const runtime = new AgentRuntime({
+        connection: mockConnection,
+        wallet: keypair,
+        capabilities: 1n,
+      });
+
+      const monitor = runtime.createEventMonitor();
+      expect(monitor.isRunning()).toBe(false);
+      expect(monitor.getSubscriptionCount()).toBe(0);
+    });
+
+    it('returns a monitor with zeroed metrics', () => {
+      const keypair = Keypair.generate();
+      const runtime = new AgentRuntime({
+        connection: mockConnection,
+        wallet: keypair,
+        capabilities: 1n,
+      });
+
+      const monitor = runtime.createEventMonitor();
+      const metrics = monitor.getMetrics();
+      expect(metrics.totalEventsReceived).toBe(0);
+      expect(metrics.eventCounts).toEqual({});
+      expect(metrics.startedAt).toBeNull();
+      expect(metrics.uptimeMs).toBe(0);
     });
   });
 });

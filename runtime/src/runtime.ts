@@ -11,6 +11,7 @@ import { Connection, PublicKey } from '@solana/web3.js';
 import { PROGRAM_ID } from '@agenc/sdk';
 import { AgentManager } from './agent/manager.js';
 import { AgentState, AgentStatus, AgentRegistrationParams, AGENT_ID_LENGTH } from './agent/types.js';
+import { EventMonitor } from './events/index.js';
 import { AgentRuntimeConfig, isKeypair } from './types/config.js';
 import type { Wallet } from './types/wallet.js';
 import { keypairToWallet } from './types/wallet.js';
@@ -381,5 +382,29 @@ export class AgentRuntime {
    */
   isStarted(): boolean {
     return this.started;
+  }
+
+  /**
+   * Create an EventMonitor instance configured with this runtime's program and logger.
+   *
+   * The returned EventMonitor can subscribe to task, dispute, protocol, and agent
+   * events with transparent metrics tracking.
+   *
+   * @returns A new EventMonitor instance
+   *
+   * @example
+   * ```typescript
+   * const monitor = runtime.createEventMonitor();
+   * monitor.subscribeToTaskEvents({
+   *   onTaskCreated: (event) => console.log('Task created:', event.taskId),
+   * });
+   * monitor.start();
+   * ```
+   */
+  createEventMonitor(): EventMonitor {
+    return new EventMonitor({
+      program: this.agentManager.getProgram(),
+      logger: this.logger,
+    });
   }
 }
