@@ -1,6 +1,13 @@
+var __require = /* @__PURE__ */ ((x) => typeof require !== "undefined" ? require : typeof Proxy !== "undefined" ? new Proxy(x, {
+  get: (a, b) => (typeof require !== "undefined" ? require : a)[b]
+}) : x)(function(x) {
+  if (typeof require !== "undefined") return require.apply(this, arguments);
+  throw Error('Dynamic require of "' + x + '" is not supported');
+});
+
 // src/client.ts
 import { Connection as Connection2, LAMPORTS_PER_SOL as LAMPORTS_PER_SOL2 } from "@solana/web3.js";
-import { Program, AnchorProvider, Wallet } from "@coral-xyz/anchor";
+import anchor from "@coral-xyz/anchor";
 import * as path2 from "path";
 
 // src/privacy.ts
@@ -12,7 +19,6 @@ import { execSync } from "child_process";
 // src/constants.ts
 import { PublicKey } from "@solana/web3.js";
 var PROGRAM_ID = new PublicKey("EopUaCV2svxj9j4hd7KjbrWfdjkspmm2BCBe7jGpKzKZ");
-var VERIFIER_PROGRAM_ID = new PublicKey("8fHUGmjNzSh76r78v1rPt7BhWmAu2gXrvW9A2XXonwQQ");
 var PRIVACY_CASH_PROGRAM_ID = new PublicKey("9fhQBbumKEFuXtMBDw8AaQyAjCorLGJQiS3skWZdQyQD");
 var DEVNET_RPC = "https://api.devnet.solana.com";
 var MAINNET_RPC = "https://api.mainnet-beta.solana.com";
@@ -21,7 +27,7 @@ var RESULT_DATA_SIZE = 64;
 var U64_SIZE = 8;
 var DISCRIMINATOR_SIZE = 8;
 var OUTPUT_FIELD_COUNT = 4;
-var PROOF_SIZE_BYTES = 388;
+var PROOF_SIZE_BYTES = 256;
 var VERIFICATION_COMPUTE_UNITS = 5e4;
 var PUBLIC_INPUTS_COUNT = 67;
 var PERCENT_BASE = 100;
@@ -40,7 +46,10 @@ var SEEDS = {
   TASK: Buffer.from("task"),
   CLAIM: Buffer.from("claim"),
   AGENT: Buffer.from("agent"),
-  ESCROW: Buffer.from("escrow")
+  ESCROW: Buffer.from("escrow"),
+  DISPUTE: Buffer.from("dispute"),
+  VOTE: Buffer.from("vote"),
+  AUTHORITY_VOTE: Buffer.from("authority_vote")
 };
 
 // src/privacy.ts
@@ -238,7 +247,6 @@ var AgenCPrivacyClient = class {
       [Buffer.from("claim"), taskPda.toBuffer(), worker.toBuffer()],
       this.program.programId
     );
-    const verifierProgramId = await this.getVerifierProgramId();
     const ix = await this.program.methods.completeTaskPrivate(taskId, {
       zkProof: Array.from(zkProof),
       publicWitness: Array.from(publicWitness)
@@ -246,7 +254,6 @@ var AgenCPrivacyClient = class {
       worker,
       task: taskPda,
       taskClaim: claimPda,
-      zkVerifier: verifierProgramId,
       systemProgram: PublicKey2.default
     }).instruction();
     const tx = new Transaction().add(ix);
@@ -293,12 +300,10 @@ salt = "${params.salt}"
     const accounts = this.program.account;
     return await accounts["task"].fetch(taskPda);
   }
-  async getVerifierProgramId() {
-    return VERIFIER_PROGRAM_ID;
-  }
 };
 
 // src/client.ts
+var { Program, AnchorProvider, Wallet } = anchor;
 function isValidCircuitPath(circuitPath) {
   if (path2.isAbsolute(circuitPath)) {
     return false;
@@ -466,8 +471,8 @@ var PrivacyClient = class {
 // src/proofs.ts
 import * as fs2 from "fs";
 import * as path3 from "path";
-import { execSync as execSync2 } from "child_process";
-import { poseidon2Hash } from "@zkpassport/poseidon2";
+import { poseidon2, poseidon4 } from "poseidon-lite";
+var snarkjs = __require("snarkjs");
 function validateCircuitPath2(circuitPath) {
   if (path3.isAbsolute(circuitPath)) {
     throw new Error("Security: Absolute circuit paths are not allowed");
@@ -482,9 +487,7 @@ function validateCircuitPath2(circuitPath) {
   }
 }
 var FIELD_MODULUS = 21888242871839275222246405745257275088548364400416034343698204186575808495617n;
-var FIELD_HEX_LENGTH = HASH_SIZE * 2;
-var DEFAULT_CIRCUIT_PATH = "./circuits/task_completion";
-var DEFAULT_HASH_HELPER_PATH = "./circuits/hash_helper";
+var DEFAULT_CIRCUIT_PATH = "./circuits-circom/task_completion";
 var BITS_PER_BYTE = 8n;
 function generateSalt() {
   const bytes = new Uint8Array(HASH_SIZE);
@@ -495,185 +498,157 @@ function generateSalt() {
   }
   return salt % FIELD_MODULUS;
 }
-async function computeHashesViaNargo(taskPda, agentPubkey, output, salt, hashHelperPath = DEFAULT_HASH_HELPER_PATH) {
-  validateCircuitPath2(hashHelperPath);
-  if (output.length !== OUTPUT_FIELD_COUNT) {
-    throw new Error(`Output must be exactly ${OUTPUT_FIELD_COUNT} field elements`);
-  }
-  const taskBytes = Array.from(taskPda.toBytes());
-  const agentBytes = Array.from(agentPubkey.toBytes());
-  const proverToml = `task_id = [${taskBytes.join(", ")}]
-agent_pubkey = [${agentBytes.join(", ")}]
-output = [${output.map((o) => `"${o.toString()}"`).join(", ")}]
-salt = "${salt.toString()}"
-`;
-  const proverTomlPath = path3.join(hashHelperPath, "Prover.toml");
-  fs2.writeFileSync(proverTomlPath, proverToml);
-  try {
-    const result = execSync2("nargo execute", {
-      cwd: hashHelperPath,
-      encoding: "utf-8",
-      timeout: 6e4
-    });
-    const outputMatch = result.match(/Circuit output: \((0x[0-9a-fA-F]+), (0x[0-9a-fA-F]+), (0x[0-9a-fA-F]+)\)/);
-    if (!outputMatch) {
-      throw new Error(`Failed to parse hash_helper output: ${result}`);
-    }
-    return {
-      constraintHash: BigInt(outputMatch[1]),
-      outputCommitment: BigInt(outputMatch[2]),
-      expectedBinding: BigInt(outputMatch[3])
-    };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`Hash computation failed: ${message}`);
-  }
-}
-function generateProverToml(taskPda, agentPubkey, output, salt, hashes) {
-  const taskBytes = Array.from(taskPda.toBytes());
-  const agentBytes = Array.from(agentPubkey.toBytes());
-  return `task_id = [${taskBytes.join(", ")}]
-agent_pubkey = [${agentBytes.join(", ")}]
-constraint_hash = "0x${hashes.constraintHash.toString(16).padStart(FIELD_HEX_LENGTH, "0")}"
-output_commitment = "0x${hashes.outputCommitment.toString(16).padStart(FIELD_HEX_LENGTH, "0")}"
-expected_binding = "0x${hashes.expectedBinding.toString(16).padStart(FIELD_HEX_LENGTH, "0")}"
-output = [${output.map((o) => `"${o.toString()}"`).join(", ")}]
-salt = "${salt.toString()}"
-`;
-}
-function bigintToBytes32(value) {
-  const hex = value.toString(16).padStart(FIELD_HEX_LENGTH, "0");
-  return Buffer.from(hex, "hex");
-}
-async function generateProof(params) {
-  const circuitPath = params.circuitPath || DEFAULT_CIRCUIT_PATH;
-  const hashHelperPath = params.hashHelperPath || DEFAULT_HASH_HELPER_PATH;
-  validateCircuitPath2(circuitPath);
-  validateCircuitPath2(hashHelperPath);
-  const startTime = Date.now();
-  const hashes = await computeHashesViaNargo(
-    params.taskPda,
-    params.agentPubkey,
-    params.output,
-    params.salt,
-    hashHelperPath
-  );
-  const proverTomlPath = path3.join(circuitPath, "Prover.toml");
-  const targetDir = path3.join(circuitPath, "target");
-  if (!fs2.existsSync(targetDir)) {
-    fs2.mkdirSync(targetDir, { recursive: true });
-  }
-  fs2.writeFileSync(
-    proverTomlPath,
-    generateProverToml(params.taskPda, params.agentPubkey, params.output, params.salt, hashes)
-  );
-  const proofOutputPath = path3.join(circuitPath, "target/task_completion.proof");
-  const witnessPath = path3.join(circuitPath, "target/task_completion.gz");
-  try {
-    execSync2("nargo execute", { cwd: circuitPath, stdio: "pipe", timeout: 12e4 });
-    execSync2(
-      "sunspot prove target/task_completion.ccs target/task_completion.pk target/task_completion.gz -o target/task_completion.proof",
-      { cwd: circuitPath, stdio: "pipe", timeout: 3e5 }
-    );
-    const proof = fs2.readFileSync(proofOutputPath);
-    const publicWitness = fs2.readFileSync(witnessPath);
-    return {
-      proof,
-      publicWitness,
-      constraintHash: bigintToBytes32(hashes.constraintHash),
-      outputCommitment: bigintToBytes32(hashes.outputCommitment),
-      expectedBinding: bigintToBytes32(hashes.expectedBinding),
-      proofSize: proof.length,
-      generationTime: Date.now() - startTime
-    };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`Proof generation failed: ${message}`);
-  }
-}
-async function verifyProofLocally(proof, publicWitness, circuitPath = DEFAULT_CIRCUIT_PATH) {
-  validateCircuitPath2(circuitPath);
-  const uniqueSuffix = `${Date.now()}_${Math.random().toString(36).substring(2, 10)}`;
-  const proofPath = path3.join(circuitPath, `target/verify_test_${uniqueSuffix}.proof`);
-  const witnessPath = path3.join(circuitPath, `target/verify_test_${uniqueSuffix}.pw`);
-  const relativeProofPath = `target/verify_test_${uniqueSuffix}.proof`;
-  const relativeWitnessPath = `target/verify_test_${uniqueSuffix}.pw`;
-  fs2.writeFileSync(proofPath, proof);
-  fs2.writeFileSync(witnessPath, publicWitness);
-  try {
-    execSync2(
-      `sunspot verify target/task_completion.ccs target/task_completion.vk ${relativeProofPath} ${relativeWitnessPath}`,
-      { cwd: circuitPath, stdio: "pipe", timeout: 6e4 }
-    );
-    return true;
-  } catch {
-    return false;
-  } finally {
-    try {
-      fs2.unlinkSync(proofPath);
-    } catch {
-    }
-    try {
-      fs2.unlinkSync(witnessPath);
-    } catch {
-    }
-  }
-}
-function checkToolsAvailable() {
-  const result = { nargo: false, sunspot: false };
-  try {
-    const nargoOutput = execSync2("nargo --version", { stdio: "pipe", encoding: "utf-8" });
-    result.nargo = true;
-    result.nargoVersion = nargoOutput.trim();
-  } catch {
-  }
-  try {
-    const sunspotOutput = execSync2("sunspot --version", { stdio: "pipe", encoding: "utf-8" });
-    result.sunspot = true;
-    result.sunspotVersion = sunspotOutput.trim();
-  } catch {
-  }
-  return result;
-}
-function requireTools(requireSunspot = true) {
-  const tools = checkToolsAvailable();
-  if (!tools.nargo) {
-    throw new Error(
-      "nargo not found. Install with:\n  curl -L https://raw.githubusercontent.com/noir-lang/noirup/main/install | bash\n  noirup\n\nSee: https://noir-lang.org/docs/getting_started/installation"
-    );
-  }
-  if (requireSunspot && !tools.sunspot) {
-    throw new Error(
-      "sunspot not found. Install with:\n  1. Install Go 1.21+\n  2. git clone https://github.com/Sunspot-Network/sunspot\n  3. cd sunspot/go && go build -o sunspot\n  4. Add to PATH\n\nSee: circuits/README.md for detailed instructions"
-    );
-  }
-}
-var BYTE_BASE = 256n;
 function pubkeyToField(pubkey) {
   const bytes = pubkey.toBytes();
   let field = 0n;
+  const BYTE_BASE = 256n;
   for (const byte of bytes) {
     field = (field * BYTE_BASE + BigInt(byte)) % FIELD_MODULUS;
   }
   return field;
 }
 function computeConstraintHash(output) {
-  console.warn("DEPRECATED: computeConstraintHash uses JS Poseidon2 which may not match circuit. Use computeHashesViaNargo instead.");
   if (output.length !== OUTPUT_FIELD_COUNT) {
     throw new Error(`Output must be exactly ${OUTPUT_FIELD_COUNT} field elements`);
   }
-  return poseidon2Hash(output.map((x) => x % FIELD_MODULUS));
+  const reduced = output.map((x) => (x % FIELD_MODULUS + FIELD_MODULUS) % FIELD_MODULUS);
+  return poseidon4(reduced);
 }
 function computeCommitment(constraintHash, salt) {
-  console.warn("DEPRECATED: computeCommitment uses JS Poseidon2 which may not match circuit. Use computeHashesViaNargo instead.");
-  return poseidon2Hash([constraintHash % FIELD_MODULUS, salt % FIELD_MODULUS, 0n, 0n]);
+  const ch = (constraintHash % FIELD_MODULUS + FIELD_MODULUS) % FIELD_MODULUS;
+  const s = (salt % FIELD_MODULUS + FIELD_MODULUS) % FIELD_MODULUS;
+  return poseidon2([ch, s]);
 }
 function computeExpectedBinding(taskPda, agentPubkey, outputCommitment) {
-  console.warn("DEPRECATED: computeExpectedBinding uses JS Poseidon2 which may not match circuit. Use computeHashesViaNargo instead.");
   const taskField = pubkeyToField(taskPda);
   const agentField = pubkeyToField(agentPubkey);
-  const binding = poseidon2Hash([taskField, agentField, 0n, 0n]);
-  return poseidon2Hash([binding, outputCommitment % FIELD_MODULUS, 0n, 0n]);
+  const binding = poseidon2([taskField, agentField]);
+  const commitment = (outputCommitment % FIELD_MODULUS + FIELD_MODULUS) % FIELD_MODULUS;
+  return poseidon2([binding, commitment]);
+}
+function computeHashes(taskPda, agentPubkey, output, salt) {
+  const constraintHash = computeConstraintHash(output);
+  const outputCommitment = computeCommitment(constraintHash, salt);
+  const expectedBinding = computeExpectedBinding(taskPda, agentPubkey, outputCommitment);
+  return {
+    constraintHash,
+    outputCommitment,
+    expectedBinding
+  };
+}
+function bigintToBytes32(value) {
+  const hex = value.toString(16).padStart(HASH_SIZE * 2, "0");
+  return Buffer.from(hex, "hex");
+}
+function buildWitnessInput(taskPda, agentPubkey, output, salt, hashes) {
+  const taskBytes = Array.from(taskPda.toBytes()).map((b) => b.toString());
+  const agentBytes = Array.from(agentPubkey.toBytes()).map((b) => b.toString());
+  return {
+    task_id: taskBytes,
+    agent_pubkey: agentBytes,
+    constraint_hash: hashes.constraintHash.toString(),
+    output_commitment: hashes.outputCommitment.toString(),
+    expected_binding: hashes.expectedBinding.toString(),
+    output: output.map((o) => o.toString()),
+    salt: salt.toString()
+  };
+}
+function convertProofToSolanaFormat(proof) {
+  const toBe32 = (val) => {
+    const bi = BigInt(val);
+    const hex = bi.toString(16).padStart(64, "0");
+    return Buffer.from(hex, "hex");
+  };
+  const proofA = Buffer.concat([toBe32(proof.pi_a[0]), toBe32(proof.pi_a[1])]);
+  const proofB = Buffer.concat([
+    toBe32(proof.pi_b[0][1]),
+    toBe32(proof.pi_b[0][0]),
+    toBe32(proof.pi_b[1][1]),
+    toBe32(proof.pi_b[1][0])
+  ]);
+  const proofC = Buffer.concat([toBe32(proof.pi_c[0]), toBe32(proof.pi_c[1])]);
+  return Buffer.concat([proofA, proofB, proofC]);
+}
+async function generateProof(params) {
+  const circuitPath = params.circuitPath || DEFAULT_CIRCUIT_PATH;
+  validateCircuitPath2(circuitPath);
+  const startTime = Date.now();
+  const hashes = computeHashes(params.taskPda, params.agentPubkey, params.output, params.salt);
+  const witnessInput = buildWitnessInput(
+    params.taskPda,
+    params.agentPubkey,
+    params.output,
+    params.salt,
+    hashes
+  );
+  const wasmPath = path3.join(circuitPath, "target/circuit_js/circuit.wasm");
+  const zkeyPath = path3.join(circuitPath, "target/circuit.zkey");
+  if (!fs2.existsSync(wasmPath)) {
+    throw new Error(`Circuit WASM not found at ${wasmPath}. Run 'npm run build' in circuits-circom/task_completion first.`);
+  }
+  if (!fs2.existsSync(zkeyPath)) {
+    throw new Error(`Circuit zkey not found at ${zkeyPath}. Run 'npm run build' in circuits-circom/task_completion first.`);
+  }
+  const { proof } = await snarkjs.groth16.fullProve(witnessInput, wasmPath, zkeyPath);
+  const proofBuffer = convertProofToSolanaFormat(proof);
+  if (proofBuffer.length !== PROOF_SIZE_BYTES) {
+    throw new Error(`Proof size mismatch: expected ${PROOF_SIZE_BYTES}, got ${proofBuffer.length}`);
+  }
+  return {
+    proof: proofBuffer,
+    constraintHash: bigintToBytes32(hashes.constraintHash),
+    outputCommitment: bigintToBytes32(hashes.outputCommitment),
+    expectedBinding: bigintToBytes32(hashes.expectedBinding),
+    proofSize: proofBuffer.length,
+    generationTime: Date.now() - startTime
+  };
+}
+async function verifyProofLocally(proof, publicSignals, circuitPath = DEFAULT_CIRCUIT_PATH) {
+  validateCircuitPath2(circuitPath);
+  const vkeyPath = path3.join(circuitPath, "target/verification_key.json");
+  if (!fs2.existsSync(vkeyPath)) {
+    throw new Error(`Verification key not found at ${vkeyPath}. Run trusted setup first.`);
+  }
+  const vkey = JSON.parse(fs2.readFileSync(vkeyPath, "utf-8"));
+  const readBe32 = (buf, offset) => {
+    const slice = buf.slice(offset, offset + 32);
+    return BigInt("0x" + slice.toString("hex")).toString();
+  };
+  const snarkjsProof = {
+    pi_a: [readBe32(proof, 0), readBe32(proof, 32), "1"],
+    pi_b: [
+      [readBe32(proof, 96), readBe32(proof, 64)],
+      [readBe32(proof, 160), readBe32(proof, 128)],
+      ["1", "0"]
+    ],
+    pi_c: [readBe32(proof, 192), readBe32(proof, 224), "1"],
+    protocol: "groth16",
+    curve: "bn128"
+  };
+  const signals = publicSignals.map((s) => s.toString());
+  try {
+    return await snarkjs.groth16.verify(vkey, signals, snarkjsProof);
+  } catch {
+    return false;
+  }
+}
+function checkToolsAvailable() {
+  const result = { snarkjs: false };
+  try {
+    const snarkjsPkg = __require("snarkjs/package.json");
+    result.snarkjs = true;
+    result.snarkjsVersion = snarkjsPkg.version;
+  } catch {
+  }
+  return result;
+}
+function requireTools() {
+  const tools = checkToolsAvailable();
+  if (!tools.snarkjs) {
+    throw new Error(
+      "snarkjs not found. Install with:\n  npm install snarkjs\n\nSee: https://github.com/iden3/snarkjs"
+    );
+  }
 }
 
 // src/tasks.ts
@@ -681,7 +656,8 @@ import {
   PublicKey as PublicKey4,
   SystemProgram
 } from "@solana/web3.js";
-import { BN } from "@coral-xyz/anchor";
+import anchor2 from "@coral-xyz/anchor";
+var { BN } = anchor2;
 function getAccount(program, name) {
   const accounts = program.account;
   const account = accounts[name];
@@ -920,7 +896,6 @@ export {
   TaskState,
   U64_SIZE,
   VERIFICATION_COMPUTE_UNITS,
-  VERIFIER_PROGRAM_ID,
   VERSION,
   calculateEscrowFee,
   checkToolsAvailable,
@@ -930,7 +905,7 @@ export {
   computeCommitment,
   computeConstraintHash,
   computeExpectedBinding,
-  computeHashesViaNargo,
+  computeHashes,
   createTask,
   deriveClaimPda,
   deriveEscrowPda,
