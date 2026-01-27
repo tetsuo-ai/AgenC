@@ -160,3 +160,79 @@ export {
   lamportsToSol,
   solToLamports,
 } from './utils/index.js';
+
+// Event monitoring (Phase 2)
+export {
+  // Shared types
+  type EventCallback,
+
+  // Enums
+  TaskType,
+  ResolutionType,
+  RateLimitActionType,
+  RateLimitType,
+
+  // Task events
+  type TaskCreatedEvent,
+  type TaskClaimedEvent,
+  type TaskCompletedEvent,
+  type TaskCancelledEvent,
+  type TaskEventCallbacks,
+  type TaskEventFilterOptions,
+  subscribeToTaskCreated,
+  subscribeToTaskClaimed,
+  subscribeToTaskCompleted,
+  subscribeToTaskCancelled,
+  subscribeToAllTaskEvents,
+
+  // Dispute events
+  type DisputeInitiatedEvent,
+  type DisputeVoteCastEvent,
+  type DisputeResolvedEvent,
+  type DisputeExpiredEvent,
+  type DisputeEventCallbacks,
+  type DisputeEventFilterOptions,
+  subscribeToDisputeInitiated,
+  subscribeToDisputeVoteCast,
+  subscribeToDisputeResolved,
+  subscribeToDisputeExpired,
+  subscribeToAllDisputeEvents,
+
+  // Protocol events
+  type StateUpdatedEvent,
+  type ProtocolInitializedEvent,
+  type RewardDistributedEvent,
+  type RateLimitHitEvent,
+  type MigrationCompletedEvent,
+  type ProtocolVersionUpdatedEvent,
+  type ProtocolEventCallbacks,
+  type ProtocolEventFilterOptions,
+  subscribeToStateUpdated,
+  subscribeToProtocolInitialized,
+  subscribeToRewardDistributed,
+  subscribeToRateLimitHit,
+  subscribeToMigrationCompleted,
+  subscribeToProtocolVersionUpdated,
+  subscribeToAllProtocolEvents,
+
+  // Parse functions
+  parseTaskCreatedEvent,
+  parseTaskClaimedEvent,
+  parseTaskCompletedEvent,
+  parseTaskCancelledEvent,
+  parseDisputeInitiatedEvent,
+  parseDisputeVoteCastEvent,
+  parseDisputeResolvedEvent,
+  parseDisputeExpiredEvent,
+  parseStateUpdatedEvent,
+  parseProtocolInitializedEvent,
+  parseRewardDistributedEvent,
+  parseRateLimitHitEvent,
+  parseMigrationCompletedEvent,
+  parseProtocolVersionUpdatedEvent,
+
+  // EventMonitor
+  EventMonitor,
+  type EventMonitorConfig,
+  type EventMonitorMetrics,
+} from './events/index.js';
