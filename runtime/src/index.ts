@@ -346,3 +346,18 @@ export {
   USDT_MINT,
   WELL_KNOWN_TOKENS,
 } from './skills/index.js';
+
+// Autonomous Agent System
+export {
+  AutonomousAgent,
+  TaskScanner,
+  type TaskScannerConfig,
+  type Task,
+  TaskStatus as AutonomousTaskStatus,
+  type TaskFilter,
+  type ClaimStrategy,
+  type TaskExecutor,
+  type AutonomousAgentConfig,
+  type AutonomousAgentStats,
+  DefaultClaimStrategy,
+} from './autonomous/index.js';
