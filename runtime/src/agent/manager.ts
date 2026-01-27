@@ -640,6 +640,14 @@ export class AgentManager {
   }
 
   /**
+   * Get the underlying Anchor program instance.
+   * Useful for creating event monitors and performing advanced operations.
+   */
+  getProgram(): Program<AgencCoordination> {
+    return this.program;
+  }
+
+  /**
    * Get current reputation score (0-10000, representing 0.00% - 100.00%).
    *
    * @returns Reputation score
