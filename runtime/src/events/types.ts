@@ -1,0 +1,369 @@
+/**
+ * Phase 2 Event Type Definitions
+ *
+ * Type definitions for all non-agent protocol events (task, dispute, protocol).
+ * Agent events are defined in agent/events.ts (Phase 1).
+ *
+ * @module
+ */
+
+import { PublicKey } from '@solana/web3.js';
+
+// ============================================================================
+// Shared Types
+// ============================================================================
+
+/**
+ * Generic event callback type.
+ * @typeParam T - The parsed event type
+ */
+export type EventCallback<T> = (event: T, slot: number, signature: string) => void;
+
+/**
+ * Subscription handle for unsubscribing from events.
+ * Structurally identical to Phase 1 EventSubscription in agent/events.ts.
+ */
+export interface EventSubscription {
+  unsubscribe(): Promise<void>;
+}
+
+// ============================================================================
+// Semantic Enums for u8 Event Fields
+// ============================================================================
+
+/**
+ * Task type values matching on-chain TaskType enum.
+ * Used in TaskCreated.taskType field.
+ */
+export enum TaskType {
+  Exclusive = 0,
+  Collaborative = 1,
+  Competitive = 2,
+}
+
+/**
+ * Resolution type values matching on-chain ResolutionType enum.
+ * Used in DisputeInitiated.resolutionType and DisputeResolved.resolutionType.
+ */
+export enum ResolutionType {
+  Refund = 0,
+  Complete = 1,
+  Split = 2,
+}
+
+/**
+ * Rate limit action type values.
+ * Used in RateLimitHit.actionType field.
+ */
+export enum RateLimitActionType {
+  TaskCreation = 0,
+  DisputeInitiation = 1,
+}
+
+/**
+ * Rate limit type values.
+ * Used in RateLimitHit.limitType field.
+ */
+export enum RateLimitType {
+  Cooldown = 0,
+  Window24h = 1,
+}
+
+// ============================================================================
+// Raw Event Interfaces (as received from Anchor addEventListener)
+// ============================================================================
+// BN-like objects from Anchor need .toString() for u64 and .toNumber() for i64.
+// [u8;32] comes as number[] | Uint8Array. Pubkey comes as PublicKey.
+// bool comes as boolean. u8/u16 come as number.
+
+// --- Task Raw Events ---
+
+export interface RawTaskCreatedEvent {
+  taskId: number[] | Uint8Array;
+  creator: PublicKey;
+  requiredCapabilities: { toString: () => string }; // u64 -> BN
+  rewardAmount: { toString: () => string };          // u64 -> BN
+  taskType: number;                                   // u8
+  deadline: { toNumber: () => number };               // i64 -> BN
+  timestamp: { toNumber: () => number };              // i64 -> BN
+}
+
+export interface RawTaskClaimedEvent {
+  taskId: number[] | Uint8Array;
+  worker: PublicKey;
+  currentWorkers: number;                             // u8
+  maxWorkers: number;                                 // u8
+  timestamp: { toNumber: () => number };
+}
+
+export interface RawTaskCompletedEvent {
+  taskId: number[] | Uint8Array;
+  worker: PublicKey;
+  proofHash: number[] | Uint8Array;                   // [u8;32]
+  rewardPaid: { toString: () => string };             // u64 -> BN
+  timestamp: { toNumber: () => number };
+}
+
+export interface RawTaskCancelledEvent {
+  taskId: number[] | Uint8Array;
+  creator: PublicKey;
+  refundAmount: { toString: () => string };           // u64 -> BN
+  timestamp: { toNumber: () => number };
+}
+
+// --- Dispute Raw Events ---
+
+export interface RawDisputeInitiatedEvent {
+  disputeId: number[] | Uint8Array;
+  taskId: number[] | Uint8Array;
+  initiator: PublicKey;
+  resolutionType: number;                             // u8 enum
+  votingDeadline: { toNumber: () => number };         // i64 -> BN
+  timestamp: { toNumber: () => number };
+}
+
+export interface RawDisputeVoteCastEvent {
+  disputeId: number[] | Uint8Array;
+  voter: PublicKey;
+  approved: boolean;
+  votesFor: { toString: () => string };               // u64 -> BN
+  votesAgainst: { toString: () => string };           // u64 -> BN
+  timestamp: { toNumber: () => number };
+}
+
+export interface RawDisputeResolvedEvent {
+  disputeId: number[] | Uint8Array;
+  resolutionType: number;                             // u8 enum
+  votesFor: { toString: () => string };               // u64 -> BN
+  votesAgainst: { toString: () => string };           // u64 -> BN
+  timestamp: { toNumber: () => number };
+}
+
+export interface RawDisputeExpiredEvent {
+  disputeId: number[] | Uint8Array;
+  taskId: number[] | Uint8Array;
+  refundAmount: { toString: () => string };           // u64 -> BN
+  timestamp: { toNumber: () => number };
+}
+
+// --- Protocol Raw Events ---
+
+export interface RawStateUpdatedEvent {
+  stateKey: number[] | Uint8Array;                    // [u8;32]
+  updater: PublicKey;
+  version: { toString: () => string };                // u64 -> BN
+  timestamp: { toNumber: () => number };
+}
+
+export interface RawProtocolInitializedEvent {
+  authority: PublicKey;
+  treasury: PublicKey;
+  disputeThreshold: number;                           // u8
+  protocolFeeBps: number;                             // u16
+  timestamp: { toNumber: () => number };
+}
+
+export interface RawRewardDistributedEvent {
+  taskId: number[] | Uint8Array;
+  recipient: PublicKey;
+  amount: { toString: () => string };                 // u64 -> BN
+  protocolFee: { toString: () => string };            // u64 -> BN
+  timestamp: { toNumber: () => number };
+}
+
+export interface RawRateLimitHitEvent {
+  agentId: number[] | Uint8Array;                     // [u8;32]
+  actionType: number;                                 // u8
+  limitType: number;                                  // u8
+  currentCount: number;                               // u8
+  maxCount: number;                                   // u8
+  cooldownRemaining: { toNumber: () => number };      // i64 -> BN
+  timestamp: { toNumber: () => number };
+}
+
+export interface RawMigrationCompletedEvent {
+  fromVersion: number;                                // u8
+  toVersion: number;                                  // u8
+  authority: PublicKey;
+  timestamp: { toNumber: () => number };
+}
+
+export interface RawProtocolVersionUpdatedEvent {
+  oldVersion: number;                                 // u8
+  newVersion: number;                                 // u8
+  minSupportedVersion: number;                        // u8
+  timestamp: { toNumber: () => number };
+}
+
+// ============================================================================
+// Parsed Event Interfaces (developer-friendly types)
+// ============================================================================
+
+// --- Task Parsed Events ---
+
+export interface TaskCreatedEvent {
+  taskId: Uint8Array;
+  creator: PublicKey;
+  requiredCapabilities: bigint;
+  rewardAmount: bigint;
+  taskType: number;
+  deadline: number;
+  timestamp: number;
+}
+
+export interface TaskClaimedEvent {
+  taskId: Uint8Array;
+  worker: PublicKey;
+  currentWorkers: number;
+  maxWorkers: number;
+  timestamp: number;
+}
+
+export interface TaskCompletedEvent {
+  taskId: Uint8Array;
+  worker: PublicKey;
+  proofHash: Uint8Array;
+  rewardPaid: bigint;
+  timestamp: number;
+}
+
+export interface TaskCancelledEvent {
+  taskId: Uint8Array;
+  creator: PublicKey;
+  refundAmount: bigint;
+  timestamp: number;
+}
+
+// --- Dispute Parsed Events ---
+
+export interface DisputeInitiatedEvent {
+  disputeId: Uint8Array;
+  taskId: Uint8Array;
+  initiator: PublicKey;
+  resolutionType: number;
+  votingDeadline: number;
+  timestamp: number;
+}
+
+export interface DisputeVoteCastEvent {
+  disputeId: Uint8Array;
+  voter: PublicKey;
+  approved: boolean;
+  votesFor: bigint;
+  votesAgainst: bigint;
+  timestamp: number;
+}
+
+export interface DisputeResolvedEvent {
+  disputeId: Uint8Array;
+  resolutionType: number;
+  votesFor: bigint;
+  votesAgainst: bigint;
+  timestamp: number;
+}
+
+export interface DisputeExpiredEvent {
+  disputeId: Uint8Array;
+  taskId: Uint8Array;
+  refundAmount: bigint;
+  timestamp: number;
+}
+
+// --- Protocol Parsed Events ---
+
+export interface StateUpdatedEvent {
+  stateKey: Uint8Array;
+  updater: PublicKey;
+  version: bigint;
+  timestamp: number;
+}
+
+export interface ProtocolInitializedEvent {
+  authority: PublicKey;
+  treasury: PublicKey;
+  disputeThreshold: number;
+  protocolFeeBps: number;
+  timestamp: number;
+}
+
+export interface RewardDistributedEvent {
+  taskId: Uint8Array;
+  recipient: PublicKey;
+  amount: bigint;
+  protocolFee: bigint;
+  timestamp: number;
+}
+
+export interface RateLimitHitEvent {
+  agentId: Uint8Array;
+  actionType: number;
+  limitType: number;
+  currentCount: number;
+  maxCount: number;
+  cooldownRemaining: number;
+  timestamp: number;
+}
+
+export interface MigrationCompletedEvent {
+  fromVersion: number;
+  toVersion: number;
+  authority: PublicKey;
+  timestamp: number;
+}
+
+export interface ProtocolVersionUpdatedEvent {
+  oldVersion: number;
+  newVersion: number;
+  minSupportedVersion: number;
+  timestamp: number;
+}
+
+// ============================================================================
+// Callback Interfaces
+// ============================================================================
+
+// --- Task Event Callbacks ---
+
+export interface TaskEventCallbacks {
+  onTaskCreated?: EventCallback<TaskCreatedEvent>;
+  onTaskClaimed?: EventCallback<TaskClaimedEvent>;
+  onTaskCompleted?: EventCallback<TaskCompletedEvent>;
+  onTaskCancelled?: EventCallback<TaskCancelledEvent>;
+}
+
+export interface TaskEventFilterOptions {
+  /** Only receive events for this task ID */
+  taskId?: Uint8Array;
+}
+
+// --- Dispute Event Callbacks ---
+
+export interface DisputeEventCallbacks {
+  onDisputeInitiated?: EventCallback<DisputeInitiatedEvent>;
+  onDisputeVoteCast?: EventCallback<DisputeVoteCastEvent>;
+  onDisputeResolved?: EventCallback<DisputeResolvedEvent>;
+  onDisputeExpired?: EventCallback<DisputeExpiredEvent>;
+}
+
+export interface DisputeEventFilterOptions {
+  /** Only receive events for this dispute ID */
+  disputeId?: Uint8Array;
+}
+
+// --- Protocol Event Callbacks ---
+
+export interface ProtocolEventCallbacks {
+  onStateUpdated?: EventCallback<StateUpdatedEvent>;
+  onProtocolInitialized?: EventCallback<ProtocolInitializedEvent>;
+  onRewardDistributed?: EventCallback<RewardDistributedEvent>;
+  onRateLimitHit?: EventCallback<RateLimitHitEvent>;
+  onMigrationCompleted?: EventCallback<MigrationCompletedEvent>;
+  onProtocolVersionUpdated?: EventCallback<ProtocolVersionUpdatedEvent>;
+}
+
+export interface ProtocolEventFilterOptions {
+  /** Only receive RateLimitHit events for this agent ID */
+  agentId?: Uint8Array;
+  /** Only receive RewardDistributed events for this task ID */
+  taskId?: Uint8Array;
+}
