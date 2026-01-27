@@ -81,16 +81,20 @@ pub fn transfer_rewards<'info>(
 }
 
 /// Update claim state after completion.
+///
+/// Note: `reward_amount` is kept for API compatibility but `worker_reward`
+/// (the actual amount paid) is used for the distributed counter to maintain
+/// invariant E3: `distributed <= amount`.
 pub fn update_claim_state(
     claim: &mut Account<TaskClaim>,
     escrow: &mut Account<TaskEscrow>,
     worker_reward: u64,
-    reward_amount: u64,
+    _reward_amount: u64,
 ) -> Result<()> {
     claim.reward_paid = worker_reward;
     escrow.distributed = escrow
         .distributed
-        .checked_add(reward_amount)
+        .checked_add(worker_reward)
         .ok_or(CoordinationError::ArithmeticOverflow)?;
     Ok(())
 }
