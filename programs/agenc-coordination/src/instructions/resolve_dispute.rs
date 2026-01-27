@@ -205,6 +205,22 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
         task.status = TaskStatus::Cancelled;
     }
 
+    // Decrement worker's active_tasks counter (fix #137)
+    // The worker account is the AgentRegistration PDA - deserialize to update state
+    if let Some(worker) = &ctx.accounts.worker {
+        require!(
+            worker.owner == &crate::ID,
+            CoordinationError::InvalidAccountOwner
+        );
+        let mut worker_data = worker.try_borrow_mut_data()?;
+        let mut worker_reg = AgentRegistration::try_deserialize(&mut &**worker_data)?;
+        worker_reg.active_tasks = worker_reg
+            .active_tasks
+            .checked_sub(1)
+            .ok_or(CoordinationError::ArithmeticOverflow)?;
+        worker_reg.try_serialize(&mut &mut worker_data[8..])?;
+    }
+
     // Update dispute status - decrement active_dispute_votes for each arbiter
     if dispute.total_voters > 0 {
         let expected = dispute
