@@ -2,7 +2,10 @@
 
 use crate::errors::CoordinationError;
 use crate::events::DisputeExpired;
-use crate::state::{Dispute, DisputeStatus, ProtocolConfig, Task, TaskEscrow, TaskStatus};
+use crate::state::{
+    AgentRegistration, Dispute, DisputeStatus, ProtocolConfig, Task, TaskClaim, TaskEscrow,
+    TaskStatus,
+};
 use crate::utils::version::check_version_compatible;
 use anchor_lang::prelude::*;
 
@@ -42,6 +45,19 @@ pub struct ExpireDispute<'info> {
         constraint = creator.key() == task.creator @ CoordinationError::InvalidCreator
     )]
     pub creator: UncheckedAccount<'info>,
+
+    /// Worker's claim on the disputed task (fix #137)
+    /// Optional - when provided, allows decrementing worker's active_tasks
+    #[account(
+        seeds = [b"claim", task.key().as_ref(), worker_claim.worker.as_ref()],
+        bump = worker_claim.bump,
+        constraint = worker_claim.task == task.key() @ CoordinationError::NotClaimed
+    )]
+    pub worker_claim: Option<Account<'info, TaskClaim>>,
+
+    /// CHECK: Worker's AgentRegistration PDA - validated to match worker_claim.worker (fix #137)
+    #[account(mut)]
+    pub worker: Option<UncheckedAccount<'info>>,
 }
 
 pub fn handler(ctx: Context<ExpireDispute>) -> Result<()> {
@@ -62,6 +78,16 @@ pub fn handler(ctx: Context<ExpireDispute>) -> Result<()> {
         CoordinationError::DisputeNotExpired
     );
 
+    // Validate worker account matches worker_claim if both provided (fix #137)
+    if let (Some(worker), Some(worker_claim)) =
+        (&ctx.accounts.worker, &ctx.accounts.worker_claim)
+    {
+        require!(
+            worker.key() == worker_claim.worker,
+            CoordinationError::UnauthorizedAgent
+        );
+    }
+
     let remaining_funds = escrow
         .amount
         .checked_sub(escrow.distributed)
@@ -74,6 +100,26 @@ pub fn handler(ctx: Context<ExpireDispute>) -> Result<()> {
             .creator
             .to_account_info()
             .try_borrow_mut_lamports()? += remaining_funds;
+    }
+
+    // Decrement worker's active_tasks counter (fix #137)
+    // The worker account is the AgentRegistration PDA - deserialize to update state
+    if let Some(worker) = &ctx.accounts.worker {
+        require!(
+            ctx.accounts.worker_claim.is_some(),
+            CoordinationError::NotClaimed
+        );
+        require!(
+            worker.owner == &crate::ID,
+            CoordinationError::InvalidAccountOwner
+        );
+        let mut worker_data = worker.try_borrow_mut_data()?;
+        let mut worker_reg = AgentRegistration::try_deserialize(&mut &**worker_data)?;
+        worker_reg.active_tasks = worker_reg
+            .active_tasks
+            .checked_sub(1)
+            .ok_or(CoordinationError::ArithmeticOverflow)?;
+        worker_reg.try_serialize(&mut &mut worker_data[8..])?;
     }
 
     task.status = TaskStatus::Cancelled;
