@@ -67,6 +67,10 @@ pub struct ResolveDispute<'info> {
     #[account(mut)]
     pub worker: Option<UncheckedAccount<'info>>,
 
+    /// CHECK: Worker's authority wallet for receiving payment
+    #[account(mut)]
+    pub worker_authority: Option<UncheckedAccount<'info>>,
+
     pub system_program: Program<'info, System>,
 }
 
@@ -97,6 +101,21 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
             worker.key() == worker_claim.worker,
             CoordinationError::UnauthorizedAgent
         );
+    }
+
+    // Validate worker_authority matches worker's authority field (fix #296)
+    if let (Some(worker), Some(worker_authority)) = (&ctx.accounts.worker, &ctx.accounts.worker_authority) {
+        require!(
+            worker.owner == &crate::ID,
+            CoordinationError::InvalidAccountOwner
+        );
+        let worker_data = worker.try_borrow_data()?;
+        let worker_reg = AgentRegistration::try_deserialize(&mut &**worker_data)?;
+        require!(
+            worker_authority.key() == worker_reg.authority,
+            CoordinationError::UnauthorizedAgent
+        );
+        drop(worker_data);
     }
 
     // Calculate total votes and check threshold
@@ -139,16 +158,20 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
                 task.status = TaskStatus::Cancelled;
             }
             ResolutionType::Complete => {
-                // Pay worker - requires valid worker_claim
+                // Pay worker - requires valid worker_claim and worker_authority (fix #296)
                 require!(
-                    ctx.accounts.worker_claim.is_some() && ctx.accounts.worker.is_some(),
+                    ctx.accounts.worker_claim.is_some()
+                        && ctx.accounts.worker.is_some()
+                        && ctx.accounts.worker_authority.is_some(),
                     CoordinationError::NotClaimed
                 );
 
-                if let Some(worker) = &ctx.accounts.worker {
+                // Pay to worker_authority (the actual wallet) instead of worker PDA (fix #296)
+                if let Some(worker_authority) = &ctx.accounts.worker_authority {
                     if remaining_funds > 0 {
                         **escrow.to_account_info().try_borrow_mut_lamports()? -= remaining_funds;
-                        **worker.to_account_info().try_borrow_mut_lamports()? += remaining_funds;
+                        **worker_authority.to_account_info().try_borrow_mut_lamports()? +=
+                            remaining_funds;
                     }
                 }
                 task.status = TaskStatus::Completed;
@@ -173,15 +196,16 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
                         .to_account_info()
                         .try_borrow_mut_lamports()? += half;
 
-                    if let Some(worker) = &ctx.accounts.worker {
-                        // Worker must have valid claim
+                    if let Some(worker_authority) = &ctx.accounts.worker_authority {
+                        // Worker must have valid claim (fix #296: pay to authority wallet)
                         require!(
-                            ctx.accounts.worker_claim.is_some(),
+                            ctx.accounts.worker_claim.is_some() && ctx.accounts.worker.is_some(),
                             CoordinationError::NotClaimed
                         );
-                        **worker.to_account_info().try_borrow_mut_lamports()? += other_half;
+                        **worker_authority.to_account_info().try_borrow_mut_lamports()? +=
+                            other_half;
                     } else {
-                        // If no worker, give all to creator
+                        // If no worker_authority, give all to creator
                         **ctx
                             .accounts
                             .creator
