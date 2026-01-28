@@ -2,7 +2,7 @@
 
 use crate::errors::CoordinationError;
 use crate::events::TaskCancelled;
-use crate::state::{Task, TaskEscrow, TaskStatus};
+use crate::state::{AgentRegistration, Task, TaskClaim, TaskEscrow, TaskStatus};
 use anchor_lang::prelude::*;
 
 #[derive(Accounts)]
@@ -17,6 +17,7 @@ pub struct CancelTask<'info> {
 
     #[account(
         mut,
+        close = creator,
         seeds = [b"escrow", task.key().as_ref()],
         bump = escrow.bump
     )]
@@ -73,6 +74,36 @@ pub fn handler(ctx: Context<CancelTask>) -> Result<()> {
         refund_amount,
         timestamp: clock.unix_timestamp,
     });
+
+    // After task cancellation, decrement active_tasks for all claimants
+    // remaining_accounts should contain pairs of (claim, worker_agent)
+    let num_pairs = ctx.remaining_accounts.len() / 2;
+    for i in 0..num_pairs {
+        let claim_info = &ctx.remaining_accounts[i * 2];
+        let worker_info = &ctx.remaining_accounts[i * 2 + 1];
+
+        // Validate claim belongs to this task
+        require!(
+            claim_info.owner == &crate::ID,
+            CoordinationError::InvalidAccountOwner
+        );
+        let claim_data = claim_info.try_borrow_data()?;
+        let claim = TaskClaim::try_deserialize(&mut &claim_data[..])?;
+        require!(claim.task == task.key(), CoordinationError::InvalidInput);
+        drop(claim_data);
+
+        // Decrement worker's active_tasks
+        require!(
+            worker_info.owner == &crate::ID,
+            CoordinationError::InvalidAccountOwner
+        );
+        require!(worker_info.is_writable, CoordinationError::InvalidInput);
+        let mut worker_data = worker_info.try_borrow_mut_data()?;
+        let mut worker = AgentRegistration::try_deserialize(&mut &worker_data[..])?;
+        require!(worker.worker == claim.worker, CoordinationError::InvalidInput);
+        worker.active_tasks = worker.active_tasks.saturating_sub(1);
+        worker.try_serialize(&mut &mut worker_data[8..])?;
+    }
 
     Ok(())
 }
