@@ -91,6 +91,15 @@ pub enum DisputeStatus {
     Expired = 2,
 }
 
+/// Reason for slashing an agent's bond
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum SlashReason {
+    ProofFailed = 0,
+    ProofTimeout = 1,
+    InvalidResult = 2,
+}
+
 /// Current protocol version
 pub const CURRENT_PROTOCOL_VERSION: u8 = 1;
 
