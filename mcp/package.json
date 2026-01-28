@@ -18,6 +18,7 @@
     "README.md"
   ],
   "scripts": {
+    "prebuild": "npm run build --prefix ../sdk && npm run build --prefix ../runtime",
     "build": "tsup",
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "npm run build"
