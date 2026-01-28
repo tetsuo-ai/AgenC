@@ -535,8 +535,10 @@ pub struct Dispute {
     pub dispute_id: [u8; 32],
     /// Related task
     pub task: Pubkey,
-    /// Initiator
+    /// Initiator (agent PDA)
     pub initiator: Pubkey,
+    /// Initiator's authority wallet (for resolver signer check, fix #340)
+    pub initiator_authority: Pubkey,
     /// Evidence hash
     pub evidence_hash: [u8; 32],
     /// Proposed resolution type
@@ -570,6 +572,7 @@ impl Dispute {
         32 + // dispute_id
         32 + // task
         32 + // initiator
+        32 + // initiator_authority (fix #340)
         32 + // evidence_hash
         1 +  // resolution_type
         1 +  // status
