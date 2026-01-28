@@ -169,7 +169,7 @@ pub fn update_protocol_stats(config: &mut Account<ProtocolConfig>, reward: u64) 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::state::TaskStatus;
+    use crate::state::{DependencyType, TaskStatus};
 
     /// Create a test task with configurable parameters
     fn create_test_task(
@@ -197,6 +197,8 @@ mod tests {
             required_completions,
             completions,
             bump: 0,
+            depends_on: None,
+            dependency_type: DependencyType::default(),
             _reserved: [0u8; 32],
         }
     }
