@@ -579,6 +579,9 @@ impl Dispute {
         8 +  // voting_deadline
         8 +  // expires_at
         1 +  // slash_applied
+        1 +  // initiator_slash_applied
+        8 +  // initiator_bond
+        1 +  // bond_released
         1; // bump
 }
 
