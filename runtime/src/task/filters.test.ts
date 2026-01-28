@@ -70,6 +70,19 @@ describe('hasRequiredCapabilities', () => {
     expect(hasRequiredCapabilities(COMPUTE, 0n)).toBe(true);
     expect(hasRequiredCapabilities(0n, 0n)).toBe(true);
   });
+
+  it('returns true when agent has superset of required capabilities', () => {
+    const agentCaps = COMPUTE | INFERENCE | STORAGE;
+    expect(hasRequiredCapabilities(agentCaps, COMPUTE)).toBe(true);
+    expect(hasRequiredCapabilities(agentCaps, COMPUTE | INFERENCE)).toBe(true);
+  });
+
+  it('handles full bitmask (all capabilities set)', () => {
+    const allCaps = (1n << 10n) - 1n; // All 10 capabilities
+    expect(hasRequiredCapabilities(allCaps, COMPUTE)).toBe(true);
+    expect(hasRequiredCapabilities(allCaps, allCaps)).toBe(true);
+    expect(hasRequiredCapabilities(COMPUTE, allCaps)).toBe(false);
+  });
 });
 
 describe('matchesFilter', () => {
@@ -315,6 +328,20 @@ describe('rankTasks', () => {
 
     expect(ranked[0].task.maxWorkers).toBe(10);
     expect(ranked[1].task.maxWorkers).toBe(1);
+  });
+
+  it('handles empty array', () => {
+    const ranked = rankTasks([]);
+    expect(ranked).toEqual([]);
+  });
+
+  it('handles single task', () => {
+    const tasks: DiscoveredTask[] = [
+      toDiscoveredTask(createTask({ rewardAmount: 5_000n })),
+    ];
+    const ranked = rankTasks(tasks);
+    expect(ranked.length).toBe(1);
+    expect(ranked[0].relevanceScore).toBeGreaterThan(0);
   });
 });
 
