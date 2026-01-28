@@ -118,23 +118,25 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
         drop(worker_data);
     }
 
-    // Calculate total votes and check threshold
+    // Calculate total votes
     let total_votes = dispute
         .votes_for
         .checked_add(dispute.votes_against)
         .ok_or(CoordinationError::ArithmeticOverflow)?;
-    require!(total_votes > 0, CoordinationError::InsufficientVotes);
-
-    // Calculate approval percentage
-    let approval_pct = dispute
-        .votes_for
-        .checked_mul(PERCENT_BASE)
-        .ok_or(CoordinationError::ArithmeticOverflow)?
-        .checked_div(total_votes)
-        .ok_or(CoordinationError::ArithmeticOverflow)? as u8;
 
     // Determine outcome based on threshold
-    let approved = approval_pct >= config.dispute_threshold;
+    // If no votes were cast, default to rejected (prevents stuck tasks)
+    let approved = if total_votes == 0 {
+        false // No votes = rejected
+    } else {
+        let approval_pct = dispute
+            .votes_for
+            .checked_mul(PERCENT_BASE)
+            .ok_or(CoordinationError::ArithmeticOverflow)?
+            .checked_div(total_votes)
+            .ok_or(CoordinationError::ArithmeticOverflow)? as u8;
+        approval_pct >= config.dispute_threshold
+    };
 
     // Calculate remaining escrow funds
     let remaining_funds = escrow
