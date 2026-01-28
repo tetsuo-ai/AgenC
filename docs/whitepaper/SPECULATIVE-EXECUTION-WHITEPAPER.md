@@ -12,7 +12,7 @@ Decentralized autonomous agents represent a paradigm shift in distributed comput
 
 This paper introduces *Speculative Execution with Optimistic Proof Deferral*, a novel execution model that enables downstream agents to begin computation before ancestor proofs achieve on-chain finality. Our approach maintains the security guarantees of proof-based verification while reducing end-to-end pipeline latency by 2-3× through strategic parallelization of execution and proof generation.
 
-We present a formal model for speculative commitments in directed acyclic task graphs, prove correctness invariants for our proof ordering and rollback mechanisms, and describe an economic model using exponential stake bonding to align incentives and bound systemic risk. The architecture comprises five core components—DependencyGraph, CommitmentLedger, ProofDeferralManager, RollbackController, and SpeculativeTaskScheduler—implemented as extensions to the AgenC protocol on Solana.
+We present a formal model for speculative commitments in directed acyclic task graphs, prove correctness invariants for our proof ordering and rollback mechanisms, and describe an economic model using exponential stake bonding to align incentives and bound systemic risk. The architecture comprises five core components-DependencyGraph, CommitmentLedger, ProofDeferralManager, RollbackController, and SpeculativeTaskScheduler-implemented as extensions to the AgenC protocol on Solana.
 
 Our analysis demonstrates that for an *n*-task pipeline with average execution time *T_exec* and proof generation time *T_proof*, speculative execution reduces total latency from O(*n* × (*T_exec* + *T_proof*)) to O(*T_exec* + *n* × *T_exec*), with proof generation occurring in parallel. We present formal correctness arguments, failure mode analysis, and economic attack resistance properties, establishing speculative execution as a viable approach for high-throughput decentralized agent coordination.
 
@@ -24,9 +24,9 @@ Our analysis demonstrates that for an *n*-task pipeline with average execution t
 
 ### 1.1 The Rise of Autonomous AI Agents
 
-The convergence of advances in large language models, verifiable computation, and blockchain technology has catalyzed the emergence of *autonomous AI agents*—software entities capable of perceiving, reasoning, and acting within digital environments with minimal human supervision. Unlike traditional automation, which operates within narrowly defined parameters, autonomous agents exhibit goal-directed behavior, adapting their strategies in response to environmental feedback and pursuing complex, multi-step objectives.
+The convergence of advances in large language models, verifiable computation, and blockchain technology has catalyzed the emergence of *autonomous AI agents*-software entities capable of perceiving, reasoning, and acting within digital environments with minimal human supervision. Unlike traditional automation, which operates within narrowly defined parameters, autonomous agents exhibit goal-directed behavior, adapting their strategies in response to environmental feedback and pursuing complex, multi-step objectives.
 
-The economic implications are profound. Agents can negotiate contracts, execute trades, manage portfolios, and coordinate resource allocation across organizational boundaries without requiring trust relationships between their principals. This capability has spurred interest in *decentralized agent coordination protocols*—systems that enable agents owned by different parties to collaborate on shared tasks while maintaining verifiable accountability.
+The economic implications are profound. Agents can negotiate contracts, execute trades, manage portfolios, and coordinate resource allocation across organizational boundaries without requiring trust relationships between their principals. This capability has spurred interest in *decentralized agent coordination protocols*-systems that enable agents owned by different parties to collaborate on shared tasks while maintaining verifiable accountability.
 
 ### 1.2 The Verification Bottleneck
 
@@ -38,7 +38,7 @@ While cryptographically sound, this model introduces significant latency:
 
 2. **Network Latency**: Blockchain transaction submission and propagation add 400ms-2s per transaction.
 
-3. **Finality Latency**: Achieving transaction finality requires waiting for block confirmation—approximately 400ms to 13 seconds on Solana, longer on other chains.
+3. **Finality Latency**: Achieving transaction finality requires waiting for block confirmation-approximately 400ms to 13 seconds on Solana, longer on other chains.
 
 4. **Pipeline Multiplier**: For workflows with *n* sequential tasks, these latencies compound multiplicatively.
 
@@ -156,7 +156,7 @@ The standard execution model enforces a strict invariant:
 
 **Invariant S1 (Sequential Execution).** A task *v* may only begin execution when all tasks *u* such that (*u*, *v*) ∈ *E* satisfy *σ*(*u*) = CONFIRMED.
 
-While this invariant ensures correctness—no task ever operates on invalid inputs—it serializes execution along dependency chains.
+While this invariant ensures correctness-no task ever operates on invalid inputs-it serializes execution along dependency chains.
 
 ### 3.3 Latency Analysis
 
@@ -844,7 +844,7 @@ Our contribution extends these foundations with the novel combination of ZKP-bas
 
 ### 10.1 Cross-Agent Speculation
 
-The current system restricts speculation to single-agent pipelines. Cross-agent speculation—where Agent B speculates on Agent A's uncommitted output—introduces trust requirements:
+The current system restricts speculation to single-agent pipelines. Cross-agent speculation-where Agent B speculates on Agent A's uncommitted output-introduces trust requirements:
 
 - Agent B must trust Agent A's commitment (or post additional bond)
 - Slashing distribution across agent boundaries requires careful design
@@ -887,7 +887,7 @@ While we provide proof sketches for key invariants, full formal verification usi
 
 ## 11. Conclusion
 
-This paper presented Speculative Execution with Optimistic Proof Deferral, a novel approach to reducing latency in proof-based decentralized agent coordination. By allowing downstream tasks to execute before ancestor proofs achieve finality—while maintaining strict proof ordering invariants—our system achieves 2-3× latency reduction for typical multi-task pipelines.
+This paper presented Speculative Execution with Optimistic Proof Deferral, a novel approach to reducing latency in proof-based decentralized agent coordination. By allowing downstream tasks to execute before ancestor proofs achieve finality-while maintaining strict proof ordering invariants-our system achieves 2-3× latency reduction for typical multi-task pipelines.
 
 The key contributions include:
 
