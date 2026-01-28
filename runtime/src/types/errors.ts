@@ -5,6 +5,8 @@
  * and helper functions for error handling in AgenC applications.
  */
 
+import type { PublicKey } from '@solana/web3.js';
+
 // ============================================================================
 // Runtime Error Codes
 // ============================================================================
@@ -30,6 +32,16 @@ export const RuntimeErrorCodes = {
   PENDING_DISPUTE_VOTES: 'PENDING_DISPUTE_VOTES',
   /** Agent has recent vote activity */
   RECENT_VOTE_ACTIVITY: 'RECENT_VOTE_ACTIVITY',
+  /** Task not found by PDA */
+  TASK_NOT_FOUND: 'TASK_NOT_FOUND',
+  /** Task is not claimable */
+  TASK_NOT_CLAIMABLE: 'TASK_NOT_CLAIMABLE',
+  /** Task execution failed locally */
+  TASK_EXECUTION_FAILED: 'TASK_EXECUTION_FAILED',
+  /** Task result submission failed on-chain */
+  TASK_SUBMISSION_FAILED: 'TASK_SUBMISSION_FAILED',
+  /** Executor state machine is in an invalid state */
+  EXECUTOR_STATE_ERROR: 'EXECUTOR_STATE_ERROR',
 } as const;
 
 /** Union type of all runtime error code values */
@@ -551,6 +563,121 @@ export class RecentVoteActivityError extends RuntimeError {
     this.lastVoteTimestamp = lastVoteTimestamp;
     if (Error.captureStackTrace) {
       Error.captureStackTrace(this, RecentVoteActivityError);
+    }
+  }
+}
+
+/**
+ * Error thrown when a task cannot be found by its PDA.
+ *
+ * @example
+ * ```typescript
+ * throw new TaskNotFoundError(taskPda, 'Task account not found on chain');
+ * ```
+ */
+export class TaskNotFoundError extends RuntimeError {
+  /** The PDA of the task that was not found */
+  public readonly taskPda: PublicKey;
+
+  constructor(taskPda: PublicKey, message?: string) {
+    super(message || 'Task not found', RuntimeErrorCodes.TASK_NOT_FOUND);
+    this.name = 'TaskNotFoundError';
+    this.taskPda = taskPda;
+    if (Error.captureStackTrace) {
+      Error.captureStackTrace(this, TaskNotFoundError);
+    }
+  }
+}
+
+/**
+ * Error thrown when a task cannot be claimed by the executor.
+ *
+ * @example
+ * ```typescript
+ * throw new TaskNotClaimableError(taskPda, 'Task already has maximum workers');
+ * ```
+ */
+export class TaskNotClaimableError extends RuntimeError {
+  /** The PDA of the task that could not be claimed */
+  public readonly taskPda: PublicKey;
+  /** The reason the task is not claimable */
+  public readonly reason: string;
+
+  constructor(taskPda: PublicKey, reason: string) {
+    super(`Task not claimable: ${reason}`, RuntimeErrorCodes.TASK_NOT_CLAIMABLE);
+    this.name = 'TaskNotClaimableError';
+    this.taskPda = taskPda;
+    this.reason = reason;
+    if (Error.captureStackTrace) {
+      Error.captureStackTrace(this, TaskNotClaimableError);
+    }
+  }
+}
+
+/**
+ * Error thrown when task execution fails locally.
+ *
+ * @example
+ * ```typescript
+ * throw new TaskExecutionError(taskPda, 'Circuit generation failed');
+ * ```
+ */
+export class TaskExecutionError extends RuntimeError {
+  /** The PDA of the task that failed execution */
+  public readonly taskPda: PublicKey;
+  /** The cause of the execution failure */
+  public readonly cause: string;
+
+  constructor(taskPda: PublicKey, cause: string) {
+    super(`Task execution failed: ${cause}`, RuntimeErrorCodes.TASK_EXECUTION_FAILED);
+    this.name = 'TaskExecutionError';
+    this.taskPda = taskPda;
+    this.cause = cause;
+    if (Error.captureStackTrace) {
+      Error.captureStackTrace(this, TaskExecutionError);
+    }
+  }
+}
+
+/**
+ * Error thrown when task result submission fails on-chain.
+ *
+ * @example
+ * ```typescript
+ * throw new TaskSubmissionError(taskPda, 'Proof verification failed on-chain');
+ * ```
+ */
+export class TaskSubmissionError extends RuntimeError {
+  /** The PDA of the task whose submission failed */
+  public readonly taskPda: PublicKey;
+  /** The cause of the submission failure */
+  public readonly cause: string;
+
+  constructor(taskPda: PublicKey, cause: string) {
+    super(`Task submission failed: ${cause}`, RuntimeErrorCodes.TASK_SUBMISSION_FAILED);
+    this.name = 'TaskSubmissionError';
+    this.taskPda = taskPda;
+    this.cause = cause;
+    if (Error.captureStackTrace) {
+      Error.captureStackTrace(this, TaskSubmissionError);
+    }
+  }
+}
+
+/**
+ * Error thrown when the executor state machine is in an invalid state.
+ *
+ * @example
+ * ```typescript
+ * throw new ExecutorStateError('Cannot execute task: executor not initialized');
+ * ```
+ */
+export class ExecutorStateError extends RuntimeError {
+  constructor(message: string) {
+    super(message, RuntimeErrorCodes.EXECUTOR_STATE_ERROR);
+    this.name = 'ExecutorStateError';
+    if (Error.captureStackTrace) {
+      Error.captureStackTrace(this, ExecutorStateError);
     }
   }
 }
