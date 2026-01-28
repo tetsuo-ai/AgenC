@@ -100,7 +100,6 @@ pub fn handler(ctx: Context<CancelTask>) -> Result<()> {
         require!(worker_info.is_writable, CoordinationError::InvalidInput);
         let mut worker_data = worker_info.try_borrow_mut_data()?;
         let mut worker = AgentRegistration::try_deserialize(&mut &worker_data[..])?;
-        require!(worker.worker == claim.worker, CoordinationError::InvalidInput);
         worker.active_tasks = worker.active_tasks.saturating_sub(1);
         worker.try_serialize(&mut &mut worker_data[8..])?;
     }
