@@ -3,8 +3,8 @@
 use crate::errors::CoordinationError;
 use crate::events::DisputeExpired;
 use crate::state::{
-    AgentRegistration, Dispute, DisputeStatus, ProtocolConfig, Task, TaskClaim, TaskEscrow,
-    TaskStatus,
+    AgentRegistration, Dispute, DisputeStatus, DisputeVote, ProtocolConfig, Task, TaskClaim,
+    TaskEscrow, TaskStatus,
 };
 use crate::utils::version::check_version_compatible;
 use anchor_lang::prelude::*;
@@ -120,6 +120,50 @@ pub fn handler(ctx: Context<ExpireDispute>) -> Result<()> {
             .checked_sub(1)
             .ok_or(CoordinationError::ArithmeticOverflow)?;
         worker_reg.try_serialize(&mut &mut worker_data[8..])?;
+    }
+
+    // Decrement active_dispute_votes for each arbiter who voted (fix #328)
+    if dispute.total_voters > 0 {
+        let expected = dispute
+            .total_voters
+            .checked_mul(2)
+            .ok_or(CoordinationError::ArithmeticOverflow)? as usize;
+        require!(
+            ctx.remaining_accounts.len() == expected,
+            CoordinationError::InvalidInput
+        );
+
+        for i in (0..expected).step_by(2) {
+            let vote_info = &ctx.remaining_accounts[i];
+            let arbiter_info = &ctx.remaining_accounts[i + 1];
+
+            require!(
+                vote_info.owner == &crate::ID,
+                CoordinationError::InvalidAccountOwner
+            );
+            require!(
+                arbiter_info.owner == &crate::ID,
+                CoordinationError::InvalidAccountOwner
+            );
+
+            let vote_data = vote_info.try_borrow_data()?;
+            let vote = DisputeVote::try_deserialize(&mut &**vote_data)?;
+            require!(
+                vote.dispute == dispute.key(),
+                CoordinationError::InvalidInput
+            );
+            require!(
+                vote.voter == arbiter_info.key(),
+                CoordinationError::InvalidInput
+            );
+            drop(vote_data);
+
+            require!(arbiter_info.is_writable, CoordinationError::InvalidInput);
+            let mut arbiter_data = arbiter_info.try_borrow_mut_data()?;
+            let mut arbiter = AgentRegistration::try_deserialize(&mut &**arbiter_data)?;
+            arbiter.active_dispute_votes = arbiter.active_dispute_votes.saturating_sub(1);
+            arbiter.try_serialize(&mut &mut arbiter_data[8..])?;
+        }
     }
 
     task.status = TaskStatus::Cancelled;
