@@ -88,19 +88,24 @@ pub fn transfer_rewards<'info>(
 
 /// Update claim state after completion.
 ///
-/// Note: `reward_amount` is kept for API compatibility but `worker_reward`
-/// (the actual amount paid) is used for the distributed counter to maintain
-/// invariant E3: `distributed <= amount`.
+/// Tracks both worker_reward and protocol_fee in escrow.distributed to
+/// accurately reflect total funds withdrawn. This prevents remaining_funds
+/// from being overestimated during dispute resolution.
 pub fn update_claim_state(
     claim: &mut Account<TaskClaim>,
     escrow: &mut Account<TaskEscrow>,
     worker_reward: u64,
-    _reward_amount: u64,
+    protocol_fee: u64,
 ) -> Result<()> {
     claim.reward_paid = worker_reward;
+
+    let total_withdrawn = worker_reward
+        .checked_add(protocol_fee)
+        .ok_or(CoordinationError::ArithmeticOverflow)?;
+
     escrow.distributed = escrow
         .distributed
-        .checked_add(worker_reward)
+        .checked_add(total_withdrawn)
         .ok_or(CoordinationError::ArithmeticOverflow)?;
     Ok(())
 }

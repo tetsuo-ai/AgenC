@@ -203,7 +203,7 @@ pub fn complete_task_private(
         protocol_fee,
     )?;
 
-    update_claim_state(claim, escrow, worker_reward, task.reward_amount)?;
+    update_claim_state(claim, escrow, worker_reward, protocol_fee)?;
     // Pass None for result_data to preserve privacy
     let task_completed = update_task_state(task, clock.unix_timestamp, escrow, None)?;
     update_worker_state(worker, worker_reward, clock.unix_timestamp)?;
