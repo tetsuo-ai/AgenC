@@ -652,6 +652,22 @@ impl TaskEscrow {
         1; // bump
 }
 
+/// Agent's speculation bond account
+/// PDA seeds: ["speculation_bond", agent]
+#[account]
+pub struct SpeculationBond {
+    pub agent: Pubkey,
+    pub total_bonded: u64,
+    pub available: u64,
+    pub total_deposited: u64,
+    pub total_slashed: u64,
+    pub bump: u8,
+}
+
+impl SpeculationBond {
+    pub const SIZE: usize = 8 + 32 + 8 + 8 + 8 + 8 + 1;
+}
+
 /// On-chain record of a speculative commitment
 #[account]
 pub struct SpeculativeCommitment {
