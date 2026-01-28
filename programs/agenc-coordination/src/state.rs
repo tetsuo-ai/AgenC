@@ -557,8 +557,10 @@ pub struct Dispute {
     pub voting_deadline: i64,
     /// Dispute expiration timestamp
     pub expires_at: i64,
-    /// Whether slashing has been applied
+    /// Whether worker slashing has been applied
     pub slash_applied: bool,
+    /// Whether initiator slashing has been applied (for rejected disputes)
+    pub initiator_slash_applied: bool,
     /// Bump seed
     pub bump: u8,
 }
@@ -580,8 +582,6 @@ impl Dispute {
         8 +  // expires_at
         1 +  // slash_applied
         1 +  // initiator_slash_applied
-        8 +  // initiator_bond
-        1 +  // bond_released
         1; // bump
 }
 
