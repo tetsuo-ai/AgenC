@@ -75,5 +75,17 @@ export {
   SEEDS,
 } from './constants';
 
+export {
+  // Query functions
+  getTasksByDependency,
+  getDependentTaskCount,
+  getTasksByDependencyWithProgram,
+  hasDependents,
+  // Field offsets for memcmp filtering (for custom queries)
+  TASK_FIELD_OFFSETS,
+  // Types
+  DependentTask,
+} from './queries';
+
 // Version info
 export const VERSION = '1.0.0';
