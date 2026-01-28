@@ -850,6 +850,44 @@ export interface CheckpointStore {
 }
 
 // ============================================================================
+// Metrics & Tracing Types
+// ============================================================================
+
+/**
+ * OpenTelemetry-compatible metrics provider.
+ * Supports counter, histogram, and gauge metric types with optional labels.
+ */
+export interface MetricsProvider {
+  /** Increment a counter metric. */
+  counter(name: string, value?: number, labels?: Record<string, string>): void;
+  /** Record a histogram observation (e.g. latency). */
+  histogram(name: string, value: number, labels?: Record<string, string>): void;
+  /** Set a gauge metric to an absolute value. */
+  gauge(name: string, value: number, labels?: Record<string, string>): void;
+}
+
+/**
+ * OpenTelemetry-compatible tracing provider.
+ * Creates spans for distributed tracing of pipeline stages.
+ */
+export interface TracingProvider {
+  /** Start a new trace span with optional attributes. */
+  startSpan(name: string, attributes?: Record<string, string>): Span;
+}
+
+/**
+ * A single trace span representing a unit of work.
+ */
+export interface Span {
+  /** Set an attribute on the span. */
+  setAttribute(key: string, value: string | number): void;
+  /** Set the span status. */
+  setStatus(status: 'ok' | 'error', message?: string): void;
+  /** End the span, recording its duration. */
+  end(): void;
+}
+
+// ============================================================================
 // Task Executor Types
 // ============================================================================
 
@@ -904,6 +942,10 @@ export interface TaskExecutorConfig {
   deadLetterQueue?: Partial<DeadLetterQueueConfig>;
   /** Checkpoint store for durable execution. When provided, pipeline progress is persisted and recovered on restart. */
   checkpointStore?: CheckpointStore;
+  /** Optional metrics provider for OpenTelemetry-compatible instrumentation. */
+  metrics?: MetricsProvider;
+  /** Optional tracing provider for distributed trace spans. */
+  tracing?: TracingProvider;
 }
 
 /**
