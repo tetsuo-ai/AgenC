@@ -65,3 +65,9 @@ circuits/**/*.gz
 .claude/*
 CLAUDE.md
 .mcp.json
+
+# Cursor IDE
+.cursor/
+.cursorrules
+cursor.md
+CURSOR.md
