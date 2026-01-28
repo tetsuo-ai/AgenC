@@ -19,3 +19,4 @@ export * from './speculative-executor.js';
 export * from './commitment-ledger.js';
 export * from './rollback-controller.js';
 export * from './proof-deferral.js';
+export * from './speculative-scheduler.js';
