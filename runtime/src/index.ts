@@ -66,6 +66,11 @@ export {
   ActiveTasksError,
   PendingDisputeVotesError,
   RecentVoteActivityError,
+  TaskNotFoundError,
+  TaskNotClaimableError,
+  TaskExecutionError,
+  TaskSubmissionError,
+  ExecutorStateError,
   // Error helper functions
   isAnchorError,
   parseAnchorError,
@@ -138,6 +143,49 @@ export {
   // AgentRuntime types
   type AgentRuntimeConfig,
   isKeypair,
+  // Task constants (Phase 3)
+  TASK_ID_LENGTH,
+  // Task enums
+  OnChainTaskStatus,
+  DiscoveryMode,
+  OperatingMode,
+  TaskExecutorStatus,
+  // Task functions
+  taskStatusToString,
+  taskTypeToString,
+  parseTaskStatus,
+  parseTaskType,
+  parseOnChainTask,
+  parseOnChainTaskClaim,
+  isPrivateTask,
+  isTaskExpired,
+  isTaskClaimable,
+  isPrivateExecutionResult,
+  // Task PDA derivation
+  deriveTaskPda,
+  findTaskPda,
+  deriveClaimPda,
+  findClaimPda,
+  deriveEscrowPda,
+  findEscrowPda,
+  // Task types
+  type OnChainTask,
+  type OnChainTaskClaim,
+  type RawOnChainTask,
+  type RawOnChainTaskClaim,
+  type TaskExecutionContext,
+  type TaskExecutionResult,
+  type PrivateTaskExecutionResult,
+  type TaskHandler,
+  type DiscoveredTask,
+  type TaskFilterConfig,
+  type TaskScorer,
+  type TaskDiscoveryConfig,
+  type TaskOperationsConfig,
+  type ClaimResult,
+  type CompleteResult,
+  type TaskExecutorConfig,
+  type TaskExecutorEvents,
 } from './types/index.js';
 
 // Logger utilities
