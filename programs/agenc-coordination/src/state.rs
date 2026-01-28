@@ -651,3 +651,20 @@ impl TaskEscrow {
         1 +  // is_closed
         1; // bump
 }
+
+/// On-chain record of a speculative commitment
+#[account]
+pub struct SpeculativeCommitment {
+    pub task: Pubkey,
+    pub producer: Pubkey,
+    pub result_hash: [u8; 32],
+    pub confirmed: bool,
+    pub expires_at: i64,
+    pub bonded_stake: u64,
+    pub created_at: i64,
+    pub bump: u8,
+}
+
+impl SpeculativeCommitment {
+    pub const SIZE: usize = 8 + 32 + 32 + 32 + 1 + 8 + 8 + 8 + 1; // 130 bytes
+}

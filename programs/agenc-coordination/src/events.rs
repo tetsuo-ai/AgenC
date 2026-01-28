@@ -182,3 +182,12 @@ pub struct ProtocolVersionUpdated {
     pub min_supported_version: u8,
     pub timestamp: i64,
 }
+
+#[event]
+pub struct SpeculativeCommitmentCreated {
+    pub task: Pubkey,
+    pub producer: Pubkey,
+    pub result_hash: [u8; 32],
+    pub bonded_stake: u64,
+    pub expires_at: i64,
+}
