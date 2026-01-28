@@ -9,9 +9,13 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Connection, Keypair, Transaction, VersionedTransaction } from '@solana/web3.js';
 import { AgentRuntime } from './runtime.js';
 import { EventMonitor } from './events/index.js';
+import { TaskExecutor } from './task/index.js';
 import { ValidationError } from './types/errors.js';
 import type { Wallet } from './types/wallet.js';
 import { AGENT_ID_LENGTH } from './agent/types.js';
+import type { TaskOperations } from './task/operations.js';
+import type { Logger } from './utils/logger.js';
+import { createLogger } from './utils/logger.js';
 
 // Mock Connection to avoid real network calls
 const mockConnection = {
@@ -332,6 +336,160 @@ describe('AgentRuntime', () => {
       expect(metrics.eventCounts).toEqual({});
       expect(metrics.startedAt).toBeNull();
       expect(metrics.uptimeMs).toBe(0);
+    });
+  });
+
+  describe('createTaskExecutor', () => {
+    const mockOperations = {} as TaskOperations;
+    const mockHandler = vi.fn();
+
+    it('returns a TaskExecutor instance', () => {
+      const keypair = Keypair.generate();
+      const runtime = new AgentRuntime({
+        connection: mockConnection,
+        wallet: keypair,
+        capabilities: 1n,
+      });
+
+      const executor = runtime.createTaskExecutor({
+        operations: mockOperations,
+        handler: mockHandler,
+      });
+
+      expect(executor).toBeInstanceOf(TaskExecutor);
+    });
+
+    it('returns a new instance on each call', () => {
+      const keypair = Keypair.generate();
+      const runtime = new AgentRuntime({
+        connection: mockConnection,
+        wallet: keypair,
+        capabilities: 1n,
+      });
+
+      const executor1 = runtime.createTaskExecutor({
+        operations: mockOperations,
+        handler: mockHandler,
+      });
+      const executor2 = runtime.createTaskExecutor({
+        operations: mockOperations,
+        handler: mockHandler,
+      });
+
+      expect(executor1).not.toBe(executor2);
+    });
+
+    it('returns an executor that is not yet running', () => {
+      const keypair = Keypair.generate();
+      const runtime = new AgentRuntime({
+        connection: mockConnection,
+        wallet: keypair,
+        capabilities: 1n,
+      });
+
+      const executor = runtime.createTaskExecutor({
+        operations: mockOperations,
+        handler: mockHandler,
+      });
+
+      expect(executor.isRunning()).toBe(false);
+    });
+
+    it('uses runtime logger by default', () => {
+      const keypair = Keypair.generate();
+      const runtime = new AgentRuntime({
+        connection: mockConnection,
+        wallet: keypair,
+        capabilities: 1n,
+        logLevel: 'info',
+      });
+
+      // The executor should be created without errors using the runtime's logger
+      const executor = runtime.createTaskExecutor({
+        operations: mockOperations,
+        handler: mockHandler,
+      });
+
+      expect(executor).toBeInstanceOf(TaskExecutor);
+    });
+
+    it('allows logger override', () => {
+      const keypair = Keypair.generate();
+      const runtime = new AgentRuntime({
+        connection: mockConnection,
+        wallet: keypair,
+        capabilities: 1n,
+      });
+
+      const customLogger: Logger = createLogger('debug', '[CustomExecutor]');
+
+      const executor = runtime.createTaskExecutor({
+        operations: mockOperations,
+        handler: mockHandler,
+        logger: customLogger,
+      });
+
+      expect(executor).toBeInstanceOf(TaskExecutor);
+    });
+
+    it('supports multiple concurrent executors', () => {
+      const keypair = Keypair.generate();
+      const runtime = new AgentRuntime({
+        connection: mockConnection,
+        wallet: keypair,
+        capabilities: 1n,
+      });
+
+      const executors = [
+        runtime.createTaskExecutor({ operations: mockOperations, handler: mockHandler }),
+        runtime.createTaskExecutor({ operations: mockOperations, handler: mockHandler }),
+        runtime.createTaskExecutor({ operations: mockOperations, handler: mockHandler }),
+      ];
+
+      expect(executors).toHaveLength(3);
+      executors.forEach((e) => expect(e).toBeInstanceOf(TaskExecutor));
+      // All distinct instances
+      expect(new Set(executors).size).toBe(3);
+    });
+
+    it('returns executor with zeroed metrics', () => {
+      const keypair = Keypair.generate();
+      const runtime = new AgentRuntime({
+        connection: mockConnection,
+        wallet: keypair,
+        capabilities: 1n,
+      });
+
+      const executor = runtime.createTaskExecutor({
+        operations: mockOperations,
+        handler: mockHandler,
+      });
+
+      const status = executor.getStatus();
+      expect(status.running).toBe(false);
+      expect(status.tasksDiscovered).toBe(0);
+      expect(status.tasksClaimed).toBe(0);
+      expect(status.tasksCompleted).toBe(0);
+      expect(status.tasksFailed).toBe(0);
+    });
+
+    it('passes through mode and maxConcurrentTasks config', () => {
+      const keypair = Keypair.generate();
+      const runtime = new AgentRuntime({
+        connection: mockConnection,
+        wallet: keypair,
+        capabilities: 1n,
+      });
+
+      const executor = runtime.createTaskExecutor({
+        operations: mockOperations,
+        handler: mockHandler,
+        mode: 'batch',
+        maxConcurrentTasks: 5,
+      });
+
+      const status = executor.getStatus();
+      expect(status.mode).toBe('batch');
     });
   });
 });
