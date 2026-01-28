@@ -743,6 +743,26 @@ export interface RetryPolicy {
 }
 
 // ============================================================================
+// Backpressure Types
+// ============================================================================
+
+/**
+ * Configuration for queue-based backpressure between TaskDiscovery and TaskExecutor.
+ *
+ * When the executor's task queue reaches `highWaterMark`, discovery is paused.
+ * When the queue drains to `lowWaterMark`, discovery is resumed.
+ * The hysteresis gap between the two thresholds prevents rapid pause/resume oscillation.
+ */
+export interface BackpressureConfig {
+  /** Queue length at which discovery is paused. Default: 100 */
+  highWaterMark: number;
+  /** Queue length at which discovery is resumed. Default: 25 */
+  lowWaterMark: number;
+  /** Whether to automatically pause discovery when the queue overflows. Default: true */
+  pauseDiscovery: boolean;
+}
+
+// ============================================================================
 // Task Executor Types
 // ============================================================================
 
@@ -791,6 +811,8 @@ export interface TaskExecutorConfig {
   claimExpiryBufferMs?: number;
   /** Retry policy for transient failures in claim and submit stages. Handler execution is NOT retried. */
   retryPolicy?: Partial<RetryPolicy>;
+  /** Backpressure configuration for controlling discovery rate based on queue depth. */
+  backpressure?: Partial<BackpressureConfig>;
 }
 
 /**
@@ -823,6 +845,10 @@ export interface TaskExecutorStatus {
   startedAt: number | null;
   /** Milliseconds the executor has been running */
   uptimeMs: number;
+  /** Current number of tasks waiting in the queue */
+  queueSize: number;
+  /** Whether backpressure is currently active (discovery paused due to queue overflow) */
+  backpressureActive: boolean;
 }
 
 /**
@@ -847,4 +873,8 @@ export interface TaskExecutorEvents {
   onTaskTimeout?: (error: Error, taskPda: PublicKey) => void;
   /** Called when a task's claim deadline is about to expire */
   onClaimExpiring?: (error: Error, taskPda: PublicKey) => void;
+  /** Called when backpressure is activated (queue reached high-water mark, discovery paused) */
+  onBackpressureActivated?: () => void;
+  /** Called when backpressure is released (queue drained to low-water mark, discovery resumed) */
+  onBackpressureReleased?: () => void;
 }
