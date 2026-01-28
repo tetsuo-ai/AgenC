@@ -232,7 +232,7 @@ describe('SpeculativeTaskScheduler', () => {
       expect(decision.reason).toBe('depth_limit');
     });
 
-    it('should fire onDepthLimitReached event', () => {
+    it('should fire onDepthLimitReached event with currentDepth and maxDepth', () => {
       const onDepthLimitReached = vi.fn();
 
       const { scheduler, graph } = createScheduler(
@@ -248,7 +248,30 @@ describe('SpeculativeTaskScheduler', () => {
 
       scheduler.shouldSpeculate(childPda);
 
-      expect(onDepthLimitReached).toHaveBeenCalledWith(childPda, 1);
+      expect(onDepthLimitReached).toHaveBeenCalledWith(childPda, 1, 1);
+    });
+
+    it('should pass correct maxDepth value in onDepthLimitReached event', () => {
+      const onDepthLimitReached = vi.fn();
+
+      const { scheduler, graph } = createScheduler(
+        { maxSpeculationDepth: 2 },
+        { onDepthLimitReached }
+      );
+
+      // Create chain: root -> child1 -> child2 (depth 2)
+      const rootPda = randomPda();
+      const child1Pda = randomPda();
+      const child2Pda = randomPda();
+
+      graph.addTask(createMockTask(), rootPda);
+      graph.addTaskWithParent(createMockTask(), child1Pda, rootPda);
+      graph.addTaskWithParent(createMockTask(), child2Pda, child1Pda);
+
+      // Depth 2 == limit of 2, should trigger event
+      scheduler.shouldSpeculate(child2Pda);
+
+      expect(onDepthLimitReached).toHaveBeenCalledWith(child2Pda, 2, 2);
     });
   });
 
