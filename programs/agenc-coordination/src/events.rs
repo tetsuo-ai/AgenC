@@ -183,6 +183,22 @@ pub struct ProtocolVersionUpdated {
     pub timestamp: i64,
 }
 
+/// Emitted when bond is deposited to speculation bond account
+#[event]
+pub struct BondDeposited {
+    pub agent: Pubkey,
+    pub amount: u64,
+    pub new_total: u64,
+}
+
+/// Emitted when bond is locked for a commitment
+#[event]
+pub struct BondLocked {
+    pub agent: Pubkey,
+    pub commitment: Pubkey,
+    pub amount: u64,
+}
+
 #[event]
 pub struct SpeculativeCommitmentCreated {
     pub task: Pubkey,
