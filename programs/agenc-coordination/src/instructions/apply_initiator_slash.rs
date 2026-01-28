@@ -45,7 +45,7 @@ pub fn handler(ctx: Context<ApplyInitiatorSlash>) -> Result<()> {
         CoordinationError::SlashAlreadyApplied
     );
     require!(
-        initiator_agent.authority == dispute.initiator,
+        initiator_agent.key() == dispute.initiator,
         CoordinationError::UnauthorizedAgent
     );
 
