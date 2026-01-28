@@ -14,3 +14,4 @@ export * from './dlq.js';
 export * from './checkpoint.js';
 export * from './metrics.js';
 export * from './dependency-graph.js';
+export * from './proof-pipeline.js';
