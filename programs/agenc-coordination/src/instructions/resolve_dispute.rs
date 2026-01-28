@@ -42,7 +42,7 @@ pub struct ResolveDispute<'info> {
 
     #[account(
         constraint = resolver.key() == protocol_config.authority
-            || resolver.key() == dispute.initiator
+            || resolver.key() == dispute.initiator_authority
             @ CoordinationError::UnauthorizedResolver
     )]
     pub resolver: Signer<'info>,
