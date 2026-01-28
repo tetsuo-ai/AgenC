@@ -1,0 +1,57 @@
+---
+description: Rules for working with the speculative execution system
+globs: ["**/runtime/src/task/**", "**/speculation*"]
+---
+
+# Speculative Execution Rules
+
+## Critical Invariant
+
+**NEVER submit a proof until all ancestor proofs are confirmed on-chain.**
+
+When modifying speculation code, always verify this invariant is maintained.
+
+## Component Hierarchy
+
+```
+SpeculativeTaskScheduler (orchestrator)
+├── DependencyGraph (task relationships)
+├── CommitmentLedger (speculative state)
+├── ProofDeferralManager (proof ordering)
+│   └── ProofPipeline (async generation)
+├── RollbackController (failure handling)
+└── SpeculativeExecutor (execution)
+```
+
+## Adding New Speculation Features
+
+1. Check if it affects the critical invariant
+2. Add config option if behavior should be configurable
+3. Add event callback for observability
+4. Add metrics for monitoring
+5. Add tests covering edge cases
+
+## Speculation Decision Policy
+
+When deciding whether to speculate, check in order:
+1. Is speculation enabled?
+2. Is dependency type speculatable? (Data/Ordering yes, Proof no)
+3. Is depth within limit?
+4. Is stake within limit?
+5. Is claim window sufficient?
+
+## Rollback Handling
+
+When a proof fails:
+1. RollbackController traverses DependencyGraph (BFS)
+2. All downstream tasks are rolled back
+3. CommitmentLedger marks commitments as rolled_back
+4. Active tasks are aborted via AbortController
+5. Pending proofs are cancelled
+
+## Testing Requirements
+
+- Unit tests for each component
+- Integration tests for component interactions
+- Chaos tests for failure scenarios
+- Test the critical invariant explicitly
