@@ -17,3 +17,4 @@ export * from './dependency-graph.js';
 export * from './proof-pipeline.js';
 export * from './speculative-executor.js';
 export * from './commitment-ledger.js';
+export * from './rollback-controller.js';
