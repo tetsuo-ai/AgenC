@@ -179,6 +179,7 @@ pub fn handler(
     dispute.dispute_id = dispute_id;
     dispute.task = task.key();
     dispute.initiator = agent.key();
+    dispute.initiator_authority = ctx.accounts.authority.key();
     dispute.evidence_hash = evidence_hash;
     dispute.resolution_type = match resolution_type {
         0 => ResolutionType::Refund,
