@@ -679,9 +679,6 @@
           "writable": true
         },
         {
-          "name": "zk_verifier"
-        },
-        {
           "name": "authority",
           "writable": true,
           "signer": true,
@@ -706,6 +703,212 @@
               "name": "PrivateCompletionProof"
             }
           }
+        }
+      ]
+    },
+    {
+      "name": "create_dependent_task",
+      "docs": [
+        "Create a new task that depends on an existing parent task.",
+        "The parent task must not be cancelled or disputed.",
+        "",
+        "# Arguments",
+        "* `ctx` - Context with task, escrow, parent_task, and creator accounts",
+        "* `task_id` - Unique identifier for the task",
+        "* `required_capabilities` - Bitmask of required agent capabilities",
+        "* `description` - Task description or instruction hash",
+        "* `reward_amount` - SOL or token reward for completion",
+        "* `max_workers` - Maximum number of agents that can work on this task",
+        "* `deadline` - Unix timestamp deadline (0 = no deadline)",
+        "* `task_type` - 0=exclusive (single worker), 1=collaborative (multi-worker)",
+        "* `constraint_hash` - For private tasks: hash of expected output (None for non-private)",
+        "* `dependency_type` - 1=Data, 2=Ordering, 3=Proof"
+      ],
+      "discriminator": [
+        113,
+        118,
+        102,
+        157,
+        66,
+        214,
+        158,
+        146
+      ],
+      "accounts": [
+        {
+          "name": "task",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  97,
+                  115,
+                  107
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "creator"
+              },
+              {
+                "kind": "arg",
+                "path": "task_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "escrow",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  115,
+                  99,
+                  114,
+                  111,
+                  119
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "task"
+              }
+            ]
+          }
+        },
+        {
+          "name": "parent_task",
+          "docs": [
+            "The parent task this new task depends on"
+          ]
+        },
+        {
+          "name": "protocol_config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "creator_agent",
+          "docs": [
+            "Creator's agent registration for rate limiting (required)"
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  103,
+                  101,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "creator_agent.agent_id",
+                "account": "AgentRegistration"
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "docs": [
+            "The authority that owns the creator_agent"
+          ],
+          "signer": true,
+          "relations": [
+            "creator_agent"
+          ]
+        },
+        {
+          "name": "creator",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "task_id",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "required_capabilities",
+          "type": "u64"
+        },
+        {
+          "name": "description",
+          "type": {
+            "array": [
+              "u8",
+              64
+            ]
+          }
+        },
+        {
+          "name": "reward_amount",
+          "type": "u64"
+        },
+        {
+          "name": "max_workers",
+          "type": "u8"
+        },
+        {
+          "name": "deadline",
+          "type": "i64"
+        },
+        {
+          "name": "task_type",
+          "type": "u8"
+        },
+        {
+          "name": "constraint_hash",
+          "type": {
+            "option": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          }
+        },
+        {
+          "name": "dependency_type",
+          "type": "u8"
         }
       ]
     },
@@ -1194,6 +1397,42 @@
         {
           "name": "creator",
           "writable": true
+        },
+        {
+          "name": "worker_claim",
+          "docs": [
+            "Worker's claim on the disputed task (fix #137)",
+            "Optional - when provided, allows decrementing worker's active_tasks"
+          ],
+          "optional": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  108,
+                  97,
+                  105,
+                  109
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "task"
+              },
+              {
+                "kind": "account",
+                "path": "worker_claim.worker",
+                "account": "TaskClaim"
+              }
+            ]
+          }
+        },
+        {
+          "name": "worker",
+          "writable": true,
+          "optional": true
         }
       ],
       "args": []
@@ -2436,6 +2675,19 @@
       ]
     },
     {
+      "name": "DependentTaskCreated",
+      "discriminator": [
+        82,
+        63,
+        46,
+        148,
+        85,
+        191,
+        122,
+        114
+      ]
+    },
+    {
       "name": "DisputeExpired",
       "discriminator": [
         28,
@@ -2777,7 +3029,7 @@
     {
       "code": 6031,
       "name": "InvalidProofSize",
-      "msg": "Invalid proof size - expected 388 bytes for Groth16"
+      "msg": "Invalid proof size - expected 256 bytes for Groth16"
     },
     {
       "code": 6032,
@@ -3018,6 +3270,21 @@
       "code": 6079,
       "name": "UnauthorizedUpgrade",
       "msg": "Only upgrade authority can perform this action"
+    },
+    {
+      "code": 6080,
+      "name": "ParentTaskCancelled",
+      "msg": "Parent task has been cancelled"
+    },
+    {
+      "code": 6081,
+      "name": "ParentTaskDisputed",
+      "msg": "Parent task is in disputed state"
+    },
+    {
+      "code": 6082,
+      "name": "InvalidDependencyType",
+      "msg": "Invalid dependency type"
     }
   ],
   "types": [
@@ -3438,6 +3705,68 @@
               "Bump seed"
             ],
             "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "DependencyType",
+      "docs": [
+        "Dependency type for speculative execution decisions"
+      ],
+      "repr": {
+        "kind": "rust"
+      },
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "None"
+          },
+          {
+            "name": "Data"
+          },
+          {
+            "name": "Ordering"
+          },
+          {
+            "name": "Proof"
+          }
+        ]
+      }
+    },
+    {
+      "name": "DependentTaskCreated",
+      "docs": [
+        "Emitted when a task with dependencies is created"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "task_id",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "creator",
+            "type": "pubkey"
+          },
+          {
+            "name": "depends_on",
+            "type": "pubkey"
+          },
+          {
+            "name": "dependency_type",
+            "type": "u8"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
           }
         ]
       }
@@ -4424,6 +4753,26 @@
               "Bump seed"
             ],
             "type": "u8"
+          },
+          {
+            "name": "depends_on",
+            "docs": [
+              "Optional parent task this task depends on (None for independent tasks)"
+            ],
+            "type": {
+              "option": "pubkey"
+            }
+          },
+          {
+            "name": "dependency_type",
+            "docs": [
+              "Type of dependency relationship"
+            ],
+            "type": {
+              "defined": {
+                "name": "DependencyType"
+              }
+            }
           },
           {
             "name": "_reserved",
