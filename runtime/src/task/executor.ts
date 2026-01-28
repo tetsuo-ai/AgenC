@@ -33,6 +33,7 @@ import type {
   OperatingMode,
   BatchTaskItem,
   RetryPolicy,
+  BackpressureConfig,
 } from './types.js';
 import { isPrivateExecutionResult } from './types.js';
 import { deriveTaskPda } from './pda.js';
@@ -47,6 +48,12 @@ const DEFAULT_RETRY_POLICY: RetryPolicy = {
   baseDelayMs: 1000,
   maxDelayMs: 30_000,
   jitter: true,
+};
+
+const DEFAULT_BACKPRESSURE_CONFIG: BackpressureConfig = {
+  highWaterMark: 100,
+  lowWaterMark: 25,
+  pauseDiscovery: true,
 };
 
 // ============================================================================
@@ -93,6 +100,7 @@ export class TaskExecutor {
   private readonly taskTimeoutMs: number;
   private readonly claimExpiryBufferMs: number;
   private readonly retryPolicy: RetryPolicy;
+  private readonly backpressureConfig: BackpressureConfig;
 
   // Runtime state
   private running = false;
@@ -101,6 +109,7 @@ export class TaskExecutor {
   private taskQueue: TaskDiscoveryResult[] = [];
   private events: TaskExecutorEvents = {};
   private discoveryUnsubscribe: (() => void) | null = null;
+  private backpressureActive = false;
 
   // Metrics
   private metrics = {
@@ -128,6 +137,7 @@ export class TaskExecutor {
     this.taskTimeoutMs = config.taskTimeoutMs ?? 300_000;
     this.claimExpiryBufferMs = config.claimExpiryBufferMs ?? 30_000;
     this.retryPolicy = { ...DEFAULT_RETRY_POLICY, ...config.retryPolicy };
+    this.backpressureConfig = { ...DEFAULT_BACKPRESSURE_CONFIG, ...config.backpressure };
   }
 
   // ==========================================================================
@@ -205,8 +215,9 @@ export class TaskExecutor {
       });
     }
 
-    // Clear queue
+    // Clear queue and backpressure state
     this.taskQueue = [];
+    this.backpressureActive = false;
     this.startedAt = null;
 
     this.logger.info('TaskExecutor stopped');
@@ -241,7 +252,16 @@ export class TaskExecutor {
       submitRetries: this.metrics.submitRetries,
       startedAt: this.startedAt,
       uptimeMs: this.startedAt ? Date.now() - this.startedAt : 0,
+      queueSize: this.taskQueue.length,
+      backpressureActive: this.backpressureActive,
     };
+  }
+
+  /**
+   * Get the current number of tasks waiting in the queue.
+   */
+  getQueueSize(): number {
+    return this.taskQueue.length;
   }
 
   // ==========================================================================
@@ -362,6 +382,7 @@ export class TaskExecutor {
       this.launchTask(task);
     } else {
       this.taskQueue.push(task);
+      this.checkHighWaterMark();
     }
   }
 
@@ -373,6 +394,46 @@ export class TaskExecutor {
     ) {
       const task = this.taskQueue.shift()!;
       this.launchTask(task);
+    }
+    this.checkLowWaterMark();
+  }
+
+  // ==========================================================================
+  // Backpressure
+  // ==========================================================================
+
+  /**
+   * If queue has reached the high-water mark, pause discovery.
+   */
+  private checkHighWaterMark(): void {
+    if (
+      !this.backpressureActive &&
+      this.backpressureConfig.pauseDiscovery &&
+      this.taskQueue.length >= this.backpressureConfig.highWaterMark
+    ) {
+      this.backpressureActive = true;
+      this.discovery?.pause();
+      this.events.onBackpressureActivated?.();
+      this.logger.info(
+        `Backpressure activated: queue size ${this.taskQueue.length} >= high-water mark ${this.backpressureConfig.highWaterMark}`,
+      );
+    }
+  }
+
+  /**
+   * If queue has drained to the low-water mark, resume discovery.
+   */
+  private checkLowWaterMark(): void {
+    if (
+      this.backpressureActive &&
+      this.taskQueue.length <= this.backpressureConfig.lowWaterMark
+    ) {
+      this.backpressureActive = false;
+      this.discovery?.resume();
+      this.events.onBackpressureReleased?.();
+      this.logger.info(
+        `Backpressure released: queue size ${this.taskQueue.length} <= low-water mark ${this.backpressureConfig.lowWaterMark}`,
+      );
     }
   }
 
