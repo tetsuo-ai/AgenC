@@ -166,6 +166,7 @@ export {
   type OperatingMode,
   type BatchTaskItem,
   type TaskExecutorStatus,
+  type RetryPolicy,
 } from '../task/index.js';
 
 // Event monitoring types (Phase 2)

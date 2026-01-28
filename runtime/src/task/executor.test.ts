@@ -12,6 +12,7 @@ import type {
   TaskExecutorEvents,
   ClaimResult,
   CompleteResult,
+  RetryPolicy,
 } from './types.js';
 import { OnChainTaskStatus, isPrivateExecutionResult } from './types.js';
 import { TaskType } from '../events/types.js';
@@ -424,6 +425,7 @@ describe('TaskExecutor', () => {
         mode: 'autonomous',
         operations: mockOps,
         discovery: mockDiscovery,
+        retryPolicy: { maxAttempts: 1 },
       });
       const executor = new TaskExecutor(config);
       const startPromise = executor.start();
@@ -1367,6 +1369,352 @@ describe('TaskExecutor', () => {
       // We can't directly access the private field, but we can verify
       // the config was accepted without error
       expect(executor).toBeDefined();
+    });
+  });
+
+  // ==========================================================================
+  // Retry with Backoff
+  // ==========================================================================
+
+  describe('retry with backoff', () => {
+    it('retries claim on transient failure then succeeds', async () => {
+      const mockOps = createMockOperations();
+      const mockDiscovery = createMockDiscovery();
+
+      // First claim fails, second succeeds
+      mockOps.claimTask
+        .mockRejectedValueOnce(new Error('RPC timeout'))
+        .mockResolvedValueOnce({
+          success: true,
+          taskId: new Uint8Array(32),
+          claimPda: Keypair.generate().publicKey,
+          transactionSignature: 'sig',
+        } satisfies ClaimResult);
+
+      const config = createExecutorConfig({
+        mode: 'autonomous',
+        operations: mockOps,
+        discovery: mockDiscovery,
+        retryPolicy: { maxAttempts: 3, baseDelayMs: 10, maxDelayMs: 50, jitter: false },
+      });
+      const executor = new TaskExecutor(config);
+      const startPromise = executor.start();
+      await waitFor(() => mockDiscovery.start.mock.calls.length > 0);
+
+      mockDiscovery._emitTask(createDiscoveryResult());
+      await waitFor(() => mockOps.completeTask.mock.calls.length > 0, 3000);
+
+      const status = executor.getStatus();
+      expect(status.tasksClaimed).toBe(1);
+      expect(status.tasksCompleted).toBe(1);
+      expect(status.claimRetries).toBe(1);
+      expect(mockOps.claimTask).toHaveBeenCalledTimes(2);
+
+      await executor.stop();
+      await startPromise;
+    });
+
+    it('retries submit on transient failure then succeeds', async () => {
+      const mockOps = createMockOperations();
+      const mockDiscovery = createMockDiscovery();
+
+      // First submit fails, second succeeds
+      mockOps.completeTask
+        .mockRejectedValueOnce(new Error('Transaction timeout'))
+        .mockResolvedValueOnce({
+          success: true,
+          taskId: new Uint8Array(32),
+          isPrivate: false,
+          transactionSignature: 'complete-sig-2',
+        } satisfies CompleteResult);
+
+      const config = createExecutorConfig({
+        mode: 'autonomous',
+        operations: mockOps,
+        discovery: mockDiscovery,
+        retryPolicy: { maxAttempts: 3, baseDelayMs: 10, maxDelayMs: 50, jitter: false },
+      });
+      const executor = new TaskExecutor(config);
+      const startPromise = executor.start();
+      await waitFor(() => mockDiscovery.start.mock.calls.length > 0);
+
+      mockDiscovery._emitTask(createDiscoveryResult());
+      await waitFor(() => executor.getStatus().tasksCompleted >= 1, 3000);
+
+      const status = executor.getStatus();
+      expect(status.tasksCompleted).toBe(1);
+      expect(status.submitRetries).toBe(1);
+      expect(mockOps.completeTask).toHaveBeenCalledTimes(2);
+
+      await executor.stop();
+      await startPromise;
+    });
+
+    it('exhausts retries and fails after maxAttempts', async () => {
+      const mockOps = createMockOperations();
+      const mockDiscovery = createMockDiscovery();
+
+      // All claims fail
+      mockOps.claimTask.mockRejectedValue(new Error('RPC down'));
+
+      const config = createExecutorConfig({
+        mode: 'autonomous',
+        operations: mockOps,
+        discovery: mockDiscovery,
+        retryPolicy: { maxAttempts: 3, baseDelayMs: 10, maxDelayMs: 50, jitter: false },
+      });
+      const executor = new TaskExecutor(config);
+      const startPromise = executor.start();
+      await waitFor(() => mockDiscovery.start.mock.calls.length > 0);
+
+      mockDiscovery._emitTask(createDiscoveryResult());
+
+      // Wait for all attempts to exhaust
+      await waitFor(() => mockOps.claimTask.mock.calls.length >= 3, 3000);
+      await flushAsync();
+
+      const status = executor.getStatus();
+      expect(status.claimsFailed).toBe(3);
+      expect(status.claimRetries).toBe(2); // 2 retries after the initial attempt
+      expect(status.tasksCompleted).toBe(0);
+      expect(mockOps.claimTask).toHaveBeenCalledTimes(3);
+
+      await executor.stop();
+      await startPromise;
+    });
+
+    it('does NOT retry execute (handler) failures', async () => {
+      const mockOps = createMockOperations();
+      const mockDiscovery = createMockDiscovery();
+      let handlerCallCount = 0;
+
+      const handler = async (): Promise<TaskExecutionResult> => {
+        handlerCallCount++;
+        throw new Error('Handler bug');
+      };
+
+      const config = createExecutorConfig({
+        mode: 'autonomous',
+        operations: mockOps,
+        discovery: mockDiscovery,
+        handler,
+        retryPolicy: { maxAttempts: 3, baseDelayMs: 10, maxDelayMs: 50, jitter: false },
+      });
+      const executor = new TaskExecutor(config);
+      const startPromise = executor.start();
+      await waitFor(() => mockDiscovery.start.mock.calls.length > 0);
+
+      mockDiscovery._emitTask(createDiscoveryResult());
+      await waitFor(() => executor.getStatus().tasksFailed >= 1, 3000);
+
+      // Handler should only have been called once — no retries
+      expect(handlerCallCount).toBe(1);
+      expect(executor.getStatus().tasksFailed).toBe(1);
+
+      await executor.stop();
+      await startPromise;
+    });
+
+    it('respects abort signal during retry wait', async () => {
+      const mockOps = createMockOperations();
+      const mockDiscovery = createMockDiscovery();
+
+      // Claim always fails to trigger retries
+      mockOps.claimTask.mockRejectedValue(new Error('RPC timeout'));
+
+      const config = createExecutorConfig({
+        mode: 'autonomous',
+        operations: mockOps,
+        discovery: mockDiscovery,
+        retryPolicy: {
+          maxAttempts: 10,
+          baseDelayMs: 5000, // Long delay to ensure abort hits during sleep
+          maxDelayMs: 30000,
+          jitter: false,
+        },
+      });
+      const executor = new TaskExecutor(config);
+      const startPromise = executor.start();
+      await waitFor(() => mockDiscovery.start.mock.calls.length > 0);
+
+      mockDiscovery._emitTask(createDiscoveryResult());
+
+      // Wait for the first attempt to fail
+      await waitFor(() => mockOps.claimTask.mock.calls.length >= 1);
+
+      // Stop while retry is sleeping
+      await executor.stop();
+      await startPromise;
+
+      // Should not have exhausted all retries — was interrupted
+      expect(mockOps.claimTask.mock.calls.length).toBeLessThan(10);
+    });
+
+    it('logs each retry attempt', async () => {
+      const mockOps = createMockOperations();
+      const mockDiscovery = createMockDiscovery();
+      const warnLogs: string[] = [];
+
+      const logger = {
+        ...silentLogger,
+        warn: (msg: string) => { warnLogs.push(msg); },
+      };
+
+      mockOps.claimTask
+        .mockRejectedValueOnce(new Error('RPC error'))
+        .mockResolvedValueOnce({
+          success: true,
+          taskId: new Uint8Array(32),
+          claimPda: Keypair.generate().publicKey,
+          transactionSignature: 'sig',
+        } satisfies ClaimResult);
+
+      const config = createExecutorConfig({
+        mode: 'autonomous',
+        operations: mockOps,
+        discovery: mockDiscovery,
+        logger,
+        retryPolicy: { maxAttempts: 3, baseDelayMs: 10, maxDelayMs: 50, jitter: false },
+      });
+      const executor = new TaskExecutor(config);
+      const startPromise = executor.start();
+      await waitFor(() => mockDiscovery.start.mock.calls.length > 0);
+
+      mockDiscovery._emitTask(createDiscoveryResult());
+      await waitFor(() => mockOps.completeTask.mock.calls.length > 0, 3000);
+
+      // Should have logged the retry
+      expect(warnLogs.some((msg) => msg.includes('Retry claim'))).toBe(true);
+
+      await executor.stop();
+      await startPromise;
+    });
+
+    it('uses default retry policy when none provided', async () => {
+      const mockOps = createMockOperations();
+      const mockDiscovery = createMockDiscovery();
+
+      const config = createExecutorConfig({
+        mode: 'autonomous',
+        operations: mockOps,
+        discovery: mockDiscovery,
+      });
+      const executor = new TaskExecutor(config);
+
+      // Should be created without error using defaults
+      expect(executor).toBeDefined();
+
+      const status = executor.getStatus();
+      expect(status.claimRetries).toBe(0);
+      expect(status.submitRetries).toBe(0);
+    });
+
+    it('applies exponential backoff delays (no jitter)', async () => {
+      const mockOps = createMockOperations();
+      const mockDiscovery = createMockDiscovery();
+      const timestamps: number[] = [];
+
+      // All claims fail to observe the timing of retries
+      mockOps.claimTask.mockImplementation(async () => {
+        timestamps.push(Date.now());
+        throw new Error('RPC down');
+      });
+
+      const config = createExecutorConfig({
+        mode: 'autonomous',
+        operations: mockOps,
+        discovery: mockDiscovery,
+        retryPolicy: { maxAttempts: 3, baseDelayMs: 50, maxDelayMs: 5000, jitter: false },
+      });
+      const executor = new TaskExecutor(config);
+      const startPromise = executor.start();
+      await waitFor(() => mockDiscovery.start.mock.calls.length > 0);
+
+      mockDiscovery._emitTask(createDiscoveryResult());
+      await waitFor(() => mockOps.claimTask.mock.calls.length >= 3, 5000);
+      await flushAsync();
+
+      // Verify the delays are approximately exponential:
+      // attempt 0: no delay
+      // attempt 1: ~50ms delay (baseDelay * 2^0 = 50ms)
+      // attempt 2: ~100ms delay (baseDelay * 2^1 = 100ms)
+      expect(timestamps.length).toBe(3);
+      const delay1 = timestamps[1] - timestamps[0];
+      const delay2 = timestamps[2] - timestamps[1];
+
+      // Allow generous tolerance for CI environments
+      expect(delay1).toBeGreaterThanOrEqual(30);
+      expect(delay1).toBeLessThan(200);
+      expect(delay2).toBeGreaterThanOrEqual(60);
+      expect(delay2).toBeLessThan(400);
+
+      await executor.stop();
+      await startPromise;
+    });
+
+    it('caps delay at maxDelayMs', async () => {
+      const mockOps = createMockOperations();
+      const mockDiscovery = createMockDiscovery();
+      const timestamps: number[] = [];
+
+      mockOps.claimTask.mockImplementation(async () => {
+        timestamps.push(Date.now());
+        throw new Error('RPC down');
+      });
+
+      const config = createExecutorConfig({
+        mode: 'autonomous',
+        operations: mockOps,
+        discovery: mockDiscovery,
+        // baseDelay=200, maxDelay=100 — the cap should limit the delay
+        retryPolicy: { maxAttempts: 3, baseDelayMs: 200, maxDelayMs: 100, jitter: false },
+      });
+      const executor = new TaskExecutor(config);
+      const startPromise = executor.start();
+      await waitFor(() => mockDiscovery.start.mock.calls.length > 0);
+
+      mockDiscovery._emitTask(createDiscoveryResult());
+      await waitFor(() => mockOps.claimTask.mock.calls.length >= 3, 5000);
+      await flushAsync();
+
+      expect(timestamps.length).toBe(3);
+      const delay1 = timestamps[1] - timestamps[0];
+      const delay2 = timestamps[2] - timestamps[1];
+
+      // Delays should be capped at ~100ms (maxDelayMs)
+      expect(delay1).toBeLessThan(300);
+      expect(delay2).toBeLessThan(300);
+
+      await executor.stop();
+      await startPromise;
+    });
+
+    it('maxAttempts=1 disables retries', async () => {
+      const mockOps = createMockOperations();
+      const mockDiscovery = createMockDiscovery();
+
+      mockOps.claimTask.mockRejectedValue(new Error('RPC down'));
+
+      const config = createExecutorConfig({
+        mode: 'autonomous',
+        operations: mockOps,
+        discovery: mockDiscovery,
+        retryPolicy: { maxAttempts: 1, baseDelayMs: 10, maxDelayMs: 50, jitter: false },
+      });
+      const executor = new TaskExecutor(config);
+      const startPromise = executor.start();
+      await waitFor(() => mockDiscovery.start.mock.calls.length > 0);
+
+      mockDiscovery._emitTask(createDiscoveryResult());
+      await waitFor(() => mockOps.claimTask.mock.calls.length >= 1);
+      // Small wait to confirm no retries happen
+      await new Promise((r) => setTimeout(r, 100));
+
+      expect(mockOps.claimTask).toHaveBeenCalledTimes(1);
+      expect(executor.getStatus().claimRetries).toBe(0);
+
+      await executor.stop();
+      await startPromise;
     });
   });
 });

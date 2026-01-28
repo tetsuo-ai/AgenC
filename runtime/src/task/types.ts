@@ -722,6 +722,24 @@ export interface CompleteResult {
 }
 
 // ============================================================================
+// Retry Policy Types
+// ============================================================================
+
+/**
+ * Configuration for retry behavior with exponential backoff.
+ */
+export interface RetryPolicy {
+  /** Maximum number of attempts (including the initial attempt). Default: 3 */
+  maxAttempts: number;
+  /** Base delay in milliseconds before the first retry. Default: 1000 */
+  baseDelayMs: number;
+  /** Maximum delay in milliseconds between retries. Default: 30000 */
+  maxDelayMs: number;
+  /** Whether to apply full jitter (random between 0 and computed delay). Default: true */
+  jitter: boolean;
+}
+
+// ============================================================================
 // Task Executor Types
 // ============================================================================
 
@@ -766,6 +784,8 @@ export interface TaskExecutorConfig {
   batchTasks?: BatchTaskItem[];
   /** Per-task execution timeout in milliseconds (default: 300_000 = 5 min). Set to 0 to disable. */
   taskTimeoutMs?: number;
+  /** Retry policy for pipeline stages. Applies to claim and submit steps (NOT execute). */
+  retryPolicy?: Partial<RetryPolicy>;
 }
 
 /**
@@ -790,6 +810,10 @@ export interface TaskExecutorStatus {
   claimsFailed: number;
   /** Total submit failures */
   submitsFailed: number;
+  /** Total claim retry attempts */
+  claimRetries: number;
+  /** Total submit retry attempts */
+  submitRetries: number;
   /** Timestamp when the executor was started (null if not started) */
   startedAt: number | null;
   /** Milliseconds the executor has been running */

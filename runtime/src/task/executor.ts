@@ -32,6 +32,7 @@ import type {
   TaskExecutorEvents,
   OperatingMode,
   BatchTaskItem,
+  RetryPolicy,
 } from './types.js';
 import { isPrivateExecutionResult } from './types.js';
 import { deriveTaskPda } from './pda.js';
@@ -79,6 +80,7 @@ export class TaskExecutor {
   private readonly agentPda: PublicKey;
   private readonly batchTasks: BatchTaskItem[];
   private readonly taskTimeoutMs: number;
+  private readonly retryPolicy: RetryPolicy;
 
   // Runtime state
   private running = false;
@@ -96,6 +98,8 @@ export class TaskExecutor {
     tasksFailed: 0,
     claimsFailed: 0,
     submitsFailed: 0,
+    claimRetries: 0,
+    submitRetries: 0,
   };
 
   constructor(config: TaskExecutorConfig) {
@@ -109,6 +113,12 @@ export class TaskExecutor {
     this.agentPda = config.agentPda;
     this.batchTasks = config.batchTasks ?? [];
     this.taskTimeoutMs = config.taskTimeoutMs ?? 300_000;
+    this.retryPolicy = {
+      maxAttempts: config.retryPolicy?.maxAttempts ?? 3,
+      baseDelayMs: config.retryPolicy?.baseDelayMs ?? 1000,
+      maxDelayMs: config.retryPolicy?.maxDelayMs ?? 30000,
+      jitter: config.retryPolicy?.jitter ?? true,
+    };
   }
 
   // ==========================================================================
@@ -218,6 +228,8 @@ export class TaskExecutor {
       tasksFailed: this.metrics.tasksFailed,
       claimsFailed: this.metrics.claimsFailed,
       submitsFailed: this.metrics.submitsFailed,
+      claimRetries: this.metrics.claimRetries,
+      submitRetries: this.metrics.submitRetries,
       startedAt: this.startedAt,
       uptimeMs: this.startedAt ? Date.now() - this.startedAt : 0,
     };
@@ -379,8 +391,8 @@ export class TaskExecutor {
     let timedOut = false;
 
     try {
-      // Step 1: Claim
-      const claimResult = await this.claimTaskStep(task);
+      // Step 1: Claim (with retry)
+      const claimResult = await this.claimTaskStepWithRetry(task, controller.signal);
 
       // Step 2: Set up timeout for handler execution
       if (this.taskTimeoutMs > 0) {
@@ -390,7 +402,7 @@ export class TaskExecutor {
         }, this.taskTimeoutMs);
       }
 
-      // Step 3: Execute handler
+      // Step 3: Execute handler (NO retry — handler bugs are not transient)
       const result = await this.executeTaskStep(task, claimResult, controller.signal);
 
       // Clear timeout on success
@@ -399,8 +411,8 @@ export class TaskExecutor {
         timeoutId = null;
       }
 
-      // Step 4: Submit result on-chain
-      await this.submitTaskStep(task, result);
+      // Step 4: Submit result on-chain (with retry)
+      await this.submitTaskStepWithRetry(task, result, controller.signal);
     } catch (err) {
       // Clear timeout if still pending
       if (timeoutId !== null) {
@@ -424,6 +436,22 @@ export class TaskExecutor {
       this.activeTasks.delete(pda);
       this.drainQueue();
     }
+  }
+
+  private async claimTaskStepWithRetry(
+    task: TaskDiscoveryResult,
+    signal: AbortSignal,
+  ): Promise<ClaimResult> {
+    return retryWithBackoff(
+      () => this.claimTaskStep(task),
+      this.retryPolicy,
+      signal,
+      {
+        label: 'claim',
+        logger: this.logger,
+        onRetry: () => { this.metrics.claimRetries++; },
+      },
+    );
   }
 
   private async claimTaskStep(task: TaskDiscoveryResult): Promise<ClaimResult> {
@@ -469,6 +497,23 @@ export class TaskExecutor {
     }
   }
 
+  private async submitTaskStepWithRetry(
+    task: TaskDiscoveryResult,
+    result: TaskExecutionResult | PrivateTaskExecutionResult,
+    signal: AbortSignal,
+  ): Promise<CompleteResult> {
+    return retryWithBackoff(
+      () => this.submitTaskStep(task, result),
+      this.retryPolicy,
+      signal,
+      {
+        label: 'submit',
+        logger: this.logger,
+        onRetry: () => { this.metrics.submitRetries++; },
+      },
+    );
+  }
+
   private async submitTaskStep(
     task: TaskDiscoveryResult,
     result: TaskExecutionResult | PrivateTaskExecutionResult,
@@ -511,4 +556,93 @@ export class TaskExecutor {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Compute exponential backoff delay: min(baseDelay * 2^attempt, maxDelay).
+ * With full jitter (AWS style): random in [0, delay).
+ */
+function computeBackoffDelay(
+  attempt: number,
+  policy: RetryPolicy,
+): number {
+  const exponential = Math.min(
+    policy.baseDelayMs * Math.pow(2, attempt),
+    policy.maxDelayMs,
+  );
+  if (policy.jitter) {
+    return Math.random() * exponential;
+  }
+  return exponential;
+}
+
+/**
+ * Sleep that respects an AbortSignal. Resolves early if aborted.
+ * Throws an Error if the signal is aborted.
+ */
+function abortableSleep(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    if (signal.aborted) {
+      reject(new Error('Aborted'));
+      return;
+    }
+    const timer = setTimeout(() => {
+      signal.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    function onAbort() {
+      clearTimeout(timer);
+      reject(new Error('Aborted'));
+    }
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
+interface RetryOptions {
+  label: string;
+  logger: Logger;
+  onRetry: () => void;
+}
+
+/**
+ * Retry a function with exponential backoff.
+ * The first call is attempt 0 (no delay). On failure, retries up to
+ * maxAttempts - 1 more times with backoff delays.
+ */
+async function retryWithBackoff<T>(
+  fn: () => Promise<T>,
+  policy: RetryPolicy,
+  signal: AbortSignal,
+  options: RetryOptions,
+): Promise<T> {
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt < policy.maxAttempts; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastError = err;
+
+      const isLastAttempt = attempt >= policy.maxAttempts - 1;
+      if (isLastAttempt || signal.aborted) {
+        throw err;
+      }
+
+      options.onRetry();
+      const delay = computeBackoffDelay(attempt, policy);
+      options.logger.warn(
+        `Retry ${options.label} attempt ${attempt + 1}/${policy.maxAttempts - 1} after ${Math.round(delay)}ms`,
+      );
+
+      try {
+        await abortableSleep(delay, signal);
+      } catch {
+        // Signal was aborted during sleep — rethrow the original error
+        throw lastError;
+      }
+    }
+  }
+
+  // Should never reach here, but satisfy TypeScript
+  throw lastError;
 }
