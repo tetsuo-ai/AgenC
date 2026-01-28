@@ -69,12 +69,18 @@ pub fn transfer_rewards<'info>(
 ) -> Result<()> {
     if worker_reward > 0 {
         **escrow.to_account_info().try_borrow_mut_lamports()? -= worker_reward;
-        **worker_account.try_borrow_mut_lamports()? += worker_reward;
+        let mut worker_lamports = worker_account.try_borrow_mut_lamports()?;
+        **worker_lamports = (*worker_lamports)
+            .checked_add(worker_reward)
+            .ok_or(CoordinationError::ArithmeticOverflow)?;
     }
 
     if protocol_fee > 0 {
         **escrow.to_account_info().try_borrow_mut_lamports()? -= protocol_fee;
-        **treasury.try_borrow_mut_lamports()? += protocol_fee;
+        let mut treasury_lamports = treasury.try_borrow_mut_lamports()?;
+        **treasury_lamports = (*treasury_lamports)
+            .checked_add(protocol_fee)
+            .ok_or(CoordinationError::ArithmeticOverflow)?;
     }
 
     Ok(())
