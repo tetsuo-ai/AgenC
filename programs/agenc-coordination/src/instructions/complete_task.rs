@@ -130,7 +130,7 @@ pub fn handler(
     )?;
 
     // Update states
-    update_claim_state(claim, escrow, worker_reward, task.reward_amount)?;
+    update_claim_state(claim, escrow, worker_reward, protocol_fee)?;
     let task_completed =
         update_task_state(task, clock.unix_timestamp, escrow, Some(claim_result_data))?;
     update_worker_state(worker, worker_reward, clock.unix_timestamp)?;
