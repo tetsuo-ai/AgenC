@@ -60,6 +60,17 @@ pub enum TaskType {
     Competitive = 2,   // First to complete wins
 }
 
+/// Dependency type for speculative execution decisions
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Default, InitSpace)]
+#[repr(u8)]
+pub enum DependencyType {
+    #[default]
+    None = 0,     // No dependency
+    Data = 1,     // Needs parent output data (speculatable)
+    Ordering = 2, // Must run after parent (speculatable)
+    Proof = 3,    // Needs parent's on-chain proof (NOT speculatable)
+}
+
 /// Dispute resolution type
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Default)]
 #[repr(u8)]
@@ -341,6 +352,10 @@ pub struct Task {
     pub required_completions: u8,
     /// Bump seed
     pub bump: u8,
+    /// Optional parent task this task depends on (None for independent tasks)
+    pub depends_on: Option<Pubkey>,
+    /// Type of dependency relationship
+    pub dependency_type: DependencyType,
     /// Reserved
     pub _reserved: [u8; 32],
 }
@@ -366,6 +381,8 @@ impl Default for Task {
             completions: 0,
             required_completions: 1,
             bump: 0,
+            depends_on: None,
+            dependency_type: DependencyType::default(),
             _reserved: [0u8; 32],
         }
     }
@@ -393,6 +410,8 @@ impl Task {
         1 +  // completions
         1 +  // required_completions
         1 +  // bump
+        33 + // depends_on (Option<Pubkey>: 1 byte discriminator + 32 bytes pubkey)
+        1 +  // dependency_type
         32; // reserved
 }
 

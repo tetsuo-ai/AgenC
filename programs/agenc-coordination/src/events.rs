@@ -44,6 +44,16 @@ pub struct TaskCreated {
     pub timestamp: i64,
 }
 
+/// Emitted when a task with dependencies is created
+#[event]
+pub struct DependentTaskCreated {
+    pub task_id: [u8; 32],
+    pub creator: Pubkey,
+    pub depends_on: Pubkey,
+    pub dependency_type: u8,
+    pub timestamp: i64,
+}
+
 /// Emitted when an agent claims a task
 #[event]
 pub struct TaskClaimed {
