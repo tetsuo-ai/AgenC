@@ -18,8 +18,7 @@ pub struct ApplyInitiatorSlash<'info> {
     #[account(
         mut,
         seeds = [b"agent", initiator_agent.agent_id.as_ref()],
-        bump = initiator_agent.bump,
-        constraint = initiator_agent.key() == dispute.initiator @ CoordinationError::UnauthorizedAgent
+        bump = initiator_agent.bump
     )]
     pub initiator_agent: Account<'info, AgentRegistration>,
 
@@ -45,6 +44,10 @@ pub fn handler(ctx: Context<ApplyInitiatorSlash>) -> Result<()> {
         !dispute.initiator_slash_applied,
         CoordinationError::SlashAlreadyApplied
     );
+    require!(
+        initiator_agent.authority == dispute.initiator,
+        CoordinationError::UnauthorizedAgent
+    );
 
     let total_votes = dispute
         .votes_for
@@ -59,13 +62,11 @@ pub fn handler(ctx: Context<ApplyInitiatorSlash>) -> Result<()> {
         .checked_div(total_votes)
         .ok_or(CoordinationError::ArithmeticOverflow)?;
 
-    // Determine if the dispute was rejected (votes_for < threshold percentage)
-    let rejected = approval_pct < config.dispute_threshold as u64;
+    // Dispute is rejected if approval percentage is below threshold
+    let approved = approval_pct >= config.dispute_threshold as u64;
 
-    // Slash initiator only if their dispute was rejected by arbiters
-    // This creates symmetric accountability: workers get slashed for losing approved disputes,
-    // initiators get slashed for filing disputes that arbiters reject
-    require!(rejected, CoordinationError::InvalidInput);
+    // Only slash the initiator if the dispute was NOT approved (initiator lost)
+    require!(!approved, CoordinationError::InvalidInput);
     require!(
         initiator_agent.stake > 0,
         CoordinationError::InsufficientStake
