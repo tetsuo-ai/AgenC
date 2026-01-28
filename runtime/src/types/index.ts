@@ -109,6 +109,53 @@ export {
 // Runtime configuration types
 export { type AgentRuntimeConfig, isKeypair } from './config.js';
 
+// Task types and utilities (Phase 3)
+export {
+  // Constants
+  TASK_ID_LENGTH,
+  // Enums
+  OnChainTaskStatus,
+  DiscoveryMode,
+  OperatingMode,
+  TaskExecutorStatus,
+  // Functions
+  taskStatusToString,
+  taskTypeToString,
+  parseTaskStatus,
+  parseTaskType,
+  parseOnChainTask,
+  parseOnChainTaskClaim,
+  isPrivateTask,
+  isTaskExpired,
+  isTaskClaimable,
+  isPrivateExecutionResult,
+  // PDA derivation
+  deriveTaskPda,
+  findTaskPda,
+  deriveClaimPda,
+  findClaimPda,
+  deriveEscrowPda,
+  findEscrowPda,
+  // Types
+  type OnChainTask,
+  type OnChainTaskClaim,
+  type RawOnChainTask,
+  type RawOnChainTaskClaim,
+  type TaskExecutionContext,
+  type TaskExecutionResult,
+  type PrivateTaskExecutionResult,
+  type TaskHandler,
+  type DiscoveredTask,
+  type TaskFilterConfig,
+  type TaskScorer,
+  type TaskDiscoveryConfig,
+  type TaskOperationsConfig,
+  type ClaimResult,
+  type CompleteResult,
+  type TaskExecutorConfig,
+  type TaskExecutorEvents,
+} from '../task/index.js';
+
 // Event monitoring types (Phase 2)
 export {
   // Enums
