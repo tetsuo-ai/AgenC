@@ -42,6 +42,8 @@ export const RuntimeErrorCodes = {
   TASK_SUBMISSION_FAILED: 'TASK_SUBMISSION_FAILED',
   /** Executor state machine is in an invalid state */
   EXECUTOR_STATE_ERROR: 'EXECUTOR_STATE_ERROR',
+  /** Task execution timed out */
+  TASK_TIMEOUT: 'TASK_TIMEOUT',
 } as const;
 
 /** Union type of all runtime error code values */
@@ -678,6 +680,35 @@ export class ExecutorStateError extends RuntimeError {
     this.name = 'ExecutorStateError';
     if (Error.captureStackTrace) {
       Error.captureStackTrace(this, ExecutorStateError);
+    }
+  }
+}
+
+/**
+ * Error thrown when a task handler exceeds its execution timeout.
+ *
+ * @example
+ * ```typescript
+ * executor.on({
+ *   onTaskTimeout: (error, taskPda) => {
+ *     console.log(`Task ${taskPda.toBase58()} timed out after ${error.timeoutMs}ms`);
+ *   },
+ * });
+ * ```
+ */
+export class TaskTimeoutError extends RuntimeError {
+  /** The timeout duration in milliseconds that was exceeded */
+  public readonly timeoutMs: number;
+
+  constructor(timeoutMs: number) {
+    super(
+      `Task execution timed out after ${timeoutMs}ms`,
+      RuntimeErrorCodes.TASK_TIMEOUT,
+    );
+    this.name = 'TaskTimeoutError';
+    this.timeoutMs = timeoutMs;
+    if (Error.captureStackTrace) {
+      Error.captureStackTrace(this, TaskTimeoutError);
     }
   }
 }

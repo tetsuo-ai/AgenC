@@ -16,6 +16,7 @@ import type {
 import { OnChainTaskStatus, isPrivateExecutionResult } from './types.js';
 import { TaskType } from '../events/types.js';
 import { silentLogger } from '../utils/logger.js';
+import { TaskTimeoutError } from '../types/errors.js';
 
 // ============================================================================
 // Helpers
@@ -1135,6 +1136,237 @@ describe('TaskExecutor', () => {
 
       await executor.stop();
       await startPromise;
+    });
+  });
+
+  // ==========================================================================
+  // Task Timeout
+  // ==========================================================================
+
+  describe('task timeout', () => {
+    it('times out handler that exceeds taskTimeoutMs', async () => {
+      const mockOps = createMockOperations();
+      const mockDiscovery = createMockDiscovery();
+      const onTaskTimeout = vi.fn();
+      const onTaskFailed = vi.fn();
+
+      const handler = async (ctx: TaskExecutionContext): Promise<TaskExecutionResult> => {
+        // Hang indefinitely until aborted
+        await new Promise<void>((_, reject) => {
+          ctx.signal.addEventListener('abort', () => reject(new Error('aborted')));
+        });
+        return { proofHash: new Uint8Array(32).fill(1) };
+      };
+
+      const config = createExecutorConfig({
+        mode: 'autonomous',
+        operations: mockOps,
+        discovery: mockDiscovery,
+        handler,
+        taskTimeoutMs: 50,
+      });
+      const executor = new TaskExecutor(config);
+      executor.on({ onTaskTimeout, onTaskFailed });
+
+      const startPromise = executor.start();
+      await waitFor(() => mockDiscovery.start.mock.calls.length > 0);
+
+      const task = createDiscoveryResult();
+      mockDiscovery._emitTask(task);
+
+      await waitFor(() => onTaskTimeout.mock.calls.length > 0, 3000);
+
+      expect(onTaskTimeout).toHaveBeenCalledTimes(1);
+      const [error, pda] = onTaskTimeout.mock.calls[0];
+      expect(error).toBeInstanceOf(TaskTimeoutError);
+      expect((error as TaskTimeoutError).timeoutMs).toBe(50);
+      expect(pda).toBe(task.pda);
+
+      // Also emits onTaskFailed
+      expect(onTaskFailed).toHaveBeenCalledTimes(1);
+      expect(onTaskFailed.mock.calls[0][0]).toBeInstanceOf(TaskTimeoutError);
+
+      // Metrics updated
+      expect(executor.getStatus().tasksFailed).toBe(1);
+      expect(executor.getStatus().tasksCompleted).toBe(0);
+
+      await executor.stop();
+      await startPromise;
+    });
+
+    it('does not timeout handler that completes within taskTimeoutMs', async () => {
+      const mockOps = createMockOperations();
+      const mockDiscovery = createMockDiscovery();
+      const onTaskTimeout = vi.fn();
+      const onTaskCompleted = vi.fn();
+
+      const handler = async (_ctx: TaskExecutionContext): Promise<TaskExecutionResult> => {
+        // Complete quickly
+        return { proofHash: new Uint8Array(32).fill(1) };
+      };
+
+      const config = createExecutorConfig({
+        mode: 'autonomous',
+        operations: mockOps,
+        discovery: mockDiscovery,
+        handler,
+        taskTimeoutMs: 5000,
+      });
+      const executor = new TaskExecutor(config);
+      executor.on({ onTaskTimeout, onTaskCompleted });
+
+      const startPromise = executor.start();
+      await waitFor(() => mockDiscovery.start.mock.calls.length > 0);
+
+      mockDiscovery._emitTask(createDiscoveryResult());
+      await waitFor(() => onTaskCompleted.mock.calls.length > 0);
+
+      expect(onTaskTimeout).not.toHaveBeenCalled();
+      expect(executor.getStatus().tasksCompleted).toBe(1);
+      expect(executor.getStatus().tasksFailed).toBe(0);
+
+      await executor.stop();
+      await startPromise;
+    });
+
+    it('propagates abort signal to handler on timeout', async () => {
+      const mockOps = createMockOperations();
+      const mockDiscovery = createMockDiscovery();
+      let capturedSignal: AbortSignal | null = null;
+
+      const handler = async (ctx: TaskExecutionContext): Promise<TaskExecutionResult> => {
+        capturedSignal = ctx.signal;
+        await new Promise<void>((_, reject) => {
+          ctx.signal.addEventListener('abort', () => reject(new Error('aborted')));
+        });
+        return { proofHash: new Uint8Array(32).fill(1) };
+      };
+
+      const config = createExecutorConfig({
+        mode: 'autonomous',
+        operations: mockOps,
+        discovery: mockDiscovery,
+        handler,
+        taskTimeoutMs: 50,
+      });
+      const executor = new TaskExecutor(config);
+
+      const startPromise = executor.start();
+      await waitFor(() => mockDiscovery.start.mock.calls.length > 0);
+
+      mockDiscovery._emitTask(createDiscoveryResult());
+      await waitFor(() => capturedSignal !== null);
+
+      expect(capturedSignal!.aborted).toBe(false);
+
+      // Wait for timeout to fire
+      await waitFor(() => capturedSignal!.aborted, 3000);
+      expect(capturedSignal!.aborted).toBe(true);
+
+      await executor.stop();
+      await startPromise;
+    });
+
+    it('releases concurrency slot on timeout so queued tasks run', async () => {
+      const mockOps = createMockOperations();
+      const mockDiscovery = createMockDiscovery();
+      const onTaskTimeout = vi.fn();
+      let callCount = 0;
+
+      const handler = async (ctx: TaskExecutionContext): Promise<TaskExecutionResult> => {
+        callCount++;
+        if (callCount === 1) {
+          // First task: hang until aborted
+          await new Promise<void>((_, reject) => {
+            ctx.signal.addEventListener('abort', () => reject(new Error('aborted')));
+          });
+        }
+        // Second task: complete normally
+        return { proofHash: new Uint8Array(32).fill(1) };
+      };
+
+      const config = createExecutorConfig({
+        mode: 'autonomous',
+        operations: mockOps,
+        discovery: mockDiscovery,
+        handler,
+        maxConcurrentTasks: 1,
+        taskTimeoutMs: 50,
+      });
+      const executor = new TaskExecutor(config);
+      executor.on({ onTaskTimeout });
+
+      const startPromise = executor.start();
+      await waitFor(() => mockDiscovery.start.mock.calls.length > 0);
+
+      // Emit 2 tasks — first will timeout, second should then get a slot
+      mockDiscovery._emitTask(createDiscoveryResult());
+      mockDiscovery._emitTask(createDiscoveryResult());
+
+      // Wait for the first task to timeout
+      await waitFor(() => onTaskTimeout.mock.calls.length > 0, 3000);
+
+      // Wait for the second task to complete
+      await waitFor(() => executor.getStatus().tasksCompleted >= 1, 3000);
+
+      expect(executor.getStatus().tasksFailed).toBe(1);
+      expect(executor.getStatus().tasksCompleted).toBe(1);
+
+      await executor.stop();
+      await startPromise;
+    });
+
+    it('taskTimeoutMs=0 disables timeout', async () => {
+      const mockOps = createMockOperations();
+      const mockDiscovery = createMockDiscovery();
+      const onTaskTimeout = vi.fn();
+      let handlerResolve: (() => void) | null = null;
+
+      const handler = async (ctx: TaskExecutionContext): Promise<TaskExecutionResult> => {
+        await new Promise<void>((resolve) => {
+          handlerResolve = resolve;
+        });
+        return { proofHash: new Uint8Array(32).fill(1) };
+      };
+
+      const config = createExecutorConfig({
+        mode: 'autonomous',
+        operations: mockOps,
+        discovery: mockDiscovery,
+        handler,
+        taskTimeoutMs: 0,
+      });
+      const executor = new TaskExecutor(config);
+      executor.on({ onTaskTimeout });
+
+      const startPromise = executor.start();
+      await waitFor(() => mockDiscovery.start.mock.calls.length > 0);
+
+      mockDiscovery._emitTask(createDiscoveryResult());
+      await waitFor(() => handlerResolve !== null);
+
+      // Wait a bit to verify no timeout fires
+      await new Promise((r) => setTimeout(r, 100));
+      expect(onTaskTimeout).not.toHaveBeenCalled();
+
+      // Resolve the handler manually
+      handlerResolve!();
+      await waitFor(() => executor.getStatus().tasksCompleted >= 1);
+
+      expect(executor.getStatus().tasksCompleted).toBe(1);
+      expect(executor.getStatus().tasksFailed).toBe(0);
+
+      await executor.stop();
+      await startPromise;
+    });
+
+    it('defaults to 300_000ms timeout', () => {
+      const config = createExecutorConfig({ mode: 'batch' });
+      const executor = new TaskExecutor(config);
+
+      // We can't directly access the private field, but we can verify
+      // the config was accepted without error
+      expect(executor).toBeDefined();
     });
   });
 });

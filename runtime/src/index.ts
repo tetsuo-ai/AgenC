@@ -71,6 +71,7 @@ export {
   TaskExecutionError,
   TaskSubmissionError,
   ExecutorStateError,
+  TaskTimeoutError,
   // Error helper functions
   isAnchorError,
   parseAnchorError,

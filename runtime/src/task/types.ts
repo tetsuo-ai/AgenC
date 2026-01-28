@@ -764,6 +764,8 @@ export interface TaskExecutorConfig {
   logger?: Logger;
   /** Batch tasks (for batch mode) */
   batchTasks?: BatchTaskItem[];
+  /** Per-task execution timeout in milliseconds (default: 300_000 = 5 min). Set to 0 to disable. */
+  taskTimeoutMs?: number;
 }
 
 /**
@@ -812,4 +814,6 @@ export interface TaskExecutorEvents {
   onClaimFailed?: (error: Error, taskPda: PublicKey) => void;
   /** Called when a submit attempt fails */
   onSubmitFailed?: (error: Error, taskPda: PublicKey) => void;
+  /** Called when a task execution times out */
+  onTaskTimeout?: (error: Error, taskPda: PublicKey) => void;
 }

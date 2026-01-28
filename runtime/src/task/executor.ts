@@ -35,6 +35,7 @@ import type {
 } from './types.js';
 import { isPrivateExecutionResult } from './types.js';
 import { deriveTaskPda } from './pda.js';
+import { TaskTimeoutError } from '../types/errors.js';
 
 // ============================================================================
 // TaskExecutor Class
@@ -77,6 +78,7 @@ export class TaskExecutor {
   private readonly agentId: Uint8Array;
   private readonly agentPda: PublicKey;
   private readonly batchTasks: BatchTaskItem[];
+  private readonly taskTimeoutMs: number;
 
   // Runtime state
   private running = false;
@@ -106,6 +108,7 @@ export class TaskExecutor {
     this.agentId = new Uint8Array(config.agentId);
     this.agentPda = config.agentPda;
     this.batchTasks = config.batchTasks ?? [];
+    this.taskTimeoutMs = config.taskTimeoutMs ?? 300_000;
   }
 
   // ==========================================================================
@@ -372,19 +375,48 @@ export class TaskExecutor {
     pda: string,
     controller: AbortController,
   ): Promise<void> {
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    let timedOut = false;
 
     try {
       // Step 1: Claim
       const claimResult = await this.claimTaskStep(task);
 
-      // Step 2: Execute handler
+      // Step 2: Set up timeout for handler execution
+      if (this.taskTimeoutMs > 0) {
+        timeoutId = setTimeout(() => {
+          timedOut = true;
+          controller.abort();
+        }, this.taskTimeoutMs);
+      }
+
+      // Step 3: Execute handler
       const result = await this.executeTaskStep(task, claimResult, controller.signal);
 
-      // Step 3: Submit result on-chain
+      // Clear timeout on success
+      if (timeoutId !== null) {
+        clearTimeout(timeoutId);
+        timeoutId = null;
+      }
+
+      // Step 4: Submit result on-chain
       await this.submitTaskStep(task, result);
     } catch (err) {
-      // Check if aborted (graceful shutdown)
-      if (controller.signal.aborted) {
+      // Clear timeout if still pending
+      if (timeoutId !== null) {
+        clearTimeout(timeoutId);
+        timeoutId = null;
+      }
+
+      if (timedOut) {
+        // Timeout-specific handling: emit onTaskTimeout, increment tasksFailed
+        const timeoutError = new TaskTimeoutError(this.taskTimeoutMs);
+        this.metrics.tasksFailed++;
+        this.events.onTaskTimeout?.(timeoutError, task.pda);
+        this.events.onTaskFailed?.(timeoutError, task.pda);
+        this.logger.warn(`Task ${pda} timed out after ${this.taskTimeoutMs}ms`);
+      } else if (controller.signal.aborted) {
+        // Graceful shutdown
         this.logger.debug(`Task ${pda} aborted`);
       }
       // Error already handled in individual steps; just ensure metrics are right
@@ -427,6 +459,10 @@ export class TaskExecutor {
     try {
       return await this.handler(context);
     } catch (err) {
+      // If the signal was aborted (stop or timeout), let processTask handle metrics
+      if (signal.aborted) {
+        throw err;
+      }
       this.metrics.tasksFailed++;
       this.events.onTaskFailed?.(err instanceof Error ? err : new Error(String(err)), task.pda);
       throw err;
