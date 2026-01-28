@@ -158,6 +158,9 @@ pub enum CoordinationError {
     #[msg("Dispute has not been resolved")]
     DisputeNotResolved,
 
+    #[msg("Only task creator or workers can initiate disputes")]
+    NotTaskParticipant,
+
     // State errors (6400-6499)
     #[msg("State version mismatch (concurrent modification)")]
     VersionMismatch,
