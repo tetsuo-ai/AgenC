@@ -38,6 +38,6 @@ groth16-solana = "0.2"
 getrandom = { version = "=0.2.12", default-features = false, features = ["custom"] }
 
 [dev-dependencies]
-solana-program-test = "=3.0.13"
+solana-program-test = "=3.1.8"
 solana-sdk          = "=3.0.0"
 tokio = { version = "1.0", features = ["full"] }
