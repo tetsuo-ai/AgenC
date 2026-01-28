@@ -246,17 +246,19 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
     }
 
     // Update dispute status - decrement active_dispute_votes for each arbiter
+    // All worker claims for this task (for counter cleanup)
+    // remaining_accounts should include additional (claim, worker) pairs after arbiter pairs
     if dispute.total_voters > 0 {
-        let expected = dispute
+        let arbiter_accounts = dispute
             .total_voters
             .checked_mul(2)
             .ok_or(CoordinationError::ArithmeticOverflow)? as usize;
         require!(
-            ctx.remaining_accounts.len() == expected,
+            ctx.remaining_accounts.len() >= arbiter_accounts,
             CoordinationError::InvalidInput
         );
 
-        for i in (0..expected).step_by(2) {
+        for i in (0..arbiter_accounts).step_by(2) {
             let vote_info = &ctx.remaining_accounts[i];
             let arbiter_info = &ctx.remaining_accounts[i + 1];
 
@@ -299,11 +301,55 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
             // Serialize back, skipping discriminator (already validated during deserialize)
             arbiter.try_serialize(&mut &mut arbiter_data[8..])?;
         }
+
+        // After arbiter processing, process remaining worker claims (fix #333)
+        // The remaining_accounts structure: [vote, arbiter] * total_voters + [claim, worker] * num_workers
+        let worker_accounts = ctx.remaining_accounts.len() - arbiter_accounts;
+        if worker_accounts > 0 {
+            require!(worker_accounts % 2 == 0, CoordinationError::InvalidInput);
+            for i in (arbiter_accounts..ctx.remaining_accounts.len()).step_by(2) {
+                let claim_info = &ctx.remaining_accounts[i];
+                let worker_info = &ctx.remaining_accounts[i + 1];
+
+                require!(claim_info.owner == &crate::ID, CoordinationError::InvalidAccountOwner);
+                require!(worker_info.owner == &crate::ID, CoordinationError::InvalidAccountOwner);
+
+                let claim_data = claim_info.try_borrow_data()?;
+                let claim = TaskClaim::try_deserialize(&mut &**claim_data)?;
+                require!(claim.task == task.key(), CoordinationError::InvalidInput);
+                drop(claim_data);
+
+                require!(worker_info.is_writable, CoordinationError::InvalidInput);
+                let mut worker_data = worker_info.try_borrow_mut_data()?;
+                let mut worker = AgentRegistration::try_deserialize(&mut &**worker_data)?;
+                worker.active_tasks = worker.active_tasks.saturating_sub(1);
+                worker.try_serialize(&mut &mut worker_data[8..])?;
+            }
+        }
     } else {
-        require!(
-            ctx.remaining_accounts.is_empty(),
-            CoordinationError::InvalidInput
-        );
+        // Process remaining worker claims even when no arbiters voted (fix #333)
+        let worker_accounts = ctx.remaining_accounts.len();
+        if worker_accounts > 0 {
+            require!(worker_accounts % 2 == 0, CoordinationError::InvalidInput);
+            for i in (0..ctx.remaining_accounts.len()).step_by(2) {
+                let claim_info = &ctx.remaining_accounts[i];
+                let worker_info = &ctx.remaining_accounts[i + 1];
+
+                require!(claim_info.owner == &crate::ID, CoordinationError::InvalidAccountOwner);
+                require!(worker_info.owner == &crate::ID, CoordinationError::InvalidAccountOwner);
+
+                let claim_data = claim_info.try_borrow_data()?;
+                let claim = TaskClaim::try_deserialize(&mut &**claim_data)?;
+                require!(claim.task == task.key(), CoordinationError::InvalidInput);
+                drop(claim_data);
+
+                require!(worker_info.is_writable, CoordinationError::InvalidInput);
+                let mut worker_data = worker_info.try_borrow_mut_data()?;
+                let mut worker = AgentRegistration::try_deserialize(&mut &**worker_data)?;
+                worker.active_tasks = worker.active_tasks.saturating_sub(1);
+                worker.try_serialize(&mut &mut worker_data[8..])?;
+            }
+        }
     }
 
     dispute.status = DisputeStatus::Resolved;
