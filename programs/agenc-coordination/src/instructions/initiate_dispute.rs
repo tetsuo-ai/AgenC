@@ -4,7 +4,7 @@ use crate::errors::CoordinationError;
 use crate::events::{DisputeInitiated, RateLimitHit};
 use crate::state::{
     AgentRegistration, AgentStatus, Dispute, DisputeStatus, ProtocolConfig, ResolutionType, Task,
-    TaskStatus,
+    TaskClaim, TaskStatus,
 };
 use crate::utils::version::check_version_compatible;
 use anchor_lang::prelude::*;
@@ -49,6 +49,13 @@ pub struct InitiateDispute<'info> {
     )]
     pub protocol_config: Account<'info, ProtocolConfig>,
 
+    /// Optional: Initiator's claim if they are a worker (not the creator)
+    #[account(
+        seeds = [b"claim", task.key().as_ref(), agent.key().as_ref()],
+        bump,
+    )]
+    pub initiator_claim: Option<Account<'info, TaskClaim>>,
+
     #[account(mut)]
     pub authority: Signer<'info>,
 
@@ -81,6 +88,15 @@ pub fn handler(
     require!(
         task.status == TaskStatus::InProgress || task.status == TaskStatus::PendingValidation,
         CoordinationError::TaskNotInProgress
+    );
+
+    // Verify initiator is task participant (creator or has claim)
+    let is_creator = task.creator == agent.key();
+    let has_claim = ctx.accounts.initiator_claim.is_some();
+
+    require!(
+        is_creator || has_claim,
+        CoordinationError::NotTaskParticipant
     );
 
     // Validate resolution type

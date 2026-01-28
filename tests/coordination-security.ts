@@ -806,7 +806,8 @@ describe("coordination-security", () => {
             protocolConfig: protocolPda,
             resolver: provider.wallet.publicKey,
             creator: creator.publicKey,
-            worker: null,
+            workerAgent: null,
+            workerAuthority: null,
           })
           .remainingAccounts([
             { pubkey: votePda1, isSigner: false, isWritable: false },

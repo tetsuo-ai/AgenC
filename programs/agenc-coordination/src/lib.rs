@@ -249,6 +249,13 @@ pub mod agenc_coordination {
         instructions::apply_dispute_slash::handler(ctx)
     }
 
+    /// Apply slashing to a dispute initiator when their dispute is rejected.
+    /// This provides symmetric slashing: workers are slashed for bad work,
+    /// initiators are slashed for frivolous disputes.
+    pub fn apply_creator_slash(ctx: Context<ApplyCreatorSlash>) -> Result<()> {
+        instructions::apply_creator_slash::handler(ctx)
+    }
+
     /// Expire a dispute after the maximum duration has passed.
     pub fn expire_dispute(ctx: Context<ExpireDispute>) -> Result<()> {
         instructions::expire_dispute::handler(ctx)

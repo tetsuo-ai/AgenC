@@ -468,7 +468,8 @@ describe("audit-high-severity", () => {
           resolver: unauthorized.publicKey,
           creator: creator.publicKey,
           workerClaim: claimPda,
-          worker: deriveAgentPda(workerAgentId1),
+          workerAgent: deriveAgentPda(workerAgentId1),
+          workerAuthority: worker1.publicKey,
         })
         .remainingAccounts([
           { pubkey: votePda, isSigner: false, isWritable: false },
@@ -675,7 +676,8 @@ describe("audit-high-severity", () => {
         resolver: provider.wallet.publicKey,
         creator: creator.publicKey,
         workerClaim: null,
-        worker: null,
+        workerAgent: null,
+        workerAuthority: null,
       })
       .remainingAccounts([
         { pubkey: votePda, isSigner: false, isWritable: false },
@@ -790,5 +792,82 @@ describe("audit-high-severity", () => {
     // Verify agent is still suspended after all attempts
     agentAccount = await program.account.agentRegistration.fetch(suspendTestAgentPda);
     expect('suspended' in agentAccount.status).to.be.true;
+  });
+
+  it("rejects dispute initiation from non-participant (issue #294)", async () => {
+    const creatorAgentPda = deriveAgentPda(creatorAgentId);
+    const workerPda1 = deriveAgentPda(workerAgentId1);
+
+    // Create a task
+    const taskId = makeId("task-294");
+    const taskPda = deriveTaskPda(creator.publicKey, taskId);
+    const claimPda = deriveClaimPda(taskPda, workerPda1);
+
+    await program.methods
+      .createTask(
+        Array.from(taskId),
+        new BN(CAPABILITY_COMPUTE),
+        Buffer.from("Dispute auth test 294".padEnd(64, "\0")),
+        new BN(5),
+        1,
+        new BN(0),
+        TASK_TYPE_COMPETITIVE,
+        null
+      )
+      .accountsPartial({
+        creatorAgent: creatorAgentPda,
+        authority: creator.publicKey,
+        creator: creator.publicKey,
+      })
+      .signers([creator])
+      .rpc();
+
+    // Worker1 claims the task
+    await program.methods
+      .claimTask()
+      .accountsPartial({
+        task: taskPda,
+        claim: claimPda,
+        protocolConfig: protocolPda,
+        worker: workerPda1,
+        authority: worker1.publicKey,
+      })
+      .signers([worker1])
+      .rpc();
+
+    // Create an unauthorized agent (worker2 has no claim on this task)
+    const unauthorizedAgentPda = deriveAgentPda(workerAgentId2);
+
+    const disputeId = makeId("disp-294");
+    const [disputePda] = PublicKey.findProgramAddressSync(
+      [Buffer.from("dispute"), disputeId],
+      program.programId
+    );
+
+    // Attempt to initiate dispute as non-participant (should fail)
+    try {
+      await program.methods
+        .initiateDispute(
+          Array.from(disputeId),
+          Array.from(taskId),
+          Array.from(Buffer.from("evidence".padEnd(32, "\0"))),
+          RESOLUTION_TYPE_REFUND,
+          VALID_EVIDENCE
+        )
+        .accountsPartial({
+          dispute: disputePda,
+          task: taskPda,
+          agent: unauthorizedAgentPda,
+          protocolConfig: protocolPda,
+          initiatorClaim: null,
+          authority: worker2.publicKey,
+        })
+        .signers([worker2])
+        .rpc();
+      expect.fail("Should have failed - non-participant cannot initiate dispute");
+    } catch (e: unknown) {
+      const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
+      expect(anchorError.error?.errorCode?.code).to.equal("NotTaskParticipant");
+    }
   });
 });
