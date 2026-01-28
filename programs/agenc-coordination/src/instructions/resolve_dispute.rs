@@ -17,7 +17,7 @@ pub struct ResolveDispute<'info> {
         seeds = [b"dispute", dispute.dispute_id.as_ref()],
         bump = dispute.bump
     )]
-    pub dispute: Account<'info, Dispute>,
+    pub dispute: Box<Account<'info, Dispute>>,
 
     #[account(
         mut,
@@ -25,20 +25,20 @@ pub struct ResolveDispute<'info> {
         bump = task.bump,
         constraint = dispute.task == task.key() @ CoordinationError::TaskNotFound
     )]
-    pub task: Account<'info, Task>,
+    pub task: Box<Account<'info, Task>>,
 
     #[account(
         mut,
         seeds = [b"escrow", task.key().as_ref()],
         bump = escrow.bump
     )]
-    pub escrow: Account<'info, TaskEscrow>,
+    pub escrow: Box<Account<'info, TaskEscrow>>,
 
     #[account(
         seeds = [b"protocol"],
         bump = protocol_config.bump
     )]
-    pub protocol_config: Account<'info, ProtocolConfig>,
+    pub protocol_config: Box<Account<'info, ProtocolConfig>>,
 
     #[account(
         constraint = resolver.key() == protocol_config.authority
@@ -61,7 +61,7 @@ pub struct ResolveDispute<'info> {
         bump = worker_claim.bump,
         constraint = worker_claim.task == task.key() @ CoordinationError::NotClaimed
     )]
-    pub worker_claim: Option<Account<'info, TaskClaim>>,
+    pub worker_claim: Option<Box<Account<'info, TaskClaim>>>,
 
     /// CHECK: Worker receiving payment - must match worker_claim.worker (fix #59)
     #[account(mut)]
