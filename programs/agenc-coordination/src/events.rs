@@ -207,3 +207,21 @@ pub struct SpeculativeCommitmentCreated {
     pub bonded_stake: u64,
     pub expires_at: i64,
 }
+
+/// Emitted when an agent's bond is slashed due to failed speculation
+#[event]
+pub struct BondSlashed {
+    pub agent: Pubkey,
+    pub commitment: Pubkey,
+    pub amount: u64,
+    pub reason: u8,
+    pub timestamp: i64,
+}
+
+/// Emitted when bond is released back to agent after successful proof
+#[event]
+pub struct BondReleased {
+    pub agent: Pubkey,
+    pub commitment: Pubkey,
+    pub amount: u64,
+}
