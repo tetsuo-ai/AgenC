@@ -7,6 +7,9 @@
 
 import type { PublicKey, TransactionSignature } from '@solana/web3.js';
 import { TaskType } from '../events/types.js';
+import type { Logger } from '../utils/logger.js';
+import type { TaskOperations } from './operations.js';
+import type { TaskDiscovery, TaskDiscoveryResult } from './discovery.js';
 
 // Re-export TaskType for consumers importing from task module directly
 export { TaskType } from '../events/types.js';
@@ -488,15 +491,15 @@ export function isTaskClaimable(task: OnChainTask): boolean {
 }
 
 /**
- * Checks if a TaskExecutionResult is a private execution result.
+ * Checks if a task execution result is a private execution result.
  *
  * @param result - Task execution result to check
  * @returns True if the result contains private proof data
  */
 export function isPrivateExecutionResult(
-  result: TaskExecutionResult
+  result: TaskExecutionResult | PrivateTaskExecutionResult,
 ): result is PrivateTaskExecutionResult {
-  return 'proof' in result || 'proofHash' in result;
+  return 'proof' in result && 'constraintHash' in result;
 }
 
 /**
@@ -563,46 +566,55 @@ export function taskTypeToString(type: TaskType): string {
  * Context provided to a task handler during execution.
  */
 export interface TaskExecutionContext {
-  /** Task identifier (32 bytes) */
-  taskId: Uint8Array;
+  /** The parsed on-chain task data */
+  task: OnChainTask;
   /** Task account PDA */
   taskPda: PublicKey;
   /** Claim account PDA */
   claimPda: PublicKey;
-  /** Whether this is a private (ZK-proof) task */
-  isPrivate: boolean;
-  /** Task deadline (Unix seconds, 0 = no deadline) */
-  deadline: number;
+  /** Agent ID (32 bytes) */
+  agentId: Uint8Array;
+  /** Agent PDA address */
+  agentPda: PublicKey;
+  /** Logger instance */
+  logger: Logger;
+  /** Abort signal for cancellation support */
+  signal: AbortSignal;
 }
 
 /**
- * Result of a task execution.
+ * Result of a public task execution.
+ * Return from handler for non-ZK tasks.
  */
 export interface TaskExecutionResult {
-  /** Whether the execution succeeded */
-  success: boolean;
-  /** Transaction signature if submitted on-chain */
-  transactionSignature: TransactionSignature | null;
-  /** Error message if execution failed */
-  error?: string;
-  /** Compute units consumed (if available) */
-  gasUsed?: number;
+  /** Proof hash (32 bytes) for public completion */
+  proofHash: Uint8Array;
+  /** Result data (up to 64 bytes, optional) */
+  resultData?: Uint8Array;
 }
 
 /**
  * Extended execution result for private (ZK-proof) tasks.
+ * Identified by the presence of the `proof` field.
  */
-export interface PrivateTaskExecutionResult extends TaskExecutionResult {
-  /** Generated ZK proof */
-  proof?: Uint8Array;
-  /** Proof hash (32 bytes) */
-  proofHash?: Uint8Array;
+export interface PrivateTaskExecutionResult {
+  /** Generated ZK proof bytes */
+  proof: Uint8Array;
+  /** Constraint hash (32 bytes) */
+  constraintHash: Uint8Array;
+  /** Output commitment (32 bytes) */
+  outputCommitment: Uint8Array;
+  /** Expected binding (32 bytes) */
+  expectedBinding: Uint8Array;
 }
 
 /**
- * Handler function for processing a task.
+ * Handler function for processing a claimed task.
+ * Returns either a public or private execution result.
  */
-export type TaskHandler = (task: OnChainTask) => Promise<void>;
+export type TaskHandler = (
+  context: TaskExecutionContext,
+) => Promise<TaskExecutionResult | PrivateTaskExecutionResult>;
 
 // ============================================================================
 // Task Discovery Types
@@ -685,6 +697,8 @@ export interface ClaimResult {
   success: boolean;
   /** Task identifier (32 bytes) */
   taskId: Uint8Array;
+  /** Claim PDA address */
+  claimPda: PublicKey;
   /** Transaction signature if submitted */
   transactionSignature?: TransactionSignature;
   /** Error message if claim failed */
@@ -712,27 +726,72 @@ export interface CompleteResult {
 // ============================================================================
 
 /**
- * Full configuration for the task executor.
+ * Operating mode for the task executor.
  */
-export interface TaskExecutorConfig {
-  /** Discovery configuration */
-  discovery: TaskDiscoveryConfig;
-  /** Operations configuration */
-  operations: TaskOperationsConfig;
-  /** Polling interval in milliseconds */
-  pollIntervalMs: number;
+export type OperatingMode = 'autonomous' | 'batch';
+
+/**
+ * A batch task item for batch mode execution.
+ */
+export interface BatchTaskItem {
+  /** Task PDA (if already known) */
+  taskPda?: PublicKey;
+  /** Task creator public key (for deriving PDA) */
+  creator?: PublicKey;
+  /** Task ID (for deriving PDA along with creator) */
+  taskId?: Uint8Array;
 }
 
 /**
- * Current status of the task executor.
+ * Full configuration for the task executor.
  */
-export enum TaskExecutorStatus {
-  Idle = 'idle',
-  Discovering = 'discovering',
-  Claiming = 'claiming',
-  Executing = 'executing',
-  Completing = 'completing',
-  Error = 'error',
+export interface TaskExecutorConfig {
+  /** TaskOperations instance for on-chain interactions */
+  operations: TaskOperations;
+  /** Task handler function for executing claimed tasks */
+  handler: TaskHandler;
+  /** Operating mode (default: 'autonomous') */
+  mode?: OperatingMode;
+  /** Maximum concurrent tasks (default: 1) */
+  maxConcurrentTasks?: number;
+  /** TaskDiscovery instance (required for autonomous mode) */
+  discovery?: TaskDiscovery;
+  /** Agent ID (32 bytes) */
+  agentId: Uint8Array;
+  /** Agent PDA address */
+  agentPda: PublicKey;
+  /** Logger instance */
+  logger?: Logger;
+  /** Batch tasks (for batch mode) */
+  batchTasks?: BatchTaskItem[];
+}
+
+/**
+ * Current status snapshot of the task executor.
+ */
+export interface TaskExecutorStatus {
+  /** Whether the executor is currently running */
+  running: boolean;
+  /** Operating mode */
+  mode: OperatingMode;
+  /** Total tasks discovered */
+  tasksDiscovered: number;
+  /** Total tasks successfully claimed */
+  tasksClaimed: number;
+  /** Tasks currently being processed */
+  tasksInProgress: number;
+  /** Total tasks successfully completed */
+  tasksCompleted: number;
+  /** Total tasks that failed during execution */
+  tasksFailed: number;
+  /** Total claim failures */
+  claimsFailed: number;
+  /** Total submit failures */
+  submitsFailed: number;
+  /** Timestamp when the executor was started (null if not started) */
+  startedAt: number | null;
+  /** Milliseconds the executor has been running */
+  uptimeMs: number;
 }
 
 /**
@@ -740,35 +799,17 @@ export enum TaskExecutorStatus {
  */
 export interface TaskExecutorEvents {
   /** Called when a new task is discovered */
-  onTaskDiscovered?: (task: DiscoveredTask) => void;
+  onTaskDiscovered?: (task: TaskDiscoveryResult) => void;
   /** Called when a task is successfully claimed */
   onTaskClaimed?: (claimResult: ClaimResult) => void;
-  /** Called when a task is successfully completed */
+  /** Called when handler execution starts */
+  onTaskExecutionStarted?: (context: TaskExecutionContext) => void;
+  /** Called when a task is successfully completed (submitted on-chain) */
   onTaskCompleted?: (completeResult: CompleteResult) => void;
   /** Called when a task execution fails */
-  onTaskFailed?: (error: Error, taskId: Uint8Array) => void;
-}
-
-/**
- * Mode for discovering tasks.
- */
-export enum DiscoveryMode {
-  /** Poll for tasks at regular intervals */
-  Poll = 'poll',
-  /** Subscribe to task creation events */
-  Subscribe = 'subscribe',
-  /** Combine polling and subscriptions */
-  Hybrid = 'hybrid',
-}
-
-/**
- * Operating mode for the task executor.
- */
-export enum OperatingMode {
-  /** All operations require explicit calls */
-  Manual = 'manual',
-  /** Tasks are discovered automatically, but claim/complete require confirmation */
-  SemiAutomatic = 'semi-automatic',
-  /** Full automation: discover, claim, execute, complete */
-  Automatic = 'automatic',
+  onTaskFailed?: (error: Error, taskPda: PublicKey) => void;
+  /** Called when a claim attempt fails */
+  onClaimFailed?: (error: Error, taskPda: PublicKey) => void;
+  /** Called when a submit attempt fails */
+  onSubmitFailed?: (error: Error, taskPda: PublicKey) => void;
 }

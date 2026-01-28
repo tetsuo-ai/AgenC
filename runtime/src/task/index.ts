@@ -1,5 +1,5 @@
 /**
- * Task management utilities (PDA derivation, types, parsing, filters)
+ * Task management utilities (PDA derivation, types, parsing, filters, operations, discovery, executor)
  * @module
  */
 
@@ -8,3 +8,4 @@ export * from './types.js';
 export * from './filters.js';
 export * from './operations.js';
 export * from './discovery.js';
+export * from './executor.js';
