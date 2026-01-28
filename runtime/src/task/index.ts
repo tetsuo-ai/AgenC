@@ -20,3 +20,4 @@ export * from './commitment-ledger.js';
 export * from './rollback-controller.js';
 export * from './proof-deferral.js';
 export * from './speculative-scheduler.js';
+export * from './proof-time-estimator.js';
