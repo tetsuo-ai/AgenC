@@ -9,6 +9,7 @@ export * from './filters.js';
 export * from './operations.js';
 export * from './discovery.js';
 export * from './executor.js';
+export * from './priority-queue.js';
 export * from './dlq.js';
 export * from './checkpoint.js';
 export * from './metrics.js';

@@ -946,6 +946,12 @@ export interface TaskExecutorConfig {
   metrics?: MetricsProvider;
   /** Optional tracing provider for distributed trace spans. */
   tracing?: TracingProvider;
+  /** Scoring function used to prioritize queued tasks. Default: defaultTaskScorer from filters.ts */
+  scorer?: TaskScorer;
+  /** Maximum capacity of the priority queue. When exceeded, lowest-scored tasks are evicted. Default: Infinity */
+  priorityQueueCapacity?: number;
+  /** Interval in milliseconds to re-score queued tasks (for deadline-based urgency). 0 or undefined disables re-scoring. */
+  rescoreIntervalMs?: number;
 }
 
 /**
@@ -982,6 +988,8 @@ export interface TaskExecutorStatus {
   queueSize: number;
   /** Whether backpressure is currently active (discovery paused due to queue overflow) */
   backpressureActive: boolean;
+  /** Top priority scores currently in the queue (highest first, up to 10) */
+  topScores: number[];
 }
 
 /**
