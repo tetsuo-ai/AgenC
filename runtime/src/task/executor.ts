@@ -40,12 +40,16 @@ import type {
   TaskCheckpoint,
   MetricsProvider,
   TracingProvider,
+  TaskScorer,
+  DiscoveredTask,
 } from './types.js';
 import { isPrivateExecutionResult } from './types.js';
 import { DeadLetterQueue } from './dlq.js';
 import { NoopMetrics, NoopTracing, METRIC_NAMES } from './metrics.js';
 import type { MetricsSnapshot } from './metrics.js';
 import { deriveTaskPda } from './pda.js';
+import { PriorityQueue } from './priority-queue.js';
+import { defaultTaskScorer } from './filters.js';
 import { TaskTimeoutError, ClaimExpiredError, RetryExhaustedError } from '../types/errors.js';
 
 // ============================================================================
@@ -114,15 +118,18 @@ export class TaskExecutor {
   private readonly checkpointStore: CheckpointStore | null;
   private readonly metricsProvider: MetricsProvider;
   private readonly tracingProvider: TracingProvider;
+  private readonly scorer: TaskScorer;
+  private readonly rescoreIntervalMs: number;
 
   // Runtime state
   private running = false;
   private startedAt: number | null = null;
   private activeTasks: Map<string, AbortController> = new Map();
-  private taskQueue: TaskDiscoveryResult[] = [];
+  private taskQueue: PriorityQueue<TaskDiscoveryResult>;
   private events: TaskExecutorEvents = {};
   private discoveryUnsubscribe: (() => void) | null = null;
   private backpressureActive = false;
+  private rescoreTimerId: ReturnType<typeof setInterval> | null = null;
 
   // Metrics
   private metrics = {
@@ -155,6 +162,24 @@ export class TaskExecutor {
     this.checkpointStore = config.checkpointStore ?? null;
     this.metricsProvider = config.metrics ?? new NoopMetrics();
     this.tracingProvider = config.tracing ?? new NoopTracing();
+    this.scorer = config.scorer ?? defaultTaskScorer;
+    this.rescoreIntervalMs = config.rescoreIntervalMs ?? 0;
+    this.taskQueue = new PriorityQueue<TaskDiscoveryResult>(
+      config.priorityQueueCapacity ?? Infinity,
+    );
+  }
+
+  /**
+   * Score a TaskDiscoveryResult using the configured scorer.
+   * Adapts the TaskDiscoveryResult to the DiscoveredTask interface expected by TaskScorer.
+   */
+  private scoreTask(task: TaskDiscoveryResult): number {
+    const discovered: DiscoveredTask = {
+      task: task.task,
+      relevanceScore: 0,
+      canClaim: true,
+    };
+    return this.scorer(discovered);
   }
 
   // ==========================================================================
@@ -235,8 +260,14 @@ export class TaskExecutor {
       });
     }
 
+    // Stop rescore timer
+    if (this.rescoreTimerId !== null) {
+      clearInterval(this.rescoreTimerId);
+      this.rescoreTimerId = null;
+    }
+
     // Clear queue and backpressure state
-    this.taskQueue = [];
+    this.taskQueue.clear();
     this.backpressureActive = false;
     this.startedAt = null;
 
@@ -272,8 +303,9 @@ export class TaskExecutor {
       submitRetries: this.metrics.submitRetries,
       startedAt: this.startedAt,
       uptimeMs: this.startedAt ? Date.now() - this.startedAt : 0,
-      queueSize: this.taskQueue.length,
+      queueSize: this.taskQueue.size,
       backpressureActive: this.backpressureActive,
+      topScores: this.taskQueue.getTopN(10).map((e) => e.score),
     };
   }
 
@@ -281,7 +313,7 @@ export class TaskExecutor {
    * Get the current number of tasks waiting in the queue.
    */
   getQueueSize(): number {
-    return this.taskQueue.length;
+    return this.taskQueue.size;
   }
 
   /**
@@ -553,6 +585,13 @@ export class TaskExecutor {
       this.handleDiscoveredTask(task);
     });
 
+    // Start periodic re-scoring if configured
+    if (this.rescoreIntervalMs > 0) {
+      this.rescoreTimerId = setInterval(() => {
+        this.taskQueue.rescore((task) => this.scoreTask(task));
+      }, this.rescoreIntervalMs);
+    }
+
     // Start discovery (pass agent capabilities of 0n; the filter config handles matching)
     await this.discovery.start(0n);
 
@@ -594,7 +633,7 @@ export class TaskExecutor {
       if (this.activeTasks.size < this.maxConcurrentTasks) {
         this.launchTask(task);
       } else {
-        this.taskQueue.push(task);
+        this.taskQueue.push(task, this.scoreTask(task));
       }
     }
 
@@ -602,7 +641,7 @@ export class TaskExecutor {
     this.drainQueue();
 
     // Wait for all active tasks to complete
-    while (this.activeTasks.size > 0 || this.taskQueue.length > 0) {
+    while (this.activeTasks.size > 0 || this.taskQueue.size > 0) {
       await sleep(50);
     }
   }
@@ -640,10 +679,10 @@ export class TaskExecutor {
   // ==========================================================================
 
   private handleDiscoveredTask(task: TaskDiscoveryResult): void {
-    if (this.activeTasks.size < this.maxConcurrentTasks && this.taskQueue.length === 0) {
+    if (this.activeTasks.size < this.maxConcurrentTasks && this.taskQueue.size === 0) {
       this.launchTask(task);
     } else {
-      this.taskQueue.push(task);
+      this.taskQueue.push(task, this.scoreTask(task));
       this.checkHighWaterMark();
     }
   }
@@ -652,9 +691,9 @@ export class TaskExecutor {
     while (
       this.running &&
       this.activeTasks.size < this.maxConcurrentTasks &&
-      this.taskQueue.length > 0
+      this.taskQueue.size > 0
     ) {
-      const task = this.taskQueue.shift()!;
+      const task = this.taskQueue.pop()!;
       this.launchTask(task);
     }
     this.checkLowWaterMark();
@@ -671,13 +710,13 @@ export class TaskExecutor {
     if (
       !this.backpressureActive &&
       this.backpressureConfig.pauseDiscovery &&
-      this.taskQueue.length >= this.backpressureConfig.highWaterMark
+      this.taskQueue.size >= this.backpressureConfig.highWaterMark
     ) {
       this.backpressureActive = true;
       this.discovery?.pause();
       this.events.onBackpressureActivated?.();
       this.logger.info(
-        `Backpressure activated: queue size ${this.taskQueue.length} >= high-water mark ${this.backpressureConfig.highWaterMark}`,
+        `Backpressure activated: queue size ${this.taskQueue.size} >= high-water mark ${this.backpressureConfig.highWaterMark}`,
       );
     }
   }
@@ -688,13 +727,13 @@ export class TaskExecutor {
   private checkLowWaterMark(): void {
     if (
       this.backpressureActive &&
-      this.taskQueue.length <= this.backpressureConfig.lowWaterMark
+      this.taskQueue.size <= this.backpressureConfig.lowWaterMark
     ) {
       this.backpressureActive = false;
       this.discovery?.resume();
       this.events.onBackpressureReleased?.();
       this.logger.info(
-        `Backpressure released: queue size ${this.taskQueue.length} <= low-water mark ${this.backpressureConfig.lowWaterMark}`,
+        `Backpressure released: queue size ${this.taskQueue.size} <= low-water mark ${this.backpressureConfig.lowWaterMark}`,
       );
     }
   }
@@ -729,7 +768,7 @@ export class TaskExecutor {
 
     // Update gauges at pipeline entry
     this.metricsProvider.gauge(METRIC_NAMES.ACTIVE_COUNT, this.activeTasks.size);
-    this.metricsProvider.gauge(METRIC_NAMES.QUEUE_SIZE, this.taskQueue.length);
+    this.metricsProvider.gauge(METRIC_NAMES.QUEUE_SIZE, this.taskQueue.size);
 
     try {
       // Step 1: Claim (with retry)
@@ -875,7 +914,7 @@ export class TaskExecutor {
       this.activeTasks.delete(pda);
       // Update gauges at pipeline exit
       this.metricsProvider.gauge(METRIC_NAMES.ACTIVE_COUNT, this.activeTasks.size);
-      this.metricsProvider.gauge(METRIC_NAMES.QUEUE_SIZE, this.taskQueue.length);
+      this.metricsProvider.gauge(METRIC_NAMES.QUEUE_SIZE, this.taskQueue.size);
       this.drainQueue();
     }
   }
