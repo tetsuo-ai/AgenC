@@ -36,6 +36,8 @@ import type {
   BackpressureConfig,
   DeadLetterEntry,
   DeadLetterStage,
+  CheckpointStore,
+  TaskCheckpoint,
 } from './types.js';
 import { isPrivateExecutionResult } from './types.js';
 import { DeadLetterQueue } from './dlq.js';
@@ -105,6 +107,7 @@ export class TaskExecutor {
   private readonly retryPolicy: RetryPolicy;
   private readonly backpressureConfig: BackpressureConfig;
   private readonly dlq: DeadLetterQueue;
+  private readonly checkpointStore: CheckpointStore | null;
 
   // Runtime state
   private running = false;
@@ -143,6 +146,7 @@ export class TaskExecutor {
     this.retryPolicy = { ...DEFAULT_RETRY_POLICY, ...config.retryPolicy };
     this.backpressureConfig = { ...DEFAULT_BACKPRESSURE_CONFIG, ...config.backpressure };
     this.dlq = new DeadLetterQueue(config.deadLetterQueue);
+    this.checkpointStore = config.checkpointStore ?? null;
   }
 
   // ==========================================================================
@@ -166,6 +170,9 @@ export class TaskExecutor {
     this.running = true;
     this.startedAt = Date.now();
     this.logger.info(`TaskExecutor starting in ${this.mode} mode`);
+
+    // Recover pending checkpoints from a previous run
+    await this.recoverCheckpoints();
 
     if (this.mode === 'autonomous') {
       await this.autonomousLoop();
@@ -286,6 +293,227 @@ export class TaskExecutor {
    */
   on(events: TaskExecutorEvents): void {
     this.events = { ...this.events, ...events };
+  }
+
+  // ==========================================================================
+  // Checkpoint Recovery
+  // ==========================================================================
+
+  /**
+   * On startup, load any incomplete checkpoints from the store and resume
+   * each task from its last persisted stage. Stale checkpoints (expired claims)
+   * are cleaned up instead of resumed.
+   */
+  private async recoverCheckpoints(): Promise<void> {
+    if (!this.checkpointStore) return;
+
+    const pending = await this.checkpointStore.listPending();
+    if (pending.length === 0) return;
+
+    this.logger.info(`Recovering ${pending.length} checkpointed task(s)`);
+
+    for (const checkpoint of pending) {
+      if (!this.running) break;
+
+      try {
+        // Verify claim is still valid on-chain before resuming
+        const claim = await this.operations.fetchClaim(
+          { toBase58: () => checkpoint.taskPda } as unknown as PublicKey,
+        );
+
+        if (claim && claim.expiresAt > 0) {
+          const nowSec = Math.floor(Date.now() / 1000);
+          if (nowSec >= claim.expiresAt) {
+            // Claim has expired — clean up and skip
+            this.logger.warn(`Checkpoint for ${checkpoint.taskPda} is stale (claim expired), removing`);
+            await this.checkpointStore.remove(checkpoint.taskPda);
+            continue;
+          }
+        }
+
+        // Re-fetch task to get current on-chain state
+        const task = await this.operations.fetchTask(
+          { toBase58: () => checkpoint.taskPda } as unknown as PublicKey,
+        );
+
+        if (!task) {
+          this.logger.warn(`Checkpoint task ${checkpoint.taskPda} not found on-chain, removing`);
+          await this.checkpointStore.remove(checkpoint.taskPda);
+          continue;
+        }
+
+        const pda = { toBase58: () => checkpoint.taskPda } as unknown as PublicKey;
+        const discoveryResult: TaskDiscoveryResult = {
+          pda,
+          task,
+          discoveredAt: checkpoint.createdAt,
+          source: 'poll',
+        };
+
+        this.logger.info(`Resuming task ${checkpoint.taskPda} from stage '${checkpoint.stage}'`);
+        this.launchRecoveredTask(discoveryResult, checkpoint);
+      } catch (err) {
+        this.logger.warn(`Failed to recover checkpoint ${checkpoint.taskPda}: ${err}`);
+        await this.checkpointStore.remove(checkpoint.taskPda);
+      }
+    }
+  }
+
+  /**
+   * Launch a recovered task that resumes from its checkpointed stage.
+   */
+  private launchRecoveredTask(task: TaskDiscoveryResult, checkpoint: TaskCheckpoint): void {
+    const pda = task.pda.toBase58();
+    const controller = new AbortController();
+    this.activeTasks.set(pda, controller);
+    void this.processRecoveredTask(task, pda, controller, checkpoint);
+  }
+
+  /**
+   * Process a recovered task, skipping stages that were already completed
+   * according to the checkpoint.
+   */
+  private async processRecoveredTask(
+    task: TaskDiscoveryResult,
+    pda: string,
+    controller: AbortController,
+    checkpoint: TaskCheckpoint,
+  ): Promise<void> {
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    let deadlineTimerId: ReturnType<typeof setTimeout> | null = null;
+    let timedOut = false;
+    let claimExpired = false;
+
+    try {
+      let claimResult: ClaimResult;
+      let executionResult: TaskExecutionResult | PrivateTaskExecutionResult;
+
+      if (checkpoint.stage === 'claimed' && checkpoint.claimResult) {
+        // Already claimed — skip claim, run execute + submit
+        claimResult = checkpoint.claimResult;
+        this.logger.info(`Task ${pda}: skipping claim (recovered)`);
+
+        // Set up deadline timer
+        ({ deadlineTimerId, claimExpired } = await this.setupDeadlineTimer(
+          task, controller, deadlineTimerId, claimExpired, pda,
+        ));
+        if (claimExpired) return;
+
+        // Set up execution timeout
+        if (this.taskTimeoutMs > 0) {
+          timeoutId = setTimeout(() => {
+            timedOut = true;
+            controller.abort();
+          }, this.taskTimeoutMs);
+        }
+
+        executionResult = await this.executeTaskStep(task, claimResult, controller.signal);
+
+        if (timeoutId !== null) { clearTimeout(timeoutId); timeoutId = null; }
+        if (deadlineTimerId !== null) { clearTimeout(deadlineTimerId); deadlineTimerId = null; }
+
+        // Checkpoint after execution
+        await this.saveCheckpoint(pda, 'executed', claimResult, executionResult, checkpoint.createdAt);
+
+      } else if (checkpoint.stage === 'executed' && checkpoint.claimResult && checkpoint.executionResult) {
+        // Already claimed + executed — skip to submit
+        claimResult = checkpoint.claimResult;
+        executionResult = checkpoint.executionResult;
+        this.logger.info(`Task ${pda}: skipping claim+execute (recovered)`);
+      } else {
+        // Unexpected state — clean up
+        this.logger.warn(`Checkpoint for ${pda} in unexpected state '${checkpoint.stage}', removing`);
+        await this.checkpointStore!.remove(pda);
+        return;
+      }
+
+      // Submit
+      await this.retryStage(
+        'submit',
+        () => this.submitTaskStep(task, executionResult),
+        controller.signal,
+      );
+
+      // Success — remove checkpoint
+      await this.checkpointStore!.remove(pda);
+    } catch (err) {
+      if (timeoutId !== null) clearTimeout(timeoutId);
+      if (deadlineTimerId !== null) clearTimeout(deadlineTimerId);
+
+      if (claimExpired) {
+        const claim = await this.operations.fetchClaim(task.pda).catch(() => null);
+        const expiresAt = claim?.expiresAt ?? 0;
+        const expiredError = new ClaimExpiredError(expiresAt, this.claimExpiryBufferMs);
+        this.metrics.tasksFailed++;
+        this.metrics.claimsExpired++;
+        this.events.onClaimExpiring?.(expiredError, task.pda);
+        this.events.onTaskFailed?.(expiredError, task.pda);
+        this.sendToDeadLetterQueue(task, expiredError, 'execute', 1);
+      } else if (timedOut) {
+        const timeoutError = new TaskTimeoutError(this.taskTimeoutMs);
+        this.metrics.tasksFailed++;
+        this.events.onTaskTimeout?.(timeoutError, task.pda);
+        this.events.onTaskFailed?.(timeoutError, task.pda);
+        this.sendToDeadLetterQueue(task, timeoutError, 'execute', 1);
+      } else if (controller.signal.aborted) {
+        this.logger.debug(`Recovered task ${pda} aborted`);
+      } else {
+        const error = err instanceof Error ? err : new Error(String(err));
+        const stage = this.inferFailureStage(error);
+        const attempts = error instanceof RetryExhaustedError ? error.attempts : 1;
+        this.sendToDeadLetterQueue(task, error, stage, attempts);
+      }
+
+      // Clean up checkpoint on failure (the DLQ captures the failure context)
+      await this.checkpointStore!.remove(pda).catch(() => {});
+    } finally {
+      this.activeTasks.delete(pda);
+      this.drainQueue();
+    }
+  }
+
+  /**
+   * Set up the claim deadline timer. Returns updated flags.
+   */
+  private async setupDeadlineTimer(
+    task: TaskDiscoveryResult,
+    controller: AbortController,
+    _deadlineTimerId: ReturnType<typeof setTimeout> | null,
+    _claimExpired: boolean,
+    pda: string,
+  ): Promise<{ deadlineTimerId: ReturnType<typeof setTimeout> | null; claimExpired: boolean }> {
+    let deadlineTimerId: ReturnType<typeof setTimeout> | null = null;
+    let claimExpired = false;
+
+    if (this.claimExpiryBufferMs > 0) {
+      const claim = await this.operations.fetchClaim(task.pda);
+      if (claim && claim.expiresAt > 0) {
+        const nowMs = Date.now();
+        const expiresAtMs = claim.expiresAt * 1000;
+        const remainingMs = expiresAtMs - nowMs;
+        const effectiveMs = remainingMs - this.claimExpiryBufferMs;
+
+        if (effectiveMs <= 0) {
+          claimExpired = true;
+          controller.abort();
+          const expiredError = new ClaimExpiredError(claim.expiresAt, this.claimExpiryBufferMs);
+          this.metrics.tasksFailed++;
+          this.metrics.claimsExpired++;
+          this.events.onClaimExpiring?.(expiredError, task.pda);
+          this.events.onTaskFailed?.(expiredError, task.pda);
+          this.sendToDeadLetterQueue(task, expiredError, 'claim', 1);
+          this.logger.warn(`Task ${pda} claim deadline too close: remaining=${remainingMs}ms, buffer=${this.claimExpiryBufferMs}ms`);
+          return { deadlineTimerId, claimExpired };
+        }
+
+        deadlineTimerId = setTimeout(() => {
+          claimExpired = true;
+          controller.abort();
+        }, effectiveMs);
+      }
+    }
+
+    return { deadlineTimerId, claimExpired };
   }
 
   // ==========================================================================
@@ -482,6 +710,10 @@ export class TaskExecutor {
         controller.signal,
       );
 
+      // Checkpoint: claimed
+      const checkpointCreatedAt = Date.now();
+      await this.saveCheckpoint(pda, 'claimed', claimResult, undefined, checkpointCreatedAt);
+
       // Step 2: Check claim deadline and set up deadline timer
       if (this.claimExpiryBufferMs > 0) {
         const claim = await this.operations.fetchClaim(task.pda);
@@ -534,12 +766,18 @@ export class TaskExecutor {
         deadlineTimerId = null;
       }
 
+      // Checkpoint: executed
+      await this.saveCheckpoint(pda, 'executed', claimResult, result, checkpointCreatedAt);
+
       // Step 5: Submit result on-chain (with retry)
       await this.retryStage(
         'submit',
         () => this.submitTaskStep(task, result),
         controller.signal,
       );
+
+      // Submission succeeded — remove checkpoint
+      await this.removeCheckpoint(pda);
     } catch (err) {
       // Clear timers if still pending
       if (timeoutId !== null) {
@@ -722,6 +960,40 @@ export class TaskExecutor {
     }
     // Handler failures and unknown errors default to 'execute'
     return 'execute';
+  }
+
+  // ==========================================================================
+  // Checkpoint Persistence
+  // ==========================================================================
+
+  /**
+   * Persist a checkpoint after a stage transition (no-op if no store configured).
+   */
+  private async saveCheckpoint(
+    taskPda: string,
+    stage: TaskCheckpoint['stage'],
+    claimResult?: ClaimResult,
+    executionResult?: TaskExecutionResult | PrivateTaskExecutionResult,
+    createdAt?: number,
+  ): Promise<void> {
+    if (!this.checkpointStore) return;
+    const now = Date.now();
+    await this.checkpointStore.save({
+      taskPda,
+      stage,
+      claimResult,
+      executionResult,
+      createdAt: createdAt ?? now,
+      updatedAt: now,
+    });
+  }
+
+  /**
+   * Remove a checkpoint after successful submission (no-op if no store configured).
+   */
+  private async removeCheckpoint(taskPda: string): Promise<void> {
+    if (!this.checkpointStore) return;
+    await this.checkpointStore.remove(taskPda);
   }
 
   // ==========================================================================

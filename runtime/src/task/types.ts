@@ -804,6 +804,52 @@ export interface DeadLetterQueueConfig {
 }
 
 // ============================================================================
+// Checkpoint Types
+// ============================================================================
+
+/**
+ * Pipeline stage recorded in a checkpoint.
+ */
+export type CheckpointStage = 'claimed' | 'executed' | 'submitted';
+
+/**
+ * Snapshot of a task's pipeline progress, persisted after each stage transition.
+ * Used by the executor to resume from the last successful stage after a crash.
+ */
+export interface TaskCheckpoint {
+  /** Task account PDA (base58 string) */
+  taskPda: string;
+  /** Last completed pipeline stage */
+  stage: CheckpointStage;
+  /** Result of the claim stage (present once stage >= 'claimed') */
+  claimResult?: ClaimResult;
+  /** Result of execution (present once stage >= 'executed') */
+  executionResult?: TaskExecutionResult | PrivateTaskExecutionResult;
+  /** Unix timestamp (ms) when the checkpoint was first created */
+  createdAt: number;
+  /** Unix timestamp (ms) when the checkpoint was last updated */
+  updatedAt: number;
+}
+
+/**
+ * Pluggable persistence backend for checkpoints.
+ *
+ * The executor calls `save()` after each stage transition, `load()` to check
+ * for a specific task, `remove()` after successful submission, and
+ * `listPending()` on startup to discover incomplete work.
+ */
+export interface CheckpointStore {
+  /** Persist or update a checkpoint. */
+  save(checkpoint: TaskCheckpoint): Promise<void>;
+  /** Load a checkpoint by task PDA. Returns null if not found. */
+  load(taskPda: string): Promise<TaskCheckpoint | null>;
+  /** Remove a checkpoint (called after successful submission or staleness cleanup). */
+  remove(taskPda: string): Promise<void>;
+  /** List all incomplete checkpoints (for crash recovery on startup). */
+  listPending(): Promise<TaskCheckpoint[]>;
+}
+
+// ============================================================================
 // Task Executor Types
 // ============================================================================
 
@@ -856,6 +902,8 @@ export interface TaskExecutorConfig {
   backpressure?: Partial<BackpressureConfig>;
   /** Dead letter queue configuration. When provided, failed tasks are captured for inspection and retry. */
   deadLetterQueue?: Partial<DeadLetterQueueConfig>;
+  /** Checkpoint store for durable execution. When provided, pipeline progress is persisted and recovered on restart. */
+  checkpointStore?: CheckpointStore;
 }
 
 /**
