@@ -44,6 +44,8 @@ export const RuntimeErrorCodes = {
   EXECUTOR_STATE_ERROR: 'EXECUTOR_STATE_ERROR',
   /** Task execution timed out */
   TASK_TIMEOUT: 'TASK_TIMEOUT',
+  /** Claim deadline expired or about to expire */
+  CLAIM_EXPIRED: 'CLAIM_EXPIRED',
 } as const;
 
 /** Union type of all runtime error code values */
@@ -709,6 +711,38 @@ export class TaskTimeoutError extends RuntimeError {
     this.timeoutMs = timeoutMs;
     if (Error.captureStackTrace) {
       Error.captureStackTrace(this, TaskTimeoutError);
+    }
+  }
+}
+
+/**
+ * Error thrown when a task's on-chain claim deadline expires or is about to expire.
+ *
+ * @example
+ * ```typescript
+ * executor.on({
+ *   onClaimExpiring: (error, taskPda) => {
+ *     console.log(`Claim for ${taskPda.toBase58()} expiring: ${error.message}`);
+ *   },
+ * });
+ * ```
+ */
+export class ClaimExpiredError extends RuntimeError {
+  /** The claim expiry timestamp (Unix seconds) */
+  public readonly expiresAt: number;
+  /** The buffer in milliseconds that was configured */
+  public readonly bufferMs: number;
+
+  constructor(expiresAt: number, bufferMs: number) {
+    super(
+      `Claim deadline expiring: expires_at=${expiresAt}, buffer=${bufferMs}ms`,
+      RuntimeErrorCodes.CLAIM_EXPIRED,
+    );
+    this.name = 'ClaimExpiredError';
+    this.expiresAt = expiresAt;
+    this.bufferMs = bufferMs;
+    if (Error.captureStackTrace) {
+      Error.captureStackTrace(this, ClaimExpiredError);
     }
   }
 }

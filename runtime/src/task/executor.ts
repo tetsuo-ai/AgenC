@@ -35,7 +35,7 @@ import type {
 } from './types.js';
 import { isPrivateExecutionResult } from './types.js';
 import { deriveTaskPda } from './pda.js';
-import { TaskTimeoutError } from '../types/errors.js';
+import { TaskTimeoutError, ClaimExpiredError } from '../types/errors.js';
 
 // ============================================================================
 // TaskExecutor Class
@@ -79,6 +79,7 @@ export class TaskExecutor {
   private readonly agentPda: PublicKey;
   private readonly batchTasks: BatchTaskItem[];
   private readonly taskTimeoutMs: number;
+  private readonly claimExpiryBufferMs: number;
 
   // Runtime state
   private running = false;
@@ -96,6 +97,7 @@ export class TaskExecutor {
     tasksFailed: 0,
     claimsFailed: 0,
     submitsFailed: 0,
+    claimsExpired: 0,
   };
 
   constructor(config: TaskExecutorConfig) {
@@ -109,6 +111,7 @@ export class TaskExecutor {
     this.agentPda = config.agentPda;
     this.batchTasks = config.batchTasks ?? [];
     this.taskTimeoutMs = config.taskTimeoutMs ?? 300_000;
+    this.claimExpiryBufferMs = config.claimExpiryBufferMs ?? 30_000;
   }
 
   // ==========================================================================
@@ -376,13 +379,45 @@ export class TaskExecutor {
     controller: AbortController,
   ): Promise<void> {
     let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    let deadlineTimerId: ReturnType<typeof setTimeout> | null = null;
     let timedOut = false;
+    let claimExpired = false;
 
     try {
       // Step 1: Claim
       const claimResult = await this.claimTaskStep(task);
 
-      // Step 2: Set up timeout for handler execution
+      // Step 2: Check claim deadline and set up deadline timer
+      if (this.claimExpiryBufferMs > 0) {
+        const claim = await this.operations.fetchClaim(task.pda);
+        if (claim && claim.expiresAt > 0) {
+          const nowMs = Date.now();
+          const expiresAtMs = claim.expiresAt * 1000;
+          const remainingMs = expiresAtMs - nowMs;
+          const effectiveMs = remainingMs - this.claimExpiryBufferMs;
+
+          if (effectiveMs <= 0) {
+            // Not enough time remaining — abort immediately
+            claimExpired = true;
+            controller.abort();
+            const expiredError = new ClaimExpiredError(claim.expiresAt, this.claimExpiryBufferMs);
+            this.metrics.tasksFailed++;
+            this.metrics.claimsExpired++;
+            this.events.onClaimExpiring?.(expiredError, task.pda);
+            this.events.onTaskFailed?.(expiredError, task.pda);
+            this.logger.warn(`Task ${pda} claim deadline too close: remaining=${remainingMs}ms, buffer=${this.claimExpiryBufferMs}ms`);
+            return;
+          }
+
+          // Set timer to abort before deadline
+          deadlineTimerId = setTimeout(() => {
+            claimExpired = true;
+            controller.abort();
+          }, effectiveMs);
+        }
+      }
+
+      // Step 3: Set up per-task execution timeout
       if (this.taskTimeoutMs > 0) {
         timeoutId = setTimeout(() => {
           timedOut = true;
@@ -390,25 +425,43 @@ export class TaskExecutor {
         }, this.taskTimeoutMs);
       }
 
-      // Step 3: Execute handler
+      // Step 4: Execute handler
       const result = await this.executeTaskStep(task, claimResult, controller.signal);
 
-      // Clear timeout on success
+      // Clear timers on success
       if (timeoutId !== null) {
         clearTimeout(timeoutId);
         timeoutId = null;
       }
+      if (deadlineTimerId !== null) {
+        clearTimeout(deadlineTimerId);
+        deadlineTimerId = null;
+      }
 
-      // Step 4: Submit result on-chain
+      // Step 5: Submit result on-chain
       await this.submitTaskStep(task, result);
     } catch (err) {
-      // Clear timeout if still pending
+      // Clear timers if still pending
       if (timeoutId !== null) {
         clearTimeout(timeoutId);
         timeoutId = null;
       }
+      if (deadlineTimerId !== null) {
+        clearTimeout(deadlineTimerId);
+        deadlineTimerId = null;
+      }
 
-      if (timedOut) {
+      if (claimExpired) {
+        // Claim deadline expired during execution
+        const claim = await this.operations.fetchClaim(task.pda).catch(() => null);
+        const expiresAt = claim?.expiresAt ?? 0;
+        const expiredError = new ClaimExpiredError(expiresAt, this.claimExpiryBufferMs);
+        this.metrics.tasksFailed++;
+        this.metrics.claimsExpired++;
+        this.events.onClaimExpiring?.(expiredError, task.pda);
+        this.events.onTaskFailed?.(expiredError, task.pda);
+        this.logger.warn(`Task ${pda} aborted: claim deadline expiring`);
+      } else if (timedOut) {
         // Timeout-specific handling: emit onTaskTimeout, increment tasksFailed
         const timeoutError = new TaskTimeoutError(this.taskTimeoutMs);
         this.metrics.tasksFailed++;
