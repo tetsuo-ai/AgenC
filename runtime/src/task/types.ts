@@ -722,6 +722,27 @@ export interface CompleteResult {
 }
 
 // ============================================================================
+// Retry Policy Types
+// ============================================================================
+
+/**
+ * Configuration for retry behavior with exponential backoff.
+ *
+ * Delay formula: `min(baseDelayMs * 2^attempt, maxDelayMs)`
+ * With jitter (AWS full jitter): `random(0, delay)`
+ */
+export interface RetryPolicy {
+  /** Maximum number of attempts (including the initial attempt). Default: 3 */
+  maxAttempts: number;
+  /** Base delay in milliseconds for exponential backoff. Default: 1000 */
+  baseDelayMs: number;
+  /** Maximum delay cap in milliseconds. Default: 30000 */
+  maxDelayMs: number;
+  /** Whether to apply full jitter (random(0, delay)). Default: true */
+  jitter: boolean;
+}
+
+// ============================================================================
 // Task Executor Types
 // ============================================================================
 
@@ -768,6 +789,8 @@ export interface TaskExecutorConfig {
   taskTimeoutMs?: number;
   /** Buffer in milliseconds before claim deadline to trigger abort (default: 30_000 = 30s). Set to 0 to disable. */
   claimExpiryBufferMs?: number;
+  /** Retry policy for transient failures in claim and submit stages. Handler execution is NOT retried. */
+  retryPolicy?: Partial<RetryPolicy>;
 }
 
 /**
@@ -792,6 +815,10 @@ export interface TaskExecutorStatus {
   claimsFailed: number;
   /** Total submit failures */
   submitsFailed: number;
+  /** Total claim retry attempts */
+  claimRetries: number;
+  /** Total submit retry attempts */
+  submitRetries: number;
   /** Timestamp when the executor was started (null if not started) */
   startedAt: number | null;
   /** Milliseconds the executor has been running */

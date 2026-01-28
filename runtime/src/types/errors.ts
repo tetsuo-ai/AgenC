@@ -46,6 +46,8 @@ export const RuntimeErrorCodes = {
   TASK_TIMEOUT: 'TASK_TIMEOUT',
   /** Claim deadline expired or about to expire */
   CLAIM_EXPIRED: 'CLAIM_EXPIRED',
+  /** All retry attempts exhausted */
+  RETRY_EXHAUSTED: 'RETRY_EXHAUSTED',
 } as const;
 
 /** Union type of all runtime error code values */
@@ -743,6 +745,43 @@ export class ClaimExpiredError extends RuntimeError {
     this.bufferMs = bufferMs;
     if (Error.captureStackTrace) {
       Error.captureStackTrace(this, ClaimExpiredError);
+    }
+  }
+}
+
+/**
+ * Error thrown when all retry attempts have been exhausted for a pipeline stage.
+ *
+ * @example
+ * ```typescript
+ * executor.on({
+ *   onTaskFailed: (error, taskPda) => {
+ *     if (error instanceof RetryExhaustedError) {
+ *       console.log(`Retries exhausted for ${error.stage} after ${error.attempts} attempts`);
+ *     }
+ *   },
+ * });
+ * ```
+ */
+export class RetryExhaustedError extends RuntimeError {
+  /** The pipeline stage that exhausted retries */
+  public readonly stage: string;
+  /** The number of attempts made */
+  public readonly attempts: number;
+  /** The last error that caused the final retry to fail */
+  public readonly lastError: Error;
+
+  constructor(stage: string, attempts: number, lastError: Error) {
+    super(
+      `Retry exhausted for ${stage} after ${attempts} attempts: ${lastError.message}`,
+      RuntimeErrorCodes.RETRY_EXHAUSTED,
+    );
+    this.name = 'RetryExhaustedError';
+    this.stage = stage;
+    this.attempts = attempts;
+    this.lastError = lastError;
+    if (Error.captureStackTrace) {
+      Error.captureStackTrace(this, RetryExhaustedError);
     }
   }
 }
