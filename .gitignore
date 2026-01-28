@@ -47,11 +47,11 @@ Thumbs.db
 # Node
 node_modules/
 
-# SDK build artifacts
+# Build artifacts (all packages)
 sdk/dist/
-
-# Runtime build artifacts
 runtime/dist/
+mcp/dist/
+demo-app/dist/
 
 # Circuit artifacts (keep source, ignore compiled)
 circuits/**/target/
