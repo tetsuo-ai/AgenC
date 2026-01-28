@@ -120,9 +120,6 @@ export {
   TASK_ID_LENGTH,
   // Enums
   OnChainTaskStatus,
-  DiscoveryMode,
-  OperatingMode,
-  TaskExecutorStatus,
   // Functions
   taskStatusToString,
   taskTypeToString,
@@ -165,6 +162,9 @@ export {
   type CompleteResult,
   type TaskExecutorConfig,
   type TaskExecutorEvents,
+  type OperatingMode,
+  type BatchTaskItem,
+  type TaskExecutorStatus,
 } from '../task/index.js';
 
 // Event monitoring types (Phase 2)

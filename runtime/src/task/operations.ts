@@ -243,6 +243,7 @@ export class TaskOperations {
       return {
         success: true,
         taskId: task.taskId,
+        claimPda,
         transactionSignature: signature,
       };
     } catch (err) {

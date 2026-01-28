@@ -147,9 +147,6 @@ export {
   TASK_ID_LENGTH,
   // Task enums
   OnChainTaskStatus,
-  DiscoveryMode,
-  OperatingMode,
-  TaskExecutorStatus,
   // Task functions
   taskStatusToString,
   taskTypeToString,
@@ -186,6 +183,9 @@ export {
   type CompleteResult,
   type TaskExecutorConfig,
   type TaskExecutorEvents,
+  type OperatingMode,
+  type BatchTaskItem,
+  type TaskExecutorStatus,
 } from './types/index.js';
 
 // Task module (Phase 3)
@@ -205,6 +205,8 @@ export {
   type TaskDiscoveryResult,
   type TaskDiscoveryListener,
   type TaskDiscoveryMode,
+  // TaskExecutor class
+  TaskExecutor,
 } from './task/index.js';
 
 // Logger utilities
