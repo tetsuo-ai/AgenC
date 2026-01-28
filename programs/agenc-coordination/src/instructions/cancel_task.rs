@@ -2,7 +2,7 @@
 
 use crate::errors::CoordinationError;
 use crate::events::TaskCancelled;
-use crate::state::{Task, TaskEscrow, TaskStatus};
+use crate::state::{AgentRegistration, Task, TaskClaim, TaskEscrow, TaskStatus};
 use anchor_lang::prelude::*;
 
 #[derive(Accounts)]
