@@ -627,21 +627,25 @@ export interface TaskFilterConfig {
   /** Only match tasks requiring these capabilities */
   capabilities?: bigint;
   /** Minimum reward amount in lamports */
-  minReward?: bigint;
-  /** Maximum deadline (Unix seconds) */
-  maxDeadline?: number;
+  minRewardLamports?: bigint;
+  /** Maximum reward amount in lamports */
+  maxRewardLamports?: bigint;
   /** Only match these task types */
   taskTypes?: TaskType[];
-  /** Exclude private (ZK-proof) tasks */
-  excludePrivate?: boolean;
-  /** Exclude tasks that are already claimed */
-  excludeClaimed?: boolean;
+  /** Minimum seconds remaining before deadline (0 = no buffer check) */
+  minDeadlineBufferSeconds?: number;
+  /** Only match private (ZK-proof) tasks */
+  privateOnly?: boolean;
+  /** Only match public (non-ZK) tasks */
+  publicOnly?: boolean;
+  /** Custom filter function applied after all built-in checks */
+  customFilter?: (task: DiscoveredTask) => boolean;
 }
 
 /**
  * Scoring function for ranking discovered tasks.
  */
-export type TaskScorer = (task: OnChainTask, agentCapabilities: bigint) => number;
+export type TaskScorer = (task: DiscoveredTask) => number;
 
 /**
  * Configuration for task discovery.
