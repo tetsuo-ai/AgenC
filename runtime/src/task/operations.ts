@@ -9,7 +9,7 @@
  */
 
 import { PublicKey, SystemProgram } from '@solana/web3.js';
-import { BN, type Program } from '@coral-xyz/anchor';
+import { BN, type Program, utils } from '@coral-xyz/anchor';
 import type { AgencCoordination } from '../types/agenc_coordination.js';
 import type { Logger } from '../utils/logger.js';
 import { silentLogger } from '../utils/logger.js';
@@ -33,6 +33,19 @@ import {
   TaskSubmissionError,
   AnchorErrorCodes,
 } from '../types/errors.js';
+
+// ============================================================================
+// Account Layout Constants
+// ============================================================================
+
+/**
+ * Byte offset of the `status` field in the on-chain Task account.
+ *
+ * Layout: 8 (discriminator) + 32 (task_id) + 32 (creator) + 8 (required_capabilities)
+ *       + 64 (description) + 32 (constraint_hash) + 8 (reward_amount)
+ *       + 1 (max_workers) + 1 (current_workers) = 186
+ */
+export const TASK_STATUS_OFFSET = 186;
 
 // ============================================================================
 // Configuration
@@ -148,15 +161,53 @@ export class TaskOperations {
   /**
    * Fetch all claimable tasks (Open or InProgress status).
    *
+   * Uses server-side memcmp filters to query only accounts with the desired
+   * status byte, avoiding downloading the entire task set. Falls back to
+   * {@link fetchAllTasks} with client-side filtering if the filtered queries
+   * fail (e.g. RPC does not support the filter).
+   *
    * @returns Array of claimable tasks with their PDAs
    */
   async fetchClaimableTasks(): Promise<Array<{ task: OnChainTask; taskPda: PublicKey }>> {
-    const all = await this.fetchAllTasks();
-    return all.filter(
-      ({ task }) =>
-        task.status === OnChainTaskStatus.Open ||
-        task.status === OnChainTaskStatus.InProgress,
-    );
+    try {
+      const [openAccounts, inProgressAccounts] = await Promise.all([
+        this.program.account.task.all([
+          {
+            memcmp: {
+              offset: TASK_STATUS_OFFSET,
+              bytes: utils.bytes.bs58.encode(Buffer.from([OnChainTaskStatus.Open])),
+            },
+          },
+        ]),
+        this.program.account.task.all([
+          {
+            memcmp: {
+              offset: TASK_STATUS_OFFSET,
+              bytes: utils.bytes.bs58.encode(Buffer.from([OnChainTaskStatus.InProgress])),
+            },
+          },
+        ]),
+      ]);
+
+      const results: Array<{ task: OnChainTask; taskPda: PublicKey }> = [];
+      for (const acc of openAccounts) {
+        results.push({ task: parseOnChainTask(acc.account), taskPda: acc.publicKey });
+      }
+      for (const acc of inProgressAccounts) {
+        results.push({ task: parseOnChainTask(acc.account), taskPda: acc.publicKey });
+      }
+      return results;
+    } catch (err) {
+      this.logger.warn(
+        `memcmp-filtered fetch failed, falling back to full scan: ${err}`,
+      );
+      const all = await this.fetchAllTasks();
+      return all.filter(
+        ({ task }) =>
+          task.status === OnChainTaskStatus.Open ||
+          task.status === OnChainTaskStatus.InProgress,
+      );
+    }
   }
 
   /**
