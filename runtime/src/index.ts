@@ -188,6 +188,19 @@ export {
   type TaskExecutorEvents,
 } from './types/index.js';
 
+// Task module (Phase 3)
+export {
+  // TaskOperations class
+  TaskOperations,
+  type TaskOpsConfig,
+  // Task filter functions
+  matchesFilter,
+  hasRequiredCapabilities,
+  defaultTaskScorer,
+  rankTasks,
+  filterAndRank,
+} from './task/index.js';
+
 // Logger utilities
 export {
   Logger,

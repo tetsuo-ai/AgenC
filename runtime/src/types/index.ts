@@ -134,6 +134,12 @@ export {
   isTaskExpired,
   isTaskClaimable,
   isPrivateExecutionResult,
+  // Filter functions
+  matchesFilter,
+  hasRequiredCapabilities,
+  defaultTaskScorer,
+  rankTasks,
+  filterAndRank,
   // PDA derivation
   deriveTaskPda,
   findTaskPda,
