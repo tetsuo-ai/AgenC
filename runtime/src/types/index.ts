@@ -36,6 +36,7 @@ export {
   TaskExecutionError,
   TaskSubmissionError,
   ExecutorStateError,
+  TaskTimeoutError,
   // Helper functions
   isAnchorError,
   parseAnchorError,
