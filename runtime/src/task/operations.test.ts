@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { PublicKey, Keypair, SystemProgram } from '@solana/web3.js';
-import { TaskOperations, type TaskOpsConfig } from './operations.js';
+import { utils } from '@coral-xyz/anchor';
+import { TaskOperations, TASK_STATUS_OFFSET, type TaskOpsConfig } from './operations.js';
 import { OnChainTaskStatus, type OnChainTask } from './types.js';
 import { TaskType } from '../events/types.js';
 import { TaskNotClaimableError, TaskSubmissionError } from '../types/errors.js';
@@ -260,24 +261,119 @@ describe('TaskOperations', () => {
   });
 
   describe('fetchClaimableTasks', () => {
-    it('filters to Open/InProgress status only', async () => {
+    it('issues two memcmp-filtered queries for Open and InProgress', async () => {
       const openTask = createMockRawTask({ status: { open: {} } });
       const inProgressTask = createMockRawTask({ status: { inProgress: {} } });
-      const completedTask = createMockRawTask({ status: { completed: {} } });
-      const cancelledTask = createMockRawTask({ status: { cancelled: {} } });
 
-      mocks.taskAll.mockResolvedValue([
-        { publicKey: Keypair.generate().publicKey, account: openTask },
-        { publicKey: Keypair.generate().publicKey, account: inProgressTask },
-        { publicKey: Keypair.generate().publicKey, account: completedTask },
-        { publicKey: Keypair.generate().publicKey, account: cancelledTask },
-      ]);
+      const openPda = Keypair.generate().publicKey;
+      const inProgressPda = Keypair.generate().publicKey;
+
+      // Return different results depending on the filter argument
+      mocks.taskAll.mockImplementation((filters?: unknown[]) => {
+        if (!filters || !Array.isArray(filters) || filters.length === 0) {
+          return Promise.resolve([]);
+        }
+        const filter = filters[0] as { memcmp: { offset: number; bytes: string } };
+        if (filter.memcmp.bytes === utils.bytes.bs58.encode(Buffer.from([OnChainTaskStatus.Open]))) {
+          return Promise.resolve([{ publicKey: openPda, account: openTask }]);
+        }
+        if (filter.memcmp.bytes === utils.bytes.bs58.encode(Buffer.from([OnChainTaskStatus.InProgress]))) {
+          return Promise.resolve([{ publicKey: inProgressPda, account: inProgressTask }]);
+        }
+        return Promise.resolve([]);
+      });
 
       const results = await ops.fetchClaimableTasks();
 
       expect(results.length).toBe(2);
       expect(results[0].task.status).toBe(OnChainTaskStatus.Open);
+      expect(results[0].taskPda.equals(openPda)).toBe(true);
       expect(results[1].task.status).toBe(OnChainTaskStatus.InProgress);
+      expect(results[1].taskPda.equals(inProgressPda)).toBe(true);
+
+      // Verify two calls with correct memcmp filters
+      expect(mocks.taskAll).toHaveBeenCalledTimes(2);
+      expect(mocks.taskAll).toHaveBeenCalledWith([
+        { memcmp: { offset: TASK_STATUS_OFFSET, bytes: utils.bytes.bs58.encode(Buffer.from([OnChainTaskStatus.Open])) } },
+      ]);
+      expect(mocks.taskAll).toHaveBeenCalledWith([
+        { memcmp: { offset: TASK_STATUS_OFFSET, bytes: utils.bytes.bs58.encode(Buffer.from([OnChainTaskStatus.InProgress])) } },
+      ]);
+    });
+
+    it('uses correct offset 186 for status field', () => {
+      // 8 (discriminator) + 32 (task_id) + 32 (creator) + 8 (required_capabilities)
+      // + 64 (description) + 32 (constraint_hash) + 8 (reward_amount)
+      // + 1 (max_workers) + 1 (current_workers) = 186
+      expect(TASK_STATUS_OFFSET).toBe(186);
+    });
+
+    it('returns empty array when no claimable tasks exist', async () => {
+      mocks.taskAll.mockResolvedValue([]);
+
+      const results = await ops.fetchClaimableTasks();
+
+      expect(results).toEqual([]);
+    });
+
+    it('falls back to fetchAllTasks on memcmp filter failure', async () => {
+      const openTask = createMockRawTask({ status: { open: {} } });
+      const completedTask = createMockRawTask({ status: { completed: {} } });
+      const openPda = Keypair.generate().publicKey;
+      const completedPda = Keypair.generate().publicKey;
+
+      let callCount = 0;
+      mocks.taskAll.mockImplementation((filters?: unknown[]) => {
+        callCount++;
+        // First two calls (memcmp) fail
+        if (callCount <= 2 && filters && Array.isArray(filters) && filters.length > 0) {
+          return Promise.reject(new Error('RPC does not support memcmp filters'));
+        }
+        // Third call (fallback, no filters) returns all tasks
+        return Promise.resolve([
+          { publicKey: openPda, account: openTask },
+          { publicKey: completedPda, account: completedTask },
+        ]);
+      });
+
+      const results = await ops.fetchClaimableTasks();
+
+      // Should only return the Open task (fallback filters client-side)
+      expect(results.length).toBe(1);
+      expect(results[0].task.status).toBe(OnChainTaskStatus.Open);
+    });
+
+    it('combines results from both filtered queries', async () => {
+      const openTasks = Array.from({ length: 3 }, () =>
+        createMockRawTask({ status: { open: {} } }),
+      );
+      const inProgressTasks = Array.from({ length: 2 }, () =>
+        createMockRawTask({ status: { inProgress: {} } }),
+      );
+
+      mocks.taskAll.mockImplementation((filters?: unknown[]) => {
+        if (!filters || !Array.isArray(filters) || filters.length === 0) {
+          return Promise.resolve([]);
+        }
+        const filter = filters[0] as { memcmp: { offset: number; bytes: string } };
+        if (filter.memcmp.bytes === utils.bytes.bs58.encode(Buffer.from([OnChainTaskStatus.Open]))) {
+          return Promise.resolve(
+            openTasks.map((t) => ({ publicKey: Keypair.generate().publicKey, account: t })),
+          );
+        }
+        if (filter.memcmp.bytes === utils.bytes.bs58.encode(Buffer.from([OnChainTaskStatus.InProgress]))) {
+          return Promise.resolve(
+            inProgressTasks.map((t) => ({ publicKey: Keypair.generate().publicKey, account: t })),
+          );
+        }
+        return Promise.resolve([]);
+      });
+
+      const results = await ops.fetchClaimableTasks();
+
+      expect(results.length).toBe(5);
+      expect(results.filter((r) => r.task.status === OnChainTaskStatus.Open).length).toBe(3);
+      expect(results.filter((r) => r.task.status === OnChainTaskStatus.InProgress).length).toBe(2);
     });
   });
 
