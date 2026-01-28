@@ -42,7 +42,7 @@ pub struct ResolveDispute<'info> {
 
     #[account(
         constraint = resolver.key() == protocol_config.authority
-            || resolver.key() == dispute.initiator
+            || resolver.key() == dispute.initiator_authority
             @ CoordinationError::UnauthorizedResolver
     )]
     pub resolver: Signer<'info>,
@@ -248,64 +248,108 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
     }
 
     // Update dispute status - decrement active_dispute_votes for each arbiter
-    if dispute.total_voters > 0 {
-        let expected = dispute
-            .total_voters
-            .checked_mul(2)
-            .ok_or(CoordinationError::ArithmeticOverflow)? as usize;
+    // remaining_accounts format:
+    // - First: (vote, arbiter) pairs for total_voters
+    // - Then: (claim, worker) pairs for additional workers (fix #333)
+    let arbiter_accounts = dispute
+        .total_voters
+        .checked_mul(2)
+        .ok_or(CoordinationError::ArithmeticOverflow)? as usize;
+
+    // Require at least the expected arbiter accounts
+    require!(
+        ctx.remaining_accounts.len() >= arbiter_accounts,
+        CoordinationError::InvalidInput
+    );
+
+    // Additional accounts must come in pairs (claim, worker)
+    let extra_accounts = ctx
+        .remaining_accounts
+        .len()
+        .checked_sub(arbiter_accounts)
+        .ok_or(CoordinationError::ArithmeticOverflow)?;
+    require!(extra_accounts % 2 == 0, CoordinationError::InvalidInput);
+
+    // Process arbiter (vote, arbiter) pairs
+    for i in (0..arbiter_accounts).step_by(2) {
+        let vote_info = &ctx.remaining_accounts[i];
+        let arbiter_info = &ctx.remaining_accounts[i + 1];
+
+        // CRITICAL: Validate account ownership before deserialization (fix: unsafe deserialization)
+        // Without this check, attackers could pass fake accounts not owned by this program
         require!(
-            ctx.remaining_accounts.len() == expected,
-            CoordinationError::InvalidInput
+            vote_info.owner == &crate::ID,
+            CoordinationError::InvalidAccountOwner
+        );
+        require!(
+            arbiter_info.owner == &crate::ID,
+            CoordinationError::InvalidAccountOwner
         );
 
-        for i in (0..expected).step_by(2) {
-            let vote_info = &ctx.remaining_accounts[i];
-            let arbiter_info = &ctx.remaining_accounts[i + 1];
-
-            // CRITICAL: Validate account ownership before deserialization (fix: unsafe deserialization)
-            // Without this check, attackers could pass fake accounts not owned by this program
-            require!(
-                vote_info.owner == &crate::ID,
-                CoordinationError::InvalidAccountOwner
-            );
-            require!(
-                arbiter_info.owner == &crate::ID,
-                CoordinationError::InvalidAccountOwner
-            );
-
-            // Validate vote account
-            let vote_data = vote_info.try_borrow_data()?;
-            // try_deserialize expects full data including discriminator
-            let vote = DisputeVote::try_deserialize(&mut &**vote_data)?;
-            require!(
-                vote.dispute == dispute.key(),
-                CoordinationError::InvalidInput
-            );
-            require!(
-                vote.voter == arbiter_info.key(),
-                CoordinationError::InvalidInput
-            );
-            drop(vote_data);
-
-            require!(arbiter_info.is_writable, CoordinationError::InvalidInput);
-
-            // Decrement active_dispute_votes on arbiter
-            let mut arbiter_data = arbiter_info.try_borrow_mut_data()?;
-            // try_deserialize expects full data including discriminator
-            let mut arbiter = AgentRegistration::try_deserialize(&mut &**arbiter_data)?;
-            // Use checked_sub to catch accounting errors - underflow here indicates a bug
-            arbiter.active_dispute_votes = arbiter
-                .active_dispute_votes
-                .checked_sub(1)
-                .ok_or(CoordinationError::ArithmeticOverflow)?;
-            // Serialize back, skipping discriminator (already validated during deserialize)
-            arbiter.try_serialize(&mut &mut arbiter_data[8..])?;
-        }
-    } else {
+        // Validate vote account
+        let vote_data = vote_info.try_borrow_data()?;
+        // try_deserialize expects full data including discriminator
+        let vote = DisputeVote::try_deserialize(&mut &**vote_data)?;
         require!(
-            ctx.remaining_accounts.is_empty(),
+            vote.dispute == dispute.key(),
             CoordinationError::InvalidInput
         );
+        require!(
+            vote.voter == arbiter_info.key(),
+            CoordinationError::InvalidInput
+        );
+        drop(vote_data);
+
+        require!(arbiter_info.is_writable, CoordinationError::InvalidInput);
+
+        // Decrement active_dispute_votes on arbiter
+        let mut arbiter_data = arbiter_info.try_borrow_mut_data()?;
+        // try_deserialize expects full data including discriminator
+        let mut arbiter = AgentRegistration::try_deserialize(&mut &**arbiter_data)?;
+        // Use checked_sub to catch accounting errors - underflow here indicates a bug
+        arbiter.active_dispute_votes = arbiter
+            .active_dispute_votes
+            .checked_sub(1)
+            .ok_or(CoordinationError::ArithmeticOverflow)?;
+        // Serialize back, skipping discriminator (already validated during deserialize)
+        arbiter.try_serialize(&mut &mut arbiter_data[8..])?;
+    }
+
+    // Process additional worker (claim, worker) pairs to decrement active_tasks (fix #333)
+    for i in (arbiter_accounts..ctx.remaining_accounts.len()).step_by(2) {
+        let claim_info = &ctx.remaining_accounts[i];
+        let worker_info = &ctx.remaining_accounts[i + 1];
+
+        // Validate account ownership
+        require!(
+            claim_info.owner == &crate::ID,
+            CoordinationError::InvalidAccountOwner
+        );
+        require!(
+            worker_info.owner == &crate::ID,
+            CoordinationError::InvalidAccountOwner
+        );
+
+        // Validate claim belongs to this task and matches the worker
+        let claim_data = claim_info.try_borrow_data()?;
+        let claim = TaskClaim::try_deserialize(&mut &**claim_data)?;
+        require!(claim.task == task.key(), CoordinationError::InvalidInput);
+        require!(
+            claim.worker == worker_info.key(),
+            CoordinationError::InvalidInput
+        );
+        drop(claim_data);
+
+        require!(worker_info.is_writable, CoordinationError::InvalidInput);
+
+        // Decrement worker's active_tasks counter
+        let mut worker_data = worker_info.try_borrow_mut_data()?;
+        let mut worker_reg = AgentRegistration::try_deserialize(&mut &**worker_data)?;
+        worker_reg.active_tasks = worker_reg
+            .active_tasks
+            .checked_sub(1)
+            .ok_or(CoordinationError::ArithmeticOverflow)?;
+        worker_reg.try_serialize(&mut &mut worker_data[8..])?;
     }
 
     dispute.status = DisputeStatus::Resolved;

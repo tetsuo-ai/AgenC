@@ -86,6 +86,11 @@ fn compute_expected_binding(task_id: [u8; 32], agent_pubkey: [u8; 32], output_co
     hash_2(binding, output_commitment)
 }
 
+// Helper to compute expected nullifier for tests (fix: issue #336)
+fn compute_expected_nullifier(constraint_hash: Field, agent_secret: Field) -> Field {
+    hash_2(constraint_hash, agent_secret)
+}
+
 // ============================================================================
 // Test Fixtures - representative values for testing
 // ============================================================================
@@ -129,6 +134,9 @@ global TEST_OUTPUT: [Field; 4] = [1, 2, 3, 4];
 // Standard test salt
 global TEST_SALT: Field = 12345;
 
+// Standard test agent secret (fix: issue #336)
+global TEST_AGENT_SECRET: Field = 98765;
+
 // ============================================================================
 // Tests
 // ============================================================================
@@ -139,8 +147,9 @@ fn test_valid_proof() {
     let output_commitment = hash_2(constraint_hash, TEST_SALT);
 
     let expected_binding = compute_expected_binding(TEST_TASK_ID, TEST_AGENT_PUBKEY, output_commitment);
+    let expected_nullifier = compute_expected_nullifier(constraint_hash, TEST_AGENT_SECRET);
 
-    main(TEST_TASK_ID, TEST_AGENT_PUBKEY, constraint_hash, output_commitment, expected_binding, TEST_OUTPUT, TEST_SALT);
+    main(TEST_TASK_ID, TEST_AGENT_PUBKEY, constraint_hash, output_commitment, expected_binding, expected_nullifier, TEST_OUTPUT, TEST_SALT, TEST_AGENT_SECRET);
 }
 
 #[test(should_fail)]
@@ -155,8 +164,9 @@ fn test_wrong_output_fails() {
     let agent_pubkey: [u8; 32] = [0; 32];
 
     let expected_binding = compute_expected_binding(task_id, agent_pubkey, output_commitment);
+    let expected_nullifier = compute_expected_nullifier(constraint_hash, TEST_AGENT_SECRET);
 
-    main(task_id, agent_pubkey, constraint_hash, output_commitment, expected_binding, wrong_output, TEST_SALT);
+    main(task_id, agent_pubkey, constraint_hash, output_commitment, expected_binding, expected_nullifier, wrong_output, TEST_SALT, TEST_AGENT_SECRET);
 }
 
 #[test(should_fail)]
@@ -170,8 +180,9 @@ fn test_wrong_salt_fails() {
     let agent_pubkey: [u8; 32] = [0; 32];
 
     let expected_binding = compute_expected_binding(task_id, agent_pubkey, output_commitment);
+    let expected_nullifier = compute_expected_nullifier(constraint_hash, TEST_AGENT_SECRET);
 
-    main(task_id, agent_pubkey, constraint_hash, output_commitment, expected_binding, TEST_OUTPUT, wrong_salt);
+    main(task_id, agent_pubkey, constraint_hash, output_commitment, expected_binding, expected_nullifier, TEST_OUTPUT, wrong_salt, TEST_AGENT_SECRET);
 }
 
 #[test(should_fail)]
