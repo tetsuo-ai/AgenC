@@ -34,8 +34,11 @@ import type {
   BatchTaskItem,
   RetryPolicy,
   BackpressureConfig,
+  DeadLetterEntry,
+  DeadLetterStage,
 } from './types.js';
 import { isPrivateExecutionResult } from './types.js';
+import { DeadLetterQueue } from './dlq.js';
 import { deriveTaskPda } from './pda.js';
 import { TaskTimeoutError, ClaimExpiredError, RetryExhaustedError } from '../types/errors.js';
 
@@ -101,6 +104,7 @@ export class TaskExecutor {
   private readonly claimExpiryBufferMs: number;
   private readonly retryPolicy: RetryPolicy;
   private readonly backpressureConfig: BackpressureConfig;
+  private readonly dlq: DeadLetterQueue;
 
   // Runtime state
   private running = false;
@@ -138,6 +142,7 @@ export class TaskExecutor {
     this.claimExpiryBufferMs = config.claimExpiryBufferMs ?? 30_000;
     this.retryPolicy = { ...DEFAULT_RETRY_POLICY, ...config.retryPolicy };
     this.backpressureConfig = { ...DEFAULT_BACKPRESSURE_CONFIG, ...config.backpressure };
+    this.dlq = new DeadLetterQueue(config.deadLetterQueue);
   }
 
   // ==========================================================================
@@ -262,6 +267,13 @@ export class TaskExecutor {
    */
   getQueueSize(): number {
     return this.taskQueue.length;
+  }
+
+  /**
+   * Get the dead letter queue instance for inspection, retry, and management.
+   */
+  getDeadLetterQueue(): DeadLetterQueue {
+    return this.dlq;
   }
 
   // ==========================================================================
@@ -488,6 +500,7 @@ export class TaskExecutor {
             this.metrics.claimsExpired++;
             this.events.onClaimExpiring?.(expiredError, task.pda);
             this.events.onTaskFailed?.(expiredError, task.pda);
+            this.sendToDeadLetterQueue(task, expiredError, 'claim', 1);
             this.logger.warn(`Task ${pda} claim deadline too close: remaining=${remainingMs}ms, buffer=${this.claimExpiryBufferMs}ms`);
             return;
           }
@@ -547,6 +560,7 @@ export class TaskExecutor {
         this.metrics.claimsExpired++;
         this.events.onClaimExpiring?.(expiredError, task.pda);
         this.events.onTaskFailed?.(expiredError, task.pda);
+        this.sendToDeadLetterQueue(task, expiredError, 'execute', 1);
         this.logger.warn(`Task ${pda} aborted: claim deadline expiring`);
       } else if (timedOut) {
         // Timeout-specific handling: emit onTaskTimeout, increment tasksFailed
@@ -554,12 +568,18 @@ export class TaskExecutor {
         this.metrics.tasksFailed++;
         this.events.onTaskTimeout?.(timeoutError, task.pda);
         this.events.onTaskFailed?.(timeoutError, task.pda);
+        this.sendToDeadLetterQueue(task, timeoutError, 'execute', 1);
         this.logger.warn(`Task ${pda} timed out after ${this.taskTimeoutMs}ms`);
       } else if (controller.signal.aborted) {
-        // Graceful shutdown
+        // Graceful shutdown — do not send to DLQ
         this.logger.debug(`Task ${pda} aborted`);
+      } else {
+        // Non-abort failure (handler crash, retry exhaustion, etc.)
+        const error = err instanceof Error ? err : new Error(String(err));
+        const stage = this.inferFailureStage(error);
+        const attempts = error instanceof RetryExhaustedError ? error.attempts : 1;
+        this.sendToDeadLetterQueue(task, error, stage, attempts);
       }
-      // Error already handled in individual steps; just ensure metrics are right
     } finally {
       this.activeTasks.delete(pda);
       this.drainQueue();
@@ -656,6 +676,57 @@ export class TaskExecutor {
       throw err;
     }
   }
+
+  // ==========================================================================
+  // Dead Letter Queue
+  // ==========================================================================
+
+  /**
+   * Send a failed task to the dead letter queue and emit the onDeadLettered event.
+   */
+  private sendToDeadLetterQueue(
+    task: TaskDiscoveryResult,
+    error: Error,
+    stage: DeadLetterStage,
+    attempts: number,
+  ): void {
+    const entry: DeadLetterEntry = {
+      taskPda: task.pda.toBase58(),
+      task: task.task,
+      error: error.message,
+      errorCode: 'code' in error && typeof (error as Record<string, unknown>).code === 'string'
+        ? (error as Record<string, unknown>).code as string
+        : undefined,
+      failedAt: Date.now(),
+      stage,
+      attempts,
+      retryable: stage !== 'execute',
+    };
+    this.dlq.add(entry);
+    this.events.onDeadLettered?.(entry);
+    this.logger.debug(`Task ${entry.taskPda} sent to dead letter queue (stage=${stage}, attempts=${attempts})`);
+  }
+
+  /**
+   * Infer the pipeline stage from the error type.
+   */
+  private inferFailureStage(error: Error): DeadLetterStage {
+    if (error instanceof RetryExhaustedError) {
+      return error.stage as DeadLetterStage;
+    }
+    if (error instanceof TaskTimeoutError) {
+      return 'execute';
+    }
+    if (error instanceof ClaimExpiredError) {
+      return 'execute';
+    }
+    // Handler failures and unknown errors default to 'execute'
+    return 'execute';
+  }
+
+  // ==========================================================================
+  // Pipeline Steps
+  // ==========================================================================
 
   private async submitTaskStep(
     task: TaskDiscoveryResult,
