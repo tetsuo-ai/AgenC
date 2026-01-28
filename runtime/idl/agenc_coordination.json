@@ -2675,6 +2675,58 @@
       ]
     },
     {
+      "name": "BondDeposited",
+      "discriminator": [
+        210,
+        149,
+        47,
+        232,
+        72,
+        128,
+        248,
+        153
+      ]
+    },
+    {
+      "name": "BondLocked",
+      "discriminator": [
+        89,
+        45,
+        139,
+        7,
+        22,
+        105,
+        232,
+        59
+      ]
+    },
+    {
+      "name": "BondReleased",
+      "discriminator": [
+        191,
+        161,
+        250,
+        29,
+        188,
+        146,
+        120,
+        251
+      ]
+    },
+    {
+      "name": "BondSlashed",
+      "discriminator": [
+        59,
+        7,
+        252,
+        195,
+        234,
+        156,
+        42,
+        54
+      ]
+    },
+    {
       "name": "DependentTaskCreated",
       "discriminator": [
         82,
@@ -2802,6 +2854,19 @@
         162,
         10,
         30
+      ]
+    },
+    {
+      "name": "SpeculativeCommitmentCreated",
+      "discriminator": [
+        72,
+        69,
+        96,
+        30,
+        161,
+        244,
+        6,
+        183
       ]
     },
     {
@@ -3641,6 +3706,106 @@
               "Bump seed"
             ],
             "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "BondDeposited",
+      "docs": [
+        "Emitted when bond is deposited to speculation bond account"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "agent",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "new_total",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "BondLocked",
+      "docs": [
+        "Emitted when bond is locked for a commitment"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "agent",
+            "type": "pubkey"
+          },
+          {
+            "name": "commitment",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "BondReleased",
+      "docs": [
+        "Emitted when bond is released back to agent after successful proof"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "agent",
+            "type": "pubkey"
+          },
+          {
+            "name": "commitment",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "BondSlashed",
+      "docs": [
+        "Emitted when an agent's bond is slashed due to failed speculation"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "agent",
+            "type": "pubkey"
+          },
+          {
+            "name": "commitment",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "reason",
+            "type": "u8"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
           }
         ]
       }
@@ -4553,6 +4718,39 @@
           },
           {
             "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "SpeculativeCommitmentCreated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "task",
+            "type": "pubkey"
+          },
+          {
+            "name": "producer",
+            "type": "pubkey"
+          },
+          {
+            "name": "result_hash",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "bonded_stake",
+            "type": "u64"
+          },
+          {
+            "name": "expires_at",
             "type": "i64"
           }
         ]
