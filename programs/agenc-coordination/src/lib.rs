@@ -106,6 +106,47 @@ pub mod agenc_coordination {
         )
     }
 
+    /// Create a new task that depends on an existing parent task.
+    /// The parent task must not be cancelled or disputed.
+    ///
+    /// # Arguments
+    /// * `ctx` - Context with task, escrow, parent_task, and creator accounts
+    /// * `task_id` - Unique identifier for the task
+    /// * `required_capabilities` - Bitmask of required agent capabilities
+    /// * `description` - Task description or instruction hash
+    /// * `reward_amount` - SOL or token reward for completion
+    /// * `max_workers` - Maximum number of agents that can work on this task
+    /// * `deadline` - Unix timestamp deadline (0 = no deadline)
+    /// * `task_type` - 0=exclusive (single worker), 1=collaborative (multi-worker)
+    /// * `constraint_hash` - For private tasks: hash of expected output (None for non-private)
+    /// * `dependency_type` - 1=Data, 2=Ordering, 3=Proof
+    #[allow(clippy::too_many_arguments)]
+    pub fn create_dependent_task(
+        ctx: Context<CreateDependentTask>,
+        task_id: [u8; 32],
+        required_capabilities: u64,
+        description: [u8; 64],
+        reward_amount: u64,
+        max_workers: u8,
+        deadline: i64,
+        task_type: u8,
+        constraint_hash: Option<[u8; 32]>,
+        dependency_type: u8,
+    ) -> Result<()> {
+        instructions::create_dependent_task::handler(
+            ctx,
+            task_id,
+            required_capabilities,
+            description,
+            reward_amount,
+            max_workers,
+            deadline,
+            task_type,
+            constraint_hash,
+            dependency_type,
+        )
+    }
+
     /// Claim a task to signal intent to work on it.
     /// Agent must have required capabilities and task must be claimable.
     pub fn claim_task(ctx: Context<ClaimTask>) -> Result<()> {
