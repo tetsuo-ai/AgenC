@@ -252,4 +252,14 @@ pub enum CoordinationError {
 
     #[msg("Only upgrade authority can perform this action")]
     UnauthorizedUpgrade,
+
+    // Dependency errors (6900-6999)
+    #[msg("Parent task has been cancelled")]
+    ParentTaskCancelled,
+
+    #[msg("Parent task is in disputed state")]
+    ParentTaskDisputed,
+
+    #[msg("Invalid dependency type")]
+    InvalidDependencyType,
 }
