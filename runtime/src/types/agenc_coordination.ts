@@ -2687,6 +2687,58 @@ export type AgencCoordination = {
       ]
     },
     {
+      "name": "bondDeposited",
+      "discriminator": [
+        210,
+        149,
+        47,
+        232,
+        72,
+        128,
+        248,
+        153
+      ]
+    },
+    {
+      "name": "bondLocked",
+      "discriminator": [
+        89,
+        45,
+        139,
+        7,
+        22,
+        105,
+        232,
+        59
+      ]
+    },
+    {
+      "name": "bondReleased",
+      "discriminator": [
+        191,
+        161,
+        250,
+        29,
+        188,
+        146,
+        120,
+        251
+      ]
+    },
+    {
+      "name": "bondSlashed",
+      "discriminator": [
+        59,
+        7,
+        252,
+        195,
+        234,
+        156,
+        42,
+        54
+      ]
+    },
+    {
       "name": "dependentTaskCreated",
       "discriminator": [
         82,
@@ -2814,6 +2866,19 @@ export type AgencCoordination = {
         162,
         10,
         30
+      ]
+    },
+    {
+      "name": "speculativeCommitmentCreated",
+      "discriminator": [
+        72,
+        69,
+        96,
+        30,
+        161,
+        244,
+        6,
+        183
       ]
     },
     {
@@ -3653,6 +3718,106 @@ export type AgencCoordination = {
               "Bump seed"
             ],
             "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "bondDeposited",
+      "docs": [
+        "Emitted when bond is deposited to speculation bond account"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "agent",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "newTotal",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "bondLocked",
+      "docs": [
+        "Emitted when bond is locked for a commitment"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "agent",
+            "type": "pubkey"
+          },
+          {
+            "name": "commitment",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "bondReleased",
+      "docs": [
+        "Emitted when bond is released back to agent after successful proof"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "agent",
+            "type": "pubkey"
+          },
+          {
+            "name": "commitment",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "bondSlashed",
+      "docs": [
+        "Emitted when an agent's bond is slashed due to failed speculation"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "agent",
+            "type": "pubkey"
+          },
+          {
+            "name": "commitment",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "reason",
+            "type": "u8"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
           }
         ]
       }
@@ -4565,6 +4730,39 @@ export type AgencCoordination = {
           },
           {
             "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "speculativeCommitmentCreated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "task",
+            "type": "pubkey"
+          },
+          {
+            "name": "producer",
+            "type": "pubkey"
+          },
+          {
+            "name": "resultHash",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "bondedStake",
+            "type": "u64"
+          },
+          {
+            "name": "expiresAt",
             "type": "i64"
           }
         ]
