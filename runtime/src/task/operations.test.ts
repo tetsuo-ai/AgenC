@@ -177,6 +177,21 @@ describe('TaskOperations', () => {
     });
   });
 
+  describe('constructor', () => {
+    it('initializes with program and agentId', () => {
+      expect(ops).toBeInstanceOf(TaskOperations);
+    });
+
+    it('accepts optional logger', () => {
+      const opsWithLogger = new TaskOperations({
+        program: mockProgram,
+        agentId,
+        logger: silentLogger,
+      });
+      expect(opsWithLogger).toBeInstanceOf(TaskOperations);
+    });
+  });
+
   describe('fetchTask', () => {
     it('returns parsed OnChainTask when found', async () => {
       const rawTask = createMockRawTask();
@@ -374,6 +389,30 @@ describe('TaskOperations', () => {
       mocks.claimTaskBuilder.rpc.mockRejectedValue({
         errorCode: { number: 6003, code: 'InsufficientCapabilities' },
         message: 'Agent has insufficient capabilities',
+      });
+
+      await expect(ops.claimTask(taskPda, task)).rejects.toThrow(TaskNotClaimableError);
+    });
+
+    it('throws TaskNotClaimableError on TaskNotOpen', async () => {
+      const taskPda = Keypair.generate().publicKey;
+      const task = createParsedTask();
+
+      mocks.claimTaskBuilder.rpc.mockRejectedValue({
+        errorCode: { number: 6009, code: 'TaskNotOpen' },
+        message: 'Task is not open',
+      });
+
+      await expect(ops.claimTask(taskPda, task)).rejects.toThrow(TaskNotClaimableError);
+    });
+
+    it('throws TaskNotClaimableError on AlreadyClaimed', async () => {
+      const taskPda = Keypair.generate().publicKey;
+      const task = createParsedTask();
+
+      mocks.claimTaskBuilder.rpc.mockRejectedValue({
+        errorCode: { number: 6024, code: 'AlreadyClaimed' },
+        message: 'Already claimed',
       });
 
       await expect(ops.claimTask(taskPda, task)).rejects.toThrow(TaskNotClaimableError);

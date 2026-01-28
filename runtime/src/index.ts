@@ -199,6 +199,12 @@ export {
   defaultTaskScorer,
   rankTasks,
   filterAndRank,
+  // TaskDiscovery class
+  TaskDiscovery,
+  type TaskDiscoveryOptions,
+  type TaskDiscoveryResult,
+  type TaskDiscoveryListener,
+  type TaskDiscoveryMode,
 } from './task/index.js';
 
 // Logger utilities
