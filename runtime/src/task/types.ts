@@ -766,6 +766,8 @@ export interface TaskExecutorConfig {
   batchTasks?: BatchTaskItem[];
   /** Per-task execution timeout in milliseconds (default: 300_000 = 5 min). Set to 0 to disable. */
   taskTimeoutMs?: number;
+  /** Buffer in milliseconds before claim deadline to trigger abort (default: 30_000 = 30s). Set to 0 to disable. */
+  claimExpiryBufferMs?: number;
 }
 
 /**
@@ -816,4 +818,6 @@ export interface TaskExecutorEvents {
   onSubmitFailed?: (error: Error, taskPda: PublicKey) => void;
   /** Called when a task execution times out */
   onTaskTimeout?: (error: Error, taskPda: PublicKey) => void;
+  /** Called when a task's claim deadline is about to expire */
+  onClaimExpiring?: (error: Error, taskPda: PublicKey) => void;
 }

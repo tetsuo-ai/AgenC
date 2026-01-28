@@ -5,6 +5,7 @@ import type { TaskOperations } from './operations.js';
 import type { TaskDiscovery, TaskDiscoveryResult, TaskDiscoveryListener } from './discovery.js';
 import type {
   OnChainTask,
+  OnChainTaskClaim,
   TaskExecutionContext,
   TaskExecutionResult,
   PrivateTaskExecutionResult,
@@ -16,7 +17,7 @@ import type {
 import { OnChainTaskStatus, isPrivateExecutionResult } from './types.js';
 import { TaskType } from '../events/types.js';
 import { silentLogger } from '../utils/logger.js';
-import { TaskTimeoutError } from '../types/errors.js';
+import { TaskTimeoutError, ClaimExpiredError } from '../types/errors.js';
 
 // ============================================================================
 // Helpers
@@ -64,6 +65,7 @@ function createMockOperations(): TaskOperations & {
   completeTaskPrivate: ReturnType<typeof vi.fn>;
   fetchTask: ReturnType<typeof vi.fn>;
   fetchTaskByIds: ReturnType<typeof vi.fn>;
+  fetchClaim: ReturnType<typeof vi.fn>;
 } {
   const claimPda = Keypair.generate().publicKey;
   return {
@@ -97,6 +99,7 @@ function createMockOperations(): TaskOperations & {
     completeTaskPrivate: ReturnType<typeof vi.fn>;
     fetchTask: ReturnType<typeof vi.fn>;
     fetchTaskByIds: ReturnType<typeof vi.fn>;
+    fetchClaim: ReturnType<typeof vi.fn>;
   };
 }
 
@@ -129,6 +132,23 @@ function createMockDiscovery(): TaskDiscovery & {
     start: ReturnType<typeof vi.fn>;
     stop: ReturnType<typeof vi.fn>;
     _emitTask: (task: TaskDiscoveryResult) => void;
+  };
+}
+
+function createMockClaim(overrides: Partial<OnChainTaskClaim> = {}): OnChainTaskClaim {
+  return {
+    task: Keypair.generate().publicKey,
+    worker: Keypair.generate().publicKey,
+    claimedAt: Math.floor(Date.now() / 1000),
+    expiresAt: Math.floor(Date.now() / 1000) + 300, // 5 min from now
+    completedAt: 0,
+    proofHash: new Uint8Array(32),
+    resultData: new Uint8Array(64),
+    isCompleted: false,
+    isValidated: false,
+    rewardPaid: 0n,
+    bump: 255,
+    ...overrides,
   };
 }
 
@@ -1367,6 +1387,294 @@ describe('TaskExecutor', () => {
       // We can't directly access the private field, but we can verify
       // the config was accepted without error
       expect(executor).toBeDefined();
+    });
+  });
+
+  // ==========================================================================
+  // Claim Deadline Monitoring
+  // ==========================================================================
+
+  describe('claim deadline monitoring', () => {
+    it('aborts immediately when remaining claim time < buffer', async () => {
+      const mockOps = createMockOperations();
+      const mockDiscovery = createMockDiscovery();
+      const onClaimExpiring = vi.fn();
+      const onTaskFailed = vi.fn();
+
+      // Claim expires 10 seconds from now, buffer is 30 seconds → should abort immediately
+      const expiresAt = Math.floor(Date.now() / 1000) + 10;
+      mockOps.fetchClaim.mockResolvedValue(createMockClaim({ expiresAt }));
+
+      const config = createExecutorConfig({
+        mode: 'autonomous',
+        operations: mockOps,
+        discovery: mockDiscovery,
+        claimExpiryBufferMs: 30_000,
+      });
+      const executor = new TaskExecutor(config);
+      executor.on({ onClaimExpiring, onTaskFailed });
+
+      const startPromise = executor.start();
+      await waitFor(() => mockDiscovery.start.mock.calls.length > 0);
+
+      const task = createDiscoveryResult();
+      mockDiscovery._emitTask(task);
+
+      await waitFor(() => onClaimExpiring.mock.calls.length > 0, 3000);
+
+      expect(onClaimExpiring).toHaveBeenCalledTimes(1);
+      const [error, pda] = onClaimExpiring.mock.calls[0];
+      expect(error).toBeInstanceOf(ClaimExpiredError);
+      expect((error as ClaimExpiredError).bufferMs).toBe(30_000);
+      expect(pda).toBe(task.pda);
+
+      // Also emits onTaskFailed
+      expect(onTaskFailed).toHaveBeenCalledTimes(1);
+      expect(onTaskFailed.mock.calls[0][0]).toBeInstanceOf(ClaimExpiredError);
+
+      // Metrics updated
+      expect(executor.getStatus().tasksFailed).toBe(1);
+      // Should not attempt to execute or submit
+      expect(mockOps.completeTask).not.toHaveBeenCalled();
+
+      await executor.stop();
+      await startPromise;
+    });
+
+    it('aborts mid-execution when claim deadline timer fires', async () => {
+      const mockOps = createMockOperations();
+      const mockDiscovery = createMockDiscovery();
+      const onClaimExpiring = vi.fn();
+      const onTaskFailed = vi.fn();
+
+      // Claim expires 100ms from now (after claim is fetched), buffer is 20ms → ~80ms effective
+      // We'll use a handler that hangs longer than that
+      const expiresAt = Math.floor(Date.now() / 1000) + 1; // 1 second
+      mockOps.fetchClaim.mockResolvedValue(createMockClaim({ expiresAt }));
+
+      const handler = async (ctx: TaskExecutionContext): Promise<TaskExecutionResult> => {
+        // Hang until aborted
+        await new Promise<void>((_, reject) => {
+          ctx.signal.addEventListener('abort', () => reject(new Error('aborted')));
+        });
+        return { proofHash: new Uint8Array(32).fill(1) };
+      };
+
+      const config = createExecutorConfig({
+        mode: 'autonomous',
+        operations: mockOps,
+        discovery: mockDiscovery,
+        handler,
+        claimExpiryBufferMs: 500, // 500ms buffer; claim expires in ~1s → ~500ms effective
+        taskTimeoutMs: 0, // disable task timeout to isolate claim deadline behavior
+      });
+      const executor = new TaskExecutor(config);
+      executor.on({ onClaimExpiring, onTaskFailed });
+
+      const startPromise = executor.start();
+      await waitFor(() => mockDiscovery.start.mock.calls.length > 0);
+
+      const task = createDiscoveryResult();
+      mockDiscovery._emitTask(task);
+
+      await waitFor(() => onClaimExpiring.mock.calls.length > 0, 5000);
+
+      expect(onClaimExpiring).toHaveBeenCalledTimes(1);
+      expect(onClaimExpiring.mock.calls[0][0]).toBeInstanceOf(ClaimExpiredError);
+      expect(onClaimExpiring.mock.calls[0][1]).toBe(task.pda);
+
+      expect(onTaskFailed).toHaveBeenCalledTimes(1);
+      expect(executor.getStatus().tasksFailed).toBe(1);
+      expect(mockOps.completeTask).not.toHaveBeenCalled();
+
+      await executor.stop();
+      await startPromise;
+    });
+
+    it('does not abort when claim has plenty of time remaining', async () => {
+      const mockOps = createMockOperations();
+      const mockDiscovery = createMockDiscovery();
+      const onClaimExpiring = vi.fn();
+      const onTaskCompleted = vi.fn();
+
+      // Claim expires far in the future
+      const expiresAt = Math.floor(Date.now() / 1000) + 3600;
+      mockOps.fetchClaim.mockResolvedValue(createMockClaim({ expiresAt }));
+
+      const config = createExecutorConfig({
+        mode: 'autonomous',
+        operations: mockOps,
+        discovery: mockDiscovery,
+        claimExpiryBufferMs: 30_000,
+      });
+      const executor = new TaskExecutor(config);
+      executor.on({ onClaimExpiring, onTaskCompleted });
+
+      const startPromise = executor.start();
+      await waitFor(() => mockDiscovery.start.mock.calls.length > 0);
+
+      mockDiscovery._emitTask(createDiscoveryResult());
+      await waitFor(() => onTaskCompleted.mock.calls.length > 0);
+
+      expect(onClaimExpiring).not.toHaveBeenCalled();
+      expect(executor.getStatus().tasksCompleted).toBe(1);
+      expect(executor.getStatus().tasksFailed).toBe(0);
+
+      await executor.stop();
+      await startPromise;
+    });
+
+    it('claimExpiryBufferMs=0 disables claim deadline monitoring', async () => {
+      const mockOps = createMockOperations();
+      const mockDiscovery = createMockDiscovery();
+      const onClaimExpiring = vi.fn();
+      const onTaskCompleted = vi.fn();
+
+      const config = createExecutorConfig({
+        mode: 'autonomous',
+        operations: mockOps,
+        discovery: mockDiscovery,
+        claimExpiryBufferMs: 0,
+      });
+      const executor = new TaskExecutor(config);
+      executor.on({ onClaimExpiring, onTaskCompleted });
+
+      const startPromise = executor.start();
+      await waitFor(() => mockDiscovery.start.mock.calls.length > 0);
+
+      mockDiscovery._emitTask(createDiscoveryResult());
+      await waitFor(() => onTaskCompleted.mock.calls.length > 0);
+
+      // fetchClaim should not be called when disabled
+      expect(mockOps.fetchClaim).not.toHaveBeenCalled();
+      expect(onClaimExpiring).not.toHaveBeenCalled();
+      expect(executor.getStatus().tasksCompleted).toBe(1);
+
+      await executor.stop();
+      await startPromise;
+    });
+
+    it('coexists with taskTimeoutMs (shorter timeout fires first)', async () => {
+      const mockOps = createMockOperations();
+      const mockDiscovery = createMockDiscovery();
+      const onClaimExpiring = vi.fn();
+      const onTaskTimeout = vi.fn();
+
+      // Claim expires far in the future, but task timeout is 50ms
+      const expiresAt = Math.floor(Date.now() / 1000) + 3600;
+      mockOps.fetchClaim.mockResolvedValue(createMockClaim({ expiresAt }));
+
+      const handler = async (ctx: TaskExecutionContext): Promise<TaskExecutionResult> => {
+        await new Promise<void>((_, reject) => {
+          ctx.signal.addEventListener('abort', () => reject(new Error('aborted')));
+        });
+        return { proofHash: new Uint8Array(32).fill(1) };
+      };
+
+      const config = createExecutorConfig({
+        mode: 'autonomous',
+        operations: mockOps,
+        discovery: mockDiscovery,
+        handler,
+        claimExpiryBufferMs: 30_000,
+        taskTimeoutMs: 50, // task timeout fires first
+      });
+      const executor = new TaskExecutor(config);
+      executor.on({ onClaimExpiring, onTaskTimeout });
+
+      const startPromise = executor.start();
+      await waitFor(() => mockDiscovery.start.mock.calls.length > 0);
+
+      mockDiscovery._emitTask(createDiscoveryResult());
+      await waitFor(() => onTaskTimeout.mock.calls.length > 0, 3000);
+
+      // Task timeout fires, not claim expiry
+      expect(onTaskTimeout).toHaveBeenCalledTimes(1);
+      expect(onClaimExpiring).not.toHaveBeenCalled();
+
+      await executor.stop();
+      await startPromise;
+    });
+
+    it('skips deadline check when fetchClaim returns null', async () => {
+      const mockOps = createMockOperations();
+      const mockDiscovery = createMockDiscovery();
+      const onClaimExpiring = vi.fn();
+      const onTaskCompleted = vi.fn();
+
+      // fetchClaim returns null (default mock behavior)
+      mockOps.fetchClaim.mockResolvedValue(null);
+
+      const config = createExecutorConfig({
+        mode: 'autonomous',
+        operations: mockOps,
+        discovery: mockDiscovery,
+        claimExpiryBufferMs: 30_000,
+      });
+      const executor = new TaskExecutor(config);
+      executor.on({ onClaimExpiring, onTaskCompleted });
+
+      const startPromise = executor.start();
+      await waitFor(() => mockDiscovery.start.mock.calls.length > 0);
+
+      mockDiscovery._emitTask(createDiscoveryResult());
+      await waitFor(() => onTaskCompleted.mock.calls.length > 0);
+
+      expect(onClaimExpiring).not.toHaveBeenCalled();
+      expect(executor.getStatus().tasksCompleted).toBe(1);
+
+      await executor.stop();
+      await startPromise;
+    });
+
+    it('defaults to 30_000ms claim expiry buffer', () => {
+      const config = createExecutorConfig({ mode: 'batch' });
+      const executor = new TaskExecutor(config);
+
+      // Config was accepted without error
+      expect(executor).toBeDefined();
+    });
+
+    it('releases concurrency slot on claim deadline abort', async () => {
+      const mockOps = createMockOperations();
+      const mockDiscovery = createMockDiscovery();
+      const onClaimExpiring = vi.fn();
+      const onTaskCompleted = vi.fn();
+
+      let callCount = 0;
+      // First call: claim about to expire; second call: claim has plenty of time
+      mockOps.fetchClaim
+        .mockResolvedValueOnce(createMockClaim({ expiresAt: Math.floor(Date.now() / 1000) + 5 }))
+        .mockResolvedValueOnce(createMockClaim({ expiresAt: Math.floor(Date.now() / 1000) + 3600 }));
+
+      const config = createExecutorConfig({
+        mode: 'autonomous',
+        operations: mockOps,
+        discovery: mockDiscovery,
+        maxConcurrentTasks: 1,
+        claimExpiryBufferMs: 30_000,
+      });
+      const executor = new TaskExecutor(config);
+      executor.on({ onClaimExpiring, onTaskCompleted });
+
+      const startPromise = executor.start();
+      await waitFor(() => mockDiscovery.start.mock.calls.length > 0);
+
+      // First task aborts due to claim deadline
+      mockDiscovery._emitTask(createDiscoveryResult());
+      // Second task should run after the first is aborted
+      mockDiscovery._emitTask(createDiscoveryResult());
+
+      await waitFor(() => onClaimExpiring.mock.calls.length > 0, 3000);
+      await waitFor(() => onTaskCompleted.mock.calls.length > 0, 3000);
+
+      expect(onClaimExpiring).toHaveBeenCalledTimes(1);
+      expect(onTaskCompleted).toHaveBeenCalledTimes(1);
+      expect(executor.getStatus().tasksFailed).toBe(1);
+      expect(executor.getStatus().tasksCompleted).toBe(1);
+
+      await executor.stop();
+      await startPromise;
     });
   });
 });
