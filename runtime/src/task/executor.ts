@@ -32,10 +32,22 @@ import type {
   TaskExecutorEvents,
   OperatingMode,
   BatchTaskItem,
+  RetryPolicy,
 } from './types.js';
 import { isPrivateExecutionResult } from './types.js';
 import { deriveTaskPda } from './pda.js';
-import { TaskTimeoutError, ClaimExpiredError } from '../types/errors.js';
+import { TaskTimeoutError, ClaimExpiredError, RetryExhaustedError } from '../types/errors.js';
+
+// ============================================================================
+// Retry Defaults
+// ============================================================================
+
+const DEFAULT_RETRY_POLICY: RetryPolicy = {
+  maxAttempts: 3,
+  baseDelayMs: 1000,
+  maxDelayMs: 30_000,
+  jitter: true,
+};
 
 // ============================================================================
 // TaskExecutor Class
@@ -80,6 +92,7 @@ export class TaskExecutor {
   private readonly batchTasks: BatchTaskItem[];
   private readonly taskTimeoutMs: number;
   private readonly claimExpiryBufferMs: number;
+  private readonly retryPolicy: RetryPolicy;
 
   // Runtime state
   private running = false;
@@ -98,6 +111,8 @@ export class TaskExecutor {
     claimsFailed: 0,
     submitsFailed: 0,
     claimsExpired: 0,
+    claimRetries: 0,
+    submitRetries: 0,
   };
 
   constructor(config: TaskExecutorConfig) {
@@ -112,6 +127,7 @@ export class TaskExecutor {
     this.batchTasks = config.batchTasks ?? [];
     this.taskTimeoutMs = config.taskTimeoutMs ?? 300_000;
     this.claimExpiryBufferMs = config.claimExpiryBufferMs ?? 30_000;
+    this.retryPolicy = { ...DEFAULT_RETRY_POLICY, ...config.retryPolicy };
   }
 
   // ==========================================================================
@@ -221,6 +237,8 @@ export class TaskExecutor {
       tasksFailed: this.metrics.tasksFailed,
       claimsFailed: this.metrics.claimsFailed,
       submitsFailed: this.metrics.submitsFailed,
+      claimRetries: this.metrics.claimRetries,
+      submitRetries: this.metrics.submitRetries,
       startedAt: this.startedAt,
       uptimeMs: this.startedAt ? Date.now() - this.startedAt : 0,
     };
@@ -384,8 +402,12 @@ export class TaskExecutor {
     let claimExpired = false;
 
     try {
-      // Step 1: Claim
-      const claimResult = await this.claimTaskStep(task);
+      // Step 1: Claim (with retry)
+      const claimResult = await this.retryStage(
+        'claim',
+        () => this.claimTaskStep(task),
+        controller.signal,
+      );
 
       // Step 2: Check claim deadline and set up deadline timer
       if (this.claimExpiryBufferMs > 0) {
@@ -438,8 +460,12 @@ export class TaskExecutor {
         deadlineTimerId = null;
       }
 
-      // Step 5: Submit result on-chain
-      await this.submitTaskStep(task, result);
+      // Step 5: Submit result on-chain (with retry)
+      await this.retryStage(
+        'submit',
+        () => this.submitTaskStep(task, result),
+        controller.signal,
+      );
     } catch (err) {
       // Clear timers if still pending
       if (timeoutId !== null) {
@@ -477,6 +503,54 @@ export class TaskExecutor {
       this.activeTasks.delete(pda);
       this.drainQueue();
     }
+  }
+
+  /**
+   * Execute an operation with retry according to the configured retry policy.
+   * Respects the abort signal during backoff waits.
+   */
+  private async retryStage<T>(
+    stage: 'claim' | 'submit',
+    fn: () => Promise<T>,
+    signal: AbortSignal,
+  ): Promise<T> {
+    const policy = this.retryPolicy;
+    let lastError: Error | null = null;
+
+    for (let attempt = 0; attempt < policy.maxAttempts; attempt++) {
+      try {
+        return await fn();
+      } catch (err) {
+        lastError = err instanceof Error ? err : new Error(String(err));
+
+        // If this was the last attempt, don't wait — fall through to throw
+        if (attempt + 1 >= policy.maxAttempts) {
+          break;
+        }
+
+        // If aborted, don't retry
+        if (signal.aborted) {
+          throw lastError;
+        }
+
+        const metricsKey = stage === 'claim' ? 'claimRetries' : 'submitRetries';
+        this.metrics[metricsKey]++;
+
+        const delay = computeBackoffDelay(attempt, policy);
+        this.logger.warn(
+          `Retry ${stage} attempt ${attempt + 1}/${policy.maxAttempts - 1} after ${delay}ms: ${lastError.message}`,
+        );
+
+        const completed = await sleepWithAbort(delay, signal);
+        if (!completed) {
+          // Aborted during wait
+          throw lastError;
+        }
+      }
+    }
+
+    // All attempts exhausted
+    throw new RetryExhaustedError(stage, policy.maxAttempts, lastError!);
   }
 
   private async claimTaskStep(task: TaskDiscoveryResult): Promise<ClaimResult> {
@@ -564,4 +638,42 @@ export class TaskExecutor {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Compute the backoff delay for a given retry attempt.
+ * Uses exponential backoff with optional full jitter (AWS style).
+ *
+ * @param attempt - Zero-based attempt index (0 = first retry)
+ * @param policy - Retry policy configuration
+ * @returns Delay in milliseconds
+ */
+function computeBackoffDelay(attempt: number, policy: RetryPolicy): number {
+  const exponentialDelay = Math.min(
+    policy.baseDelayMs * Math.pow(2, attempt),
+    policy.maxDelayMs,
+  );
+  if (policy.jitter) {
+    return Math.floor(Math.random() * exponentialDelay);
+  }
+  return exponentialDelay;
+}
+
+/**
+ * Sleep that can be interrupted by an AbortSignal.
+ * Resolves to `true` if sleep completed normally, `false` if aborted.
+ */
+function sleepWithAbort(ms: number, signal?: AbortSignal): Promise<boolean> {
+  if (signal?.aborted) return Promise.resolve(false);
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort);
+      resolve(true);
+    }, ms);
+    function onAbort() {
+      clearTimeout(timer);
+      resolve(false);
+    }
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
 }
