@@ -103,6 +103,7 @@ export class TaskDiscovery {
   private readonly listeners: Set<TaskDiscoveryListener> = new Set();
   private readonly seenTaskPdas: Set<string> = new Set();
   private running = false;
+  private paused = false;
   private pollTimer: ReturnType<typeof setInterval> | null = null;
   private eventSubscription: EventSubscription | null = null;
   private agentCapabilities: bigint = 0n;
@@ -173,6 +174,7 @@ export class TaskDiscovery {
     }
 
     this.running = false;
+    this.paused = false;
 
     if (this.pollTimer !== null) {
       clearInterval(this.pollTimer);
@@ -192,6 +194,41 @@ export class TaskDiscovery {
    */
   isRunning(): boolean {
     return this.running;
+  }
+
+  // ==========================================================================
+  // Pause / Resume (Backpressure)
+  // ==========================================================================
+
+  /**
+   * Pause discovery. Poll cycles and event processing are suppressed until resumed.
+   * Idempotent — calling when already paused is a no-op.
+   */
+  pause(): void {
+    if (this.paused || !this.running) {
+      return;
+    }
+    this.paused = true;
+    this.logger.info('TaskDiscovery paused');
+  }
+
+  /**
+   * Resume discovery after a pause.
+   * Idempotent — calling when not paused is a no-op.
+   */
+  resume(): void {
+    if (!this.paused) {
+      return;
+    }
+    this.paused = false;
+    this.logger.info('TaskDiscovery resumed');
+  }
+
+  /**
+   * Check if discovery is currently paused.
+   */
+  isPaused(): boolean {
+    return this.paused;
   }
 
   // ==========================================================================
@@ -260,6 +297,9 @@ export class TaskDiscovery {
    * Execute a poll cycle, fetching and filtering tasks.
    */
   private async executePollCycle(): Promise<void> {
+    if (this.paused) {
+      return;
+    }
     try {
       const claimable = await this.operations.fetchClaimableTasks();
 
@@ -294,6 +334,9 @@ export class TaskDiscovery {
     this.eventSubscription = subscribeToTaskCreated(
       this.program,
       (event: TaskCreatedEvent) => {
+        if (this.paused) {
+          return;
+        }
         // Derive the task PDA from the event data
         const { address: taskPda } = deriveTaskPda(
           event.creator,

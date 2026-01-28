@@ -13,6 +13,7 @@ import type {
   TaskExecutorEvents,
   ClaimResult,
   CompleteResult,
+  BackpressureConfig,
 } from './types.js';
 import { OnChainTaskStatus, isPrivateExecutionResult } from './types.js';
 import { TaskType } from '../events/types.js';
@@ -107,6 +108,8 @@ function createMockDiscovery(): TaskDiscovery & {
   onTaskDiscovered: ReturnType<typeof vi.fn>;
   start: ReturnType<typeof vi.fn>;
   stop: ReturnType<typeof vi.fn>;
+  pause: ReturnType<typeof vi.fn>;
+  resume: ReturnType<typeof vi.fn>;
   _emitTask: (task: TaskDiscoveryResult) => void;
 } {
   let listener: TaskDiscoveryListener | null = null;
@@ -118,7 +121,10 @@ function createMockDiscovery(): TaskDiscovery & {
     }),
     start: vi.fn().mockResolvedValue(undefined),
     stop: vi.fn().mockResolvedValue(undefined),
+    pause: vi.fn(),
+    resume: vi.fn(),
     isRunning: vi.fn().mockReturnValue(false),
+    isPaused: vi.fn().mockReturnValue(false),
     getDiscoveredCount: vi.fn().mockReturnValue(0),
     clearSeen: vi.fn(),
     poll: vi.fn().mockResolvedValue([]),
@@ -131,6 +137,8 @@ function createMockDiscovery(): TaskDiscovery & {
     onTaskDiscovered: ReturnType<typeof vi.fn>;
     start: ReturnType<typeof vi.fn>;
     stop: ReturnType<typeof vi.fn>;
+    pause: ReturnType<typeof vi.fn>;
+    resume: ReturnType<typeof vi.fn>;
     _emitTask: (task: TaskDiscoveryResult) => void;
   };
 }
@@ -2062,6 +2070,359 @@ describe('TaskExecutor', () => {
 
       // At least 1 attempt was made
       expect(mockOps.claimTask).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  // ==========================================================================
+  // Backpressure
+  // ==========================================================================
+
+  describe('backpressure', () => {
+    it('pauses discovery when queue reaches highWaterMark', async () => {
+      const mockOps = createMockOperations();
+      const mockDiscovery = createMockDiscovery();
+      const resolvers: (() => void)[] = [];
+
+      const handler = async (_ctx: TaskExecutionContext): Promise<TaskExecutionResult> => {
+        await new Promise<void>((resolve) => {
+          resolvers.push(resolve);
+        });
+        return { proofHash: new Uint8Array(32).fill(1) };
+      };
+
+      const config = createExecutorConfig({
+        mode: 'autonomous',
+        operations: mockOps,
+        discovery: mockDiscovery,
+        handler,
+        maxConcurrentTasks: 1,
+        backpressure: { highWaterMark: 3, lowWaterMark: 1, pauseDiscovery: true },
+      });
+      const executor = new TaskExecutor(config);
+      const startPromise = executor.start();
+      await waitFor(() => mockDiscovery.start.mock.calls.length > 0);
+
+      // First task occupies the only slot; next tasks go to queue
+      // Emit 4 tasks: 1 active + 3 queued (queue hits highWaterMark=3)
+      for (let i = 0; i < 4; i++) {
+        mockDiscovery._emitTask(createDiscoveryResult());
+      }
+      await waitFor(() => resolvers.length >= 1);
+
+      expect(executor.getQueueSize()).toBe(3);
+      expect(mockDiscovery.pause).toHaveBeenCalledTimes(1);
+      expect(executor.getStatus().backpressureActive).toBe(true);
+
+      // Clean up: resolve tasks one by one as they start
+      for (let i = 0; i < 4; i++) {
+        await waitFor(() => resolvers.length >= i + 1);
+        resolvers[i]();
+      }
+      await waitFor(() => executor.getStatus().tasksCompleted >= 4, 5000);
+      await executor.stop();
+      await startPromise;
+    });
+
+    it('resumes discovery when queue drains to lowWaterMark', async () => {
+      const mockOps = createMockOperations();
+      const mockDiscovery = createMockDiscovery();
+      const resolvers: (() => void)[] = [];
+
+      const handler = async (_ctx: TaskExecutionContext): Promise<TaskExecutionResult> => {
+        await new Promise<void>((resolve) => {
+          resolvers.push(resolve);
+        });
+        return { proofHash: new Uint8Array(32).fill(1) };
+      };
+
+      const config = createExecutorConfig({
+        mode: 'autonomous',
+        operations: mockOps,
+        discovery: mockDiscovery,
+        handler,
+        maxConcurrentTasks: 1,
+        backpressure: { highWaterMark: 3, lowWaterMark: 1, pauseDiscovery: true },
+      });
+      const executor = new TaskExecutor(config);
+      const startPromise = executor.start();
+      await waitFor(() => mockDiscovery.start.mock.calls.length > 0);
+
+      // 1 active + 3 queued → backpressure activated
+      for (let i = 0; i < 4; i++) {
+        mockDiscovery._emitTask(createDiscoveryResult());
+      }
+      await waitFor(() => resolvers.length >= 1);
+      expect(mockDiscovery.pause).toHaveBeenCalledTimes(1);
+
+      // Complete tasks one by one to drain the queue
+      // After task 1 completes: queue goes from 3→2 (task 2 starts), not at lowWater yet
+      resolvers[0]();
+      await waitFor(() => resolvers.length >= 2);
+      // queue is now 2 (task 2 running, tasks 3 & 4 queued) — wait, let me recalculate:
+      // After completing task 1: drainQueue() launches task 2 from queue, queue is now 2
+      // queue=2 > lowWater=1, so no resume yet
+      expect(mockDiscovery.resume).not.toHaveBeenCalled();
+
+      // Complete task 2: drainQueue launches task 3, queue drops to 1 = lowWater
+      resolvers[1]();
+      await waitFor(() => resolvers.length >= 3);
+      // queue should be 1 now, which equals lowWaterMark
+      await waitFor(() => mockDiscovery.resume.mock.calls.length > 0);
+      expect(mockDiscovery.resume).toHaveBeenCalledTimes(1);
+      expect(executor.getStatus().backpressureActive).toBe(false);
+
+      // Clean up
+      resolvers[2]();
+      await waitFor(() => resolvers.length >= 4);
+      resolvers[3]();
+      await waitFor(() => executor.getStatus().tasksCompleted >= 4, 5000);
+      await executor.stop();
+      await startPromise;
+    });
+
+    it('hysteresis prevents rapid pause/resume oscillation', async () => {
+      const mockOps = createMockOperations();
+      const mockDiscovery = createMockDiscovery();
+      const resolvers: (() => void)[] = [];
+
+      const handler = async (_ctx: TaskExecutionContext): Promise<TaskExecutionResult> => {
+        await new Promise<void>((resolve) => {
+          resolvers.push(resolve);
+        });
+        return { proofHash: new Uint8Array(32).fill(1) };
+      };
+
+      const config = createExecutorConfig({
+        mode: 'autonomous',
+        operations: mockOps,
+        discovery: mockDiscovery,
+        handler,
+        maxConcurrentTasks: 1,
+        backpressure: { highWaterMark: 3, lowWaterMark: 1, pauseDiscovery: true },
+      });
+      const executor = new TaskExecutor(config);
+      const startPromise = executor.start();
+      await waitFor(() => mockDiscovery.start.mock.calls.length > 0);
+
+      // Push to highWaterMark
+      for (let i = 0; i < 4; i++) {
+        mockDiscovery._emitTask(createDiscoveryResult());
+      }
+      await waitFor(() => resolvers.length >= 1);
+      expect(mockDiscovery.pause).toHaveBeenCalledTimes(1);
+
+      // Complete one task: queue goes from 3 to 2 (drainQueue launches one)
+      resolvers[0]();
+      await waitFor(() => resolvers.length >= 2);
+      // Queue is now 2 — above lowWater (1), so backpressure should still be active
+      expect(executor.getStatus().backpressureActive).toBe(true);
+      expect(mockDiscovery.resume).not.toHaveBeenCalled();
+
+      // Complete another: queue goes from 2 to 1, which meets lowWater
+      resolvers[1]();
+      await waitFor(() => resolvers.length >= 3);
+      await waitFor(() => mockDiscovery.resume.mock.calls.length > 0);
+      expect(mockDiscovery.resume).toHaveBeenCalledTimes(1);
+      expect(executor.getStatus().backpressureActive).toBe(false);
+
+      // Clean up
+      resolvers[2]();
+      await waitFor(() => resolvers.length >= 4);
+      resolvers[3]();
+      await waitFor(() => executor.getStatus().tasksCompleted >= 4, 5000);
+      await executor.stop();
+      await startPromise;
+    });
+
+    it('emits onBackpressureActivated and onBackpressureReleased events', async () => {
+      const mockOps = createMockOperations();
+      const mockDiscovery = createMockDiscovery();
+      const onBackpressureActivated = vi.fn();
+      const onBackpressureReleased = vi.fn();
+      const resolvers: (() => void)[] = [];
+
+      const handler = async (_ctx: TaskExecutionContext): Promise<TaskExecutionResult> => {
+        await new Promise<void>((resolve) => {
+          resolvers.push(resolve);
+        });
+        return { proofHash: new Uint8Array(32).fill(1) };
+      };
+
+      const config = createExecutorConfig({
+        mode: 'autonomous',
+        operations: mockOps,
+        discovery: mockDiscovery,
+        handler,
+        maxConcurrentTasks: 1,
+        backpressure: { highWaterMark: 2, lowWaterMark: 0, pauseDiscovery: true },
+      });
+      const executor = new TaskExecutor(config);
+      executor.on({ onBackpressureActivated, onBackpressureReleased });
+
+      const startPromise = executor.start();
+      await waitFor(() => mockDiscovery.start.mock.calls.length > 0);
+
+      // 1 active + 2 queued → highWaterMark hit
+      for (let i = 0; i < 3; i++) {
+        mockDiscovery._emitTask(createDiscoveryResult());
+      }
+      await waitFor(() => resolvers.length >= 1);
+
+      expect(onBackpressureActivated).toHaveBeenCalledTimes(1);
+      expect(onBackpressureReleased).not.toHaveBeenCalled();
+
+      // Drain to lowWaterMark (0): complete all but one active
+      resolvers[0]();
+      await waitFor(() => resolvers.length >= 2);
+      // queue=1, lowWater=0: not yet released
+      expect(onBackpressureReleased).not.toHaveBeenCalled();
+
+      resolvers[1]();
+      await waitFor(() => resolvers.length >= 3);
+      // queue=0 <= lowWater=0: released
+      await waitFor(() => onBackpressureReleased.mock.calls.length > 0);
+      expect(onBackpressureReleased).toHaveBeenCalledTimes(1);
+
+      // Clean up
+      resolvers[2]();
+      await waitFor(() => executor.getStatus().tasksCompleted >= 3, 5000);
+      await executor.stop();
+      await startPromise;
+    });
+
+    it('getQueueSize() returns current queue length', async () => {
+      const mockOps = createMockOperations();
+      const mockDiscovery = createMockDiscovery();
+      const resolvers: (() => void)[] = [];
+
+      const handler = async (_ctx: TaskExecutionContext): Promise<TaskExecutionResult> => {
+        await new Promise<void>((resolve) => {
+          resolvers.push(resolve);
+        });
+        return { proofHash: new Uint8Array(32).fill(1) };
+      };
+
+      const config = createExecutorConfig({
+        mode: 'autonomous',
+        operations: mockOps,
+        discovery: mockDiscovery,
+        handler,
+        maxConcurrentTasks: 1,
+      });
+      const executor = new TaskExecutor(config);
+      const startPromise = executor.start();
+      await waitFor(() => mockDiscovery.start.mock.calls.length > 0);
+
+      expect(executor.getQueueSize()).toBe(0);
+
+      // 1 active + 2 queued
+      mockDiscovery._emitTask(createDiscoveryResult());
+      mockDiscovery._emitTask(createDiscoveryResult());
+      mockDiscovery._emitTask(createDiscoveryResult());
+
+      await waitFor(() => resolvers.length >= 1);
+      expect(executor.getQueueSize()).toBe(2);
+
+      // Clean up: resolve tasks one by one
+      for (let i = 0; i < 3; i++) {
+        await waitFor(() => resolvers.length >= i + 1);
+        resolvers[i]();
+      }
+      await waitFor(() => executor.getStatus().tasksCompleted >= 3, 5000);
+      await executor.stop();
+      await startPromise;
+    });
+
+    it('does not pause discovery when pauseDiscovery is false', async () => {
+      const mockOps = createMockOperations();
+      const mockDiscovery = createMockDiscovery();
+      const resolvers: (() => void)[] = [];
+
+      const handler = async (_ctx: TaskExecutionContext): Promise<TaskExecutionResult> => {
+        await new Promise<void>((resolve) => {
+          resolvers.push(resolve);
+        });
+        return { proofHash: new Uint8Array(32).fill(1) };
+      };
+
+      const config = createExecutorConfig({
+        mode: 'autonomous',
+        operations: mockOps,
+        discovery: mockDiscovery,
+        handler,
+        maxConcurrentTasks: 1,
+        backpressure: { highWaterMark: 2, lowWaterMark: 1, pauseDiscovery: false },
+      });
+      const executor = new TaskExecutor(config);
+      const startPromise = executor.start();
+      await waitFor(() => mockDiscovery.start.mock.calls.length > 0);
+
+      // 1 active + 3 queued → exceeds highWaterMark but pauseDiscovery=false
+      for (let i = 0; i < 4; i++) {
+        mockDiscovery._emitTask(createDiscoveryResult());
+      }
+      await waitFor(() => resolvers.length >= 1);
+
+      expect(mockDiscovery.pause).not.toHaveBeenCalled();
+      expect(executor.getStatus().backpressureActive).toBe(false);
+
+      // Clean up: resolve tasks one by one
+      for (let i = 0; i < 4; i++) {
+        await waitFor(() => resolvers.length >= i + 1);
+        resolvers[i]();
+      }
+      await waitFor(() => executor.getStatus().tasksCompleted >= 4, 5000);
+      await executor.stop();
+      await startPromise;
+    });
+
+    it('getStatus() includes queueSize and backpressureActive', () => {
+      const config = createExecutorConfig({ mode: 'batch' });
+      const executor = new TaskExecutor(config);
+      const status = executor.getStatus();
+
+      expect(status.queueSize).toBe(0);
+      expect(status.backpressureActive).toBe(false);
+    });
+
+    it('stop() clears backpressure state', async () => {
+      const mockOps = createMockOperations();
+      const mockDiscovery = createMockDiscovery();
+      const resolvers: (() => void)[] = [];
+
+      const handler = async (_ctx: TaskExecutionContext): Promise<TaskExecutionResult> => {
+        await new Promise<void>((resolve) => {
+          resolvers.push(resolve);
+        });
+        return { proofHash: new Uint8Array(32).fill(1) };
+      };
+
+      const config = createExecutorConfig({
+        mode: 'autonomous',
+        operations: mockOps,
+        discovery: mockDiscovery,
+        handler,
+        maxConcurrentTasks: 1,
+        backpressure: { highWaterMark: 2, lowWaterMark: 0, pauseDiscovery: true },
+      });
+      const executor = new TaskExecutor(config);
+      const startPromise = executor.start();
+      await waitFor(() => mockDiscovery.start.mock.calls.length > 0);
+
+      // Trigger backpressure
+      for (let i = 0; i < 3; i++) {
+        mockDiscovery._emitTask(createDiscoveryResult());
+      }
+      await waitFor(() => resolvers.length >= 1);
+      expect(executor.getStatus().backpressureActive).toBe(true);
+
+      // Stop should clear state
+      for (const resolve of resolvers) resolve();
+      await executor.stop();
+      await startPromise;
+
+      expect(executor.getStatus().backpressureActive).toBe(false);
+      expect(executor.getStatus().queueSize).toBe(0);
     });
   });
 });

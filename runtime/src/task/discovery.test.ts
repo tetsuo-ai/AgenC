@@ -822,4 +822,151 @@ describe('TaskDiscovery', () => {
       expect(results.length).toBe(0);
     });
   });
+
+  // ==========================================================================
+  // Pause / Resume (Backpressure) Tests
+  // ==========================================================================
+
+  describe('Pause / Resume', () => {
+    it('isPaused() returns false by default', async () => {
+      discovery = new TaskDiscovery(defaultConfig());
+      expect(discovery.isPaused()).toBe(false);
+    });
+
+    it('pause() suppresses poll cycles', async () => {
+      const taskPda = Keypair.generate().publicKey;
+      const task = createTask();
+      (mockOps.fetchClaimableTasks as ReturnType<typeof vi.fn>).mockResolvedValue([
+        { task, taskPda },
+      ]);
+
+      const listener = vi.fn();
+      discovery = new TaskDiscovery(defaultConfig());
+      discovery.onTaskDiscovered(listener);
+
+      await discovery.start(COMPUTE);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(listener).toHaveBeenCalledTimes(1);
+
+      // Pause discovery
+      discovery.pause();
+      expect(discovery.isPaused()).toBe(true);
+
+      // Clear seen so if poll ran, it would discover
+      discovery.clearSeen();
+
+      // Advance timer — poll should be suppressed
+      await vi.advanceTimersByTimeAsync(100);
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(listener).toHaveBeenCalledTimes(1);
+    });
+
+    it('resume() re-enables poll cycles', async () => {
+      const taskPda1 = Keypair.generate().publicKey;
+      const taskPda2 = Keypair.generate().publicKey;
+      const task1 = createTask();
+      const task2 = createTask();
+
+      (mockOps.fetchClaimableTasks as ReturnType<typeof vi.fn>)
+        .mockResolvedValueOnce([{ task: task1, taskPda: taskPda1 }])
+        .mockResolvedValueOnce([{ task: task2, taskPda: taskPda2 }]);
+
+      const listener = vi.fn();
+      discovery = new TaskDiscovery(defaultConfig());
+      discovery.onTaskDiscovered(listener);
+
+      await discovery.start(COMPUTE);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(listener).toHaveBeenCalledTimes(1);
+
+      // Pause and advance — should not discover
+      discovery.pause();
+      await vi.advanceTimersByTimeAsync(100);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(listener).toHaveBeenCalledTimes(1);
+
+      // Resume — next poll should discover
+      discovery.resume();
+      expect(discovery.isPaused()).toBe(false);
+
+      await vi.advanceTimersByTimeAsync(100);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(listener).toHaveBeenCalledTimes(2);
+    });
+
+    it('pause() suppresses event-mode discovery', async () => {
+      const creator = Keypair.generate().publicKey;
+      const taskId = new Uint8Array(32).fill(50);
+      const task = createTask({ taskId, creator });
+      (mockOps.fetchTask as ReturnType<typeof vi.fn>).mockResolvedValue(task);
+
+      const listener = vi.fn();
+      const config = defaultConfig();
+      config.mode = 'event';
+      discovery = new TaskDiscovery(config);
+      discovery.onTaskDiscovered(listener);
+
+      await discovery.start(COMPUTE);
+
+      // Pause before emitting event
+      discovery.pause();
+
+      mockProgram._emit(
+        'taskCreated',
+        {
+          taskId: Array.from(taskId),
+          creator,
+          requiredCapabilities: mockBN(COMPUTE),
+          rewardAmount: mockBN(1_000_000n),
+          taskType: 0,
+          deadline: mockBN(0),
+          timestamp: mockBN(Date.now()),
+        },
+        100,
+        'sig-paused',
+      );
+
+      await vi.advanceTimersByTimeAsync(0);
+
+      // Should NOT be notified while paused
+      expect(listener).not.toHaveBeenCalled();
+    });
+
+    it('pause() is idempotent', async () => {
+      discovery = new TaskDiscovery(defaultConfig());
+      await discovery.start(COMPUTE);
+
+      discovery.pause();
+      discovery.pause();
+      expect(discovery.isPaused()).toBe(true);
+    });
+
+    it('resume() is idempotent when not paused', async () => {
+      discovery = new TaskDiscovery(defaultConfig());
+      await discovery.start(COMPUTE);
+
+      // Not paused — resume is no-op
+      discovery.resume();
+      expect(discovery.isPaused()).toBe(false);
+    });
+
+    it('pause() is a no-op when not running', () => {
+      discovery = new TaskDiscovery(defaultConfig());
+
+      discovery.pause();
+      expect(discovery.isPaused()).toBe(false);
+    });
+
+    it('stop() clears paused state', async () => {
+      discovery = new TaskDiscovery(defaultConfig());
+      await discovery.start(COMPUTE);
+
+      discovery.pause();
+      expect(discovery.isPaused()).toBe(true);
+
+      await discovery.stop();
+      expect(discovery.isPaused()).toBe(false);
+    });
+  });
 });
