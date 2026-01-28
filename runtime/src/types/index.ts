@@ -31,6 +31,11 @@ export {
   ActiveTasksError,
   PendingDisputeVotesError,
   RecentVoteActivityError,
+  TaskNotFoundError,
+  TaskNotClaimableError,
+  TaskExecutionError,
+  TaskSubmissionError,
+  ExecutorStateError,
   // Helper functions
   isAnchorError,
   parseAnchorError,
