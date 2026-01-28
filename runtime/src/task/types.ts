@@ -763,6 +763,47 @@ export interface BackpressureConfig {
 }
 
 // ============================================================================
+// Dead Letter Queue Types
+// ============================================================================
+
+/**
+ * Pipeline stage at which the task failed.
+ */
+export type DeadLetterStage = 'claim' | 'execute' | 'submit';
+
+/**
+ * An entry in the dead letter queue, capturing full context of a failed task.
+ */
+export interface DeadLetterEntry {
+  /** Task PDA as base58 string */
+  taskPda: string;
+  /** The on-chain task data at time of failure */
+  task: OnChainTask;
+  /** Error message describing the failure */
+  error: string;
+  /** Optional error code for programmatic matching */
+  errorCode?: string;
+  /** Unix timestamp (ms) when the task was dead-lettered */
+  failedAt: number;
+  /** Pipeline stage where the failure occurred */
+  stage: DeadLetterStage;
+  /** Number of attempts made before failure */
+  attempts: number;
+  /** Whether this entry is eligible for retry */
+  retryable: boolean;
+  /** Optional metadata for external consumers */
+  metadata?: Record<string, unknown>;
+}
+
+/**
+ * Configuration for the dead letter queue.
+ */
+export interface DeadLetterQueueConfig {
+  /** Maximum number of entries to retain. When exceeded, oldest entries are evicted (FIFO). Default: 1000 */
+  maxSize: number;
+}
+
+// ============================================================================
 // Task Executor Types
 // ============================================================================
 
@@ -813,6 +854,8 @@ export interface TaskExecutorConfig {
   retryPolicy?: Partial<RetryPolicy>;
   /** Backpressure configuration for controlling discovery rate based on queue depth. */
   backpressure?: Partial<BackpressureConfig>;
+  /** Dead letter queue configuration. When provided, failed tasks are captured for inspection and retry. */
+  deadLetterQueue?: Partial<DeadLetterQueueConfig>;
 }
 
 /**
@@ -877,4 +920,6 @@ export interface TaskExecutorEvents {
   onBackpressureActivated?: () => void;
   /** Called when backpressure is released (queue drained to low-water mark, discovery resumed) */
   onBackpressureReleased?: () => void;
+  /** Called when a failed task is added to the dead letter queue */
+  onDeadLettered?: (entry: DeadLetterEntry) => void;
 }
