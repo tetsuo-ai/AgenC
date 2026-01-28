@@ -11,3 +11,4 @@ export * from './discovery.js';
 export * from './executor.js';
 export * from './dlq.js';
 export * from './checkpoint.js';
+export * from './metrics.js';

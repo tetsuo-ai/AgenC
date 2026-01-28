@@ -38,9 +38,13 @@ import type {
   DeadLetterStage,
   CheckpointStore,
   TaskCheckpoint,
+  MetricsProvider,
+  TracingProvider,
 } from './types.js';
 import { isPrivateExecutionResult } from './types.js';
 import { DeadLetterQueue } from './dlq.js';
+import { NoopMetrics, NoopTracing, METRIC_NAMES } from './metrics.js';
+import type { MetricsSnapshot } from './metrics.js';
 import { deriveTaskPda } from './pda.js';
 import { TaskTimeoutError, ClaimExpiredError, RetryExhaustedError } from '../types/errors.js';
 
@@ -108,6 +112,8 @@ export class TaskExecutor {
   private readonly backpressureConfig: BackpressureConfig;
   private readonly dlq: DeadLetterQueue;
   private readonly checkpointStore: CheckpointStore | null;
+  private readonly metricsProvider: MetricsProvider;
+  private readonly tracingProvider: TracingProvider;
 
   // Runtime state
   private running = false;
@@ -147,6 +153,8 @@ export class TaskExecutor {
     this.backpressureConfig = { ...DEFAULT_BACKPRESSURE_CONFIG, ...config.backpressure };
     this.dlq = new DeadLetterQueue(config.deadLetterQueue);
     this.checkpointStore = config.checkpointStore ?? null;
+    this.metricsProvider = config.metrics ?? new NoopMetrics();
+    this.tracingProvider = config.tracing ?? new NoopTracing();
   }
 
   // ==========================================================================
@@ -281,6 +289,18 @@ export class TaskExecutor {
    */
   getDeadLetterQueue(): DeadLetterQueue {
     return this.dlq;
+  }
+
+  /**
+   * Get an OpenTelemetry-compatible metrics snapshot.
+   * Returns `null` if the configured metrics provider does not support snapshots
+   * (i.e., it is not a {@link MetricsCollector}).
+   */
+  getMetricsSnapshot(): MetricsSnapshot | null {
+    if ('getSnapshot' in this.metricsProvider && typeof (this.metricsProvider as Record<string, unknown>).getSnapshot === 'function') {
+      return (this.metricsProvider as { getSnapshot(): MetricsSnapshot }).getSnapshot();
+    }
+    return null;
   }
 
   // ==========================================================================
@@ -528,6 +548,7 @@ export class TaskExecutor {
     // Register discovery callback
     this.discoveryUnsubscribe = this.discovery.onTaskDiscovered((task: TaskDiscoveryResult) => {
       this.metrics.tasksDiscovered++;
+      this.metricsProvider.counter(METRIC_NAMES.TASKS_DISCOVERED);
       this.events.onTaskDiscovered?.(task);
       this.handleDiscoveredTask(task);
     });
@@ -567,6 +588,7 @@ export class TaskExecutor {
       if (!this.running) break;
 
       this.metrics.tasksDiscovered++;
+      this.metricsProvider.counter(METRIC_NAMES.TASKS_DISCOVERED);
       this.events.onTaskDiscovered?.(task);
 
       if (this.activeTasks.size < this.maxConcurrentTasks) {
@@ -702,13 +724,23 @@ export class TaskExecutor {
     let timedOut = false;
     let claimExpired = false;
 
+    const pipelineStart = Date.now();
+    const span = this.tracingProvider.startSpan('agenc.task.pipeline', { taskPda: pda });
+
+    // Update gauges at pipeline entry
+    this.metricsProvider.gauge(METRIC_NAMES.ACTIVE_COUNT, this.activeTasks.size);
+    this.metricsProvider.gauge(METRIC_NAMES.QUEUE_SIZE, this.taskQueue.length);
+
     try {
       // Step 1: Claim (with retry)
+      const claimStart = Date.now();
       const claimResult = await this.retryStage(
         'claim',
         () => this.claimTaskStep(task),
         controller.signal,
       );
+      this.metricsProvider.histogram(METRIC_NAMES.CLAIM_DURATION, Date.now() - claimStart, { taskPda: pda });
+      span.setAttribute('claim.duration_ms', Date.now() - claimStart);
 
       // Checkpoint: claimed
       const checkpointCreatedAt = Date.now();
@@ -730,10 +762,13 @@ export class TaskExecutor {
             const expiredError = new ClaimExpiredError(claim.expiresAt, this.claimExpiryBufferMs);
             this.metrics.tasksFailed++;
             this.metrics.claimsExpired++;
+            this.metricsProvider.counter(METRIC_NAMES.TASKS_FAILED);
+            this.metricsProvider.counter(METRIC_NAMES.CLAIMS_EXPIRED);
             this.events.onClaimExpiring?.(expiredError, task.pda);
             this.events.onTaskFailed?.(expiredError, task.pda);
             this.sendToDeadLetterQueue(task, expiredError, 'claim', 1);
             this.logger.warn(`Task ${pda} claim deadline too close: remaining=${remainingMs}ms, buffer=${this.claimExpiryBufferMs}ms`);
+            span.setStatus('error', 'claim deadline too close');
             return;
           }
 
@@ -754,7 +789,10 @@ export class TaskExecutor {
       }
 
       // Step 4: Execute handler
+      const executeStart = Date.now();
       const result = await this.executeTaskStep(task, claimResult, controller.signal);
+      this.metricsProvider.histogram(METRIC_NAMES.EXECUTE_DURATION, Date.now() - executeStart, { taskPda: pda });
+      span.setAttribute('execute.duration_ms', Date.now() - executeStart);
 
       // Clear timers on success
       if (timeoutId !== null) {
@@ -770,11 +808,18 @@ export class TaskExecutor {
       await this.saveCheckpoint(pda, 'executed', claimResult, result, checkpointCreatedAt);
 
       // Step 5: Submit result on-chain (with retry)
+      const submitStart = Date.now();
       await this.retryStage(
         'submit',
         () => this.submitTaskStep(task, result),
         controller.signal,
       );
+      this.metricsProvider.histogram(METRIC_NAMES.SUBMIT_DURATION, Date.now() - submitStart, { taskPda: pda });
+      span.setAttribute('submit.duration_ms', Date.now() - submitStart);
+
+      // Full pipeline duration
+      this.metricsProvider.histogram(METRIC_NAMES.PIPELINE_DURATION, Date.now() - pipelineStart, { taskPda: pda });
+      span.setStatus('ok');
 
       // Submission succeeded — remove checkpoint
       await this.removeCheckpoint(pda);
@@ -796,30 +841,41 @@ export class TaskExecutor {
         const expiredError = new ClaimExpiredError(expiresAt, this.claimExpiryBufferMs);
         this.metrics.tasksFailed++;
         this.metrics.claimsExpired++;
+        this.metricsProvider.counter(METRIC_NAMES.TASKS_FAILED);
+        this.metricsProvider.counter(METRIC_NAMES.CLAIMS_EXPIRED);
         this.events.onClaimExpiring?.(expiredError, task.pda);
         this.events.onTaskFailed?.(expiredError, task.pda);
         this.sendToDeadLetterQueue(task, expiredError, 'execute', 1);
         this.logger.warn(`Task ${pda} aborted: claim deadline expiring`);
+        span.setStatus('error', 'claim deadline expired');
       } else if (timedOut) {
         // Timeout-specific handling: emit onTaskTimeout, increment tasksFailed
         const timeoutError = new TaskTimeoutError(this.taskTimeoutMs);
         this.metrics.tasksFailed++;
+        this.metricsProvider.counter(METRIC_NAMES.TASKS_FAILED);
         this.events.onTaskTimeout?.(timeoutError, task.pda);
         this.events.onTaskFailed?.(timeoutError, task.pda);
         this.sendToDeadLetterQueue(task, timeoutError, 'execute', 1);
         this.logger.warn(`Task ${pda} timed out after ${this.taskTimeoutMs}ms`);
+        span.setStatus('error', 'timeout');
       } else if (controller.signal.aborted) {
         // Graceful shutdown — do not send to DLQ
         this.logger.debug(`Task ${pda} aborted`);
+        span.setStatus('error', 'aborted');
       } else {
         // Non-abort failure (handler crash, retry exhaustion, etc.)
         const error = err instanceof Error ? err : new Error(String(err));
         const stage = this.inferFailureStage(error);
         const attempts = error instanceof RetryExhaustedError ? error.attempts : 1;
         this.sendToDeadLetterQueue(task, error, stage, attempts);
+        span.setStatus('error', error.message);
       }
     } finally {
+      span.end();
       this.activeTasks.delete(pda);
+      // Update gauges at pipeline exit
+      this.metricsProvider.gauge(METRIC_NAMES.ACTIVE_COUNT, this.activeTasks.size);
+      this.metricsProvider.gauge(METRIC_NAMES.QUEUE_SIZE, this.taskQueue.length);
       this.drainQueue();
     }
   }
@@ -854,6 +910,9 @@ export class TaskExecutor {
 
         const metricsKey = stage === 'claim' ? 'claimRetries' : 'submitRetries';
         this.metrics[metricsKey]++;
+        this.metricsProvider.counter(
+          stage === 'claim' ? METRIC_NAMES.CLAIM_RETRIES : METRIC_NAMES.SUBMIT_RETRIES,
+        );
 
         const delay = computeBackoffDelay(attempt, policy);
         this.logger.warn(
@@ -876,10 +935,12 @@ export class TaskExecutor {
     try {
       const result = await this.operations.claimTask(task.pda, task.task);
       this.metrics.tasksClaimed++;
+      this.metricsProvider.counter(METRIC_NAMES.TASKS_CLAIMED);
       this.events.onTaskClaimed?.(result);
       return result;
     } catch (err) {
       this.metrics.claimsFailed++;
+      this.metricsProvider.counter(METRIC_NAMES.CLAIMS_FAILED);
       this.events.onClaimFailed?.(err instanceof Error ? err : new Error(String(err)), task.pda);
       throw err;
     }
@@ -910,6 +971,7 @@ export class TaskExecutor {
         throw err;
       }
       this.metrics.tasksFailed++;
+      this.metricsProvider.counter(METRIC_NAMES.TASKS_FAILED);
       this.events.onTaskFailed?.(err instanceof Error ? err : new Error(String(err)), task.pda);
       throw err;
     }
@@ -1026,10 +1088,12 @@ export class TaskExecutor {
       }
 
       this.metrics.tasksCompleted++;
+      this.metricsProvider.counter(METRIC_NAMES.TASKS_COMPLETED);
       this.events.onTaskCompleted?.(completeResult);
       return completeResult;
     } catch (err) {
       this.metrics.submitsFailed++;
+      this.metricsProvider.counter(METRIC_NAMES.SUBMITS_FAILED);
       this.events.onSubmitFailed?.(err instanceof Error ? err : new Error(String(err)), task.pda);
       throw err;
     }
