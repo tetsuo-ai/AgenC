@@ -120,7 +120,7 @@ export interface SpeculativeSchedulerEvents {
   /** Called when rollback completes */
   onRollbackCompleted?: (result: RollbackResult) => void;
   /** Called when depth limit blocks speculation */
-  onDepthLimitReached?: (taskPda: PublicKey, currentDepth: number) => void;
+  onDepthLimitReached?: (taskPda: PublicKey, currentDepth: number, maxDepth: number) => void;
   /** Called when stake limit blocks speculation */
   onStakeLimitReached?: (totalAtRisk: bigint, limit: bigint) => void;
   /** Called when speculation is auto-disabled */
@@ -409,7 +409,7 @@ export class SpeculativeTaskScheduler {
     // 3. Check depth limit
     const depth = this.dependencyGraph.getDepth(taskPda);
     if (depth >= this.config.maxSpeculationDepth) {
-      this.events.onDepthLimitReached?.(taskPda, depth);
+      this.events.onDepthLimitReached?.(taskPda, depth, this.config.maxSpeculationDepth);
       return { allowed: false, reason: 'depth_limit' };
     }
 
