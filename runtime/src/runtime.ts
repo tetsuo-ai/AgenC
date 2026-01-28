@@ -11,7 +11,10 @@ import { Connection, PublicKey } from '@solana/web3.js';
 import { PROGRAM_ID } from '@agenc/sdk';
 import { AgentManager } from './agent/manager.js';
 import { AgentState, AgentStatus, AgentRegistrationParams, AGENT_ID_LENGTH } from './agent/types.js';
+import { findAgentPda } from './agent/pda.js';
 import { EventMonitor } from './events/index.js';
+import { TaskExecutor } from './task/index.js';
+import type { TaskExecutorConfig } from './task/types.js';
 import { AgentRuntimeConfig, isKeypair } from './types/config.js';
 import type { Wallet } from './types/wallet.js';
 import { keypairToWallet } from './types/wallet.js';
@@ -405,6 +408,41 @@ export class AgentRuntime {
     return new EventMonitor({
       program: this.agentManager.getProgram(),
       logger: this.logger,
+    });
+  }
+
+  /**
+   * Create a TaskExecutor configured with this runtime's agent identity and logger.
+   *
+   * Automatically injects `agentId`, `agentPda`, and `logger` from the runtime.
+   * The logger can be overridden via the config parameter if needed.
+   *
+   * Note: AgentRuntime.stop() does NOT automatically stop executors.
+   * You must manage executor lifecycle independently.
+   *
+   * @param config - Executor configuration (agentId, agentPda, and logger are auto-injected)
+   * @returns A new TaskExecutor instance
+   *
+   * @example
+   * ```typescript
+   * const executor = runtime.createTaskExecutor({
+   *   operations,
+   *   handler: async (ctx) => ({ proofHash: new Uint8Array(32).fill(1) }),
+   *   mode: 'autonomous',
+   *   discovery,
+   * });
+   * await executor.start();
+   * ```
+   */
+  createTaskExecutor(
+    config: Omit<TaskExecutorConfig, 'agentId' | 'agentPda' | 'logger'> & { logger?: Logger }
+  ): TaskExecutor {
+    const agentPda = findAgentPda(this.agentId, this.programId);
+    return new TaskExecutor({
+      ...config,
+      agentId: new Uint8Array(this.agentId),
+      agentPda,
+      logger: config.logger ?? this.logger,
     });
   }
 }
