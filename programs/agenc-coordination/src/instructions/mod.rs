@@ -26,6 +26,7 @@ pub mod validation;
 
 pub mod apply_dispute_slash;
 pub mod apply_initiator_slash;
+pub mod cancel_dispute;
 pub mod cancel_task;
 pub mod claim_task;
 pub mod complete_task;
@@ -52,6 +53,8 @@ pub mod vote_dispute;
 pub use apply_dispute_slash::*;
 #[allow(ambiguous_glob_reexports)]
 pub use apply_initiator_slash::*;
+#[allow(ambiguous_glob_reexports)]
+pub use cancel_dispute::*;
 #[allow(ambiguous_glob_reexports)]
 pub use cancel_task::*;
 #[allow(ambiguous_glob_reexports)]

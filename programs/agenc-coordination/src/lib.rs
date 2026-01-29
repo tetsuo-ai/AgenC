@@ -193,6 +193,12 @@ pub mod agenc_coordination {
         instructions::cancel_task::handler(ctx)
     }
 
+    /// Cancel a dispute before any votes are cast.
+    /// Only the dispute initiator can cancel, and only if no arbiter has voted yet.
+    pub fn cancel_dispute(ctx: Context<CancelDispute>) -> Result<()> {
+        instructions::cancel_dispute::handler(ctx)
+    }
+
     /// Update shared coordination state.
     /// Used for broadcasting state changes to other agents.
     ///
