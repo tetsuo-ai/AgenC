@@ -114,5 +114,8 @@ pub fn handler(ctx: Context<CancelTask>) -> Result<()> {
         CoordinationError::IncompleteWorkerAccounts
     );
 
+    // Reset current_workers since all workers are removed on cancel
+    task.current_workers = 0;
+
     Ok(())
 }
