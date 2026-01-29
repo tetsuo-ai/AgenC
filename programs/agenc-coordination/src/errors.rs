@@ -405,6 +405,9 @@ pub enum CoordinationError {
     #[msg("min_stake_for_dispute must be greater than zero")]
     InvalidMinStake,
 
+    #[msg("Slash amount must be greater than zero")]
+    InvalidSlashAmount,
+
     // Speculation Bond errors (7500-7599)
     #[msg("Bond amount too low")]
     BondAmountTooLow,

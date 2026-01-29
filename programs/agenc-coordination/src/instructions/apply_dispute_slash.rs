@@ -132,6 +132,11 @@ pub fn handler(ctx: Context<ApplyDisputeSlash>) -> Result<()> {
         .checked_div(PERCENT_BASE)
         .ok_or(CoordinationError::ArithmeticOverflow)?;
 
+    require!(
+        slash_amount > 0,
+        CoordinationError::InvalidSlashAmount
+    );
+
     if slash_amount > 0 {
         worker_agent.stake = worker_agent
             .stake
