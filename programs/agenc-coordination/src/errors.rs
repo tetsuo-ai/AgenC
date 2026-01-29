@@ -125,6 +125,9 @@ pub enum CoordinationError {
     #[msg("Claim has expired")]
     ClaimExpired,
 
+    #[msg("Invalid expiration: expires_at cannot be zero")]
+    InvalidExpiration,
+
     #[msg("Invalid proof of work")]
     InvalidProof,
 

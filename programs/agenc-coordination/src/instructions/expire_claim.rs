@@ -89,9 +89,15 @@ pub fn handler(ctx: Context<ExpireClaim>) -> Result<()> {
         CoordinationError::ClaimAlreadyCompleted
     );
 
+    // Claims with expires_at = 0 are invalid (shouldn't exist)
+    require!(
+        claim.expires_at > 0,
+        CoordinationError::InvalidExpiration
+    );
+
     // Check claim has expired
     require!(
-        claim.expires_at > 0 && clock.unix_timestamp > claim.expires_at,
+        clock.unix_timestamp > claim.expires_at,
         CoordinationError::ClaimNotExpired
     );
 
