@@ -110,28 +110,14 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
         CoordinationError::VotingNotEnded
     );
 
-    // Validate worker account matches worker_claim if both provided (fix #59)
-    if let (Some(worker), Some(worker_claim)) = (&ctx.accounts.worker, &ctx.accounts.worker_claim) {
-        require!(
-            worker.key() == worker_claim.worker,
-            CoordinationError::UnauthorizedAgent
-        );
-    }
-
-    // Validate worker_authority matches worker's authority field (fix #296)
-    if let (Some(worker), Some(worker_authority)) = (&ctx.accounts.worker, &ctx.accounts.worker_authority) {
-        require!(
-            worker.owner == &crate::ID,
-            CoordinationError::InvalidAccountOwner
-        );
-        let worker_data = worker.try_borrow_data()?;
-        let worker_reg = AgentRegistration::try_deserialize(&mut &**worker_data)?;
-        require!(
-            worker_authority.key() == worker_reg.authority,
-            CoordinationError::UnauthorizedAgent
-        );
-        drop(worker_data);
-    }
+    // Validate worker accounts are consistent (fix #59, #296, #457)
+    // If any worker account is provided, all must be provided and valid
+    validate_worker_accounts(
+        &ctx.accounts.worker,
+        &ctx.accounts.worker_claim,
+        &ctx.accounts.worker_authority,
+        &task.key(),
+    )?;
 
     // Calculate total votes
     let total_votes = dispute
@@ -446,6 +432,71 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
         votes_against: dispute.votes_against,
         timestamp: clock.unix_timestamp,
     });
+
+    Ok(())
+}
+
+/// Validates worker account consistency (fix #457)
+///
+/// Ensures that if any worker-related account is provided, all required accounts
+/// are present and properly linked. This replaces error-prone nested if-let checks.
+fn validate_worker_accounts(
+    worker: &Option<UncheckedAccount>,
+    worker_claim: &Option<Box<Account<TaskClaim>>>,
+    worker_authority: &Option<UncheckedAccount>,
+    task_key: &Pubkey,
+) -> Result<()> {
+    // Count how many worker accounts are provided
+    let has_worker = worker.is_some();
+    let has_claim = worker_claim.is_some();
+    let has_authority = worker_authority.is_some();
+
+    // All-or-nothing: either all are None, or all must be Some
+    let provided_count = [has_worker, has_claim, has_authority]
+        .iter()
+        .filter(|&&x| x)
+        .count();
+
+    if provided_count == 0 {
+        // No worker accounts - valid for refund-only resolutions
+        return Ok(());
+    }
+
+    // If any provided, all must be provided
+    require!(
+        provided_count == 3,
+        CoordinationError::NotClaimed
+    );
+
+    // Unwrap is safe here - we verified all are Some
+    let worker = worker.as_ref().unwrap();
+    let worker_claim = worker_claim.as_ref().unwrap();
+    let worker_authority = worker_authority.as_ref().unwrap();
+
+    // Verify worker matches claim
+    require!(
+        worker.key() == worker_claim.worker,
+        CoordinationError::UnauthorizedAgent
+    );
+
+    // Verify claim is for this task
+    require!(
+        worker_claim.task == *task_key,
+        CoordinationError::NotClaimed
+    );
+
+    // Verify worker account ownership and authority
+    require!(
+        worker.owner == &crate::ID,
+        CoordinationError::InvalidAccountOwner
+    );
+
+    let worker_data = worker.try_borrow_data()?;
+    let worker_reg = AgentRegistration::try_deserialize(&mut &**worker_data)?;
+    require!(
+        worker_authority.key() == worker_reg.authority,
+        CoordinationError::UnauthorizedAgent
+    );
 
     Ok(())
 }
