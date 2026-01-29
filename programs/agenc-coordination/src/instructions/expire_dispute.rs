@@ -154,6 +154,11 @@ pub fn handler(ctx: Context<ExpireDispute>) -> Result<()> {
     }
 
     // Decrement active_dispute_votes for each arbiter who voted (fix #328)
+    //
+    // Worker accounts processing - shared pattern with resolve_dispute/expire_dispute
+    // The duplication is intentional to avoid cross-instruction dependencies
+    // and keep each instruction self-contained.
+    //
     // remaining_accounts format (fix #333):
     // - First: (vote, arbiter) pairs for total_voters
     // - Then: optional (claim, worker) pairs for additional workers on collaborative tasks
