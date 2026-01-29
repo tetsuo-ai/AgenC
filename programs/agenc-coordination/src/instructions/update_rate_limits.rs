@@ -6,8 +6,11 @@ use crate::errors::CoordinationError;
 use crate::state::ProtocolConfig;
 use crate::utils::multisig::require_multisig;
 
-/// Maximum cooldown value (24 hours in seconds)
-const MAX_COOLDOWN_SECONDS: i64 = 86400;
+/// Maximum rate limit value
+const MAX_RATE_LIMIT: u64 = 1000;
+
+/// Maximum cooldown value (1 week in seconds)
+const MAX_COOLDOWN: i64 = 86400 * 7;
 
 #[derive(Accounts)]
 pub struct UpdateRateLimits<'info> {
@@ -35,9 +38,19 @@ pub fn handler(
     require!(task_creation_cooldown >= 0, CoordinationError::InvalidCooldown);
     require!(dispute_initiation_cooldown >= 0, CoordinationError::InvalidCooldown);
 
-    // Validate cooldown values have upper bounds (max 24 hours)
-    require!(task_creation_cooldown <= MAX_COOLDOWN_SECONDS, CoordinationError::CooldownTooLarge);
-    require!(dispute_initiation_cooldown <= MAX_COOLDOWN_SECONDS, CoordinationError::CooldownTooLarge);
+    // Validate cooldown values have upper bounds (max 1 week)
+    require!(task_creation_cooldown <= MAX_COOLDOWN, CoordinationError::CooldownTooLong);
+    require!(dispute_initiation_cooldown <= MAX_COOLDOWN, CoordinationError::CooldownTooLong);
+
+    // Validate rate limit values have upper bounds
+    require!(
+        (max_tasks_per_24h as u64) <= MAX_RATE_LIMIT,
+        CoordinationError::RateLimitTooHigh
+    );
+    require!(
+        (max_disputes_per_24h as u64) <= MAX_RATE_LIMIT,
+        CoordinationError::RateLimitTooHigh
+    );
 
     let config = &mut ctx.accounts.protocol_config;
     config.task_creation_cooldown = task_creation_cooldown;
