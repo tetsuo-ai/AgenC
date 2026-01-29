@@ -194,6 +194,8 @@ pub fn handler(
     task.completions = 0;
     task.required_completions = if task_type == 1 { max_workers } else { 1 };
     task.bump = ctx.bumps.task;
+    // Lock protocol fee at task creation (#479)
+    task.protocol_fee_bps = config.protocol_fee_bps;
 
     // Independent task - no dependencies
     task.dependency_type = DependencyType::None;
