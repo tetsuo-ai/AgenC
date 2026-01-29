@@ -333,6 +333,9 @@ pub enum CoordinationError {
     #[msg("Minimum version cannot exceed current protocol version")]
     InvalidMinVersion,
 
+    #[msg("Protocol config account required: suspending an agent requires the protocol config PDA in remaining_accounts")]
+    ProtocolConfigRequired,
+
     // Dependency errors (6900-6999)
     #[msg("Parent task has been cancelled")]
     ParentTaskCancelled,

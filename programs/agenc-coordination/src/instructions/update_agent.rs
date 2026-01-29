@@ -62,7 +62,7 @@ pub fn handler(
                 let protocol_config_info = ctx
                     .remaining_accounts
                     .first()
-                    .ok_or(CoordinationError::UnauthorizedAgent)?;
+                    .ok_or(CoordinationError::ProtocolConfigRequired)?;
                 let (expected_pda, _) =
                     Pubkey::find_program_address(&[b"protocol"], ctx.program_id);
                 require!(
