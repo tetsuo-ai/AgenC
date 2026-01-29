@@ -7461,24 +7461,27 @@ describe("test_1", () => {
         }
       });
 
-      it("deadline = 0 (no deadline, valid)", async () => {
+      it("deadline = 0 should fail with InvalidDeadline (#492)", async () => {
         const taskId = Buffer.from("fuzz-005".padEnd(32, "\0"));
         const taskPda = deriveTaskPda(creator.publicKey, taskId);
         const escrowPda = deriveEscrowPda(taskPda);
 
-        await program.methods.createTask(
-          Array.from(taskId), new BN(CAPABILITY_COMPUTE),
-          Buffer.from("No deadline test".padEnd(64, "\0")),
-          new BN(0), 1, new BN(0), TASK_TYPE_EXCLUSIVE, null
-        ).accountsPartial({
-          task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
-          creatorAgent: creatorAgentPda,
-          authority: creator.publicKey,
-          creator: creator.publicKey,
-        }).signers([creator]).rpc();
-
-        const task = await program.account.task.fetch(taskPda);
-        expect(task.deadline.toNumber()).to.equal(0);
+        try {
+          await program.methods.createTask(
+            Array.from(taskId), new BN(CAPABILITY_COMPUTE),
+            Buffer.from("No deadline test".padEnd(64, "\0")),
+            new BN(LAMPORTS_PER_SOL), 1, new BN(0), TASK_TYPE_EXCLUSIVE, null
+          ).accountsPartial({
+            task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
+            creatorAgent: creatorAgentPda,
+            authority: creator.publicKey,
+            creator: creator.publicKey,
+          }).signers([creator]).rpc();
+          expect.fail("Should have failed with InvalidDeadline");
+        } catch (e: unknown) {
+          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
+          expect(anchorError.error?.errorCode?.code).to.equal("InvalidDeadline");
+        }
       });
 
       it("deadline in past should fail on creation", async () => {
