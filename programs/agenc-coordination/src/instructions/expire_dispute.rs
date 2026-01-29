@@ -74,8 +74,13 @@ pub fn handler(ctx: Context<ExpireDispute>) -> Result<()> {
         dispute.status == DisputeStatus::Active,
         CoordinationError::DisputeNotActive
     );
+
+    // Fix #574: Allow expiration when EITHER expires_at OR voting_deadline has passed.
+    // This closes the gap between voting_deadline and expires_at where disputes
+    // could get stuck with funds locked if no one called resolve_dispute.
     require!(
-        clock.unix_timestamp > dispute.expires_at,
+        clock.unix_timestamp > dispute.expires_at
+            || clock.unix_timestamp >= dispute.voting_deadline,
         CoordinationError::DisputeNotExpired
     );
 
