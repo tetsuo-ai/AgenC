@@ -13,6 +13,8 @@ use crate::state::{
 use crate::utils::version::check_version_compatible;
 use anchor_lang::prelude::*;
 
+/// Note: Large accounts use Box<Account<...>> to avoid stack overflow
+/// Consistent with Anchor best practices for accounts > 10KB
 #[derive(Accounts)]
 pub struct ResolveDispute<'info> {
     #[account(
