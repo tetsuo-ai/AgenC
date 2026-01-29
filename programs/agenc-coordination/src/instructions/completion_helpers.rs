@@ -240,21 +240,42 @@ mod tests {
         }
 
         #[test]
-        fn test_collaborative_task_with_remainder() {
+        fn test_collaborative_task_fair_rounding_first_worker_gets_extra() {
             // 1003 / 4 = 250 with remainder 3
-            // First 3 workers get 250, last worker gets 253
+            // First 3 workers (indices 0,1,2) get 251, last worker gets 250
             let task = create_test_task(TaskType::Collaborative, 1003, 4, 0);
             let reward = calculate_reward_per_worker(&task).unwrap();
-            assert_eq!(reward, 250);
+            assert_eq!(reward, 251); // Worker 0 gets +1
         }
 
         #[test]
-        fn test_collaborative_task_last_worker_gets_remainder() {
+        fn test_collaborative_task_fair_rounding_middle_worker() {
             // 1003 / 4 = 250 with remainder 3
-            // Last worker (completions = 3, required = 4) gets 250 + 3 = 253
+            // Worker index 2 (third worker) still gets +1
+            let task = create_test_task(TaskType::Collaborative, 1003, 4, 2);
+            let reward = calculate_reward_per_worker(&task).unwrap();
+            assert_eq!(reward, 251); // Worker 2 gets +1
+        }
+
+        #[test]
+        fn test_collaborative_task_fair_rounding_last_worker_no_extra() {
+            // 1003 / 4 = 250 with remainder 3
+            // Last worker (index 3) doesn't get extra since 3 >= remainder
             let task = create_test_task(TaskType::Collaborative, 1003, 4, 3);
             let reward = calculate_reward_per_worker(&task).unwrap();
-            assert_eq!(reward, 253);
+            assert_eq!(reward, 250); // Worker 3 gets base only
+        }
+
+        #[test]
+        fn test_collaborative_task_fair_rounding_all_workers() {
+            // 1003 / 4 = 250 with remainder 3
+            // Verify total: 251 + 251 + 251 + 250 = 1003
+            let mut total = 0u64;
+            for i in 0..4 {
+                let task = create_test_task(TaskType::Collaborative, 1003, 4, i);
+                total += calculate_reward_per_worker(&task).unwrap();
+            }
+            assert_eq!(total, 1003);
         }
 
         #[test]
