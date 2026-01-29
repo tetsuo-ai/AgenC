@@ -291,9 +291,8 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
 
     // Update dispute status - decrement active_dispute_votes for each arbiter
     //
-    // Worker accounts processing - shared pattern with resolve_dispute/expire_dispute
-    // The duplication is intentional to avoid cross-instruction dependencies
-    // and keep each instruction self-contained.
+    // Note: Similar remaining_accounts logic exists in expire_dispute.rs
+    // Duplication is intentional for instruction independence
     //
     // remaining_accounts format (fix #333):
     // - First: (vote, arbiter) pairs for total_voters
