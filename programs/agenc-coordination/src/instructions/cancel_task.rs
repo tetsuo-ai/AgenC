@@ -37,6 +37,8 @@ pub struct CancelTask<'info> {
 }
 
 pub fn handler(ctx: Context<CancelTask>) -> Result<()> {
+    check_version_compatible(&ctx.accounts.protocol_config)?;
+
     let task = &mut ctx.accounts.task;
     let escrow = &mut ctx.accounts.escrow;
     let clock = Clock::get()?;
