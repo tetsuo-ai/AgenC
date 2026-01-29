@@ -22,6 +22,9 @@ pub struct CompleteTask<'info> {
     )]
     pub task: Account<'info, Task>,
 
+    /// Note: Claim account is closed after completion.
+    /// If proof-of-completion is needed later, store result_hash
+    /// in an event or separate completion record.
     #[account(
         mut,
         close = authority,
