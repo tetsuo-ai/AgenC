@@ -9,6 +9,9 @@ use anchor_lang::system_program;
 /// 24 hours in seconds for rate limit window
 const WINDOW_24H: i64 = 24 * 60 * 60;
 
+/// Initial reputation score for new agents (50% = 5000/10000)
+const INITIAL_REPUTATION: u16 = 5000;
+
 #[derive(Accounts)]
 #[instruction(agent_id: [u8; 32])]
 pub struct RegisterAgent<'info> {
@@ -79,7 +82,7 @@ pub fn handler(
     agent.last_active = clock.unix_timestamp;
     agent.tasks_completed = 0;
     agent.total_earned = 0;
-    agent.reputation = 5000; // Start at 50%
+    agent.reputation = INITIAL_REPUTATION;
     agent.active_tasks = 0;
     agent.stake = stake_amount;
     agent.bump = ctx.bumps.agent;
