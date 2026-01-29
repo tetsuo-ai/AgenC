@@ -2,7 +2,7 @@
 
 use crate::errors::CoordinationError;
 use crate::events::TaskCancelled;
-use crate::state::{AgentRegistration, ProtocolConfig, Task, TaskClaim, TaskEscrow, TaskStatus};
+use crate::state::{AgentRegistration, Task, TaskClaim, TaskEscrow, TaskStatus};
 use anchor_lang::prelude::*;
 
 #[derive(Accounts)]
@@ -33,6 +33,12 @@ pub fn handler(ctx: Context<CancelTask>) -> Result<()> {
     let task = &mut ctx.accounts.task;
     let escrow = &mut ctx.accounts.escrow;
     let clock = Clock::get()?;
+
+    // Validate status transition is allowed (fix #538)
+    require!(
+        task.status.can_transition_to(TaskStatus::Cancelled),
+        CoordinationError::InvalidStatusTransition
+    );
 
     // Can only cancel if:
     // 1. Task is open (no workers yet)

@@ -365,6 +365,10 @@ pub enum CoordinationError {
     #[msg("Escrow has insufficient balance for reward transfer")]
     InsufficientEscrowBalance,
 
+    // Status transition errors (7300-7399)
+    #[msg("Invalid task status transition")]
+    InvalidStatusTransition,
+
     // Stake validation errors (7400-7499)
     #[msg("Stake value is below minimum required (0.001 SOL)")]
     StakeTooLow,
