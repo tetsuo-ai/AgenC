@@ -147,12 +147,18 @@ pub enum DisputeStatus {
     Expired = 2,
 }
 
-/// Reason for slashing an agent's bond
+/// Reason for slashing an agent's stake
+///
+/// These correspond to verification failures where slashing applies as a penalty
+/// for submitting invalid or incomplete work.
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum SlashReason {
+    /// Proof verification failed (cryptographic proof invalid)
     ProofFailed = 0,
+    /// Proof was not submitted within the required timeframe
     ProofTimeout = 1,
+    /// Result data failed validation checks
     InvalidResult = 2,
 }
 
