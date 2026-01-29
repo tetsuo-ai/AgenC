@@ -92,6 +92,15 @@ pub fn handler(ctx: Context<CancelTask>) -> Result<()> {
     // After task cancellation, decrement active_tasks for all claimants
     // remaining_accounts should contain pairs of (claim, worker_agent)
     let num_pairs = ctx.remaining_accounts.len() / 2;
+
+    // SECURITY FIX #361: Validate ALL worker claims are provided BEFORE processing
+    // Without this check, a malicious caller could pass only a subset of claims,
+    // leaving some workers with permanently inflated active_tasks counters (DoS vector)
+    require!(
+        num_pairs == task.current_workers as usize,
+        CoordinationError::IncompleteWorkerAccounts
+    );
+
     for i in 0..num_pairs {
         let claim_info = &ctx.remaining_accounts[i * 2];
         let worker_info = &ctx.remaining_accounts[i * 2 + 1];
@@ -122,12 +131,6 @@ pub fn handler(ctx: Context<CancelTask>) -> Result<()> {
         worker.active_tasks = worker.active_tasks.saturating_sub(1);
         worker.try_serialize(&mut &mut worker_data[8..])?;
     }
-
-    // Validate all workers were provided
-    require!(
-        num_pairs == task.current_workers as usize,
-        CoordinationError::IncompleteWorkerAccounts
-    );
 
     // Reset current_workers since all workers are removed on cancel
     task.current_workers = 0;
