@@ -57,11 +57,11 @@ pub fn handler(ctx: Context<CancelTask>) -> Result<()> {
     // Transfer refund to creator
     if refund_amount > 0 {
         **escrow.to_account_info().try_borrow_mut_lamports()? -= refund_amount;
-        **ctx
-            .accounts
-            .creator
-            .to_account_info()
-            .try_borrow_mut_lamports()? += refund_amount;
+        let creator_info = ctx.accounts.creator.to_account_info();
+        **creator_info.try_borrow_mut_lamports()? = creator_info
+            .lamports()
+            .checked_add(refund_amount)
+            .ok_or(CoordinationError::ArithmeticOverflow)?;
     }
 
     // Update task status
