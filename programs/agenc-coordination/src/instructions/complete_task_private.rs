@@ -96,6 +96,7 @@ pub struct CompleteTaskPrivate<'info> {
 
     #[account(
         mut,
+        close = authority,
         seeds = [b"claim", task.key().as_ref(), worker.key().as_ref()],
         bump = claim.bump,
         constraint = claim.task == task.key() @ CoordinationError::NotClaimed
