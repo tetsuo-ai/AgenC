@@ -133,12 +133,20 @@ pub fn handler(ctx: Context<VoteDispute>, approve: bool) -> Result<()> {
         CoordinationError::InsufficientStake
     );
 
+    // Cap vote weight to prevent stake-boost attacks (fix #445)
+    // Max weight is 10x the minimum arbiter stake to limit plutocratic influence
+    // while still rewarding larger stakes
+    let max_vote_weight = config
+        .min_arbiter_stake
+        .saturating_mul(10);
+    let vote_weight = arbiter.stake.min(max_vote_weight);
+
     // Record vote
     vote.dispute = dispute.key();
     vote.voter = arbiter.key();
     vote.approved = approve;
     vote.voted_at = clock.unix_timestamp;
-    vote.stake_at_vote = arbiter.stake;
+    vote.stake_at_vote = vote_weight; // Store capped weight for resolution
     vote.bump = ctx.bumps.vote;
 
     // Record authority-level vote (prevents Sybil attacks - fix #101)
@@ -150,16 +158,16 @@ pub fn handler(ctx: Context<VoteDispute>, approve: bool) -> Result<()> {
     authority_vote_account.voted_at = clock.unix_timestamp;
     authority_vote_account.bump = ctx.bumps.authority_vote;
 
-    // Update dispute vote counts
+    // Update dispute vote counts with capped weight
     if approve {
         dispute.votes_for = dispute
             .votes_for
-            .checked_add(arbiter.stake)
+            .checked_add(vote_weight)
             .ok_or(CoordinationError::VoteOverflow)?;
     } else {
         dispute.votes_against = dispute
             .votes_against
-            .checked_add(arbiter.stake)
+            .checked_add(vote_weight)
             .ok_or(CoordinationError::VoteOverflow)?;
     }
     dispute.total_voters = dispute
