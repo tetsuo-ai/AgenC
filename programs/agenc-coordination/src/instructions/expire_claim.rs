@@ -39,6 +39,13 @@ pub struct ExpireClaim<'info> {
     pub system_program: Program<'info, System>,
 }
 
+/// Expires a stale claim after its deadline passes.
+///
+/// # Permissionless Design
+/// This instruction can be called by anyone. This is intentional:
+/// - Prevents claims from blocking task slots indefinitely
+/// - Allows third-party cleanup services
+/// - No economic risk since only valid expirations succeed
 pub fn handler(ctx: Context<ExpireClaim>) -> Result<()> {
     let task = &mut ctx.accounts.task;
     let worker = &mut ctx.accounts.worker;

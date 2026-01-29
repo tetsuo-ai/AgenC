@@ -245,3 +245,12 @@ pub struct RateLimitsUpdated {
     pub updated_by: Pubkey,
     pub timestamp: i64,
 }
+
+/// Emitted when protocol fee is updated
+#[event]
+pub struct ProtocolFeeUpdated {
+    pub old_fee_bps: u16,
+    pub new_fee_bps: u16,
+    pub updated_by: Pubkey,
+    pub timestamp: i64,
+}
