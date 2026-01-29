@@ -165,6 +165,9 @@ pub fn update_worker_state(
     worker.last_active = timestamp;
     // Reputation uses saturating_add intentionally - reputation overflow to MAX_REPUTATION
     // is the intended behavior (capped at 10000), not an error condition
+    //
+    // Note: Reputation currently only increases (no penalty system).
+    // This is by design - negative reputation changes planned for v2.
     worker.reputation = worker
         .reputation
         .saturating_add(REPUTATION_PER_COMPLETION)
