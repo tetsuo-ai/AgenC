@@ -104,8 +104,9 @@ pub fn handler(ctx: Context<ClaimTask>) -> Result<()> {
     );
 
     // Check worker doesn't have too many active tasks
+    const MAX_ACTIVE_TASKS: u8 = 10;
     require!(
-        worker.active_tasks < 10,
+        worker.active_tasks < MAX_ACTIVE_TASKS,
         CoordinationError::MaxActiveTasksReached
     );
 
