@@ -607,6 +607,8 @@ pub struct DisputeVote {
     pub approved: bool,
     /// Vote timestamp
     pub voted_at: i64,
+    /// Arbiter's stake at the time of voting (for weighted resolution)
+    pub stake_at_vote: u64,
     /// Bump seed
     pub bump: u8,
 }
@@ -617,6 +619,7 @@ impl DisputeVote {
         32 + // voter
         1 +  // approved
         8 +  // voted_at
+        8 +  // stake_at_vote
         1; // bump
 }
 
@@ -676,6 +679,7 @@ impl TaskEscrow {
 /// Agent's speculation bond account
 /// PDA seeds: ["speculation_bond", agent]
 #[account]
+#[derive(Default)]
 pub struct SpeculationBond {
     pub agent: Pubkey,
     pub total_bonded: u64,
@@ -691,6 +695,7 @@ impl SpeculationBond {
 
 /// On-chain record of a speculative commitment
 #[account]
+#[derive(Default)]
 pub struct SpeculativeCommitment {
     pub task: Pubkey,
     pub producer: Pubkey,
