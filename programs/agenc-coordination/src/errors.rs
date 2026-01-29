@@ -109,6 +109,9 @@ pub enum CoordinationError {
     #[msg("Claim has not expired yet")]
     ClaimNotExpired,
 
+    #[msg("Claim has expired")]
+    ClaimExpired,
+
     #[msg("Invalid proof of work")]
     InvalidProof,
 
