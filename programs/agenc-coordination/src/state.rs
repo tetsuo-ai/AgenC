@@ -341,6 +341,8 @@ impl ProtocolConfig {
             // Program can read configs at or above program's min
             && self.protocol_version >= MIN_SUPPORTED_VERSION
     }
+            && self.protocol_version >= MIN_SUPPORTED_VERSION
+    }
 }
 
 /// Agent registration account
