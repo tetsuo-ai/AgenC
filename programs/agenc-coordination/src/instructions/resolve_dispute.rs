@@ -38,6 +38,7 @@ pub struct ResolveDispute<'info> {
     pub escrow: Box<Account<'info, TaskEscrow>>,
 
     #[account(
+        mut,
         seeds = [b"protocol"],
         bump = protocol_config.bump
     )]
@@ -189,6 +190,14 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
                 }
                 task.status = TaskStatus::Completed;
                 task.completed_at = clock.unix_timestamp;
+
+                // Update protocol stats (fix #359)
+                let protocol_config = &mut ctx.accounts.protocol_config;
+                protocol_config.completed_tasks =
+                    protocol_config.completed_tasks.saturating_add(1);
+                protocol_config.total_value_distributed = protocol_config
+                    .total_value_distributed
+                    .saturating_add(remaining_funds);
             }
             ResolutionType::Split => {
                 // Split remaining funds between creator and worker.
