@@ -87,6 +87,9 @@ pub enum CoordinationError {
     #[msg("Invalid task type")]
     InvalidTaskType,
 
+    #[msg("Invalid deadline: deadline must be greater than zero")]
+    InvalidDeadline,
+
     #[msg("Competitive task already completed by another worker")]
     CompetitiveTaskAlreadyWon,
 
@@ -229,7 +232,7 @@ pub enum CoordinationError {
     #[msg("Invalid protocol fee (must be <= 1000 bps)")]
     InvalidProtocolFee,
 
-    #[msg("Invalid dispute threshold")]
+    #[msg("Invalid dispute threshold: must be 1-100 (percentage of votes required)")]
     InvalidDisputeThreshold,
 
     #[msg("Insufficient stake for arbiter registration")]
