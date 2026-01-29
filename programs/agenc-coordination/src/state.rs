@@ -398,7 +398,11 @@ pub struct Task {
     pub task_id: [u8; 32],
     /// Task creator (paying party)
     pub creator: Pubkey,
-    /// Required capability bitmask
+    /// Required capability bitmask (u64).
+    ///
+    /// Specifies which capabilities an agent must have to claim this task.
+    /// See [`capability`] module for defined bits. An agent can claim this
+    /// task only if: `(agent.capabilities & required_capabilities) == required_capabilities`
     pub required_capabilities: u64,
     /// Task description or instruction hash
     pub description: [u8; 64],
