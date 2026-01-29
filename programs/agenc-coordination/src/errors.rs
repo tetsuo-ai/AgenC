@@ -253,6 +253,9 @@ pub enum CoordinationError {
     #[msg("State ownership violation: only the creator agent can update this state")]
     StateOwnershipViolation,
 
+    #[msg("Invalid state key: state_key cannot be all zeros")]
+    InvalidStateKey,
+
     // Protocol errors (6500-6599)
     #[msg("Protocol is already initialized")]
     ProtocolAlreadyInitialized,
