@@ -7,8 +7,8 @@ use crate::instructions::completion_helpers::{
     update_task_state, update_worker_state,
 };
 use crate::state::{
-    AgentRegistration, ProtocolConfig, Task, TaskClaim, TaskEscrow, TaskStatus, TaskType,
-    HASH_SIZE, RESULT_DATA_SIZE,
+    AgentRegistration, DependencyType, ProtocolConfig, Task, TaskClaim, TaskEscrow, TaskStatus,
+    TaskType, HASH_SIZE, RESULT_DATA_SIZE,
 };
 use crate::utils::version::check_version_compatible;
 use anchor_lang::prelude::*;
@@ -78,6 +78,44 @@ pub fn handler(
     let clock = Clock::get()?;
 
     check_version_compatible(&ctx.accounts.protocol_config)?;
+
+    // If task has a proof dependency, verify parent task is completed
+    if task.dependency_type == DependencyType::Proof {
+        // Parent task account must be provided in remaining_accounts
+        let parent_task_key = task
+            .depends_on
+            .ok_or(CoordinationError::InvalidDependencyType)?;
+
+        // Get parent task from remaining_accounts
+        require!(
+            !ctx.remaining_accounts.is_empty(),
+            CoordinationError::ParentTaskAccountRequired
+        );
+        let parent_task_info = &ctx.remaining_accounts[0];
+
+        // Validate the account matches the expected parent
+        require!(
+            parent_task_info.key() == parent_task_key,
+            CoordinationError::InvalidInput
+        );
+
+        // Validate owner is this program
+        require!(
+            parent_task_info.owner == ctx.program_id,
+            CoordinationError::InvalidAccountOwner
+        );
+
+        // Deserialize and check parent task status
+        let parent_data = parent_task_info.try_borrow_data()?;
+        // Skip 8-byte discriminator, then deserialize Task
+        let parent_task =
+            Task::try_deserialize(&mut &parent_data[..]).map_err(|_| CoordinationError::InvalidInput)?;
+
+        require!(
+            parent_task.status == TaskStatus::Completed,
+            CoordinationError::ParentTaskNotCompleted
+        );
+    }
 
     // Read protocol fee before any mutable borrows of protocol_config
     let protocol_fee_bps = ctx.accounts.protocol_config.protocol_fee_bps;
