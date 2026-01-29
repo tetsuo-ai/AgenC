@@ -219,6 +219,7 @@ mod tests {
             required_completions,
             completions,
             bump: 0,
+            protocol_fee_bps: 0,
             depends_on: None,
             dependency_type: DependencyType::default(),
             _reserved: [0u8; 32],
