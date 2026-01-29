@@ -164,6 +164,16 @@ pub fn handler(
     // Calculate rewards
     let (worker_reward, protocol_fee) = calculate_reward_split(task, protocol_fee_bps)?;
 
+    // Validate escrow has sufficient balance before transfer
+    let total_transfer_amount = worker_reward
+        .checked_add(protocol_fee)
+        .ok_or(CoordinationError::ArithmeticOverflow)?;
+    let escrow_lamports = escrow.to_account_info().lamports();
+    require!(
+        escrow_lamports >= total_transfer_amount,
+        CoordinationError::InsufficientEscrowBalance
+    );
+
     // Transfer rewards
     transfer_rewards(
         escrow,
