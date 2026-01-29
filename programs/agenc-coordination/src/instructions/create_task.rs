@@ -75,6 +75,8 @@ pub fn handler(
     // Validate max_workers bounds (#412)
     require!(max_workers > 0 && max_workers <= 100, CoordinationError::InvalidMaxWorkers);
     require!(task_type <= 2, CoordinationError::InvalidTaskType);
+    // Validate reward is not zero (#540)
+    require!(reward_amount > 0, CoordinationError::InvalidReward);
 
     let clock = Clock::get()?;
     let config = &ctx.accounts.protocol_config;
@@ -149,18 +151,16 @@ pub fn handler(
     creator_agent.last_active = clock.unix_timestamp;
 
     // Transfer reward to escrow
-    if reward_amount > 0 {
-        system_program::transfer(
-            CpiContext::new(
-                ctx.accounts.system_program.to_account_info(),
-                system_program::Transfer {
-                    from: ctx.accounts.creator.to_account_info(),
-                    to: ctx.accounts.escrow.to_account_info(),
-                },
-            ),
-            reward_amount,
-        )?;
-    }
+    system_program::transfer(
+        CpiContext::new(
+            ctx.accounts.system_program.to_account_info(),
+            system_program::Transfer {
+                from: ctx.accounts.creator.to_account_info(),
+                to: ctx.accounts.escrow.to_account_info(),
+            },
+        ),
+        reward_amount,
+    )?;
 
     // Initialize task
     let task = &mut ctx.accounts.task;

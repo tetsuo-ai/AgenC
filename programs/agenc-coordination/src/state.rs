@@ -12,18 +12,69 @@ pub const HASH_SIZE: usize = 32;
 /// Size of result/description/value data fields
 pub const RESULT_DATA_SIZE: usize = 64;
 
-/// Agent capability flags (bitmask)
+/// Agent capability flags (bitmask).
+///
+/// Capabilities are represented as a 64-bit bitmask where each bit indicates
+/// a specific capability the agent possesses. Tasks specify required capabilities
+/// and only agents with matching capabilities can claim them.
+///
+/// # Currently Defined Bits (10 of 64)
+///
+/// | Bit | Constant      | Description                                      |
+/// |-----|---------------|--------------------------------------------------|
+/// |  0  | `COMPUTE`     | General computation tasks                        |
+/// |  1  | `INFERENCE`   | Machine learning inference                       |
+/// |  2  | `STORAGE`     | Data storage and retrieval                       |
+/// |  3  | `NETWORK`     | Network relay and communication                  |
+/// |  4  | `SENSOR`      | Sensor data collection (IoT, monitoring)         |
+/// |  5  | `ACTUATOR`    | Physical actuation (robotics, hardware control)  |
+/// |  6  | `COORDINATOR` | Task coordination and orchestration              |
+/// |  7  | `ARBITER`     | Dispute resolution voting rights                 |
+/// |  8  | `VALIDATOR`   | Result validation and verification               |
+/// |  9  | `AGGREGATOR`  | Data aggregation and summarization               |
+///
+/// # Reserved Bits
+///
+/// Bits 10-63 are reserved for future protocol extensions.
+///
+/// # Usage Examples
+///
+/// ```ignore
+/// use agenc_coordination::state::capability;
+///
+/// // Single capability
+/// let compute_agent = capability::COMPUTE;
+///
+/// // Multiple capabilities (bitwise OR)
+/// let ml_agent = capability::COMPUTE | capability::INFERENCE | capability::STORAGE;
+///
+/// // Check if agent has required capabilities
+/// let has_caps = (agent.capabilities & task.required_capabilities) == task.required_capabilities;
+/// ```
 pub mod capability {
-    pub const COMPUTE: u64 = 1 << 0; // General computation
-    pub const INFERENCE: u64 = 1 << 1; // ML inference
-    pub const STORAGE: u64 = 1 << 2; // Data storage
-    pub const NETWORK: u64 = 1 << 3; // Network relay
-    pub const SENSOR: u64 = 1 << 4; // Sensor data collection
-    pub const ACTUATOR: u64 = 1 << 5; // Physical actuation
-    pub const COORDINATOR: u64 = 1 << 6; // Task coordination
-    pub const ARBITER: u64 = 1 << 7; // Dispute resolution
-    pub const VALIDATOR: u64 = 1 << 8; // Result validation
-    pub const AGGREGATOR: u64 = 1 << 9; // Data aggregation
+    /// General computation tasks
+    pub const COMPUTE: u64 = 1 << 0;
+    /// Machine learning inference
+    pub const INFERENCE: u64 = 1 << 1;
+    /// Data storage and retrieval
+    pub const STORAGE: u64 = 1 << 2;
+    /// Network relay and communication
+    pub const NETWORK: u64 = 1 << 3;
+    /// Sensor data collection (IoT, monitoring)
+    pub const SENSOR: u64 = 1 << 4;
+    /// Physical actuation (robotics, hardware control)
+    pub const ACTUATOR: u64 = 1 << 5;
+    /// Task coordination and orchestration
+    pub const COORDINATOR: u64 = 1 << 6;
+    /// Dispute resolution voting rights
+    pub const ARBITER: u64 = 1 << 7;
+    /// Result validation and verification
+    pub const VALIDATOR: u64 = 1 << 8;
+    /// Data aggregation and summarization
+    pub const AGGREGATOR: u64 = 1 << 9;
+
+    /// Bitmask covering all currently defined capabilities (bits 0-9)
+    pub const ALL_DEFINED: u64 = (1 << 10) - 1;
 }
 
 /// Agent status
@@ -50,14 +101,19 @@ pub enum TaskStatus {
     Disputed = 5,
 }
 
-/// Task type
+/// Task type enumeration
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Default, InitSpace)]
 #[repr(u8)]
 pub enum TaskType {
+    /// Exclusive - only one worker can claim
     #[default]
-    Exclusive = 0, // Single worker completes entire task
-    Collaborative = 1, // Multiple workers contribute
-    Competitive = 2,   // First to complete wins
+    Exclusive = 0,
+    /// Collaborative - multiple workers share the task
+    Collaborative = 1,
+    /// Competitive - multiple workers race; first to complete wins.
+    /// Race condition handling: Claims are first-come-first-served.
+    /// Only the first valid completion receives the reward.
+    Competitive = 2,
 }
 
 /// Dependency type for speculative execution decisions
@@ -250,7 +306,15 @@ pub struct AgentRegistration {
     pub agent_id: [u8; 32],
     /// Agent's signing authority
     pub authority: Pubkey,
-    /// Capability bitmask
+    /// Agent capabilities as a bitmask (u64).
+    ///
+    /// Each bit represents a specific capability the agent possesses.
+    /// See [`capability`] module for defined bits:
+    /// - Bits 0-9: Currently defined capabilities (COMPUTE, INFERENCE, etc.)
+    /// - Bits 10-63: Reserved for future protocol extensions
+    ///
+    /// Agents can only claim tasks where they have all required capabilities:
+    /// `(agent.capabilities & task.required_capabilities) == task.required_capabilities`
     pub capabilities: u64,
     /// Agent status
     pub status: AgentStatus,
@@ -561,9 +625,12 @@ pub struct Dispute {
     pub votes_against: u64,
     /// Total eligible voters
     pub total_voters: u8,
-    /// Voting deadline
+    /// Voting deadline - after this, no new votes accepted
+    /// voting_deadline = created_at + voting_period
     pub voting_deadline: i64,
-    /// Dispute expiration timestamp
+    /// Dispute expiration - after this, can call expire_dispute
+    /// expires_at = created_at + max_dispute_duration
+    /// Note: expires_at >= voting_deadline, allowing resolution after voting ends
     pub expires_at: i64,
     /// Whether worker slashing has been applied
     pub slash_applied: bool,
