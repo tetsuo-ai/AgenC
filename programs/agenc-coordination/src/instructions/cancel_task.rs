@@ -54,6 +54,14 @@ pub fn handler(ctx: Context<CancelTask>) -> Result<()> {
 
     require!(can_cancel, CoordinationError::TaskCannotBeCancelled);
 
+    // If task has workers, require accounts
+    if task.current_workers > 0 {
+        require!(
+            !ctx.remaining_accounts.is_empty(),
+            CoordinationError::WorkerAccountsRequired
+        );
+    }
+
     // Calculate refund (total minus any distributed)
     let refund_amount = escrow
         .amount
