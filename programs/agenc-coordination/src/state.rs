@@ -212,7 +212,9 @@ pub const MIN_SUPPORTED_VERSION: u8 = 1;
 pub struct ProtocolConfig {
     /// Protocol authority
     pub authority: Pubkey,
-    /// Treasury for protocol fees
+    /// Treasury address for protocol fees
+    /// Note: Cannot be updated after initialization.
+    /// Deploy new protocol if treasury change needed.
     pub treasury: Pubkey,
     /// Minimum votes needed to resolve dispute (percentage, 1-100)
     pub dispute_threshold: u8,

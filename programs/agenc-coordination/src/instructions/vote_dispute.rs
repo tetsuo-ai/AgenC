@@ -4,7 +4,7 @@ use crate::errors::CoordinationError;
 use crate::events::DisputeVoteCast;
 use crate::state::{
     capability, AgentRegistration, AgentStatus, AuthorityDisputeVote, Dispute, DisputeStatus,
-    DisputeVote, ProtocolConfig,
+    DisputeVote, ProtocolConfig, Task, TaskClaim,
 };
 use crate::utils::version::check_version_compatible;
 use anchor_lang::prelude::*;
