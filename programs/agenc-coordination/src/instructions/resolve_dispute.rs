@@ -63,7 +63,9 @@ pub struct ResolveDispute<'info> {
 
     /// Worker's claim proving they worked on task (fix #59)
     /// Required for Complete/Split resolutions that pay a worker
+    /// Made mutable to allow closing after dispute resolution (fix #439)
     #[account(
+        mut,
         seeds = [b"claim", task.key().as_ref(), worker_claim.worker.as_ref()],
         bump = worker_claim.bump,
         constraint = worker_claim.task == task.key() @ CoordinationError::NotClaimed
@@ -402,6 +404,12 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
     dispute.status = DisputeStatus::Resolved;
     dispute.resolved_at = clock.unix_timestamp;
     escrow.is_closed = true;
+
+    // Close worker_claim account and return lamports to creator (fix #439)
+    // The claim is no longer needed once the dispute is resolved
+    if let Some(claim) = ctx.accounts.worker_claim.as_ref() {
+        claim.close(ctx.accounts.creator.to_account_info())?;
+    }
 
     emit!(DisputeResolved {
         dispute_id: dispute.dispute_id,
