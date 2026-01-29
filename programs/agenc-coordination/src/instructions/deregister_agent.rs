@@ -36,6 +36,13 @@ pub fn handler(ctx: Context<DeregisterAgent>) -> Result<()> {
         CoordinationError::AgentHasActiveTasks
     );
 
+    // Ensure agent is not a defendant in any active disputes (fix #544)
+    // Prevents escaping potential slashing by deregistering
+    require!(
+        agent.disputes_as_defendant == 0,
+        CoordinationError::ActiveDisputesExist
+    );
+
     let clock = Clock::get()?;
 
     require!(

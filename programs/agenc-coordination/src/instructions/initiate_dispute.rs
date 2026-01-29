@@ -56,6 +56,12 @@ pub struct InitiateDispute<'info> {
     )]
     pub initiator_claim: Option<Account<'info, TaskClaim>>,
 
+    /// Optional: Worker agent to be disputed (required when initiator is task creator)
+    pub worker_agent: Option<Account<'info, AgentRegistration>>,
+
+    /// Optional: Worker's claim (required when worker_agent is provided)
+    pub worker_claim: Option<Account<'info, TaskClaim>>,
+
     #[account(mut)]
     pub authority: Signer<'info>,
 
@@ -189,6 +195,38 @@ pub fn handler(
     agent.last_dispute_initiated = clock.unix_timestamp;
     agent.last_active = clock.unix_timestamp;
 
+    // === Determine Worker Stake to Snapshot (fix #550) ===
+    // Snapshot the worker's stake at dispute initiation time to prevent
+    // attackers from withdrawing stake before being slashed.
+    let worker_stake = if has_claim {
+        // Initiator is the worker - use their stake
+        agent.stake
+    } else {
+        // Initiator is the creator - need worker_agent to identify the worker
+        let worker = ctx
+            .accounts
+            .worker_agent
+            .as_ref()
+            .ok_or(CoordinationError::WorkerAgentRequired)?;
+        let w_claim = ctx
+            .accounts
+            .worker_claim
+            .as_ref()
+            .ok_or(CoordinationError::WorkerClaimRequired)?;
+
+        // Verify worker_claim is for this task and this worker
+        require!(
+            w_claim.task == task.key(),
+            CoordinationError::TaskNotFound
+        );
+        require!(
+            w_claim.worker == worker.key(),
+            CoordinationError::UnauthorizedAgent
+        );
+
+        worker.stake
+    };
+
     // === Initialize Dispute ===
 
     dispute.dispute_id = dispute_id;
@@ -217,10 +255,58 @@ pub fn handler(
         .checked_add(config.max_dispute_duration)
         .ok_or(CoordinationError::ArithmeticOverflow)?;
     dispute.slash_applied = false;
+    dispute.initiator_slash_applied = false;
+    dispute.worker_stake_at_dispute = worker_stake;
     dispute.bump = ctx.bumps.dispute;
 
     // Mark task as disputed
     task.status = TaskStatus::Disputed;
+
+    // Increment disputes_as_defendant for workers being disputed (fix #544)
+    // remaining_accounts should contain (claim, worker) pairs for defendants
+    // This prevents workers from deregistering to escape potential slashing
+    require!(
+        ctx.remaining_accounts.len() % 2 == 0,
+        CoordinationError::InvalidInput
+    );
+
+    for i in (0..ctx.remaining_accounts.len()).step_by(2) {
+        let claim_info = &ctx.remaining_accounts[i];
+        let worker_info = &ctx.remaining_accounts[i + 1];
+
+        // Validate account ownership
+        require!(
+            claim_info.owner == &crate::ID,
+            CoordinationError::InvalidAccountOwner
+        );
+        require!(
+            worker_info.owner == &crate::ID,
+            CoordinationError::InvalidAccountOwner
+        );
+
+        // Validate claim belongs to this task
+        let claim_data = claim_info.try_borrow_data()?;
+        let claim = TaskClaim::try_deserialize(&mut &**claim_data)?;
+        require!(
+            claim.task == task.key(),
+            CoordinationError::InvalidInput
+        );
+        require!(
+            claim.worker == worker_info.key(),
+            CoordinationError::InvalidInput
+        );
+        drop(claim_data);
+
+        // Increment worker's disputes_as_defendant counter
+        require!(worker_info.is_writable, CoordinationError::InvalidInput);
+        let mut worker_data = worker_info.try_borrow_mut_data()?;
+        let mut worker_reg = AgentRegistration::try_deserialize(&mut &**worker_data)?;
+        worker_reg.disputes_as_defendant = worker_reg
+            .disputes_as_defendant
+            .checked_add(1)
+            .ok_or(CoordinationError::ArithmeticOverflow)?;
+        worker_reg.try_serialize(&mut &mut worker_data[8..])?;
+    }
 
     emit!(DisputeInitiated {
         dispute_id,

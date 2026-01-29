@@ -288,8 +288,10 @@ pub struct AgentRegistration {
     pub last_vote_timestamp: i64,
     /// Timestamp of last state update
     pub last_state_update: i64,
+    /// Active disputes where this agent is a defendant (can be slashed)
+    pub disputes_as_defendant: u8,
     /// Reserved for future use
-    pub _reserved: [u8; 6],
+    pub _reserved: [u8; 5],
 }
 
 impl AgentRegistration {
@@ -316,7 +318,8 @@ impl AgentRegistration {
         1 +  // active_dispute_votes
         8 +  // last_vote_timestamp
         8 +  // last_state_update
-        6; // reserved
+        1 +  // disputes_as_defendant
+        5; // reserved
 }
 
 /// Task account
@@ -563,6 +566,8 @@ pub struct Dispute {
     pub slash_applied: bool,
     /// Whether initiator slashing has been applied (for rejected disputes)
     pub initiator_slash_applied: bool,
+    /// Snapshot of worker's stake at dispute initiation (prevents stake withdrawal attacks)
+    pub worker_stake_at_dispute: u64,
     /// Bump seed
     pub bump: u8,
 }
@@ -585,6 +590,7 @@ impl Dispute {
         8 +  // expires_at
         1 +  // slash_applied
         1 +  // initiator_slash_applied
+        8 +  // worker_stake_at_dispute
         1; // bump
 }
 
