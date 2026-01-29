@@ -44,6 +44,7 @@ pub fn handler(
         CoordinationError::InvalidAgentId
     );
 
+    require!(capabilities != 0, CoordinationError::InvalidCapabilities);
     require!(endpoint.len() <= 128, CoordinationError::StringTooLong);
 
     let metadata = metadata_uri.unwrap_or_default();

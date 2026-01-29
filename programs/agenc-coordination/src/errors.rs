@@ -17,6 +17,9 @@ pub enum CoordinationError {
     #[msg("Agent has insufficient capabilities")]
     InsufficientCapabilities,
 
+    #[msg("Agent capabilities bitmask cannot be zero")]
+    InvalidCapabilities,
+
     #[msg("Agent has reached maximum active tasks")]
     MaxActiveTasksReached,
 
@@ -248,6 +251,12 @@ pub enum CoordinationError {
 
     #[msg("Cooldown period has not elapsed since last action")]
     CooldownNotElapsed,
+
+    #[msg("Cooldown value cannot be negative")]
+    InvalidCooldown,
+
+    #[msg("Cooldown value exceeds maximum (24 hours)")]
+    CooldownTooLarge,
 
     #[msg("Insufficient stake to initiate dispute")]
     InsufficientStakeForDispute,
