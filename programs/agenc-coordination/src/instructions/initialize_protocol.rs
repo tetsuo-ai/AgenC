@@ -146,6 +146,12 @@ pub fn handler(
         CoordinationError::MultisigNotEnoughSigners
     );
 
+    // Fix #448: Validate treasury is not the default pubkey
+    require!(
+        ctx.accounts.treasury.key() != Pubkey::default(),
+        CoordinationError::InvalidTreasury
+    );
+
     // Now safe to write config
     let config = &mut ctx.accounts.protocol_config;
     config.authority = ctx.accounts.authority.key();
