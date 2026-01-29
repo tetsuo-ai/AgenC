@@ -56,6 +56,11 @@ pub struct CreateTask<'info> {
     pub system_program: Program<'info, System>,
 }
 
+/// Creates a new task.
+///
+/// # Parameters
+/// - `task_type`: Task execution type (0=Exclusive, 1=Collaborative, 2=Competitive)
+///   Validated to be in range 0-2.
 #[allow(clippy::too_many_arguments)]
 pub fn handler(
     ctx: Context<CreateTask>,
