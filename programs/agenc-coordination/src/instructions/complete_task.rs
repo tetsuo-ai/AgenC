@@ -120,8 +120,8 @@ pub fn handler(
         );
     }
 
-    // Read protocol fee before any mutable borrows of protocol_config
-    let protocol_fee_bps = ctx.accounts.protocol_config.protocol_fee_bps;
+    // Use the protocol fee locked at task creation (#479)
+    let protocol_fee_bps = task.protocol_fee_bps;
 
     // Validate proof_hash is not zero
     require!(
