@@ -84,6 +84,8 @@ pub struct PrivateCompletionProof {
     pub nullifier: [u8; HASH_SIZE],
 }
 
+/// Note: Large accounts use Box<Account<...>> to avoid stack overflow
+/// Consistent with Anchor best practices for accounts > 10KB
 #[derive(Accounts)]
 #[instruction(task_id: u64, proof: PrivateCompletionProof)]
 pub struct CompleteTaskPrivate<'info> {
@@ -92,7 +94,7 @@ pub struct CompleteTaskPrivate<'info> {
         seeds = [b"task", task.creator.as_ref(), task.task_id.as_ref()],
         bump = task.bump
     )]
-    pub task: Account<'info, Task>,
+    pub task: Box<Account<'info, Task>>,
 
     #[account(
         mut,
@@ -101,14 +103,24 @@ pub struct CompleteTaskPrivate<'info> {
         bump = claim.bump,
         constraint = claim.task == task.key() @ CoordinationError::NotClaimed
     )]
-    pub claim: Account<'info, TaskClaim>,
+    pub claim: Box<Account<'info, TaskClaim>>,
 
+    /// Note: Escrow account is closed after completion.
+    /// Rent is returned to the task creator who funded it.
     #[account(
         mut,
+        close = creator,
         seeds = [b"escrow", task.key().as_ref()],
         bump = escrow.bump
     )]
-    pub escrow: Account<'info, TaskEscrow>,
+    pub escrow: Box<Account<'info, TaskEscrow>>,
+
+    /// CHECK: Task creator receives escrow rent - validated to match task.creator
+    #[account(
+        mut,
+        constraint = creator.key() == task.creator @ CoordinationError::InvalidCreator
+    )]
+    pub creator: UncheckedAccount<'info>,
 
     #[account(
         mut,
@@ -116,14 +128,14 @@ pub struct CompleteTaskPrivate<'info> {
         bump = worker.bump,
         has_one = authority @ CoordinationError::UnauthorizedAgent
     )]
-    pub worker: Account<'info, AgentRegistration>,
+    pub worker: Box<Account<'info, AgentRegistration>>,
 
     #[account(
         mut,
         seeds = [b"protocol"],
         bump = protocol_config.bump
     )]
-    pub protocol_config: Account<'info, ProtocolConfig>,
+    pub protocol_config: Box<Account<'info, ProtocolConfig>>,
 
     /// Nullifier account to prevent proof/knowledge reuse.
     /// If this account already exists, the proof has been used before.

@@ -91,6 +91,7 @@ pub fn handler(ctx: Context<CancelTask>) -> Result<()> {
 
     // After task cancellation, decrement active_tasks for all claimants
     // remaining_accounts should contain pairs of (claim, worker_agent)
+    // Claims are closed to return rent to creator (fix #396)
     let num_pairs = ctx.remaining_accounts.len() / 2;
     for i in 0..num_pairs {
         let claim_info = &ctx.remaining_accounts[i * 2];
@@ -101,6 +102,7 @@ pub fn handler(ctx: Context<CancelTask>) -> Result<()> {
             claim_info.owner == &crate::ID,
             CoordinationError::InvalidAccountOwner
         );
+        require!(claim_info.is_writable, CoordinationError::InvalidInput);
         let claim_data = claim_info.try_borrow_data()?;
         let claim = TaskClaim::try_deserialize(&mut &claim_data[..])?;
         require!(claim.task == task.key(), CoordinationError::InvalidInput);
@@ -121,6 +123,18 @@ pub fn handler(ctx: Context<CancelTask>) -> Result<()> {
         // Using saturating_sub intentionally - underflow returns 0 (safe counter decrement)
         worker.active_tasks = worker.active_tasks.saturating_sub(1);
         worker.try_serialize(&mut &mut worker_data[8..])?;
+
+        // Close claim account and return rent to creator (fix #396)
+        let claim_lamports = claim_info.lamports();
+        **claim_info.try_borrow_mut_lamports()? = 0;
+        let creator_info = ctx.accounts.creator.to_account_info();
+        **creator_info.try_borrow_mut_lamports()? = creator_info
+            .lamports()
+            .checked_add(claim_lamports)
+            .ok_or(CoordinationError::ArithmeticOverflow)?;
+        // Zero out data and set discriminator to closed
+        let mut claim_data = claim_info.try_borrow_mut_data()?;
+        claim_data.fill(0);
     }
 
     // Validate all workers were provided
