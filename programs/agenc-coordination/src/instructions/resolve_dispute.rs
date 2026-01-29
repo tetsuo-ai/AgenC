@@ -29,6 +29,7 @@ pub struct ResolveDispute<'info> {
 
     #[account(
         mut,
+        close = creator,
         seeds = [b"escrow", task.key().as_ref()],
         bump = escrow.bump
     )]
@@ -244,6 +245,10 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
             .active_tasks
             .checked_sub(1)
             .ok_or(CoordinationError::ArithmeticOverflow)?;
+        // Fix #544: Decrement defendant dispute counter when dispute is resolved
+        worker_reg.active_disputes_as_defendant = worker_reg
+            .active_disputes_as_defendant
+            .saturating_sub(1);
         worker_reg.try_serialize(&mut &mut worker_data[8..])?;
     }
 

@@ -166,6 +166,12 @@ pub fn complete_task_private(
     let nullifier_account = &mut ctx.accounts.nullifier_account;
     let clock = Clock::get()?;
 
+    // Deadline check (issue #384)
+    require!(
+        task.deadline == 0 || clock.unix_timestamp <= task.deadline,
+        CoordinationError::TaskDeadlinePassed
+    );
+
     check_version_compatible(&ctx.accounts.protocol_config)?;
 
     require!(
