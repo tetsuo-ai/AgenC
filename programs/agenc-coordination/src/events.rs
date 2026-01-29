@@ -233,3 +233,15 @@ pub struct ArbiterVotesCleanedUp {
     pub dispute_id: [u8; 32],
     pub arbiter_count: u8,
 }
+
+/// Emitted when rate limit configuration is updated
+#[event]
+pub struct RateLimitsUpdated {
+    pub task_creation_cooldown: i64,
+    pub max_tasks_per_24h: u8,
+    pub dispute_initiation_cooldown: i64,
+    pub max_disputes_per_24h: u8,
+    pub min_stake_for_dispute: u64,
+    pub updated_by: Pubkey,
+    pub timestamp: i64,
+}
