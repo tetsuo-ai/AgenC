@@ -17,3 +17,6 @@ pub const REPUTATION_PER_COMPLETION: u16 = 100;
 
 /// Maximum reputation an agent can accumulate
 pub const MAX_REPUTATION: u16 = 10000;
+
+/// Minimum number of votes required for dispute resolution (fix #546)
+pub const MIN_DISPUTE_VOTES: u8 = 3;

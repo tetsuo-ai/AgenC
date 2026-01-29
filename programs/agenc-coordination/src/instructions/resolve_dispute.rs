@@ -4,7 +4,7 @@ use std::collections::HashSet;
 
 use crate::errors::CoordinationError;
 use crate::events::DisputeResolved;
-use crate::instructions::constants::PERCENT_BASE;
+use crate::instructions::constants::{MIN_DISPUTE_VOTES, PERCENT_BASE};
 use crate::state::{
     AgentRegistration, Dispute, DisputeStatus, DisputeVote, ProtocolConfig, ResolutionType, Task,
     TaskClaim, TaskEscrow, TaskStatus,
@@ -38,6 +38,7 @@ pub struct ResolveDispute<'info> {
     pub escrow: Box<Account<'info, TaskEscrow>>,
 
     #[account(
+        mut,
         seeds = [b"protocol"],
         bump = protocol_config.bump
     )]
@@ -129,25 +130,20 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
 
     // Require minimum quorum for dispute resolution (fix #546)
     // A single arbiter should not be able to unilaterally decide outcomes
-    const MIN_VOTERS_FOR_RESOLUTION: u8 = 3;
     require!(
-        dispute.total_voters >= MIN_VOTERS_FOR_RESOLUTION,
-        CoordinationError::InsufficientQuorum
+        total_votes >= MIN_DISPUTE_VOTES as u64,
+        CoordinationError::InsufficientVotes
     );
 
-    // Determine outcome: if no votes, treat as rejected (refund to creator)
-    // This prevents tasks from being stuck between voting_deadline and expires_at
-    let approved = if total_votes == 0 {
-        false // No votes = dispute rejected
-    } else {
-        let approval_pct = dispute
-            .votes_for
-            .checked_mul(PERCENT_BASE)
-            .ok_or(CoordinationError::ArithmeticOverflow)?
-            .checked_div(total_votes)
-            .ok_or(CoordinationError::ArithmeticOverflow)? as u8;
-        approval_pct >= config.dispute_threshold
-    };
+    // Determine outcome based on vote threshold
+    // Note: total_votes >= MIN_DISPUTE_VOTES guaranteed by quorum check above
+    let approval_pct = dispute
+        .votes_for
+        .checked_mul(PERCENT_BASE)
+        .ok_or(CoordinationError::ArithmeticOverflow)?
+        .checked_div(total_votes)
+        .ok_or(CoordinationError::ArithmeticOverflow)? as u8;
+    let approved = approval_pct >= config.dispute_threshold;
 
     // Calculate remaining escrow funds
     let remaining_funds = escrow
