@@ -188,6 +188,9 @@ pub enum CoordinationError {
     #[msg("Arbiter cannot vote on disputes they are a participant in")]
     ArbiterIsDisputeParticipant,
 
+    #[msg("Insufficient quorum: minimum number of voters not reached")]
+    InsufficientQuorum,
+
     // State errors (6400-6499)
     #[msg("State version mismatch (concurrent modification)")]
     VersionMismatch,
