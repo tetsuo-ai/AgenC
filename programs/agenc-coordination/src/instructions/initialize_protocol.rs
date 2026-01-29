@@ -1,4 +1,13 @@
 //! Initialize protocol configuration
+//!
+//! # Parameters
+//!
+//! - `dispute_threshold`: Minimum percentage of arbiter votes needed to resolve a dispute.
+//!   Must be in range 1-100 (inclusive). A value of 50 means majority vote required.
+//! - `protocol_fee_bps`: Fee charged on task completions in basis points (max 1000 = 10%).
+//! - `min_stake`: Minimum stake required for agent/arbiter registration.
+//! - `multisig_threshold`: Number of signatures required for multisig operations.
+//! - `multisig_owners`: List of authorized multisig signers.
 
 use crate::errors::CoordinationError;
 use crate::events::ProtocolInitialized;
@@ -30,6 +39,21 @@ pub struct InitializeProtocol<'info> {
 /// Minimum reasonable stake value (0.001 SOL in lamports)
 const MIN_REASONABLE_STAKE: u64 = 1_000_000;
 
+/// Initialize the protocol configuration with the given parameters.
+///
+/// # Arguments
+///
+/// * `dispute_threshold` - Minimum percentage of arbiter votes needed to resolve a dispute.
+///   Valid range: 1-100 (inclusive). For example, 50 requires majority consensus,
+///   67 requires supermajority, 100 requires unanimous agreement.
+/// * `protocol_fee_bps` - Protocol fee in basis points (0-1000, where 1000 = 10%).
+/// * `min_stake` - Minimum stake required for registration (must be >= 0.001 SOL).
+/// * `multisig_threshold` - Number of signatures required for multisig operations.
+/// * `multisig_owners` - List of authorized multisig signers.
+///
+/// # Errors
+///
+/// Returns [`CoordinationError::InvalidDisputeThreshold`] if dispute_threshold is 0 or > 100.
 pub fn handler(
     ctx: Context<InitializeProtocol>,
     dispute_threshold: u8,
@@ -38,7 +62,7 @@ pub fn handler(
     multisig_threshold: u8,
     multisig_owners: Vec<Pubkey>,
 ) -> Result<()> {
-    // Validate parameters BEFORE writing any config
+    // Validate dispute_threshold: must be 1-100% (see #582)
     require!(
         dispute_threshold > 0 && dispute_threshold <= MAX_PERCENT,
         CoordinationError::InvalidDisputeThreshold
