@@ -296,6 +296,9 @@ pub enum CoordinationError {
     #[msg("Cooldown period has not elapsed since last action")]
     CooldownNotElapsed,
 
+    #[msg("Agent update too frequent: must wait cooldown period")]
+    UpdateTooFrequent,
+
     #[msg("Cooldown value cannot be negative")]
     InvalidCooldown,
 
