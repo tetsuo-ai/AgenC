@@ -268,6 +268,7 @@ pub mod agenc_coordination {
         dispute_threshold: u8,
         protocol_fee_bps: u16,
         min_stake: u64,
+        min_stake_for_dispute: u64,
         multisig_threshold: u8,
         multisig_owners: Vec<Pubkey>,
     ) -> Result<()> {
@@ -276,6 +277,7 @@ pub mod agenc_coordination {
             dispute_threshold,
             protocol_fee_bps,
             min_stake,
+            min_stake_for_dispute,
             multisig_threshold,
             multisig_owners,
         )
