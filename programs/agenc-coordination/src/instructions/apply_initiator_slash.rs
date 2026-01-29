@@ -1,15 +1,19 @@
-//! Apply slashing after dispute resolution.
+//! Apply slashing to a dispute initiator when their dispute is rejected.
 //!
 //! # Permissionless Design
 //! Can be called by anyone after dispute resolves unfavorably.
 //! This is intentional - ensures slashing cannot be avoided.
 //!
-//! # Permissionless Design
-//! Can be called by anyone after dispute resolves unfavorably.
-//! This is intentional - ensures slashing cannot be avoided.
+//! # Time Window (fix #414)
+//! Slashing must occur within 7 days of dispute resolution.
+//! After this window, slashing can no longer be applied.
 
 use crate::errors::CoordinationError;
 use crate::instructions::constants::PERCENT_BASE;
+
+/// Window for applying slashing after dispute resolution (7 days)
+/// After this period, slashing can no longer be applied (fix #414)
+const SLASH_WINDOW: i64 = 7 * 24 * 60 * 60;
 use crate::state::{AgentRegistration, Dispute, DisputeStatus, ProtocolConfig, Task};
 use crate::utils::version::check_version_compatible;
 use anchor_lang::prelude::*;
@@ -68,6 +72,14 @@ pub fn handler(ctx: Context<ApplyInitiatorSlash>) -> Result<()> {
         !dispute.initiator_slash_applied,
         CoordinationError::SlashAlreadyApplied
     );
+
+    // Check slash window hasn't expired (fix #414)
+    let clock = Clock::get()?;
+    require!(
+        clock.unix_timestamp <= dispute.resolved_at.saturating_add(SLASH_WINDOW),
+        CoordinationError::SlashWindowExpired
+    );
+
     require!(
         initiator_agent.key() == dispute.initiator,
         CoordinationError::UnauthorizedAgent
