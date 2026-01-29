@@ -29,6 +29,9 @@ pub fn calculate_reward_split(task: &Task, protocol_fee_bps: u16) -> Result<(u64
         .checked_sub(protocol_fee)
         .ok_or(CoordinationError::ArithmeticOverflow)?;
 
+    // Ensure worker gets at least 1 lamport
+    require!(worker_reward > 0, CoordinationError::RewardTooSmall);
+
     Ok((worker_reward, protocol_fee))
 }
 
