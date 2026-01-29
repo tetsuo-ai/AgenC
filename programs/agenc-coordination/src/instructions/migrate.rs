@@ -64,16 +64,15 @@ pub fn handler(ctx: Context<MigrateProtocol>, target_version: u8) -> Result<()> 
     let old_version = config.protocol_version;
     config.protocol_version = target_version;
 
-    emit!(MigrationCompleted {
-        from_version: old_version,
-        to_version: target_version,
-        authority: ctx
-            .remaining_accounts
-            .first()
-            .map(|a| a.key())
-            .unwrap_or_default(),
-        timestamp: clock.unix_timestamp,
-    });
+    // Only emit MigrationCompleted if there was an authority in remaining_accounts
+    if let Some(authority_account) = ctx.remaining_accounts.first() {
+        emit!(MigrationCompleted {
+            from_version: old_version,
+            to_version: target_version,
+            authority: authority_account.key(),
+            timestamp: clock.unix_timestamp,
+        });
+    }
 
     emit!(ProtocolVersionUpdated {
         old_version,
@@ -132,6 +131,12 @@ pub fn update_min_version_handler(
     require!(
         new_min_version >= MIN_SUPPORTED_VERSION && new_min_version <= max_target,
         CoordinationError::InvalidMigrationTarget
+    );
+
+    // Ensure min_version does not exceed current protocol version
+    require!(
+        new_min_version <= config.protocol_version,
+        CoordinationError::InvalidMinVersion
     );
 
     let old_min = config.min_supported_version;

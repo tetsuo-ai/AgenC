@@ -75,6 +75,8 @@ pub fn handler(
     // Validate max_workers bounds (#412)
     require!(max_workers > 0 && max_workers <= 100, CoordinationError::InvalidMaxWorkers);
     require!(task_type <= 2, CoordinationError::InvalidTaskType);
+    // Validate reward is not zero (#540)
+    require!(reward_amount > 0, CoordinationError::InvalidReward);
 
     let clock = Clock::get()?;
     let config = &ctx.accounts.protocol_config;
