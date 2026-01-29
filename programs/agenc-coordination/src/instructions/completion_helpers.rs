@@ -39,23 +39,24 @@ pub fn calculate_reward_split(task: &Task, protocol_fee_bps: u16) -> Result<(u64
 fn calculate_reward_per_worker(task: &Task) -> Result<u64> {
     match task.task_type {
         TaskType::Collaborative => {
-            let base_reward = task
+            let num_workers = task.required_completions as u64;
+            let base_share = task
                 .reward_amount
-                .checked_div(task.required_completions as u64)
+                .checked_div(num_workers)
                 .ok_or(CoordinationError::ArithmeticOverflow)?;
-
-            // Give remainder to last worker
             let remainder = task
                 .reward_amount
-                .checked_rem(task.required_completions as u64)
+                .checked_rem(num_workers)
                 .ok_or(CoordinationError::ArithmeticOverflow)?;
 
-            if task.completions == task.required_completions.saturating_sub(1) {
-                Ok(base_reward
-                    .checked_add(remainder)
+            // Give extra 1 lamport to first `remainder` workers
+            let worker_index = task.completions as u64;
+            if worker_index < remainder {
+                Ok(base_share
+                    .checked_add(1)
                     .ok_or(CoordinationError::ArithmeticOverflow)?)
             } else {
-                Ok(base_reward)
+                Ok(base_share)
             }
         }
         TaskType::Competitive | TaskType::Exclusive => Ok(task.reward_amount),
