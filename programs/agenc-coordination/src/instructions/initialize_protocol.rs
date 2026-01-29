@@ -6,6 +6,7 @@
 //!   Must be in range 1-100 (inclusive). A value of 50 means majority vote required.
 //! - `protocol_fee_bps`: Fee charged on task completions in basis points (max 1000 = 10%).
 //! - `min_stake`: Minimum stake required for agent/arbiter registration.
+//! - `min_stake_for_dispute`: Minimum stake required to initiate a dispute (must be > 0).
 //! - `multisig_threshold`: Number of signatures required for multisig operations.
 //! - `multisig_owners`: List of authorized multisig signers.
 
@@ -53,17 +54,20 @@ const MIN_REASONABLE_STAKE: u64 = 1_000_000;
 ///   67 requires supermajority, 100 requires unanimous agreement.
 /// * `protocol_fee_bps` - Protocol fee in basis points (0-1000, where 1000 = 10%).
 /// * `min_stake` - Minimum stake required for registration (must be >= 0.001 SOL).
+/// * `min_stake_for_dispute` - Minimum stake required to initiate a dispute (must be > 0).
 /// * `multisig_threshold` - Number of signatures required for multisig operations.
 /// * `multisig_owners` - List of authorized multisig signers.
 ///
 /// # Errors
 ///
 /// Returns [`CoordinationError::InvalidDisputeThreshold`] if dispute_threshold is 0 or > 100.
+/// Returns [`CoordinationError::InvalidMinStake`] if min_stake_for_dispute is 0.
 pub fn handler(
     ctx: Context<InitializeProtocol>,
     dispute_threshold: u8,
     protocol_fee_bps: u16,
     min_stake: u64,
+    min_stake_for_dispute: u64,
     multisig_threshold: u8,
     multisig_owners: Vec<Pubkey>,
 ) -> Result<()> {
@@ -80,6 +84,11 @@ pub fn handler(
     require!(
         min_stake >= MIN_REASONABLE_STAKE,
         CoordinationError::StakeTooLow
+    );
+    // Require min_stake_for_dispute > 0 (fixes #499)
+    require!(
+        min_stake_for_dispute > 0,
+        CoordinationError::InvalidMinStake
     );
     require!(
         !multisig_owners.is_empty(),
@@ -157,7 +166,7 @@ pub fn handler(
     config.max_tasks_per_24h = 50; // 50 tasks per 24h window
     config.dispute_initiation_cooldown = 300; // 5 minutes between disputes
     config.max_disputes_per_24h = 10; // 10 disputes per 24h window
-    config.min_stake_for_dispute = 0; // No stake required by default
+    config.min_stake_for_dispute = min_stake_for_dispute;
     config.slash_percentage = ProtocolConfig::DEFAULT_SLASH_PERCENTAGE;
     // Versioning
     config.protocol_version = CURRENT_PROTOCOL_VERSION;
