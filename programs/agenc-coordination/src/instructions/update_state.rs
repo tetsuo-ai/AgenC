@@ -58,6 +58,12 @@ pub fn handler(
         }
     }
 
+    // Validate state_key is not all zeros
+    require!(
+        state_key.iter().any(|&b| b != 0),
+        CoordinationError::InvalidStateKey
+    );
+
     // Validate state_value is not all zeros
     require!(
         state_value.iter().any(|&b| b != 0),
