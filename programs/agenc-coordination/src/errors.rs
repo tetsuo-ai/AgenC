@@ -219,6 +219,9 @@ pub enum CoordinationError {
     #[msg("Worker was not involved in this dispute")]
     WorkerNotInDispute,
 
+    #[msg("Dispute initiator cannot resolve their own dispute")]
+    InitiatorCannotResolve,
+
     // State errors (6400-6499)
     #[msg("State version mismatch (concurrent modification)")]
     VersionMismatch,
