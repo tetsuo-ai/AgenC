@@ -127,6 +127,14 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
         .checked_add(dispute.votes_against)
         .ok_or(CoordinationError::ArithmeticOverflow)?;
 
+    // Require minimum quorum for dispute resolution (fix #546)
+    // A single arbiter should not be able to unilaterally decide outcomes
+    const MIN_VOTERS_FOR_RESOLUTION: u8 = 3;
+    require!(
+        dispute.total_voters >= MIN_VOTERS_FOR_RESOLUTION,
+        CoordinationError::InsufficientQuorum
+    );
+
     // Determine outcome: if no votes, treat as rejected (refund to creator)
     // This prevents tasks from being stuck between voting_deadline and expires_at
     let approved = if total_votes == 0 {
