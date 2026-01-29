@@ -225,3 +225,10 @@ pub struct BondReleased {
     pub commitment: Pubkey,
     pub amount: u64,
 }
+
+/// Emitted when arbiter votes are cleaned up during dispute expiration
+#[event]
+pub struct ArbiterVotesCleanedUp {
+    pub dispute_id: [u8; 32],
+    pub arbiter_count: u8,
+}
