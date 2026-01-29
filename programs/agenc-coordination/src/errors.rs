@@ -194,6 +194,9 @@ pub enum CoordinationError {
     #[msg("Insufficient quorum: minimum number of voters not reached")]
     InsufficientQuorum,
 
+    #[msg("Agent has active disputes as defendant and cannot deregister")]
+    ActiveDisputesExist,
+
     // State errors (6400-6499)
     #[msg("State version mismatch (concurrent modification)")]
     VersionMismatch,
