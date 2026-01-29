@@ -151,18 +151,16 @@ pub fn handler(
     creator_agent.last_active = clock.unix_timestamp;
 
     // Transfer reward to escrow
-    if reward_amount > 0 {
-        system_program::transfer(
-            CpiContext::new(
-                ctx.accounts.system_program.to_account_info(),
-                system_program::Transfer {
-                    from: ctx.accounts.creator.to_account_info(),
-                    to: ctx.accounts.escrow.to_account_info(),
-                },
-            ),
-            reward_amount,
-        )?;
-    }
+    system_program::transfer(
+        CpiContext::new(
+            ctx.accounts.system_program.to_account_info(),
+            system_program::Transfer {
+                from: ctx.accounts.creator.to_account_info(),
+                to: ctx.accounts.escrow.to_account_info(),
+            },
+        ),
+        reward_amount,
+    )?;
 
     // Initialize task
     let task = &mut ctx.accounts.task;

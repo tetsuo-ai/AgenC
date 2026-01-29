@@ -306,7 +306,15 @@ pub struct AgentRegistration {
     pub agent_id: [u8; 32],
     /// Agent's signing authority
     pub authority: Pubkey,
-    /// Capability bitmask
+    /// Agent capabilities as a bitmask (u64).
+    ///
+    /// Each bit represents a specific capability the agent possesses.
+    /// See [`capability`] module for defined bits:
+    /// - Bits 0-9: Currently defined capabilities (COMPUTE, INFERENCE, etc.)
+    /// - Bits 10-63: Reserved for future protocol extensions
+    ///
+    /// Agents can only claim tasks where they have all required capabilities:
+    /// `(agent.capabilities & task.required_capabilities) == task.required_capabilities`
     pub capabilities: u64,
     /// Agent status
     pub status: AgentStatus,
