@@ -5,7 +5,7 @@
 "@agenc/runtime@file:../runtime":
   version "0.1.0"
   dependencies:
-    "@agenc/sdk" "file:../../../.cache/yarn/v6/npm-@agenc-runtime-0.1.0-b271e0f0-7f46-4e73-ae3d-46cb2cae0d6a-1769661431064/node_modules/@agenc/sdk"
+    "@agenc/sdk" "file:../../../.cache/yarn/v6/npm-@agenc-runtime-0.1.0-af772cb2-dad3-4cdb-a6c8-7a5912ba8d32-1769661296938/node_modules/@agenc/sdk"
 
 "@agenc/sdk@file:../sdk":
   version "1.2.0"
