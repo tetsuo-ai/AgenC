@@ -2,6 +2,21 @@
 // Proves task completion without revealing output
 //
 // Uses poseidon2_permutation for hashing (Sunspot compatible)
+//
+// Public Inputs (5 total):
+//   - task_id: 32-byte task identifier as byte array
+//   - agent_pubkey: 32-byte agent public key as byte array
+//   - constraint_hash: hash of expected output
+//   - output_commitment: commitment to the output
+//   - expected_binding: anti-replay binding value
+//
+// Public Output:
+//   - nullifier: prevents proof/knowledge reuse (derived from constraint_hash + agent_secret)
+//
+// Private Inputs:
+//   - output[4]: actual task output (4 field elements)
+//   - salt: random salt for commitment
+//   - agent_secret: secret known only to the agent for nullifier derivation (fix: issue #524)
 
 use std::hash::poseidon2_permutation;
 
@@ -89,7 +104,8 @@ fn main(
     // Private inputs
     output: [Field; 4],
     salt: Field,
-) {
+    agent_secret: Field,  // Agent's secret for nullifier derivation (fix: issue #524)
+) -> pub Field {  // Returns nullifier as public output
     // 1. Verify output satisfies the task constraint
     let computed_constraint = hash_4(output);
     assert(computed_constraint == constraint_hash, "Output hash does not match constraint_hash");
@@ -106,6 +122,15 @@ fn main(
 
     // CRITICAL: Assert binding matches expected (prevents replay attacks)
     assert(full_binding == expected_binding, "Binding mismatch - possible replay attack");
+
+    // 4. Compute nullifier to prevent proof/knowledge reuse (fix: issue #524)
+    //    nullifier = Poseidon(constraint_hash, agent_secret)
+    //
+    //    This ensures the same (constraint, agent_secret) pair can only be used once.
+    //    The on-chain program stores spent nullifiers as PDAs to prevent replay of
+    //    the same proof/knowledge across different tasks with the same constraint_hash.
+    let nullifier = hash_2(computed_constraint, agent_secret);
+    nullifier
 }
 
 // Helper to compute expected binding for tests
@@ -114,6 +139,11 @@ fn compute_expected_binding(task_id: [u8; 32], agent_pubkey: [u8; 32], output_co
     let agent_field = bytes_to_field(agent_pubkey);
     let binding = hash_2(task_field, agent_field);
     hash_2(binding, output_commitment)
+}
+
+// Helper to compute expected nullifier for tests (fix: issue #524)
+fn compute_expected_nullifier(constraint_hash: Field, agent_secret: Field) -> Field {
+    hash_2(constraint_hash, agent_secret)
 }
 
 // ============================================================================
@@ -159,6 +189,9 @@ global TEST_OUTPUT: [Field; 4] = [1, 2, 3, 4];
 // Standard test salt
 global TEST_SALT: Field = 12345;
 
+// Standard test agent secret for nullifier computation (fix: issue #524)
+global TEST_AGENT_SECRET: Field = 0xdeadbeef;
+
 // ============================================================================
 // Tests
 // ============================================================================
@@ -169,8 +202,10 @@ fn test_valid_proof() {
     let output_commitment = hash_2(constraint_hash, TEST_SALT);
 
     let expected_binding = compute_expected_binding(TEST_TASK_ID, TEST_AGENT_PUBKEY, output_commitment);
+    let expected_nullifier = compute_expected_nullifier(constraint_hash, TEST_AGENT_SECRET);
 
-    main(TEST_TASK_ID, TEST_AGENT_PUBKEY, constraint_hash, output_commitment, expected_binding, TEST_OUTPUT, TEST_SALT);
+    let nullifier = main(TEST_TASK_ID, TEST_AGENT_PUBKEY, constraint_hash, output_commitment, expected_binding, TEST_OUTPUT, TEST_SALT, TEST_AGENT_SECRET);
+    assert(nullifier == expected_nullifier, "Nullifier mismatch");
 }
 
 #[test(should_fail)]
@@ -186,7 +221,7 @@ fn test_wrong_output_fails() {
 
     let expected_binding = compute_expected_binding(task_id, agent_pubkey, output_commitment);
 
-    main(task_id, agent_pubkey, constraint_hash, output_commitment, expected_binding, wrong_output, TEST_SALT);
+    let _ = main(task_id, agent_pubkey, constraint_hash, output_commitment, expected_binding, wrong_output, TEST_SALT, TEST_AGENT_SECRET);
 }
 
 #[test(should_fail)]
@@ -201,7 +236,7 @@ fn test_wrong_salt_fails() {
 
     let expected_binding = compute_expected_binding(task_id, agent_pubkey, output_commitment);
 
-    main(task_id, agent_pubkey, constraint_hash, output_commitment, expected_binding, TEST_OUTPUT, wrong_salt);
+    let _ = main(task_id, agent_pubkey, constraint_hash, output_commitment, expected_binding, TEST_OUTPUT, wrong_salt, TEST_AGENT_SECRET);
 }
 
 #[test(should_fail)]
@@ -213,7 +248,7 @@ fn test_wrong_task_id_fails() {
     let expected_binding = compute_expected_binding(TEST_TASK_ID, TEST_AGENT_PUBKEY, output_commitment);
 
     // Try with WRONG task_id - binding won't match
-    main(WRONG_TASK_ID, TEST_AGENT_PUBKEY, constraint_hash, output_commitment, expected_binding, TEST_OUTPUT, TEST_SALT);
+    let _ = main(WRONG_TASK_ID, TEST_AGENT_PUBKEY, constraint_hash, output_commitment, expected_binding, TEST_OUTPUT, TEST_SALT, TEST_AGENT_SECRET);
 }
 
 #[test(should_fail)]
@@ -225,7 +260,7 @@ fn test_wrong_agent_fails() {
     let expected_binding = compute_expected_binding(TEST_TASK_ID, TEST_AGENT_PUBKEY, output_commitment);
 
     // Try with WRONG agent - binding won't match
-    main(TEST_TASK_ID, WRONG_AGENT, constraint_hash, output_commitment, expected_binding, TEST_OUTPUT, TEST_SALT);
+    let _ = main(TEST_TASK_ID, WRONG_AGENT, constraint_hash, output_commitment, expected_binding, TEST_OUTPUT, TEST_SALT, TEST_AGENT_SECRET);
 }
 
 #[test]
@@ -236,7 +271,7 @@ fn test_correct_binding_succeeds() {
     // Compute correct binding
     let expected_binding = compute_expected_binding(TEST_TASK_ID, TEST_AGENT_PUBKEY, output_commitment);
 
-    main(TEST_TASK_ID, TEST_AGENT_PUBKEY, constraint_hash, output_commitment, expected_binding, TEST_OUTPUT, TEST_SALT);
+    let _ = main(TEST_TASK_ID, TEST_AGENT_PUBKEY, constraint_hash, output_commitment, expected_binding, TEST_OUTPUT, TEST_SALT, TEST_AGENT_SECRET);
 }
 
 // Test that obviously oversized field inputs are rejected
@@ -309,4 +344,67 @@ fn test_bytes_less_than_modulus() {
 
     // Modulus itself should NOT be less than modulus
     assert(bytes_less_than_modulus(BN254_MODULUS) == false);
+}
+
+// ============================================================================
+// Nullifier Tests (fix: issue #524)
+// ============================================================================
+
+// Test that different agent_secrets produce different nullifiers
+// This ensures that proofs cannot be reused across agents
+#[test]
+fn test_different_secrets_different_nullifiers() {
+    let constraint_hash = hash_4(TEST_OUTPUT);
+    let output_commitment = hash_2(constraint_hash, TEST_SALT);
+    let expected_binding = compute_expected_binding(TEST_TASK_ID, TEST_AGENT_PUBKEY, output_commitment);
+
+    let secret1: Field = 0x1111;
+    let secret2: Field = 0x2222;
+
+    let nullifier1 = main(TEST_TASK_ID, TEST_AGENT_PUBKEY, constraint_hash, output_commitment, expected_binding, TEST_OUTPUT, TEST_SALT, secret1);
+    let nullifier2 = main(TEST_TASK_ID, TEST_AGENT_PUBKEY, constraint_hash, output_commitment, expected_binding, TEST_OUTPUT, TEST_SALT, secret2);
+
+    // Different secrets MUST produce different nullifiers
+    assert(nullifier1 != nullifier2, "Different secrets should produce different nullifiers");
+}
+
+// Test that same secret produces same nullifier (deterministic)
+#[test]
+fn test_same_secret_same_nullifier() {
+    let constraint_hash = hash_4(TEST_OUTPUT);
+    let output_commitment = hash_2(constraint_hash, TEST_SALT);
+    let expected_binding = compute_expected_binding(TEST_TASK_ID, TEST_AGENT_PUBKEY, output_commitment);
+
+    let secret: Field = 0xabcd;
+
+    let nullifier1 = main(TEST_TASK_ID, TEST_AGENT_PUBKEY, constraint_hash, output_commitment, expected_binding, TEST_OUTPUT, TEST_SALT, secret);
+    let nullifier2 = main(TEST_TASK_ID, TEST_AGENT_PUBKEY, constraint_hash, output_commitment, expected_binding, TEST_OUTPUT, TEST_SALT, secret);
+
+    // Same secret MUST produce same nullifier (deterministic)
+    assert(nullifier1 == nullifier2, "Same secret should produce same nullifier");
+}
+
+// Test that nullifier is derived from constraint_hash, not just output
+// Different constraint_hash with same secret = different nullifier
+#[test]
+fn test_nullifier_constraint_hash_domain_separation() {
+    let output1: [Field; 4] = [1, 2, 3, 4];
+    let output2: [Field; 4] = [5, 6, 7, 8];
+
+    let constraint_hash1 = hash_4(output1);
+    let constraint_hash2 = hash_4(output2);
+
+    let output_commitment1 = hash_2(constraint_hash1, TEST_SALT);
+    let output_commitment2 = hash_2(constraint_hash2, TEST_SALT);
+
+    let expected_binding1 = compute_expected_binding(TEST_TASK_ID, TEST_AGENT_PUBKEY, output_commitment1);
+    let expected_binding2 = compute_expected_binding(TEST_TASK_ID, TEST_AGENT_PUBKEY, output_commitment2);
+
+    let secret: Field = 0x999;
+
+    let nullifier1 = main(TEST_TASK_ID, TEST_AGENT_PUBKEY, constraint_hash1, output_commitment1, expected_binding1, output1, TEST_SALT, secret);
+    let nullifier2 = main(TEST_TASK_ID, TEST_AGENT_PUBKEY, constraint_hash2, output_commitment2, expected_binding2, output2, TEST_SALT, secret);
+
+    // Different constraint_hash = different nullifier domain
+    assert(nullifier1 != nullifier2, "Different constraints should produce different nullifiers");
 }
