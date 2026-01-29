@@ -56,6 +56,7 @@ pub fn handler(
     );
 
     require!(capabilities != 0, CoordinationError::InvalidCapabilities);
+    require!(!endpoint.is_empty(), CoordinationError::InvalidInput);
     require!(endpoint.len() <= 128, CoordinationError::StringTooLong);
 
     let metadata = metadata_uri.unwrap_or_default();
