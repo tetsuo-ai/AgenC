@@ -157,15 +157,3 @@ pub fn update_min_version_handler(
 
     Ok(())
 }
-
-/// Check version compatibility before critical operations
-/// Use this macro in instructions that require version checks
-#[macro_export]
-macro_rules! require_version_compatible {
-    ($config:expr) => {
-        require!(
-            $config.is_version_compatible(),
-            CoordinationError::VersionMismatchProtocol
-        );
-    };
-}
