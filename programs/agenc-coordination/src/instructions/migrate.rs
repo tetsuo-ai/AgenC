@@ -97,10 +97,10 @@ fn apply_migration(_config: &mut ProtocolConfig, version: u8) -> Result<()> {
             // Version 1 is the initial version, no migration needed
             Ok(())
         }
+        // Version 2 migration is intentionally a no-op
+        // Placeholder for future schema changes
         2 => {
-            // Future: Version 2 migration logic
-            // Example: Initialize new fields, transform existing data
-            // config.new_field = default_value;
+            // No-op: Reserved for future use
             Ok(())
         }
         _ => {
