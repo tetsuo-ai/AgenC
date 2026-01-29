@@ -187,6 +187,8 @@ pub fn handler(
             // Round window start to prevent drift
             let window_start = (clock.unix_timestamp / WINDOW_24H) * WINDOW_24H;
             agent.rate_limit_window_start = window_start;
+            // Note: Both counters reset together when window expires.
+            // This is intentional - ensures clean state at window boundary.
             agent.task_count_24h = 0;
             agent.dispute_count_24h = 0;
         }
