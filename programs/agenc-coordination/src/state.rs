@@ -691,7 +691,8 @@ pub struct Dispute {
     pub votes_for: u64,
     /// Votes against
     pub votes_against: u64,
-    /// Total eligible voters
+    /// Total arbiters who voted (max 255 due to u8)
+    /// Note: Increase to u16 if more arbiters needed
     pub total_voters: u8,
     /// Voting deadline - after this, no new votes accepted
     /// voting_deadline = created_at + voting_period
