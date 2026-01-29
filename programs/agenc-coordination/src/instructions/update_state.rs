@@ -51,6 +51,7 @@ pub fn handler(
     );
 
     if agent.last_state_update > 0 {
+        // Using saturating_sub intentionally - handles clock drift safely
         let elapsed = clock.unix_timestamp.saturating_sub(agent.last_state_update);
         if elapsed < STATE_UPDATE_COOLDOWN {
             return Err(CoordinationError::RateLimitExceeded.into());

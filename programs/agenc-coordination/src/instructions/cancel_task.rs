@@ -118,6 +118,7 @@ pub fn handler(ctx: Context<CancelTask>) -> Result<()> {
         );
         let mut worker_data = worker_info.try_borrow_mut_data()?;
         let mut worker = AgentRegistration::try_deserialize(&mut &worker_data[..])?;
+        // Using saturating_sub intentionally - underflow returns 0 (safe counter decrement)
         worker.active_tasks = worker.active_tasks.saturating_sub(1);
         worker.try_serialize(&mut &mut worker_data[8..])?;
     }
