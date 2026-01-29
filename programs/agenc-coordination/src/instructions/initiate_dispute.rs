@@ -103,6 +103,12 @@ pub fn handler(
     // Validate resolution type
     require!(resolution_type <= 2, CoordinationError::InvalidInput);
 
+    // Validate evidence hash is not zero
+    require!(
+        evidence_hash != [0u8; 32],
+        CoordinationError::InvalidEvidenceHash
+    );
+
     let evidence_len = evidence.len();
     require!(evidence_len >= 50, CoordinationError::InsufficientEvidence);
     require!(evidence_len <= 1000, CoordinationError::EvidenceTooLong);
