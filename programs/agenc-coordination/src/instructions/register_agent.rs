@@ -31,6 +31,9 @@ pub struct RegisterAgent<'info> {
     pub system_program: Program<'info, System>,
 }
 
+/// Note: The agent PDA account holds both rent-exempt balance and staked funds.
+/// On deregister, stake is returned but rent remains with the account.
+/// The `stake` field in AgentRegistration tracks only the staked portion.
 pub fn handler(
     ctx: Context<RegisterAgent>,
     agent_id: [u8; 32],
