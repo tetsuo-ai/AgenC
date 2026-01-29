@@ -147,11 +147,25 @@ pub fn handler(
     // === Rate Limiting Checks ===
 
     // Check minimum stake requirement for dispute initiation (griefing resistance)
+    // Creator-initiated disputes require 2x stake to prevent abuse (fix #407)
     if config.min_stake_for_dispute > 0 {
-        require!(
-            agent.stake >= config.min_stake_for_dispute,
-            CoordinationError::InsufficientStakeForDispute
-        );
+        if is_creator {
+            // Creator disputes require 2x the minimum stake to discourage frivolous disputes
+            // that could grief workers who claimed the task in good faith
+            let creator_min_stake = config
+                .min_stake_for_dispute
+                .checked_mul(2)
+                .ok_or(CoordinationError::ArithmeticOverflow)?;
+            require!(
+                agent.stake >= creator_min_stake,
+                CoordinationError::InsufficientStakeForCreatorDispute
+            );
+        } else {
+            require!(
+                agent.stake >= config.min_stake_for_dispute,
+                CoordinationError::InsufficientStakeForDispute
+            );
+        }
     }
 
     // Check cooldown period
@@ -281,6 +295,7 @@ pub fn handler(
     dispute.slash_applied = false;
     dispute.initiator_slash_applied = false;
     dispute.worker_stake_at_dispute = worker_stake;
+    dispute.initiated_by_creator = is_creator;
     dispute.bump = ctx.bumps.dispute;
 
     // Mark task as disputed

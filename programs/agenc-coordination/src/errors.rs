@@ -328,6 +328,9 @@ pub enum CoordinationError {
     #[msg("Insufficient stake to initiate dispute")]
     InsufficientStakeForDispute,
 
+    #[msg("Creator-initiated disputes require 2x the minimum stake")]
+    InsufficientStakeForCreatorDispute,
+
     // Version/upgrade errors (6800-6899)
     #[msg("Protocol version mismatch: account version incompatible with current program")]
     VersionMismatchProtocol,

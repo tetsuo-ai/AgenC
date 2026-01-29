@@ -723,6 +723,9 @@ pub struct Dispute {
     pub initiator_slash_applied: bool,
     /// Snapshot of worker's stake at dispute initiation (prevents stake withdrawal attacks)
     pub worker_stake_at_dispute: u64,
+    /// Whether the dispute was initiated by the task creator (fix #407)
+    /// Used to apply stricter requirements and different expiration behavior for creator disputes
+    pub initiated_by_creator: bool,
     /// Bump seed
     pub bump: u8,
 }
@@ -746,6 +749,7 @@ impl Dispute {
         1 +  // slash_applied
         1 +  // initiator_slash_applied
         8 +  // worker_stake_at_dispute
+        1 +  // initiated_by_creator
         1; // bump
 }
 
