@@ -301,6 +301,36 @@ describe("coordination-security", () => {
         program.removeEventListener(listener);
         expect(eventEmitted).to.be.true;
       });
+
+      it("Fails when registering agent with empty endpoint", async () => {
+        const emptyEndpointAgentId = makeId("empty");
+        const [agentPda] = PublicKey.findProgramAddressSync(
+          [Buffer.from("agent"), emptyEndpointAgentId],
+          program.programId
+        );
+
+        try {
+          await program.methods
+            .registerAgent(
+              Array.from(emptyEndpointAgentId),
+              new BN(CAPABILITY_COMPUTE),
+              "",  // Empty endpoint - should fail
+              null,
+              new BN(1 * LAMPORTS_PER_SOL)
+            )
+            .accountsPartial({
+              agent: agentPda,
+              protocolConfig: protocolPda,
+              authority: worker1.publicKey,
+            })
+            .signers([worker1])
+            .rpc();
+          expect.fail("Should have failed - empty endpoint");
+        } catch (e: unknown) {
+          const anchorError = e as { error?: { errorCode?: { code: string } }; message?: string };
+          expect(anchorError.error?.errorCode?.code).to.equal("InvalidInput");
+        }
+      });
     });
 
     describe("Agent Update and Deregister", () => {
