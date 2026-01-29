@@ -18,6 +18,9 @@ pub struct UpdateAgent<'info> {
     pub authority: Signer<'info>,
 }
 
+/// Cooldown period between agent updates (1 minute)
+const UPDATE_COOLDOWN: i64 = 60;
+
 pub fn handler(
     ctx: Context<UpdateAgent>,
     capabilities: Option<u64>,
@@ -27,6 +30,12 @@ pub fn handler(
 ) -> Result<()> {
     let agent = &mut ctx.accounts.agent;
     let clock = Clock::get()?;
+
+    // Rate limit: enforce cooldown between updates
+    require!(
+        clock.unix_timestamp >= agent.last_state_update + UPDATE_COOLDOWN,
+        CoordinationError::UpdateTooFrequent
+    );
 
     if let Some(caps) = capabilities {
         agent.capabilities = caps;
@@ -88,6 +97,7 @@ pub fn handler(
     }
 
     agent.last_active = clock.unix_timestamp;
+    agent.last_state_update = clock.unix_timestamp;
 
     emit!(AgentUpdated {
         agent_id: agent.agent_id,
