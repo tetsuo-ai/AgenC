@@ -260,7 +260,17 @@ pub struct ProtocolConfig {
     pub min_supported_version: u8,
     /// Padding for alignment/future use
     pub _padding: [u8; 2],
-    /// Multisig owners (fixed-size)
+    /// Multisig owners (fixed-size).
+    ///
+    /// # Design Note (see #497)
+    /// Multisig configuration is **immutable** after protocol initialization.
+    /// This is intentional for security reasons:
+    /// - Prevents hostile takeover via multisig reconfiguration
+    /// - Ensures governance changes require protocol redeployment with proper ceremony
+    /// - The array is fully zeroed before population in `initialize_protocol`
+    ///
+    /// Only the first `multisig_owners_len` entries are valid; remaining slots
+    /// are always `Pubkey::default()`.
     pub multisig_owners: [Pubkey; ProtocolConfig::MAX_MULTISIG_OWNERS],
 }
 
@@ -339,8 +349,6 @@ impl ProtocolConfig {
         self.min_supported_version <= self.protocol_version
             && self.protocol_version <= CURRENT_PROTOCOL_VERSION
             // Program can read configs at or above program's min
-            && self.protocol_version >= MIN_SUPPORTED_VERSION
-    }
             && self.protocol_version >= MIN_SUPPORTED_VERSION
     }
 }
