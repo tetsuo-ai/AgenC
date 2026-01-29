@@ -14,6 +14,15 @@ global BYTES_PER_FIELD: Field = 256;
 // Standard sizes
 global PUBKEY_SIZE: u32 = 32;
 
+// BN254 scalar field modulus as bytes (big-endian)
+// Value: 0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001
+global BN254_MODULUS: [u8; 32] = [
+    0x30, 0x64, 0x4e, 0x72, 0xe1, 0x31, 0xa0, 0x29,
+    0xb8, 0x50, 0x45, 0xb6, 0x81, 0x81, 0x58, 0x5d,
+    0x28, 0x33, 0xe8, 0x48, 0x79, 0xb9, 0x70, 0x91,
+    0x43, 0xe1, 0xf5, 0x93, 0xf0, 0x00, 0x00, 0x01
+];
+
 // Hash 4 field elements using Poseidon2 permutation in sponge mode
 // Returns the first element of the permuted state as the hash output
 // Security: Poseidon2 is a ZK-friendly algebraic hash function providing collision resistance
@@ -31,15 +40,36 @@ fn hash_2(a: Field, b: Field) -> Field {
     permuted[0]
 }
 
+// Check if a 32-byte array is strictly less than the BN254 field modulus
+// Uses lexicographic comparison (big-endian byte order)
+// Security: This provides defense-in-depth against field overflow attacks
+fn bytes_less_than_modulus(bytes: [u8; 32]) -> bool {
+    let mut result = false;
+    let mut decided = false;
+    
+    for i in 0..32 {
+        if !decided {
+            if bytes[i] < BN254_MODULUS[i] {
+                result = true;
+                decided = true;
+            } else if bytes[i] > BN254_MODULUS[i] {
+                result = false;
+                decided = true;
+            }
+            // If equal, continue to next byte
+        }
+    }
+    // If all bytes equal (bytes == modulus), return false (not strictly less than)
+    result
+}
+
 // Convert 32-byte array to field element (big-endian interpretation)
 // NOTE: Ed25519 pubkeys are always < 2^252 (curve order), well within BN254 field modulus (~2^254).
 // Task IDs should be validated by the on-chain program to be within safe bounds.
-// Security: We validate the high byte isn't suspiciously large to catch obviously oversized values.
+// Security: Full modulus comparison ensures input is within valid field range
 fn bytes_to_field(bytes: [u8; 32]) -> Field {
-    // BN254 scalar field modulus starts with 0x30644e72...
-    // Any input with first byte > 0x30 definitely exceeds the modulus
-    // This is a heuristic check - full modulus comparison would be expensive in-circuit
-    assert(bytes[0] <= 0x30, "Input may exceed field modulus - first byte too large");
+    // Full modulus comparison - input must be strictly less than BN254 scalar field modulus
+    assert(bytes_less_than_modulus(bytes), "Input exceeds BN254 field modulus");
 
     let mut field: Field = 0;
     for i in 0..PUBKEY_SIZE {
@@ -209,12 +239,74 @@ fn test_correct_binding_succeeds() {
     main(TEST_TASK_ID, TEST_AGENT_PUBKEY, constraint_hash, output_commitment, expected_binding, TEST_OUTPUT, TEST_SALT);
 }
 
-// Test that oversized field inputs are rejected (security fix MAIN-001)
+// Test that obviously oversized field inputs are rejected
 #[test(should_fail)]
 fn test_field_overflow_rejected() {
-    // Input with first byte 0x40 exceeds BN254 field modulus heuristic check (> 0x30)
+    // Input with first byte 0x40 clearly exceeds BN254 field modulus (> 0x30)
     let oversized_input: [u8; 32] = [0x40; 32];
 
     // This should fail due to the field overflow check in bytes_to_field
     let _ = bytes_to_field(oversized_input);
+}
+
+// Test that values with first byte 0x30 but exceeding modulus are rejected (issue #539)
+// This catches the edge case where heuristic-only checking would fail
+#[test(should_fail)]
+fn test_field_overflow_edge_case_rejected() {
+    // Value: 0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000002
+    // This is exactly 1 greater than BN254 modulus - first byte is 0x30 (passes heuristic)
+    // but the full value exceeds the modulus
+    let edge_case_input: [u8; 32] = [
+        0x30, 0x64, 0x4e, 0x72, 0xe1, 0x31, 0xa0, 0x29,
+        0xb8, 0x50, 0x45, 0xb6, 0x81, 0x81, 0x58, 0x5d,
+        0x28, 0x33, 0xe8, 0x48, 0x79, 0xb9, 0x70, 0x91,
+        0x43, 0xe1, 0xf5, 0x93, 0xf0, 0x00, 0x00, 0x02  // Last byte is 0x02, exceeds modulus (0x01)
+    ];
+
+    // This should fail - old heuristic check would have passed this!
+    let _ = bytes_to_field(edge_case_input);
+}
+
+// Test that values exactly equal to modulus are rejected
+#[test(should_fail)]
+fn test_field_modulus_exact_rejected() {
+    // Exactly the BN254 modulus - should be rejected (must be strictly less than)
+    let modulus_input: [u8; 32] = BN254_MODULUS;
+
+    let _ = bytes_to_field(modulus_input);
+}
+
+// Test that values just below modulus are accepted
+#[test]
+fn test_field_just_below_modulus_accepted() {
+    // Value: 0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000000
+    // This is exactly 1 less than BN254 modulus - should be accepted
+    let valid_input: [u8; 32] = [
+        0x30, 0x64, 0x4e, 0x72, 0xe1, 0x31, 0xa0, 0x29,
+        0xb8, 0x50, 0x45, 0xb6, 0x81, 0x81, 0x58, 0x5d,
+        0x28, 0x33, 0xe8, 0x48, 0x79, 0xb9, 0x70, 0x91,
+        0x43, 0xe1, 0xf5, 0x93, 0xf0, 0x00, 0x00, 0x00  // Last byte is 0x00, just under modulus
+    ];
+
+    // This should succeed
+    let _ = bytes_to_field(valid_input);
+}
+
+// Test the bytes_less_than_modulus helper function
+#[test]
+fn test_bytes_less_than_modulus() {
+    // Zero should be less than modulus
+    let zero: [u8; 32] = [0; 32];
+    assert(bytes_less_than_modulus(zero) == true);
+
+    // Small value should be less than modulus
+    let small: [u8; 32] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1];
+    assert(bytes_less_than_modulus(small) == true);
+
+    // Value with first byte 0x31 should NOT be less than modulus
+    let too_large: [u8; 32] = [0x31, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    assert(bytes_less_than_modulus(too_large) == false);
+
+    // Modulus itself should NOT be less than modulus
+    assert(bytes_less_than_modulus(BN254_MODULUS) == false);
 }
