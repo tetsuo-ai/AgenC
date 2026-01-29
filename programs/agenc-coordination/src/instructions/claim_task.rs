@@ -53,10 +53,16 @@ pub fn handler(ctx: Context<ClaimTask>) -> Result<()> {
 
     check_version_compatible(config)?;
 
-    // Validate task state
+    // Validate task state - must be Open or InProgress (for collaborative tasks)
     require!(
         task.status == TaskStatus::Open || task.status == TaskStatus::InProgress,
         CoordinationError::TaskNotOpen
+    );
+
+    // Validate status transition is allowed (fix #538)
+    require!(
+        task.status.can_transition_to(TaskStatus::InProgress),
+        CoordinationError::InvalidStatusTransition
     );
 
     // Check deadline

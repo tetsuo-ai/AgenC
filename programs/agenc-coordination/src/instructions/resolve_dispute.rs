@@ -137,6 +137,17 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
         CoordinationError::InsufficientQuorum
     );
 
+    // Validate task is in disputed state and transitions are allowed (fix #538)
+    require!(
+        task.status == TaskStatus::Disputed,
+        CoordinationError::TaskNotInProgress
+    );
+    require!(
+        task.status.can_transition_to(TaskStatus::Completed)
+            && task.status.can_transition_to(TaskStatus::Cancelled),
+        CoordinationError::InvalidStatusTransition
+    );
+
     // Determine outcome: if no votes, treat as rejected (refund to creator)
     // This prevents tasks from being stuck between voting_deadline and expires_at
     let approved = if total_votes == 0 {
