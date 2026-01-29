@@ -128,11 +128,16 @@ pub struct DisputeResolved {
 }
 
 /// Emitted when a dispute expires without resolution
+/// Updated in fix #418 to include fair distribution details
 #[event]
 pub struct DisputeExpired {
     pub dispute_id: [u8; 32],
     pub task_id: [u8; 32],
     pub refund_amount: u64,
+    /// Amount refunded to creator (fix #418)
+    pub creator_amount: u64,
+    /// Amount paid to worker (fix #418)
+    pub worker_amount: u64,
     pub timestamp: i64,
 }
 
