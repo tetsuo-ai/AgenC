@@ -129,11 +129,16 @@ template TaskCompletion() {
 
     // ========================================
     // 2. Verify commitment is correctly formed
-    //    output_commitment = Poseidon(constraint_hash, salt)
+    //    output_commitment = Poseidon(output[0], output[1], output[2], output[3], salt)
+    //    FIX #532: Bind directly to raw output values, not constraint_hash
+    //    This prevents theoretical collision attacks on the intermediate hash
     // ========================================
-    component hash_commitment = Poseidon(2);
-    hash_commitment.inputs[0] <== computed_constraint;
-    hash_commitment.inputs[1] <== salt;
+    component hash_commitment = Poseidon(5);
+    hash_commitment.inputs[0] <== output_values[0];
+    hash_commitment.inputs[1] <== output_values[1];
+    hash_commitment.inputs[2] <== output_values[2];
+    hash_commitment.inputs[3] <== output_values[3];
+    hash_commitment.inputs[4] <== salt;
 
     signal computed_commitment <== hash_commitment.out;
     computed_commitment === output_commitment;
