@@ -65,15 +65,7 @@ pub fn handler(
     let clock = Clock::get()?;
     let agent = &mut ctx.accounts.agent;
 
-    if stake_amount > 0 {
-        let cpi_accounts = system_program::Transfer {
-            from: ctx.accounts.authority.to_account_info(),
-            to: agent.to_account_info(),
-        };
-        let cpi_ctx = CpiContext::new(ctx.accounts.system_program.to_account_info(), cpi_accounts);
-        system_program::transfer(cpi_ctx, stake_amount)?;
-    }
-
+    // 1. First initialize agent account fields
     agent.agent_id = agent_id;
     agent.authority = ctx.accounts.authority.key();
     agent.capabilities = capabilities;
