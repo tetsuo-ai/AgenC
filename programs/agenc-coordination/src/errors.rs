@@ -2,6 +2,11 @@
 
 use anchor_lang::prelude::*;
 
+/// Protocol error codes
+///
+/// Note: Error code comments (e.g., "6100-6199") are informational only.
+/// Anchor assigns codes sequentially starting at 6000.
+/// The comments help organize errors by category but are not enforced.
 #[error_code]
 pub enum CoordinationError {
     // Agent errors (6000-6099)
