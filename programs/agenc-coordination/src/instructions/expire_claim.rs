@@ -1,10 +1,14 @@
 //! Expires a stale claim after its deadline passes.
 //!
-//! # Permissionless Design
-//! This instruction can be called by anyone. This is intentional:
-//! - Prevents claims from blocking task slots indefinitely
-//! - Allows third-party cleanup services
-//! - No economic risk since only valid expirations succeed
+//! # Grace Period Protection (Issue #421)
+//! To prevent griefing attacks where malicious actors race workers to expire
+//! their claims exactly at timeout, a grace period is enforced:
+//! - During the grace period (60 seconds after expiry), only the worker authority
+//!   can call expire_claim on their own claim
+//! - After the grace period, anyone can call expire_claim for cleanup
+//!
+//! This protects workers from MEV attacks and transaction reordering while
+//! still allowing permissionless cleanup of truly abandoned claims.
 //!
 //! # Cleanup Reward
 //! Callers receive a small reward (0.000001 SOL) from the task escrow
@@ -17,6 +21,11 @@ use anchor_lang::prelude::*;
 /// Small reward for calling expire_claim (0.000001 SOL)
 /// Incentivizes third-party cleanup services
 const CLEANUP_REWARD: u64 = 1000;
+
+/// Grace period in seconds after claim expiry during which only the worker
+/// authority can expire the claim. This prevents griefing attacks where
+/// malicious actors race workers to expire their claims. (Issue #421)
+const GRACE_PERIOD: i64 = 60;
 
 #[derive(Accounts)]
 pub struct ExpireClaim<'info> {
@@ -99,6 +108,18 @@ pub fn handler(ctx: Context<ExpireClaim>) -> Result<()> {
     require!(
         clock.unix_timestamp > claim.expires_at,
         CoordinationError::ClaimNotExpired
+    );
+
+    // Grace period protection (Issue #421):
+    // During the grace period after expiry, only the worker authority can expire
+    // their own claim. This prevents griefing attacks where malicious actors race
+    // workers to expire their claims exactly at timeout.
+    let grace_period_ended = clock.unix_timestamp > claim.expires_at.saturating_add(GRACE_PERIOD);
+    let is_worker_authority = ctx.accounts.caller.key() == worker.authority;
+
+    require!(
+        grace_period_ended || is_worker_authority,
+        CoordinationError::GracePeriodNotPassed
     );
 
     // Transfer cleanup reward from escrow to caller (fix #531)

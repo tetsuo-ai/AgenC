@@ -146,6 +146,9 @@ pub enum CoordinationError {
     #[msg("Invalid rent recipient: must be worker authority")]
     InvalidRentRecipient,
 
+    #[msg("Grace period not passed: only worker authority can expire claim within 60 seconds of expiry")]
+    GracePeriodNotPassed,
+
     #[msg("Invalid proof hash: proof_hash cannot be all zeros")]
     InvalidProofHash,
 
