@@ -29,6 +29,7 @@ pub struct ResolveDispute<'info> {
 
     #[account(
         mut,
+        close = creator,
         seeds = [b"escrow", task.key().as_ref()],
         bump = escrow.bump
     )]
