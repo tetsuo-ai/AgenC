@@ -27,6 +27,9 @@ pub struct InitializeProtocol<'info> {
     pub system_program: Program<'info, System>,
 }
 
+/// Minimum reasonable stake value (0.001 SOL in lamports)
+const MIN_REASONABLE_STAKE: u64 = 1_000_000;
+
 pub fn handler(
     ctx: Context<InitializeProtocol>,
     dispute_threshold: u8,
@@ -43,6 +46,11 @@ pub fn handler(
     require!(
         protocol_fee_bps <= MAX_PROTOCOL_FEE_BPS,
         CoordinationError::InvalidProtocolFee
+    );
+    // Ensure minimum stake is sensible (fixes #586)
+    require!(
+        min_stake >= MIN_REASONABLE_STAKE,
+        CoordinationError::StakeTooLow
     );
     require!(
         !multisig_owners.is_empty(),
