@@ -6,13 +6,14 @@
 //! - Allows third-party cleanup services
 //! - No economic risk since only valid expirations succeed
 
-use std::collections::HashSet;
-
 use crate::errors::CoordinationError;
 use crate::events::{ArbiterVotesCleanedUp, DisputeExpired};
+use crate::instructions::dispute_helpers::{
+    process_remaining_accounts, DecrementMode, WorkerProcessingOptions,
+};
 use crate::state::{
-    AgentRegistration, Dispute, DisputeStatus, DisputeVote, ProtocolConfig, Task, TaskClaim,
-    TaskEscrow, TaskStatus,
+    AgentRegistration, Dispute, DisputeStatus, ProtocolConfig, Task, TaskClaim, TaskEscrow,
+    TaskStatus,
 };
 use crate::utils::version::check_version_compatible;
 use anchor_lang::prelude::*;

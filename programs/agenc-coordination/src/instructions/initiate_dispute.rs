@@ -184,6 +184,8 @@ pub fn handler(
             .saturating_sub(agent.rate_limit_window_start)
             >= WINDOW_24H
         {
+            // Note: Both counters reset together when window expires.
+            // This is intentional - ensures clean state at window boundary.
             agent.rate_limit_window_start = clock.unix_timestamp;
             agent.task_count_24h = 0;
             agent.dispute_count_24h = 0;

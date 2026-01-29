@@ -21,6 +21,7 @@
 
 pub mod completion_helpers;
 pub mod constants;
+pub mod dispute_helpers;
 
 pub mod apply_dispute_slash;
 pub mod apply_initiator_slash;
