@@ -608,9 +608,11 @@ impl TaskClaim {
 }
 
 /// Shared coordination state
-/// PDA seeds: ["state", state_key]
+/// PDA seeds: ["state", owner, state_key]
 #[account]
 pub struct CoordinationState {
+    /// Owner authority - namespaces state to prevent cross-user collisions
+    pub owner: Pubkey,
     /// State key
     pub state_key: [u8; 32],
     /// State value
@@ -628,6 +630,7 @@ pub struct CoordinationState {
 impl Default for CoordinationState {
     fn default() -> Self {
         Self {
+            owner: Pubkey::default(),
             state_key: [0u8; 32],
             state_value: [0u8; 64],
             last_updater: Pubkey::default(),
@@ -640,6 +643,7 @@ impl Default for CoordinationState {
 
 impl CoordinationState {
     pub const SIZE: usize = 8 + // discriminator
+        32 + // owner
         32 + // state_key
         64 + // state_value
         32 + // last_updater
