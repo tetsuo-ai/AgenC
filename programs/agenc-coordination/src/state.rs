@@ -253,6 +253,8 @@ pub struct ProtocolConfig {
     pub min_stake_for_dispute: u64,
     /// Percentage of stake slashed on losing dispute (0-100)
     pub slash_percentage: u8,
+    /// Voting period for disputes in seconds (default: 24 hours)
+    pub voting_period: i64,
     // === Versioning fields ===
     /// Current protocol version (for upgrades)
     pub protocol_version: u8,
@@ -300,6 +302,7 @@ impl Default for ProtocolConfig {
             max_disputes_per_24h: 10,   // 10 disputes per 24h window
             min_stake_for_dispute: 100_000_000, // 0.1 SOL default for anti-griefing
             slash_percentage: ProtocolConfig::DEFAULT_SLASH_PERCENTAGE,
+            voting_period: ProtocolConfig::DEFAULT_VOTING_PERIOD,
             // Versioning
             protocol_version: CURRENT_PROTOCOL_VERSION,
             min_supported_version: MIN_SUPPORTED_VERSION,
@@ -317,6 +320,8 @@ impl ProtocolConfig {
     /// Increased from 10% to 25% to provide stronger deterrence against bad actors
     /// while remaining proportionate to typical violation severity.
     pub const DEFAULT_SLASH_PERCENTAGE: u8 = 25;
+    /// Default voting period for disputes: 24 hours
+    pub const DEFAULT_VOTING_PERIOD: i64 = 24 * 60 * 60;
     pub const SIZE: usize = 8 + // discriminator
         32 + // authority
         32 + // treasury
@@ -339,6 +344,7 @@ impl ProtocolConfig {
         1 +  // max_disputes_per_24h
         8 +  // min_stake_for_dispute
         1 +  // slash_percentage
+        8 +  // voting_period
         1 +  // protocol_version
         1 +  // min_supported_version
         2 +  // padding
