@@ -199,12 +199,14 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
                 // Split remaining funds between creator and worker.
                 // Use remaining_funds > 0 (not half > 0) to handle the edge case
                 // where remaining_funds = 1 and half rounds down to 0.
+                // Fix #563: Creator gets the rounding remainder for fairness
+                // (creator funded the task, so any remainder returns to them)
                 if remaining_funds > 0 {
-                    let half = remaining_funds
+                    let worker_share = remaining_funds
                         .checked_div(2)
                         .ok_or(CoordinationError::ArithmeticOverflow)?;
-                    let other_half = remaining_funds
-                        .checked_sub(half)
+                    let creator_share = remaining_funds
+                        .checked_sub(worker_share)
                         .ok_or(CoordinationError::ArithmeticOverflow)?;
 
                     **escrow.to_account_info().try_borrow_mut_lamports()? -= remaining_funds;
@@ -212,7 +214,7 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
                         .accounts
                         .creator
                         .to_account_info()
-                        .try_borrow_mut_lamports()? += half;
+                        .try_borrow_mut_lamports()? += creator_share;
 
                     if let Some(worker_authority) = &ctx.accounts.worker_authority {
                         // Worker must have valid claim (fix #296: pay to authority wallet)
@@ -221,14 +223,14 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
                             CoordinationError::NotClaimed
                         );
                         **worker_authority.to_account_info().try_borrow_mut_lamports()? +=
-                            other_half;
+                            worker_share;
                     } else {
                         // If no worker_authority, give all to creator
                         **ctx
                             .accounts
                             .creator
                             .to_account_info()
-                            .try_borrow_mut_lamports()? += other_half;
+                            .try_borrow_mut_lamports()? += worker_share;
                     }
                 }
                 task.status = TaskStatus::Cancelled;
