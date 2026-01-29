@@ -96,6 +96,12 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
         CoordinationError::DisputeNotActive
     );
 
+    // Prevent initiator from resolving their own dispute (fix #458)
+    require!(
+        ctx.accounts.resolver.key() != dispute.initiator_authority,
+        CoordinationError::InitiatorCannotResolve
+    );
+
     // Verify voting period has ended
     require!(
         clock.unix_timestamp >= dispute.voting_deadline,
