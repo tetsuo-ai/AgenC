@@ -132,6 +132,14 @@ pub mod task_status {
     pub const DISPUTED: u8 = 5;
 }
 
+/// Agent status enum values (mirrors AgentStatus in state.rs)
+pub mod agent_status {
+    pub const INACTIVE: u8 = 0;
+    pub const ACTIVE: u8 = 1;
+    pub const BUSY: u8 = 2;
+    pub const SUSPENDED: u8 = 3;
+}
+
 /// T1: Valid State Transitions
 pub fn check_task_state_transition(from: u8, to: u8) -> TaskInvariantResult {
     let valid = match (from, to) {
