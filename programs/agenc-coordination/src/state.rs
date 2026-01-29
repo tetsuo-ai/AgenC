@@ -507,6 +507,8 @@ pub struct Task {
     pub required_completions: u8,
     /// Bump seed
     pub bump: u8,
+    /// Protocol fee in basis points, locked at task creation (#479)
+    pub protocol_fee_bps: u16,
     /// Optional parent task this task depends on (None for independent tasks)
     pub depends_on: Option<Pubkey>,
     /// Type of dependency relationship
@@ -536,6 +538,7 @@ impl Default for Task {
             completions: 0,
             required_completions: 1,
             bump: 0,
+            protocol_fee_bps: 0,
             depends_on: None,
             dependency_type: DependencyType::default(),
             _reserved: [0u8; 32],
@@ -565,6 +568,7 @@ impl Task {
         1 +  // completions
         1 +  // required_completions
         1 +  // bump
+        2 +  // protocol_fee_bps
         33 + // depends_on (Option<Pubkey>: 1 byte discriminator + 32 bytes pubkey)
         1 +  // dependency_type
         32; // reserved
