@@ -9,9 +9,7 @@ use crate::state::{
 use crate::utils::version::check_version_compatible;
 use anchor_lang::prelude::*;
 
-
-/// 24 hours in seconds for rate limit window
-const WINDOW_24H: i64 = 24 * 60 * 60;
+use super::constants::WINDOW_24H;
 
 /// Maximum evidence string length
 const MAX_EVIDENCE_LEN: usize = 256;

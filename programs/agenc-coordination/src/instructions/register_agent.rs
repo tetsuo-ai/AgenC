@@ -6,8 +6,7 @@ use crate::state::{AgentRegistration, AgentStatus, ProtocolConfig};
 use anchor_lang::prelude::*;
 use anchor_lang::system_program;
 
-/// 24 hours in seconds for rate limit window
-const WINDOW_24H: i64 = 24 * 60 * 60;
+use super::constants::WINDOW_24H;
 
 /// Initial reputation score for new agents (50% = 5000/10000)
 const INITIAL_REPUTATION: u16 = 5000;
