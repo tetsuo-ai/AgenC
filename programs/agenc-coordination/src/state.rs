@@ -254,7 +254,7 @@ pub struct AgentRegistration {
     pub capabilities: u64,
     /// Agent status
     pub status: AgentStatus,
-    /// Network endpoint (max 128 chars)
+    /// Network endpoint (max 256 chars)
     pub endpoint: String,
     /// Extended metadata URI (max 128 chars)
     pub metadata_uri: String,
@@ -303,7 +303,7 @@ impl AgentRegistration {
         32 + // authority
         8 +  // capabilities
         1 +  // status
-        4 + 128 + // endpoint (string)
+        4 + 256 + // endpoint (string)
         4 + 128 + // metadata_uri (string)
         8 +  // registered_at
         8 +  // last_active
