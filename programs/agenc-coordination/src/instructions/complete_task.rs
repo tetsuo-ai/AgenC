@@ -82,6 +82,12 @@ pub fn handler(
     // Read protocol fee before any mutable borrows of protocol_config
     let protocol_fee_bps = ctx.accounts.protocol_config.protocol_fee_bps;
 
+    // Validate proof_hash is not zero
+    require!(
+        proof_hash != [0u8; 32],
+        CoordinationError::InvalidProofHash
+    );
+
     // Validate task state
     require!(
         task.status == TaskStatus::InProgress,
