@@ -285,6 +285,7 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
             .checked_sub(1)
             .ok_or(CoordinationError::ArithmeticOverflow)?;
         // Decrement disputes_as_defendant (fix #544)
+        // Using saturating_sub intentionally - underflow returns 0 (safe counter decrement)
         worker_reg.disputes_as_defendant = worker_reg.disputes_as_defendant.saturating_sub(1);
         worker_reg.try_serialize(&mut &mut worker_data[8..])?;
     }
@@ -401,7 +402,9 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
         require!(worker_info.is_writable, CoordinationError::InvalidInput);
         let mut worker_data = worker_info.try_borrow_mut_data()?;
         let mut worker_reg = AgentRegistration::try_deserialize(&mut &**worker_data)?;
+        // Using saturating_sub intentionally - underflow returns 0 (safe counter decrement)
         worker_reg.active_tasks = worker_reg.active_tasks.saturating_sub(1);
+        // Using saturating_sub intentionally - underflow returns 0 (safe counter decrement)
         worker_reg.disputes_as_defendant = worker_reg.disputes_as_defendant.saturating_sub(1);
         worker_reg.try_serialize(&mut &mut worker_data[8..])?;
     }

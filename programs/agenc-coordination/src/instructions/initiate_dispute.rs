@@ -158,10 +158,12 @@ pub fn handler(
 
     // Check cooldown period
     if config.dispute_initiation_cooldown > 0 && agent.last_dispute_initiated > 0 {
+        // Using saturating_sub intentionally - handles clock drift safely
         let elapsed = clock
             .unix_timestamp
             .saturating_sub(agent.last_dispute_initiated);
         if elapsed < config.dispute_initiation_cooldown {
+            // Using saturating_sub intentionally - underflow returns 0 (safe time calculation)
             let remaining = config.dispute_initiation_cooldown.saturating_sub(elapsed);
             emit!(RateLimitHit {
                 agent_id: agent.agent_id,
@@ -179,6 +181,7 @@ pub fn handler(
     // Check 24h window limit
     if config.max_disputes_per_24h > 0 {
         // Reset window if 24h has passed
+        // Using saturating_sub intentionally - handles clock drift safely
         if clock
             .unix_timestamp
             .saturating_sub(agent.rate_limit_window_start)
