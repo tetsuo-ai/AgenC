@@ -5,6 +5,21 @@
 
 use anchor_lang::prelude::*;
 
+/// Dispute resolution outcome constants (fix #425)
+///
+/// These distinguish how a dispute was resolved, enabling consumers
+/// to differentiate between active rejection and default behavior.
+pub mod dispute_outcome {
+    /// Dispute was actively rejected by arbiters (votes_against >= threshold)
+    pub const REJECTED: u8 = 0;
+    /// Dispute was approved by arbiters (votes_for >= threshold)
+    pub const APPROVED: u8 = 1;
+    /// No votes were cast - defaulted to rejection (arbiter apathy, not active rejection)
+    /// Note: This outcome indicates the dispute was not reviewed, which differs from
+    /// arbiters actively voting to reject. Consumers may want to handle this differently.
+    pub const NO_VOTE_DEFAULT: u8 = 2;
+}
+
 /// Emitted when a new agent registers
 #[event]
 pub struct AgentRegistered {
@@ -118,10 +133,21 @@ pub struct DisputeVoteCast {
 }
 
 /// Emitted when a dispute is resolved
+///
+/// The `outcome` field distinguishes between different resolution paths:
+/// - 0 = Rejected (approved=false with actual votes cast)
+/// - 1 = Approved (approved=true with votes meeting threshold)
+/// - 2 = NoVoteDefault (no votes cast, defaulted to rejection - fix #425)
+///
+/// The NoVoteDefault outcome indicates arbiter apathy rather than active rejection.
+/// This allows consumers to distinguish between "arbiters rejected this" vs
+/// "no arbiters participated, so it defaulted to rejection".
 #[event]
 pub struct DisputeResolved {
     pub dispute_id: [u8; 32],
     pub resolution_type: u8,
+    /// Resolution outcome: 0=Rejected, 1=Approved, 2=NoVoteDefault
+    pub outcome: u8,
     pub votes_for: u64,
     pub votes_against: u64,
     pub timestamp: i64,

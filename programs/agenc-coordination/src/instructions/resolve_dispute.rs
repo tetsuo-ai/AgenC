@@ -3,7 +3,7 @@
 use std::collections::HashSet;
 
 use crate::errors::CoordinationError;
-use crate::events::DisputeResolved;
+use crate::events::{dispute_outcome, DisputeResolved};
 use crate::instructions::completion_helpers::update_protocol_stats;
 use crate::instructions::constants::PERCENT_BASE;
 use crate::state::{
@@ -160,8 +160,21 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
 
     // Determine outcome: if no votes, treat as rejected (refund to creator)
     // This prevents tasks from being stuck between voting_deadline and expires_at
-    let approved = if total_votes == 0 {
-        false // No votes = dispute rejected
+    //
+    // Fix #425: We now explicitly track whether this was a no-vote default vs an actual
+    // rejection. This distinction matters because:
+    // - No votes could mean arbiters didn't see the dispute (apathy), not that they rejected it
+    // - Consumers may want to handle no-vote defaults differently (e.g., extend deadline, split)
+    // - Workers should not be penalized the same way for arbiter apathy vs active rejection
+    //
+    // The `outcome` field in DisputeResolved event distinguishes these cases:
+    // - REJECTED (0): Arbiters actively voted against approval
+    // - APPROVED (1): Arbiters voted in favor and met threshold
+    // - NO_VOTE_DEFAULT (2): No votes cast, defaulted to rejection
+    let (approved, outcome) = if total_votes == 0 {
+        // No votes = dispute rejected by default (not by active vote)
+        // This is arbiter apathy, not an active rejection decision
+        (false, dispute_outcome::NO_VOTE_DEFAULT)
     } else {
         let approval_pct = dispute
             .votes_for
@@ -169,7 +182,13 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
             .ok_or(CoordinationError::ArithmeticOverflow)?
             .checked_div(total_votes)
             .ok_or(CoordinationError::ArithmeticOverflow)? as u8;
-        approval_pct >= config.dispute_threshold
+        let is_approved = approval_pct >= config.dispute_threshold;
+        let outcome = if is_approved {
+            dispute_outcome::APPROVED
+        } else {
+            dispute_outcome::REJECTED
+        };
+        (is_approved, outcome)
     };
 
     // Calculate remaining escrow funds
@@ -422,6 +441,7 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
     emit!(DisputeResolved {
         dispute_id: dispute.dispute_id,
         resolution_type: dispute.resolution_type as u8,
+        outcome,
         votes_for: dispute.votes_for,
         votes_against: dispute.votes_against,
         timestamp: clock.unix_timestamp,

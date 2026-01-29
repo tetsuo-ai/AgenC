@@ -219,10 +219,9 @@ mod tests {
             required_completions,
             completions,
             bump: 0,
-            protocol_fee_bps: 0,
+            protocol_fee_bps: 100, // 1% default for tests
             depends_on: None,
             dependency_type: DependencyType::default(),
-            protocol_fee_bps: 100, // 1% default for tests
             _reserved: [0u8; 32],
         }
     }
