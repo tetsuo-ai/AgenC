@@ -182,6 +182,9 @@ pub enum CoordinationError {
     #[msg("Only task creator or workers can initiate disputes")]
     NotTaskParticipant,
 
+    #[msg("Invalid evidence hash: cannot be all zeros")]
+    InvalidEvidenceHash,
+
     // State errors (6400-6499)
     #[msg("State version mismatch (concurrent modification)")]
     VersionMismatch,
