@@ -50,15 +50,19 @@ pub fn handler(ctx: Context<DeregisterAgent>) -> Result<()> {
         CoordinationError::ActiveDisputeVotes
     );
 
-    const VOTE_COOLDOWN: i64 = 24 * 60 * 60;
-    let time_since_vote = clock
-        .unix_timestamp
-        .checked_sub(agent.last_vote_timestamp)
-        .ok_or(CoordinationError::ArithmeticOverflow)?;
-    require!(
-        time_since_vote > VOTE_COOLDOWN,
-        CoordinationError::RecentVoteActivity
-    );
+    // Only check vote cooldown if agent has actually voted before
+    // When last_vote_timestamp is 0 (never voted), skip the check
+    if agent.last_vote_timestamp > 0 {
+        const VOTE_COOLDOWN: i64 = 24 * 60 * 60;
+        let time_since_vote = clock
+            .unix_timestamp
+            .checked_sub(agent.last_vote_timestamp)
+            .ok_or(CoordinationError::ArithmeticOverflow)?;
+        require!(
+            time_since_vote > VOTE_COOLDOWN,
+            CoordinationError::RecentVoteActivity
+        );
+    }
 
     // Update protocol stats
     let config = &mut ctx.accounts.protocol_config;
