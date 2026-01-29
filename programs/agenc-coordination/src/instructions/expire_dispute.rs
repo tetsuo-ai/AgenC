@@ -77,6 +77,16 @@ pub fn handler(ctx: Context<ExpireDispute>) -> Result<()> {
         CoordinationError::DisputeNotActive
     );
 
+    // Validate task is in disputed state and transition is allowed (fix #538)
+    require!(
+        task.status == TaskStatus::Disputed,
+        CoordinationError::TaskNotInProgress
+    );
+    require!(
+        task.status.can_transition_to(TaskStatus::Cancelled),
+        CoordinationError::InvalidStatusTransition
+    );
+
     // Fix #574: Allow expiration when EITHER expires_at OR voting_deadline has passed.
     // This closes the gap between voting_deadline and expires_at where disputes
     // could get stuck with funds locked if no one called resolve_dispute.
