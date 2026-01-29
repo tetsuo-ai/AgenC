@@ -53,7 +53,9 @@ pub fn handler(ctx: Context<DeregisterAgent>) -> Result<()> {
     // Only check vote cooldown if agent has actually voted before
     // When last_vote_timestamp is 0 (never voted), skip the check
     if agent.last_vote_timestamp > 0 {
-        const VOTE_COOLDOWN: i64 = 24 * 60 * 60;
+        /// Vote cooldown period (same as WINDOW_24H for consistency)
+        /// Intentionally duplicated to allow independent adjustment
+        const VOTE_COOLDOWN: i64 = 86400;
         let time_since_vote = clock
             .unix_timestamp
             .checked_sub(agent.last_vote_timestamp)
