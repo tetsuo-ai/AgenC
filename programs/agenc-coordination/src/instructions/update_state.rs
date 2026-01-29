@@ -12,7 +12,7 @@ pub struct UpdateState<'info> {
         init_if_needed,
         payer = authority,
         space = CoordinationState::SIZE,
-        seeds = [b"state", state_key.as_ref()],
+        seeds = [b"state", authority.key().as_ref(), state_key.as_ref()],
         bump
     )]
     pub state: Account<'info, CoordinationState>,
@@ -63,6 +63,7 @@ pub fn handler(
     }
 
     // Update state
+    state.owner = ctx.accounts.authority.key();
     state.state_key = state_key;
     state.state_value = state_value;
     state.last_updater = agent.key();
