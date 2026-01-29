@@ -185,6 +185,9 @@ pub enum CoordinationError {
     #[msg("Invalid evidence hash: cannot be all zeros")]
     InvalidEvidenceHash,
 
+    #[msg("Arbiter cannot vote on disputes they are a participant in")]
+    ArbiterIsDisputeParticipant,
+
     // State errors (6400-6499)
     #[msg("State version mismatch (concurrent modification)")]
     VersionMismatch,

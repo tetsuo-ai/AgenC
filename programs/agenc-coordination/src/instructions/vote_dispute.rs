@@ -67,6 +67,12 @@ pub fn handler(ctx: Context<VoteDispute>, approve: bool) -> Result<()> {
 
     check_version_compatible(config)?;
 
+    // Verify arbiter is not a dispute participant (fix #391)
+    require!(
+        dispute.initiator != arbiter.key(),
+        CoordinationError::ArbiterIsDisputeParticipant
+    );
+
     // Verify dispute is active
     require!(
         dispute.status == DisputeStatus::Active,
