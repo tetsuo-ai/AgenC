@@ -277,6 +277,9 @@ pub enum CoordinationError {
     #[msg("Insufficient funds")]
     InsufficientFunds,
 
+    #[msg("Reward too small: worker must receive at least 1 lamport")]
+    RewardTooSmall,
+
     #[msg("Account data is corrupted")]
     CorruptedData,
 
@@ -345,6 +348,9 @@ pub enum CoordinationError {
 
     #[msg("Parent task account required for proof-dependent task completion")]
     ParentTaskAccountRequired,
+
+    #[msg("Parent task does not belong to the same creator")]
+    UnauthorizedCreator,
 
     // Nullifier errors (7000-7099)
     #[msg("Nullifier has already been spent - proof/knowledge reuse detected")]

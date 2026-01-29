@@ -149,15 +149,20 @@ pub enum TaskType {
     Competitive = 2,
 }
 
-/// Dependency type for speculative execution decisions
+/// Task dependency type for speculative execution decisions
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Default, InitSpace)]
 #[repr(u8)]
 pub enum DependencyType {
+    /// No dependency - task can execute independently.
+    /// This is the default (0) and matches the default field initialization.
     #[default]
-    None = 0,     // No dependency
-    Data = 1,     // Needs parent output data (speculatable)
-    Ordering = 2, // Must run after parent (speculatable)
-    Proof = 3,    // Needs parent's on-chain proof (NOT speculatable)
+    None = 0,
+    /// Data dependency - needs parent output data (speculatable)
+    Data = 1,
+    /// Ordering dependency - must run after parent (speculatable)
+    Ordering = 2,
+    /// Proof dependency - requires parent task's on-chain completion proof (NOT speculatable)
+    Proof = 3,
 }
 
 /// Dispute resolution type

@@ -63,6 +63,13 @@ pub struct ExpireDispute<'info> {
     pub worker: Option<UncheckedAccount<'info>>,
 }
 
+/// Expires a dispute after voting period ends.
+///
+/// # Permissionless Design
+/// This instruction can be called by anyone. This is intentional:
+/// - Prevents disputes from being permanently stuck
+/// - Allows third-party cleanup services
+/// - No economic risk since only valid expirations succeed
 pub fn handler(ctx: Context<ExpireDispute>) -> Result<()> {
     let dispute = &mut ctx.accounts.dispute;
     let task = &mut ctx.accounts.task;
