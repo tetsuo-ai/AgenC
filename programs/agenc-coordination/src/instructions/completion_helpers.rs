@@ -36,6 +36,10 @@ pub fn calculate_reward_split(task: &Task, protocol_fee_bps: u16) -> Result<(u64
 }
 
 /// Calculate per-worker reward based on task type.
+///
+/// Note: Remainder distribution is deterministic based on worker index.
+/// First N workers get +1 lamport where N = total % num_workers.
+/// This is predictable but fair across all workers.
 fn calculate_reward_per_worker(task: &Task) -> Result<u64> {
     match task.task_type {
         TaskType::Collaborative => {
