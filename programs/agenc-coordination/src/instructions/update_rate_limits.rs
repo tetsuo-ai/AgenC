@@ -2,8 +2,12 @@
 
 use anchor_lang::prelude::*;
 
+use crate::errors::CoordinationError;
 use crate::state::ProtocolConfig;
 use crate::utils::multisig::require_multisig;
+
+/// Maximum cooldown value (24 hours in seconds)
+const MAX_COOLDOWN_SECONDS: i64 = 86400;
 
 #[derive(Accounts)]
 pub struct UpdateRateLimits<'info> {
@@ -26,6 +30,14 @@ pub fn handler(
     min_stake_for_dispute: u64,
 ) -> Result<()> {
     require_multisig(&ctx.accounts.protocol_config, ctx.remaining_accounts)?;
+
+    // Validate cooldown values are non-negative
+    require!(task_creation_cooldown >= 0, CoordinationError::InvalidCooldown);
+    require!(dispute_initiation_cooldown >= 0, CoordinationError::InvalidCooldown);
+
+    // Validate cooldown values have upper bounds (max 24 hours)
+    require!(task_creation_cooldown <= MAX_COOLDOWN_SECONDS, CoordinationError::CooldownTooLarge);
+    require!(dispute_initiation_cooldown <= MAX_COOLDOWN_SECONDS, CoordinationError::CooldownTooLarge);
 
     let config = &mut ctx.accounts.protocol_config;
     config.task_creation_cooldown = task_creation_cooldown;
