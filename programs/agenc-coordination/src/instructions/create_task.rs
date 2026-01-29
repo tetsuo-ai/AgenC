@@ -81,13 +81,12 @@ pub fn handler(
 
     check_version_compatible(config)?;
 
-    // Validate deadline if set
-    if deadline > 0 {
-        require!(
-            deadline > clock.unix_timestamp,
-            CoordinationError::InvalidInput
-        );
-    }
+    // Validate deadline - must be set and in the future (#575)
+    require!(deadline > 0, CoordinationError::InvalidDeadline);
+    require!(
+        deadline > clock.unix_timestamp,
+        CoordinationError::InvalidInput
+    );
 
     let creator_agent = &mut ctx.accounts.creator_agent;
 
