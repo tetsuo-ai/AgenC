@@ -2,7 +2,7 @@
 
 use crate::errors::CoordinationError;
 use crate::events::{RateLimitHit, TaskCreated};
-use crate::state::{AgentRegistration, ProtocolConfig, Task, TaskEscrow, TaskStatus, TaskType};
+use crate::state::{AgentRegistration, DependencyType, ProtocolConfig, Task, TaskEscrow, TaskStatus, TaskType};
 use crate::utils::version::check_version_compatible;
 use anchor_lang::prelude::*;
 use anchor_lang::system_program;
@@ -192,6 +192,10 @@ pub fn handler(
     task.completions = 0;
     task.required_completions = if task_type == 1 { max_workers } else { 1 };
     task.bump = ctx.bumps.task;
+
+    // Independent task - no dependencies
+    task.dependency_type = DependencyType::None;
+    task.depends_on = None;
 
     // Initialize escrow
     let escrow = &mut ctx.accounts.escrow;
