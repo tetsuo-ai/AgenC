@@ -1,5 +1,7 @@
 //! Expire a dispute after the maximum duration
 
+use std::collections::HashSet;
+
 use crate::errors::CoordinationError;
 use crate::events::DisputeExpired;
 use crate::state::{
@@ -74,8 +76,13 @@ pub fn handler(ctx: Context<ExpireDispute>) -> Result<()> {
         dispute.status == DisputeStatus::Active,
         CoordinationError::DisputeNotActive
     );
+
+    // Fix #574: Allow expiration when EITHER expires_at OR voting_deadline has passed.
+    // This closes the gap between voting_deadline and expires_at where disputes
+    // could get stuck with funds locked if no one called resolve_dispute.
     require!(
-        clock.unix_timestamp > dispute.expires_at,
+        clock.unix_timestamp > dispute.expires_at
+            || clock.unix_timestamp >= dispute.voting_deadline,
         CoordinationError::DisputeNotExpired
     );
 
@@ -141,6 +148,16 @@ pub fn handler(ctx: Context<ExpireDispute>) -> Result<()> {
     // Additional accounts must come in pairs (claim, worker)
     let extra_accounts = ctx.remaining_accounts.len() - arbiter_accounts;
     require!(extra_accounts % 2 == 0, CoordinationError::InvalidInput);
+
+    // Check for duplicate arbiters (fix #583)
+    let mut seen_arbiters: HashSet<Pubkey> = HashSet::new();
+    for i in (0..arbiter_accounts).step_by(2) {
+        let arbiter_key = ctx.remaining_accounts[i + 1].key();
+        require!(
+            seen_arbiters.insert(arbiter_key),
+            CoordinationError::DuplicateArbiter
+        );
+    }
 
     // Process arbiter (vote, arbiter) pairs
     for i in (0..arbiter_accounts).step_by(2) {

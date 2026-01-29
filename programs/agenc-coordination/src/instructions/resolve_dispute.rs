@@ -1,5 +1,7 @@
 //! Resolve a dispute and execute the outcome
 
+use std::collections::HashSet;
+
 use crate::errors::CoordinationError;
 use crate::events::DisputeResolved;
 use crate::instructions::constants::PERCENT_BASE;
@@ -266,6 +268,16 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
     // Additional accounts must come in pairs (claim, worker)
     let extra_accounts = ctx.remaining_accounts.len() - arbiter_accounts;
     require!(extra_accounts % 2 == 0, CoordinationError::InvalidInput);
+
+    // Check for duplicate arbiters (fix #583)
+    let mut seen_arbiters: HashSet<Pubkey> = HashSet::new();
+    for i in (0..arbiter_accounts).step_by(2) {
+        let arbiter_key = ctx.remaining_accounts[i + 1].key();
+        require!(
+            seen_arbiters.insert(arbiter_key),
+            CoordinationError::DuplicateArbiter
+        );
+    }
 
     // Process arbiter (vote, arbiter) pairs
     for i in (0..arbiter_accounts).step_by(2) {
