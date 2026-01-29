@@ -15,6 +15,9 @@ const VOTING_PERIOD: i64 = 24 * 60 * 60;
 /// 24 hours in seconds for rate limit window
 const WINDOW_24H: i64 = 24 * 60 * 60;
 
+/// Maximum evidence string length
+const MAX_EVIDENCE_LEN: usize = 256;
+
 #[derive(Accounts)]
 #[instruction(dispute_id: [u8; 32], task_id: [u8; 32])]
 pub struct InitiateDispute<'info> {
@@ -128,9 +131,10 @@ pub fn handler(
         CoordinationError::InvalidEvidenceHash
     );
 
-    let evidence_len = evidence.len();
-    require!(evidence_len >= 50, CoordinationError::InsufficientEvidence);
-    require!(evidence_len <= 1000, CoordinationError::EvidenceTooLong);
+    require!(
+        evidence.len() <= MAX_EVIDENCE_LEN,
+        CoordinationError::EvidenceTooLong
+    );
 
     // === Rate Limiting Checks ===
 
