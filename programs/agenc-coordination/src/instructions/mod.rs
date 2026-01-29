@@ -22,6 +22,7 @@
 pub mod completion_helpers;
 pub mod constants;
 pub mod rate_limit_helpers;
+pub mod validation;
 
 pub mod apply_dispute_slash;
 pub mod apply_initiator_slash;
