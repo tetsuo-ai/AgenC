@@ -382,6 +382,9 @@ pub enum CoordinationError {
     #[msg("Stake value is below minimum required (0.001 SOL)")]
     StakeTooLow,
 
+    #[msg("min_stake_for_dispute must be greater than zero")]
+    InvalidMinStake,
+
     // Speculation Bond errors (7500-7599)
     #[msg("Bond amount too low")]
     BondAmountTooLow,
