@@ -69,6 +69,15 @@ pub enum CoordinationError {
     #[msg("Invalid creator")]
     InvalidCreator,
 
+    #[msg("Invalid task ID: cannot be zero")]
+    InvalidTaskId,
+
+    #[msg("Invalid description: cannot be empty")]
+    InvalidDescription,
+
+    #[msg("Invalid max workers: must be between 1 and 100")]
+    InvalidMaxWorkers,
+
     #[msg("Invalid task type")]
     InvalidTaskType,
 
