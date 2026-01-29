@@ -85,6 +85,12 @@ pub fn handler(ctx: Context<MigrateProtocol>, target_version: u8) -> Result<()> 
 
 /// Apply migration for a specific version
 /// Add new version handlers here as the protocol evolves
+///
+/// # Arguments
+/// * `_config` - Protocol configuration to mutate. Currently unused but reserved
+///   for future migrations that will need to initialize new fields or transform
+///   existing data (e.g., `config.new_field = default_value`).
+/// * `version` - Target version to migrate to
 fn apply_migration(_config: &mut ProtocolConfig, version: u8) -> Result<()> {
     match version {
         1 => {
