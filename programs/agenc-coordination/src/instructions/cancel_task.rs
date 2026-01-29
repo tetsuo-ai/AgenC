@@ -103,6 +103,10 @@ pub fn handler(ctx: Context<CancelTask>) -> Result<()> {
     // After task cancellation, decrement active_tasks for all claimants
     // remaining_accounts should contain pairs of (claim, worker_agent)
     // Claims are closed to return rent to creator (fix #396)
+    require!(
+        ctx.remaining_accounts.len() % 2 == 0,
+        CoordinationError::InvalidInput
+    );
     let num_pairs = ctx.remaining_accounts.len() / 2;
 
     // SECURITY FIX #361: Validate ALL worker claims are provided BEFORE processing
