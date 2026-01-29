@@ -127,6 +127,9 @@ pub enum CoordinationError {
     #[msg("Invalid rent recipient: must be worker authority")]
     InvalidRentRecipient,
 
+    #[msg("Invalid proof hash: proof_hash cannot be all zeros")]
+    InvalidProofHash,
+
     // Dispute errors (6300-6399)
     #[msg("Dispute is not active")]
     DisputeNotActive,
