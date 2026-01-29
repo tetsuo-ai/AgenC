@@ -82,6 +82,11 @@ pub fn handler(
     require!(task_id != [0u8; 32], CoordinationError::InvalidTaskId);
     // Validate description is not empty (#369)
     require!(description != [0u8; 64], CoordinationError::InvalidDescription);
+    // Validate parent task belongs to same creator (#520)
+    require!(
+        ctx.accounts.parent_task.creator == ctx.accounts.creator.key(),
+        CoordinationError::UnauthorizedCreator
+    );
     // Validate max_workers bounds (#412)
     require!(max_workers > 0 && max_workers <= 100, CoordinationError::InvalidMaxWorkers);
     require!(task_type <= 2, CoordinationError::InvalidTaskType);
