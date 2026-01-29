@@ -270,6 +270,7 @@ pub fn complete_task_private(
         task_id: task.task_id,
         worker: worker.key(),
         proof_hash: proof.output_commitment,
+        result_data: [0u8; 64], // Zeroed for privacy
         reward_paid: worker_reward,
         timestamp: clock.unix_timestamp,
     });

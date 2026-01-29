@@ -204,6 +204,7 @@ pub fn handler(
         task_id: task.task_id,
         worker: worker.key(),
         proof_hash,
+        result_data: claim_result_data,
         reward_paid: worker_reward,
         timestamp: clock.unix_timestamp,
     });

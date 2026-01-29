@@ -71,6 +71,7 @@ pub struct TaskCompleted {
     pub task_id: [u8; 32],
     pub worker: Pubkey,
     pub proof_hash: [u8; 32],
+    pub result_data: [u8; 64],
     pub reward_paid: u64,
     pub timestamp: i64,
 }
