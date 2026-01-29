@@ -6,6 +6,9 @@ use crate::state::{AgentRegistration, AgentStatus, ProtocolConfig};
 use anchor_lang::prelude::*;
 use anchor_lang::system_program;
 
+/// 24 hours in seconds for rate limit window
+const WINDOW_24H: i64 = 24 * 60 * 60;
+
 #[derive(Accounts)]
 #[instruction(agent_id: [u8; 32])]
 pub struct RegisterAgent<'info> {
@@ -85,7 +88,9 @@ pub fn handler(
     agent.last_dispute_initiated = 0;
     agent.task_count_24h = 0;
     agent.dispute_count_24h = 0;
-    agent.rate_limit_window_start = clock.unix_timestamp;
+    // Round window start to prevent drift
+    let window_start = (clock.unix_timestamp / WINDOW_24H) * WINDOW_24H;
+    agent.rate_limit_window_start = window_start;
     agent.active_dispute_votes = 0;
     agent.last_vote_timestamp = 0;
     agent.last_state_update = 0;
