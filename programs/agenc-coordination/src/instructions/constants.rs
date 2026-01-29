@@ -17,3 +17,6 @@ pub const REPUTATION_PER_COMPLETION: u16 = 100;
 
 /// Maximum reputation an agent can accumulate
 pub const MAX_REPUTATION: u16 = 10000;
+
+/// 24-hour window in seconds (86400)
+pub const WINDOW_24H: i64 = 86400;
