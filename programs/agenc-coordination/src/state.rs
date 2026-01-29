@@ -298,7 +298,7 @@ impl Default for ProtocolConfig {
             max_tasks_per_24h: 50,      // 50 tasks per 24h window
             dispute_initiation_cooldown: 300, // 5 minutes between disputes
             max_disputes_per_24h: 10,   // 10 disputes per 24h window
-            min_stake_for_dispute: 0,   // No stake required by default
+            min_stake_for_dispute: 100_000_000, // 0.1 SOL default for anti-griefing
             slash_percentage: ProtocolConfig::DEFAULT_SLASH_PERCENTAGE,
             // Versioning
             protocol_version: CURRENT_PROTOCOL_VERSION,
