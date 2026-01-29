@@ -1,4 +1,10 @@
-//! Expire a stale claim to free task slot
+//! Expires a stale claim after its deadline passes.
+//!
+//! # Permissionless Design
+//! This instruction can be called by anyone. This is intentional:
+//! - Prevents claims from blocking task slots indefinitely
+//! - Allows third-party cleanup services
+//! - No economic risk since only valid expirations succeed
 
 use crate::errors::CoordinationError;
 use crate::state::{AgentRegistration, Task, TaskClaim, TaskStatus};
