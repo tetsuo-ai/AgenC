@@ -183,6 +183,7 @@ pub enum DisputeStatus {
     Active = 0,
     Resolved = 1,
     Expired = 2,
+    Cancelled = 3,
 }
 
 /// Reason for slashing an agent's stake
