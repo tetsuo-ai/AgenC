@@ -3,7 +3,7 @@
 use std::collections::HashSet;
 
 use crate::errors::CoordinationError;
-use crate::events::DisputeExpired;
+use crate::events::{ArbiterVotesCleanedUp, DisputeExpired};
 use crate::state::{
     AgentRegistration, Dispute, DisputeStatus, DisputeVote, ProtocolConfig, Task, TaskClaim,
     TaskEscrow, TaskStatus,
@@ -191,6 +191,12 @@ pub fn handler(ctx: Context<ExpireDispute>) -> Result<()> {
             arbiter.active_dispute_votes = arbiter.active_dispute_votes.saturating_sub(1);
             arbiter.try_serialize(&mut &mut arbiter_data[8..])?;
         }
+
+    // Emit event for arbiter vote cleanup (fix #572)
+    emit!(ArbiterVotesCleanedUp {
+        dispute_id: dispute.dispute_id,
+        arbiter_count: dispute.total_voters,
+    });
 
     // Process additional worker (claim, worker) pairs to decrement active_tasks (fix #333)
     // This handles collaborative tasks where multiple workers claimed the task
