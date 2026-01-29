@@ -152,12 +152,11 @@ pub struct CompleteTaskPrivate<'info> {
 /// Complete a task with private ZK proof verification.
 ///
 /// # Arguments
-/// * `_task_id` - Required by Anchor's instruction macro for deserialization,
-///   but the actual task is identified by the task account PDA
+/// * `task_id` - The task ID, validated against the task account for safety
 /// * `proof` - The ZK proof containing proof_data, constraint_hash, output_commitment, expected_binding, and nullifier
 pub fn complete_task_private(
     ctx: Context<CompleteTaskPrivate>,
-    _task_id: u64,
+    task_id: u64,
     proof: PrivateCompletionProof,
 ) -> Result<()> {
     let task = &mut ctx.accounts.task;
@@ -166,6 +165,13 @@ pub fn complete_task_private(
     let worker = &mut ctx.accounts.worker;
     let nullifier_account = &mut ctx.accounts.nullifier_account;
     let clock = Clock::get()?;
+
+    // Validate provided task_id matches the task account (fix: issue #406)
+    // This prevents callers from accidentally passing the wrong task_id
+    require!(
+        task_id == u64::from_le_bytes(task.task_id[..8].try_into().unwrap()),
+        CoordinationError::TaskNotFound
+    );
 
     // Deadline check (issue #384)
     require!(
