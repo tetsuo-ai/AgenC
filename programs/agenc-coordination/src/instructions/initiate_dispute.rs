@@ -9,8 +9,6 @@ use crate::state::{
 use crate::utils::version::check_version_compatible;
 use anchor_lang::prelude::*;
 
-/// Default voting period: 24 hours
-const VOTING_PERIOD: i64 = 24 * 60 * 60;
 
 /// 24 hours in seconds for rate limit window
 const WINDOW_24H: i64 = 24 * 60 * 60;
@@ -269,7 +267,7 @@ pub fn handler(
     dispute.total_voters = 0; // Will be set during voting
     dispute.voting_deadline = clock
         .unix_timestamp
-        .checked_add(VOTING_PERIOD)
+        .checked_add(config.voting_period)
         .ok_or(CoordinationError::ArithmeticOverflow)?;
     dispute.expires_at = clock
         .unix_timestamp
