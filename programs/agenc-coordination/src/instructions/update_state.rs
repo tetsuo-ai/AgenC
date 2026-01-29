@@ -1,5 +1,8 @@
 //! Update shared coordination state
 
+/// Minimum seconds between state updates per agent
+const STATE_UPDATE_COOLDOWN: i64 = 60; // seconds
+
 use crate::errors::CoordinationError;
 use crate::events::StateUpdated;
 use crate::state::{AgentRegistration, AgentStatus, CoordinationState};
@@ -49,7 +52,7 @@ pub fn handler(
 
     if agent.last_state_update > 0 {
         let elapsed = clock.unix_timestamp.saturating_sub(agent.last_state_update);
-        if elapsed < 60 {
+        if elapsed < STATE_UPDATE_COOLDOWN {
             return Err(CoordinationError::RateLimitExceeded.into());
         }
     }
