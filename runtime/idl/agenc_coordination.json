@@ -4947,7 +4947,16 @@
     {
       "name": "DisputeResolved",
       "docs": [
-        "Emitted when a dispute is resolved"
+        "Emitted when a dispute is resolved",
+        "",
+        "The `outcome` field distinguishes between different resolution paths:",
+        "- 0 = Rejected (approved=false with actual votes cast)",
+        "- 1 = Approved (approved=true with votes meeting threshold)",
+        "- 2 = NoVoteDefault (no votes cast, defaulted to rejection - fix #425)",
+        "",
+        "The NoVoteDefault outcome indicates arbiter apathy rather than active rejection.",
+        "This allows consumers to distinguish between \"arbiters rejected this\" vs",
+        "\"no arbiters participated, so it defaulted to rejection\"."
       ],
       "type": {
         "kind": "struct",
@@ -4963,6 +4972,13 @@
           },
           {
             "name": "resolution_type",
+            "type": "u8"
+          },
+          {
+            "name": "outcome",
+            "docs": [
+              "Resolution outcome: 0=Rejected, 1=Approved, 2=NoVoteDefault"
+            ],
             "type": "u8"
           },
           {
