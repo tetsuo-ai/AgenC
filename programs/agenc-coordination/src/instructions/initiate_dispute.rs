@@ -91,7 +91,8 @@ pub fn handler(
     );
 
     // Verify initiator is task participant (creator or has claim)
-    let is_creator = task.creator == agent.key();
+    // Compare task.creator (wallet) with authority (signer's wallet), not agent PDA
+    let is_creator = task.creator == ctx.accounts.authority.key();
     let has_claim = ctx.accounts.initiator_claim.is_some();
 
     require!(
