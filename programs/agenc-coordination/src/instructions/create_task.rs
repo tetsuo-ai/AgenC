@@ -1,13 +1,13 @@
 //! Create a new task with reward escrow
 
 use crate::errors::CoordinationError;
-use crate::events::{RateLimitHit, TaskCreated};
+use crate::events::TaskCreated;
 use crate::state::{AgentRegistration, DependencyType, ProtocolConfig, Task, TaskEscrow, TaskStatus, TaskType};
 use crate::utils::version::check_version_compatible;
 use anchor_lang::prelude::*;
 use anchor_lang::system_program;
 
-use super::constants::WINDOW_24H;
+use super::rate_limit_helpers::check_task_creation_rate_limits;
 
 #[derive(Accounts)]
 #[instruction(task_id: [u8; 32])]
@@ -103,70 +103,8 @@ pub fn handler(
 
     let creator_agent = &mut ctx.accounts.creator_agent;
 
-    // Check cooldown period
-    if config.task_creation_cooldown > 0 && creator_agent.last_task_created > 0 {
-        // Using saturating_sub intentionally - handles clock drift safely
-        let elapsed = clock
-            .unix_timestamp
-            .saturating_sub(creator_agent.last_task_created);
-        if elapsed < config.task_creation_cooldown {
-            // Using saturating_sub intentionally - underflow returns 0 (safe time calculation)
-            let remaining = config.task_creation_cooldown.saturating_sub(elapsed);
-            emit!(RateLimitHit {
-                agent_id: creator_agent.agent_id,
-                action_type: 0, // task_creation
-                limit_type: 0,  // cooldown
-                current_count: creator_agent.task_count_24h,
-                max_count: config.max_tasks_per_24h,
-                cooldown_remaining: remaining,
-                timestamp: clock.unix_timestamp,
-            });
-            return Err(CoordinationError::CooldownNotElapsed.into());
-        }
-    }
-
-    // Check 24h window limit
-    if config.max_tasks_per_24h > 0 {
-        // Reset window if 24h has passed
-        // Using saturating_sub intentionally - handles clock drift safely
-        if clock
-            .unix_timestamp
-            .saturating_sub(creator_agent.rate_limit_window_start)
-            >= WINDOW_24H
-        {
-            // Round window start to prevent drift
-            let window_start = (clock.unix_timestamp / WINDOW_24H) * WINDOW_24H;
-            creator_agent.rate_limit_window_start = window_start;
-            // Note: Both counters reset together when window expires.
-            // This is intentional - ensures clean state at window boundary.
-            creator_agent.task_count_24h = 0;
-            creator_agent.dispute_count_24h = 0;
-        }
-
-        // Check if limit exceeded
-        if creator_agent.task_count_24h >= config.max_tasks_per_24h {
-            emit!(RateLimitHit {
-                agent_id: creator_agent.agent_id,
-                action_type: 0, // task_creation
-                limit_type: 1,  // 24h_window
-                current_count: creator_agent.task_count_24h,
-                max_count: config.max_tasks_per_24h,
-                cooldown_remaining: 0,
-                timestamp: clock.unix_timestamp,
-            });
-            return Err(CoordinationError::RateLimitExceeded.into());
-        }
-
-        // Increment counter
-        creator_agent.task_count_24h = creator_agent
-            .task_count_24h
-            .checked_add(1)
-            .ok_or(CoordinationError::ArithmeticOverflow)?;
-    }
-
-    // Update last task created timestamp
-    creator_agent.last_task_created = clock.unix_timestamp;
-    creator_agent.last_active = clock.unix_timestamp;
+    // Check rate limits and update agent state
+    check_task_creation_rate_limits(creator_agent, config, &clock)?;
 
     // Transfer reward to escrow
     system_program::transfer(
