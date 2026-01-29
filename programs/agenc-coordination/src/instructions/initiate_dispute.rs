@@ -105,6 +105,12 @@ pub fn handler(
         CoordinationError::InvalidStatusTransition
     );
 
+    // Verify task has workers to dispute (fix #502)
+    require!(
+        task.current_workers > 0,
+        CoordinationError::NoWorkers
+    );
+
     // Verify initiator is task participant (creator or has claim)
     // Compare task.creator (wallet) with authority (signer's wallet), not agent PDA
     let is_creator = task.creator == ctx.accounts.authority.key();
