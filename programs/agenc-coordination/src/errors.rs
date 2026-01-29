@@ -242,6 +242,9 @@ pub enum CoordinationError {
     #[msg("Invalid protocol fee (must be <= 1000 bps)")]
     InvalidProtocolFee,
 
+    #[msg("Invalid treasury: treasury account cannot be default pubkey")]
+    InvalidTreasury,
+
     #[msg("Invalid dispute threshold: must be 1-100 (percentage of votes required)")]
     InvalidDisputeThreshold,
 
