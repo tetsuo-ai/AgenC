@@ -374,6 +374,9 @@ pub enum CoordinationError {
     #[msg("All worker accounts must be provided when cancelling a task with active claims")]
     IncompleteWorkerAccounts,
 
+    #[msg("Worker accounts required when task has active workers")]
+    WorkerAccountsRequired,
+
     // Duplicate account errors (7200-7299)
     #[msg("Duplicate arbiter provided in remaining_accounts")]
     DuplicateArbiter,
