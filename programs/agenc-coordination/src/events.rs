@@ -206,6 +206,7 @@ pub struct SpeculativeCommitmentCreated {
     pub result_hash: [u8; 32],
     pub bonded_stake: u64,
     pub expires_at: i64,
+    pub timestamp: i64,
 }
 
 /// Emitted when an agent's bond is slashed due to failed speculation
