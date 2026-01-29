@@ -78,6 +78,12 @@ pub struct ExpireClaim<'info> {
     )]
     pub rent_recipient: UncheckedAccount<'info>,
 
+    #[account(
+        seeds = [b"protocol"],
+        bump = protocol_config.bump
+    )]
+    pub protocol_config: Account<'info, ProtocolConfig>,
+
     pub system_program: Program<'info, System>,
 }
 
@@ -93,6 +99,8 @@ pub struct ExpireClaim<'info> {
 /// Callers receive a small reward from the task escrow to incentivize
 /// timely cleanup of expired claims.
 pub fn handler(ctx: Context<ExpireClaim>) -> Result<()> {
+    check_version_compatible(&ctx.accounts.protocol_config)?;
+
     let task = &mut ctx.accounts.task;
     let worker = &mut ctx.accounts.worker;
     let escrow = &mut ctx.accounts.escrow;
