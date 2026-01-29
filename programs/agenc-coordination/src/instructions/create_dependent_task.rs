@@ -58,7 +58,12 @@ pub struct CreateDependentTask<'info> {
     /// The authority that owns the creator_agent
     pub authority: Signer<'info>,
 
-    #[account(mut)]
+    /// The creator who pays for and owns the task
+    /// Must match authority to prevent social engineering attacks (#375)
+    #[account(
+        mut,
+        constraint = creator.key() == authority.key() @ CoordinationError::CreatorAuthorityMismatch
+    )]
     pub creator: Signer<'info>,
 
     pub system_program: Program<'info, System>,
