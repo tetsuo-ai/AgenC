@@ -48,6 +48,12 @@ pub fn handler(
             return Err(CoordinationError::AgentSuspended.into());
         }
 
+        // Prevent setting status to Active while agent has active tasks
+        // Agents with pending work should remain Busy, not advertise as available
+        if s == 1 && agent.active_tasks > 0 {
+            return Err(CoordinationError::AgentBusyWithTasks.into());
+        }
+
         agent.status = match s {
             0 => AgentStatus::Inactive,
             1 => AgentStatus::Active,

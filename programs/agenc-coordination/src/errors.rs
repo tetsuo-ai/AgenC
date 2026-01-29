@@ -38,6 +38,9 @@ pub enum CoordinationError {
     #[msg("Agent is suspended and cannot change status")]
     AgentSuspended,
 
+    #[msg("Agent cannot set status to Active while having active tasks")]
+    AgentBusyWithTasks,
+
     // Task errors (6100-6199)
     #[msg("Task not found")]
     TaskNotFound,
