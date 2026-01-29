@@ -5,6 +5,12 @@
 //! - Prevents disputes from being permanently stuck
 //! - Allows third-party cleanup services
 //! - No economic risk since only valid expirations succeed
+//!
+//! # Fair Refund Distribution (fix #418)
+//! When a dispute expires, funds are distributed based on context:
+//! - Worker completed + no votes: Worker gets 100% (did work, dispute not properly engaged)
+//! - No completion + no votes: 50/50 split (neither party engaged arbiters)
+//! - Some votes but insufficient quorum: Creator gets refund (dispute was contested)
 
 use std::collections::HashSet;
 
@@ -17,6 +23,8 @@ use crate::state::{
 use crate::utils::version::check_version_compatible;
 use anchor_lang::prelude::*;
 
+/// Note: Large accounts use Box<Account<...>> to avoid stack overflow
+/// Consistent with Anchor best practices for accounts > 10KB
 #[derive(Accounts)]
 pub struct ExpireDispute<'info> {
     #[account(
@@ -24,7 +32,7 @@ pub struct ExpireDispute<'info> {
         seeds = [b"dispute", dispute.dispute_id.as_ref()],
         bump = dispute.bump
     )]
-    pub dispute: Account<'info, Dispute>,
+    pub dispute: Box<Account<'info, Dispute>>,
 
     #[account(
         mut,
@@ -32,7 +40,7 @@ pub struct ExpireDispute<'info> {
         bump = task.bump,
         constraint = dispute.task == task.key() @ CoordinationError::TaskNotFound
     )]
-    pub task: Account<'info, Task>,
+    pub task: Box<Account<'info, Task>>,
 
     #[account(
         mut,
@@ -40,13 +48,13 @@ pub struct ExpireDispute<'info> {
         seeds = [b"escrow", task.key().as_ref()],
         bump = escrow.bump
     )]
-    pub escrow: Account<'info, TaskEscrow>,
+    pub escrow: Box<Account<'info, TaskEscrow>>,
 
     #[account(
         seeds = [b"protocol"],
         bump = protocol_config.bump
     )]
-    pub protocol_config: Account<'info, ProtocolConfig>,
+    pub protocol_config: Box<Account<'info, ProtocolConfig>>,
 
     /// CHECK: Task creator for refund - validated to match task.creator
     #[account(
@@ -57,16 +65,22 @@ pub struct ExpireDispute<'info> {
 
     /// Worker's claim on the disputed task (fix #137)
     /// Optional - when provided, allows decrementing worker's active_tasks
+    /// and enables fair refund distribution (fix #418)
     #[account(
         seeds = [b"claim", task.key().as_ref(), worker_claim.worker.as_ref()],
         bump = worker_claim.bump,
         constraint = worker_claim.task == task.key() @ CoordinationError::NotClaimed
     )]
-    pub worker_claim: Option<Account<'info, TaskClaim>>,
+    pub worker_claim: Option<Box<Account<'info, TaskClaim>>>,
 
     /// CHECK: Worker's AgentRegistration PDA - validated to match worker_claim.worker (fix #137)
     #[account(mut)]
     pub worker: Option<UncheckedAccount<'info>>,
+
+    /// CHECK: Worker's authority wallet for receiving payment (fix #418)
+    /// Required when worker should receive funds on expiration
+    #[account(mut)]
+    pub worker_authority: Option<UncheckedAccount<'info>>,
 }
 
 /// Expires a dispute after voting period ends.
@@ -119,18 +133,113 @@ pub fn handler(ctx: Context<ExpireDispute>) -> Result<()> {
         );
     }
 
+    // Validate worker_authority matches worker's authority field (fix #418)
+    if let (Some(worker), Some(worker_authority)) =
+        (&ctx.accounts.worker, &ctx.accounts.worker_authority)
+    {
+        require!(
+            worker.owner == &crate::ID,
+            CoordinationError::InvalidAccountOwner
+        );
+        let worker_data = worker.try_borrow_data()?;
+        let worker_reg = AgentRegistration::try_deserialize(&mut &**worker_data)?;
+        require!(
+            worker_authority.key() == worker_reg.authority,
+            CoordinationError::UnauthorizedAgent
+        );
+        drop(worker_data);
+    }
+
     let remaining_funds = escrow
         .amount
         .checked_sub(escrow.distributed)
         .ok_or(CoordinationError::ArithmeticOverflow)?;
 
+    // Track distribution for event emission (fix #418)
+    let mut creator_amount: u64 = 0;
+    let mut worker_amount: u64 = 0;
+
+    // Fair refund distribution based on context (fix #418)
+    // - Worker completed + no votes: Worker gets 100% (did work, dispute not properly engaged)
+    // - No completion + no votes: 50/50 split (neither party engaged arbiters)
+    // - Some votes but insufficient quorum: Creator gets refund (dispute was contested)
     if remaining_funds > 0 {
-        **escrow.to_account_info().try_borrow_mut_lamports()? -= remaining_funds;
-        **ctx
+        let worker_completed = ctx
             .accounts
-            .creator
-            .to_account_info()
-            .try_borrow_mut_lamports()? += remaining_funds;
+            .worker_claim
+            .as_ref()
+            .map(|c| c.is_completed)
+            .unwrap_or(false);
+        let no_votes = dispute.total_voters == 0;
+
+        if no_votes && worker_completed {
+            // Worker completed the task but arbiters didn't engage
+            // Worker should receive funds since they did the work
+            if let Some(worker_authority) = &ctx.accounts.worker_authority {
+                worker_amount = remaining_funds;
+                **escrow.to_account_info().try_borrow_mut_lamports()? -= remaining_funds;
+                **worker_authority.to_account_info().try_borrow_mut_lamports()? += remaining_funds;
+            } else {
+                // Fallback: if no worker_authority provided, split 50/50
+                let worker_share = remaining_funds
+                    .checked_div(2)
+                    .ok_or(CoordinationError::ArithmeticOverflow)?;
+                let creator_share = remaining_funds
+                    .checked_sub(worker_share)
+                    .ok_or(CoordinationError::ArithmeticOverflow)?;
+                // Note: worker_share goes to creator as fallback since we can't pay worker
+                creator_amount = remaining_funds;
+                **escrow.to_account_info().try_borrow_mut_lamports()? -= remaining_funds;
+                **ctx
+                    .accounts
+                    .creator
+                    .to_account_info()
+                    .try_borrow_mut_lamports()? += creator_share;
+                **ctx
+                    .accounts
+                    .creator
+                    .to_account_info()
+                    .try_borrow_mut_lamports()? += worker_share;
+            }
+        } else if no_votes {
+            // Neither party engaged arbiters, split 50/50
+            let worker_share = remaining_funds
+                .checked_div(2)
+                .ok_or(CoordinationError::ArithmeticOverflow)?;
+            let creator_share = remaining_funds
+                .checked_sub(worker_share)
+                .ok_or(CoordinationError::ArithmeticOverflow)?;
+            creator_amount = creator_share;
+            **escrow.to_account_info().try_borrow_mut_lamports()? -= remaining_funds;
+            **ctx
+                .accounts
+                .creator
+                .to_account_info()
+                .try_borrow_mut_lamports()? += creator_share;
+
+            if let Some(worker_authority) = &ctx.accounts.worker_authority {
+                worker_amount = worker_share;
+                **worker_authority.to_account_info().try_borrow_mut_lamports()? += worker_share;
+            } else {
+                // Fallback: creator gets all if no worker_authority
+                creator_amount = remaining_funds;
+                **ctx
+                    .accounts
+                    .creator
+                    .to_account_info()
+                    .try_borrow_mut_lamports()? += worker_share;
+            }
+        } else {
+            // Some votes were cast but not enough for quorum
+            // Creator gets refund (dispute was actively contested but inconclusive)
+            creator_amount = remaining_funds;
+            **escrow.to_account_info().try_borrow_mut_lamports()? -= remaining_funds;
+            **ctx
+                .accounts
+                .creator
+                .to_account_info()
+                .try_borrow_mut_lamports()? += remaining_funds;
+        }
     }
 
     // Decrement worker's active_tasks counter (fix #137)
@@ -274,6 +383,8 @@ pub fn handler(ctx: Context<ExpireDispute>) -> Result<()> {
         dispute_id: dispute.dispute_id,
         task_id: task.task_id,
         refund_amount: remaining_funds,
+        creator_amount,
+        worker_amount,
         timestamp: clock.unix_timestamp,
     });
 
