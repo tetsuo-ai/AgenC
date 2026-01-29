@@ -5,19 +5,39 @@
 //! - Prevents claims from blocking task slots indefinitely
 //! - Allows third-party cleanup services
 //! - No economic risk since only valid expirations succeed
+//!
+//! # Cleanup Reward
+//! Callers receive a small reward (0.000001 SOL) from the task escrow
+//! to incentivize timely cleanup of expired claims.
 
 use crate::errors::CoordinationError;
-use crate::state::{AgentRegistration, Task, TaskClaim, TaskStatus};
+use crate::state::{AgentRegistration, Task, TaskClaim, TaskEscrow, TaskStatus};
 use anchor_lang::prelude::*;
+
+/// Small reward for calling expire_claim (0.000001 SOL)
+/// Incentivizes third-party cleanup services
+const CLEANUP_REWARD: u64 = 1000;
 
 #[derive(Accounts)]
 pub struct ExpireClaim<'info> {
+    /// Caller who triggers the expiration - receives cleanup reward
+    #[account(mut)]
+    pub caller: Signer<'info>,
+
     #[account(
         mut,
         seeds = [b"task", task.creator.as_ref(), task.task_id.as_ref()],
         bump = task.bump
     )]
     pub task: Account<'info, Task>,
+
+    #[account(
+        mut,
+        seeds = [b"escrow", task.key().as_ref()],
+        bump = escrow.bump,
+        constraint = escrow.task == task.key() @ CoordinationError::InvalidInput
+    )]
+    pub escrow: Account<'info, TaskEscrow>,
 
     #[account(
         mut,
@@ -52,9 +72,14 @@ pub struct ExpireClaim<'info> {
 /// - Prevents claims from blocking task slots indefinitely
 /// - Allows third-party cleanup services
 /// - No economic risk since only valid expirations succeed
+///
+/// # Cleanup Reward
+/// Callers receive a small reward from the task escrow to incentivize
+/// timely cleanup of expired claims.
 pub fn handler(ctx: Context<ExpireClaim>) -> Result<()> {
     let task = &mut ctx.accounts.task;
     let worker = &mut ctx.accounts.worker;
+    let escrow = &mut ctx.accounts.escrow;
     let claim = &ctx.accounts.claim;
     let clock = Clock::get()?;
 
@@ -69,6 +94,26 @@ pub fn handler(ctx: Context<ExpireClaim>) -> Result<()> {
         claim.expires_at > 0 && clock.unix_timestamp > claim.expires_at,
         CoordinationError::ClaimNotExpired
     );
+
+    // Transfer cleanup reward from escrow to caller (fix #531)
+    let remaining_funds = escrow
+        .amount
+        .checked_sub(escrow.distributed)
+        .ok_or(CoordinationError::ArithmeticOverflow)?;
+
+    let reward = CLEANUP_REWARD.min(remaining_funds);
+    if reward > 0 {
+        **escrow.to_account_info().try_borrow_mut_lamports()? -= reward;
+        **ctx
+            .accounts
+            .caller
+            .to_account_info()
+            .try_borrow_mut_lamports()? += reward;
+        escrow.distributed = escrow
+            .distributed
+            .checked_add(reward)
+            .ok_or(CoordinationError::ArithmeticOverflow)?;
+    }
 
     // Decrement task worker count
     task.current_workers = task
