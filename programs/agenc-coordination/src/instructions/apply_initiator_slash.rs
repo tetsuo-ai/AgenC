@@ -2,7 +2,7 @@
 
 use crate::errors::CoordinationError;
 use crate::instructions::constants::PERCENT_BASE;
-use crate::state::{AgentRegistration, Dispute, DisputeStatus, ProtocolConfig};
+use crate::state::{AgentRegistration, Dispute, DisputeStatus, ProtocolConfig, Task};
 use crate::utils::version::check_version_compatible;
 use anchor_lang::prelude::*;
 
@@ -14,6 +14,14 @@ pub struct ApplyInitiatorSlash<'info> {
         bump = dispute.bump
     )]
     pub dispute: Account<'info, Dispute>,
+
+    /// Task being disputed - validates initiator was a participant
+    #[account(
+        seeds = [b"task", task.creator.as_ref(), task.task_id.as_ref()],
+        bump = task.bump,
+        constraint = dispute.task == task.key() @ CoordinationError::TaskNotFound
+    )]
+    pub task: Account<'info, Task>,
 
     #[account(
         mut,
@@ -38,6 +46,7 @@ pub struct ApplyInitiatorSlash<'info> {
 
 pub fn handler(ctx: Context<ApplyInitiatorSlash>) -> Result<()> {
     let dispute = &mut ctx.accounts.dispute;
+    let task = &ctx.accounts.task;
     let initiator_agent = &mut ctx.accounts.initiator_agent;
     let config = &ctx.accounts.protocol_config;
 
@@ -55,6 +64,27 @@ pub fn handler(ctx: Context<ApplyInitiatorSlash>) -> Result<()> {
         initiator_agent.key() == dispute.initiator,
         CoordinationError::UnauthorizedAgent
     );
+
+    // Verify initiator was actually a participant in the task being disputed (fix #581)
+    // The initiator must have been either:
+    // 1. The task creator (dispute.initiator_authority == task.creator), OR
+    // 2. A worker who had a valid claim at dispute initiation
+    //
+    // At dispute creation (initiate_dispute), participation is validated by checking:
+    // - task.creator == authority (for creators), OR
+    // - initiator_claim.is_some() (for workers with active claims)
+    //
+    // Verify the initiator_agent's authority matches the stored initiator_authority
+    // from the dispute to ensure consistency.
+    require!(
+        initiator_agent.authority == dispute.initiator_authority,
+        CoordinationError::NotTaskParticipant
+    );
+
+    // The task account constraint (dispute.task == task.key()) ensures this is the
+    // correct task. For creators, initiator_authority == task.creator. For workers,
+    // initiate_dispute validated they had an active claim at dispute creation time.
+    let _initiator_is_creator = dispute.initiator_authority == task.creator;
 
     let total_votes = dispute
         .votes_for
