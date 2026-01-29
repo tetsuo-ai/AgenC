@@ -192,6 +192,7 @@ pub struct BondDeposited {
     pub agent: Pubkey,
     pub amount: u64,
     pub new_total: u64,
+    pub timestamp: i64,
 }
 
 /// Emitted when bond is locked for a commitment
@@ -200,6 +201,7 @@ pub struct BondLocked {
     pub agent: Pubkey,
     pub commitment: Pubkey,
     pub amount: u64,
+    pub timestamp: i64,
 }
 
 #[event]
@@ -228,6 +230,7 @@ pub struct BondReleased {
     pub agent: Pubkey,
     pub commitment: Pubkey,
     pub amount: u64,
+    pub timestamp: i64,
 }
 
 /// Emitted when arbiter votes are cleaned up during dispute expiration
