@@ -60,13 +60,11 @@ pub fn handler(
         CoordinationError::InvalidStateValue
     );
 
-    // Check version for optimistic locking (if state already exists)
-    if state.version > 0 {
-        require!(
-            state.version == expected_version,
-            CoordinationError::VersionMismatch
-        );
-    }
+    // Always check version (fix #431 - first update was bypassing)
+    require!(
+        state.version == expected_version,
+        CoordinationError::VersionMismatch
+    );
 
     // Update state
     state.owner = ctx.accounts.authority.key();
