@@ -266,11 +266,13 @@ pub struct ProtocolConfig {
     /// Padding for future use and alignment
     /// Currently unused but reserved for backwards-compatible additions
     pub _padding: [u8; 2],
-    /// Multisig owners (fixed-size).
+    /// Multisig owners (immutable after init for security).
     ///
-    /// # Design Note (see #497)
-    /// Multisig configuration is **immutable** after protocol initialization.
-    /// This is intentional for security reasons:
+    /// # Security Note (see #464)
+    /// Multisig configuration **cannot be updated** after protocol initialization.
+    /// To change multisig, deploy new protocol.
+    ///
+    /// This is intentional:
     /// - Prevents hostile takeover via multisig reconfiguration
     /// - Ensures governance changes require protocol redeployment with proper ceremony
     /// - The array is fully zeroed before population in `initialize_protocol`
