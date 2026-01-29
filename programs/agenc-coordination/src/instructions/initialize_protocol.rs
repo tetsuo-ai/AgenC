@@ -3,7 +3,8 @@
 //! # Parameters
 //!
 //! - `dispute_threshold`: Minimum percentage of arbiter votes needed to resolve a dispute.
-//!   Must be in range 1-100 (inclusive). A value of 50 means majority vote required.
+//!   Must be in range 1-99 (inclusive). A value of 50 means majority vote required.
+//!   100% is disallowed as it makes disputes impossible to approve.
 //! - `protocol_fee_bps`: Fee charged on task completions in basis points (max 1000 = 10%).
 //! - `min_stake`: Minimum stake required for agent/arbiter registration.
 //! - `min_stake_for_dispute`: Minimum stake required to initiate a dispute (must be > 0).
@@ -12,7 +13,7 @@
 
 use crate::errors::CoordinationError;
 use crate::events::ProtocolInitialized;
-use crate::instructions::constants::{MAX_PERCENT, MAX_PROTOCOL_FEE_BPS};
+use crate::instructions::constants::MAX_PROTOCOL_FEE_BPS;
 use crate::state::{ProtocolConfig, CURRENT_PROTOCOL_VERSION, MIN_SUPPORTED_VERSION};
 use crate::utils::multisig::validate_multisig_owners;
 use anchor_lang::prelude::*;
@@ -50,8 +51,8 @@ const MIN_REASONABLE_STAKE: u64 = 1_000_000;
 /// # Arguments
 ///
 /// * `dispute_threshold` - Minimum percentage of arbiter votes needed to resolve a dispute.
-///   Valid range: 1-100 (inclusive). For example, 50 requires majority consensus,
-///   67 requires supermajority, 100 requires unanimous agreement.
+///   Valid range: 1-99 (inclusive). For example, 50 requires majority consensus,
+///   67 requires supermajority. 100% is disallowed as it makes disputes impossible to approve.
 /// * `protocol_fee_bps` - Protocol fee in basis points (0-1000, where 1000 = 10%).
 /// * `min_stake` - Minimum stake required for registration (must be >= 0.001 SOL).
 /// * `min_stake_for_dispute` - Minimum stake required to initiate a dispute (must be > 0).
@@ -60,7 +61,7 @@ const MIN_REASONABLE_STAKE: u64 = 1_000_000;
 ///
 /// # Errors
 ///
-/// Returns [`CoordinationError::InvalidDisputeThreshold`] if dispute_threshold is 0 or > 100.
+/// Returns [`CoordinationError::InvalidDisputeThreshold`] if dispute_threshold is 0 or >= 100.
 /// Returns [`CoordinationError::InvalidMinStake`] if min_stake_for_dispute is 0.
 pub fn handler(
     ctx: Context<InitializeProtocol>,
@@ -71,9 +72,10 @@ pub fn handler(
     multisig_threshold: u8,
     multisig_owners: Vec<Pubkey>,
 ) -> Result<()> {
-    // Validate dispute_threshold: must be 1-100% (see #582)
+    // Threshold must be 1-99, not 100
+    // 100% makes disputes impossible to approve (fixes #484)
     require!(
-        dispute_threshold > 0 && dispute_threshold <= MAX_PERCENT,
+        dispute_threshold > 0 && dispute_threshold < 100,
         CoordinationError::InvalidDisputeThreshold
     );
     require!(
