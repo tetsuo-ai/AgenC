@@ -9,16 +9,18 @@ include "node_modules/circomlib/circuits/comparators.circom";
 //
 // Uses circomlib Poseidon for hashing (groth16-solana compatible)
 //
-// Public Inputs (5 total):
+// Public Inputs (6 total):
 //   - task_id: 32-byte task identifier as field element
 //   - agent_pubkey: 32-byte agent public key as field element
 //   - constraint_hash: hash of expected output
 //   - output_commitment: commitment to the output
 //   - expected_binding: anti-replay binding value
+//   - nullifier: prevents proof/knowledge reuse (derived from constraint_hash + agent_secret)
 //
 // Private Inputs:
 //   - output[4]: actual task output (4 field elements)
 //   - salt: random salt for commitment
+//   - agent_secret: secret known only to the agent for nullifier derivation
 
 // Convert 32 bytes to a single field element (big-endian)
 // BN254 scalar field is ~254 bits, so 32 bytes fits safely when first byte <= 0x30
@@ -66,9 +68,13 @@ template TaskCompletion() {
     signal input output_commitment;      // Commitment to output
     signal input expected_binding;       // Anti-replay binding
 
+    // Public output (nullifier to prevent proof/knowledge reuse)
+    signal output nullifier;
+
     // Private inputs
     signal input output_values[4];       // Task output (4 field elements)
     signal input salt;                   // Random salt
+    signal input agent_secret;           // Agent's secret for nullifier derivation
 
     // ========================================
     // Byte range validation for task_id and agent_pubkey
@@ -151,6 +157,20 @@ template TaskCompletion() {
 
     // CRITICAL: Assert binding matches expected (prevents replay attacks)
     full_binding === expected_binding;
+
+    // ========================================
+    // 4. Compute nullifier to prevent proof/knowledge reuse
+    //    nullifier = Poseidon(constraint_hash, agent_secret)
+    //
+    //    This ensures the same (constraint, agent_secret) pair can only
+    //    be used once. The on-chain program stores spent nullifiers to
+    //    prevent replay of the same proof/knowledge across different tasks.
+    // ========================================
+    component hash_nullifier = Poseidon(2);
+    hash_nullifier.inputs[0] <== computed_constraint;
+    hash_nullifier.inputs[1] <== agent_secret;
+
+    nullifier <== hash_nullifier.out;
 }
 
 component main {public [task_id, agent_pubkey, constraint_hash, output_commitment, expected_binding]} = TaskCompletion();

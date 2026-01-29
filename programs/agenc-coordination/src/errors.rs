@@ -268,4 +268,11 @@ pub enum CoordinationError {
 
     #[msg("Invalid dependency type")]
     InvalidDependencyType,
+
+    // Nullifier errors (7000-7099)
+    #[msg("Nullifier has already been spent - proof/knowledge reuse detected")]
+    NullifierAlreadySpent,
+
+    #[msg("Invalid nullifier: nullifier value cannot be all zeros")]
+    InvalidNullifier,
 }
