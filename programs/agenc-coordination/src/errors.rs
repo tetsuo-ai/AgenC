@@ -207,6 +207,9 @@ pub enum CoordinationError {
     #[msg("Dispute slashing already applied")]
     SlashAlreadyApplied,
 
+    #[msg("Slash window expired: must apply slashing within 7 days of resolution")]
+    SlashWindowExpired,
+
     #[msg("Dispute has not been resolved")]
     DisputeNotResolved,
 
