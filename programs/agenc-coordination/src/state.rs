@@ -257,6 +257,8 @@ pub struct ProtocolConfig {
     pub min_stake_for_dispute: u64,
     /// Percentage of stake slashed on losing dispute (0-100)
     pub slash_percentage: u8,
+    /// Cooldown between state updates per agent (seconds, 0 = disabled) (fix #415)
+    pub state_update_cooldown: i64,
     /// Voting period for disputes in seconds (default: 24 hours)
     pub voting_period: i64,
     // === Versioning fields ===
@@ -308,6 +310,7 @@ impl Default for ProtocolConfig {
             max_disputes_per_24h: 10,   // 10 disputes per 24h window
             min_stake_for_dispute: 100_000_000, // 0.1 SOL default for anti-griefing
             slash_percentage: ProtocolConfig::DEFAULT_SLASH_PERCENTAGE,
+            state_update_cooldown: 60, // 60 seconds between state updates (fix #415)
             voting_period: ProtocolConfig::DEFAULT_VOTING_PERIOD,
             // Versioning
             protocol_version: CURRENT_PROTOCOL_VERSION,
@@ -350,6 +353,7 @@ impl ProtocolConfig {
         1 +  // max_disputes_per_24h
         8 +  // min_stake_for_dispute
         1 +  // slash_percentage
+        8 +  // state_update_cooldown
         8 +  // voting_period
         1 +  // protocol_version
         1 +  // min_supported_version
