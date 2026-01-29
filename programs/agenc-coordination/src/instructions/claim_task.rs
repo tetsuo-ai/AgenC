@@ -92,8 +92,12 @@ pub fn handler(ctx: Context<ClaimTask>) -> Result<()> {
     );
 
     // Calculate claim expiration
+    // Add buffer past deadline so workers can complete and submit proof
+    const COMPLETION_BUFFER: i64 = 3600; // 1 hour buffer
     let expires_at = if task.deadline > 0 {
         task.deadline
+            .checked_add(COMPLETION_BUFFER)
+            .ok_or(CoordinationError::ArithmeticOverflow)?
     } else {
         clock
             .unix_timestamp
