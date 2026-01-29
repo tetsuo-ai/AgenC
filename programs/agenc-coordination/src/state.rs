@@ -202,7 +202,10 @@ impl ProtocolConfig {
     pub const MAX_MULTISIG_OWNERS: usize = 5;
     pub const DEFAULT_MAX_CLAIM_DURATION: i64 = 7 * 24 * 60 * 60; // 7 days
     pub const DEFAULT_MAX_DISPUTE_DURATION: i64 = 7 * 24 * 60 * 60; // 7 days
-    pub const DEFAULT_SLASH_PERCENTAGE: u8 = 10;
+    /// Default percentage of stake slashed for malicious behavior.
+    /// Increased from 10% to 25% to provide stronger deterrence against bad actors
+    /// while remaining proportionate to typical violation severity.
+    pub const DEFAULT_SLASH_PERCENTAGE: u8 = 25;
     pub const SIZE: usize = 8 + // discriminator
         32 + // authority
         32 + // treasury
