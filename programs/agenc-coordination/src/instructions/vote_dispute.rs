@@ -139,6 +139,7 @@ pub fn handler(ctx: Context<VoteDispute>, approve: bool) -> Result<()> {
         .checked_add(1)
         .ok_or(CoordinationError::ArithmeticOverflow)?;
     arbiter.last_vote_timestamp = clock.unix_timestamp;
+    arbiter.last_active = clock.unix_timestamp;
 
     emit!(DisputeVoteCast {
         dispute_id: dispute.dispute_id,
