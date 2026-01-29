@@ -70,6 +70,17 @@ pub fn handler(
         CoordinationError::VersionMismatch
     );
 
+    // Ownership model (fix #395): Only the creator agent can update state
+    // For new state (version 0), the creating agent becomes the owner
+    // For existing state, verify the updating agent is the owner
+    let is_new_state = state.version == 0 && state.last_updater == Pubkey::default();
+    if !is_new_state {
+        require!(
+            state.last_updater == agent.key(),
+            CoordinationError::StateOwnershipViolation
+        );
+    }
+
     // Update state
     state.owner = ctx.accounts.authority.key();
     state.state_key = state_key;

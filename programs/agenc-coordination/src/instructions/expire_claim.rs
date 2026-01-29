@@ -78,12 +78,6 @@ pub struct ExpireClaim<'info> {
     )]
     pub rent_recipient: UncheckedAccount<'info>,
 
-    #[account(
-        seeds = [b"protocol"],
-        bump = protocol_config.bump
-    )]
-    pub protocol_config: Account<'info, ProtocolConfig>,
-
     pub system_program: Program<'info, System>,
 }
 
@@ -106,8 +100,6 @@ pub fn handler(ctx: Context<ExpireClaim>) -> Result<()> {
     let escrow = &mut ctx.accounts.escrow;
     let claim = &ctx.accounts.claim;
     let clock = Clock::get()?;
-
-    check_version_compatible(&ctx.accounts.protocol_config)?;
 
     // Can only expire incomplete claims
     require!(
