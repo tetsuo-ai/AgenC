@@ -76,6 +76,19 @@ pub fn get_version_status(config: &ProtocolConfig) -> VersionStatus {
     }
 }
 
+/// Check if the protocol version is compatible (boolean version)
+///
+/// Returns true if:
+/// - Account's min_supported_version is at least the global MIN_SUPPORTED_VERSION
+/// - Account's protocol_version is at least its min_supported_version (current >= min_required)
+/// - Account's protocol_version does not exceed CURRENT_PROTOCOL_VERSION
+#[inline]
+pub fn is_version_compatible(config: &ProtocolConfig) -> bool {
+    config.min_supported_version >= MIN_SUPPORTED_VERSION
+        && config.protocol_version >= config.min_supported_version
+        && config.protocol_version <= CURRENT_PROTOCOL_VERSION
+}
+
 /// Log version information for debugging
 pub fn log_version_info(config: &ProtocolConfig) {
     msg!("Protocol Version Info:");
