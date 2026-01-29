@@ -398,9 +398,9 @@ pub struct AgentRegistration {
     pub tasks_completed: u64,
     /// Total rewards earned
     pub total_earned: u64,
-    /// Reputation score (0-10000 logical range, stored as u16)
-    /// Note: Type allows 0-65535 but protocol uses 0-10000 scale
-    /// where 0 = worst, 10000 = perfect
+    /// Agent reputation score (0-10000)
+    /// Initial value: 5000 (neutral starting point)
+    /// Can be adjusted via protocol config in future versions
     pub reputation: u16,
     /// Active task count
     pub active_tasks: u8,
