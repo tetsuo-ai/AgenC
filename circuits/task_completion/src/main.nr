@@ -78,6 +78,28 @@ fn bytes_less_than_modulus(bytes: [u8; 32]) -> bool {
     result
 }
 
+// Hash 5 field elements (4 output values + salt) using Poseidon2 sponge mode
+// FIX #532: Binds commitment directly to raw output values, not their hash
+// This prevents theoretical collision attacks on intermediate hash
+// Sponge construction: absorb in rate-sized chunks, permute, squeeze
+fn hash_commitment(output: [Field; 4], salt: Field) -> Field {
+    // Rate is 3 for state size 4 (one capacity element)
+    // First absorption: output[0], output[1], output[2]
+    let state1: [Field; 4] = [output[0], output[1], output[2], 0];
+    let permuted1 = poseidon2_permutation(state1, POSEIDON_STATE_SIZE);
+
+    // Second absorption: output[3], salt (XOR/add into rate elements)
+    let state2: [Field; 4] = [
+        permuted1[0] + output[3],
+        permuted1[1] + salt,
+        permuted1[2],
+        permuted1[3]  // capacity preserved
+    ];
+    let permuted2 = poseidon2_permutation(state2, POSEIDON_STATE_SIZE);
+
+    permuted2[0]
+}
+
 // Convert 32-byte array to field element (big-endian interpretation)
 // NOTE: Ed25519 pubkeys are always < 2^252 (curve order), well within BN254 field modulus (~2^254).
 // Task IDs should be validated by the on-chain program to be within safe bounds.
@@ -111,7 +133,8 @@ fn main(
     assert(computed_constraint == constraint_hash, "Output hash does not match constraint_hash");
 
     // 2. Verify the commitment is correctly formed
-    let computed_commitment = hash_2(computed_constraint, salt);
+    //    FIX #532: Bind directly to raw output values, not constraint_hash
+    let computed_commitment = hash_commitment(output, salt);
     assert(computed_commitment == output_commitment, "Commitment does not match output_commitment");
 
     // 3. Bind proof to task and agent
@@ -199,7 +222,7 @@ global TEST_AGENT_SECRET: Field = 0xdeadbeef;
 #[test]
 fn test_valid_proof() {
     let constraint_hash = hash_4(TEST_OUTPUT);
-    let output_commitment = hash_2(constraint_hash, TEST_SALT);
+    let output_commitment = hash_commitment(TEST_OUTPUT, TEST_SALT);
 
     let expected_binding = compute_expected_binding(TEST_TASK_ID, TEST_AGENT_PUBKEY, output_commitment);
     let expected_nullifier = compute_expected_nullifier(constraint_hash, TEST_AGENT_SECRET);
@@ -213,8 +236,8 @@ fn test_wrong_output_fails() {
     let wrong_output: [Field; 4] = [5, 6, 7, 8];
 
     let constraint_hash = hash_4(TEST_OUTPUT);
-    let wrong_constraint = hash_4(wrong_output);
-    let output_commitment = hash_2(wrong_constraint, TEST_SALT);
+    // FIX #532: Commitment now binds to raw output, not constraint hash
+    let output_commitment = hash_commitment(wrong_output, TEST_SALT);
 
     let task_id: [u8; 32] = [0; 32];
     let agent_pubkey: [u8; 32] = [0; 32];
@@ -229,7 +252,8 @@ fn test_wrong_salt_fails() {
     let wrong_salt: Field = 99999;
 
     let constraint_hash = hash_4(TEST_OUTPUT);
-    let output_commitment = hash_2(constraint_hash, TEST_SALT);
+    // FIX #532: Commitment now binds to raw output, not constraint hash
+    let output_commitment = hash_commitment(TEST_OUTPUT, TEST_SALT);
 
     let task_id: [u8; 32] = [0; 32];
     let agent_pubkey: [u8; 32] = [0; 32];
@@ -242,7 +266,8 @@ fn test_wrong_salt_fails() {
 #[test(should_fail)]
 fn test_wrong_task_id_fails() {
     let constraint_hash = hash_4(TEST_OUTPUT);
-    let output_commitment = hash_2(constraint_hash, TEST_SALT);
+    // FIX #532: Commitment now binds to raw output, not constraint hash
+    let output_commitment = hash_commitment(TEST_OUTPUT, TEST_SALT);
 
     // Compute binding with CORRECT task_id
     let expected_binding = compute_expected_binding(TEST_TASK_ID, TEST_AGENT_PUBKEY, output_commitment);
@@ -254,7 +279,8 @@ fn test_wrong_task_id_fails() {
 #[test(should_fail)]
 fn test_wrong_agent_fails() {
     let constraint_hash = hash_4(TEST_OUTPUT);
-    let output_commitment = hash_2(constraint_hash, TEST_SALT);
+    // FIX #532: Commitment now binds to raw output, not constraint hash
+    let output_commitment = hash_commitment(TEST_OUTPUT, TEST_SALT);
 
     // Compute binding with CORRECT agent
     let expected_binding = compute_expected_binding(TEST_TASK_ID, TEST_AGENT_PUBKEY, output_commitment);
@@ -266,7 +292,8 @@ fn test_wrong_agent_fails() {
 #[test]
 fn test_correct_binding_succeeds() {
     let constraint_hash = hash_4(TEST_OUTPUT);
-    let output_commitment = hash_2(constraint_hash, TEST_SALT);
+    // FIX #532: Commitment now binds to raw output, not constraint hash
+    let output_commitment = hash_commitment(TEST_OUTPUT, TEST_SALT);
 
     // Compute correct binding
     let expected_binding = compute_expected_binding(TEST_TASK_ID, TEST_AGENT_PUBKEY, output_commitment);
