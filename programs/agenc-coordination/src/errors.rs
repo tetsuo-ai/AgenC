@@ -341,4 +341,8 @@ pub enum CoordinationError {
     // Escrow errors (7300-7399)
     #[msg("Escrow has insufficient balance for reward transfer")]
     InsufficientEscrowBalance,
+
+    // Stake validation errors (7400-7499)
+    #[msg("Stake value is below minimum required (0.001 SOL)")]
+    StakeTooLow,
 }
