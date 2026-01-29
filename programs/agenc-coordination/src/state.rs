@@ -50,14 +50,19 @@ pub enum TaskStatus {
     Disputed = 5,
 }
 
-/// Task type
+/// Task type enumeration
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Default, InitSpace)]
 #[repr(u8)]
 pub enum TaskType {
+    /// Exclusive - only one worker can claim
     #[default]
-    Exclusive = 0, // Single worker completes entire task
-    Collaborative = 1, // Multiple workers contribute
-    Competitive = 2,   // First to complete wins
+    Exclusive = 0,
+    /// Collaborative - multiple workers share the task
+    Collaborative = 1,
+    /// Competitive - multiple workers race; first to complete wins.
+    /// Race condition handling: Claims are first-come-first-served.
+    /// Only the first valid completion receives the reward.
+    Competitive = 2,
 }
 
 /// Dependency type for speculative execution decisions
