@@ -109,6 +109,9 @@ pub enum CoordinationError {
     #[msg("Invalid output commitment: output_commitment cannot be all zeros")]
     InvalidOutputCommitment,
 
+    #[msg("Invalid rent recipient: must be worker authority")]
+    InvalidRentRecipient,
+
     // Dispute errors (6300-6399)
     #[msg("Dispute is not active")]
     DisputeNotActive,
