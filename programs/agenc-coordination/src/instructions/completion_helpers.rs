@@ -222,6 +222,7 @@ mod tests {
             protocol_fee_bps: 0,
             depends_on: None,
             dependency_type: DependencyType::default(),
+            protocol_fee_bps: 100, // 1% default for tests
             _reserved: [0u8; 32],
         }
     }
