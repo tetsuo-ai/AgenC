@@ -47,6 +47,7 @@ proptest! {
         let current_time = if input.current_timestamp < input.voting_deadline {
             input.current_timestamp
         } else {
+            // Using saturating_sub intentionally - safe boundary calculation for tests
             input.voting_deadline.saturating_sub(1)
         };
 

@@ -99,10 +99,12 @@ pub fn handler(
 
     // Check cooldown period
     if config.task_creation_cooldown > 0 && creator_agent.last_task_created > 0 {
+        // Using saturating_sub intentionally - handles clock drift safely
         let elapsed = clock
             .unix_timestamp
             .saturating_sub(creator_agent.last_task_created);
         if elapsed < config.task_creation_cooldown {
+            // Using saturating_sub intentionally - underflow returns 0 (safe time calculation)
             let remaining = config.task_creation_cooldown.saturating_sub(elapsed);
             emit!(RateLimitHit {
                 agent_id: creator_agent.agent_id,
@@ -120,6 +122,7 @@ pub fn handler(
     // Check 24h window limit
     if config.max_tasks_per_24h > 0 {
         // Reset window if 24h has passed
+        // Using saturating_sub intentionally - handles clock drift safely
         if clock
             .unix_timestamp
             .saturating_sub(creator_agent.rate_limit_window_start)

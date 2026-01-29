@@ -222,6 +222,7 @@ proptest! {
         amount in 1u64..u64::MAX/2,
         distributed in 0u64..u64::MAX/2,
     ) {
+        // Using saturating_sub intentionally - safe boundary calculation for tests
         let distributed = distributed.min(amount.saturating_sub(1));
 
         let mut dispute = SimulatedDispute {

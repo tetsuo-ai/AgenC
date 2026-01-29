@@ -82,6 +82,7 @@ fn run_claim_task_fuzz(iterations: usize) -> (usize, usize) {
             status: task_status::OPEN,
             reward_amount: input.task_reward,
             max_workers: input.task_max_workers.max(1),
+            // Using saturating_sub intentionally - safe boundary calculation for tests
             current_workers: input.task_current_workers.min(input.task_max_workers.saturating_sub(1)),
             required_capabilities: input.task_required_capabilities,
             deadline: input.task_deadline,
@@ -145,6 +146,7 @@ fn run_complete_task_fuzz(iterations: usize) -> (usize, usize) {
 
         let mut escrow = SimulatedEscrow {
             amount: escrow_amount,
+            // Using saturating_sub intentionally - safe boundary calculation for tests
             distributed: input.escrow_distributed.min(escrow_amount.saturating_sub(input.task_reward)),
             is_closed: false,
         };
@@ -227,6 +229,7 @@ fn run_vote_dispute_fuzz(iterations: usize) -> (usize, usize) {
         let current_time = if input.current_timestamp < input.voting_deadline {
             input.current_timestamp
         } else {
+            // Using saturating_sub intentionally - safe boundary calculation for tests
             input.voting_deadline.saturating_sub(1)
         };
 
