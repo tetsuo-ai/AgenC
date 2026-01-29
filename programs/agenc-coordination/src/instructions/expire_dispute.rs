@@ -216,6 +216,7 @@ pub fn handler(ctx: Context<ExpireDispute>) -> Result<()> {
             require!(arbiter_info.is_writable, CoordinationError::InvalidInput);
             let mut arbiter_data = arbiter_info.try_borrow_mut_data()?;
             let mut arbiter = AgentRegistration::try_deserialize(&mut &**arbiter_data)?;
+            // Using saturating_sub intentionally - underflow returns 0 (safe counter decrement)
             arbiter.active_dispute_votes = arbiter.active_dispute_votes.saturating_sub(1);
             arbiter.try_serialize(&mut &mut arbiter_data[8..])?;
         }
@@ -259,6 +260,7 @@ pub fn handler(ctx: Context<ExpireDispute>) -> Result<()> {
         require!(worker_info.is_writable, CoordinationError::InvalidInput);
         let mut worker_data = worker_info.try_borrow_mut_data()?;
         let mut worker_reg = AgentRegistration::try_deserialize(&mut &**worker_data)?;
+        // Using saturating_sub intentionally - underflow returns 0 (safe counter decrement)
         worker_reg.active_tasks = worker_reg.active_tasks.saturating_sub(1);
         worker_reg.try_serialize(&mut &mut worker_data[8..])?;
     }
