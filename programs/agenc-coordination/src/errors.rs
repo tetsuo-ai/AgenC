@@ -305,6 +305,12 @@ pub enum CoordinationError {
     #[msg("Invalid dependency type")]
     InvalidDependencyType,
 
+    #[msg("Parent task must be completed before completing a proof-dependent task")]
+    ParentTaskNotCompleted,
+
+    #[msg("Parent task account required for proof-dependent task completion")]
+    ParentTaskAccountRequired,
+
     // Nullifier errors (7000-7099)
     #[msg("Nullifier has already been spent - proof/knowledge reuse detected")]
     NullifierAlreadySpent,
