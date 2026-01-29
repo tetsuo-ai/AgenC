@@ -611,6 +611,7 @@ describe("coordination-security", () => {
             task: taskPda,
             escrow: escrowPda,
             creator: creator.publicKey,
+            protocolConfig: protocolPda,
           })
           .signers([creator])
           .rpc();
@@ -893,6 +894,7 @@ describe("coordination-security", () => {
               task: taskPda,
               escrow: escrowPda,
               creator: unauthorized.publicKey,
+              protocolConfig: protocolPda,
             })
             .signers([unauthorized])
             .rpc();
@@ -1298,6 +1300,7 @@ describe("coordination-security", () => {
             task: taskPda,
             escrow: escrowPda,
             creator: creator.publicKey,
+            protocolConfig: protocolPda,
           })
           .signers([creator])
           .rpc();

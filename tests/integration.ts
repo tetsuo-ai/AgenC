@@ -802,6 +802,8 @@ describe("AgenC Integration Tests", () => {
             task: taskPda,
             escrow: escrowPda,
             creator: creator.publicKey,
+            protocolConfig: protocolPda,
+          protocolConfig: protocolPda,
             // systemProgram: auto-resolved
           })
           .signers([creator])

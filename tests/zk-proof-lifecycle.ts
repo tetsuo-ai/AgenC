@@ -641,6 +641,7 @@ describe("ZK Proof Verification Lifecycle", () => {
           task: taskPda,
           escrow: escrowPda,
           creator: taskCreator.publicKey,
+          protocolConfig: protocolPda,
           systemProgram: SystemProgram.programId,
         })
         .signers([taskCreator])
