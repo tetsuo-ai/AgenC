@@ -887,3 +887,79 @@ impl Nullifier {
         8 +  // spent_at
         1;   // bump
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Helper: SIZE should equal struct size + 8-byte discriminator
+    macro_rules! test_size_constant {
+        ($struct:ty) => {
+            assert_eq!(
+                <$struct>::SIZE,
+                std::mem::size_of::<$struct>() + 8,
+                concat!(stringify!($struct), "::SIZE mismatch")
+            );
+        };
+    }
+
+    #[test]
+    fn test_protocol_config_size() {
+        test_size_constant!(ProtocolConfig);
+    }
+
+    #[test]
+    fn test_agent_registration_size() {
+        test_size_constant!(AgentRegistration);
+    }
+
+    #[test]
+    fn test_task_size() {
+        test_size_constant!(Task);
+    }
+
+    #[test]
+    fn test_task_claim_size() {
+        test_size_constant!(TaskClaim);
+    }
+
+    #[test]
+    fn test_coordination_state_size() {
+        test_size_constant!(CoordinationState);
+    }
+
+    #[test]
+    fn test_dispute_size() {
+        test_size_constant!(Dispute);
+    }
+
+    #[test]
+    fn test_dispute_vote_size() {
+        test_size_constant!(DisputeVote);
+    }
+
+    #[test]
+    fn test_authority_dispute_vote_size() {
+        test_size_constant!(AuthorityDisputeVote);
+    }
+
+    #[test]
+    fn test_task_escrow_size() {
+        test_size_constant!(TaskEscrow);
+    }
+
+    #[test]
+    fn test_speculation_bond_size() {
+        test_size_constant!(SpeculationBond);
+    }
+
+    #[test]
+    fn test_speculative_commitment_size() {
+        test_size_constant!(SpeculativeCommitment);
+    }
+
+    #[test]
+    fn test_nullifier_size() {
+        test_size_constant!(Nullifier);
+    }
+}
