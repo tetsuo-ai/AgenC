@@ -108,5 +108,11 @@ pub fn handler(ctx: Context<CancelTask>) -> Result<()> {
         worker.try_serialize(&mut &mut worker_data[8..])?;
     }
 
+    // Validate all workers were provided
+    require!(
+        num_pairs == task.current_workers as usize,
+        CoordinationError::IncompleteWorkerAccounts
+    );
+
     Ok(())
 }

@@ -302,4 +302,8 @@ pub enum CoordinationError {
 
     #[msg("Invalid nullifier: nullifier value cannot be all zeros")]
     InvalidNullifier,
+
+    // Cancel task errors (7100-7199)
+    #[msg("All worker accounts must be provided when cancelling a task with active claims")]
+    IncompleteWorkerAccounts,
 }
