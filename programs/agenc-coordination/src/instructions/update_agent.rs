@@ -7,6 +7,7 @@
 use crate::errors::CoordinationError;
 use crate::events::AgentUpdated;
 use crate::state::{AgentRegistration, AgentStatus, ProtocolConfig};
+use crate::utils::validation::validate_string_input;
 use anchor_lang::prelude::*;
 
 #[derive(Accounts)]
@@ -48,11 +49,19 @@ pub fn handler(
     if let Some(ep) = endpoint {
         require!(!ep.is_empty(), CoordinationError::InvalidInput);
         require!(ep.len() <= 128, CoordinationError::StringTooLong);
+        require!(
+            validate_string_input(&ep),
+            CoordinationError::InvalidInput
+        );
         agent.endpoint = ep;
     }
 
     if let Some(uri) = metadata_uri {
         require!(uri.len() <= 128, CoordinationError::StringTooLong);
+        require!(
+            validate_string_input(&uri),
+            CoordinationError::InvalidInput
+        );
         agent.metadata_uri = uri;
     }
 
