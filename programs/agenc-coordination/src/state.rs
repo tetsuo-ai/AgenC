@@ -211,6 +211,7 @@ pub const MIN_SUPPORTED_VERSION: u8 = 1;
 #[account]
 pub struct ProtocolConfig {
     /// Protocol authority
+    /// Note: Cannot be updated after initialization.
     pub authority: Pubkey,
     /// Treasury for protocol fees
     pub treasury: Pubkey,
