@@ -1,4 +1,8 @@
-//! Apply slashing to a worker after losing a dispute
+//! Apply slashing after dispute resolution.
+//!
+//! # Permissionless Design
+//! Can be called by anyone after dispute resolves unfavorably.
+//! This is intentional - ensures slashing cannot be avoided.
 
 use crate::errors::CoordinationError;
 use crate::instructions::constants::PERCENT_BASE;
