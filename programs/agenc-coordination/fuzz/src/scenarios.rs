@@ -33,7 +33,8 @@ pub struct SimulatedEscrow {
 pub struct SimulatedAgent {
     pub agent_id: [u8; 32],
     pub capabilities: u64,
-    pub status: u8, // 0=Inactive, 1=Active, 2=Busy, 3=Suspended
+    /// Agent status (see `agent_status` module in invariants.rs for values)
+    pub status: u8,
     pub active_tasks: u8,
     pub reputation: u16,
     pub stake: u64,
@@ -121,7 +122,7 @@ pub fn simulate_claim_task(
     }
 
     // Check worker is active
-    if worker.status != 1 {
+    if worker.status != agent_status::ACTIVE {
         return SimulationResult::Error("AgentNotActive".to_string());
     }
 
@@ -346,7 +347,7 @@ pub fn simulate_vote_dispute(
     }
 
     // Check arbiter is active
-    if arbiter.status != 1 {
+    if arbiter.status != agent_status::ACTIVE {
         return SimulationResult::Error("AgentNotActive".to_string());
     }
 
@@ -590,7 +591,7 @@ mod tests {
         SimulatedAgent {
             agent_id: [2u8; 32],
             capabilities: 0xFF, // All capabilities
-            status: 1,          // Active
+            status: agent_status::ACTIVE,
             active_tasks: 0,
             reputation: 5000,
             stake: 1_000_000,
