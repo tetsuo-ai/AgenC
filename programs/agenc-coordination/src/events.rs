@@ -89,6 +89,7 @@ pub struct TaskCancelled {
 pub struct StateUpdated {
     pub state_key: [u8; 32],
     pub state_value: [u8; 64],
+    pub state_value: [u8; 64],
     pub updater: Pubkey,
     pub version: u64,
     pub timestamp: i64,
