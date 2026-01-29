@@ -230,6 +230,9 @@ pub enum CoordinationError {
     #[msg("State not found")]
     StateNotFound,
 
+    #[msg("Invalid state value: state_value cannot be all zeros")]
+    InvalidStateValue,
+
     // Protocol errors (6500-6599)
     #[msg("Protocol is already initialized")]
     ProtocolAlreadyInitialized,
