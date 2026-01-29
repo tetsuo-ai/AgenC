@@ -6,6 +6,7 @@
 
 use crate::errors::CoordinationError;
 use crate::events::AgentUpdated;
+use crate::instructions::validation::validate_endpoint;
 use crate::state::{AgentRegistration, AgentStatus, ProtocolConfig};
 use crate::utils::validation::validate_string_input;
 use anchor_lang::prelude::*;
@@ -48,11 +49,11 @@ pub fn handler(
 
     if let Some(ep) = endpoint {
         require!(!ep.is_empty(), CoordinationError::InvalidInput);
-        require!(ep.len() <= 128, CoordinationError::StringTooLong);
         require!(
             validate_string_input(&ep),
             CoordinationError::InvalidInput
         );
+        validate_endpoint(&ep)?;
         agent.endpoint = ep;
     }
 

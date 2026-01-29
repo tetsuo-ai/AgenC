@@ -7,6 +7,7 @@ use crate::utils::validation::validate_string_input;
 use anchor_lang::prelude::*;
 
 use super::constants::WINDOW_24H;
+use super::validation::validate_endpoint;
 
 /// Initial reputation score for new agents (50% = 5000/10000)
 const INITIAL_REPUTATION: u16 = 5000;
@@ -57,11 +58,11 @@ pub fn handler(
 
     require!(capabilities != 0, CoordinationError::InvalidCapabilities);
     require!(!endpoint.is_empty(), CoordinationError::InvalidInput);
-    require!(endpoint.len() <= 128, CoordinationError::StringTooLong);
     require!(
         validate_string_input(&endpoint),
         CoordinationError::InvalidInput
     );
+    validate_endpoint(&endpoint)?;
 
     let metadata = metadata_uri.unwrap_or_default();
     require!(metadata.len() <= 128, CoordinationError::StringTooLong);
