@@ -9,8 +9,7 @@ use crate::utils::version::check_version_compatible;
 use anchor_lang::prelude::*;
 use anchor_lang::system_program;
 
-/// 24 hours in seconds
-const WINDOW_24H: i64 = 24 * 60 * 60;
+use super::constants::WINDOW_24H;
 
 #[derive(Accounts)]
 #[instruction(task_id: [u8; 32])]
