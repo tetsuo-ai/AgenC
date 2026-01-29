@@ -46,6 +46,7 @@ pub fn handler(
     }
 
     if let Some(ep) = endpoint {
+        require!(!ep.is_empty(), CoordinationError::InvalidInput);
         require!(ep.len() <= 128, CoordinationError::StringTooLong);
         agent.endpoint = ep;
     }
