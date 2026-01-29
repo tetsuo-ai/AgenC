@@ -100,6 +100,14 @@ pub fn handler(
         CoordinationError::NotTaskParticipant
     );
 
+    // If initiator has a claim, verify it hasn't expired
+    if let Some(claim) = &ctx.accounts.initiator_claim {
+        require!(
+            claim.expires_at > clock.unix_timestamp,
+            CoordinationError::ClaimExpired
+        );
+    }
+
     // Validate resolution type
     require!(resolution_type <= 2, CoordinationError::InvalidInput);
 
