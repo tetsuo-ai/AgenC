@@ -470,6 +470,8 @@ describe("complete_task_private", () => {
           task: cancelledTaskPda,
           escrow: cancelledEscrowPda,
           creator: creator.publicKey,
+          protocolConfig: protocolPda,
+          protocolConfig: protocolPda,
           systemProgram: SystemProgram.programId,
         })
         .signers([creator])

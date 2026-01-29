@@ -2,7 +2,8 @@
 
 use crate::errors::CoordinationError;
 use crate::events::TaskCancelled;
-use crate::state::{AgentRegistration, Task, TaskClaim, TaskEscrow, TaskStatus};
+use crate::state::{AgentRegistration, ProtocolConfig, Task, TaskClaim, TaskEscrow, TaskStatus};
+use crate::utils::version::check_version_compatible;
 use anchor_lang::prelude::*;
 
 #[derive(Accounts)]
@@ -26,6 +27,12 @@ pub struct CancelTask<'info> {
     #[account(mut)]
     pub creator: Signer<'info>,
 
+    #[account(
+        seeds = [b"protocol"],
+        bump = protocol_config.bump
+    )]
+    pub protocol_config: Account<'info, ProtocolConfig>,
+
     pub system_program: Program<'info, System>,
 }
 
@@ -33,6 +40,8 @@ pub fn handler(ctx: Context<CancelTask>) -> Result<()> {
     let task = &mut ctx.accounts.task;
     let escrow = &mut ctx.accounts.escrow;
     let clock = Clock::get()?;
+
+    check_version_compatible(&ctx.accounts.protocol_config)?;
 
     // Validate status transition is allowed (fix #538)
     require!(
