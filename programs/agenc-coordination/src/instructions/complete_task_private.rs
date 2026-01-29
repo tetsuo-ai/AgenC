@@ -17,6 +17,19 @@
 //! The binding is computed as: `hash(hash(task_id, agent_pubkey), output_commitment)`
 //! and is verified as a public input to the circuit.
 //!
+//! ## Nullifier Mechanism (Proof/Knowledge Reuse Prevention - fix: issue #336)
+//!
+//! The nullifier prevents an agent from reusing the same proof/knowledge across
+//! different tasks. The circuit computes: `nullifier = Poseidon(constraint_hash, agent_secret)`
+//!
+//! - The agent_secret is a private input known only to the agent
+//! - Each unique (constraint, agent_secret) pair produces a unique nullifier
+//! - The on-chain program stores spent nullifiers as PDAs
+//! - If a nullifier PDA already exists, the transaction is rejected
+//!
+//! This ensures that if two tasks have the same constraint_hash (expecting the same
+//! output), an agent cannot simply reuse a proof from one task to complete the other.
+//!
 //! ## Defense-in-Depth (fix: issue #88)
 //!
 //! On-chain validation provides multiple layers of protection:
@@ -34,7 +47,7 @@
 //! The witness format matches Circom's public input encoding:
 //! - Each byte of task_id and agent_pubkey becomes a separate field element
 //! - Field elements are 32 bytes big-endian (BN254 scalar field)
-//! - Total: 32 (task bytes) + 32 (agent bytes) + 3 (hashes) = 67 public inputs
+//! - Total: 32 (task bytes) + 32 (agent bytes) + 4 (hashes including nullifier) = 68 public inputs
 
 use crate::errors::CoordinationError;
 use crate::events::{RewardDistributed, TaskCompleted};
@@ -43,8 +56,8 @@ use crate::instructions::completion_helpers::{
     update_task_state, update_worker_state,
 };
 use crate::state::{
-    AgentRegistration, ProtocolConfig, Task, TaskClaim, TaskEscrow, TaskStatus, TaskType,
-    HASH_SIZE, RESULT_DATA_SIZE,
+    AgentRegistration, Nullifier, ProtocolConfig, Task, TaskClaim, TaskEscrow, TaskStatus,
+    TaskType, HASH_SIZE, RESULT_DATA_SIZE,
 };
 use crate::utils::version::check_version_compatible;
 use crate::verifying_key::get_verifying_key;
@@ -52,8 +65,8 @@ use anchor_lang::prelude::*;
 use groth16_solana::groth16::Groth16Verifier;
 
 // ZK proof format constants
-// 32 (task_id bytes) + 32 (agent bytes) + 1 (constraint_hash) + 1 (output_commitment) + 1 (expected_binding)
-const PUBLIC_INPUTS_COUNT: usize = 67;
+// 32 (task_id bytes) + 32 (agent bytes) + 1 (constraint_hash) + 1 (output_commitment) + 1 (expected_binding) + 1 (nullifier)
+const PUBLIC_INPUTS_COUNT: usize = 68;
 const FIELD_SIZE: usize = HASH_SIZE;
 
 /// Expected Groth16 proof size in bytes (2 G1 points + 1 G2 point on BN254)
@@ -66,10 +79,13 @@ pub struct PrivateCompletionProof {
     pub constraint_hash: [u8; HASH_SIZE],
     pub output_commitment: [u8; HASH_SIZE],
     pub expected_binding: [u8; HASH_SIZE],
+    /// Nullifier to prevent proof/knowledge reuse across tasks.
+    /// Derived in the ZK circuit as: Poseidon(constraint_hash, agent_secret)
+    pub nullifier: [u8; HASH_SIZE],
 }
 
 #[derive(Accounts)]
-#[instruction(task_id: u64)]
+#[instruction(task_id: u64, proof: PrivateCompletionProof)]
 pub struct CompleteTaskPrivate<'info> {
     #[account(
         mut,
@@ -108,6 +124,17 @@ pub struct CompleteTaskPrivate<'info> {
     )]
     pub protocol_config: Account<'info, ProtocolConfig>,
 
+    /// Nullifier account to prevent proof/knowledge reuse.
+    /// If this account already exists, the proof has been used before.
+    #[account(
+        init,
+        payer = authority,
+        space = Nullifier::SIZE,
+        seeds = [b"nullifier", proof.nullifier.as_ref()],
+        bump
+    )]
+    pub nullifier_account: Account<'info, Nullifier>,
+
     /// CHECK: Treasury account for protocol fees
     #[account(
         mut,
@@ -126,7 +153,7 @@ pub struct CompleteTaskPrivate<'info> {
 /// # Arguments
 /// * `_task_id` - Required by Anchor's instruction macro for deserialization,
 ///   but the actual task is identified by the task account PDA
-/// * `proof` - The ZK proof containing proof_data, constraint_hash, output_commitment, and expected_binding
+/// * `proof` - The ZK proof containing proof_data, constraint_hash, output_commitment, expected_binding, and nullifier
 pub fn complete_task_private(
     ctx: Context<CompleteTaskPrivate>,
     _task_id: u64,
@@ -136,6 +163,7 @@ pub fn complete_task_private(
     let claim = &mut ctx.accounts.claim;
     let escrow = &mut ctx.accounts.escrow;
     let worker = &mut ctx.accounts.worker;
+    let nullifier_account = &mut ctx.accounts.nullifier_account;
     let clock = Clock::get()?;
 
     check_version_compatible(&ctx.accounts.protocol_config)?;
@@ -175,6 +203,18 @@ pub fn complete_task_private(
         CoordinationError::InvalidOutputCommitment
     );
 
+    // CRITICAL: Validate nullifier is not all zeros (fix: issue #336)
+    // The nullifier prevents proof/knowledge reuse across tasks
+    require!(
+        proof.nullifier != [0u8; HASH_SIZE],
+        CoordinationError::InvalidNullifier
+    );
+
+    // NOTE: The nullifier account is initialized via Anchor's `init` constraint.
+    // If the account already exists (nullifier was already spent), Anchor will
+    // automatically reject the transaction with AccountAlreadyInitialized error.
+    // This prevents proof/knowledge reuse without explicit duplicate checking.
+
     // CRITICAL: For competitive tasks, ensure no one else has completed (fix: double-reward vulnerability)
     // This check must happen BEFORE proof verification to prevent wasted compute on invalid completions
     if task.task_type == TaskType::Competitive {
@@ -185,6 +225,13 @@ pub fn complete_task_private(
     }
 
     verify_zk_proof(&proof, task.key(), worker.authority)?;
+
+    // Initialize the nullifier account to mark it as spent
+    nullifier_account.nullifier_value = proof.nullifier;
+    nullifier_account.task = task.key();
+    nullifier_account.agent = worker.key();
+    nullifier_account.spent_at = clock.unix_timestamp;
+    // bump is set automatically by Anchor's init constraint
 
     claim.proof_hash = proof.output_commitment;
     // Private completions don't store result data on-chain (privacy preserved)
@@ -248,7 +295,7 @@ fn append_pubkey_as_field_elements(
 }
 
 /// Build public inputs array for groth16-solana verification.
-/// Format: 67 field elements, each 32 bytes big-endian.
+/// Format: 68 field elements, each 32 bytes big-endian.
 fn build_public_inputs(
     task_key: &Pubkey,
     agent: &Pubkey,
@@ -270,6 +317,9 @@ fn build_public_inputs(
 
     // Public input 66: expected_binding
     inputs[66] = proof.expected_binding;
+
+    // Public input 67: nullifier (prevents proof/knowledge reuse)
+    inputs[67] = proof.nullifier;
 
     inputs
 }

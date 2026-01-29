@@ -699,3 +699,31 @@ pub struct SpeculativeCommitment {
 impl SpeculativeCommitment {
     pub const SIZE: usize = 8 + 32 + 32 + 32 + 1 + 8 + 8 + 8 + 1; // 130 bytes
 }
+
+/// Nullifier account to prevent proof/knowledge reuse across tasks.
+/// Once a nullifier is "spent" (account exists), the same proof/knowledge
+/// combination cannot be used again.
+/// PDA seeds: ["nullifier", nullifier_value]
+#[account]
+#[derive(Default)]
+pub struct Nullifier {
+    /// The nullifier value (derived from constraint_hash + agent_secret in ZK circuit)
+    pub nullifier_value: [u8; 32],
+    /// The task where this nullifier was first used
+    pub task: Pubkey,
+    /// The agent who spent this nullifier
+    pub agent: Pubkey,
+    /// Timestamp when nullifier was spent
+    pub spent_at: i64,
+    /// Bump seed for PDA
+    pub bump: u8,
+}
+
+impl Nullifier {
+    pub const SIZE: usize = 8 +  // discriminator
+        32 + // nullifier_value
+        32 + // task
+        32 + // agent
+        8 +  // spent_at
+        1;   // bump
+}
