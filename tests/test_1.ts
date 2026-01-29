@@ -1146,6 +1146,7 @@ describe("test_1", () => {
           task: taskPda,
           escrow: escrowPda,
           creator: creator.publicKey,
+          protocolConfig: protocolPda,
           systemProgram: SystemProgram.programId,
         })
         .signers([creator])
@@ -1458,6 +1459,7 @@ describe("test_1", () => {
           task: taskPda,
           escrow: escrowPda,
           creator: creator.publicKey,
+          protocolConfig: protocolPda,
           systemProgram: SystemProgram.programId,
         })
         .signers([creator])
@@ -2054,6 +2056,7 @@ describe("test_1", () => {
             task: taskPda,
             escrow: escrowPda,
             creator: creator.publicKey,
+            protocolConfig: protocolPda,
             systemProgram: SystemProgram.programId,
           })
           .signers([creator])
@@ -2137,6 +2140,7 @@ describe("test_1", () => {
             task: taskPda,
             escrow: escrowPda,
             creator: creator.publicKey,
+            protocolConfig: protocolPda,
             systemProgram: SystemProgram.programId,
           })
           .signers([creator])
@@ -2299,6 +2303,7 @@ describe("test_1", () => {
               task: taskPda,
               escrow: escrowPda,
               creator: creator.publicKey,
+              protocolConfig: protocolPda,
               systemProgram: SystemProgram.programId,
             })
             .signers([creator])
@@ -2347,6 +2352,7 @@ describe("test_1", () => {
             task: taskPda,
             escrow: escrowPda,
             creator: creator.publicKey,
+            protocolConfig: protocolPda,
             systemProgram: SystemProgram.programId,
           })
           .signers([creator])
@@ -2465,6 +2471,7 @@ describe("test_1", () => {
             task: taskPda,
             escrow: escrowPda,
             creator: creator.publicKey,
+            protocolConfig: protocolPda,
             systemProgram: SystemProgram.programId,
           })
           .signers([creator])
@@ -2478,6 +2485,7 @@ describe("test_1", () => {
               task: taskPda,
               escrow: escrowPda,
               creator: creator.publicKey,
+              protocolConfig: protocolPda,
               systemProgram: SystemProgram.programId,
             })
             .signers([creator])
@@ -2740,6 +2748,7 @@ describe("test_1", () => {
             task: taskPda,
             escrow: escrowPda,
             creator: creator.publicKey,
+            protocolConfig: protocolPda,
             systemProgram: SystemProgram.programId,
           })
           .signers([creator])
@@ -3298,6 +3307,7 @@ describe("test_1", () => {
               task: taskPda,
               escrow: escrowPda,
               creator: nonCreator.publicKey,
+              protocolConfig: protocolPda,
               systemProgram: SystemProgram.programId,
             })
             .signers([nonCreator])
@@ -3385,6 +3395,7 @@ describe("test_1", () => {
             task: taskPda,
             escrow: escrowPda,
             creator: creator.publicKey,
+            protocolConfig: protocolPda,
             systemProgram: SystemProgram.programId,
           })
           .signers([creator])
@@ -4013,6 +4024,7 @@ describe("test_1", () => {
             task: taskPda,
             escrow: escrowPda,
             creator: unauthorized.publicKey,
+            protocolConfig: protocolPda,
             systemProgram: SystemProgram.programId,
           })
           .signers([unauthorized])
@@ -4153,6 +4165,7 @@ describe("test_1", () => {
             task: taskPda,
             escrow: escrowPda,
             creator: creator.publicKey,
+            protocolConfig: protocolPda,
             systemProgram: SystemProgram.programId,
           })
           .signers([creator])
@@ -4199,6 +4212,7 @@ describe("test_1", () => {
           task: taskPda,
           escrow: escrowPda,
           creator: creator.publicKey,
+          protocolConfig: protocolPda,
           systemProgram: SystemProgram.programId,
         })
         .signers([creator])
@@ -4609,6 +4623,7 @@ describe("test_1", () => {
             task: taskPda,
             escrow: escrowPda,
             creator: creator.publicKey,
+            protocolConfig: protocolPda,
             systemProgram: SystemProgram.programId,
           })
           .signers([creator])
@@ -4695,6 +4710,7 @@ describe("test_1", () => {
         try {
           await program.methods.cancelTask().accountsPartial({
             task: taskPda, escrow: escrowPda, creator: creator.publicKey,
+            protocolConfig: protocolPda,
             systemProgram: SystemProgram.programId,
           }).signers([creator]).rpc();
           expect.fail("Expected TaskCannotBeCancelled error");
@@ -4832,6 +4848,7 @@ describe("test_1", () => {
         try {
           await program.methods.cancelTask().accountsPartial({
             task: taskPda, escrow: escrowPda, creator: creator.publicKey,
+            protocolConfig: protocolPda,
             systemProgram: SystemProgram.programId,
           }).signers([creator]).rpc();
           expect.fail("Should have failed");
@@ -4934,6 +4951,7 @@ describe("test_1", () => {
 
         await program.methods.cancelTask().accountsPartial({
           task: taskPda, escrow: escrowPda, creator: creator.publicKey,
+          protocolConfig: protocolPda,
           systemProgram: SystemProgram.programId,
         }).signers([creator]).rpc();
 
@@ -5466,6 +5484,7 @@ describe("test_1", () => {
 
         await program.methods.cancelTask().accountsPartial({
           task: taskPda, escrow: escrowPda, creator: creator.publicKey,
+          protocolConfig: protocolPda,
           systemProgram: SystemProgram.programId,
         }).signers([creator]).rpc();
 
