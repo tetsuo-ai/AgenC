@@ -59,6 +59,14 @@ pub fn handler(ctx: Context<ApplyDisputeSlash>) -> Result<()> {
 
     check_version_compatible(config)?;
 
+    // Verify the worker was actually part of this disputed task
+    // Check that worker has/had a claim on the task
+    require!(
+        ctx.accounts.worker_claim.task == dispute.task
+            && ctx.accounts.worker_claim.worker == worker_agent.key(),
+        CoordinationError::WorkerNotInDispute
+    );
+
     require!(
         dispute.status == DisputeStatus::Resolved,
         CoordinationError::DisputeNotResolved

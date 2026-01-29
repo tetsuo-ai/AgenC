@@ -568,6 +568,8 @@ pub struct Dispute {
     pub initiator_slash_applied: bool,
     /// Snapshot of worker's stake at dispute initiation (prevents stake withdrawal attacks)
     pub worker_stake_at_dispute: u64,
+    /// Whether the initiator had a claim on the task (vs being the creator)
+    pub initiator_had_claim: bool,
     /// Bump seed
     pub bump: u8,
 }
@@ -591,6 +593,7 @@ impl Dispute {
         1 +  // slash_applied
         1 +  // initiator_slash_applied
         8 +  // worker_stake_at_dispute
+        1 +  // initiator_had_claim
         1; // bump
 }
 

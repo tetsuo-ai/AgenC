@@ -197,6 +197,15 @@ pub enum CoordinationError {
     #[msg("Agent has active disputes as defendant and cannot deregister")]
     ActiveDisputesExist,
 
+    #[msg("Worker agent account required when creator initiates dispute")]
+    WorkerAgentRequired,
+
+    #[msg("Worker claim account required when creator initiates dispute")]
+    WorkerClaimRequired,
+
+    #[msg("Worker agent was not a participant in this dispute")]
+    WorkerNotInDispute,
+
     // State errors (6400-6499)
     #[msg("State version mismatch (concurrent modification)")]
     VersionMismatch,
@@ -328,4 +337,8 @@ pub enum CoordinationError {
     // Duplicate account errors (7200-7299)
     #[msg("Duplicate arbiter provided in remaining_accounts")]
     DuplicateArbiter,
+
+    // Worker dispute errors (7300-7399)
+    #[msg("Worker was not involved in this dispute")]
+    WorkerNotInDispute,
 }

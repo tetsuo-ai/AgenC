@@ -106,8 +106,13 @@ pub fn handler(
         CoordinationError::NotTaskParticipant
     );
 
-    // If initiator has a claim, verify it hasn't expired
+    // If initiator has a claim, verify it hasn't been completed and hasn't expired
     if let Some(claim) = &ctx.accounts.initiator_claim {
+        // Workers with completed claims shouldn't dispute - they got paid
+        require!(
+            !claim.is_completed,
+            CoordinationError::ClaimAlreadyCompleted
+        );
         require!(
             claim.expires_at > clock.unix_timestamp,
             CoordinationError::ClaimExpired
@@ -257,6 +262,7 @@ pub fn handler(
     dispute.slash_applied = false;
     dispute.initiator_slash_applied = false;
     dispute.worker_stake_at_dispute = worker_stake;
+    dispute.initiator_had_claim = has_claim;
     dispute.bump = ctx.bumps.dispute;
 
     // Mark task as disputed

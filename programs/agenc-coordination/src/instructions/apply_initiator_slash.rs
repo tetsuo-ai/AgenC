@@ -2,7 +2,7 @@
 
 use crate::errors::CoordinationError;
 use crate::instructions::constants::PERCENT_BASE;
-use crate::state::{AgentRegistration, Dispute, DisputeStatus, ProtocolConfig};
+use crate::state::{AgentRegistration, Dispute, DisputeStatus, ProtocolConfig, Task};
 use crate::utils::version::check_version_compatible;
 use anchor_lang::prelude::*;
 
@@ -14,6 +14,13 @@ pub struct ApplyInitiatorSlash<'info> {
         bump = dispute.bump
     )]
     pub dispute: Account<'info, Dispute>,
+
+    #[account(
+        seeds = [b"task", task.creator.as_ref(), task.task_id.as_ref()],
+        bump = task.bump,
+        constraint = task.key() == dispute.task @ CoordinationError::TaskNotFound
+    )]
+    pub task: Account<'info, Task>,
 
     #[account(
         mut,
