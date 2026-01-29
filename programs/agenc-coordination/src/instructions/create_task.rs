@@ -76,6 +76,8 @@ pub fn handler(
     require!(task_id != [0u8; 32], CoordinationError::InvalidTaskId);
     // Validate description is not empty (#369)
     require!(description != [0u8; 64], CoordinationError::InvalidDescription);
+    // Validate required_capabilities is not zero (#413)
+    require!(required_capabilities != 0, CoordinationError::InvalidRequiredCapabilities);
     // Validate max_workers bounds (#412)
     require!(max_workers > 0 && max_workers <= 100, CoordinationError::InvalidMaxWorkers);
     require!(task_type <= 2, CoordinationError::InvalidTaskType);
