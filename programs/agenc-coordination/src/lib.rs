@@ -1,3 +1,8 @@
+// Crate-level lint configuration
+// unexpected_cfgs: Anchor uses custom cfg attributes (e.g., #[cfg(feature = "idl-build")])
+//   that rustc doesn't recognize, triggering false warnings
+// clippy::too_many_arguments: Anchor instruction handlers often require many parameters
+//   for account validation and instruction data; this is inherent to the framework pattern
 #![allow(unexpected_cfgs)]
 #![allow(clippy::too_many_arguments)]
 //! AgenC Coordination Protocol

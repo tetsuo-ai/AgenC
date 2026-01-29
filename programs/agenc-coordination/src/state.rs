@@ -335,9 +335,11 @@ impl ProtocolConfig {
 
     /// Check if the protocol version is compatible
     pub fn is_version_compatible(&self) -> bool {
-        self.min_supported_version >= MIN_SUPPORTED_VERSION
-            && self.protocol_version >= self.min_supported_version
+        // Config's min_supported should be within reasonable bounds
+        self.min_supported_version <= self.protocol_version
             && self.protocol_version <= CURRENT_PROTOCOL_VERSION
+            // Program can read configs at or above program's min
+            && self.protocol_version >= MIN_SUPPORTED_VERSION
     }
 }
 
