@@ -337,4 +337,8 @@ pub enum CoordinationError {
     // Duplicate account errors (7200-7299)
     #[msg("Duplicate arbiter provided in remaining_accounts")]
     DuplicateArbiter,
+
+    // Escrow errors (7300-7399)
+    #[msg("Escrow has insufficient balance for reward transfer")]
+    InsufficientEscrowBalance,
 }
