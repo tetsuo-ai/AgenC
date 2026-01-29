@@ -80,6 +80,7 @@ pub fn handler(
 
     emit!(StateUpdated {
         state_key,
+        state_value,
         updater: agent.key(),
         version: state.version,
         timestamp: clock.unix_timestamp,
