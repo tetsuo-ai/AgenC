@@ -14,9 +14,25 @@ pub struct VoteDispute<'info> {
     #[account(
         mut,
         seeds = [b"dispute", dispute.dispute_id.as_ref()],
-        bump = dispute.bump
+        bump = dispute.bump,
+        has_one = task @ CoordinationError::TaskNotFound
     )]
     pub dispute: Account<'info, Dispute>,
+
+    /// Task account for arbiter party validation (fix #461)
+    #[account(
+        seeds = [b"task", task.creator.as_ref(), task.task_id.as_ref()],
+        bump = task.bump
+    )]
+    pub task: Account<'info, Task>,
+
+    /// Optional: Worker's claim on the task (for arbiter party validation, fix #461)
+    /// If provided, validates arbiter is not the worker
+    #[account(
+        seeds = [b"claim", task.key().as_ref(), worker_claim.worker.as_ref()],
+        bump = worker_claim.bump,
+    )]
+    pub worker_claim: Option<Account<'info, TaskClaim>>,
 
     #[account(
         init,
@@ -62,16 +78,32 @@ pub fn handler(ctx: Context<VoteDispute>, approve: bool) -> Result<()> {
     let dispute = &mut ctx.accounts.dispute;
     let vote = &mut ctx.accounts.vote;
     let arbiter = &mut ctx.accounts.arbiter;
+    let task = &ctx.accounts.task;
     let config = &ctx.accounts.protocol_config;
     let clock = Clock::get()?;
 
     check_version_compatible(config)?;
 
-    // Verify arbiter is not a dispute participant (fix #391)
+    // Verify arbiter is not a dispute participant (fix #391, #461)
+    // Check 1: Arbiter cannot be the dispute initiator
     require!(
-        dispute.initiator != arbiter.key(),
+        arbiter.key() != dispute.initiator,
         CoordinationError::ArbiterIsDisputeParticipant
     );
+
+    // Check 2: Arbiter cannot be the task creator (fix #461)
+    require!(
+        arbiter.authority != task.creator,
+        CoordinationError::ArbiterIsDisputeParticipant
+    );
+
+    // Check 3: Arbiter cannot be the worker if worker_claim provided (fix #461)
+    if let Some(ref worker_claim) = ctx.accounts.worker_claim {
+        require!(
+            arbiter.key() != worker_claim.worker,
+            CoordinationError::ArbiterIsDisputeParticipant
+        );
+    }
 
     // Verify dispute is active
     require!(
