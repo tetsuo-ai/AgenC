@@ -106,6 +106,7 @@ pub fn handler(
         authority: agent.authority,
         capabilities,
         endpoint,
+        stake_amount,
         timestamp: clock.unix_timestamp,
     });
 

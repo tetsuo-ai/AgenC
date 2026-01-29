@@ -12,6 +12,7 @@ pub struct AgentRegistered {
     pub authority: Pubkey,
     pub capabilities: u64,
     pub endpoint: String,
+    pub stake_amount: u64,
     pub timestamp: i64,
 }
 
