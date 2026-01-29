@@ -106,8 +106,13 @@ pub fn handler(
         CoordinationError::NotTaskParticipant
     );
 
-    // If initiator has a claim, verify it hasn't expired
+    // If initiator has a claim, verify it's still valid for dispute
     if let Some(claim) = &ctx.accounts.initiator_claim {
+        // Workers with completed claims cannot dispute - they already got paid
+        require!(
+            !claim.is_completed,
+            CoordinationError::ClaimAlreadyCompleted
+        );
         require!(
             claim.expires_at > clock.unix_timestamp,
             CoordinationError::ClaimExpired
