@@ -167,6 +167,9 @@ pub fn handler(ctx: Context<VoteDispute>, approve: bool) -> Result<()> {
         .checked_add(1)
         .ok_or(CoordinationError::VoteOverflow)?;
 
+    // Note: If a vote account is closed externally, active_dispute_votes
+    // will be inconsistent. Vote accounts should only be closed via
+    // dispute resolution or expiration.
     arbiter.active_dispute_votes = arbiter
         .active_dispute_votes
         .checked_add(1)
