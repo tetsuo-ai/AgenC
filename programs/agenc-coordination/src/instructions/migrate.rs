@@ -39,7 +39,6 @@ pub fn handler(ctx: Context<MigrateProtocol>, target_version: u8) -> Result<()> 
     require_multisig(config, ctx.remaining_accounts)?;
 
     let current_version = config.protocol_version;
-    let max_target = CURRENT_PROTOCOL_VERSION.saturating_add(1);
 
     // Validate migration path
     require!(
@@ -47,7 +46,7 @@ pub fn handler(ctx: Context<MigrateProtocol>, target_version: u8) -> Result<()> 
         CoordinationError::InvalidMigrationTarget
     );
     require!(
-        target_version <= max_target,
+        target_version <= CURRENT_PROTOCOL_VERSION,
         CoordinationError::InvalidMigrationTarget
     );
     require!(
@@ -122,14 +121,13 @@ pub fn update_min_version_handler(
 ) -> Result<()> {
     let config = &mut ctx.accounts.protocol_config;
     let clock = Clock::get()?;
-    let max_target = CURRENT_PROTOCOL_VERSION.saturating_add(1);
 
     // Require multisig approval
     require_multisig(config, ctx.remaining_accounts)?;
 
     // Validate new minimum version
     require!(
-        new_min_version >= MIN_SUPPORTED_VERSION && new_min_version <= max_target,
+        new_min_version >= MIN_SUPPORTED_VERSION && new_min_version <= CURRENT_PROTOCOL_VERSION,
         CoordinationError::InvalidMigrationTarget
     );
 
