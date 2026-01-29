@@ -91,7 +91,7 @@ pub fn handler(
     require!(max_workers > 0 && max_workers <= 100, CoordinationError::InvalidMaxWorkers);
     require!(task_type <= 2, CoordinationError::InvalidTaskType);
     require!(
-        dependency_type >= 1 && dependency_type <= 3,
+        (1..=3).contains(&dependency_type),
         CoordinationError::InvalidDependencyType
     );
 
