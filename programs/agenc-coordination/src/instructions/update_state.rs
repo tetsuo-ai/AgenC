@@ -1,11 +1,8 @@
 //! Update shared coordination state
 
-/// Minimum seconds between state updates per agent
-const STATE_UPDATE_COOLDOWN: i64 = 60; // seconds
-
 use crate::errors::CoordinationError;
 use crate::events::StateUpdated;
-use crate::state::{AgentRegistration, AgentStatus, CoordinationState};
+use crate::state::{AgentRegistration, AgentStatus, CoordinationState, ProtocolConfig};
 use anchor_lang::prelude::*;
 
 #[derive(Accounts)]
@@ -31,6 +28,12 @@ pub struct UpdateState<'info> {
     #[account(mut)]
     pub authority: Signer<'info>,
 
+    #[account(
+        seeds = [b"protocol"],
+        bump = protocol_config.bump
+    )]
+    pub protocol_config: Account<'info, ProtocolConfig>,
+
     pub system_program: Program<'info, System>,
 }
 
@@ -50,10 +53,12 @@ pub fn handler(
         CoordinationError::AgentNotActive
     );
 
-    if agent.last_state_update > 0 {
+    // Check rate limit using configurable cooldown (fix #415)
+    let config = &ctx.accounts.protocol_config;
+    if config.state_update_cooldown > 0 && agent.last_state_update > 0 {
         // Using saturating_sub intentionally - handles clock drift safely
         let elapsed = clock.unix_timestamp.saturating_sub(agent.last_state_update);
-        if elapsed < STATE_UPDATE_COOLDOWN {
+        if elapsed < config.state_update_cooldown {
             return Err(CoordinationError::RateLimitExceeded.into());
         }
     }
