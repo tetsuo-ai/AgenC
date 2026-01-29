@@ -203,6 +203,9 @@ pub enum CoordinationError {
     #[msg("Worker claim account required when creator initiates dispute")]
     WorkerClaimRequired,
 
+    #[msg("Worker was not involved in this dispute")]
+    WorkerNotInDispute,
+
     // State errors (6400-6499)
     #[msg("State version mismatch (concurrent modification)")]
     VersionMismatch,
