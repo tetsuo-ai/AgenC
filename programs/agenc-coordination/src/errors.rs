@@ -146,6 +146,9 @@ pub enum CoordinationError {
     #[msg("Invalid proof hash: proof_hash cannot be all zeros")]
     InvalidProofHash,
 
+    #[msg("Invalid result data: result_data cannot be all zeros when provided")]
+    InvalidResultData,
+
     // Dispute errors (6300-6399)
     #[msg("Dispute is not active")]
     DisputeNotActive,

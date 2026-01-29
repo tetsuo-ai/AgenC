@@ -126,6 +126,14 @@ pub fn handler(
         CoordinationError::InvalidProofHash
     );
 
+    // Validate result_data is not all zeros (when provided)
+    if let Some(ref data) = result_data {
+        require!(
+            data.iter().any(|&b| b != 0),
+            CoordinationError::InvalidResultData
+        );
+    }
+
     // Validate task state
     require!(
         task.status == TaskStatus::InProgress,
