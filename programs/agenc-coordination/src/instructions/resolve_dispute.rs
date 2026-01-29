@@ -2,6 +2,7 @@
 
 use crate::errors::CoordinationError;
 use crate::events::DisputeResolved;
+use crate::instructions::completion_helpers::update_protocol_stats;
 use crate::instructions::constants::PERCENT_BASE;
 use crate::state::{
     AgentRegistration, Dispute, DisputeStatus, DisputeVote, ProtocolConfig, ResolutionType, Task,
@@ -36,6 +37,7 @@ pub struct ResolveDispute<'info> {
     pub escrow: Box<Account<'info, TaskEscrow>>,
 
     #[account(
+        mut,
         seeds = [b"protocol"],
         bump = protocol_config.bump
     )]
@@ -179,6 +181,9 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
                 }
                 task.status = TaskStatus::Completed;
                 task.completed_at = clock.unix_timestamp;
+
+                // Update protocol stats for completed dispute resolution (fix #359)
+                update_protocol_stats(&mut ctx.accounts.protocol_config, remaining_funds)?;
             }
             ResolutionType::Split => {
                 // Split remaining funds between creator and worker.
