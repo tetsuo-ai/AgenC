@@ -26,6 +26,9 @@ pub enum CoordinationError {
     #[msg("Only the agent authority can perform this action")]
     UnauthorizedAgent,
 
+    #[msg("Invalid agent ID: agent_id cannot be all zeros")]
+    InvalidAgentId,
+
     #[msg("Agent registration required to create tasks")]
     AgentRegistrationRequired,
 

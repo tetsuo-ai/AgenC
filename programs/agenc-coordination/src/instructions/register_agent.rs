@@ -39,6 +39,11 @@ pub fn handler(
     metadata_uri: Option<String>,
     stake_amount: u64,
 ) -> Result<()> {
+    require!(
+        agent_id != [0u8; 32],
+        CoordinationError::InvalidAgentId
+    );
+
     require!(endpoint.len() <= 128, CoordinationError::StringTooLong);
 
     let metadata = metadata_uri.unwrap_or_default();
