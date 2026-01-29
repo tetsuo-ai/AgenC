@@ -409,7 +409,7 @@ describe("AgenC Integration Tests", () => {
             createDescription("Test task"),       // description: [u8; 64]
             new BN(rewardAmount),                 // reward_amount: u64
             1,                                    // max_workers: u8
-            new BN(0),                            // deadline: i64 (0 = no deadline)
+            new BN(Math.floor(Date.now() / 1000) + 86400), // deadline: i64 (must be > 0 and in future)
             TASK_TYPE_EXCLUSIVE,                  // task_type: u8
             null                                  // constraint_hash: Option<[u8; 32]>
           )

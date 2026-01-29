@@ -1,4 +1,23 @@
 //! Instruction handlers for AgenC Coordination Protocol
+//!
+//! # Module Organization
+//!
+//! Each instruction module exports:
+//! - An accounts context struct (e.g., `ClaimTask`) with `#[derive(Accounts)]`
+//! - A handler function (usually named `handler`)
+//!
+//! # Why Glob Re-exports?
+//!
+//! The `pub use module::*` pattern is intentional here. The Anchor framework's
+//! `#[derive(Accounts)]` macro generates additional types (like `__client_accounts_*`)
+//! that must be accessible from the crate root for the `#[program]` macro to work
+//! correctly. These generated types are not part of the public API but are required
+//! for Anchor's code generation.
+//!
+//! The `#[allow(ambiguous_glob_reexports)]` attributes suppress warnings when
+//! multiple modules export items with the same name (e.g., `handler`). These
+//! handlers are accessed via their module path (e.g., `claim_task::handler`)
+//! rather than directly, so the ambiguity doesn't affect usage.
 
 pub mod completion_helpers;
 pub mod constants;
@@ -25,6 +44,8 @@ pub mod update_rate_limits;
 pub mod update_state;
 pub mod vote_dispute;
 
+// Glob re-exports are required for Anchor's #[program] macro to access generated
+// types from #[derive(Accounts)]. See module documentation for details.
 #[allow(ambiguous_glob_reexports)]
 pub use apply_dispute_slash::*;
 #[allow(ambiguous_glob_reexports)]
