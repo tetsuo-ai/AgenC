@@ -197,6 +197,12 @@ pub enum CoordinationError {
     #[msg("Agent has active disputes as defendant and cannot deregister")]
     ActiveDisputesExist,
 
+    #[msg("Worker agent account required when creator initiates dispute")]
+    WorkerAgentRequired,
+
+    #[msg("Worker claim account required when creator initiates dispute")]
+    WorkerClaimRequired,
+
     // State errors (6400-6499)
     #[msg("State version mismatch (concurrent modification)")]
     VersionMismatch,
