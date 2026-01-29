@@ -78,7 +78,12 @@ pub fn handler(
     constraint_hash: Option<[u8; 32]>,
     dependency_type: u8,
 ) -> Result<()> {
-    require!(max_workers > 0, CoordinationError::InvalidInput);
+    // Validate task_id is not zero (#367)
+    require!(task_id != [0u8; 32], CoordinationError::InvalidTaskId);
+    // Validate description is not empty (#369)
+    require!(description != [0u8; 64], CoordinationError::InvalidDescription);
+    // Validate max_workers bounds (#412)
+    require!(max_workers > 0 && max_workers <= 100, CoordinationError::InvalidMaxWorkers);
     require!(task_type <= 2, CoordinationError::InvalidTaskType);
     require!(
         dependency_type >= 1 && dependency_type <= 3,
