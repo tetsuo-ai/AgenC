@@ -299,6 +299,12 @@ pub enum CoordinationError {
     #[msg("Cooldown value exceeds maximum (24 hours)")]
     CooldownTooLarge,
 
+    #[msg("Rate limit value exceeds maximum allowed (1000)")]
+    RateLimitTooHigh,
+
+    #[msg("Cooldown value exceeds maximum allowed (1 week)")]
+    CooldownTooLong,
+
     #[msg("Insufficient stake to initiate dispute")]
     InsufficientStakeForDispute,
 
