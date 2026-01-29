@@ -1,4 +1,8 @@
 //! Update an existing agent's registration
+//!
+//! Note: Suspending an agent does not automatically cancel their active tasks.
+//! Tasks may become frozen if workers cannot complete them.
+//! Consider canceling or reassigning tasks before suspension.
 
 use crate::errors::CoordinationError;
 use crate::events::AgentUpdated;
