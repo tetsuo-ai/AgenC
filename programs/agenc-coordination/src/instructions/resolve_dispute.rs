@@ -248,19 +248,28 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
     }
 
     // Update dispute status - decrement active_dispute_votes for each arbiter
-    if dispute.total_voters > 0 {
-        let expected = dispute
-            .total_voters
-            .checked_mul(2)
-            .ok_or(CoordinationError::ArithmeticOverflow)? as usize;
-        require!(
-            ctx.remaining_accounts.len() == expected,
-            CoordinationError::InvalidInput
-        );
+    // remaining_accounts format (fix #333):
+    // - First: (vote, arbiter) pairs for total_voters
+    // - Then: optional (claim, worker) pairs for additional workers on collaborative tasks
+    let arbiter_accounts = dispute
+        .total_voters
+        .checked_mul(2)
+        .ok_or(CoordinationError::ArithmeticOverflow)? as usize;
 
-        for i in (0..expected).step_by(2) {
-            let vote_info = &ctx.remaining_accounts[i];
-            let arbiter_info = &ctx.remaining_accounts[i + 1];
+    // Validate we have at least enough accounts for arbiters
+    require!(
+        ctx.remaining_accounts.len() >= arbiter_accounts,
+        CoordinationError::InvalidInput
+    );
+
+    // Additional accounts must come in pairs (claim, worker)
+    let extra_accounts = ctx.remaining_accounts.len() - arbiter_accounts;
+    require!(extra_accounts % 2 == 0, CoordinationError::InvalidInput);
+
+    // Process arbiter (vote, arbiter) pairs
+    for i in (0..arbiter_accounts).step_by(2) {
+        let vote_info = &ctx.remaining_accounts[i];
+        let arbiter_info = &ctx.remaining_accounts[i + 1];
 
             // CRITICAL: Validate account ownership before deserialization (fix: unsafe deserialization)
             // Without this check, attackers could pass fake accounts not owned by this program
@@ -301,11 +310,42 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
             // Serialize back, skipping discriminator (already validated during deserialize)
             arbiter.try_serialize(&mut &mut arbiter_data[8..])?;
         }
-    } else {
+
+    // Process additional worker (claim, worker) pairs to decrement active_tasks (fix #333)
+    // This handles collaborative tasks where multiple workers claimed the task
+    for i in (arbiter_accounts..ctx.remaining_accounts.len()).step_by(2) {
+        let claim_info = &ctx.remaining_accounts[i];
+        let worker_info = &ctx.remaining_accounts[i + 1];
+
+        // Validate account ownership
         require!(
-            ctx.remaining_accounts.is_empty(),
+            claim_info.owner == &crate::ID,
+            CoordinationError::InvalidAccountOwner
+        );
+        require!(
+            worker_info.owner == &crate::ID,
+            CoordinationError::InvalidAccountOwner
+        );
+
+        // Validate claim belongs to this task
+        let claim_data = claim_info.try_borrow_data()?;
+        let claim = TaskClaim::try_deserialize(&mut &**claim_data)?;
+        require!(
+            claim.task == task.key(),
             CoordinationError::InvalidInput
         );
+        require!(
+            claim.worker == worker_info.key(),
+            CoordinationError::InvalidInput
+        );
+        drop(claim_data);
+
+        // Decrement worker's active_tasks
+        require!(worker_info.is_writable, CoordinationError::InvalidInput);
+        let mut worker_data = worker_info.try_borrow_mut_data()?;
+        let mut worker_reg = AgentRegistration::try_deserialize(&mut &**worker_data)?;
+        worker_reg.active_tasks = worker_reg.active_tasks.saturating_sub(1);
+        worker_reg.try_serialize(&mut &mut worker_data[8..])?;
     }
 
     dispute.status = DisputeStatus::Resolved;
