@@ -90,6 +90,9 @@ pub enum CoordinationError {
     #[msg("Invalid deadline: deadline must be greater than zero")]
     InvalidDeadline,
 
+    #[msg("Invalid reward: reward must be greater than zero")]
+    InvalidReward,
+
     #[msg("Competitive task already completed by another worker")]
     CompetitiveTaskAlreadyWon,
 
@@ -313,6 +316,9 @@ pub enum CoordinationError {
     #[msg("Only upgrade authority can perform this action")]
     UnauthorizedUpgrade,
 
+    #[msg("Minimum version cannot exceed current protocol version")]
+    InvalidMinVersion,
+
     // Dependency errors (6900-6999)
     #[msg("Parent task has been cancelled")]
     ParentTaskCancelled,
@@ -351,4 +357,17 @@ pub enum CoordinationError {
     // Stake validation errors (7400-7499)
     #[msg("Stake value is below minimum required (0.001 SOL)")]
     StakeTooLow,
+
+    // Speculation Bond errors (7500-7599)
+    #[msg("Bond amount too low")]
+    BondAmountTooLow,
+
+    #[msg("Bond already exists")]
+    BondAlreadyExists,
+
+    #[msg("Bond not found")]
+    BondNotFound,
+
+    #[msg("Bond not yet matured")]
+    BondNotMatured,
 }
