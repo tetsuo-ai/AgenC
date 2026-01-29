@@ -132,6 +132,15 @@ pub struct DisputeVoteCast {
     pub timestamp: i64,
 }
 
+/// Emitted when a dispute is cancelled by its initiator (fix #587)
+#[event]
+pub struct DisputeCancelled {
+    pub dispute_id: [u8; 32],
+    pub task: Pubkey,
+    pub initiator: Pubkey,
+    pub cancelled_at: i64,
+}
+
 /// Emitted when a dispute is resolved
 ///
 /// The `outcome` field distinguishes between different resolution paths:
