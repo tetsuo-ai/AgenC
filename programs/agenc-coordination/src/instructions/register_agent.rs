@@ -3,8 +3,8 @@
 use crate::errors::CoordinationError;
 use crate::events::AgentRegistered;
 use crate::state::{AgentRegistration, AgentStatus, ProtocolConfig};
+use crate::utils::validation::validate_string_input;
 use anchor_lang::prelude::*;
-use anchor_lang::system_program;
 
 use super::constants::WINDOW_24H;
 
@@ -58,9 +58,17 @@ pub fn handler(
     require!(capabilities != 0, CoordinationError::InvalidCapabilities);
     require!(!endpoint.is_empty(), CoordinationError::InvalidInput);
     require!(endpoint.len() <= 128, CoordinationError::StringTooLong);
+    require!(
+        validate_string_input(&endpoint),
+        CoordinationError::InvalidInput
+    );
 
     let metadata = metadata_uri.unwrap_or_default();
     require!(metadata.len() <= 128, CoordinationError::StringTooLong);
+    require!(
+        validate_string_input(&metadata),
+        CoordinationError::InvalidInput
+    );
 
     let config = &ctx.accounts.protocol_config;
     require!(
