@@ -16,7 +16,7 @@ pub struct ClaimTask<'info> {
     pub task: Account<'info, Task>,
 
     #[account(
-        init,
+        init_if_needed,
         payer = authority,
         space = TaskClaim::SIZE,
         seeds = [b"claim", task.key().as_ref(), worker.key().as_ref()],
@@ -52,6 +52,18 @@ pub fn handler(ctx: Context<ClaimTask>) -> Result<()> {
     let clock = Clock::get()?;
 
     check_version_compatible(config)?;
+
+    // Check if worker already has a claim on this task (fix #480)
+    // claimed_at > 0 indicates an existing claim (not freshly initialized)
+    if claim.claimed_at > 0 {
+        // Worker already completed this task
+        require!(
+            !claim.is_completed,
+            CoordinationError::ClaimAlreadyCompleted
+        );
+        // Worker has an active (incomplete) claim - already claimed
+        return Err(CoordinationError::AlreadyClaimed.into());
+    }
 
     // Validate task state - must be Open or InProgress (for collaborative tasks)
     require!(
