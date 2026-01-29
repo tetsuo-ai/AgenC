@@ -90,7 +90,9 @@ pub fn handler(
         CoordinationError::MultisigInvalidSigners
     );
     require!(
-        multisig_threshold > 0 && (multisig_threshold as usize) <= multisig_owners.len(),
+    // Fix #505: Require threshold < owners count to ensure protocol remains
+    // operational even if one key is lost. This prevents lockout scenarios.
+        multisig_threshold > 0 && (multisig_threshold as usize) < multisig_owners.len(),
         CoordinationError::MultisigInvalidThreshold
     );
 
