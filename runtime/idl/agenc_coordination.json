@@ -1650,7 +1650,8 @@
           "name": "worker_claim",
           "docs": [
             "Worker's claim on the disputed task (fix #137)",
-            "Optional - when provided, allows decrementing worker's active_tasks"
+            "Optional - when provided, allows decrementing worker's active_tasks",
+            "and enables fair refund distribution (fix #418)"
           ],
           "optional": true,
           "pda": {
@@ -1679,6 +1680,14 @@
         },
         {
           "name": "worker",
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "worker_authority",
+          "docs": [
+            "Required when worker should receive funds on expiration"
+          ],
           "writable": true,
           "optional": true
         }
@@ -4841,7 +4850,8 @@
     {
       "name": "DisputeExpired",
       "docs": [
-        "Emitted when a dispute expires without resolution"
+        "Emitted when a dispute expires without resolution",
+        "Updated in fix #418 to include fair distribution details"
       ],
       "type": {
         "kind": "struct",
@@ -4866,6 +4876,20 @@
           },
           {
             "name": "refund_amount",
+            "type": "u64"
+          },
+          {
+            "name": "creator_amount",
+            "docs": [
+              "Amount refunded to creator (fix #418)"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "worker_amount",
+            "docs": [
+              "Amount paid to worker (fix #418)"
+            ],
             "type": "u64"
           },
           {
