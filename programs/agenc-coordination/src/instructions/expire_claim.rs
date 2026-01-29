@@ -29,8 +29,11 @@ pub struct ExpireClaim<'info> {
     )]
     pub worker: Account<'info, AgentRegistration>,
 
-    /// CHECK: Receives rent from closed claim account
-    #[account(mut)]
+    /// CHECK: Receives rent from closed claim account - validated to be worker authority
+    #[account(
+        mut,
+        constraint = rent_recipient.key() == worker.authority @ CoordinationError::InvalidRentRecipient
+    )]
     pub rent_recipient: UncheckedAccount<'info>,
 
     pub system_program: Program<'info, System>,
