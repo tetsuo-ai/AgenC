@@ -258,7 +258,8 @@ pub struct ProtocolConfig {
     pub protocol_version: u8,
     /// Minimum supported version for backward compatibility
     pub min_supported_version: u8,
-    /// Padding for alignment/future use
+    /// Padding for future use and alignment
+    /// Currently unused but reserved for backwards-compatible additions
     pub _padding: [u8; 2],
     /// Multisig owners (fixed-size).
     ///
