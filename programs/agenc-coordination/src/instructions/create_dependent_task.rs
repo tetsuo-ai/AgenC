@@ -81,6 +81,8 @@ pub fn handler(
     require!(task_id != [0u8; 32], CoordinationError::InvalidTaskId);
     // Validate description is not empty (#369)
     require!(description != [0u8; 64], CoordinationError::InvalidDescription);
+    // Validate required_capabilities is not zero (#413)
+    require!(required_capabilities != 0, CoordinationError::InvalidRequiredCapabilities);
     // Validate parent task belongs to same creator (#520)
     require!(
         ctx.accounts.parent_task.creator == ctx.accounts.creator.key(),

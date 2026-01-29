@@ -97,6 +97,9 @@ pub enum CoordinationError {
     #[msg("Invalid reward: reward must be greater than zero")]
     InvalidReward,
 
+    #[msg("Invalid required capabilities: required_capabilities cannot be zero")]
+    InvalidRequiredCapabilities,
+
     #[msg("Competitive task already completed by another worker")]
     CompetitiveTaskAlreadyWon,
 
