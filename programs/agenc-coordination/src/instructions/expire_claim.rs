@@ -11,7 +11,8 @@
 //! to incentivize timely cleanup of expired claims.
 
 use crate::errors::CoordinationError;
-use crate::state::{AgentRegistration, Task, TaskClaim, TaskEscrow, TaskStatus};
+use crate::state::{AgentRegistration, ProtocolConfig, Task, TaskClaim, TaskEscrow, TaskStatus};
+use crate::utils::version::check_version_compatible;
 use anchor_lang::prelude::*;
 
 /// Small reward for calling expire_claim (0.000001 SOL)
@@ -55,6 +56,12 @@ pub struct ExpireClaim<'info> {
     )]
     pub worker: Account<'info, AgentRegistration>,
 
+    #[account(
+        seeds = [b"protocol"],
+        bump = protocol_config.bump
+    )]
+    pub protocol_config: Account<'info, ProtocolConfig>,
+
     /// CHECK: Receives rent from closed claim account - validated to be worker authority
     #[account(
         mut,
@@ -82,6 +89,8 @@ pub fn handler(ctx: Context<ExpireClaim>) -> Result<()> {
     let escrow = &mut ctx.accounts.escrow;
     let claim = &ctx.accounts.claim;
     let clock = Clock::get()?;
+
+    check_version_compatible(&ctx.accounts.protocol_config)?;
 
     // Can only expire incomplete claims
     require!(
