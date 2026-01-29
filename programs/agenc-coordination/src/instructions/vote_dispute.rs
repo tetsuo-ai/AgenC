@@ -106,6 +106,7 @@ pub fn handler(ctx: Context<VoteDispute>, approve: bool) -> Result<()> {
     vote.voter = arbiter.key();
     vote.approved = approve;
     vote.voted_at = clock.unix_timestamp;
+    vote.stake_at_vote = arbiter.stake;
     vote.bump = ctx.bumps.vote;
 
     // Record authority-level vote (prevents Sybil attacks - fix #101)
