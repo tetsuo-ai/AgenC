@@ -132,6 +132,12 @@ pub fn handler(
         CoordinationError::TaskNotInProgress
     );
 
+    // Validate status transition is allowed (fix #538)
+    require!(
+        task.status.can_transition_to(TaskStatus::Completed),
+        CoordinationError::InvalidStatusTransition
+    );
+
     // Enforce deadline
     if task.deadline > 0 {
         require!(

@@ -99,6 +99,12 @@ pub fn handler(
         CoordinationError::TaskNotInProgress
     );
 
+    // Validate status transition is allowed (fix #538)
+    require!(
+        task.status.can_transition_to(TaskStatus::Disputed),
+        CoordinationError::InvalidStatusTransition
+    );
+
     // Verify initiator is task participant (creator or has claim)
     // Compare task.creator (wallet) with authority (signer's wallet), not agent PDA
     let is_creator = task.creator == ctx.accounts.authority.key();

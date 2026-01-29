@@ -101,6 +101,39 @@ pub enum TaskStatus {
     Disputed = 5,
 }
 
+impl TaskStatus {
+    /// Validates whether a status transition is allowed.
+    ///
+    /// Valid transitions:
+    /// - Open → InProgress (when task is claimed)
+    /// - Open → Cancelled (when task is cancelled before any claims)
+    /// - InProgress → Completed (when task is completed)
+    /// - InProgress → Cancelled (when task is cancelled after deadline with no completions)
+    /// - InProgress → Disputed (when a dispute is initiated)
+    /// - InProgress → PendingValidation (reserved for future validation flow)
+    /// - PendingValidation → Completed (after validation passes)
+    /// - PendingValidation → Disputed (when validation is contested)
+    /// - Disputed → Completed (dispute resolved in favor of completion)
+    /// - Disputed → Cancelled (dispute resolved with refund/split, or expired)
+    ///
+    /// Terminal states (Completed, Cancelled) cannot transition to any other state.
+    pub fn can_transition_to(&self, new_status: TaskStatus) -> bool {
+        use TaskStatus::*;
+        matches!(
+            (self, new_status),
+            // From Open
+            (Open, InProgress) | (Open, Cancelled) |
+            // From InProgress
+            (InProgress, Completed) | (InProgress, Cancelled) |
+            (InProgress, Disputed) | (InProgress, PendingValidation) |
+            // From PendingValidation
+            (PendingValidation, Completed) | (PendingValidation, Disputed) |
+            // From Disputed
+            (Disputed, Completed) | (Disputed, Cancelled)
+        )
+    }
+}
+
 /// Task type enumeration
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Default, InitSpace)]
 #[repr(u8)]
