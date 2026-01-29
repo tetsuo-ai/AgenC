@@ -403,7 +403,9 @@ pub struct AgentRegistration {
     pub last_state_update: i64,
     /// Active disputes where this agent is a defendant (can be slashed)
     pub disputes_as_defendant: u8,
-    /// Reserved for future use
+    /// Reserved bytes for future use.
+    /// Note: Not validated on deserialization - may contain arbitrary data
+    /// from previous versions. New fields should handle this gracefully.
     pub _reserved: [u8; 5],
 }
 
