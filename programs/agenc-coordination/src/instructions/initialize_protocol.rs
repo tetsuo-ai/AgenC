@@ -24,6 +24,11 @@ pub struct InitializeProtocol<'info> {
     #[account(mut)]
     pub authority: Signer<'info>,
 
+    /// Second multisig signer required at initialization to prevent single-party setup.
+    /// Must be different from authority and must be in multisig_owners.
+    /// This ensures at least two parties are involved in protocol initialization (fix #556).
+    pub second_signer: Signer<'info>,
+
     pub system_program: Program<'info, System>,
 }
 
@@ -68,13 +73,36 @@ pub fn handler(
     // Validate multisig owners BEFORE writing config (fix #61)
     validate_multisig_owners(&multisig_owners)?;
 
-    // Verify sufficient signers provided in remaining_accounts
-    let valid_signers = ctx
-        .remaining_accounts
-        .iter()
-        .filter(|acc| acc.is_signer)
-        .filter(|acc| multisig_owners.contains(acc.key))
-        .count();
+    // Fix #556: Require second_signer to be different from authority
+    // This prevents a single party from initializing the protocol alone
+    require!(
+        ctx.accounts.authority.key() != ctx.accounts.second_signer.key(),
+        CoordinationError::MultisigDuplicateSigner
+    );
+
+    // Both authority and second_signer must be in multisig_owners
+    require!(
+        multisig_owners.contains(&ctx.accounts.authority.key()),
+        CoordinationError::MultisigInvalidSigners
+    );
+    require!(
+        multisig_owners.contains(&ctx.accounts.second_signer.key()),
+        CoordinationError::MultisigInvalidSigners
+    );
+
+    // Count signers: authority + second_signer + any additional in remaining_accounts
+    let mut valid_signers = 2usize; // authority and second_signer are always counted
+
+    // Add any additional signers from remaining_accounts
+    for acc in ctx.remaining_accounts.iter() {
+        if acc.is_signer
+            && multisig_owners.contains(acc.key)
+            && acc.key != &ctx.accounts.authority.key()
+            && acc.key != &ctx.accounts.second_signer.key()
+        {
+            valid_signers += 1;
+        }
+    }
 
     require!(
         valid_signers >= multisig_threshold as usize,
