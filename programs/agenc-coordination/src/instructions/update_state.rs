@@ -54,6 +54,12 @@ pub fn handler(
         }
     }
 
+    // Validate state_value is not all zeros
+    require!(
+        state_value.iter().any(|&b| b != 0),
+        CoordinationError::InvalidStateValue
+    );
+
     // Check version for optimistic locking (if state already exists)
     if state.version > 0 {
         require!(
