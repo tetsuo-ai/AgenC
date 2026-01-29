@@ -33,6 +33,9 @@ pub enum CoordinationError {
     #[msg("Only the agent authority can perform this action")]
     UnauthorizedAgent,
 
+    #[msg("Creator must match authority to prevent social engineering")]
+    CreatorAuthorityMismatch,
+
     #[msg("Invalid agent ID: agent_id cannot be all zeros")]
     InvalidAgentId,
 
