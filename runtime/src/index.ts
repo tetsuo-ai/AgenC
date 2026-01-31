@@ -306,3 +306,43 @@ export {
   type EventMonitorConfig,
   type EventMonitorMetrics,
 } from './events/index.js';
+
+// Skill library system
+export {
+  // Core types
+  type Skill,
+  type SkillMetadata,
+  type SkillAction,
+  type SkillContext,
+  type SemanticVersion,
+  type SkillRegistryConfig,
+  SkillState,
+  // Error types
+  SkillNotFoundError,
+  SkillNotReadyError,
+  SkillActionNotFoundError,
+  SkillInitializationError,
+  SkillAlreadyRegisteredError,
+  // Registry
+  SkillRegistry,
+  // Jupiter skill
+  JupiterSkill,
+  JupiterClient,
+  JupiterApiError,
+  type JupiterSkillConfig,
+  type SwapQuoteParams,
+  type SwapQuote,
+  type SwapResult,
+  type TokenBalance,
+  type TransferSolParams,
+  type TransferTokenParams,
+  type TransferResult,
+  type TokenPrice,
+  type TokenMint,
+  JUPITER_API_BASE_URL,
+  JUPITER_PRICE_API_URL,
+  WSOL_MINT,
+  USDC_MINT,
+  USDT_MINT,
+  WELL_KNOWN_TOKENS,
+} from './skills/index.js';
