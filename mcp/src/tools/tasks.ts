@@ -14,6 +14,8 @@ import {
   formatTaskStatus,
   formatTaskType,
   formatBytes,
+  safePubkey,
+  safeBigInt,
 } from '../utils/formatting.js';
 
 function deriveTaskPda(
@@ -40,13 +42,13 @@ function formatTaskAccount(account: Record<string, unknown>, pda: PublicKey): st
   const taskId = account.taskId as Uint8Array | number[];
   const idHex = Buffer.from(taskId instanceof Uint8Array ? taskId : new Uint8Array(taskId)).toString('hex');
 
-  const reqCaps = BigInt((account.requiredCapabilities as { toString(): string })?.toString?.() ?? '0');
+  const reqCaps = safeBigInt(account.requiredCapabilities);
   const capNames = getCapabilityNames(reqCaps);
 
   const lines = [
     'Task PDA: ' + pda.toBase58(),
     'Task ID: ' + idHex,
-    'Creator: ' + (account.creator as PublicKey).toBase58(),
+    'Creator: ' + safePubkey(account.creator),
     'Status: ' + formatTaskStatus(account.status as number | Record<string, unknown>),
     'Type: ' + formatTaskType(account.taskType as number | Record<string, unknown>),
     '',

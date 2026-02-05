@@ -398,10 +398,10 @@ fn validate_worker_accounts(
         CoordinationError::NotClaimed
     );
 
-    // Unwrap is safe here - we verified all are Some
-    let worker = worker.as_ref().unwrap();
-    let worker_claim = worker_claim.as_ref().unwrap();
-    let worker_authority = worker_authority.as_ref().unwrap();
+    // Safe: we verified provided_count == 3 above (all are Some)
+    let worker = worker.as_ref().expect("verified provided_count == 3 above");
+    let worker_claim = worker_claim.as_ref().expect("verified provided_count == 3 above");
+    let worker_authority = worker_authority.as_ref().expect("verified provided_count == 3 above");
 
     // Verify worker matches claim
     require!(

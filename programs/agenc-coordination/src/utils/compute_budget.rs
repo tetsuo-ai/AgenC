@@ -134,7 +134,12 @@ pub fn calculate_tiered_fee(base_fee_bps: u16, completed_tasks: u64) -> u16 {
 pub fn log_compute_units(label: &str) {
     msg!("CU checkpoint [{}]", label);
     #[cfg(target_os = "solana")]
-    anchor_lang::solana_program::log::sol_log_compute_units();
+    {
+        extern "C" {
+            fn sol_log_compute_units_();
+        }
+        unsafe { sol_log_compute_units_() };
+    }
 }
 
 #[cfg(test)]
