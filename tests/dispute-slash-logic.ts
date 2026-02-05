@@ -36,6 +36,13 @@ import BN from "bn.js";
 import { expect } from "chai";
 import { Keypair, PublicKey, SystemProgram, LAMPORTS_PER_SOL } from "@solana/web3.js";
 import { AgencCoordination } from "../target/types/agenc_coordination";
+import {
+  CAPABILITY_COMPUTE,
+  CAPABILITY_ARBITER,
+  TASK_TYPE_EXCLUSIVE,
+  RESOLUTION_TYPE_REFUND,
+  getDefaultDeadline,
+} from "./test-utils";
 
 describe("dispute-slash-logic (issue #136)", () => {
   const provider = anchor.AnchorProvider.env();
@@ -51,16 +58,6 @@ describe("dispute-slash-logic (issue #136)", () => {
   // Generate unique run ID to prevent conflicts with persisted validator state
   const runId = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 
-  const CAPABILITY_COMPUTE = 1 << 0;
-  const CAPABILITY_ARBITER = 1 << 7;
-  const TASK_TYPE_EXCLUSIVE = 0;
-  const RESOLUTION_TYPE_REFUND = 0;
-
-  // Default deadline: 1 hour in the future (Unix timestamp in seconds)
-  // Used for task creation since deadline must be > 0
-  function getDefaultDeadline(): BN {
-    return new BN(Math.floor(Date.now() / 1000) + 3600);
-  }
 
   let treasury: Keypair;
   let treasuryPubkey: PublicKey;

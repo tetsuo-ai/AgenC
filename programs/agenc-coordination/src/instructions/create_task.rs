@@ -2,12 +2,13 @@
 
 use crate::errors::CoordinationError;
 use crate::events::TaskCreated;
-use crate::state::{AgentRegistration, DependencyType, ProtocolConfig, Task, TaskEscrow, TaskStatus, TaskType};
+use crate::state::{AgentRegistration, ProtocolConfig, Task, TaskEscrow};
 use crate::utils::version::check_version_compatible;
 use anchor_lang::prelude::*;
 use anchor_lang::system_program;
 
 use super::rate_limit_helpers::check_task_creation_rate_limits;
+use super::task_init_helpers::{init_escrow_fields, init_task_fields, increment_total_tasks, validate_task_params};
 
 #[derive(Accounts)]
 #[instruction(task_id: [u8; 32])]
@@ -77,16 +78,8 @@ pub fn handler(
     task_type: u8,
     constraint_hash: Option<[u8; 32]>,
 ) -> Result<()> {
-    // Validate task_id is not zero (#367)
-    require!(task_id != [0u8; 32], CoordinationError::InvalidTaskId);
-    // Validate description is not empty (#369)
-    require!(description != [0u8; 64], CoordinationError::InvalidDescription);
-    // Validate required_capabilities is not zero (#413)
-    require!(required_capabilities != 0, CoordinationError::InvalidRequiredCapabilities);
-    // Validate max_workers bounds (#412)
-    require!(max_workers > 0 && max_workers <= 100, CoordinationError::InvalidMaxWorkers);
-    require!(task_type <= 2, CoordinationError::InvalidTaskType);
-    // Validate reward is not zero (#540)
+    validate_task_params(&task_id, &description, required_capabilities, max_workers, task_type)?;
+    // Validate reward is not zero (#540) - not in shared validator since dependent tasks allow zero
     require!(reward_amount > 0, CoordinationError::InvalidReward);
 
     let clock = Clock::get()?;
@@ -120,50 +113,30 @@ pub fn handler(
 
     // Initialize task
     let task = &mut ctx.accounts.task;
-    task.task_id = task_id;
-    task.creator = ctx.accounts.creator.key();
-    task.required_capabilities = required_capabilities;
-    task.description = description;
-    task.constraint_hash = constraint_hash.unwrap_or([0u8; 32]);
-    task.reward_amount = reward_amount;
-    task.max_workers = max_workers;
-    task.current_workers = 0;
-    task.status = TaskStatus::Open;
-    task.task_type = match task_type {
-        0 => TaskType::Exclusive,
-        1 => TaskType::Collaborative,
-        2 => TaskType::Competitive,
-        _ => return Err(CoordinationError::InvalidTaskType.into()),
-    };
-    task.created_at = clock.unix_timestamp;
-    task.deadline = deadline;
-    task.completed_at = 0;
-    task.escrow = ctx.accounts.escrow.key();
-    task.result = [0u8; 64];
-    task.completions = 0;
-    task.required_completions = if task_type == 1 { max_workers } else { 1 };
-    task.bump = ctx.bumps.task;
-    // Lock protocol fee at task creation (#479)
-    task.protocol_fee_bps = config.protocol_fee_bps;
-
-    // Independent task - no dependencies
-    task.dependency_type = DependencyType::None;
-    task.depends_on = None;
+    init_task_fields(
+        task,
+        task_id,
+        ctx.accounts.creator.key(),
+        required_capabilities,
+        description,
+        constraint_hash,
+        reward_amount,
+        max_workers,
+        task_type,
+        deadline,
+        ctx.accounts.escrow.key(),
+        ctx.bumps.task,
+        config.protocol_fee_bps,
+        clock.unix_timestamp,
+    )?;
 
     // Initialize escrow
     let escrow = &mut ctx.accounts.escrow;
-    escrow.task = task.key();
-    escrow.amount = reward_amount;
-    escrow.distributed = 0;
-    escrow.is_closed = false;
-    escrow.bump = ctx.bumps.escrow;
+    init_escrow_fields(escrow, task.key(), reward_amount, ctx.bumps.escrow);
 
     // Update protocol stats
     let protocol_config = &mut ctx.accounts.protocol_config;
-    protocol_config.total_tasks = protocol_config
-        .total_tasks
-        .checked_add(1)
-        .ok_or(CoordinationError::ArithmeticOverflow)?;
+    increment_total_tasks(protocol_config)?;
 
     emit!(TaskCreated {
         task_id,

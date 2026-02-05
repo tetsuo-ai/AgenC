@@ -23,6 +23,11 @@ import BN from "bn.js";
 import { expect } from "chai";
 import { Keypair, PublicKey, SystemProgram, LAMPORTS_PER_SOL } from "@solana/web3.js";
 import { AgencCoordination } from "../target/types/agenc_coordination";
+import {
+  CAPABILITY_COMPUTE,
+  TASK_TYPE_EXCLUSIVE,
+  TASK_TYPE_COMPETITIVE,
+} from "./test-utils";
 
 describe("ZK Proof Verification Lifecycle", () => {
   const provider = anchor.AnchorProvider.env();
@@ -40,9 +45,7 @@ describe("ZK Proof Verification Lifecycle", () => {
   const EXPECTED_PROOF_SIZE = 388;
   const ZK_VERIFIER_PROGRAM_ID = new PublicKey("8fHUGmjNzSh76r78v1rPt7BhWmAu2gXrvW9A2XXonwQQ");
 
-  const CAPABILITY_COMPUTE = 1 << 0;
-  const TASK_TYPE_EXCLUSIVE = 0;
-  const TASK_TYPE_COMPETITIVE = 2;
+  // HASH_SIZE, EXPECTED_PROOF_SIZE, ZK_VERIFIER_PROGRAM_ID are test-specific constants
 
   // Test run identifier
   const runId = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
