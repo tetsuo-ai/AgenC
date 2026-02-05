@@ -2,6 +2,12 @@
 
 Minimal example showing how to use the AgenC SDK for ZK proof generation.
 
+## Prerequisites
+
+```bash
+npm install snarkjs
+```
+
 ## Run
 
 ```bash
@@ -15,7 +21,7 @@ npm start
 import { Keypair } from '@solana/web3.js';
 import {
   generateSalt,
-  computeHashesViaNargo,
+  computeHashes,
   generateProof,
   verifyProofLocally,
 } from '@agenc/sdk';
@@ -28,24 +34,28 @@ const agentPubkey = Keypair.generate().publicKey;
 const output = [1n, 2n, 3n, 4n];
 const salt = generateSalt();
 
-// Compute hashes
-const hashes = await computeHashesViaNargo(
-  taskPda, agentPubkey, output, salt,
-  './circuits/hash_helper'
-);
+// Compute hashes (uses poseidon-lite, circomlib compatible)
+const hashes = computeHashes(taskPda, agentPubkey, output, salt);
 
 // Generate proof
 const result = await generateProof({
-  taskPda, agentPubkey, output, salt,
-  circuitPath: './circuits/task_completion',
-  hashHelperPath: './circuits/hash_helper',
+  taskPda,
+  agentPubkey,
+  output,
+  salt,
+  circuitPath: './circuits-circom/task_completion',
 });
 
 // Verify
+const publicSignals = [
+  hashes.constraintHash,
+  hashes.outputCommitment,
+  hashes.expectedBinding,
+];
 const valid = await verifyProofLocally(
   result.proof,
-  result.publicWitness,
-  './circuits/task_completion'
+  publicSignals,
+  './circuits-circom/task_completion'
 );
 
 console.log('Valid:', valid);

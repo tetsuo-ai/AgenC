@@ -5,28 +5,12 @@ import * as path from 'path';
 import { execSync } from 'child_process';
 import type { PrivacyCash, PrivacyCashConfig } from 'privacycash';
 import { HASH_SIZE } from './constants';
-
-/**
- * Validates a circuit path to prevent path traversal and command injection.
- * @param circuitPath - The circuit path to validate
- * @throws Error if the path is invalid
- */
-function validateCircuitPath(circuitPath: string): void {
-  // Disallow absolute paths
-  if (path.isAbsolute(circuitPath)) {
-    throw new Error('Security: Absolute circuit paths are not allowed');
-  }
-  // Normalize and check for traversal attempts
-  const normalized = path.normalize(circuitPath);
-  if (normalized.startsWith('..') || normalized.includes('../')) {
-    throw new Error('Security: Path traversal in circuit path is not allowed');
-  }
-  // Check for shell metacharacters that could enable command injection
-  const dangerousChars = /[;&|`$(){}[\]<>!]/;
-  if (dangerousChars.test(circuitPath)) {
-    throw new Error('Security: Circuit path contains disallowed characters');
-  }
-}
+import { validateCircuitPath } from './validation';
+import {
+  computeConstraintHash as computeConstraintHashFromProofs,
+  computeCommitment as computeCommitmentFromProofs,
+  FIELD_MODULUS,
+} from './proofs';
 
 // Re-export types for external use
 export type { PrivacyCashConfig };
@@ -343,27 +327,20 @@ export class AgenCPrivacyClient {
     }
     
     /**
-     * Compute Poseidon commitment for output
+     * Compute Poseidon commitment for output.
      *
-     * SECURITY WARNING: This is a placeholder implementation that returns 0n.
-     * In production, this MUST use a real Poseidon2 implementation that matches
-     * the Noir circuit's poseidon2_permutation function.
+     * Uses poseidon-lite which is compatible with circomlib's Poseidon implementation.
+     * The commitment is: poseidon2(constraintHash, salt)
      *
-     * @throws Error in production mode (NODE_ENV=production)
+     * @param output - The task output (4 field elements)
+     * @param salt - Random salt for hiding the output
+     * @returns The output commitment
      */
     private async computeCommitment(output: bigint[], salt: bigint): Promise<bigint> {
-        // Security: Fail in production if using placeholder
-        if (process.env.NODE_ENV === 'production') {
-            throw new Error(
-                'Security: computeCommitment placeholder cannot be used in production. ' +
-                'Implement Poseidon2 hash matching the Noir circuit.'
-            );
-        }
-
-        // TODO: Use actual Poseidon hash implementation
-        // This should match the circuit's poseidon::bn254::hash_5
-        console.warn('[SECURITY WARNING] Using placeholder computeCommitment - NOT FOR PRODUCTION');
-        return BigInt(0);
+        // First compute the constraint hash from output
+        const constraintHash = computeConstraintHashFromProofs(output);
+        // Then compute commitment = poseidon2(constraintHash, salt)
+        return computeCommitmentFromProofs(constraintHash, salt);
     }
     
     /**
@@ -400,121 +377,35 @@ salt = "${params.salt}"
 }
 
 /**
- * Helper to compute constraint hash from expected output using poseidon2
+ * Compute constraint hash from expected output using Poseidon.
  *
- * SECURITY WARNING: This is a placeholder that returns an empty buffer.
- * In production, this MUST use Poseidon2 matching the Noir circuit.
+ * Uses poseidon-lite (poseidon4) which is compatible with circomlib.
+ * The constraint hash commits to the expected output without revealing it.
  *
- * @throws Error in production mode (NODE_ENV=production)
+ * @param expectedOutput - The expected task output (4 field elements)
+ * @returns The constraint hash as a 32-byte Buffer
  */
 export function computeConstraintHash(expectedOutput: bigint[]): Buffer {
-    // Security: Fail in production if using placeholder
-    if (process.env.NODE_ENV === 'production') {
-        throw new Error(
-            'Security: computeConstraintHash placeholder cannot be used in production. ' +
-            'Implement Poseidon2 hash matching the Noir circuit: ' +
-            'poseidon2_permutation([output[0], output[1], output[2], output[3]], 4)[0]'
-        );
-    }
-
-    console.warn('[SECURITY WARNING] computeConstraintHash: Using placeholder - NOT FOR PRODUCTION');
-    return Buffer.alloc(HASH_SIZE);
+    const hash = computeConstraintHashFromProofs(expectedOutput);
+    // Convert bigint to 32-byte big-endian buffer
+    const hex = hash.toString(16).padStart(HASH_SIZE * 2, '0');
+    return Buffer.from(hex, 'hex');
 }
 
 /**
- * Helper to compute output commitment
+ * Compute output commitment from constraint hash and salt.
  *
- * SECURITY WARNING: This is a placeholder that returns an empty buffer.
- * In production, this MUST use Poseidon2 matching the Noir circuit.
+ * Uses poseidon-lite (poseidon2) which is compatible with circomlib.
+ * The commitment hides the output while binding to the constraint.
  *
- * @throws Error in production mode (NODE_ENV=production)
+ * @param constraintHash - The constraint hash (as bigint)
+ * @param salt - Random salt for hiding
+ * @returns The output commitment as a 32-byte Buffer
  */
 export function computeOutputCommitment(constraintHash: bigint, salt: bigint): Buffer {
-    // Security: Fail in production if using placeholder
-    if (process.env.NODE_ENV === 'production') {
-        throw new Error(
-            'Security: computeOutputCommitment placeholder cannot be used in production. ' +
-            'Implement Poseidon2 hash matching the Noir circuit: ' +
-            'poseidon2_permutation([constraintHash, salt, 0, 0], 4)[0]'
-        );
-    }
-
-    console.warn('[SECURITY WARNING] computeOutputCommitment: Using placeholder - NOT FOR PRODUCTION');
-    return Buffer.alloc(HASH_SIZE);
+    const commitment = computeCommitmentFromProofs(constraintHash, salt);
+    // Convert bigint to 32-byte big-endian buffer
+    const hex = commitment.toString(16).padStart(HASH_SIZE * 2, '0');
+    return Buffer.from(hex, 'hex');
 }
 
-/**
- * Demo: Complete AgenC Private Task Flow
- *
- * This demonstrates the full privacy-preserving task completion flow:
- * 1. Task creator shields escrow into Privacy Cash pool
- * 2. Worker completes task off-chain
- * 3. Worker generates ZK proof of completion
- * 4. Worker submits proof and receives private payment
- */
-async function demo() {
-    // Security: Require API key from environment variable - never use hardcoded placeholders
-    const HELIUS_API_KEY = process.env.HELIUS_API_KEY;
-    if (!HELIUS_API_KEY) {
-        throw new Error(
-            'Security: HELIUS_API_KEY environment variable is required. ' +
-            'Set it before running the demo: export HELIUS_API_KEY=your_key_here'
-        );
-    }
-    const rpcUrl = `https://mainnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}`;
-    const connection = new Connection(rpcUrl);
-
-    console.log('=== AgenC Private Task Completion Demo ===\n');
-
-    // Load wallets (in production, use secure key management)
-    // const creatorKeypair = Keypair.fromSecretKey(...);
-    // const workerKeypair = Keypair.fromSecretKey(...);
-
-    // Initialize Anchor program
-    // const program = new Program(IDL, PROGRAM_ID, provider);
-
-    // Initialize privacy client
-    // const client = new AgenCPrivacyClient(connection, program, './circuits/task_completion', rpcUrl);
-
-    // === STEP 1: Task Creator Shields Escrow ===
-    console.log('Step 1: Task creator shields escrow funds...');
-    // const escrowAmount = 0.1 * LAMPORTS_PER_SOL;  // 0.1 SOL
-    // await client.shieldEscrow(creatorKeypair, escrowAmount);
-    // console.log(`Shielded ${escrowAmount / LAMPORTS_PER_SOL} SOL into privacy pool`);
-
-    // === STEP 2: Create Task with Constraint Hash ===
-    console.log('\nStep 2: Create task with expected output constraint...');
-    // The constraint hash commits to the expected output without revealing it
-    // const expectedOutput = [1n, 2n, 3n, 4n];
-    // const constraintHash = computeConstraintHash(expectedOutput);
-    // await program.methods.createTask(taskParams, constraintHash).accounts({...}).rpc();
-
-    // === STEP 3: Worker Claims and Completes Task ===
-    console.log('\nStep 3: Worker completes task and generates proof...');
-    // const taskId = 42;
-    // const output = [1n, 2n, 3n, 4n];  // Must match expected output
-    // const salt = BigInt(Math.floor(Math.random() * 1e18));
-    //
-    // const result = await client.completeTaskPrivate({
-    //     taskId,
-    //     output,
-    //     salt,
-    //     recipientWallet: workerKeypair.publicKey,
-    //     escrowLamports: 0.1 * LAMPORTS_PER_SOL,
-    // }, workerKeypair);
-
-    // === STEP 4: Verify Private Payment ===
-    console.log('\nStep 4: Verify worker received private payment...');
-    // client.initPrivacyCash(workerKeypair);
-    // const workerBalance = await client.getShieldedBalance();
-    // console.log(`Worker shielded balance: ${workerBalance.lamports / LAMPORTS_PER_SOL} SOL`);
-
-    console.log('\n=== Demo Complete ===');
-    console.log('Privacy features:');
-    console.log('  - Task output hidden via ZK proof (only constraint_hash public)');
-    console.log('  - Payment hidden via Privacy Cash shielded pool');
-    console.log('  - Worker identity linkable to task but not to payment recipient');
-}
-
-// Export demo for CLI usage
-export { demo };

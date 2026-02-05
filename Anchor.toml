@@ -20,7 +20,7 @@ cluster = "localnet"
 wallet = "~/.config/solana/id.json"
 
 [test]
-startup_wait = 60000
+startup_wait = 120000
 shutdown_wait = 5000
 
 [scripts]

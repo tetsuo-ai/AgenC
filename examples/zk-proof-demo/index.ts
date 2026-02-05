@@ -2,29 +2,27 @@
  * AgenC ZK Proof Generation Demo
  *
  * This example demonstrates the full ZK proof flow using the AgenC SDK:
- * 1. Compute hashes via the hash_helper circuit (nargo)
- * 2. Generate a Groth16 proof via sunspot
+ * 1. Compute hashes using poseidon-lite (circomlib compatible)
+ * 2. Generate a Groth16 proof via snarkjs
  * 3. Verify the proof locally
  *
  * Prerequisites:
- * - nargo installed (noirup)
- * - sunspot installed (see circuits/README.md)
- * - Circuits compiled with proving keys generated
+ * - snarkjs installed (npm install snarkjs)
+ * - Circuits compiled with trusted setup completed
  */
 
-import { Keypair, PublicKey } from '@solana/web3.js';
+import { Keypair } from '@solana/web3.js';
 import {
   generateProof,
   verifyProofLocally,
   generateSalt,
-  computeHashesViaNargo,
+  computeHashes,
   checkToolsAvailable,
   ProofGenerationParams,
 } from '@agenc/sdk';
 import chalk from 'chalk';
 
-const CIRCUITS_PATH = '../../circuits/task_completion';
-const HASH_HELPER_PATH = '../../circuits/hash_helper';
+const CIRCUITS_PATH = '../../circuits-circom/task_completion';
 
 async function main() {
   console.log(chalk.bold.white('\n========================================'));
@@ -35,17 +33,11 @@ async function main() {
   console.log(chalk.cyan('Checking prerequisites...'));
   const tools = checkToolsAvailable();
 
-  if (!tools.nargo) {
-    console.log(chalk.red('nargo not found. Install with: noirup'));
+  if (!tools.snarkjs) {
+    console.log(chalk.red('snarkjs not found. Install with: npm install snarkjs'));
     process.exit(1);
   }
-  console.log(chalk.green('  nargo: installed'));
-
-  if (!tools.sunspot) {
-    console.log(chalk.red('sunspot not found. See circuits/README.md for installation.'));
-    process.exit(1);
-  }
-  console.log(chalk.green('  sunspot: installed'));
+  console.log(chalk.green('  snarkjs:'), tools.snarkjsVersion || 'installed');
 
   // Generate test data
   console.log(chalk.cyan('\nGenerating test data...'));
@@ -66,30 +58,17 @@ async function main() {
   const salt = generateSalt();
   console.log(chalk.gray('  Salt:'), salt.toString().slice(0, 20) + '...');
 
-  // Step 1: Compute hashes using the hash_helper circuit
-  console.log(chalk.cyan('\nStep 1: Computing hashes via nargo...'));
+  // Step 1: Compute hashes using poseidon-lite
+  console.log(chalk.cyan('\nStep 1: Computing hashes...'));
   const startHash = Date.now();
 
-  try {
-    const hashes = await computeHashesViaNargo(
-      taskPda,
-      agentKeypair.publicKey,
-      output,
-      salt,
-      HASH_HELPER_PATH
-    );
+  const hashes = computeHashes(taskPda, agentKeypair.publicKey, output, salt);
 
-    console.log(chalk.green('  Hashes computed successfully!'));
-    console.log(chalk.gray('  Constraint hash:'), '0x' + hashes.constraintHash.toString(16).slice(0, 16) + '...');
-    console.log(chalk.gray('  Output commitment:'), '0x' + hashes.outputCommitment.toString(16).slice(0, 16) + '...');
-    console.log(chalk.gray('  Expected binding:'), '0x' + hashes.expectedBinding.toString(16).slice(0, 16) + '...');
-    console.log(chalk.gray('  Time:'), Date.now() - startHash, 'ms');
-  } catch (error) {
-    console.log(chalk.red('  Hash computation failed:'), error);
-    console.log(chalk.yellow('\n  Make sure circuits are compiled:'));
-    console.log(chalk.yellow('    cd circuits/hash_helper && nargo compile'));
-    process.exit(1);
-  }
+  console.log(chalk.green('  Hashes computed successfully!'));
+  console.log(chalk.gray('  Constraint hash:'), '0x' + hashes.constraintHash.toString(16).slice(0, 16) + '...');
+  console.log(chalk.gray('  Output commitment:'), '0x' + hashes.outputCommitment.toString(16).slice(0, 16) + '...');
+  console.log(chalk.gray('  Expected binding:'), '0x' + hashes.expectedBinding.toString(16).slice(0, 16) + '...');
+  console.log(chalk.gray('  Time:'), Date.now() - startHash, 'ms');
 
   // Step 2: Generate proof
   console.log(chalk.cyan('\nStep 2: Generating ZK proof...'));
@@ -101,7 +80,6 @@ async function main() {
     output,
     salt,
     circuitPath: CIRCUITS_PATH,
-    hashHelperPath: HASH_HELPER_PATH,
   };
 
   let proofResult;
@@ -114,9 +92,9 @@ async function main() {
     console.log(chalk.gray('  Output commitment:'), proofResult.outputCommitment.toString('hex').slice(0, 16) + '...');
   } catch (error) {
     console.log(chalk.red('  Proof generation failed:'), error);
-    console.log(chalk.yellow('\n  Make sure proving keys exist:'));
-    console.log(chalk.yellow('    cd circuits/task_completion'));
-    console.log(chalk.yellow('    nargo compile && sunspot setup target/task_completion.ccs'));
+    console.log(chalk.yellow('\n  Make sure circuit files exist:'));
+    console.log(chalk.yellow('    cd circuits-circom/task_completion'));
+    console.log(chalk.yellow('    npm run build'));
     process.exit(1);
   }
 
@@ -124,9 +102,14 @@ async function main() {
   console.log(chalk.cyan('\nStep 3: Verifying proof locally...'));
 
   try {
+    const publicSignals = [
+      hashes.constraintHash,
+      hashes.outputCommitment,
+      hashes.expectedBinding,
+    ];
     const valid = await verifyProofLocally(
       proofResult.proof,
-      proofResult.publicWitness,
+      publicSignals,
       CIRCUITS_PATH
     );
 
@@ -156,9 +139,8 @@ async function main() {
   console.log(chalk.gray('  - The salt used for the commitment'));
   console.log();
   console.log(chalk.white('On-chain verification:'));
-  console.log(chalk.gray('  The 388-byte proof can be submitted to the Sunspot'));
+  console.log(chalk.gray('  The 256-byte proof can be submitted to the groth16-solana'));
   console.log(chalk.gray('  verifier program on Solana for on-chain verification.'));
-  console.log(chalk.gray('  Verifier Program ID: 8fHUGmjNzSh76r78v1rPt7BhWmAu2gXrvW9A2XXonwQQ'));
   console.log();
 }
 

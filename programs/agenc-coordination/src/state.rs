@@ -123,8 +123,8 @@ impl TaskStatus {
             (self, new_status),
             // From Open
             (Open, InProgress) | (Open, Cancelled) |
-            // From InProgress
-            (InProgress, Completed) | (InProgress, Cancelled) |
+            // From InProgress (InProgress -> InProgress for additional claims on collaborative tasks)
+            (InProgress, InProgress) | (InProgress, Completed) | (InProgress, Cancelled) |
             (InProgress, Disputed) | (InProgress, PendingValidation) |
             // From PendingValidation
             (PendingValidation, Completed) | (PendingValidation, Disputed) |
