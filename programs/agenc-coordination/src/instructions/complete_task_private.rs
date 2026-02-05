@@ -182,7 +182,7 @@ pub fn complete_task_private(
     // Validate provided task_id matches the task account (fix: issue #406)
     // This prevents callers from accidentally passing the wrong task_id
     require!(
-        task_id == u64::from_le_bytes(task.task_id[..8].try_into().unwrap()),
+        task_id == u64::from_le_bytes(task.task_id[..8].try_into().expect("task_id slice is always 8 bytes")),
         CoordinationError::TaskNotFound
     );
 

@@ -4,6 +4,11 @@ import BN from "bn.js";
 import { expect } from "chai";
 import { Keypair, PublicKey, SystemProgram, LAMPORTS_PER_SOL } from "@solana/web3.js";
 import { AgencCoordination } from "../target/types/agenc_coordination";
+import {
+  CAPABILITY_COMPUTE,
+  TASK_TYPE_EXCLUSIVE,
+  VALID_EVIDENCE,
+} from "./test-utils";
 
 describe("rate-limiting", () => {
   const provider = anchor.AnchorProvider.env();
@@ -20,13 +25,6 @@ describe("rate-limiting", () => {
   let creator: Keypair;
   let worker: Keypair;
   let creatorAgentPda: PublicKey;
-
-  const CAPABILITY_COMPUTE = 1 << 0;
-
-  const TASK_TYPE_EXCLUSIVE = 0;
-
-  // Evidence must be at least 50 characters per initiate_dispute.rs requirements
-  const VALID_EVIDENCE = "This is valid dispute evidence that exceeds the minimum 50 character requirement for the dispute system.";
   const creatorAgentId = Buffer.from("agent-ratelimit-task001".padEnd(32, "\0"));
 
   before(async () => {

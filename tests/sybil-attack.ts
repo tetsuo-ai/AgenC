@@ -11,6 +11,12 @@ import BN from "bn.js";
 import { expect } from "chai";
 import { Keypair, PublicKey, SystemProgram, LAMPORTS_PER_SOL } from "@solana/web3.js";
 import { AgencCoordination } from "../target/types/agenc_coordination";
+import {
+  CAPABILITY_COMPUTE,
+  CAPABILITY_ARBITER,
+  TASK_TYPE_EXCLUSIVE,
+  RESOLUTION_TYPE_REFUND,
+} from "./test-utils";
 
 describe("sybil-attack", () => {
   const provider = anchor.AnchorProvider.env();
@@ -62,11 +68,6 @@ describe("sybil-attack", () => {
     );
     return pda;
   }
-
-  const CAPABILITY_COMPUTE = 1 << 0;
-  const CAPABILITY_ARBITER = 1 << 7;
-  const TASK_TYPE_EXCLUSIVE = 0;
-  const RESOLUTION_TYPE_REFUND = 0;
 
   // Evidence must be at least 50 characters per initiate_dispute.rs requirements
   const VALID_EVIDENCE = "This is valid dispute evidence that exceeds the minimum 50 character requirement for the dispute system.";

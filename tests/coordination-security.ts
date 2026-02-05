@@ -4,6 +4,23 @@ import BN from "bn.js";
 import { expect } from "chai";
 import { Keypair, PublicKey, SystemProgram, LAMPORTS_PER_SOL } from "@solana/web3.js";
 import { AgencCoordination } from "../target/types/agenc_coordination";
+import {
+  CAPABILITY_COMPUTE,
+  CAPABILITY_INFERENCE,
+  CAPABILITY_STORAGE,
+  CAPABILITY_ARBITER,
+  TASK_TYPE_EXCLUSIVE,
+  TASK_TYPE_COLLABORATIVE,
+  TASK_TYPE_COMPETITIVE,
+  RESOLUTION_TYPE_REFUND,
+  RESOLUTION_TYPE_COMPLETE,
+  RESOLUTION_TYPE_SPLIT,
+  VALID_EVIDENCE,
+  generateRunId,
+  makeAgentId,
+  makeTaskId,
+  makeDisputeId,
+} from "./test-utils";
 
 describe("coordination-security", () => {
   const provider = anchor.AnchorProvider.env();
@@ -17,7 +34,7 @@ describe("coordination-security", () => {
   );
 
   // Generate unique run ID to prevent conflicts with persisted validator state
-  const runId = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  const runId = generateRunId();
 
   let treasury: Keypair;
   let treasuryPubkey: PublicKey;  // Actual treasury from protocol config
@@ -44,26 +61,6 @@ describe("coordination-security", () => {
   let taskId3: Buffer;
   let disputeId1: Buffer;
 
-  // Helper to generate unique IDs
-  function makeId(prefix: string): Buffer {
-    return Buffer.from(`${prefix}-${runId}`.slice(0, 32).padEnd(32, "\0"));
-  }
-
-  const CAPABILITY_COMPUTE = 1 << 0;
-  const CAPABILITY_INFERENCE = 1 << 1;
-  const CAPABILITY_STORAGE = 1 << 2;
-  const CAPABILITY_ARBITER = 1 << 7;
-
-  const TASK_TYPE_EXCLUSIVE = 0;
-  const TASK_TYPE_COLLABORATIVE = 1;
-  const TASK_TYPE_COMPETITIVE = 2;
-
-  const RESOLUTION_TYPE_REFUND = 0;
-  const RESOLUTION_TYPE_COMPLETE = 1;
-  const RESOLUTION_TYPE_SPLIT = 2;
-
-  // Evidence must be at least 50 characters per initiate_dispute.rs requirements
-  const VALID_EVIDENCE = "This is valid dispute evidence that exceeds the minimum 50 character requirement for the dispute system.";
 
   before(async () => {
     treasury = Keypair.generate();
@@ -77,17 +74,17 @@ describe("coordination-security", () => {
     unauthorized = Keypair.generate();
 
     // Initialize unique IDs per test run
-    agentId1 = makeId("ag1");
-    agentId2 = makeId("ag2");
-    agentId3 = makeId("ag3");
-    creatorAgentId = makeId("cre");
-    arbiterId1 = makeId("ar1");
-    arbiterId2 = makeId("ar2");
-    arbiterId3 = makeId("ar3");
-    taskId1 = makeId("t1");
-    taskId2 = makeId("t2");
-    taskId3 = makeId("t3");
-    disputeId1 = makeId("d1");
+    agentId1 = makeAgentId("ag1", runId);
+    agentId2 = makeAgentId("ag2", runId);
+    agentId3 = makeAgentId("ag3", runId);
+    creatorAgentId = makeAgentId("cre", runId);
+    arbiterId1 = makeAgentId("ar1", runId);
+    arbiterId2 = makeAgentId("ar2", runId);
+    arbiterId3 = makeAgentId("ar3", runId);
+    taskId1 = makeTaskId("t1", runId);
+    taskId2 = makeTaskId("t2", runId);
+    taskId3 = makeTaskId("t3", runId);
+    disputeId1 = makeDisputeId("d1", runId);
 
     const airdropAmount = 10 * LAMPORTS_PER_SOL;
     const wallets = [treasury, creator, worker1, worker2, worker3, arbiter1, arbiter2, arbiter3, unauthorized];
@@ -116,11 +113,15 @@ describe("coordination-security", () => {
       treasuryPubkey = treasury.publicKey;
       console.log("Protocol initialized with treasury:", treasuryPubkey.toString());
     } catch (e: any) {
-      // Protocol may already be initialized
-      // Read the actual treasury from protocol config
-      const protocolConfig = await program.account.protocolConfig.fetch(protocolPda);
-      treasuryPubkey = protocolConfig.treasury;
-      console.log("Protocol already initialized, using existing treasury:", treasuryPubkey.toString());
+      if (e?.error?.errorCode?.code === 'ProtocolAlreadyInitialized' ||
+          e?.message?.includes('already in use')) {
+        // Expected - protocol already initialized from previous test run
+        const protocolConfig = await program.account.protocolConfig.fetch(protocolPda);
+        treasuryPubkey = protocolConfig.treasury;
+        console.log("Protocol already initialized, using existing treasury:", treasuryPubkey.toString());
+      } else {
+        throw e;
+      }
     }
 
     // Disable rate limiting for tests
@@ -303,7 +304,7 @@ describe("coordination-security", () => {
       });
 
       it("Fails when registering agent with empty endpoint", async () => {
-        const emptyEndpointAgentId = makeId("empty");
+        const emptyEndpointAgentId = makeAgentId("empty", runId);
         const [agentPda] = PublicKey.findProgramAddressSync(
           [Buffer.from("agent"), emptyEndpointAgentId],
           program.programId
