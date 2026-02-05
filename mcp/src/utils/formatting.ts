@@ -23,6 +23,31 @@ export function formatTimestamp(ts: number): string {
 }
 
 /**
+ * Safely extract a base58 string from a value that may be a PublicKey.
+ * Returns the base58 string if the value has a `toBase58` method, otherwise
+ * falls back to String coercion. Prevents crashes on missing/malformed fields.
+ */
+export function safePubkey(val: unknown): string {
+  if (val != null && typeof val === 'object' && 'toBase58' in val) {
+    return (val as PublicKey).toBase58();
+  }
+  return String(val ?? 'Unknown');
+}
+
+/**
+ * Safely convert an Anchor BN-like value to bigint.
+ * Handles bigint, BN (via toString), and null/undefined (returns 0n).
+ */
+export function safeBigInt(val: unknown): bigint {
+  if (val == null) return 0n;
+  if (typeof val === 'bigint') return val;
+  if (typeof val === 'object' && 'toString' in val) {
+    return BigInt((val as { toString(): string }).toString());
+  }
+  return BigInt(val as string | number);
+}
+
+/**
  * Format a public key with optional truncation.
  */
 export function formatPubkey(pubkey: PublicKey | string, truncate = false): string {

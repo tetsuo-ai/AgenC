@@ -1,15 +1,6 @@
 import { useState } from 'react'
-import { Connection } from '@solana/web3.js'
-import { TaskState } from '../../App'
+import type { StepProps } from '../../App'
 import StepCard from '../StepCard'
-
-interface Props {
-  taskState: TaskState
-  updateTaskState: (updates: Partial<TaskState>) => void
-  onNext: () => void
-  onPrev: () => void
-  connection: Connection | null
-}
 
 const PROOF_STAGES = [
   { id: 1, label: 'Computing output', duration: 800 },
@@ -18,7 +9,7 @@ const PROOF_STAGES = [
   { id: 4, label: 'Optimizing for TX size', duration: 500 },
 ]
 
-export default function Step4GenerateProof({ updateTaskState, onNext, onPrev }: Props) {
+export default function Step4GenerateProof({ updateTaskState, onNext, onPrev }: StepProps) {
   const [isProcessing, setIsProcessing] = useState(false)
   const [currentStage, setCurrentStage] = useState(0)
   const [proofStats, setProofStats] = useState({

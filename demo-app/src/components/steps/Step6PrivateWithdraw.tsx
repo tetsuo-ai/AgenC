@@ -1,17 +1,8 @@
 import { useState } from 'react'
-import { Connection } from '@solana/web3.js'
-import { TaskState } from '../../App'
+import type { StepProps } from '../../App'
 import StepCard from '../StepCard'
 
-interface Props {
-  taskState: TaskState
-  updateTaskState: (updates: Partial<TaskState>) => void
-  onNext: () => void
-  onPrev: () => void
-  connection: Connection | null
-}
-
-export default function Step6PrivateWithdraw({ taskState, updateTaskState, onNext, onPrev }: Props) {
+export default function Step6PrivateWithdraw({ taskState, updateTaskState, onNext, onPrev }: StepProps) {
   const [isProcessing, setIsProcessing] = useState(false)
   const [withdrawStage, setWithdrawStage] = useState<'idle' | 'generating' | 'withdrawing' | 'complete'>('idle')
   const [recipientGenerated, setRecipientGenerated] = useState(false)
