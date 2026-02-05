@@ -23,6 +23,31 @@ import {
   LAMPORTS_PER_SOL,
 } from "@solana/web3.js";
 import { AgencCoordination } from "../target/types/agenc_coordination";
+import {
+  CAPABILITY_COMPUTE,
+  CAPABILITY_INFERENCE,
+  CAPABILITY_STORAGE,
+  CAPABILITY_NETWORK,
+  CAPABILITY_COORDINATOR,
+  CAPABILITY_ARBITER,
+  TASK_TYPE_EXCLUSIVE,
+  TASK_TYPE_COLLABORATIVE,
+  TASK_TYPE_COMPETITIVE,
+  deriveProtocolPda,
+  deriveAgentPda as deriveAgentPdaUtil,
+  deriveTaskPda as deriveTaskPdaUtil,
+  deriveEscrowPda as deriveEscrowPdaUtil,
+  deriveClaimPda as deriveClaimPdaUtil,
+  deriveDisputePda as deriveDisputePdaUtil,
+  deriveVotePda as deriveVotePdaUtil,
+  deriveAuthorityVotePda as deriveAuthorityVotePdaUtil,
+  generateRunId,
+  makeAgentId,
+  makeTaskId,
+  makeDisputeId,
+  getDefaultDeadline,
+  sleep,
+} from "./test-utils";
 
 describe("AgenC Integration Tests", () => {
   // Provider and program setup
@@ -31,21 +56,8 @@ describe("AgenC Integration Tests", () => {
   const program = anchor.workspace.AgencCoordination as Program<AgencCoordination>;
 
   // ============================================================================
-  // CONSTANTS - Match program requirements
+  // CONSTANTS - Test-specific values (capabilities and task types from test-utils)
   // ============================================================================
-
-  // Capability bitmasks (from program)
-  const CAPABILITY_COMPUTE = 1 << 0;
-  const CAPABILITY_STORAGE = 1 << 1;
-  const CAPABILITY_INFERENCE = 1 << 2;
-  const CAPABILITY_NETWORK = 1 << 3;
-  const CAPABILITY_COORDINATOR = 1 << 4;
-  const CAPABILITY_ARBITER = 1 << 7;
-
-  // Task types (from program)
-  const TASK_TYPE_EXCLUSIVE = 0;
-  const TASK_TYPE_COLLABORATIVE = 1;
-  const TASK_TYPE_COMPETITIVE = 2;
 
   // Protocol configuration (must match deployed protocol config)
   const MIN_STAKE = 1 * LAMPORTS_PER_SOL; // Minimum stake for agents (1 SOL)
@@ -66,80 +78,8 @@ describe("AgenC Integration Tests", () => {
   let protocolConfigPda: PublicKey;
 
   // ============================================================================
-  // HELPER FUNCTIONS - Following Anchor 0.32 PDA derivation patterns
+  // HELPER FUNCTIONS
   // ============================================================================
-
-  /**
-   * Derive protocol config PDA
-   * Seeds: ["protocol"]
-   */
-  function deriveProtocolConfigPda(): PublicKey {
-    const [pda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("protocol")],
-      program.programId
-    );
-    return pda;
-  }
-
-  /**
-   * Derive agent PDA from agent_id
-   * Seeds: ["agent", agent_id]
-   */
-  function deriveAgentPda(agentId: Buffer): PublicKey {
-    const [pda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("agent"), agentId],
-      program.programId
-    );
-    return pda;
-  }
-
-  /**
-   * Derive task PDA from creator and task_id
-   * Seeds: ["task", creator, task_id]
-   */
-  function deriveTaskPda(creator: PublicKey, taskId: Buffer): PublicKey {
-    const [pda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("task"), creator.toBuffer(), taskId],
-      program.programId
-    );
-    return pda;
-  }
-
-  /**
-   * Derive escrow PDA from task
-   * Seeds: ["escrow", task]
-   */
-  function deriveEscrowPda(taskPda: PublicKey): PublicKey {
-    const [pda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("escrow"), taskPda.toBuffer()],
-      program.programId
-    );
-    return pda;
-  }
-
-  /**
-   * Derive claim PDA from task and worker
-   * Seeds: ["claim", task, worker]
-   */
-  function deriveClaimPda(taskPda: PublicKey, workerPubkey: PublicKey): PublicKey {
-    const [pda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("claim"), taskPda.toBuffer(), workerPubkey.toBuffer()],
-      program.programId
-    );
-    return pda;
-  }
-
-  /**
-   * Derive dispute PDA from dispute_id
-   * Seeds: ["dispute", dispute_id]
-   */
-  function deriveDisputePda(disputeId: Buffer): PublicKey {
-    const [pda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("dispute"), disputeId],
-      program.programId
-    );
-    return pda;
-  }
 
   /**
    * Create a 32-byte buffer from a string (padded with zeros)
@@ -178,7 +118,7 @@ describe("AgenC Integration Tests", () => {
     worker2 = Keypair.generate();
 
     // Derive protocol PDA
-    protocolConfigPda = deriveProtocolConfigPda();
+    protocolConfigPda = deriveProtocolPda(program.programId);
 
     // Airdrop SOL to test accounts
     const airdropAmount = 10 * LAMPORTS_PER_SOL;
@@ -276,7 +216,7 @@ describe("AgenC Integration Tests", () => {
     let agentPda: PublicKey;
 
     before(() => {
-      agentPda = deriveAgentPda(agentId);
+      agentPda = deriveAgentPdaUtil(agentId, program.programId);
     });
 
     it("registers an agent with stake", async () => {
@@ -362,9 +302,9 @@ describe("AgenC Integration Tests", () => {
     let escrowPda: PublicKey;
 
     before(async () => {
-      creatorAgentPda = deriveAgentPda(creatorAgentId);
-      taskPda = deriveTaskPda(creator.publicKey, taskId);
-      escrowPda = deriveEscrowPda(taskPda);
+      creatorAgentPda = deriveAgentPdaUtil(creatorAgentId, program.programId);
+      taskPda = deriveTaskPdaUtil(creator.publicKey, taskId, program.programId);
+      escrowPda = deriveEscrowPdaUtil(taskPda, program.programId);
 
       // Register creator as an agent first
       try {
@@ -455,10 +395,10 @@ describe("AgenC Integration Tests", () => {
     let claimPda: PublicKey;
 
     before(async () => {
-      workerAgentPda = deriveAgentPda(workerAgentId);
-      creatorAgentPda = deriveAgentPda(creatorAgentId);
-      taskPda = deriveTaskPda(creator.publicKey, taskId);
-      claimPda = deriveClaimPda(taskPda, workerAgentPda);
+      workerAgentPda = deriveAgentPdaUtil(workerAgentId, program.programId);
+      creatorAgentPda = deriveAgentPdaUtil(creatorAgentId, program.programId);
+      taskPda = deriveTaskPdaUtil(creator.publicKey, taskId, program.programId);
+      claimPda = deriveClaimPdaUtil(taskPda, workerAgentPda, program.programId);
 
       // Create a new task for claiming test
       try {
@@ -538,11 +478,11 @@ describe("AgenC Integration Tests", () => {
     let claimPda: PublicKey;
 
     before(async () => {
-      workerAgentPda = deriveAgentPda(workerAgentId);
-      creatorAgentPda = deriveAgentPda(creatorAgentId);
-      taskPda = deriveTaskPda(creator.publicKey, taskId);
-      escrowPda = deriveEscrowPda(taskPda);
-      claimPda = deriveClaimPda(taskPda, workerAgentPda);
+      workerAgentPda = deriveAgentPdaUtil(workerAgentId, program.programId);
+      creatorAgentPda = deriveAgentPdaUtil(creatorAgentId, program.programId);
+      taskPda = deriveTaskPdaUtil(creator.publicKey, taskId, program.programId);
+      escrowPda = deriveEscrowPdaUtil(taskPda, program.programId);
+      claimPda = deriveClaimPdaUtil(taskPda, workerAgentPda, program.programId);
 
       // Register worker agent
       try {
@@ -678,7 +618,7 @@ describe("AgenC Integration Tests", () => {
     let agentPda: PublicKey;
 
     before(async () => {
-      agentPda = deriveAgentPda(agentId);
+      agentPda = deriveAgentPdaUtil(agentId, program.programId);
 
       // Register agent first
       try {
@@ -741,9 +681,9 @@ describe("AgenC Integration Tests", () => {
     let escrowPda: PublicKey;
 
     before(async () => {
-      creatorAgentPda = deriveAgentPda(creatorAgentId);
-      taskPda = deriveTaskPda(creator.publicKey, taskId);
-      escrowPda = deriveEscrowPda(taskPda);
+      creatorAgentPda = deriveAgentPdaUtil(creatorAgentId, program.programId);
+      taskPda = deriveTaskPdaUtil(creator.publicKey, taskId, program.programId);
+      escrowPda = deriveEscrowPdaUtil(taskPda, program.programId);
 
       // Register creator agent
       try {
@@ -828,7 +768,7 @@ describe("AgenC Integration Tests", () => {
     let agentPda: PublicKey;
 
     before(async () => {
-      agentPda = deriveAgentPda(agentId);
+      agentPda = deriveAgentPdaUtil(agentId, program.programId);
 
       // Register agent to deregister
       try {

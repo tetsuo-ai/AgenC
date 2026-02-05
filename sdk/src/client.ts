@@ -6,27 +6,9 @@
 
 import { Connection, PublicKey, Keypair, LAMPORTS_PER_SOL } from '@solana/web3.js';
 import { type Idl, Program, AnchorProvider, Wallet } from '@coral-xyz/anchor';
-import * as path from 'path';
 import { AgenCPrivacyClient } from './privacy';
 import { PROGRAM_ID, DEVNET_RPC, MAINNET_RPC } from './constants';
-
-/**
- * Validates a circuit path to prevent path traversal attacks.
- * @param circuitPath - The circuit path to validate
- * @returns true if the path is safe, false otherwise
- */
-function isValidCircuitPath(circuitPath: string): boolean {
-  // Disallow absolute paths and path traversal
-  if (path.isAbsolute(circuitPath)) {
-    return false;
-  }
-  // Normalize and check for traversal attempts
-  const normalized = path.normalize(circuitPath);
-  if (normalized.startsWith('..') || normalized.includes('../')) {
-    return false;
-  }
-  return true;
-}
+import { validateCircuitPath } from './validation';
 
 export interface PrivacyClientConfig {
   /** Solana RPC endpoint URL */
@@ -51,10 +33,12 @@ export class PrivacyClient {
   private wallet: Keypair | null = null;
 
   constructor(config: PrivacyClientConfig = {}) {
-    // Validate circuit path before accepting it
+    // Validate circuit path before accepting it (uses shared validator with shell metacharacter checks)
     const circuitPath = config.circuitPath || './circuits/task_completion';
-    if (!isValidCircuitPath(circuitPath)) {
-      throw new Error('Invalid circuit path: path traversal or absolute paths not allowed');
+    try {
+      validateCircuitPath(circuitPath);
+    } catch (e) {
+      throw new Error(`Invalid circuit path: ${(e as Error).message}`);
     }
 
     this.config = {

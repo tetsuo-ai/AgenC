@@ -4,6 +4,18 @@ import BN from "bn.js";
 import { expect } from "chai";
 import { Keypair, PublicKey, SystemProgram, LAMPORTS_PER_SOL } from "@solana/web3.js";
 import { AgencCoordination } from "../target/types/agenc_coordination";
+import {
+  CAPABILITY_COMPUTE,
+  CAPABILITY_INFERENCE,
+  CAPABILITY_ARBITER,
+  TASK_TYPE_EXCLUSIVE,
+  TASK_TYPE_COLLABORATIVE,
+  TASK_TYPE_COMPETITIVE,
+  VALID_EVIDENCE,
+  generateRunId,
+  getDefaultDeadline,
+  sleep,
+} from "./test-utils";
 
 describe("test_1", () => {
   const provider = anchor.AnchorProvider.env();
@@ -17,7 +29,7 @@ describe("test_1", () => {
   );
 
   // Generate unique run ID to prevent conflicts with persisted validator state
-  const runId = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  const runId = generateRunId();
 
   let treasury: Keypair;
   let treasuryPubkey: PublicKey;  // Actual treasury from protocol config
@@ -34,20 +46,6 @@ describe("test_1", () => {
   let agentId3: Buffer;
   let creatorAgentId: Buffer;
 
-  const CAPABILITY_COMPUTE = 1 << 0;
-  const CAPABILITY_INFERENCE = 1 << 1;
-  const TASK_TYPE_EXCLUSIVE = 0;
-  const TASK_TYPE_COLLABORATIVE = 1;
-  const TASK_TYPE_COMPETITIVE = 2;
-
-  // Evidence must be at least 50 characters per initiate_dispute.rs requirements
-  const VALID_EVIDENCE = "This is valid dispute evidence that exceeds the minimum 50 character requirement for the dispute system.";
-
-  // Default deadline: 1 hour in the future (Unix timestamp in seconds)
-  // Used for task creation since deadline must be > 0
-  function getDefaultDeadline(): BN {
-    return new BN(Math.floor(Date.now() / 1000) + 3600);
-  }
 
   function deriveAgentPda(agentId: Buffer): PublicKey {
     return PublicKey.findProgramAddressSync(
@@ -82,10 +80,6 @@ describe("test_1", () => {
     return Buffer.from(`${prefix}-${runId}`.slice(0, 32).padEnd(32, "\0"));
   }
 
-  // Helper to wait for a specified time (used after airdrops)
-  function sleep(ms: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, ms));
-  }
 
   // Counter for generating unique agent names within tests
   let testAgentCounter = 0;
@@ -1917,9 +1911,6 @@ describe("test_1", () => {
       program.programId
     )[0];
   }
-
-  // Capability constants
-  const CAPABILITY_ARBITER = 1 << 7;
 
   describe("Issue #19: Task Lifecycle State Machine Tests", () => {
     describe("Valid State Transitions", () => {
@@ -6087,7 +6078,6 @@ describe("test_1", () => {
   });
 
   describe("Issue #23: Dispute Voting and Resolution Safety Tests", () => {
-    const CAPABILITY_ARBITER = 1 << 7; // 128
     const VOTING_PERIOD = 24 * 60 * 60; // 24 hours
 
     describe("Voting tests", () => {
