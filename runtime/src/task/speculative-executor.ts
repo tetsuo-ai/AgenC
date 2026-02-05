@@ -1,15 +1,16 @@
 /**
- * SpeculativeExecutor - Single-level speculative execution with proof pipelining.
+ * SpeculativeExecutor - Multi-level speculative execution with proof pipelining.
  *
  * Extends TaskExecutor to enable speculative execution of dependent tasks
  * while parent proofs are being generated. This reduces pipeline latency
  * by overlapping execution and proof generation.
  *
  * Key features:
- * - Single-level speculation (no chaining A->B->C)
- * - Proof submission gated on parent confirmation
- * - Automatic abort of speculative tasks when parent fails
+ * - Multi-level speculation with configurable depth (A->B->C chains)
+ * - Proof submission gated on ALL ancestor confirmations
+ * - Automatic cascade abort of speculative tasks when any ancestor fails
  * - Configurable dependency type filtering
+ * - Optimistic proof deferral: proofs generated eagerly, submitted lazily
  *
  * @module
  */
@@ -80,6 +81,8 @@ export interface SpeculativeTask {
   abortReason?: string;
   /** AbortController for cancellation */
   readonly controller: AbortController;
+  /** Speculation depth (1 = direct dependent, 2 = grandchild, etc.) */
+  readonly depth: number;
 }
 
 /**
@@ -88,10 +91,12 @@ export interface SpeculativeTask {
 export interface SpeculativeExecutorConfig extends Omit<TaskExecutorConfig, 'discovery'> {
   /** TaskDiscovery instance (optional for speculative mode) */
   discovery?: TaskDiscovery;
-  /** Enable single-level speculation. Default: true */
+  /** Enable speculation. Default: true */
   enableSpeculation?: boolean;
   /** Maximum speculative tasks per parent. Default: 5 */
   maxSpeculativeTasksPerParent?: number;
+  /** Maximum speculation depth (chain length). Default: 1, max: 5 */
+  maxSpeculationDepth?: number;
   /** Dependency types eligible for speculation. Default: [Data, Order] */
   speculatableDependencyTypes?: DependencyType[];
   /** Abort speculative tasks if parent proof fails. Default: true */
@@ -156,9 +161,13 @@ export interface SpeculativeExecutorStatus {
 // Default Configuration
 // ============================================================================
 
+/** Maximum allowed speculation depth to prevent unbounded chains */
+const MAX_ALLOWED_DEPTH = 5;
+
 const DEFAULT_SPECULATIVE_CONFIG = {
   enableSpeculation: true,
   maxSpeculativeTasksPerParent: 5,
+  maxSpeculationDepth: 1,
   speculatableDependencyTypes: [DependencyType.Data, DependencyType.Order],
   abortOnParentFailure: true,
 };
@@ -210,6 +219,7 @@ export class SpeculativeExecutor {
   // Speculation configuration
   private readonly speculationEnabled: boolean;
   private readonly maxSpeculativeTasksPerParent: number;
+  private readonly maxSpeculationDepth: number;
   private readonly speculatableDependencyTypes: Set<DependencyType>;
   private readonly abortOnParentFailure: boolean;
 
@@ -242,6 +252,10 @@ export class SpeculativeExecutor {
     // Speculation config with defaults
     this.speculationEnabled = config.enableSpeculation ?? DEFAULT_SPECULATIVE_CONFIG.enableSpeculation;
     this.maxSpeculativeTasksPerParent = config.maxSpeculativeTasksPerParent ?? DEFAULT_SPECULATIVE_CONFIG.maxSpeculativeTasksPerParent;
+    this.maxSpeculationDepth = Math.min(
+      config.maxSpeculationDepth ?? DEFAULT_SPECULATIVE_CONFIG.maxSpeculationDepth,
+      MAX_ALLOWED_DEPTH,
+    );
     this.speculatableDependencyTypes = new Set(
       config.speculatableDependencyTypes ?? DEFAULT_SPECULATIVE_CONFIG.speculatableDependencyTypes
     );
@@ -503,13 +517,26 @@ export class SpeculativeExecutor {
 
   /**
    * Start speculative execution of dependent tasks.
-   * Only speculates ONE level deep (direct dependents only).
+   * Supports multi-level speculation up to maxSpeculationDepth (issue #245).
+   *
+   * @param parentPda - Parent task PDA
+   * @param parentResult - Parent execution result
+   * @param currentDepth - Current speculation depth (1-based)
    */
   private async startSpeculativeExecutions(
     parentPda: PublicKey,
     parentResult: TaskExecutionResult | PrivateTaskExecutionResult,
+    currentDepth: number = 1,
   ): Promise<void> {
     const parentKey = parentPda.toBase58();
+
+    // Check depth limit
+    if (currentDepth > this.maxSpeculationDepth) {
+      this.logger.debug(
+        `Speculation depth limit reached (${currentDepth} > ${this.maxSpeculationDepth}) for ${parentKey}`
+      );
+      return;
+    }
 
     // Get direct dependents from the graph
     const dependents = this.dependencyGraph.getDependents(parentPda);
@@ -542,12 +569,12 @@ export class SpeculativeExecutor {
     const toSpeculate = speculatable.slice(0, remainingSlots);
 
     this.logger.info(
-      `Starting ${toSpeculate.length} speculative execution(s) for parent ${parentKey}`
+      `Starting ${toSpeculate.length} speculative execution(s) for parent ${parentKey} (depth=${currentDepth})`
     );
 
     // Start speculative execution for each eligible dependent
     for (const dependent of toSpeculate) {
-      await this.startSpeculativeTask(dependent, parentPda, parentResult);
+      await this.startSpeculativeTask(dependent, parentPda, parentResult, currentDepth);
     }
   }
 
@@ -558,6 +585,7 @@ export class SpeculativeExecutor {
     taskNode: TaskNode,
     parentPda: PublicKey,
     parentResult: TaskExecutionResult | PrivateTaskExecutionResult,
+    depth: number = 1,
   ): Promise<void> {
     const pdaKey = taskNode.taskPda.toBase58();
     const parentKey = parentPda.toBase58();
@@ -577,6 +605,7 @@ export class SpeculativeExecutor {
       status: 'pending',
       startedAt: Date.now(),
       controller,
+      depth,
     };
 
     // Register in tracking maps
@@ -644,11 +673,16 @@ export class SpeculativeExecutor {
       }
 
       // Queue proof generation
-      // The proof will NOT be submitted until parent is confirmed
+      // The proof will NOT be submitted until ALL ancestors are confirmed
       this.proofPipeline.enqueue(specTask.taskPda, task.taskId, result);
       specTask.status = 'proof_queued';
 
-      this.logger.debug(`Speculative task ${pdaKey} executed, proof queued`);
+      this.logger.debug(`Speculative task ${pdaKey} executed, proof queued (depth=${specTask.depth})`);
+
+      // Multi-level speculation (issue #245): if depth allows, speculate further
+      if (this.speculationEnabled && specTask.depth < this.maxSpeculationDepth) {
+        await this.startSpeculativeExecutions(specTask.taskPda, result, specTask.depth + 1);
+      }
     } catch (error) {
       if (specTask.controller.signal.aborted) {
         this.logger.debug(`Speculative task ${pdaKey} was aborted`);
@@ -774,20 +808,32 @@ export class SpeculativeExecutor {
       specTask.abortReason = `proof failed: ${error.message}`;
     }
 
-    // If abort on parent failure is enabled, abort all speculative dependents
+    // If abort on parent failure is enabled, cascade abort through all descendants
     if (this.abortOnParentFailure) {
-      const dependentKeys = this.parentToSpeculativeTasks.get(pdaKey);
-      if (dependentKeys && dependentKeys.size > 0) {
-        this.logger.info(
-          `Parent ${pdaKey} proof failed, aborting ${dependentKeys.size} speculative dependent(s)`
-        );
+      this.cascadeAbort(pdaKey, `ancestor proof failed: ${error.message}`);
+    }
+  }
 
-        for (const depKey of dependentKeys) {
-          const depTask = this.speculativeTasks.get(depKey);
-          if (depTask) {
-            this.abortSpeculativeTask(depTask, `parent proof failed: ${error.message}`);
-          }
-        }
+  /**
+   * Cascade abort through all descendants of a failed task.
+   * Handles multi-level speculation by recursively aborting dependents.
+   */
+  private cascadeAbort(pdaKey: string, reason: string): void {
+    const dependentKeys = this.parentToSpeculativeTasks.get(pdaKey);
+    if (!dependentKeys || dependentKeys.size === 0) {
+      return;
+    }
+
+    this.logger.info(
+      `Cascading abort from ${pdaKey} to ${dependentKeys.size} dependent(s): ${reason}`
+    );
+
+    for (const depKey of dependentKeys) {
+      const depTask = this.speculativeTasks.get(depKey);
+      if (depTask) {
+        this.abortSpeculativeTask(depTask, reason);
+        // Recursively abort descendants of this task
+        this.cascadeAbort(depKey, reason);
       }
     }
   }
