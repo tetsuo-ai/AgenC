@@ -59,6 +59,7 @@ use crate::state::{
     AgentRegistration, Nullifier, ProtocolConfig, Task, TaskClaim, TaskEscrow, TaskStatus,
     TaskType, HASH_SIZE, RESULT_DATA_SIZE,
 };
+use crate::utils::compute_budget::log_compute_units;
 use crate::utils::version::check_version_compatible;
 use crate::verifying_key::get_verifying_key;
 use anchor_lang::prelude::*;
@@ -356,16 +357,28 @@ const PROOF_B_SIZE: usize = 128; // G2 point
 const PROOF_C_SIZE: usize = 64; // G1 point
 
 fn verify_zk_proof(proof: &PrivateCompletionProof, task_key: Pubkey, agent: Pubkey) -> Result<()> {
+    log_compute_units("zk_verify_start");
+
     // Validate proof size matches expected Groth16 proof format
     require!(
         proof.proof_data.len() == EXPECTED_PROOF_SIZE,
         CoordinationError::InvalidProofSize
     );
 
+    // Security check: warn if using development verifying key (issues #356, #358)
+    // In devnet/localnet this is expected; on mainnet this would be a critical issue.
+    // The key must be replaced via MPC ceremony before mainnet deployment.
+    if crate::verifying_key::is_development_key() {
+        msg!("WARNING: Using development verifying key (gamma == delta). Proofs are forgeable. Do NOT use on mainnet.");
+    }
+
     let public_inputs = build_public_inputs(&task_key, &agent, proof);
     let vk = get_verifying_key();
 
+    log_compute_units("zk_inputs_built");
+
     // Split proof into components: proof_a (G1), proof_b (G2), proof_c (G1)
+    // Using direct slice references avoids unnecessary copies on the stack
     let proof_a: [u8; PROOF_A_SIZE] = proof.proof_data[0..PROOF_A_SIZE]
         .try_into()
         .map_err(|_| CoordinationError::InvalidProofSize)?;
@@ -379,16 +392,21 @@ fn verify_zk_proof(proof: &PrivateCompletionProof, task_key: Pubkey, agent: Pubk
         .map_err(|_| CoordinationError::InvalidProofSize)?;
 
     // Verify the Groth16 proof using groth16-solana
+    // This is the most CU-intensive operation (~100-130k CU for BN254 pairing)
     let mut verifier = Groth16Verifier::new(&proof_a, &proof_b, &proof_c, &public_inputs, &vk)
         .map_err(|e| {
             msg!("Failed to create Groth16 verifier: {:?}", e);
             CoordinationError::ZkVerificationFailed
         })?;
 
+    log_compute_units("zk_verifier_created");
+
     verifier.verify().map_err(|e| {
         msg!("ZK proof verification failed: {:?}", e);
         CoordinationError::ZkVerificationFailed
     })?;
+
+    log_compute_units("zk_verify_done");
 
     Ok(())
 }

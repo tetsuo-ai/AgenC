@@ -10,6 +10,7 @@ use crate::state::{
     AgentRegistration, DependencyType, ProtocolConfig, Task, TaskClaim, TaskEscrow, TaskStatus,
     TaskType, HASH_SIZE, RESULT_DATA_SIZE,
 };
+use crate::utils::compute_budget::log_compute_units;
 use crate::utils::version::check_version_compatible;
 use anchor_lang::prelude::*;
 
@@ -86,6 +87,8 @@ pub fn handler(
     proof_hash: [u8; HASH_SIZE],
     result_data: Option<[u8; RESULT_DATA_SIZE]>,
 ) -> Result<()> {
+    log_compute_units("complete_task_start");
+
     let task = &mut ctx.accounts.task;
     let claim = &mut ctx.accounts.claim;
     let escrow = &mut ctx.accounts.escrow;
@@ -190,6 +193,8 @@ pub fn handler(
     claim.is_completed = true;
     claim.completed_at = clock.unix_timestamp;
 
+    log_compute_units("complete_task_validated");
+
     // Calculate rewards
     let (worker_reward, protocol_fee) = calculate_reward_split(task, protocol_fee_bps)?;
 
@@ -223,6 +228,8 @@ pub fn handler(
         update_protocol_stats(&mut ctx.accounts.protocol_config, task.reward_amount)?;
     }
 
+    log_compute_units("complete_task_state_updated");
+
     emit!(TaskCompleted {
         task_id: task.task_id,
         worker: worker.key(),
@@ -239,6 +246,8 @@ pub fn handler(
         protocol_fee,
         timestamp: clock.unix_timestamp,
     });
+
+    log_compute_units("complete_task_done");
 
     Ok(())
 }
