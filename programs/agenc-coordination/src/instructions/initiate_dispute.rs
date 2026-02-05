@@ -1,7 +1,7 @@
 //! Initiate a dispute for conflict resolution
 
 use crate::errors::CoordinationError;
-use crate::events::{DisputeInitiated, RateLimitHit};
+use crate::events::DisputeInitiated;
 use crate::state::{
     AgentRegistration, AgentStatus, Dispute, DisputeStatus, ProtocolConfig, ResolutionType, Task,
     TaskClaim, TaskStatus,
@@ -9,7 +9,7 @@ use crate::state::{
 use crate::utils::version::check_version_compatible;
 use anchor_lang::prelude::*;
 
-use super::constants::WINDOW_24H;
+use super::rate_limit_helpers::check_dispute_initiation_rate_limits;
 
 /// Maximum evidence string length
 const MAX_EVIDENCE_LEN: usize = 256;
@@ -32,7 +32,7 @@ pub struct InitiateDispute<'info> {
         bump = task.bump,
         constraint = task.task_id == task_id @ CoordinationError::TaskNotFound
     )]
-    pub task: Account<'info, Task>,
+    pub task: Box<Account<'info, Task>>,
 
     #[account(
         mut,
@@ -40,7 +40,7 @@ pub struct InitiateDispute<'info> {
         bump = agent.bump,
         has_one = authority @ CoordinationError::UnauthorizedAgent
     )]
-    pub agent: Account<'info, AgentRegistration>,
+    pub agent: Box<Account<'info, AgentRegistration>>,
 
     #[account(
         seeds = [b"protocol"],
@@ -56,7 +56,7 @@ pub struct InitiateDispute<'info> {
     pub initiator_claim: Option<Account<'info, TaskClaim>>,
 
     /// Optional: Worker agent to be disputed (required when initiator is task creator)
-    pub worker_agent: Option<Account<'info, AgentRegistration>>,
+    pub worker_agent: Option<Box<Account<'info, AgentRegistration>>>,
 
     /// Optional: Worker's claim (required when worker_agent is provided)
     pub worker_claim: Option<Account<'info, TaskClaim>>,
@@ -168,70 +168,8 @@ pub fn handler(
         }
     }
 
-    // Check cooldown period
-    if config.dispute_initiation_cooldown > 0 && agent.last_dispute_initiated > 0 {
-        // Using saturating_sub intentionally - handles clock drift safely
-        let elapsed = clock
-            .unix_timestamp
-            .saturating_sub(agent.last_dispute_initiated);
-        if elapsed < config.dispute_initiation_cooldown {
-            // Using saturating_sub intentionally - underflow returns 0 (safe time calculation)
-            let remaining = config.dispute_initiation_cooldown.saturating_sub(elapsed);
-            emit!(RateLimitHit {
-                agent_id: agent.agent_id,
-                action_type: 1, // dispute_initiation
-                limit_type: 0,  // cooldown
-                current_count: agent.dispute_count_24h,
-                max_count: config.max_disputes_per_24h,
-                cooldown_remaining: remaining,
-                timestamp: clock.unix_timestamp,
-            });
-            return Err(CoordinationError::CooldownNotElapsed.into());
-        }
-    }
-
-    // Check 24h window limit
-    if config.max_disputes_per_24h > 0 {
-        // Reset window if 24h has passed
-        // Using saturating_sub intentionally - handles clock drift safely
-        if clock
-            .unix_timestamp
-            .saturating_sub(agent.rate_limit_window_start)
-            >= WINDOW_24H
-        {
-            // Round window start to prevent drift
-            let window_start = (clock.unix_timestamp / WINDOW_24H) * WINDOW_24H;
-            agent.rate_limit_window_start = window_start;
-            // Note: Both counters reset together when window expires.
-            // This is intentional - ensures clean state at window boundary.
-            agent.task_count_24h = 0;
-            agent.dispute_count_24h = 0;
-        }
-
-        // Check if limit exceeded
-        if agent.dispute_count_24h >= config.max_disputes_per_24h {
-            emit!(RateLimitHit {
-                agent_id: agent.agent_id,
-                action_type: 1, // dispute_initiation
-                limit_type: 1,  // 24h_window
-                current_count: agent.dispute_count_24h,
-                max_count: config.max_disputes_per_24h,
-                cooldown_remaining: 0,
-                timestamp: clock.unix_timestamp,
-            });
-            return Err(CoordinationError::RateLimitExceeded.into());
-        }
-
-        // Increment counter
-        agent.dispute_count_24h = agent
-            .dispute_count_24h
-            .checked_add(1)
-            .ok_or(CoordinationError::ArithmeticOverflow)?;
-    }
-
-    // Update rate limit tracking
-    agent.last_dispute_initiated = clock.unix_timestamp;
-    agent.last_active = clock.unix_timestamp;
+    // Check rate limits and update counters
+    check_dispute_initiation_rate_limits(agent, config, &clock)?;
 
     // === Determine Worker Stake to Snapshot (fix #550) ===
     // Snapshot the worker's stake at dispute initiation time to prevent

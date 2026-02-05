@@ -17,14 +17,14 @@ pub struct VoteDispute<'info> {
         bump = dispute.bump,
         has_one = task @ CoordinationError::TaskNotFound
     )]
-    pub dispute: Account<'info, Dispute>,
+    pub dispute: Box<Account<'info, Dispute>>,
 
     /// Task account for arbiter party validation (fix #461)
     #[account(
         seeds = [b"task", task.creator.as_ref(), task.task_id.as_ref()],
         bump = task.bump
     )]
-    pub task: Account<'info, Task>,
+    pub task: Box<Account<'info, Task>>,
 
     /// Optional: Worker's claim on the task (for arbiter party validation, fix #461)
     /// If provided, validates arbiter is not the worker
@@ -60,13 +60,13 @@ pub struct VoteDispute<'info> {
         bump = arbiter.bump,
         has_one = authority @ CoordinationError::UnauthorizedAgent
     )]
-    pub arbiter: Account<'info, AgentRegistration>,
+    pub arbiter: Box<Account<'info, AgentRegistration>>,
 
     #[account(
         seeds = [b"protocol"],
         bump = protocol_config.bump
     )]
-    pub protocol_config: Account<'info, ProtocolConfig>,
+    pub protocol_config: Box<Account<'info, ProtocolConfig>>,
 
     #[account(mut)]
     pub authority: Signer<'info>,
