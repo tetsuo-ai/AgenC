@@ -320,7 +320,7 @@ class TetsuoAgent {
     if (process.env.NODE_ENV === 'production') {
       throw new Error('Demo proof generation cannot be used in production. Implement real ZK proof generation.');
     }
-    const proof = Buffer.alloc(388); // Groth16 proof size (DEMO ONLY: zeros - will fail verification!)
+    const proof = Buffer.alloc(256); // Groth16 proof size: 2 G1 points (64 bytes each) + 1 G2 point (128 bytes) (DEMO ONLY: zeros - will fail verification!)
     const publicWitness = Buffer.alloc(35 * 32); // 35 public inputs (DEMO ONLY: zeros)
 
     console.log(chalk.gray('  Proof size:'), proof.length, 'bytes');
@@ -345,8 +345,8 @@ class TetsuoAgent {
 
     // SECURITY: Validate proof parameters before submission
     // These validations ensure the parameters are properly formed
-    if (proof.length !== 388) {
-      throw new Error(`Invalid proof size: expected 388 bytes, got ${proof.length}`);
+    if (proof.length !== 256) {
+      throw new Error(`Invalid proof size: expected 256 bytes, got ${proof.length}`);
     }
     if (publicWitness.length !== 35 * 32) {
       throw new Error(`Invalid public witness size: expected ${35 * 32} bytes, got ${publicWitness.length}`);

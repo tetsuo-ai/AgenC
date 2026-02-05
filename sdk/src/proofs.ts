@@ -22,29 +22,11 @@ import * as path from 'path';
 import { PublicKey } from '@solana/web3.js';
 import { poseidon2, poseidon4 } from 'poseidon-lite';
 import { HASH_SIZE, OUTPUT_FIELD_COUNT, PROOF_SIZE_BYTES } from './constants';
+import { validateCircuitPath } from './validation';
 
 // snarkjs is a CommonJS module
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const snarkjs = require('snarkjs');
-
-/**
- * Validates a circuit path to prevent path traversal and command injection.
- * @param circuitPath - The circuit path to validate
- * @throws Error if the path is invalid
- */
-function validateCircuitPath(circuitPath: string): void {
-  if (path.isAbsolute(circuitPath)) {
-    throw new Error('Security: Absolute circuit paths are not allowed');
-  }
-  const normalized = path.normalize(circuitPath);
-  if (normalized.startsWith('..') || normalized.includes('../')) {
-    throw new Error('Security: Path traversal in circuit path is not allowed');
-  }
-  const dangerousChars = /[;&|`$(){}[\]<>!]/;
-  if (dangerousChars.test(circuitPath)) {
-    throw new Error('Security: Circuit path contains disallowed characters');
-  }
-}
 
 /** BN254 scalar field modulus */
 export const FIELD_MODULUS = 21888242871839275222246405745257275088548364400416034343698204186575808495617n;
