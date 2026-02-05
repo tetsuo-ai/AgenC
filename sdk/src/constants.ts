@@ -50,21 +50,82 @@ export const OUTPUT_FIELD_COUNT = 4;
 /** Proof size in bytes (Groth16 via groth16-solana) */
 export const PROOF_SIZE_BYTES = 256;
 
-/** Approximate verification compute units */
+/** Approximate verification compute units (deprecated, use RECOMMENDED_CU below) */
 export const VERIFICATION_COMPUTE_UNITS = 50_000;
 
 /** Number of public inputs in the circuit (32 task_id bytes + 32 agent bytes + constraint_hash + output_commitment + expected_binding) */
 export const PUBLIC_INPUTS_COUNT = 67;
 
 // ============================================================================
+// Recommended Compute Unit Budgets (issue #40)
+// ============================================================================
+//
+// These values should be used with ComputeBudgetProgram.setComputeUnitLimit()
+// when building transactions to avoid paying for the default 200k CU allocation.
+// Values are profiled upper bounds with safety margin.
+
+/** CU budget for register_agent instruction */
+export const RECOMMENDED_CU_REGISTER_AGENT = 40_000;
+
+/** CU budget for update_agent instruction */
+export const RECOMMENDED_CU_UPDATE_AGENT = 20_000;
+
+/** CU budget for create_task instruction */
+export const RECOMMENDED_CU_CREATE_TASK = 50_000;
+
+/** CU budget for create_dependent_task instruction */
+export const RECOMMENDED_CU_CREATE_DEPENDENT_TASK = 60_000;
+
+/** CU budget for claim_task instruction */
+export const RECOMMENDED_CU_CLAIM_TASK = 30_000;
+
+/** CU budget for complete_task (public) instruction */
+export const RECOMMENDED_CU_COMPLETE_TASK = 60_000;
+
+/** CU budget for complete_task_private (ZK) instruction - highest due to Groth16 pairing */
+export const RECOMMENDED_CU_COMPLETE_TASK_PRIVATE = 200_000;
+
+/** CU budget for cancel_task instruction */
+export const RECOMMENDED_CU_CANCEL_TASK = 40_000;
+
+/** CU budget for initiate_dispute instruction */
+export const RECOMMENDED_CU_INITIATE_DISPUTE = 50_000;
+
+/** CU budget for vote_dispute instruction */
+export const RECOMMENDED_CU_VOTE_DISPUTE = 30_000;
+
+/** CU budget for resolve_dispute instruction */
+export const RECOMMENDED_CU_RESOLVE_DISPUTE = 60_000;
+
+// ============================================================================
 // Fee Constants
 // ============================================================================
+
+/** Basis points divisor (100% = 10000 bps) - matches on-chain constant */
+export const BASIS_POINTS_DIVISOR = 10_000;
 
 /** Base for percentage calculations (100 = 100%) */
 export const PERCENT_BASE = 100;
 
 /** Default protocol fee percentage */
 export const DEFAULT_FEE_PERCENT = 1;
+
+/** Maximum protocol fee in basis points (10%) */
+export const MAX_PROTOCOL_FEE_BPS = 1000;
+
+// ============================================================================
+// Fee Tier Thresholds (issue #40)
+// ============================================================================
+//
+// Volume-based fee discounts. Must match on-chain FEE_TIER_THRESHOLDS.
+
+/** Fee tier: [minCompletedTasks, discountBps] */
+export const FEE_TIERS: ReadonlyArray<readonly [number, number]> = [
+  [0, 0],       // Base tier: no discount
+  [50, 10],     // Bronze: 10 bps discount
+  [200, 25],    // Silver: 25 bps discount
+  [1000, 40],   // Gold: 40 bps discount
+] as const;
 
 /**
  * Task states matching on-chain TaskStatus enum.

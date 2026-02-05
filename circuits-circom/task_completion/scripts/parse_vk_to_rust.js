@@ -110,6 +110,34 @@ const beta = g2ToBytes(vk.vk_beta_2);
 const gamma = g2ToBytes(vk.vk_gamma_2);
 const delta = g2ToBytes(vk.vk_delta_2);
 
+// ============================================================================
+// Security validation (issues #356, #358)
+// ============================================================================
+
+// Check if gamma == delta (indicates single-party trusted setup)
+const gammaHex = gamma.map(b => b.toString(16).padStart(2, '0')).join('');
+const deltaHex = delta.map(b => b.toString(16).padStart(2, '0')).join('');
+
+if (gammaHex === deltaHex) {
+    console.error('');
+    console.error('╔══════════════════════════════════════════════════════════════════╗');
+    console.error('║  SECURITY WARNING: gamma_g2 == delta_g2 (issues #356, #358)     ║');
+    console.error('║                                                                  ║');
+    console.error('║  This verifying key is from a SINGLE-PARTY trusted setup.        ║');
+    console.error('║  Proofs generated with this key are FORGEABLE.                   ║');
+    console.error('║                                                                  ║');
+    console.error('║  This key is ONLY safe for devnet/localnet testing.              ║');
+    console.error('║  Run an MPC ceremony (see CEREMONY.md) before mainnet deploy.    ║');
+    console.error('╚══════════════════════════════════════════════════════════════════╝');
+    console.error('');
+
+    // If --require-mpc flag is passed, fail hard
+    if (process.argv.includes('--require-mpc')) {
+        console.error('ERROR: --require-mpc flag set but key is from single-party setup. Aborting.');
+        process.exit(1);
+    }
+}
+
 // Output Rust code
 console.log('//! Groth16 verifying key for task_completion circuit.');
 console.log('//!');

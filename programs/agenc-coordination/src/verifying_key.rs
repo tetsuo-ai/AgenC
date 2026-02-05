@@ -8,6 +8,17 @@
 //!   node scripts/parse_vk_to_rust.js target/verification_key.json
 //!
 //! Then copy this output to programs/agenc-coordination/src/verifying_key.rs
+//!
+//! ## Security (issues #356, #358)
+//!
+//! The verifying key MUST satisfy:
+//! - VK_GAMMA_G2 != VK_DELTA_G2 (different ceremony contributions)
+//! - Keys MUST come from a multi-party computation (MPC) ceremony
+//! - Single-party trusted setups produce forgeable proofs
+//!
+//! The current key is a DEVELOPMENT-ONLY key from a single-party setup.
+//! DO NOT deploy to mainnet without running an MPC ceremony first.
+//! See `CEREMONY.md` for ceremony procedures.
 
 use groth16_solana::groth16::Groth16Verifyingkey;
 
@@ -541,7 +552,44 @@ pub const VK_IC: [[u8; 64]; 68] = [
     ],
 ];
 
+/// Returns true if the verifying key is a development-only key (issues #356, #358).
+///
+/// A development key has VK_GAMMA_G2 == VK_DELTA_G2, which means proofs are
+/// forgeable because the trusted setup was single-party. This function can be
+/// used by deployment tooling and CI to prevent mainnet deployment with dev keys.
+pub const fn is_development_key() -> bool {
+    // Compare gamma and delta byte-by-byte at compile time
+    let mut i = 0;
+    while i < 128 {
+        if VK_GAMMA_G2[i] != VK_DELTA_G2[i] {
+            return false;
+        }
+        i += 1;
+    }
+    true
+}
+
+/// Validates verifying key integrity at runtime (issues #356, #358).
+///
+/// Returns an error if gamma == delta, which indicates a forgeable development key.
+/// Called during proof verification to prevent silent use of insecure keys.
+pub fn validate_verifying_key_security() -> Result<(), &'static str> {
+    if VK_GAMMA_G2 == VK_DELTA_G2 {
+        return Err(
+            "SECURITY: VK_GAMMA_G2 == VK_DELTA_G2. This verifying key is from a single-party \
+             trusted setup and proofs are forgeable. Run an MPC ceremony before mainnet deployment."
+        );
+    }
+    Ok(())
+}
+
 /// Get the verifying key as a Groth16Verifyingkey struct.
+///
+/// # Security Warning
+///
+/// This function returns the key regardless of whether it is a development key.
+/// Callers should check `is_development_key()` or call `validate_verifying_key_security()`
+/// before using the key in production contexts.
 pub fn get_verifying_key() -> Groth16Verifyingkey<'static> {
     Groth16Verifyingkey {
         nr_pubinputs: PUBLIC_INPUTS_COUNT,
@@ -550,5 +598,42 @@ pub fn get_verifying_key() -> Groth16Verifyingkey<'static> {
         vk_gamme_g2: VK_GAMMA_G2, // Note: typo in groth16-solana crate
         vk_delta_g2: VK_DELTA_G2,
         vk_ic: &VK_IC,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_development_key_detected() {
+        // Current key has gamma == delta (single-party trusted setup)
+        assert!(
+            is_development_key(),
+            "Expected development key (gamma == delta) - if this fails, \
+             the verifying key has been updated from an MPC ceremony"
+        );
+    }
+
+    #[test]
+    fn test_validate_verifying_key_detects_dev_key() {
+        // Current dev key should fail validation
+        let result = validate_verifying_key_security();
+        assert!(result.is_err(), "Expected error for development key");
+        assert!(
+            result.unwrap_err().contains("VK_GAMMA_G2 == VK_DELTA_G2"),
+            "Error message should mention gamma == delta"
+        );
+    }
+
+    #[test]
+    fn test_public_inputs_count() {
+        assert_eq!(PUBLIC_INPUTS_COUNT, 67);
+    }
+
+    #[test]
+    fn test_ic_length_matches() {
+        assert_eq!(VK_IC.len(), VK_IC_LENGTH);
+        assert_eq!(VK_IC_LENGTH, PUBLIC_INPUTS_COUNT + 1);
     }
 }
