@@ -10,6 +10,7 @@ use crate::state::{
     AgentRegistration, ProtocolConfig, Task, TaskClaim, TaskEscrow, TaskStatus, TaskType,
     RESULT_DATA_SIZE,
 };
+use crate::utils::compute_budget::calculate_tiered_fee;
 use anchor_lang::prelude::*;
 
 /// Calculate worker reward and protocol fee from task reward amount.
@@ -33,6 +34,22 @@ pub fn calculate_reward_split(task: &Task, protocol_fee_bps: u16) -> Result<(u64
     require!(worker_reward > 0, CoordinationError::RewardTooSmall);
 
     Ok((worker_reward, protocol_fee))
+}
+
+/// Calculate worker reward and protocol fee with volume-based tiered discounts (issue #40).
+///
+/// High-volume creators (measured by completed_tasks on their agent account) receive
+/// reduced protocol fees. This incentivizes protocol usage while maintaining revenue.
+///
+/// See [`calculate_tiered_fee`] for tier thresholds and discount amounts.
+pub fn calculate_reward_split_tiered(
+    task: &Task,
+    base_fee_bps: u16,
+    creator_completed_tasks: u64,
+) -> Result<(u64, u64, u16)> {
+    let effective_fee_bps = calculate_tiered_fee(base_fee_bps, creator_completed_tasks);
+    let (worker_reward, protocol_fee) = calculate_reward_split(task, effective_fee_bps)?;
+    Ok((worker_reward, protocol_fee, effective_fee_bps))
 }
 
 /// Calculate per-worker reward based on task type.
@@ -390,6 +407,54 @@ mod tests {
             let reward = calculate_reward_per_worker(&task).unwrap();
             // 25500 / 255 = 100, remainder 0
             assert_eq!(reward, 100);
+        }
+    }
+
+    mod tiered_fee_tests {
+        use super::*;
+
+        #[test]
+        fn test_tiered_split_base_tier() {
+            // New creator with 0 completed tasks -> no discount
+            let task = create_test_task(TaskType::Exclusive, 10000, 1, 0);
+            let (worker, fee, effective_bps) =
+                calculate_reward_split_tiered(&task, 100, 0).unwrap();
+            assert_eq!(effective_bps, 100); // No discount
+            assert_eq!(fee, 100);
+            assert_eq!(worker, 9900);
+        }
+
+        #[test]
+        fn test_tiered_split_bronze() {
+            // Creator with 50 completed tasks -> 10 bps discount
+            let task = create_test_task(TaskType::Exclusive, 10000, 1, 0);
+            let (worker, fee, effective_bps) =
+                calculate_reward_split_tiered(&task, 100, 50).unwrap();
+            assert_eq!(effective_bps, 90); // 10 bps discount
+            assert_eq!(fee, 90);
+            assert_eq!(worker, 9910);
+        }
+
+        #[test]
+        fn test_tiered_split_gold() {
+            // Creator with 1000+ completed tasks -> 40 bps discount
+            let task = create_test_task(TaskType::Exclusive, 10000, 1, 0);
+            let (worker, fee, effective_bps) =
+                calculate_reward_split_tiered(&task, 100, 1500).unwrap();
+            assert_eq!(effective_bps, 60); // 40 bps discount
+            assert_eq!(fee, 60);
+            assert_eq!(worker, 9940);
+        }
+
+        #[test]
+        fn test_tiered_split_collaborative() {
+            // 4 workers, 10000 total = 2500 each, bronze tier
+            let task = create_test_task(TaskType::Collaborative, 10000, 4, 0);
+            let (worker, fee, effective_bps) =
+                calculate_reward_split_tiered(&task, 500, 100).unwrap();
+            assert_eq!(effective_bps, 490); // 10 bps discount on 500
+            assert_eq!(fee, 122); // 4.9% of 2500 = 122.5 -> rounds down
+            assert_eq!(worker, 2378);
         }
     }
 }
