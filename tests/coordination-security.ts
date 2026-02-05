@@ -51,7 +51,7 @@ describe("coordination-security", () => {
 
   const CAPABILITY_COMPUTE = 1 << 0;
   const CAPABILITY_INFERENCE = 1 << 1;
-  const CAPABILITY_STORAGE = 1 << 1;  // Same as inference for test purposes
+  const CAPABILITY_STORAGE = 1 << 2;
   const CAPABILITY_ARBITER = 1 << 7;
 
   const TASK_TYPE_EXCLUSIVE = 0;

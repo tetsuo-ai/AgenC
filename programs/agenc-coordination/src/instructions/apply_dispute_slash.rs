@@ -34,7 +34,7 @@ pub struct ApplyDisputeSlash<'info> {
         bump = task.bump,
         constraint = dispute.task == task.key() @ CoordinationError::TaskNotFound
     )]
-    pub task: Account<'info, Task>,
+    pub task: Box<Account<'info, Task>>,
 
     #[account(
         seeds = [b"claim", task.key().as_ref(), worker_claim.worker.as_ref()],
@@ -48,7 +48,7 @@ pub struct ApplyDisputeSlash<'info> {
         seeds = [b"agent", worker_agent.agent_id.as_ref()],
         bump = worker_agent.bump
     )]
-    pub worker_agent: Account<'info, AgentRegistration>,
+    pub worker_agent: Box<Account<'info, AgentRegistration>>,
 
     #[account(
         seeds = [b"protocol"],

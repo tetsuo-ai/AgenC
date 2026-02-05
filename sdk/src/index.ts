@@ -80,6 +80,7 @@ export {
   getTasksByDependency,
   getDependentTaskCount,
   getTasksByDependencyWithProgram,
+  getRootTasks,
   hasDependents,
   // Field offsets for memcmp filtering (for custom queries)
   TASK_FIELD_OFFSETS,

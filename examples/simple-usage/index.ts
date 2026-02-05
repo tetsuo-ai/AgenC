@@ -10,7 +10,7 @@
 import { Keypair } from '@solana/web3.js';
 import {
   generateSalt,
-  computeHashesViaNargo,
+  computeHashes,
   generateProof,
   verifyProofLocally,
   checkToolsAvailable,
@@ -19,9 +19,8 @@ import {
 async function main() {
   // Check prerequisites
   const tools = checkToolsAvailable();
-  if (!tools.nargo || !tools.sunspot) {
-    console.error('Missing tools. Install nargo and sunspot first.');
-    console.error('See: circuits/README.md');
+  if (!tools.snarkjs) {
+    console.error('Missing snarkjs. Install with: npm install snarkjs');
     process.exit(1);
   }
 
@@ -36,14 +35,9 @@ async function main() {
   const salt = generateSalt();
 
   // Compute the hashes that will be public inputs
+  // Uses poseidon-lite for circomlib-compatible hashing
   console.log('Computing hashes...');
-  const hashes = await computeHashesViaNargo(
-    taskPda,
-    agentPubkey,
-    output,
-    salt,
-    './circuits/hash_helper'
-  );
+  const hashes = computeHashes(taskPda, agentPubkey, output, salt);
 
   console.log('Constraint hash:', hashes.constraintHash.toString(16).slice(0, 16) + '...');
   console.log('Output commitment:', hashes.outputCommitment.toString(16).slice(0, 16) + '...');
@@ -55,8 +49,7 @@ async function main() {
     agentPubkey,
     output,
     salt,
-    circuitPath: './circuits/task_completion',
-    hashHelperPath: './circuits/hash_helper',
+    circuitPath: './circuits-circom/task_completion',
   });
 
   console.log('Proof size:', result.proofSize, 'bytes');
@@ -64,10 +57,15 @@ async function main() {
 
   // Verify locally
   console.log('\nVerifying proof...');
+  const publicSignals = [
+    hashes.constraintHash,
+    hashes.outputCommitment,
+    hashes.expectedBinding,
+  ];
   const valid = await verifyProofLocally(
     result.proof,
-    result.publicWitness,
-    './circuits/task_completion'
+    publicSignals,
+    './circuits-circom/task_completion'
   );
 
   console.log('Valid:', valid);
