@@ -1,19 +1,10 @@
 import { useState } from 'react'
-import { Connection } from '@solana/web3.js'
-import { TaskState } from '../../App'
+import type { StepProps } from '../../App'
 import StepCard from '../StepCard'
-
-interface Props {
-  taskState: TaskState
-  updateTaskState: (updates: Partial<TaskState>) => void
-  onNext: () => void
-  onPrev: () => void
-  connection: Connection | null
-}
 
 const VERIFIER_PROGRAM = '8fHUGmjNzSh76r78v1rPt7BhWmAu2gXrvW9A2XXonwQQ'
 
-export default function Step5VerifyOnChain({ taskState, updateTaskState, onNext, onPrev }: Props) {
+export default function Step5VerifyOnChain({ taskState, updateTaskState, onNext, onPrev }: StepProps) {
   const [isProcessing, setIsProcessing] = useState(false)
   const [verificationStage, setVerificationStage] = useState<'idle' | 'submitting' | 'verifying' | 'confirmed'>('idle')
 

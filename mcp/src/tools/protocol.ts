@@ -15,15 +15,15 @@ import {
   getReadOnlyProgram,
   getCurrentProgramId,
 } from '../utils/connection.js';
-import { formatSol } from '../utils/formatting.js';
+import { formatSol, safePubkey } from '../utils/formatting.js';
 
 function formatProtocolConfig(config: Record<string, unknown>, pda: PublicKey): string {
   const lines = [
     'Protocol Config PDA: ' + pda.toBase58(),
     '',
     '--- Authority ---',
-    'Authority: ' + (config.authority as PublicKey).toBase58(),
-    'Treasury: ' + (config.treasury as PublicKey).toBase58(),
+    'Authority: ' + safePubkey(config.authority),
+    'Treasury: ' + safePubkey(config.treasury),
     '',
     '--- Fees & Thresholds ---',
     'Protocol Fee: ' + config.protocolFeeBps + ' bps (' + (Number(config.protocolFeeBps) / 100).toFixed(2) + '%)',
