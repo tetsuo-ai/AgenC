@@ -17,6 +17,10 @@ import BN from "bn.js";
 import { expect } from "chai";
 import { Keypair, PublicKey, SystemProgram, LAMPORTS_PER_SOL } from "@solana/web3.js";
 import { AgencCoordination } from "../target/types/agenc_coordination";
+import {
+  CAPABILITY_COMPUTE,
+  TASK_TYPE_EXCLUSIVE,
+} from "./test-utils";
 
 describe("complete_task_private", () => {
   const provider = anchor.AnchorProvider.env();
@@ -42,9 +46,6 @@ describe("complete_task_private", () => {
 
   const creatorAgentId = Buffer.from("creator-priv-0000000000000001".padEnd(32, "\0"));
   const workerAgentId = Buffer.from("worker-priv-00000000000000001".padEnd(32, "\0"));
-
-  const CAPABILITY_COMPUTE = 1 << 0;
-  const TASK_TYPE_EXCLUSIVE = 0;
 
   function deriveAgentPda(agentId: Buffer): PublicKey {
     return PublicKey.findProgramAddressSync(

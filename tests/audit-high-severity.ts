@@ -4,6 +4,17 @@ import BN from "bn.js";
 import { expect } from "chai";
 import { Keypair, PublicKey, SystemProgram, LAMPORTS_PER_SOL } from "@solana/web3.js";
 import { AgencCoordination } from "../target/types/agenc_coordination";
+import {
+  CAPABILITY_COMPUTE,
+  CAPABILITY_ARBITER,
+  TASK_TYPE_COLLABORATIVE,
+  TASK_TYPE_COMPETITIVE,
+  RESOLUTION_TYPE_REFUND,
+  generateRunId,
+  makeAgentId,
+  makeTaskId,
+  makeDisputeId,
+} from "./test-utils";
 
 describe("audit-high-severity", () => {
   const provider = anchor.AnchorProvider.env();
@@ -17,13 +28,7 @@ describe("audit-high-severity", () => {
   );
 
   // Generate unique run ID to prevent conflicts with persisted validator state
-  const runId = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-
-  const CAPABILITY_COMPUTE = 1 << 0;
-  const CAPABILITY_ARBITER = 1 << 7;
-  const TASK_TYPE_COLLABORATIVE = 1;
-  const TASK_TYPE_COMPETITIVE = 2;
-  const RESOLUTION_TYPE_REFUND = 0;
+  const runId = generateRunId();
 
   let treasury: Keypair;
   let treasuryPubkey: PublicKey;
@@ -33,11 +38,6 @@ describe("audit-high-severity", () => {
   let worker3: Keypair;
   let arbiter1: Keypair;
   let unauthorized: Keypair;
-
-  // Helper to generate unique IDs per test run
-  function makeId(prefix: string): Buffer {
-    return Buffer.from(`${prefix}-${runId}`.slice(0, 32).padEnd(32, "\0"));
-  }
 
   // Use unique IDs per test run to avoid conflicts with persisted state
   let creatorAgentId: Buffer;
@@ -162,11 +162,11 @@ describe("audit-high-severity", () => {
     unauthorized = Keypair.generate();
 
     // Initialize unique IDs per test run
-    creatorAgentId = makeId("cre");
-    workerAgentId1 = makeId("w1");
-    workerAgentId2 = makeId("w2");
-    workerAgentId3 = makeId("w3");
-    arbiterAgentId1 = makeId("arb");
+    creatorAgentId = makeAgentId("cre", runId);
+    workerAgentId1 = makeAgentId("w1", runId);
+    workerAgentId2 = makeAgentId("w2", runId);
+    workerAgentId3 = makeAgentId("w3", runId);
+    arbiterAgentId1 = makeAgentId("arb", runId);
 
     // Increase airdrop to prevent lamport depletion
     for (const wallet of [treasury, creator, worker1, worker2, worker3, arbiter1, unauthorized]) {
@@ -705,7 +705,7 @@ describe("audit-high-severity", () => {
 
   it("prevents suspended agent from bypassing suspension via update_agent (issue #151)", async () => {
     // Create an agent owned by protocol authority (so it can be suspended)
-    const suspendTestAgentId = makeId("susp");
+    const suspendTestAgentId = makeAgentId("susp", runId);
     const suspendTestAgentPda = deriveAgentPda(suspendTestAgentId);
 
     // Register agent with protocol authority as owner
@@ -799,7 +799,7 @@ describe("audit-high-severity", () => {
     const workerPda1 = deriveAgentPda(workerAgentId1);
 
     // Create a task
-    const taskId = makeId("task-294");
+    const taskId = makeTaskId("task-294", runId);
     const taskPda = deriveTaskPda(creator.publicKey, taskId);
     const claimPda = deriveClaimPda(taskPda, workerPda1);
 
@@ -838,7 +838,7 @@ describe("audit-high-severity", () => {
     // Create an unauthorized agent (worker2 has no claim on this task)
     const unauthorizedAgentPda = deriveAgentPda(workerAgentId2);
 
-    const disputeId = makeId("disp-294");
+    const disputeId = makeDisputeId("disp-294", runId);
     const [disputePda] = PublicKey.findProgramAddressSync(
       [Buffer.from("dispute"), disputeId],
       program.programId

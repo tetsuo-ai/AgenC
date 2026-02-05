@@ -43,8 +43,6 @@ pub fn handler(ctx: Context<CancelTask>) -> Result<()> {
     let escrow = &mut ctx.accounts.escrow;
     let clock = Clock::get()?;
 
-    check_version_compatible(&ctx.accounts.protocol_config)?;
-
     // Validate status transition is allowed (fix #538)
     require!(
         task.status.can_transition_to(TaskStatus::Cancelled),

@@ -53,6 +53,12 @@ export const PROOF_SIZE_BYTES = 256;
 /** Approximate verification compute units (deprecated, use RECOMMENDED_CU below) */
 export const VERIFICATION_COMPUTE_UNITS = 50_000;
 
+/** Timeout for nargo execute in ms (2 minutes) */
+export const NARGO_EXECUTE_TIMEOUT_MS = 120_000;
+
+/** Timeout for sunspot prove in ms (5 minutes) */
+export const SUNSPOT_PROVE_TIMEOUT_MS = 300_000;
+
 /** Number of public inputs in the circuit (32 task_id bytes + 32 agent bytes + constraint_hash + output_commitment + expected_binding) */
 export const PUBLIC_INPUTS_COUNT = 67;
 

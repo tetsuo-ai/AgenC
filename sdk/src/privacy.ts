@@ -4,7 +4,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { execSync } from 'child_process';
 import type { PrivacyCash, PrivacyCashConfig } from 'privacycash';
-import { HASH_SIZE } from './constants';
+import { HASH_SIZE, NARGO_EXECUTE_TIMEOUT_MS, SUNSPOT_PROVE_TIMEOUT_MS } from './constants';
 import { validateCircuitPath } from './validation';
 import {
   computeConstraintHash as computeConstraintHashFromProofs,
@@ -221,10 +221,14 @@ export class AgenCPrivacyClient {
         // Note: In production, this would be triggered by the on-chain program
         // after ZK proof verification. For demo, we trigger it client-side.
         console.log('Step 3/3: Withdrawing shielded escrow via Privacy Cash...');
-        const withdrawResult = await this.privacyCash!.withdraw({
+        const rawResult = await this.privacyCash!.withdraw({
             lamports: escrowLamports,
             recipientAddress: recipientWallet.toBase58()
-        }) as WithdrawResult;
+        });
+        if (rawResult === null || rawResult === undefined || typeof rawResult !== 'object') {
+            throw new Error('Privacy Cash withdraw returned invalid result');
+        }
+        const withdrawResult = rawResult as WithdrawResult;
         console.log('Private payment completed!');
 
         return {
@@ -263,20 +267,34 @@ export class AgenCPrivacyClient {
         fs.writeFileSync(proverPath, proverToml);
 
         // Security: Execute with timeouts and confined cwd to prevent runaway processes
-        execSync('nargo execute', { cwd: this.circuitPath, stdio: 'pipe', timeout: 120000 });
+        try {
+            execSync('nargo execute', { cwd: this.circuitPath, stdio: 'pipe', timeout: NARGO_EXECUTE_TIMEOUT_MS });
+        } catch (e) {
+            throw new Error(`Noir circuit execution failed (nargo execute): ${(e as Error).message}`);
+        }
 
         // Generate proof using Sunspot
-        execSync('sunspot prove target/task_completion.ccs target/task_completion.pk target/task_completion.gz -o target/task_completion.proof',
-            { cwd: this.circuitPath, stdio: 'pipe', timeout: 300000 });
+        try {
+            execSync('sunspot prove target/task_completion.ccs target/task_completion.pk target/task_completion.gz -o target/task_completion.proof',
+                { cwd: this.circuitPath, stdio: 'pipe', timeout: SUNSPOT_PROVE_TIMEOUT_MS });
+        } catch (e) {
+            throw new Error(`Proof generation failed (sunspot prove): ${(e as Error).message}`);
+        }
 
         // Read proof and public witness
-        const zkProof = fs.readFileSync(
-            path.join(this.circuitPath, 'target/task_completion.proof')
-        );
-        // Note: Use .gz extension to match the actual witness file (not .pw)
-        const publicWitness = fs.readFileSync(
-            path.join(this.circuitPath, 'target/task_completion.gz')
-        );
+        let zkProof: Buffer;
+        let publicWitness: Buffer;
+        try {
+            zkProof = fs.readFileSync(
+                path.join(this.circuitPath, 'target/task_completion.proof')
+            );
+            // Note: Use .gz extension to match the actual witness file (not .pw)
+            publicWitness = fs.readFileSync(
+                path.join(this.circuitPath, 'target/task_completion.gz')
+            );
+        } catch (e) {
+            throw new Error(`Failed to read proof output files: ${(e as Error).message}`);
+        }
 
         return { zkProof, publicWitness };
     }
@@ -371,7 +389,19 @@ salt = "${params.salt}"
         );
         // Use type assertion for dynamic account access
         const accounts = this.program.account as Record<string, { fetch: (key: PublicKey) => Promise<unknown> }>;
-        return await accounts['task'].fetch(taskPda) as { constraintHash: Buffer };
+        let result: unknown;
+        try {
+            result = await accounts['task'].fetch(taskPda);
+        } catch (e) {
+            throw new Error(`Failed to fetch task account (taskId=${taskId}): ${(e as Error).message}`);
+        }
+        if (result === null || result === undefined || typeof result !== 'object') {
+            throw new Error(`Task account not found or returned invalid data (taskId=${taskId})`);
+        }
+        if (!('constraintHash' in result)) {
+            throw new Error(`Task account missing constraintHash field (taskId=${taskId})`);
+        }
+        return result as { constraintHash: Buffer };
     }
     
 }

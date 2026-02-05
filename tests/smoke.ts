@@ -15,6 +15,18 @@ import { PublicKey, Keypair, LAMPORTS_PER_SOL } from "@solana/web3.js";
 import { assert, expect } from "chai";
 import BN from "bn.js";
 import { AgencCoordination } from "../target/types/agenc_coordination";
+import {
+  CAPABILITY_COMPUTE,
+  CAPABILITY_STORAGE,
+  CAPABILITY_INFERENCE,
+  CAPABILITY_NETWORK,
+  CAPABILITY_COORDINATOR,
+  CAPABILITY_ARBITER,
+  TASK_TYPE_EXCLUSIVE,
+  TASK_TYPE_COLLABORATIVE,
+  TASK_TYPE_COMPETITIVE,
+  sleep,
+} from "./test-utils";
 
 // ============================================================================
 // CONSTANTS
@@ -26,19 +38,6 @@ const MAX_AIRDROP_ATTEMPTS = 5;
 const BASE_DELAY_MS = 500;
 const MAX_DELAY_MS = 8000;
 
-// Capability bitmasks (from program)
-const CAPABILITY_COMPUTE = 1 << 0;
-const CAPABILITY_STORAGE = 1 << 1;
-const CAPABILITY_INFERENCE = 1 << 2;
-const CAPABILITY_NETWORK = 1 << 3;
-const CAPABILITY_COORDINATOR = 1 << 4;
-const CAPABILITY_ARBITER = 1 << 7;
-
-// Task types
-const TASK_TYPE_EXCLUSIVE = 0;
-const TASK_TYPE_COLLABORATIVE = 1;
-const TASK_TYPE_COMPETITIVE = 2;
-
 // Protocol configuration
 const MIN_STAKE = 1 * LAMPORTS_PER_SOL;
 const PROTOCOL_FEE_BPS = 100; // 1%
@@ -47,8 +46,6 @@ const DISPUTE_THRESHOLD = 51;
 // ============================================================================
 // HELPER FUNCTIONS
 // ============================================================================
-
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const isRateLimitError = (message: string) =>
   message.includes("429") || message.toLowerCase().includes("too many requests");
