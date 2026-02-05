@@ -160,9 +160,6 @@ pub fn handler(ctx: Context<ExpireDispute>) -> Result<()> {
     let mut worker_amount: u64 = 0;
 
     // Fair refund distribution based on context (fix #418)
-    // - Worker completed + no votes: Worker gets 100% (did work, dispute not properly engaged)
-    // - No completion + no votes: 50/50 split (neither party engaged arbiters)
-    // - Some votes but insufficient quorum: Creator gets refund (dispute was contested)
     if remaining_funds > 0 {
         let worker_completed = ctx
             .accounts
@@ -172,74 +169,16 @@ pub fn handler(ctx: Context<ExpireDispute>) -> Result<()> {
             .unwrap_or(false);
         let no_votes = dispute.total_voters == 0;
 
-        if no_votes && worker_completed {
-            // Worker completed the task but arbiters didn't engage
-            // Worker should receive funds since they did the work
-            if let Some(worker_authority) = &ctx.accounts.worker_authority {
-                worker_amount = remaining_funds;
-                **escrow.to_account_info().try_borrow_mut_lamports()? -= remaining_funds;
-                **worker_authority.to_account_info().try_borrow_mut_lamports()? += remaining_funds;
-            } else {
-                // Fallback: if no worker_authority provided, split 50/50
-                let worker_share = remaining_funds
-                    .checked_div(2)
-                    .ok_or(CoordinationError::ArithmeticOverflow)?;
-                let creator_share = remaining_funds
-                    .checked_sub(worker_share)
-                    .ok_or(CoordinationError::ArithmeticOverflow)?;
-                // Note: worker_share goes to creator as fallback since we can't pay worker
-                creator_amount = remaining_funds;
-                **escrow.to_account_info().try_borrow_mut_lamports()? -= remaining_funds;
-                **ctx
-                    .accounts
-                    .creator
-                    .to_account_info()
-                    .try_borrow_mut_lamports()? += creator_share;
-                **ctx
-                    .accounts
-                    .creator
-                    .to_account_info()
-                    .try_borrow_mut_lamports()? += worker_share;
-            }
-        } else if no_votes {
-            // Neither party engaged arbiters, split 50/50
-            let worker_share = remaining_funds
-                .checked_div(2)
-                .ok_or(CoordinationError::ArithmeticOverflow)?;
-            let creator_share = remaining_funds
-                .checked_sub(worker_share)
-                .ok_or(CoordinationError::ArithmeticOverflow)?;
-            creator_amount = creator_share;
-            **escrow.to_account_info().try_borrow_mut_lamports()? -= remaining_funds;
-            **ctx
-                .accounts
-                .creator
-                .to_account_info()
-                .try_borrow_mut_lamports()? += creator_share;
-
-            if let Some(worker_authority) = &ctx.accounts.worker_authority {
-                worker_amount = worker_share;
-                **worker_authority.to_account_info().try_borrow_mut_lamports()? += worker_share;
-            } else {
-                // Fallback: creator gets all if no worker_authority
-                creator_amount = remaining_funds;
-                **ctx
-                    .accounts
-                    .creator
-                    .to_account_info()
-                    .try_borrow_mut_lamports()? += worker_share;
-            }
-        } else {
-            // Some votes were cast but not enough for quorum
-            // Creator gets refund (dispute was actively contested but inconclusive)
-            creator_amount = remaining_funds;
-            **escrow.to_account_info().try_borrow_mut_lamports()? -= remaining_funds;
-            **ctx
-                .accounts
-                .creator
-                .to_account_info()
-                .try_borrow_mut_lamports()? += remaining_funds;
-        }
+        let (ca, wa) = distribute_expired_funds(
+            &escrow.to_account_info(),
+            &ctx.accounts.creator.to_account_info(),
+            ctx.accounts.worker_authority.as_ref().map(|w| w.to_account_info()).as_ref(),
+            remaining_funds,
+            worker_completed,
+            no_votes,
+        )?;
+        creator_amount = ca;
+        worker_amount = wa;
     }
 
     // Decrement worker's active_tasks counter (fix #137)
@@ -300,35 +239,8 @@ pub fn handler(ctx: Context<ExpireDispute>) -> Result<()> {
     for i in (0..arbiter_accounts).step_by(2) {
         let vote_info = &ctx.remaining_accounts[i];
         let arbiter_info = &ctx.remaining_accounts[i + 1];
-
-            require!(
-                vote_info.owner == &crate::ID,
-                CoordinationError::InvalidAccountOwner
-            );
-            require!(
-                arbiter_info.owner == &crate::ID,
-                CoordinationError::InvalidAccountOwner
-            );
-
-            let vote_data = vote_info.try_borrow_data()?;
-            let vote = DisputeVote::try_deserialize(&mut &**vote_data)?;
-            require!(
-                vote.dispute == dispute.key(),
-                CoordinationError::InvalidInput
-            );
-            require!(
-                vote.voter == arbiter_info.key(),
-                CoordinationError::InvalidInput
-            );
-            drop(vote_data);
-
-            require!(arbiter_info.is_writable, CoordinationError::InvalidInput);
-            let mut arbiter_data = arbiter_info.try_borrow_mut_data()?;
-            let mut arbiter = AgentRegistration::try_deserialize(&mut &**arbiter_data)?;
-            // Using saturating_sub intentionally - underflow returns 0 (safe counter decrement)
-            arbiter.active_dispute_votes = arbiter.active_dispute_votes.saturating_sub(1);
-            arbiter.try_serialize(&mut &mut arbiter_data[8..])?;
-        }
+        process_arbiter_vote_pair_expired(vote_info, arbiter_info, &dispute.key())?;
+    }
 
     // Emit event for arbiter vote cleanup (fix #572)
     emit!(ArbiterVotesCleanedUp {
@@ -338,9 +250,149 @@ pub fn handler(ctx: Context<ExpireDispute>) -> Result<()> {
 
     // Process additional worker (claim, worker) pairs to decrement active_tasks (fix #333)
     // This handles collaborative tasks where multiple workers claimed the task
-    for i in (arbiter_accounts..ctx.remaining_accounts.len()).step_by(2) {
-        let claim_info = &ctx.remaining_accounts[i];
-        let worker_info = &ctx.remaining_accounts[i + 1];
+    cleanup_worker_claims_expired(
+        &ctx.remaining_accounts[arbiter_accounts..],
+        &task.key(),
+    )?;
+
+    task.status = TaskStatus::Cancelled;
+    dispute.status = DisputeStatus::Expired;
+    dispute.resolved_at = clock.unix_timestamp;
+    escrow.is_closed = true;
+
+    emit!(DisputeExpired {
+        dispute_id: dispute.dispute_id,
+        task_id: task.task_id,
+        refund_amount: remaining_funds,
+        creator_amount,
+        worker_amount,
+        timestamp: clock.unix_timestamp,
+    });
+
+    Ok(())
+}
+
+/// Distributes remaining escrow funds on dispute expiration based on context (fix #418).
+///
+/// - Worker completed + no votes: Worker gets 100% (did work, dispute not properly engaged)
+/// - No completion + no votes: 50/50 split (neither party engaged arbiters)
+/// - Some votes but insufficient quorum: Creator gets refund (dispute was contested)
+///
+/// Returns (creator_amount, worker_amount) for event emission.
+fn distribute_expired_funds(
+    escrow_info: &AccountInfo,
+    creator_info: &AccountInfo,
+    worker_authority_info: Option<&AccountInfo>,
+    remaining_funds: u64,
+    worker_completed: bool,
+    no_votes: bool,
+) -> Result<(u64, u64)> {
+    let mut creator_amount: u64 = 0;
+    let mut worker_amount: u64 = 0;
+
+    if no_votes && worker_completed {
+        // Worker completed the task but arbiters didn't engage
+        // Worker should receive funds since they did the work
+        if let Some(worker_authority) = worker_authority_info {
+            worker_amount = remaining_funds;
+            **escrow_info.try_borrow_mut_lamports()? -= remaining_funds;
+            **worker_authority.try_borrow_mut_lamports()? += remaining_funds;
+        } else {
+            // Fallback: if no worker_authority provided, creator gets all
+            let worker_share = remaining_funds
+                .checked_div(2)
+                .ok_or(CoordinationError::ArithmeticOverflow)?;
+            let creator_share = remaining_funds
+                .checked_sub(worker_share)
+                .ok_or(CoordinationError::ArithmeticOverflow)?;
+            // Note: worker_share goes to creator as fallback since we can't pay worker
+            creator_amount = remaining_funds;
+            **escrow_info.try_borrow_mut_lamports()? -= remaining_funds;
+            **creator_info.try_borrow_mut_lamports()? += creator_share;
+            **creator_info.try_borrow_mut_lamports()? += worker_share;
+        }
+    } else if no_votes {
+        // Neither party engaged arbiters, split 50/50
+        let worker_share = remaining_funds
+            .checked_div(2)
+            .ok_or(CoordinationError::ArithmeticOverflow)?;
+        let creator_share = remaining_funds
+            .checked_sub(worker_share)
+            .ok_or(CoordinationError::ArithmeticOverflow)?;
+        creator_amount = creator_share;
+        **escrow_info.try_borrow_mut_lamports()? -= remaining_funds;
+        **creator_info.try_borrow_mut_lamports()? += creator_share;
+
+        if let Some(worker_authority) = worker_authority_info {
+            worker_amount = worker_share;
+            **worker_authority.try_borrow_mut_lamports()? += worker_share;
+        } else {
+            // Fallback: creator gets all if no worker_authority
+            creator_amount = remaining_funds;
+            **creator_info.try_borrow_mut_lamports()? += worker_share;
+        }
+    } else {
+        // Some votes were cast but not enough for quorum
+        // Creator gets refund (dispute was actively contested but inconclusive)
+        creator_amount = remaining_funds;
+        **escrow_info.try_borrow_mut_lamports()? -= remaining_funds;
+        **creator_info.try_borrow_mut_lamports()? += remaining_funds;
+    }
+
+    Ok((creator_amount, worker_amount))
+}
+
+/// Processes a single (vote, arbiter) pair to decrement `active_dispute_votes`.
+///
+/// Validates account ownership, vote-dispute linkage, and vote-arbiter linkage
+/// before updating the arbiter's counter.
+fn process_arbiter_vote_pair_expired(
+    vote_info: &AccountInfo,
+    arbiter_info: &AccountInfo,
+    dispute_key: &Pubkey,
+) -> Result<()> {
+    require!(
+        vote_info.owner == &crate::ID,
+        CoordinationError::InvalidAccountOwner
+    );
+    require!(
+        arbiter_info.owner == &crate::ID,
+        CoordinationError::InvalidAccountOwner
+    );
+
+    let vote_data = vote_info.try_borrow_data()?;
+    let vote = DisputeVote::try_deserialize(&mut &**vote_data)?;
+    require!(
+        vote.dispute == *dispute_key,
+        CoordinationError::InvalidInput
+    );
+    require!(
+        vote.voter == arbiter_info.key(),
+        CoordinationError::InvalidInput
+    );
+    drop(vote_data);
+
+    require!(arbiter_info.is_writable, CoordinationError::InvalidInput);
+    let mut arbiter_data = arbiter_info.try_borrow_mut_data()?;
+    let mut arbiter = AgentRegistration::try_deserialize(&mut &**arbiter_data)?;
+    // Using saturating_sub intentionally - underflow returns 0 (safe counter decrement)
+    arbiter.active_dispute_votes = arbiter.active_dispute_votes.saturating_sub(1);
+    arbiter.try_serialize(&mut &mut arbiter_data[8..])?;
+
+    Ok(())
+}
+
+/// Processes (claim, worker) pairs to decrement `active_tasks` on dispute expiration.
+///
+/// Validates account ownership, claim-task linkage, and claim-worker linkage
+/// before updating each worker's active_tasks counter.
+fn cleanup_worker_claims_expired(
+    remaining_accounts: &[AccountInfo],
+    task_key: &Pubkey,
+) -> Result<()> {
+    for i in (0..remaining_accounts.len()).step_by(2) {
+        let claim_info = &remaining_accounts[i];
+        let worker_info = &remaining_accounts[i + 1];
 
         // Validate account ownership
         require!(
@@ -356,7 +408,7 @@ pub fn handler(ctx: Context<ExpireDispute>) -> Result<()> {
         let claim_data = claim_info.try_borrow_data()?;
         let claim = TaskClaim::try_deserialize(&mut &**claim_data)?;
         require!(
-            claim.task == task.key(),
+            claim.task == *task_key,
             CoordinationError::InvalidInput
         );
         require!(
@@ -373,20 +425,6 @@ pub fn handler(ctx: Context<ExpireDispute>) -> Result<()> {
         worker_reg.active_tasks = worker_reg.active_tasks.saturating_sub(1);
         worker_reg.try_serialize(&mut &mut worker_data[8..])?;
     }
-
-    task.status = TaskStatus::Cancelled;
-    dispute.status = DisputeStatus::Expired;
-    dispute.resolved_at = clock.unix_timestamp;
-    escrow.is_closed = true;
-
-    emit!(DisputeExpired {
-        dispute_id: dispute.dispute_id,
-        task_id: task.task_id,
-        refund_amount: remaining_funds,
-        creator_amount,
-        worker_amount,
-        timestamp: clock.unix_timestamp,
-    });
 
     Ok(())
 }

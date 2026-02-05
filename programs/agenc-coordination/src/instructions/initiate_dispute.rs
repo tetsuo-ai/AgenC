@@ -242,14 +242,36 @@ pub fn handler(
     // Increment disputes_as_defendant for workers being disputed (fix #544)
     // remaining_accounts should contain (claim, worker) pairs for defendants
     // This prevents workers from deregistering to escape potential slashing
+    mark_defendant_workers(ctx.remaining_accounts, &task.key())?;
+
+    emit!(DisputeInitiated {
+        dispute_id,
+        task_id,
+        initiator: agent.key(),
+        resolution_type,
+        voting_deadline: dispute.voting_deadline,
+        timestamp: clock.unix_timestamp,
+    });
+
+    Ok(())
+}
+
+/// Processes (claim, worker) pairs to increment `disputes_as_defendant` counters.
+///
+/// Validates account ownership, claim-task linkage, and claim-worker linkage
+/// before incrementing each worker's disputes_as_defendant counter via `checked_add`.
+fn mark_defendant_workers(
+    remaining_accounts: &[AccountInfo],
+    task_key: &Pubkey,
+) -> Result<()> {
     require!(
-        ctx.remaining_accounts.len() % 2 == 0,
+        remaining_accounts.len() % 2 == 0,
         CoordinationError::InvalidInput
     );
 
-    for i in (0..ctx.remaining_accounts.len()).step_by(2) {
-        let claim_info = &ctx.remaining_accounts[i];
-        let worker_info = &ctx.remaining_accounts[i + 1];
+    for i in (0..remaining_accounts.len()).step_by(2) {
+        let claim_info = &remaining_accounts[i];
+        let worker_info = &remaining_accounts[i + 1];
 
         // Validate account ownership
         require!(
@@ -265,7 +287,7 @@ pub fn handler(
         let claim_data = claim_info.try_borrow_data()?;
         let claim = TaskClaim::try_deserialize(&mut &**claim_data)?;
         require!(
-            claim.task == task.key(),
+            claim.task == *task_key,
             CoordinationError::InvalidInput
         );
         require!(
@@ -284,15 +306,6 @@ pub fn handler(
             .ok_or(CoordinationError::ArithmeticOverflow)?;
         worker_reg.try_serialize(&mut &mut worker_data[8..])?;
     }
-
-    emit!(DisputeInitiated {
-        dispute_id,
-        task_id,
-        initiator: agent.key(),
-        resolution_type,
-        voting_deadline: dispute.voting_deadline,
-        timestamp: clock.unix_timestamp,
-    });
 
     Ok(())
 }

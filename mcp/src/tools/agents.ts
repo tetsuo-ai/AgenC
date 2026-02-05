@@ -20,20 +20,20 @@ import {
   getSigningProgram,
   getCurrentProgramId,
 } from '../utils/connection.js';
-import { formatSol, formatTimestamp, formatStatus } from '../utils/formatting.js';
+import { formatSol, formatTimestamp, formatStatus, safePubkey, safeBigInt } from '../utils/formatting.js';
 
 function formatAgentState(account: Record<string, unknown>, pda: PublicKey): string {
   const agentId = account.agentId as Uint8Array | number[];
   const idBytes = agentId instanceof Uint8Array ? agentId : new Uint8Array(agentId);
 
-  const caps = BigInt((account.capabilities as { toString(): string }).toString());
+  const caps = safeBigInt(account.capabilities);
   const capNames = getCapabilityNames(caps);
 
   const lines = [
     'Agent ID: ' + agentIdToShortString(idBytes),
     'Full ID: ' + agentIdToString(idBytes),
     'PDA: ' + pda.toBase58(),
-    'Authority: ' + (account.authority as PublicKey).toBase58(),
+    'Authority: ' + safePubkey(account.authority),
     'Status: ' + formatStatus(account.status as number | Record<string, unknown>),
     'Capabilities: ' + (capNames.length > 0 ? capNames.join(', ') : 'None') + ' (bitmask: ' + caps + ')',
     'Endpoint: ' + ((account.endpoint as string) || 'Not set'),
@@ -221,7 +221,7 @@ export function registerAgentTools(server: McpServer): void {
           const acc = a.account as unknown as Record<string, unknown>;
           const agentId = acc.agentId as Uint8Array | number[];
           const idBytes = agentId instanceof Uint8Array ? agentId : new Uint8Array(agentId);
-          const caps = BigInt((acc.capabilities as { toString(): string }).toString());
+          const caps = safeBigInt(acc.capabilities);
           return [
             '[' + (i + 1) + '] ' + agentIdToShortString(idBytes),
             '    PDA: ' + a.publicKey.toBase58(),

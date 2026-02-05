@@ -1,17 +1,8 @@
 import { useState } from 'react'
-import { Connection } from '@solana/web3.js'
-import { TaskState } from '../../App'
+import type { StepProps } from '../../App'
 import StepCard from '../StepCard'
 
-interface Props {
-  taskState: TaskState
-  updateTaskState: (updates: Partial<TaskState>) => void
-  onNext: () => void
-  onPrev: () => void
-  connection: Connection | null
-}
-
-export default function Step1CreateTask({ taskState, updateTaskState, onNext }: Props) {
+export default function Step1CreateTask({ taskState, updateTaskState, onNext }: StepProps) {
   const [requirements, setRequirements] = useState(taskState.requirements || 'Compute the sum of [1, 2, 3, 4]')
   const [escrowAmount, setEscrowAmount] = useState(taskState.escrowAmount || 0.1)
   const [isProcessing, setIsProcessing] = useState(false)

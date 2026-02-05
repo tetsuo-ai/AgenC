@@ -7,6 +7,7 @@ import {
   formatTimestamp,
   formatDisputeStatus,
   formatResolutionType,
+  safePubkey,
 } from '../utils/formatting.js';
 
 function formatDisputeAccount(account: Record<string, unknown>, pda: PublicKey): string {
@@ -22,8 +23,8 @@ function formatDisputeAccount(account: Record<string, unknown>, pda: PublicKey):
     'Resolution Type: ' + formatResolutionType(account.resolutionType as number | Record<string, unknown>),
     '',
     '--- Parties ---',
-    'Task PDA: ' + (account.task as PublicKey).toBase58(),
-    'Initiator: ' + (account.initiator as PublicKey).toBase58(),
+    'Task PDA: ' + safePubkey(account.task),
+    'Initiator: ' + safePubkey(account.initiator),
     '',
     '--- Voting ---',
     'Votes For: ' + (account.votesFor ?? 0),

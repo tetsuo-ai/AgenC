@@ -10,6 +10,14 @@ import Step5VerifyOnChain from './components/steps/Step5VerifyOnChain'
 import Step6PrivateWithdraw from './components/steps/Step6PrivateWithdraw'
 import CompletionSummary from './components/CompletionSummary'
 
+export interface StepProps {
+  taskState: TaskState
+  updateTaskState: (updates: Partial<TaskState>) => void
+  onNext: () => void
+  onPrev: () => void
+  connection: Connection | null
+}
+
 export interface TaskState {
   taskId: string
   requirements: string
@@ -95,6 +103,12 @@ const getRpcEndpoint = (): string => {
 
 const DEVNET_RPC = getRpcEndpoint()
 
+// Transaction confirmation timeout - configurable via VITE_TX_TIMEOUT env var
+const TX_TIMEOUT_MS = (() => {
+  const timeout = Number(import.meta.env.VITE_TX_TIMEOUT);
+  return Number.isFinite(timeout) && timeout > 0 ? timeout : 60000;
+})();
+
 // Connection error state type
 interface ConnectionState {
   connection: Connection | null
@@ -128,10 +142,7 @@ function App() {
     try {
       const conn = new Connection(DEVNET_RPC, {
         commitment: 'confirmed',
-        confirmTransactionInitialTimeout: (() => {
-          const timeout = Number(import.meta.env.VITE_TX_TIMEOUT);
-          return Number.isFinite(timeout) && timeout > 0 ? timeout : 60000;
-        })(),
+        confirmTransactionInitialTimeout: TX_TIMEOUT_MS,
       })
       // Verify connection is working by fetching slot
       await conn.getSlot()
