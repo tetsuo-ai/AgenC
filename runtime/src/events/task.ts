@@ -5,7 +5,6 @@
 
 import { Program } from '@coral-xyz/anchor';
 import type { AgencCoordination } from '../types/agenc_coordination.js';
-import { agentIdsEqual } from '../utils/encoding.js';
 import type {
   EventCallback,
   EventSubscription,
@@ -26,6 +25,7 @@ import {
   parseTaskCompletedEvent,
   parseTaskCancelledEvent,
 } from './parse.js';
+import { createEventSubscription } from './factory.js';
 
 /**
  * Subscribes to TaskCreated events.
@@ -40,19 +40,17 @@ export function subscribeToTaskCreated(
   callback: EventCallback<TaskCreatedEvent>,
   options?: TaskEventFilterOptions
 ): EventSubscription {
-  const listenerId = program.addEventListener(
-    'taskCreated',
-    (rawEvent: RawTaskCreatedEvent, slot: number, signature: string) => {
-      const event = parseTaskCreatedEvent(rawEvent);
-      if (options?.taskId && !agentIdsEqual(event.taskId, options.taskId)) return;
-      callback(event, slot, signature);
-    }
-  );
-  return {
-    unsubscribe: async () => {
-      await program.removeEventListener(listenerId);
+  return createEventSubscription<RawTaskCreatedEvent, TaskCreatedEvent, TaskEventFilterOptions>(
+    program,
+    {
+      eventName: 'taskCreated',
+      parse: parseTaskCreatedEvent,
+      getFilterId: (event) => event.taskId,
+      getFilterValue: (opts) => opts.taskId,
     },
-  };
+    callback,
+    options,
+  );
 }
 
 /**
@@ -68,19 +66,17 @@ export function subscribeToTaskClaimed(
   callback: EventCallback<TaskClaimedEvent>,
   options?: TaskEventFilterOptions
 ): EventSubscription {
-  const listenerId = program.addEventListener(
-    'taskClaimed',
-    (rawEvent: RawTaskClaimedEvent, slot: number, signature: string) => {
-      const event = parseTaskClaimedEvent(rawEvent);
-      if (options?.taskId && !agentIdsEqual(event.taskId, options.taskId)) return;
-      callback(event, slot, signature);
-    }
-  );
-  return {
-    unsubscribe: async () => {
-      await program.removeEventListener(listenerId);
+  return createEventSubscription<RawTaskClaimedEvent, TaskClaimedEvent, TaskEventFilterOptions>(
+    program,
+    {
+      eventName: 'taskClaimed',
+      parse: parseTaskClaimedEvent,
+      getFilterId: (event) => event.taskId,
+      getFilterValue: (opts) => opts.taskId,
     },
-  };
+    callback,
+    options,
+  );
 }
 
 /**
@@ -96,19 +92,17 @@ export function subscribeToTaskCompleted(
   callback: EventCallback<TaskCompletedEvent>,
   options?: TaskEventFilterOptions
 ): EventSubscription {
-  const listenerId = program.addEventListener(
-    'taskCompleted',
-    (rawEvent: RawTaskCompletedEvent, slot: number, signature: string) => {
-      const event = parseTaskCompletedEvent(rawEvent);
-      if (options?.taskId && !agentIdsEqual(event.taskId, options.taskId)) return;
-      callback(event, slot, signature);
-    }
-  );
-  return {
-    unsubscribe: async () => {
-      await program.removeEventListener(listenerId);
+  return createEventSubscription<RawTaskCompletedEvent, TaskCompletedEvent, TaskEventFilterOptions>(
+    program,
+    {
+      eventName: 'taskCompleted',
+      parse: parseTaskCompletedEvent,
+      getFilterId: (event) => event.taskId,
+      getFilterValue: (opts) => opts.taskId,
     },
-  };
+    callback,
+    options,
+  );
 }
 
 /**
@@ -124,19 +118,17 @@ export function subscribeToTaskCancelled(
   callback: EventCallback<TaskCancelledEvent>,
   options?: TaskEventFilterOptions
 ): EventSubscription {
-  const listenerId = program.addEventListener(
-    'taskCancelled',
-    (rawEvent: RawTaskCancelledEvent, slot: number, signature: string) => {
-      const event = parseTaskCancelledEvent(rawEvent);
-      if (options?.taskId && !agentIdsEqual(event.taskId, options.taskId)) return;
-      callback(event, slot, signature);
-    }
-  );
-  return {
-    unsubscribe: async () => {
-      await program.removeEventListener(listenerId);
+  return createEventSubscription<RawTaskCancelledEvent, TaskCancelledEvent, TaskEventFilterOptions>(
+    program,
+    {
+      eventName: 'taskCancelled',
+      parse: parseTaskCancelledEvent,
+      getFilterId: (event) => event.taskId,
+      getFilterValue: (opts) => opts.taskId,
     },
-  };
+    callback,
+    options,
+  );
 }
 
 /**

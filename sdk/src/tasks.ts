@@ -14,6 +14,7 @@ import {
 } from '@solana/web3.js';
 import { type Program, BN } from '@coral-xyz/anchor';
 import { PROGRAM_ID, SEEDS, TaskState, U64_SIZE, DISCRIMINATOR_SIZE, PERCENT_BASE, DEFAULT_FEE_PERCENT } from './constants';
+import { getSdkLogger } from './logger';
 
 export { TaskState };
 
@@ -341,7 +342,7 @@ export async function getTask(
 
     // Validate required fields exist
     if (taskData.creator === undefined || taskData.state === undefined) {
-      console.warn('Task account data missing required fields');
+      getSdkLogger().warn('Task account data missing required fields');
       return null;
     }
 
@@ -367,7 +368,7 @@ export async function getTask(
       return null;
     }
     // Log unexpected errors for debugging while still returning null for API compatibility
-    console.warn(`getTask(${taskId}) encountered unexpected error:`, errorMessage);
+    getSdkLogger().warn(`getTask(${taskId}) encountered unexpected error: ${errorMessage}`);
     return null;
   }
 }
@@ -409,7 +410,7 @@ export async function getTasksByCreator(
 
     // Validate required fields exist
     if (data.creator === undefined || data.state === undefined) {
-      console.warn(`Task at index ${idx} missing required fields, skipping`);
+      getSdkLogger().warn(`Task at index ${idx} missing required fields, skipping`);
       continue;
     }
 

@@ -103,5 +103,14 @@ export {
   DependentTask,
 } from './queries';
 
+export {
+  createLogger,
+  silentLogger,
+  setSdkLogLevel,
+  getSdkLogger,
+  Logger,
+  LogLevel,
+} from './logger';
+
 // Version info
 export const VERSION = '1.0.0';
