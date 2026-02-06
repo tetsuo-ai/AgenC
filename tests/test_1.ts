@@ -381,7 +381,8 @@ describe("test_1", () => {
           1,
           getDefaultDeadline(),
           TASK_TYPE_EXCLUSIVE,
-          null  // constraint_hash
+          null,  // constraint_hash
+          0, // min_reputation
         )
         .accountsPartial({
           task: taskPda,
@@ -415,7 +416,8 @@ describe("test_1", () => {
           3,
           getDefaultDeadline(),
           TASK_TYPE_COLLABORATIVE,
-          null  // constraint_hash
+          null,  // constraint_hash
+          0, // min_reputation
         )
         .accountsPartial({
           task: taskPda,
@@ -449,7 +451,8 @@ describe("test_1", () => {
           5,
           getDefaultDeadline(),
           TASK_TYPE_COMPETITIVE,
-          null  // constraint_hash
+          null,  // constraint_hash
+          0, // min_reputation
         )
         .accountsPartial({
           task: taskPda,
@@ -485,7 +488,8 @@ describe("test_1", () => {
           1,
           getDefaultDeadline(),
           TASK_TYPE_EXCLUSIVE,
-          null  // constraint_hash
+          null,  // constraint_hash
+          0, // min_reputation
         )
         .accountsPartial({
           task: taskPda,
@@ -524,7 +528,8 @@ describe("test_1", () => {
             1,
             getDefaultDeadline(),
             TASK_TYPE_EXCLUSIVE,
-            null  // constraint_hash
+            null,  // constraint_hash
+            0, // min_reputation
           )
           .accountsPartial({
             task: taskPda,
@@ -562,7 +567,8 @@ describe("test_1", () => {
             1,
             getDefaultDeadline(),
             TASK_TYPE_EXCLUSIVE,
-            null
+            null,
+            0, // min_reputation
           )
           .accountsPartial({
             task: taskPda,
@@ -598,7 +604,8 @@ describe("test_1", () => {
             0,
             getDefaultDeadline(),
             TASK_TYPE_EXCLUSIVE,
-            null
+            null,
+            0, // min_reputation
           )
           .accountsPartial({
             task: taskPda,
@@ -636,7 +643,8 @@ describe("test_1", () => {
             1,
             new BN(pastDeadline),
             TASK_TYPE_EXCLUSIVE,
-            null
+            null,
+            0, // min_reputation
           )
           .accountsPartial({
             task: taskPda,
@@ -672,7 +680,8 @@ describe("test_1", () => {
             1,
             new BN(0),
             99,
-            null
+            null,
+            0, // min_reputation
           )
           .accountsPartial({
             task: taskPda,
@@ -710,7 +719,8 @@ describe("test_1", () => {
           1,
           getDefaultDeadline(),
           TASK_TYPE_EXCLUSIVE,
-          null  // constraint_hash
+          null,  // constraint_hash
+          0, // min_reputation
         )
         .accountsPartial({
           task: taskPda,
@@ -758,7 +768,8 @@ describe("test_1", () => {
           3,
           getDefaultDeadline(),
           TASK_TYPE_COLLABORATIVE,
-          null  // constraint_hash
+          null,  // constraint_hash
+          0, // min_reputation
         )
         .accountsPartial({
           task: taskPda,
@@ -818,7 +829,8 @@ describe("test_1", () => {
           3,
           getDefaultDeadline(),
           TASK_TYPE_COLLABORATIVE,
-          null  // constraint_hash
+          null,  // constraint_hash
+          0, // min_reputation
         )
         .accountsPartial({
           task: taskPda,
@@ -894,7 +906,8 @@ describe("test_1", () => {
           1,
           getDefaultDeadline(),
           TASK_TYPE_EXCLUSIVE,
-          null  // constraint_hash
+          null,  // constraint_hash
+          0, // min_reputation
         )
         .accountsPartial({
           task: taskPda,
@@ -955,7 +968,8 @@ describe("test_1", () => {
           1,
           getDefaultDeadline(),
           TASK_TYPE_EXCLUSIVE,
-          null  // constraint_hash
+          null,  // constraint_hash
+          0, // min_reputation
         )
         .accountsPartial({
           task: taskPda,
@@ -1009,7 +1023,8 @@ describe("test_1", () => {
           1,
           getDefaultDeadline(),
           TASK_TYPE_EXCLUSIVE,
-          null  // constraint_hash
+          null,  // constraint_hash
+          0, // min_reputation
         )
         .accountsPartial({
           task: taskPda,
@@ -1061,7 +1076,8 @@ describe("test_1", () => {
           1,
           getDefaultDeadline(),
           TASK_TYPE_EXCLUSIVE,
-          null  // constraint_hash
+          null,  // constraint_hash
+          0, // min_reputation
         )
         .accountsPartial({
           task: taskPda,
@@ -1140,7 +1156,8 @@ describe("test_1", () => {
           1,
           getDefaultDeadline(),
           TASK_TYPE_EXCLUSIVE,
-          null  // constraint_hash
+          null,  // constraint_hash
+          0, // min_reputation
         )
         .accountsPartial({
           task: taskPda,
@@ -1205,7 +1222,8 @@ describe("test_1", () => {
             1,
             new BN(pastDeadline),
             TASK_TYPE_EXCLUSIVE,
-            null
+            null,
+            0, // min_reputation
           )
           .accountsPartial({
             task: taskPda,
@@ -1243,7 +1261,8 @@ describe("test_1", () => {
           2,
           getDefaultDeadline(),
           TASK_TYPE_COLLABORATIVE,
-          null  // constraint_hash
+          null,  // constraint_hash
+          0, // min_reputation
         )
         .accountsPartial({
           task: taskPda,
@@ -1319,7 +1338,8 @@ describe("test_1", () => {
           1,
           getDefaultDeadline(),
           TASK_TYPE_EXCLUSIVE,
-          null  // constraint_hash
+          null,  // constraint_hash
+          0, // min_reputation
         )
         .accountsPartial({
           task: taskPda,
@@ -1376,7 +1396,8 @@ describe("test_1", () => {
           1,
           getDefaultDeadline(),
           TASK_TYPE_EXCLUSIVE,
-          null  // constraint_hash
+          null,  // constraint_hash
+          0, // min_reputation
         )
         .accountsPartial({
           task: taskPda,
@@ -1455,7 +1476,8 @@ describe("test_1", () => {
           1,
           getDefaultDeadline(),
           TASK_TYPE_EXCLUSIVE,
-          null  // constraint_hash
+          null,  // constraint_hash
+          0, // min_reputation
         )
         .accountsPartial({
           task: taskPda,
@@ -1518,7 +1540,8 @@ describe("test_1", () => {
           1,
           getDefaultDeadline(),
           TASK_TYPE_EXCLUSIVE,
-          null  // constraint_hash
+          null,  // constraint_hash
+          0, // min_reputation
         )
         .accountsPartial({
           task: taskPda,
@@ -1567,7 +1590,8 @@ describe("test_1", () => {
           3,
           getDefaultDeadline(),
           TASK_TYPE_COLLABORATIVE,
-          null  // constraint_hash
+          null,  // constraint_hash
+          0, // min_reputation
         )
         .accountsPartial({
           task: taskPda,
@@ -1644,7 +1668,8 @@ describe("test_1", () => {
           2,
           getDefaultDeadline(),
           TASK_TYPE_COLLABORATIVE,
-          null  // constraint_hash
+          null,  // constraint_hash
+          0, // min_reputation
         )
         .accountsPartial({
           task: taskPda,
@@ -1708,7 +1733,8 @@ describe("test_1", () => {
           100,  // Max allowed is 100
           getDefaultDeadline(),
           TASK_TYPE_COLLABORATIVE,
-          null  // constraint_hash
+          null,  // constraint_hash
+          0, // min_reputation
         )
         .accountsPartial({
           task: taskPda,
@@ -1749,7 +1775,8 @@ describe("test_1", () => {
           1,
           getDefaultDeadline(),
           TASK_TYPE_EXCLUSIVE,
-          null  // constraint_hash
+          null,  // constraint_hash
+          0, // min_reputation
         )
         .accountsPartial({
           task: taskPda,
@@ -1831,7 +1858,8 @@ describe("test_1", () => {
           1,
           getDefaultDeadline(),
           TASK_TYPE_EXCLUSIVE,
-          null  // constraint_hash
+          null,  // constraint_hash
+          0, // min_reputation
         )
         .accountsPartial({
           task: taskPda,
@@ -1929,7 +1957,8 @@ describe("test_1", () => {
             1,
             getDefaultDeadline(),
             TASK_TYPE_EXCLUSIVE,
-            null
+            null,
+            0, // min_reputation
           )
           .accountsPartial({
             task: taskPda,
@@ -1981,7 +2010,8 @@ describe("test_1", () => {
             1,
             getDefaultDeadline(),
             TASK_TYPE_EXCLUSIVE,
-            null
+            null,
+            0, // min_reputation
           )
           .accountsPartial({
             task: taskPda,
@@ -2048,7 +2078,8 @@ describe("test_1", () => {
             1,
             getDefaultDeadline(),
             TASK_TYPE_EXCLUSIVE,
-            null
+            null,
+            0, // min_reputation
           )
           .accountsPartial({
             task: taskPda,
@@ -2105,7 +2136,8 @@ describe("test_1", () => {
             2, // max 2 workers
             new BN(shortDeadline),
             TASK_TYPE_COLLABORATIVE,
-            null
+            null,
+            0, // min_reputation
           )
           .accountsPartial({
             task: taskPda,
@@ -2191,7 +2223,8 @@ describe("test_1", () => {
             1,
             getDefaultDeadline(),
             TASK_TYPE_EXCLUSIVE,
-            null
+            null,
+            0, // min_reputation
           )
           .accountsPartial({
             task: taskPda,
@@ -2276,7 +2309,8 @@ describe("test_1", () => {
             1,
             getDefaultDeadline(),
             TASK_TYPE_EXCLUSIVE,
-            null
+            null,
+            0, // min_reputation
           )
           .accountsPartial({
             task: taskPda,
@@ -2355,7 +2389,8 @@ describe("test_1", () => {
             1,
             getDefaultDeadline(),
             TASK_TYPE_EXCLUSIVE,
-            null
+            null,
+            0, // min_reputation
           )
           .accountsPartial({
             task: taskPda,
@@ -2423,7 +2458,8 @@ describe("test_1", () => {
             2,
             getDefaultDeadline(),
             TASK_TYPE_COLLABORATIVE,
-            null
+            null,
+            0, // min_reputation
           )
           .accountsPartial({
             task: taskPda,
@@ -2474,7 +2510,8 @@ describe("test_1", () => {
             1,
             getDefaultDeadline(),
             TASK_TYPE_EXCLUSIVE,
-            null
+            null,
+            0, // min_reputation
           )
           .accountsPartial({
             task: taskPda,
@@ -2537,7 +2574,8 @@ describe("test_1", () => {
             2,
             getDefaultDeadline(),
             TASK_TYPE_COLLABORATIVE,
-            null
+            null,
+            0, // min_reputation
           )
           .accountsPartial({
             task: taskPda,
@@ -2590,7 +2628,8 @@ describe("test_1", () => {
             2,
             getDefaultDeadline(),
             TASK_TYPE_COLLABORATIVE,
-            null
+            null,
+            0, // min_reputation
           )
           .accountsPartial({
             task: taskPda,
@@ -2690,7 +2729,8 @@ describe("test_1", () => {
             1,
             getDefaultDeadline(),
             TASK_TYPE_EXCLUSIVE,
-            null
+            null,
+            0, // min_reputation
           )
           .accountsPartial({
             task: taskPda,
@@ -2755,7 +2795,8 @@ describe("test_1", () => {
             1,
             getDefaultDeadline(),
             TASK_TYPE_EXCLUSIVE,
-            null
+            null,
+            0, // min_reputation
           )
           .accountsPartial({
             task: taskPda,
@@ -2947,7 +2988,8 @@ describe("test_1", () => {
               1,
               getDefaultDeadline(),
               TASK_TYPE_EXCLUSIVE,
-              null
+              null,
+              0, // min_reputation
             )
             .accountsPartial({
               task: taskPda,
@@ -2984,7 +3026,8 @@ describe("test_1", () => {
             1,
             getDefaultDeadline(),
             TASK_TYPE_EXCLUSIVE,
-            null
+            null,
+            0, // min_reputation
           )
           .accountsPartial({
             task: taskPda,
@@ -3035,7 +3078,8 @@ describe("test_1", () => {
             1,
             getDefaultDeadline(),
             TASK_TYPE_EXCLUSIVE,
-            null
+            null,
+            0, // min_reputation
           )
           .accountsPartial({
             task: taskPda,
@@ -3090,7 +3134,8 @@ describe("test_1", () => {
             1,
             getDefaultDeadline(),
             TASK_TYPE_EXCLUSIVE,
-            null
+            null,
+            0, // min_reputation
           )
           .accountsPartial({
             task: taskPda,
@@ -3158,7 +3203,8 @@ describe("test_1", () => {
             1,
             getDefaultDeadline(),
             TASK_TYPE_EXCLUSIVE,
-            null
+            null,
+            0, // min_reputation
           )
           .accountsPartial({
             task: taskPda,
@@ -3226,7 +3272,8 @@ describe("test_1", () => {
             2,
             getDefaultDeadline(),
             TASK_TYPE_COLLABORATIVE,
-            null
+            null,
+            0, // min_reputation
           )
           .accountsPartial({
             task: taskPda,
@@ -3315,7 +3362,8 @@ describe("test_1", () => {
             1,
             getDefaultDeadline(),
             TASK_TYPE_EXCLUSIVE,
-            null
+            null,
+            0, // min_reputation
           )
           .accountsPartial({
             task: taskPda,
@@ -3375,7 +3423,8 @@ describe("test_1", () => {
             1,
             new BN(shortDeadline),
             TASK_TYPE_EXCLUSIVE,
-            null
+            null,
+            0, // min_reputation
           )
           .accountsPartial({
             task: taskPda,
@@ -3538,7 +3587,8 @@ describe("test_1", () => {
             1,
             getDefaultDeadline(),
             TASK_TYPE_EXCLUSIVE,
-            null
+            null,
+            0, // min_reputation
           )
           .accountsPartial({
             task: taskPda,
@@ -3646,7 +3696,8 @@ describe("test_1", () => {
             1,
             getDefaultDeadline(),
             TASK_TYPE_EXCLUSIVE,
-            null
+            null,
+            0, // min_reputation
           )
           .accountsPartial({
             task: taskPda,
@@ -3746,7 +3797,8 @@ describe("test_1", () => {
             1,
             getDefaultDeadline(),
             TASK_TYPE_EXCLUSIVE,
-            null
+            null,
+            0, // min_reputation
           )
           .accountsPartial({
             task: taskPda,
@@ -3842,7 +3894,8 @@ describe("test_1", () => {
             1,
             getDefaultDeadline(),
             TASK_TYPE_EXCLUSIVE,
-            null
+            null,
+            0, // min_reputation
           )
           .accountsPartial({
             task: taskPda,
@@ -3936,7 +3989,8 @@ describe("test_1", () => {
             1,
             getDefaultDeadline(),
             TASK_TYPE_EXCLUSIVE,
-            null
+            null,
+            0, // min_reputation
           )
           .accountsPartial({
             task: taskPda,
@@ -4049,7 +4103,8 @@ describe("test_1", () => {
           1,
           getDefaultDeadline(),
           TASK_TYPE_EXCLUSIVE,
-          null
+          null,
+          0, // min_reputation
         )
         .accountsPartial({
           task: taskPda,
@@ -4103,7 +4158,8 @@ describe("test_1", () => {
           1,
           getDefaultDeadline(),
           TASK_TYPE_EXCLUSIVE,
-          null
+          null,
+          0, // min_reputation
         )
         .accountsPartial({
           task: taskPda,
@@ -4166,7 +4222,8 @@ describe("test_1", () => {
           1,
           getDefaultDeadline(),
           TASK_TYPE_EXCLUSIVE,
-          null
+          null,
+          0, // min_reputation
         )
         .accountsPartial({
           task: taskPda,
@@ -4240,7 +4297,8 @@ describe("test_1", () => {
           1,
           getDefaultDeadline(),
           TASK_TYPE_EXCLUSIVE,
-          null
+          null,
+          0, // min_reputation
         )
         .accountsPartial({
           task: taskPda,
@@ -4327,7 +4385,8 @@ describe("test_1", () => {
             1,
             getDefaultDeadline(),
             TASK_TYPE_EXCLUSIVE,
-            null
+            null,
+            0, // min_reputation
           )
           .accountsPartial({
             task: taskPda,
@@ -4382,7 +4441,8 @@ describe("test_1", () => {
               1,
               getDefaultDeadline(),
               TASK_TYPE_EXCLUSIVE,
-              null
+              null,
+              0, // min_reputation
             )
             .accountsPartial({
               task: taskPda,
@@ -4421,7 +4481,8 @@ describe("test_1", () => {
             1,
             getDefaultDeadline(),
             TASK_TYPE_EXCLUSIVE,
-            null
+            null,
+            0, // min_reputation
           )
           .accountsPartial({
             task: taskPda,
@@ -4481,6 +4542,9 @@ describe("test_1", () => {
         const treasuryBalanceAfter = await provider.connection.getBalance(treasuryPubkey);
 
         // Calculate expected amounts
+        // Verify the on-chain fee matches expected protocol fee
+        const taskAccount = await program.account.task.fetch(taskPda);
+        expect(taskAccount.protocolFeeBps).to.equal(PROTOCOL_FEE_BPS, "Task protocol_fee_bps should match protocol config");
         const protocolFee = Math.floor((rewardAmount * PROTOCOL_FEE_BPS) / 10000);
         const workerReward = rewardAmount - protocolFee;
 
@@ -4519,7 +4583,8 @@ describe("test_1", () => {
             3, // 3 workers required
             getDefaultDeadline(),
             TASK_TYPE_COLLABORATIVE,
-            null
+            null,
+            0, // min_reputation
           )
           .accountsPartial({
             task: taskPda,
@@ -4627,7 +4692,8 @@ describe("test_1", () => {
             1,
             getDefaultDeadline(),
             TASK_TYPE_EXCLUSIVE,
-            null
+            null,
+            0, // min_reputation
           )
           .accountsPartial({
             task: taskPda,
@@ -4699,7 +4765,8 @@ describe("test_1", () => {
             2,
             new BN(shortDeadline),
             TASK_TYPE_COLLABORATIVE,
-            null
+            null,
+            0, // min_reputation
           )
           .accountsPartial({
             task: taskPda,
@@ -4774,7 +4841,8 @@ describe("test_1", () => {
             2,
             getDefaultDeadline(),
             TASK_TYPE_COLLABORATIVE,
-            null
+            null,
+            0, // min_reputation
           )
           .accountsPartial({
             task: taskPda,
@@ -4855,7 +4923,8 @@ describe("test_1", () => {
             1,
             getDefaultDeadline(),
             TASK_TYPE_EXCLUSIVE,
-            null
+            null,
+            0, // min_reputation
           )
           .accountsPartial({
             task: taskPda,
@@ -4924,7 +4993,8 @@ describe("test_1", () => {
             1,
             getDefaultDeadline(),
             TASK_TYPE_EXCLUSIVE,
-            null
+            null,
+            0, // min_reputation
           )
           .accountsPartial({
             task: taskPda,
@@ -4986,7 +5056,8 @@ describe("test_1", () => {
             1,
             getDefaultDeadline(),
             TASK_TYPE_EXCLUSIVE,
-            null
+            null,
+            0, // min_reputation
           )
           .accountsPartial({
             task: taskPda,
@@ -5054,7 +5125,8 @@ describe("test_1", () => {
             1,
             getDefaultDeadline(),
             TASK_TYPE_EXCLUSIVE,
-            null
+            null,
+            0, // min_reputation
           )
           .accountsPartial({
             task: taskPda,
@@ -5144,7 +5216,8 @@ describe("test_1", () => {
             1,
             getDefaultDeadline(),
             TASK_TYPE_EXCLUSIVE,
-            null
+            null,
+            0, // min_reputation
           )
           .accountsPartial({
             task: taskPda,
@@ -5218,7 +5291,8 @@ describe("test_1", () => {
             1,
             getDefaultDeadline(),
             TASK_TYPE_EXCLUSIVE,
-            null
+            null,
+            0, // min_reputation
           )
           .accountsPartial({
             task: taskPda,
@@ -5303,7 +5377,8 @@ describe("test_1", () => {
             1,
             getDefaultDeadline(),
             TASK_TYPE_EXCLUSIVE,
-            null
+            null,
+            0, // min_reputation
           )
           .accountsPartial({
             task: taskPda,
@@ -5366,7 +5441,8 @@ describe("test_1", () => {
         await program.methods.createTask(
           Array.from(taskId0), new BN(CAPABILITY_COMPUTE),
           Buffer.from("Resolution type 0".padEnd(64, "\0")),
-          new BN(LAMPORTS_PER_SOL / 100), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null
+          new BN(LAMPORTS_PER_SOL / 100), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null,
+          0, // min_reputation
         ).accountsPartial({
           task: taskPda0, escrow: escrowPda0, protocolConfig: protocolPda,
           creatorAgent: creatorAgentPda,
@@ -5416,7 +5492,8 @@ describe("test_1", () => {
             1,
             getDefaultDeadline(),
             TASK_TYPE_EXCLUSIVE,
-            null
+            null,
+            0, // min_reputation
           )
           .accountsPartial({
             task: taskPda,
@@ -5482,7 +5559,8 @@ describe("test_1", () => {
             1,
             getDefaultDeadline(),
             TASK_TYPE_EXCLUSIVE,
-            null
+            null,
+            0, // min_reputation
           )
           .accountsPartial({
             task: taskPda,
@@ -5561,7 +5639,8 @@ describe("test_1", () => {
             1,
             getDefaultDeadline(),
             TASK_TYPE_EXCLUSIVE,
-            null
+            null,
+            0, // min_reputation
           )
           .accountsPartial({
             task: taskPda,
@@ -5636,7 +5715,8 @@ describe("test_1", () => {
             1,
             getDefaultDeadline(),
             TASK_TYPE_EXCLUSIVE,
-            null
+            null,
+            0, // min_reputation
           )
           .accountsPartial({
             task: taskPda,
@@ -5774,7 +5854,8 @@ describe("test_1", () => {
             1,
             getDefaultDeadline(),
             TASK_TYPE_EXCLUSIVE,
-            null
+            null,
+            0, // min_reputation
           )
           .accountsPartial({
             task: taskPda,
@@ -5843,7 +5924,8 @@ describe("test_1", () => {
             1,
             getDefaultDeadline(),
             TASK_TYPE_EXCLUSIVE,
-            null
+            null,
+            0, // min_reputation
           )
           .accountsPartial({
             task: taskPda,
@@ -5916,7 +5998,8 @@ describe("test_1", () => {
             1,
             getDefaultDeadline(),
             TASK_TYPE_EXCLUSIVE,
-            null
+            null,
+            0, // min_reputation
           )
           .accountsPartial({
             task: taskPda,
@@ -6017,7 +6100,8 @@ describe("test_1", () => {
             1,
             getDefaultDeadline(),
             TASK_TYPE_EXCLUSIVE,
-            null
+            null,
+            0, // min_reputation
           )
           .accountsPartial({
             task: taskPda,
@@ -6093,7 +6177,8 @@ describe("test_1", () => {
         await program.methods.createTask(
           Array.from(taskId), new BN(CAPABILITY_COMPUTE),
           Buffer.from("Voting capability test".padEnd(64, "\0")),
-          new BN(LAMPORTS_PER_SOL / 100), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null
+          new BN(LAMPORTS_PER_SOL / 100), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null,
+          0, // min_reputation
         ).accountsPartial({
           task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
           creatorAgent: creatorAgentPda,
@@ -6175,7 +6260,8 @@ describe("test_1", () => {
         await program.methods.createTask(
           Array.from(taskId), new BN(CAPABILITY_COMPUTE),
           Buffer.from("Stake test".padEnd(64, "\0")),
-          new BN(LAMPORTS_PER_SOL / 100), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null
+          new BN(LAMPORTS_PER_SOL / 100), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null,
+          0, // min_reputation
         ).accountsPartial({
           task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
           creatorAgent: creatorAgentPda,
@@ -6239,7 +6325,8 @@ describe("test_1", () => {
         await program.methods.createTask(
           Array.from(taskId), new BN(CAPABILITY_COMPUTE),
           Buffer.from("Deadline vote test".padEnd(64, "\0")),
-          new BN(LAMPORTS_PER_SOL / 100), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null
+          new BN(LAMPORTS_PER_SOL / 100), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null,
+          0, // min_reputation
         ).accountsPartial({
           task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
           creatorAgent: creatorAgentPda,
@@ -6315,7 +6402,8 @@ describe("test_1", () => {
         await program.methods.createTask(
           Array.from(taskId), new BN(CAPABILITY_COMPUTE),
           Buffer.from("Double vote test".padEnd(64, "\0")),
-          new BN(LAMPORTS_PER_SOL / 100), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null
+          new BN(LAMPORTS_PER_SOL / 100), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null,
+          0, // min_reputation
         ).accountsPartial({
           task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
           creatorAgent: creatorAgentPda,
@@ -6405,7 +6493,8 @@ describe("test_1", () => {
         await program.methods.createTask(
           Array.from(taskId), new BN(CAPABILITY_COMPUTE),
           Buffer.from("Vote count test".padEnd(64, "\0")),
-          new BN(LAMPORTS_PER_SOL / 100), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null
+          new BN(LAMPORTS_PER_SOL / 100), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null,
+          0, // min_reputation
         ).accountsPartial({
           task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
           creatorAgent: creatorAgentPda,
@@ -6448,7 +6537,8 @@ describe("test_1", () => {
         await program.methods.createTask(
           Array.from(taskId), new BN(CAPABILITY_COMPUTE),
           Buffer.from("Inactive voter test".padEnd(64, "\0")),
-          new BN(LAMPORTS_PER_SOL / 100), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null
+          new BN(LAMPORTS_PER_SOL / 100), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null,
+          0, // min_reputation
         ).accountsPartial({
           task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
           creatorAgent: creatorAgentPda,
@@ -6547,7 +6637,8 @@ describe("test_1", () => {
         await program.methods.createTask(
           Array.from(taskId), new BN(CAPABILITY_COMPUTE),
           Buffer.from("Early resolve test".padEnd(64, "\0")),
-          new BN(LAMPORTS_PER_SOL / 100), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null
+          new BN(LAMPORTS_PER_SOL / 100), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null,
+          0, // min_reputation
         ).accountsPartial({
           task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
           creatorAgent: creatorAgentPda,
@@ -6598,7 +6689,8 @@ describe("test_1", () => {
         await program.methods.createTask(
           Array.from(taskId), new BN(CAPABILITY_COMPUTE),
           Buffer.from("Zero votes test".padEnd(64, "\0")),
-          new BN(LAMPORTS_PER_SOL / 100), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null
+          new BN(LAMPORTS_PER_SOL / 100), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null,
+          0, // min_reputation
         ).accountsPartial({
           task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
           creatorAgent: creatorAgentPda,
@@ -6641,7 +6733,8 @@ describe("test_1", () => {
         await program.methods.createTask(
           Array.from(taskId), new BN(CAPABILITY_COMPUTE),
           Buffer.from("Status change test".padEnd(64, "\0")),
-          new BN(LAMPORTS_PER_SOL / 100), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null
+          new BN(LAMPORTS_PER_SOL / 100), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null,
+          0, // min_reputation
         ).accountsPartial({
           task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
           creatorAgent: creatorAgentPda,
@@ -6733,7 +6826,8 @@ describe("test_1", () => {
         await program.methods.createTask(
           Array.from(taskId), new BN(CAPABILITY_COMPUTE),
           Buffer.from("Reputation increment test".padEnd(64, "\0")),
-          new BN(LAMPORTS_PER_SOL / 100), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null
+          new BN(LAMPORTS_PER_SOL / 100), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null,
+          0, // min_reputation
         ).accountsPartial({
           task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
           creatorAgent: creatorAgentPda,
@@ -6919,7 +7013,8 @@ describe("test_1", () => {
         await program.methods.createTask(
           Array.from(taskId), new BN(CAPABILITY_COMPUTE),
           Buffer.from("Stats increment test".padEnd(64, "\0")),
-          new BN(LAMPORTS_PER_SOL / 100), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null
+          new BN(LAMPORTS_PER_SOL / 100), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null,
+          0, // min_reputation
         ).accountsPartial({
           task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
           creatorAgent: creatorAgentPda,
@@ -6981,7 +7076,8 @@ describe("test_1", () => {
         await program.methods.createTask(
           Array.from(taskId), new BN(CAPABILITY_COMPUTE),
           Buffer.from("Earnings test".padEnd(64, "\0")),
-          new BN(rewardAmount), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null
+          new BN(rewardAmount), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null,
+          0, // min_reputation
         ).accountsPartial({
           task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
           creatorAgent: creatorAgentPda,
@@ -7043,7 +7139,8 @@ describe("test_1", () => {
         await program.methods.createTask(
           Array.from(taskId), new BN(CAPABILITY_COMPUTE),
           Buffer.from("Active tasks test".padEnd(64, "\0")),
-          new BN(LAMPORTS_PER_SOL / 100), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null
+          new BN(LAMPORTS_PER_SOL / 100), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null,
+          0, // min_reputation
         ).accountsPartial({
           task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
           creatorAgent: creatorAgentPda,
@@ -7088,7 +7185,8 @@ describe("test_1", () => {
         await program.methods.createTask(
           Array.from(taskId), new BN(CAPABILITY_COMPUTE),
           Buffer.from("Multi-claim test".padEnd(64, "\0")),
-          new BN(LAMPORTS_PER_SOL / 33), 3, getDefaultDeadline(), TASK_TYPE_COLLABORATIVE, null
+          new BN(LAMPORTS_PER_SOL / 33), 3, getDefaultDeadline(), TASK_TYPE_COLLABORATIVE, null,
+          0, // min_reputation
         ).accountsPartial({
           task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
           creatorAgent: creatorAgentPda,
@@ -7133,7 +7231,8 @@ describe("test_1", () => {
         await program.methods.createTask(
           Array.from(taskId), new BN(CAPABILITY_COMPUTE),
           Buffer.from("Overflow claim test".padEnd(64, "\0")),
-          new BN(LAMPORTS_PER_SOL / 50), 2, getDefaultDeadline(), TASK_TYPE_COLLABORATIVE, null
+          new BN(LAMPORTS_PER_SOL / 50), 2, getDefaultDeadline(), TASK_TYPE_COLLABORATIVE, null,
+          0, // min_reputation
         ).accountsPartial({
           task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
           creatorAgent: creatorAgentPda,
@@ -7182,7 +7281,8 @@ describe("test_1", () => {
         await program.methods.createTask(
           Array.from(taskId), new BN(CAPABILITY_COMPUTE),
           Buffer.from("PDA uniqueness test".padEnd(64, "\0")),
-          new BN(LAMPORTS_PER_SOL / 100), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null
+          new BN(LAMPORTS_PER_SOL / 100), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null,
+          0, // min_reputation
         ).accountsPartial({
           task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
           creatorAgent: creatorAgentPda,
@@ -7227,7 +7327,8 @@ describe("test_1", () => {
         await program.methods.createTask(
           Array.from(taskId), new BN(CAPABILITY_COMPUTE),
           Buffer.from("First wins test".padEnd(64, "\0")),
-          new BN(rewardAmount), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null
+          new BN(rewardAmount), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null,
+          0, // min_reputation
         ).accountsPartial({
           task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
           creatorAgent: creatorAgentPda,
@@ -7273,7 +7374,8 @@ describe("test_1", () => {
         await program.methods.createTask(
           Array.from(taskId), new BN(CAPABILITY_COMPUTE),
           Buffer.from("All completions test".padEnd(64, "\0")),
-          new BN(LAMPORTS_PER_SOL / 50), 2, getDefaultDeadline(), TASK_TYPE_COLLABORATIVE, null
+          new BN(LAMPORTS_PER_SOL / 50), 2, getDefaultDeadline(), TASK_TYPE_COLLABORATIVE, null,
+          0, // min_reputation
         ).accountsPartial({
           task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
           creatorAgent: creatorAgentPda,
@@ -7341,7 +7443,8 @@ describe("test_1", () => {
         await program.methods.createTask(
           Array.from(taskId), new BN(CAPABILITY_COMPUTE),
           Buffer.from("Worker count test".padEnd(64, "\0")),
-          new BN(LAMPORTS_PER_SOL / 33), 3, getDefaultDeadline(), TASK_TYPE_COLLABORATIVE, null
+          new BN(LAMPORTS_PER_SOL / 33), 3, getDefaultDeadline(), TASK_TYPE_COLLABORATIVE, null,
+          0, // min_reputation
         ).accountsPartial({
           task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
           creatorAgent: creatorAgentPda,
@@ -7399,7 +7502,8 @@ describe("test_1", () => {
         await program.methods.createTask(
           Array.from(taskId), new BN(CAPABILITY_COMPUTE),
           Buffer.from("Completion count test".padEnd(64, "\0")),
-          new BN(LAMPORTS_PER_SOL / 33), 3, getDefaultDeadline(), TASK_TYPE_COLLABORATIVE, null
+          new BN(LAMPORTS_PER_SOL / 33), 3, getDefaultDeadline(), TASK_TYPE_COLLABORATIVE, null,
+          0, // min_reputation
         ).accountsPartial({
           task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
           creatorAgent: creatorAgentPda,
@@ -7514,7 +7618,8 @@ describe("test_1", () => {
         await program.methods.createTask(
           Array.from(taskId1), new BN(CAPABILITY_COMPUTE),
           Buffer.from("Track test 1".padEnd(64, "\0")),
-          new BN(LAMPORTS_PER_SOL / 100), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null
+          new BN(LAMPORTS_PER_SOL / 100), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null,
+          0, // min_reputation
         ).accountsPartial({
           task: taskPda1, escrow: escrowPda1, protocolConfig: protocolPda,
           creatorAgent: creatorAgentPda,
@@ -7539,7 +7644,8 @@ describe("test_1", () => {
         await program.methods.createTask(
           Array.from(taskId2), new BN(CAPABILITY_COMPUTE),
           Buffer.from("Track test 2".padEnd(64, "\0")),
-          new BN(LAMPORTS_PER_SOL / 100), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null
+          new BN(LAMPORTS_PER_SOL / 100), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null,
+          0, // min_reputation
         ).accountsPartial({
           task: taskPda2, escrow: escrowPda2, protocolConfig: protocolPda,
           creatorAgent: creatorAgentPda,
@@ -7595,7 +7701,8 @@ describe("test_1", () => {
         await program.methods.createTask(
           Array.from(taskId), new BN(CAPABILITY_COMPUTE),
           Buffer.from("Max workers test".padEnd(64, "\0")),
-          new BN(LAMPORTS_PER_SOL / 100), 100, getDefaultDeadline(), TASK_TYPE_COLLABORATIVE, null
+          new BN(LAMPORTS_PER_SOL / 100), 100, getDefaultDeadline(), TASK_TYPE_COLLABORATIVE, null,
+          0, // min_reputation
         ).accountsPartial({
           task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
           creatorAgent: creatorAgentPda,
@@ -7616,7 +7723,8 @@ describe("test_1", () => {
           await program.methods.createTask(
             Array.from(taskId), new BN(CAPABILITY_COMPUTE),
             Buffer.from("Zero workers test".padEnd(64, "\0")),
-            new BN(LAMPORTS_PER_SOL / 100), 0, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null
+            new BN(LAMPORTS_PER_SOL / 100), 0, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null,
+            0, // min_reputation
           ).accountsPartial({
             task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
             creatorAgent: creatorAgentPda,
@@ -7638,7 +7746,8 @@ describe("test_1", () => {
           await program.methods.createTask(
             Array.from(taskId), new BN(CAPABILITY_COMPUTE),
             Buffer.from("Zero reward test".padEnd(64, "\0")),
-            new BN(0), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null
+            new BN(0), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null,
+            0, // min_reputation
           ).accountsPartial({
             task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
             creatorAgent: creatorAgentPda,
@@ -7662,7 +7771,8 @@ describe("test_1", () => {
             Array.from(taskId), new BN(CAPABILITY_COMPUTE),
             Buffer.from("Huge reward test".padEnd(64, "\0")),
             new BN("18446744073709551615"), // u64::MAX
-            1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null
+            1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null,
+            0, // min_reputation
           ).accountsPartial({
             task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
             creatorAgent: creatorAgentPda,
@@ -7686,7 +7796,8 @@ describe("test_1", () => {
           await program.methods.createTask(
             Array.from(taskId), new BN(CAPABILITY_COMPUTE),
             Buffer.from("No deadline test".padEnd(64, "\0")),
-            new BN(LAMPORTS_PER_SOL), 1, new BN(0), TASK_TYPE_EXCLUSIVE, null
+            new BN(LAMPORTS_PER_SOL), 1, new BN(0), TASK_TYPE_EXCLUSIVE, null,
+            0, // min_reputation
           ).accountsPartial({
             task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
             creatorAgent: creatorAgentPda,
@@ -7712,7 +7823,8 @@ describe("test_1", () => {
           await program.methods.createTask(
             Array.from(taskId), new BN(CAPABILITY_COMPUTE),
             Buffer.from("Past deadline test".padEnd(64, "\0")),
-            new BN(0), 1, new BN(pastDeadline), TASK_TYPE_EXCLUSIVE, null
+            new BN(0), 1, new BN(pastDeadline), TASK_TYPE_EXCLUSIVE, null,
+            0, // min_reputation
           ).accountsPartial({
             task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
             creatorAgent: creatorAgentPda,
@@ -7736,7 +7848,8 @@ describe("test_1", () => {
           await program.methods.createTask(
             Array.from(taskId), new BN(CAPABILITY_COMPUTE),
             Buffer.from("Invalid type test".padEnd(64, "\0")),
-            new BN(0), 1, new BN(0), 3, null // Invalid: only 0, 1, 2 are valid
+            new BN(0), 1, new BN(0), 3, null, // Invalid: only 0, 1, 2 are valid
+            0, // min_reputation
           ).accountsPartial({
             task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
             creatorAgent: creatorAgentPda,
@@ -7900,7 +8013,8 @@ describe("test_1", () => {
         await program.methods.createTask(
           Array.from(taskId), new BN(CAPABILITY_COMPUTE),
           Buffer.from("Invariant test".padEnd(64, "\0")),
-          new BN(LAMPORTS_PER_SOL / 50), 2, getDefaultDeadline(), TASK_TYPE_COLLABORATIVE, null
+          new BN(LAMPORTS_PER_SOL / 50), 2, getDefaultDeadline(), TASK_TYPE_COLLABORATIVE, null,
+          0, // min_reputation
         ).accountsPartial({
           task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
           creatorAgent: creatorAgentPda,
@@ -7936,7 +8050,8 @@ describe("test_1", () => {
         await program.methods.createTask(
           Array.from(taskId), new BN(CAPABILITY_COMPUTE),
           Buffer.from("Completion invariant".padEnd(64, "\0")),
-          new BN(LAMPORTS_PER_SOL / 50), 2, getDefaultDeadline(), TASK_TYPE_COLLABORATIVE, null
+          new BN(LAMPORTS_PER_SOL / 50), 2, getDefaultDeadline(), TASK_TYPE_COLLABORATIVE, null,
+          0, // min_reputation
         ).accountsPartial({
           task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
           creatorAgent: creatorAgentPda,
@@ -7986,7 +8101,8 @@ describe("test_1", () => {
         await program.methods.createTask(
           Array.from(taskId), new BN(CAPABILITY_COMPUTE),
           Buffer.from("Escrow invariant".padEnd(64, "\0")),
-          new BN(rewardAmount), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null
+          new BN(rewardAmount), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null,
+          0, // min_reputation
         ).accountsPartial({
           task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
           creatorAgent: creatorAgentPda,
@@ -8051,7 +8167,8 @@ describe("test_1", () => {
           await program.methods.createTask(
             Array.from(taskId), new BN(CAPABILITY_COMPUTE),
             Buffer.from(`Busy task ${i}`.padEnd(64, "\0")),
-            new BN(LAMPORTS_PER_SOL / 100), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null
+            new BN(LAMPORTS_PER_SOL / 100), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null,
+            0, // min_reputation
           ).accountsPartial({
             task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
             creatorAgent: creatorAgentPda,
@@ -8078,7 +8195,8 @@ describe("test_1", () => {
         await program.methods.createTask(
           Array.from(taskId11), new BN(CAPABILITY_COMPUTE),
           Buffer.from("Busy task 10".padEnd(64, "\0")),
-          new BN(LAMPORTS_PER_SOL / 100), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null
+          new BN(LAMPORTS_PER_SOL / 100), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null,
+          0, // min_reputation
         ).accountsPartial({
           task: taskPda11, escrow: escrowPda11, protocolConfig: protocolPda,
           creatorAgent: creatorAgentPda,
@@ -8119,7 +8237,8 @@ describe("test_1", () => {
         await program.methods.createTask(
           Array.from(taskId), new BN(CAPABILITY_COMPUTE),
           Buffer.from("Stats increase test".padEnd(64, "\0")),
-          new BN(LAMPORTS_PER_SOL / 100), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null
+          new BN(LAMPORTS_PER_SOL / 100), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null,
+          0, // min_reputation
         ).accountsPartial({
           task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
           creatorAgent: creatorAgentPda,
@@ -8189,7 +8308,8 @@ describe("test_1", () => {
         await program.methods.createTask(
           Array.from(sharedTaskId), new BN(CAPABILITY_COMPUTE),
           Buffer.from("Shared ID test 1".padEnd(64, "\0")),
-          new BN(LAMPORTS_PER_SOL / 100), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null
+          new BN(LAMPORTS_PER_SOL / 100), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null,
+          0, // min_reputation
         ).accountsPartial({
           task: taskPda1, escrow: escrowPda1, protocolConfig: protocolPda,
           creatorAgent: creatorAgentPda,
@@ -8204,7 +8324,8 @@ describe("test_1", () => {
         await program.methods.createTask(
           Array.from(sharedTaskId), new BN(CAPABILITY_COMPUTE),
           Buffer.from("Shared ID test 2".padEnd(64, "\0")),
-          new BN(LAMPORTS_PER_SOL / 100), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null
+          new BN(LAMPORTS_PER_SOL / 100), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null,
+          0, // min_reputation
         ).accountsPartial({
           task: taskPda2, escrow: escrowPda2, protocolConfig: protocolPda,
           creatorAgent: deriveAgentPda(agentId1),
@@ -8266,6 +8387,232 @@ describe("test_1", () => {
         } catch (e: any) {
           expect(e.message).to.include("already in use");
         }
+      });
+    });
+  });
+
+  describe("Reputation System", () => {
+    describe("Reputation gate on claim_task", () => {
+      it("rejects claim when worker reputation is below task min_reputation", async () => {
+        const { wallet: w, agentId: wId, agentPda: wPda } = await createFreshWorker(CAPABILITY_COMPUTE);
+
+        // Create task with min_reputation = 6000 (default agent rep is 5000)
+        const taskId = makeAgentId(`rep-gate`);
+        const taskPda = deriveTaskPda(creator.publicKey, taskId);
+        const escrowPda = deriveEscrowPda(taskPda);
+
+        await program.methods
+          .createTask(
+            Array.from(taskId),
+            new BN(CAPABILITY_COMPUTE),
+            Buffer.from("Reputation gated task".padEnd(64, "\0")),
+            new BN(LAMPORTS_PER_SOL / 100),
+            1,
+            getDefaultDeadline(),
+            TASK_TYPE_EXCLUSIVE,
+            null,  // constraint_hash
+            6000,  // min_reputation (worker has 5000)
+          )
+          .accountsPartial({
+            task: taskPda,
+            escrow: escrowPda,
+            protocolConfig: protocolPda,
+            creatorAgent: creatorAgentPda,
+            authority: creator.publicKey,
+            creator: creator.publicKey,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([creator])
+          .rpc();
+
+        const claimPda = deriveClaimPda(taskPda, wPda);
+        try {
+          await program.methods
+            .claimTask()
+            .accountsPartial({
+              task: taskPda,
+              claim: claimPda,
+              protocolConfig: protocolPda,
+              worker: wPda,
+              authority: w.publicKey,
+              systemProgram: SystemProgram.programId,
+            })
+            .signers([w])
+            .rpc();
+          expect.fail("Should have failed with InsufficientReputation");
+        } catch (e: any) {
+          expect(e.message).to.include("InsufficientReputation");
+        }
+      });
+
+      it("allows claim when worker reputation meets task min_reputation", async () => {
+        const { wallet: w, agentId: wId, agentPda: wPda } = await createFreshWorker(CAPABILITY_COMPUTE);
+
+        // Create task with min_reputation = 5000 (default agent rep is 5000)
+        const taskId = makeAgentId(`rep-ok`);
+        const taskPda = deriveTaskPda(creator.publicKey, taskId);
+        const escrowPda = deriveEscrowPda(taskPda);
+
+        await program.methods
+          .createTask(
+            Array.from(taskId),
+            new BN(CAPABILITY_COMPUTE),
+            Buffer.from("Reputation ok task".padEnd(64, "\0")),
+            new BN(LAMPORTS_PER_SOL / 100),
+            1,
+            getDefaultDeadline(),
+            TASK_TYPE_EXCLUSIVE,
+            null,  // constraint_hash
+            5000,  // min_reputation (worker has exactly 5000)
+          )
+          .accountsPartial({
+            task: taskPda,
+            escrow: escrowPda,
+            protocolConfig: protocolPda,
+            creatorAgent: creatorAgentPda,
+            authority: creator.publicKey,
+            creator: creator.publicKey,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([creator])
+          .rpc();
+
+        const claimPda = deriveClaimPda(taskPda, wPda);
+        await program.methods
+          .claimTask()
+          .accountsPartial({
+            task: taskPda,
+            claim: claimPda,
+            protocolConfig: protocolPda,
+            worker: wPda,
+            authority: w.publicKey,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([w])
+          .rpc();
+
+        // Verify claim succeeded
+        const taskAccount = await program.account.task.fetch(taskPda);
+        expect(taskAccount.currentWorkers).to.equal(1);
+      });
+
+      it("allows claim when min_reputation is 0 (no gate)", async () => {
+        const { wallet: w, agentId: wId, agentPda: wPda } = await createFreshWorker(CAPABILITY_COMPUTE);
+
+        const taskId = makeAgentId(`rep-0`);
+        const taskPda = deriveTaskPda(creator.publicKey, taskId);
+        const escrowPda = deriveEscrowPda(taskPda);
+
+        await program.methods
+          .createTask(
+            Array.from(taskId),
+            new BN(CAPABILITY_COMPUTE),
+            Buffer.from("No reputation gate".padEnd(64, "\0")),
+            new BN(LAMPORTS_PER_SOL / 100),
+            1,
+            getDefaultDeadline(),
+            TASK_TYPE_EXCLUSIVE,
+            null,  // constraint_hash
+            0,  // min_reputation (no gate)
+          )
+          .accountsPartial({
+            task: taskPda,
+            escrow: escrowPda,
+            protocolConfig: protocolPda,
+            creatorAgent: creatorAgentPda,
+            authority: creator.publicKey,
+            creator: creator.publicKey,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([creator])
+          .rpc();
+
+        const claimPda = deriveClaimPda(taskPda, wPda);
+        await program.methods
+          .claimTask()
+          .accountsPartial({
+            task: taskPda,
+            claim: claimPda,
+            protocolConfig: protocolPda,
+            worker: wPda,
+            authority: w.publicKey,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([w])
+          .rpc();
+
+        const taskAccount = await program.account.task.fetch(taskPda);
+        expect(taskAccount.currentWorkers).to.equal(1);
+      });
+    });
+
+    describe("Task creation validation", () => {
+      it("rejects min_reputation > 10000 (InvalidMinReputation)", async () => {
+        const taskId = makeAgentId(`rep-inv`);
+        const taskPda = deriveTaskPda(creator.publicKey, taskId);
+        const escrowPda = deriveEscrowPda(taskPda);
+
+        try {
+          await program.methods
+            .createTask(
+              Array.from(taskId),
+              new BN(CAPABILITY_COMPUTE),
+              Buffer.from("Invalid rep task".padEnd(64, "\0")),
+              new BN(LAMPORTS_PER_SOL / 100),
+              1,
+              getDefaultDeadline(),
+              TASK_TYPE_EXCLUSIVE,
+              null,  // constraint_hash
+              10001,  // min_reputation > MAX_REPUTATION
+            )
+            .accountsPartial({
+              task: taskPda,
+              escrow: escrowPda,
+              protocolConfig: protocolPda,
+              creatorAgent: creatorAgentPda,
+              authority: creator.publicKey,
+              creator: creator.publicKey,
+              systemProgram: SystemProgram.programId,
+            })
+            .signers([creator])
+            .rpc();
+          expect.fail("Should have failed with InvalidMinReputation");
+        } catch (e: any) {
+          expect(e.message).to.include("InvalidMinReputation");
+        }
+      });
+
+      it("stores min_reputation on task account", async () => {
+        const taskId = makeAgentId(`rep-str`);
+        const taskPda = deriveTaskPda(creator.publicKey, taskId);
+        const escrowPda = deriveEscrowPda(taskPda);
+
+        await program.methods
+          .createTask(
+            Array.from(taskId),
+            new BN(CAPABILITY_COMPUTE),
+            Buffer.from("Stored rep task".padEnd(64, "\0")),
+            new BN(LAMPORTS_PER_SOL / 100),
+            1,
+            getDefaultDeadline(),
+            TASK_TYPE_EXCLUSIVE,
+            null,  // constraint_hash
+            7500,  // min_reputation
+          )
+          .accountsPartial({
+            task: taskPda,
+            escrow: escrowPda,
+            protocolConfig: protocolPda,
+            creatorAgent: creatorAgentPda,
+            authority: creator.publicKey,
+            creator: creator.publicKey,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([creator])
+          .rpc();
+
+        const taskAccount = await program.account.task.fetch(taskPda);
+        expect(taskAccount.minReputation).to.equal(7500);
       });
     });
   });

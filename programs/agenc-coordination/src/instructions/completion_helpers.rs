@@ -162,11 +162,12 @@ pub fn update_task_state(
 }
 
 /// Update worker statistics after task completion.
+/// Returns `(old_reputation, new_reputation)` for event emission.
 pub fn update_worker_state(
     worker: &mut Account<AgentRegistration>,
     reward: u64,
     timestamp: i64,
-) -> Result<()> {
+) -> Result<(u16, u16)> {
     worker.tasks_completed = worker
         .tasks_completed
         .checked_add(1)
@@ -182,14 +183,12 @@ pub fn update_worker_state(
     worker.last_active = timestamp;
     // Reputation uses saturating_add intentionally - reputation overflow to MAX_REPUTATION
     // is the intended behavior (capped at 10000), not an error condition
-    //
-    // Note: Reputation currently only increases (no penalty system).
-    // This is by design - negative reputation changes planned for v2.
+    let old_rep = worker.reputation;
     worker.reputation = worker
         .reputation
         .saturating_add(REPUTATION_PER_COMPLETION)
         .min(MAX_REPUTATION);
-    Ok(())
+    Ok((old_rep, worker.reputation))
 }
 
 /// Update protocol statistics after task completion.
@@ -239,7 +238,8 @@ mod tests {
             protocol_fee_bps: 100, // 1% default for tests
             depends_on: None,
             dependency_type: DependencyType::default(),
-            _reserved: [0u8; 32],
+            min_reputation: 0,
+            _reserved: [0u8; 30],
         }
     }
 

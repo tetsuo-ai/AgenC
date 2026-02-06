@@ -1,7 +1,7 @@
 //! Complete a task and claim reward
 
 use crate::errors::CoordinationError;
-use crate::events::{RewardDistributed, TaskCompleted};
+use crate::events::{reputation_reason, ReputationChanged, RewardDistributed, TaskCompleted};
 use crate::instructions::completion_helpers::{
     calculate_reward_split, transfer_rewards, update_claim_state, update_protocol_stats,
     update_task_state, update_worker_state,
@@ -10,7 +10,7 @@ use crate::state::{
     AgentRegistration, DependencyType, ProtocolConfig, Task, TaskClaim, TaskEscrow, TaskStatus,
     TaskType, HASH_SIZE, RESULT_DATA_SIZE,
 };
-use crate::utils::compute_budget::log_compute_units;
+use crate::utils::compute_budget::{calculate_reputation_fee_discount, log_compute_units};
 use crate::utils::version::check_version_compatible;
 use anchor_lang::prelude::*;
 
@@ -135,8 +135,9 @@ pub fn handler(
         );
     }
 
-    // Use the protocol fee locked at task creation (#479)
-    let protocol_fee_bps = task.protocol_fee_bps;
+    // Use the protocol fee locked at task creation (#479), with reputation discount
+    let rep_discount = calculate_reputation_fee_discount(worker.reputation);
+    let protocol_fee_bps = task.protocol_fee_bps.saturating_sub(rep_discount).max(1);
 
     // Validate proof_hash is not zero
     require!(
@@ -221,7 +222,16 @@ pub fn handler(
     update_claim_state(claim, escrow, worker_reward, protocol_fee)?;
     let task_completed =
         update_task_state(task, clock.unix_timestamp, escrow, Some(claim_result_data))?;
-    update_worker_state(worker, worker_reward, clock.unix_timestamp)?;
+    let (old_rep, new_rep) = update_worker_state(worker, worker_reward, clock.unix_timestamp)?;
+    if old_rep != new_rep {
+        emit!(ReputationChanged {
+            agent_id: worker.agent_id,
+            old_reputation: old_rep,
+            new_reputation: new_rep,
+            reason: reputation_reason::COMPLETION,
+            timestamp: clock.unix_timestamp,
+        });
+    }
 
     // Update protocol stats after other mutable borrows are done
     if task_completed {

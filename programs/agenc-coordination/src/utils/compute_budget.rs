@@ -119,6 +119,40 @@ pub fn calculate_tiered_fee(base_fee_bps: u16, completed_tasks: u64) -> u16 {
     base_fee_bps.saturating_sub(discount_bps).max(1)
 }
 
+// ============================================================================
+// Reputation-Based Fee Discount
+// ============================================================================
+//
+// Workers with high reputation receive reduced protocol fees at completion time.
+// This stacks with volume-based discounts.
+
+/// Reputation fee tier thresholds and discount amounts.
+/// Each tier specifies (min_reputation, discount_bps).
+pub const REPUTATION_FEE_TIERS: [(u16, u16); 4] = [
+    (0, 0),        // No discount below 8000
+    (8000, 5),     // 5 bps discount at 8000+ reputation
+    (9000, 10),    // 10 bps discount at 9000+ reputation
+    (9500, 15),    // 15 bps discount at 9500+ reputation
+];
+
+/// Calculate reputation-based fee discount in basis points.
+///
+/// Returns the discount amount to subtract from the protocol fee.
+/// The caller is responsible for flooring the result at 1 bps.
+pub fn calculate_reputation_fee_discount(reputation: u16) -> u16 {
+    let mut discount_bps: u16 = 0;
+
+    // Walk tiers in reverse to find the highest applicable tier
+    for &(threshold, discount) in REPUTATION_FEE_TIERS.iter().rev() {
+        if reputation >= threshold {
+            discount_bps = discount;
+            break;
+        }
+    }
+
+    discount_bps
+}
+
 /// Log current compute units consumed (development/profiling only).
 ///
 /// Calls `sol_log_compute_units()` with a descriptive label.
@@ -214,5 +248,30 @@ mod tests {
         assert!(RECOMMENDED_CU_COMPLETE_TASK_PRIVATE > RECOMMENDED_CU_COMPLETE_TASK);
         assert!(RECOMMENDED_CU_COMPLETE_TASK_PRIVATE > RECOMMENDED_CU_CREATE_TASK);
         assert!(RECOMMENDED_CU_COMPLETE_TASK_PRIVATE > RECOMMENDED_CU_RESOLVE_DISPUTE);
+    }
+
+    #[test]
+    fn test_reputation_fee_discount_no_discount() {
+        assert_eq!(calculate_reputation_fee_discount(0), 0);
+        assert_eq!(calculate_reputation_fee_discount(5000), 0);
+        assert_eq!(calculate_reputation_fee_discount(7999), 0);
+    }
+
+    #[test]
+    fn test_reputation_fee_discount_tier_1() {
+        assert_eq!(calculate_reputation_fee_discount(8000), 5);
+        assert_eq!(calculate_reputation_fee_discount(8999), 5);
+    }
+
+    #[test]
+    fn test_reputation_fee_discount_tier_2() {
+        assert_eq!(calculate_reputation_fee_discount(9000), 10);
+        assert_eq!(calculate_reputation_fee_discount(9499), 10);
+    }
+
+    #[test]
+    fn test_reputation_fee_discount_tier_3() {
+        assert_eq!(calculate_reputation_fee_discount(9500), 15);
+        assert_eq!(calculate_reputation_fee_discount(10000), 15);
     }
 }

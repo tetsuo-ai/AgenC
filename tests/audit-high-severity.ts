@@ -236,7 +236,8 @@ describe("audit-high-severity", () => {
           1,
           new BN(0),
           TASK_TYPE_COMPETITIVE,
-          null  // constraint_hash
+          null,  // constraint_hash
+          0, // min_reputation
         )
         .accountsPartial({
           creatorAgent: nonAgentPda,
@@ -268,7 +269,8 @@ describe("audit-high-severity", () => {
         3,
         new BN(0),
         TASK_TYPE_COLLABORATIVE,
-        null  // constraint_hash
+        null,  // constraint_hash
+        0, // min_reputation
       )
       .accountsPartial({
         creatorAgent: creatorAgentPda,
@@ -396,7 +398,8 @@ describe("audit-high-severity", () => {
         1,
         new BN(0),
         TASK_TYPE_COMPETITIVE,
-        null  // constraint_hash
+        null,  // constraint_hash
+        0, // min_reputation
       )
       .accountsPartial({
         creatorAgent: creatorAgentPda,
@@ -503,7 +506,8 @@ describe("audit-high-severity", () => {
         2,
         new BN(0),
         TASK_TYPE_COMPETITIVE,
-        null  // constraint_hash
+        null,  // constraint_hash
+        0, // min_reputation
       )
       .accountsPartial({
         creatorAgent: creatorAgentPda,
@@ -598,7 +602,8 @@ describe("audit-high-severity", () => {
         1,
         new BN(0),
         TASK_TYPE_COMPETITIVE,
-        null  // constraint_hash
+        null,  // constraint_hash
+        0, // min_reputation
       )
       .accountsPartial({
         creatorAgent: creatorAgentPda,
@@ -812,7 +817,8 @@ describe("audit-high-severity", () => {
         1,
         new BN(0),
         TASK_TYPE_COMPETITIVE,
-        null
+        null,
+        0, // min_reputation
       )
       .accountsPartial({
         creatorAgent: creatorAgentPda,

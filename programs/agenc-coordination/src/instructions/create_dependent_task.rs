@@ -82,8 +82,9 @@ pub fn handler(
     task_type: u8,
     constraint_hash: Option<[u8; 32]>,
     dependency_type: u8,
+    min_reputation: u16,
 ) -> Result<()> {
-    validate_task_params(&task_id, &description, required_capabilities, max_workers, task_type)?;
+    validate_task_params(&task_id, &description, required_capabilities, max_workers, task_type, min_reputation)?;
     // Validate parent task belongs to same creator (#520)
     require!(
         ctx.accounts.parent_task.creator == ctx.accounts.creator.key(),
@@ -143,6 +144,7 @@ pub fn handler(
         ctx.bumps.task,
         config.protocol_fee_bps,
         clock.unix_timestamp,
+        min_reputation,
     )?;
 
     // Override dependency fields (defaults are None from init_task_fields)

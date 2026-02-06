@@ -77,8 +77,9 @@ pub fn handler(
     deadline: i64,
     task_type: u8,
     constraint_hash: Option<[u8; 32]>,
+    min_reputation: u16,
 ) -> Result<()> {
-    validate_task_params(&task_id, &description, required_capabilities, max_workers, task_type)?;
+    validate_task_params(&task_id, &description, required_capabilities, max_workers, task_type, min_reputation)?;
     // Validate reward is not zero (#540) - not in shared validator since dependent tasks allow zero
     require!(reward_amount > 0, CoordinationError::InvalidReward);
 
@@ -128,6 +129,7 @@ pub fn handler(
         ctx.bumps.task,
         config.protocol_fee_bps,
         clock.unix_timestamp,
+        min_reputation,
     )?;
 
     // Initialize escrow
@@ -145,6 +147,7 @@ pub fn handler(
         reward_amount,
         task_type,
         deadline,
+        min_reputation,
         timestamp: clock.unix_timestamp,
     });
 

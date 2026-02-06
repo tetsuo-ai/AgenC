@@ -1,6 +1,7 @@
 //! Shared helpers for task initialization (create_task + create_dependent_task)
 
 use crate::errors::CoordinationError;
+use crate::instructions::constants::MAX_REPUTATION;
 use crate::state::{DependencyType, ProtocolConfig, Task, TaskEscrow, TaskStatus, TaskType};
 use anchor_lang::prelude::*;
 
@@ -13,6 +14,7 @@ pub fn validate_task_params(
     required_capabilities: u64,
     max_workers: u8,
     task_type: u8,
+    min_reputation: u16,
 ) -> Result<()> {
     // Validate task_id is not zero (#367)
     require!(*task_id != [0u8; 32], CoordinationError::InvalidTaskId);
@@ -32,6 +34,10 @@ pub fn validate_task_params(
         CoordinationError::InvalidMaxWorkers
     );
     require!(task_type <= 2, CoordinationError::InvalidTaskType);
+    require!(
+        min_reputation <= MAX_REPUTATION,
+        CoordinationError::InvalidMinReputation
+    );
 
     Ok(())
 }
@@ -53,6 +59,7 @@ pub fn init_task_fields(
     bump: u8,
     protocol_fee_bps: u16,
     timestamp: i64,
+    min_reputation: u16,
 ) -> Result<()> {
     task.task_id = task_id;
     task.creator = creator;
@@ -80,6 +87,7 @@ pub fn init_task_fields(
     task.protocol_fee_bps = protocol_fee_bps;
     task.dependency_type = DependencyType::None;
     task.depends_on = None;
+    task.min_reputation = min_reputation;
 
     Ok(())
 }
