@@ -233,7 +233,8 @@ describe("CU Benchmarks", () => {
         1,
         new BN(deadline),
         0, // Exclusive
-        null // No constraint hash
+        null, // No constraint hash
+        0, // min_reputation
       )
       .accountsPartial({
         task: taskPda,

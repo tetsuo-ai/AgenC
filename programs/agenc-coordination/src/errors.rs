@@ -441,4 +441,11 @@ pub enum CoordinationError {
 
     #[msg("Bond not yet matured")]
     BondNotMatured,
+
+    // Reputation errors (7600-7699)
+    #[msg("Agent reputation below task minimum requirement")]
+    InsufficientReputation,
+
+    #[msg("Invalid minimum reputation: must be <= 10000")]
+    InvalidMinReputation,
 }

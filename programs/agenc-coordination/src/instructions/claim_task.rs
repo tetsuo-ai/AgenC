@@ -1,7 +1,10 @@
 //! Claim a task to signal intent to work on it
 
 use crate::errors::CoordinationError;
-use crate::events::TaskClaimed;
+use crate::events::{reputation_reason, ReputationChanged, TaskClaimed};
+use crate::instructions::constants::{
+    MAX_REPUTATION, REPUTATION_DECAY_MIN, REPUTATION_DECAY_PERIOD, REPUTATION_DECAY_RATE,
+};
 use crate::state::{AgentRegistration, AgentStatus, ProtocolConfig, Task, TaskClaim, TaskStatus};
 use crate::utils::version::check_version_compatible;
 use anchor_lang::prelude::*;
@@ -102,6 +105,38 @@ pub fn handler(ctx: Context<ClaimTask>) -> Result<()> {
         (worker.capabilities & task.required_capabilities) == task.required_capabilities,
         CoordinationError::InsufficientCapabilities
     );
+
+    // Apply passive reputation decay for inactivity
+    let inactive_periods = clock
+        .unix_timestamp
+        .saturating_sub(worker.last_active)
+        .checked_div(REPUTATION_DECAY_PERIOD)
+        .unwrap_or(0);
+    if inactive_periods > 0 && worker.reputation > REPUTATION_DECAY_MIN {
+        // Clamp periods to prevent u16 truncation (max useful = MAX_REPUTATION / DECAY_RATE + 1)
+        let max_periods = ((MAX_REPUTATION / REPUTATION_DECAY_RATE) as i64) + 1;
+        let capped_periods = inactive_periods.min(max_periods) as u16;
+        let decay = capped_periods.saturating_mul(REPUTATION_DECAY_RATE);
+        let old_rep = worker.reputation;
+        worker.reputation = worker.reputation.saturating_sub(decay).max(REPUTATION_DECAY_MIN);
+        if worker.reputation != old_rep {
+            emit!(ReputationChanged {
+                agent_id: worker.agent_id,
+                old_reputation: old_rep,
+                new_reputation: worker.reputation,
+                reason: reputation_reason::DECAY,
+                timestamp: clock.unix_timestamp,
+            });
+        }
+    }
+
+    // Check worker meets minimum reputation requirement
+    if task.min_reputation > 0 {
+        require!(
+            worker.reputation >= task.min_reputation,
+            CoordinationError::InsufficientReputation
+        );
+    }
 
     // Check worker doesn't have too many active tasks
     const MAX_ACTIVE_TASKS: u8 = 10;

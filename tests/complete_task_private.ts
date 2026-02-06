@@ -232,7 +232,8 @@ describe("complete_task_private", () => {
           1, // max_workers
           new BN(0), // deadline (no deadline)
           TASK_TYPE_EXCLUSIVE,
-          Array.from(privateConstraintHash) // constraint_hash (non-zero = private task)
+          Array.from(privateConstraintHash), // constraint_hash (non-zero = private task)
+          0, // min_reputation
         )
         .accountsPartial({
           task: privateTaskPda,
@@ -370,7 +371,8 @@ describe("complete_task_private", () => {
           1,
           new BN(0),
           TASK_TYPE_EXCLUSIVE,
-          Array.from(Buffer.alloc(HASH_SIZE, 0)) // All zeros = PUBLIC task
+          Array.from(Buffer.alloc(HASH_SIZE, 0)), // All zeros = PUBLIC task
+          0, // min_reputation
         )
         .accountsPartial({
           task: publicTaskPda,
@@ -450,7 +452,8 @@ describe("complete_task_private", () => {
           1,
           new BN(0),
           TASK_TYPE_EXCLUSIVE,
-          Array.from(constraintHash)
+          Array.from(constraintHash),
+          0, // min_reputation
         )
         .accountsPartial({
           task: cancelledTaskPda,

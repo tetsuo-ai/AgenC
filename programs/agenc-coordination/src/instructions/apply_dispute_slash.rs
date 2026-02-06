@@ -9,7 +9,8 @@
 //! After this window, slashing can no longer be applied.
 
 use crate::errors::CoordinationError;
-use crate::instructions::constants::PERCENT_BASE;
+use crate::events::{reputation_reason, ReputationChanged};
+use crate::instructions::constants::{MIN_REPUTATION, PERCENT_BASE, REPUTATION_SLASH_LOSS};
 
 /// Window for applying slashing after dispute resolution (7 days)
 /// After this period, slashing can no longer be applied (fix #414)
@@ -147,6 +148,22 @@ pub fn handler(ctx: Context<ApplyDisputeSlash>) -> Result<()> {
         slash_amount > 0,
         CoordinationError::InvalidSlashAmount
     );
+
+    // Apply reputation penalty for losing the dispute (before lamport transfer to satisfy borrow checker)
+    let old_rep = worker_agent.reputation;
+    worker_agent.reputation = worker_agent
+        .reputation
+        .saturating_sub(REPUTATION_SLASH_LOSS)
+        .max(MIN_REPUTATION);
+    if worker_agent.reputation != old_rep {
+        emit!(ReputationChanged {
+            agent_id: worker_agent.agent_id,
+            old_reputation: old_rep,
+            new_reputation: worker_agent.reputation,
+            reason: reputation_reason::DISPUTE_SLASH,
+            timestamp: clock.unix_timestamp,
+        });
+    }
 
     if slash_amount > 0 {
         worker_agent.stake = worker_agent
