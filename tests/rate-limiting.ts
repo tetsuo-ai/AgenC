@@ -122,7 +122,8 @@ describe("rate-limiting", () => {
           1,
           new BN(0),
           TASK_TYPE_EXCLUSIVE,
-          null  // constraint_hash
+          null,  // constraint_hash
+          0, // min_reputation
         )
         .accountsPartial({
           task: taskPda,
@@ -191,7 +192,8 @@ describe("rate-limiting", () => {
           1,
           new BN(0),
           TASK_TYPE_EXCLUSIVE,
-          null  // constraint_hash
+          null,  // constraint_hash
+          0, // min_reputation
         )
         .accountsPartial({
           task: taskPda,
@@ -265,7 +267,8 @@ describe("rate-limiting", () => {
           1,
           new BN(0),
           TASK_TYPE_EXCLUSIVE,
-          null  // constraint_hash
+          null,  // constraint_hash
+          0, // min_reputation
         )
         .accountsPartial({
           task: taskPda,
@@ -452,7 +455,8 @@ describe("rate-limiting", () => {
           1,
           new BN(0),
           TASK_TYPE_EXCLUSIVE,
-          null  // constraint_hash
+          null,  // constraint_hash
+          0, // min_reputation
         )
         .accountsPartial({
           task: taskPda,
@@ -599,7 +603,8 @@ describe("rate-limiting", () => {
           1,
           new BN(0),
           TASK_TYPE_EXCLUSIVE,
-          null  // constraint_hash
+          null,  // constraint_hash
+          0, // min_reputation
         )
         .accountsPartial({
           task: taskPda1,
@@ -642,7 +647,8 @@ describe("rate-limiting", () => {
             1,
             new BN(0),
             TASK_TYPE_EXCLUSIVE,
-            null  // constraint_hash
+            null,  // constraint_hash
+            0, // min_reputation
           )
           .accountsPartial({
             task: taskPda2,

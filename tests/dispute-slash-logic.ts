@@ -261,7 +261,8 @@ describe("dispute-slash-logic (issue #136)", () => {
           1,
           getDefaultDeadline(),
           TASK_TYPE_EXCLUSIVE,
-          null
+          null,
+          0, // min_reputation
         )
         .accountsPartial({
           creatorAgent: creatorAgentPda,
@@ -355,7 +356,8 @@ describe("dispute-slash-logic (issue #136)", () => {
           1,
           getDefaultDeadline(),
           TASK_TYPE_EXCLUSIVE,
-          null
+          null,
+          0, // min_reputation
         )
         .accountsPartial({
           creatorAgent: creatorAgentPda,
