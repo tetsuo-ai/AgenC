@@ -26,22 +26,31 @@ import {
   TASK_TYPE_COLLABORATIVE,
   TASK_TYPE_COMPETITIVE,
   sleep,
+  createId,
+  createDescription,
+  createHash,
+  deriveProtocolPda,
+  deriveAgentPda as _deriveAgentPda,
+  deriveTaskPda as _deriveTaskPda,
+  deriveEscrowPda as _deriveEscrowPda,
+  deriveClaimPda as _deriveClaimPda,
+  AIRDROP_SOL,
+  MIN_BALANCE_SOL,
+  MAX_AIRDROP_ATTEMPTS,
+  BASE_DELAY_MS,
+  MAX_DELAY_MS,
+  DEFAULT_MIN_STAKE_LAMPORTS,
+  DEFAULT_PROTOCOL_FEE_BPS,
+  DEFAULT_DISPUTE_THRESHOLD,
 } from "./test-utils";
 
 // ============================================================================
-// CONSTANTS
+// CONSTANTS (imported from test-utils, local aliases for backwards compat)
 // ============================================================================
 
-const AIRDROP_SOL = 2;
-const MIN_BALANCE_SOL = 1;
-const MAX_AIRDROP_ATTEMPTS = 5;
-const BASE_DELAY_MS = 500;
-const MAX_DELAY_MS = 8000;
-
-// Protocol configuration
-const MIN_STAKE = 1 * LAMPORTS_PER_SOL;
-const PROTOCOL_FEE_BPS = 100; // 1%
-const DISPUTE_THRESHOLD = 51;
+const MIN_STAKE = DEFAULT_MIN_STAKE_LAMPORTS;
+const PROTOCOL_FEE_BPS = DEFAULT_PROTOCOL_FEE_BPS;
+const DISPUTE_THRESHOLD = DEFAULT_DISPUTE_THRESHOLD;
 
 // ============================================================================
 // HELPER FUNCTIONS
@@ -97,73 +106,25 @@ const ensureBalance = async (
   }
 };
 
-/**
- * Create a 32-byte buffer from a string (padded with zeros)
- */
-function createId(name: string): Buffer {
-  return Buffer.from(name.padEnd(32, "\0"));
-}
-
-/**
- * Create a 64-byte description buffer
- */
-function createDescription(desc: string): number[] {
-  const buf = Buffer.alloc(64);
-  buf.write(desc);
-  return Array.from(buf);
-}
-
-/**
- * Create a 32-byte hash buffer
- */
-function createHash(data: string): number[] {
-  const buf = Buffer.alloc(32);
-  buf.write(data);
-  return Array.from(buf);
-}
-
-// ============================================================================
-// PDA DERIVATION HELPERS
-// ============================================================================
-
+// PDA helpers delegate to test-utils (3-arg versions with programId)
 function deriveProtocolConfigPda(programId: PublicKey): PublicKey {
-  const [pda] = PublicKey.findProgramAddressSync(
-    [Buffer.from("protocol")],
-    programId
-  );
-  return pda;
+  return deriveProtocolPda(programId);
 }
 
 function deriveAgentPda(agentId: Buffer, programId: PublicKey): PublicKey {
-  const [pda] = PublicKey.findProgramAddressSync(
-    [Buffer.from("agent"), agentId],
-    programId
-  );
-  return pda;
+  return _deriveAgentPda(agentId, programId);
 }
 
 function deriveTaskPda(creator: PublicKey, taskId: Buffer, programId: PublicKey): PublicKey {
-  const [pda] = PublicKey.findProgramAddressSync(
-    [Buffer.from("task"), creator.toBuffer(), taskId],
-    programId
-  );
-  return pda;
+  return _deriveTaskPda(creator, taskId, programId);
 }
 
 function deriveEscrowPda(taskPda: PublicKey, programId: PublicKey): PublicKey {
-  const [pda] = PublicKey.findProgramAddressSync(
-    [Buffer.from("escrow"), taskPda.toBuffer()],
-    programId
-  );
-  return pda;
+  return _deriveEscrowPda(taskPda, programId);
 }
 
 function deriveClaimPda(taskPda: PublicKey, workerAgentPda: PublicKey, programId: PublicKey): PublicKey {
-  const [pda] = PublicKey.findProgramAddressSync(
-    [Buffer.from("claim"), taskPda.toBuffer(), workerAgentPda.toBuffer()],
-    programId
-  );
-  return pda;
+  return _deriveClaimPda(taskPda, workerAgentPda, programId);
 }
 
 // ============================================================================

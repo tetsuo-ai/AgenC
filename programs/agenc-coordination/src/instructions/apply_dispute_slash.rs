@@ -9,12 +9,11 @@
 //! After this window, slashing can no longer be applied.
 
 use crate::errors::CoordinationError;
-use crate::events::{reputation_reason, ReputationChanged};
-use crate::instructions::constants::{MIN_REPUTATION, PERCENT_BASE, REPUTATION_SLASH_LOSS};
-
-/// Window for applying slashing after dispute resolution (7 days)
-/// After this period, slashing can no longer be applied (fix #414)
-const SLASH_WINDOW: i64 = 7 * 24 * 60 * 60;
+use crate::instructions::constants::PERCENT_BASE;
+use crate::instructions::slash_helpers::{
+    apply_reputation_penalty, calculate_approval_percentage, transfer_slash_to_treasury,
+    validate_slash_window,
+};
 use crate::state::{
     AgentRegistration, Dispute, DisputeStatus, ProtocolConfig, ResolutionType, Task, TaskClaim,
 };
@@ -91,27 +90,14 @@ pub fn handler(ctx: Context<ApplyDisputeSlash>) -> Result<()> {
 
     // Check slash window hasn't expired (fix #414)
     let clock = Clock::get()?;
-    require!(
-        clock.unix_timestamp <= dispute.resolved_at.saturating_add(SLASH_WINDOW),
-        CoordinationError::SlashWindowExpired
-    );
+    validate_slash_window(dispute.resolved_at, &clock)?;
     require!(
         worker_agent.key() == ctx.accounts.worker_claim.worker,
         CoordinationError::UnauthorizedAgent
     );
 
-    let total_votes = dispute
-        .votes_for
-        .checked_add(dispute.votes_against)
-        .ok_or(CoordinationError::ArithmeticOverflow)?;
-    require!(total_votes > 0, CoordinationError::InsufficientVotes);
-
-    let approval_pct = dispute
-        .votes_for
-        .checked_mul(PERCENT_BASE)
-        .ok_or(CoordinationError::ArithmeticOverflow)?
-        .checked_div(total_votes)
-        .ok_or(CoordinationError::ArithmeticOverflow)?;
+    let (_total_votes, approval_pct) =
+        calculate_approval_percentage(dispute.votes_for, dispute.votes_against)?;
 
     // Determine if the dispute was approved (votes_for >= threshold percentage)
     let approved = approval_pct >= config.dispute_threshold as u64;
@@ -150,20 +136,7 @@ pub fn handler(ctx: Context<ApplyDisputeSlash>) -> Result<()> {
     );
 
     // Apply reputation penalty for losing the dispute (before lamport transfer to satisfy borrow checker)
-    let old_rep = worker_agent.reputation;
-    worker_agent.reputation = worker_agent
-        .reputation
-        .saturating_sub(REPUTATION_SLASH_LOSS)
-        .max(MIN_REPUTATION);
-    if worker_agent.reputation != old_rep {
-        emit!(ReputationChanged {
-            agent_id: worker_agent.agent_id,
-            old_reputation: old_rep,
-            new_reputation: worker_agent.reputation,
-            reason: reputation_reason::DISPUTE_SLASH,
-            timestamp: clock.unix_timestamp,
-        });
-    }
+    apply_reputation_penalty(worker_agent, &clock)?;
 
     if slash_amount > 0 {
         worker_agent.stake = worker_agent
@@ -172,18 +145,11 @@ pub fn handler(ctx: Context<ApplyDisputeSlash>) -> Result<()> {
             .ok_or(CoordinationError::ArithmeticOverflow)?;
 
         // Fix #374: Actually transfer lamports to treasury
-        let worker_agent_info = ctx.accounts.worker_agent.to_account_info();
-        let treasury_info = ctx.accounts.treasury.to_account_info();
-
-        **worker_agent_info.try_borrow_mut_lamports()? = worker_agent_info
-            .lamports()
-            .checked_sub(slash_amount)
-            .ok_or(CoordinationError::InsufficientFunds)?;
-
-        **treasury_info.try_borrow_mut_lamports()? = treasury_info
-            .lamports()
-            .checked_add(slash_amount)
-            .ok_or(CoordinationError::ArithmeticOverflow)?;
+        transfer_slash_to_treasury(
+            &ctx.accounts.worker_agent.to_account_info(),
+            &ctx.accounts.treasury.to_account_info(),
+            slash_amount,
+        )?;
     }
 
     dispute.slash_applied = true;

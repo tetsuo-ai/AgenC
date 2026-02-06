@@ -245,20 +245,7 @@ export class TaskExecutor {
     }
 
     // Wait for active tasks to finish/abort
-    if (this.activeTasks.size > 0) {
-      await new Promise<void>((resolve) => {
-        const checkDone = () => {
-          if (this.activeTasks.size === 0) {
-            resolve();
-          } else {
-            setTimeout(checkDone, 50);
-          }
-        };
-        // Timeout safety: resolve after 5 seconds regardless
-        setTimeout(resolve, 5000);
-        checkDone();
-      });
-    }
+    await this.waitForActiveTasks();
 
     // Stop rescore timer
     if (this.rescoreTimerId !== null) {
@@ -272,6 +259,25 @@ export class TaskExecutor {
     this.startedAt = null;
 
     this.logger.info('TaskExecutor stopped');
+  }
+
+  /**
+   * Wait for all active tasks to finish or abort, with a timeout safety net.
+   */
+  private async waitForActiveTasks(timeoutMs = 5000): Promise<void> {
+    if (this.activeTasks.size === 0) return;
+    await new Promise<void>((resolve) => {
+      const checkDone = () => {
+        if (this.activeTasks.size === 0) {
+          resolve();
+        } else {
+          setTimeout(checkDone, 50);
+        }
+      };
+      // Timeout safety: resolve after timeoutMs regardless
+      setTimeout(resolve, timeoutMs);
+      checkDone();
+    });
   }
 
   /**
@@ -517,7 +523,9 @@ export class TaskExecutor {
       }
 
       // Clean up checkpoint on failure (the DLQ captures the failure context)
-      await this.checkpointStore!.remove(pda).catch(() => {});
+      await this.checkpointStore!.remove(pda).catch((err: unknown) => {
+        this.logger.warn('Failed to remove checkpoint', err);
+      });
     } finally {
       this.activeTasks.delete(pda);
       this.drainQueue();

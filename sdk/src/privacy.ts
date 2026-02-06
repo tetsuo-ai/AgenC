@@ -11,6 +11,7 @@ import {
   computeCommitment as computeCommitmentFromProofs,
   FIELD_MODULUS,
 } from './proofs';
+import { createLogger, type Logger } from './logger';
 
 // Re-export types for external use
 export type { PrivacyCashConfig };
@@ -92,12 +93,14 @@ export class AgenCPrivacyClient {
     private privacyCash: PrivacyCash | null = null;
     private rpcUrl: string;
     private privacyCashLoaded: boolean = false;
+    private logger: Logger;
 
     constructor(
         connection: Connection,
         program: Program,
         circuitPath: string = './circuits/task_completion',
-        rpcUrl?: string
+        rpcUrl?: string,
+        logger?: Logger,
     ) {
         // Security: Validate circuit path to prevent path traversal
         validateCircuitPath(circuitPath);
@@ -106,6 +109,7 @@ export class AgenCPrivacyClient {
         this.program = program;
         this.circuitPath = circuitPath;
         this.rpcUrl = rpcUrl || connection.rpcEndpoint;
+        this.logger = logger ?? createLogger('info');
     }
 
     /**
@@ -127,7 +131,7 @@ export class AgenCPrivacyClient {
         });
         // Security: Truncate public key in logs to avoid full exposure
         const pubkeyStr = owner.publicKey.toBase58();
-        console.log('Privacy Cash client initialized for:', pubkeyStr.substring(0, 8) + '...' + pubkeyStr.substring(pubkeyStr.length - 4));
+        this.logger.info(`Privacy Cash client initialized for: ${pubkeyStr.substring(0, 8)}...${pubkeyStr.substring(pubkeyStr.length - 4)}`);
     }
 
     /**
@@ -143,11 +147,11 @@ export class AgenCPrivacyClient {
             await this.initPrivacyCash(creator);
         }
 
-        console.log(`Shielding ${lamports / LAMPORTS_PER_SOL} SOL into privacy pool...`);
+        this.logger.info(`Shielding ${lamports / LAMPORTS_PER_SOL} SOL into privacy pool...`);
 
         const result = await this.privacyCash!.deposit({ lamports });
 
-        console.log('Escrow shielded successfully');
+        this.logger.info('Escrow shielded successfully');
         return {
             txSignature: result?.signature || 'deposited',
             shieldedAmount: lamports
@@ -189,7 +193,7 @@ export class AgenCPrivacyClient {
         const outputCommitment = await this.computeCommitment(output, salt);
 
         // 3. Generate ZK proof of task completion using Noir/Sunspot
-        console.log('Step 1/3: Generating ZK proof of task completion...');
+        this.logger.info('Step 1/3: Generating ZK proof of task completion...');
         const { zkProof, publicWitness } = await this.generateTaskCompletionProof({
             taskId,
             agentPubkey: worker.publicKey,
@@ -198,10 +202,10 @@ export class AgenCPrivacyClient {
             output,
             salt,
         });
-        console.log('ZK proof generated:', zkProof.length, 'bytes');
+        this.logger.info(`ZK proof generated: ${zkProof.length} bytes`);
 
         // 4. Submit proof to on-chain verifier
-        console.log('Step 2/3: Submitting proof to on-chain verifier...');
+        this.logger.info('Step 2/3: Submitting proof to on-chain verifier...');
         const tx = await this.buildCompleteTaskPrivateTx({
             taskId,
             zkProof,
@@ -215,12 +219,12 @@ export class AgenCPrivacyClient {
         if (confirmation.value.err) {
             throw new Error(`Transaction failed: ${JSON.stringify(confirmation.value.err)}`);
         }
-        console.log('Proof verified on-chain:', proofTxSignature);
+        this.logger.info(`Proof verified on-chain: ${proofTxSignature}`);
 
         // 5. Withdraw shielded escrow to worker via Privacy Cash
         // Note: In production, this would be triggered by the on-chain program
         // after ZK proof verification. For demo, we trigger it client-side.
-        console.log('Step 3/3: Withdrawing shielded escrow via Privacy Cash...');
+        this.logger.info('Step 3/3: Withdrawing shielded escrow via Privacy Cash...');
         const rawResult = await this.privacyCash!.withdraw({
             lamports: escrowLamports,
             recipientAddress: recipientWallet.toBase58()
@@ -229,7 +233,7 @@ export class AgenCPrivacyClient {
             throw new Error('Privacy Cash withdraw returned invalid result');
         }
         const withdrawResult = rawResult as WithdrawResult;
-        console.log('Private payment completed!');
+        this.logger.info('Private payment completed!');
 
         return {
             proofTxSignature,

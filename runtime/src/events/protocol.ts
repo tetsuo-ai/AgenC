@@ -5,7 +5,6 @@
 
 import { Program } from '@coral-xyz/anchor';
 import type { AgencCoordination } from '../types/agenc_coordination.js';
-import { agentIdsEqual } from '../utils/encoding.js';
 import type {
   EventCallback,
   EventSubscription,
@@ -32,6 +31,7 @@ import {
   parseMigrationCompletedEvent,
   parseProtocolVersionUpdatedEvent,
 } from './parse.js';
+import { createEventSubscription } from './factory.js';
 
 /**
  * Subscribes to StateUpdated events.
@@ -44,18 +44,11 @@ export function subscribeToStateUpdated(
   program: Program<AgencCoordination>,
   callback: EventCallback<StateUpdatedEvent>,
 ): EventSubscription {
-  const listenerId = program.addEventListener(
-    'stateUpdated',
-    (rawEvent: RawStateUpdatedEvent, slot: number, signature: string) => {
-      const event = parseStateUpdatedEvent(rawEvent);
-      callback(event, slot, signature);
-    }
+  return createEventSubscription<RawStateUpdatedEvent, StateUpdatedEvent, never>(
+    program,
+    { eventName: 'stateUpdated', parse: parseStateUpdatedEvent },
+    callback,
   );
-  return {
-    unsubscribe: async () => {
-      await program.removeEventListener(listenerId);
-    },
-  };
 }
 
 /**
@@ -69,18 +62,11 @@ export function subscribeToProtocolInitialized(
   program: Program<AgencCoordination>,
   callback: EventCallback<ProtocolInitializedEvent>,
 ): EventSubscription {
-  const listenerId = program.addEventListener(
-    'protocolInitialized',
-    (rawEvent: RawProtocolInitializedEvent, slot: number, signature: string) => {
-      const event = parseProtocolInitializedEvent(rawEvent);
-      callback(event, slot, signature);
-    }
+  return createEventSubscription<RawProtocolInitializedEvent, ProtocolInitializedEvent, never>(
+    program,
+    { eventName: 'protocolInitialized', parse: parseProtocolInitializedEvent },
+    callback,
   );
-  return {
-    unsubscribe: async () => {
-      await program.removeEventListener(listenerId);
-    },
-  };
 }
 
 /**
@@ -96,19 +82,17 @@ export function subscribeToRewardDistributed(
   callback: EventCallback<RewardDistributedEvent>,
   options?: ProtocolEventFilterOptions,
 ): EventSubscription {
-  const listenerId = program.addEventListener(
-    'rewardDistributed',
-    (rawEvent: RawRewardDistributedEvent, slot: number, signature: string) => {
-      const event = parseRewardDistributedEvent(rawEvent);
-      if (options?.taskId && !agentIdsEqual(event.taskId, options.taskId)) return;
-      callback(event, slot, signature);
-    }
-  );
-  return {
-    unsubscribe: async () => {
-      await program.removeEventListener(listenerId);
+  return createEventSubscription<RawRewardDistributedEvent, RewardDistributedEvent, ProtocolEventFilterOptions>(
+    program,
+    {
+      eventName: 'rewardDistributed',
+      parse: parseRewardDistributedEvent,
+      getFilterId: (event) => event.taskId,
+      getFilterValue: (opts) => opts.taskId,
     },
-  };
+    callback,
+    options,
+  );
 }
 
 /**
@@ -124,19 +108,17 @@ export function subscribeToRateLimitHit(
   callback: EventCallback<RateLimitHitEvent>,
   options?: ProtocolEventFilterOptions,
 ): EventSubscription {
-  const listenerId = program.addEventListener(
-    'rateLimitHit',
-    (rawEvent: RawRateLimitHitEvent, slot: number, signature: string) => {
-      const event = parseRateLimitHitEvent(rawEvent);
-      if (options?.agentId && !agentIdsEqual(event.agentId, options.agentId)) return;
-      callback(event, slot, signature);
-    }
-  );
-  return {
-    unsubscribe: async () => {
-      await program.removeEventListener(listenerId);
+  return createEventSubscription<RawRateLimitHitEvent, RateLimitHitEvent, ProtocolEventFilterOptions>(
+    program,
+    {
+      eventName: 'rateLimitHit',
+      parse: parseRateLimitHitEvent,
+      getFilterId: (event) => event.agentId,
+      getFilterValue: (opts) => opts.agentId,
     },
-  };
+    callback,
+    options,
+  );
 }
 
 /**
@@ -150,18 +132,11 @@ export function subscribeToMigrationCompleted(
   program: Program<AgencCoordination>,
   callback: EventCallback<MigrationCompletedEvent>,
 ): EventSubscription {
-  const listenerId = program.addEventListener(
-    'migrationCompleted',
-    (rawEvent: RawMigrationCompletedEvent, slot: number, signature: string) => {
-      const event = parseMigrationCompletedEvent(rawEvent);
-      callback(event, slot, signature);
-    }
+  return createEventSubscription<RawMigrationCompletedEvent, MigrationCompletedEvent, never>(
+    program,
+    { eventName: 'migrationCompleted', parse: parseMigrationCompletedEvent },
+    callback,
   );
-  return {
-    unsubscribe: async () => {
-      await program.removeEventListener(listenerId);
-    },
-  };
 }
 
 /**
@@ -175,18 +150,11 @@ export function subscribeToProtocolVersionUpdated(
   program: Program<AgencCoordination>,
   callback: EventCallback<ProtocolVersionUpdatedEvent>,
 ): EventSubscription {
-  const listenerId = program.addEventListener(
-    'protocolVersionUpdated',
-    (rawEvent: RawProtocolVersionUpdatedEvent, slot: number, signature: string) => {
-      const event = parseProtocolVersionUpdatedEvent(rawEvent);
-      callback(event, slot, signature);
-    }
+  return createEventSubscription<RawProtocolVersionUpdatedEvent, ProtocolVersionUpdatedEvent, never>(
+    program,
+    { eventName: 'protocolVersionUpdated', parse: parseProtocolVersionUpdatedEvent },
+    callback,
   );
-  return {
-    unsubscribe: async () => {
-      await program.removeEventListener(listenerId);
-    },
-  };
 }
 
 /**
