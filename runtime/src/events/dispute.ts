@@ -5,7 +5,6 @@
 
 import { Program } from '@coral-xyz/anchor';
 import type { AgencCoordination } from '../types/agenc_coordination.js';
-import { agentIdsEqual } from '../utils/encoding.js';
 import type {
   EventCallback,
   EventSubscription,
@@ -26,6 +25,7 @@ import {
   parseDisputeResolvedEvent,
   parseDisputeExpiredEvent,
 } from './parse.js';
+import { createEventSubscription } from './factory.js';
 
 /**
  * Subscribes to DisputeInitiated events.
@@ -40,19 +40,17 @@ export function subscribeToDisputeInitiated(
   callback: EventCallback<DisputeInitiatedEvent>,
   options?: DisputeEventFilterOptions
 ): EventSubscription {
-  const listenerId = program.addEventListener(
-    'disputeInitiated',
-    (rawEvent: RawDisputeInitiatedEvent, slot: number, signature: string) => {
-      const event = parseDisputeInitiatedEvent(rawEvent);
-      if (options?.disputeId && !agentIdsEqual(event.disputeId, options.disputeId)) return;
-      callback(event, slot, signature);
-    }
-  );
-  return {
-    unsubscribe: async () => {
-      await program.removeEventListener(listenerId);
+  return createEventSubscription<RawDisputeInitiatedEvent, DisputeInitiatedEvent, DisputeEventFilterOptions>(
+    program,
+    {
+      eventName: 'disputeInitiated',
+      parse: parseDisputeInitiatedEvent,
+      getFilterId: (event) => event.disputeId,
+      getFilterValue: (opts) => opts.disputeId,
     },
-  };
+    callback,
+    options,
+  );
 }
 
 /**
@@ -68,19 +66,17 @@ export function subscribeToDisputeVoteCast(
   callback: EventCallback<DisputeVoteCastEvent>,
   options?: DisputeEventFilterOptions
 ): EventSubscription {
-  const listenerId = program.addEventListener(
-    'disputeVoteCast',
-    (rawEvent: RawDisputeVoteCastEvent, slot: number, signature: string) => {
-      const event = parseDisputeVoteCastEvent(rawEvent);
-      if (options?.disputeId && !agentIdsEqual(event.disputeId, options.disputeId)) return;
-      callback(event, slot, signature);
-    }
-  );
-  return {
-    unsubscribe: async () => {
-      await program.removeEventListener(listenerId);
+  return createEventSubscription<RawDisputeVoteCastEvent, DisputeVoteCastEvent, DisputeEventFilterOptions>(
+    program,
+    {
+      eventName: 'disputeVoteCast',
+      parse: parseDisputeVoteCastEvent,
+      getFilterId: (event) => event.disputeId,
+      getFilterValue: (opts) => opts.disputeId,
     },
-  };
+    callback,
+    options,
+  );
 }
 
 /**
@@ -96,19 +92,17 @@ export function subscribeToDisputeResolved(
   callback: EventCallback<DisputeResolvedEvent>,
   options?: DisputeEventFilterOptions
 ): EventSubscription {
-  const listenerId = program.addEventListener(
-    'disputeResolved',
-    (rawEvent: RawDisputeResolvedEvent, slot: number, signature: string) => {
-      const event = parseDisputeResolvedEvent(rawEvent);
-      if (options?.disputeId && !agentIdsEqual(event.disputeId, options.disputeId)) return;
-      callback(event, slot, signature);
-    }
-  );
-  return {
-    unsubscribe: async () => {
-      await program.removeEventListener(listenerId);
+  return createEventSubscription<RawDisputeResolvedEvent, DisputeResolvedEvent, DisputeEventFilterOptions>(
+    program,
+    {
+      eventName: 'disputeResolved',
+      parse: parseDisputeResolvedEvent,
+      getFilterId: (event) => event.disputeId,
+      getFilterValue: (opts) => opts.disputeId,
     },
-  };
+    callback,
+    options,
+  );
 }
 
 /**
@@ -124,19 +118,17 @@ export function subscribeToDisputeExpired(
   callback: EventCallback<DisputeExpiredEvent>,
   options?: DisputeEventFilterOptions
 ): EventSubscription {
-  const listenerId = program.addEventListener(
-    'disputeExpired',
-    (rawEvent: RawDisputeExpiredEvent, slot: number, signature: string) => {
-      const event = parseDisputeExpiredEvent(rawEvent);
-      if (options?.disputeId && !agentIdsEqual(event.disputeId, options.disputeId)) return;
-      callback(event, slot, signature);
-    }
-  );
-  return {
-    unsubscribe: async () => {
-      await program.removeEventListener(listenerId);
+  return createEventSubscription<RawDisputeExpiredEvent, DisputeExpiredEvent, DisputeEventFilterOptions>(
+    program,
+    {
+      eventName: 'disputeExpired',
+      parse: parseDisputeExpiredEvent,
+      getFilterId: (event) => event.disputeId,
+      getFilterValue: (opts) => opts.disputeId,
     },
-  };
+    callback,
+    options,
+  );
 }
 
 /**

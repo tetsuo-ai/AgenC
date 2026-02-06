@@ -85,25 +85,7 @@ pub fn handler(ctx: Context<VoteDispute>, approve: bool) -> Result<()> {
     check_version_compatible(config)?;
 
     // Verify arbiter is not a dispute participant (fix #391, #461)
-    // Check 1: Arbiter cannot be the dispute initiator
-    require!(
-        arbiter.key() != dispute.initiator,
-        CoordinationError::ArbiterIsDisputeParticipant
-    );
-
-    // Check 2: Arbiter cannot be the task creator (fix #461)
-    require!(
-        arbiter.authority != task.creator,
-        CoordinationError::ArbiterIsDisputeParticipant
-    );
-
-    // Check 3: Arbiter cannot be the worker if worker_claim provided (fix #461)
-    if let Some(ref worker_claim) = ctx.accounts.worker_claim {
-        require!(
-            arbiter.key() != worker_claim.worker,
-            CoordinationError::ArbiterIsDisputeParticipant
-        );
-    }
+    validate_arbiter_not_participant(arbiter, dispute, task, &ctx.accounts.worker_claim)?;
 
     // Verify dispute is active
     require!(
@@ -201,6 +183,41 @@ pub fn handler(ctx: Context<VoteDispute>, approve: bool) -> Result<()> {
         votes_against: dispute.votes_against,
         timestamp: clock.unix_timestamp,
     });
+
+    Ok(())
+}
+
+/// Validates that the arbiter is not a participant in the dispute (fix #391, #461).
+///
+/// An arbiter cannot be:
+/// 1. The dispute initiator
+/// 2. The task creator
+/// 3. The worker (if worker_claim is provided)
+fn validate_arbiter_not_participant(
+    arbiter: &Account<AgentRegistration>,
+    dispute: &Account<Dispute>,
+    task: &Account<Task>,
+    worker_claim: &Option<Account<TaskClaim>>,
+) -> Result<()> {
+    // Check 1: Arbiter cannot be the dispute initiator
+    require!(
+        arbiter.key() != dispute.initiator,
+        CoordinationError::ArbiterIsDisputeParticipant
+    );
+
+    // Check 2: Arbiter cannot be the task creator (fix #461)
+    require!(
+        arbiter.authority != task.creator,
+        CoordinationError::ArbiterIsDisputeParticipant
+    );
+
+    // Check 3: Arbiter cannot be the worker if worker_claim provided (fix #461)
+    if let Some(ref worker_claim) = worker_claim {
+        require!(
+            arbiter.key() != worker_claim.worker,
+            CoordinationError::ArbiterIsDisputeParticipant
+        );
+    }
 
     Ok(())
 }

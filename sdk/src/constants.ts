@@ -50,7 +50,7 @@ export const OUTPUT_FIELD_COUNT = 4;
 /** Proof size in bytes (Groth16 via groth16-solana) */
 export const PROOF_SIZE_BYTES = 256;
 
-/** Approximate verification compute units (deprecated, use RECOMMENDED_CU below) */
+/** @deprecated Use RECOMMENDED_CU_COMPLETE_TASK_PRIVATE instead */
 export const VERIFICATION_COMPUTE_UNITS = 50_000;
 
 /** Timeout for nargo execute in ms (2 minutes) */

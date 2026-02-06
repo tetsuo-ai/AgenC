@@ -101,6 +101,12 @@ export {
   subscribeToAllProtocolEvents,
 } from './protocol.js';
 
+// Event subscription factory
+export {
+  createEventSubscription,
+  type EventSubscriptionConfig,
+} from './factory.js';
+
 // EventMonitor class
 export {
   EventMonitor,

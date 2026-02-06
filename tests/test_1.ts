@@ -15,6 +15,10 @@ import {
   generateRunId,
   getDefaultDeadline,
   sleep,
+  deriveAgentPda as _deriveAgentPda,
+  deriveTaskPda as _deriveTaskPda,
+  deriveEscrowPda as _deriveEscrowPda,
+  deriveClaimPda as _deriveClaimPda,
 } from "./test-utils";
 
 describe("test_1", () => {
@@ -47,32 +51,21 @@ describe("test_1", () => {
   let creatorAgentId: Buffer;
 
 
+  // PDA helpers close over program.programId for convenience (2-arg variants)
   function deriveAgentPda(agentId: Buffer): PublicKey {
-    return PublicKey.findProgramAddressSync(
-      [Buffer.from("agent"), agentId],
-      program.programId
-    )[0];
+    return _deriveAgentPda(agentId, program.programId);
   }
 
   function deriveTaskPda(creatorPubkey: PublicKey, taskId: Buffer): PublicKey {
-    return PublicKey.findProgramAddressSync(
-      [Buffer.from("task"), creatorPubkey.toBuffer(), taskId],
-      program.programId
-    )[0];
+    return _deriveTaskPda(creatorPubkey, taskId, program.programId);
   }
 
   function deriveEscrowPda(taskPda: PublicKey): PublicKey {
-    return PublicKey.findProgramAddressSync(
-      [Buffer.from("escrow"), taskPda.toBuffer()],
-      program.programId
-    )[0];
+    return _deriveEscrowPda(taskPda, program.programId);
   }
 
   function deriveClaimPda(taskPda: PublicKey, workerPubkey: PublicKey): PublicKey {
-    return PublicKey.findProgramAddressSync(
-      [Buffer.from("claim"), taskPda.toBuffer(), workerPubkey.toBuffer()],
-      program.programId
-    )[0];
+    return _deriveClaimPda(taskPda, workerPubkey, program.programId);
   }
 
   // Helper to generate unique agent IDs to avoid conflicts with persisted validator state

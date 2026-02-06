@@ -161,6 +161,57 @@ export function deriveStatePda(key: string, programId: PublicKey): PublicKey {
 }
 
 // ============================================================================
+// Buffer Creation Helpers
+// ============================================================================
+
+/**
+ * Create a 32-byte buffer from a string (padded with zeros).
+ */
+export function createId(name: string): Buffer {
+  return Buffer.from(name.padEnd(32, "\0"));
+}
+
+/**
+ * Create a 64-byte description array from a string.
+ */
+export function createDescription(desc: string): number[] {
+  const buf = Buffer.alloc(64);
+  buf.write(desc);
+  return Array.from(buf);
+}
+
+/**
+ * Create a 32-byte hash array from a string.
+ */
+export function createHash(data: string): number[] {
+  const buf = Buffer.alloc(32);
+  buf.write(data);
+  return Array.from(buf);
+}
+
+// ============================================================================
+// Default Protocol Configuration Constants
+// ============================================================================
+
+/** Default airdrop amount in SOL for test wallets */
+export const AIRDROP_SOL = 2;
+/** Minimum balance threshold before re-airdropping */
+export const MIN_BALANCE_SOL = 1;
+/** Maximum retries for airdrop requests */
+export const MAX_AIRDROP_ATTEMPTS = 5;
+/** Base delay for exponential backoff (ms) */
+export const BASE_DELAY_MS = 500;
+/** Maximum delay between retries (ms) */
+export const MAX_DELAY_MS = 8000;
+
+/** Default min stake for protocol initialization (1 SOL) */
+export const DEFAULT_MIN_STAKE_LAMPORTS = 1 * LAMPORTS_PER_SOL;
+/** Default protocol fee in basis points (1% = 100 bps) */
+export const DEFAULT_PROTOCOL_FEE_BPS = 100;
+/** Default dispute threshold percentage */
+export const DEFAULT_DISPUTE_THRESHOLD = 51;
+
+// ============================================================================
 // Helper Functions
 // ============================================================================
 

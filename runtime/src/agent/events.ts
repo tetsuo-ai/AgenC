@@ -11,21 +11,15 @@ import type {
   AgentUpdatedEvent,
   AgentDeregisteredEvent,
 } from './types.js';
-import { agentIdsEqual } from '../utils/encoding.js';
+import type { EventSubscription } from '../events/types.js';
+export type { EventSubscription };
+import { createEventSubscription } from '../events/factory.js';
 
 /**
  * Callback type for event handlers.
  * @typeParam T - The event type
  */
 export type AgentEventCallback<T> = (event: T, slot: number, signature: string) => void;
-
-/**
- * Subscription handle for unsubscribing from events.
- */
-export interface EventSubscription {
-  /** Unsubscribe from the event stream */
-  unsubscribe(): Promise<void>;
-}
 
 /**
  * Callbacks for all agent events (used with subscribeToAllAgentEvents)
@@ -140,26 +134,17 @@ export function subscribeToAgentRegistered(
   callback: AgentEventCallback<AgentRegisteredEvent>,
   options?: EventSubscriptionOptions
 ): EventSubscription {
-  // Event names in Anchor are camelCase
-  const listenerId = program.addEventListener(
-    'agentRegistered',
-    (rawEvent: RawAgentRegisteredEvent, slot: number, signature: string) => {
-      const event = parseAgentRegisteredEvent(rawEvent);
-
-      // Apply agent ID filter if specified
-      if (options?.agentId && !agentIdsEqual(event.agentId, options.agentId)) {
-        return;
-      }
-
-      callback(event, slot, signature);
-    }
-  );
-
-  return {
-    unsubscribe: async () => {
-      await program.removeEventListener(listenerId);
+  return createEventSubscription<RawAgentRegisteredEvent, AgentRegisteredEvent, EventSubscriptionOptions>(
+    program,
+    {
+      eventName: 'agentRegistered',
+      parse: parseAgentRegisteredEvent,
+      getFilterId: (event) => event.agentId,
+      getFilterValue: (opts) => opts.agentId,
     },
-  };
+    callback,
+    options,
+  );
 }
 
 /**
@@ -182,25 +167,17 @@ export function subscribeToAgentUpdated(
   callback: AgentEventCallback<AgentUpdatedEvent>,
   options?: EventSubscriptionOptions
 ): EventSubscription {
-  const listenerId = program.addEventListener(
-    'agentUpdated',
-    (rawEvent: RawAgentUpdatedEvent, slot: number, signature: string) => {
-      const event = parseAgentUpdatedEvent(rawEvent);
-
-      // Apply agent ID filter if specified
-      if (options?.agentId && !agentIdsEqual(event.agentId, options.agentId)) {
-        return;
-      }
-
-      callback(event, slot, signature);
-    }
-  );
-
-  return {
-    unsubscribe: async () => {
-      await program.removeEventListener(listenerId);
+  return createEventSubscription<RawAgentUpdatedEvent, AgentUpdatedEvent, EventSubscriptionOptions>(
+    program,
+    {
+      eventName: 'agentUpdated',
+      parse: parseAgentUpdatedEvent,
+      getFilterId: (event) => event.agentId,
+      getFilterValue: (opts) => opts.agentId,
     },
-  };
+    callback,
+    options,
+  );
 }
 
 /**
@@ -223,25 +200,17 @@ export function subscribeToAgentDeregistered(
   callback: AgentEventCallback<AgentDeregisteredEvent>,
   options?: EventSubscriptionOptions
 ): EventSubscription {
-  const listenerId = program.addEventListener(
-    'agentDeregistered',
-    (rawEvent: RawAgentDeregisteredEvent, slot: number, signature: string) => {
-      const event = parseAgentDeregisteredEvent(rawEvent);
-
-      // Apply agent ID filter if specified
-      if (options?.agentId && !agentIdsEqual(event.agentId, options.agentId)) {
-        return;
-      }
-
-      callback(event, slot, signature);
-    }
-  );
-
-  return {
-    unsubscribe: async () => {
-      await program.removeEventListener(listenerId);
+  return createEventSubscription<RawAgentDeregisteredEvent, AgentDeregisteredEvent, EventSubscriptionOptions>(
+    program,
+    {
+      eventName: 'agentDeregistered',
+      parse: parseAgentDeregisteredEvent,
+      getFilterId: (event) => event.agentId,
+      getFilterValue: (opts) => opts.agentId,
     },
-  };
+    callback,
+    options,
+  );
 }
 
 /**
