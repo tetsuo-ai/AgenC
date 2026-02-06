@@ -20,6 +20,14 @@ import {
   makeAgentId,
   makeTaskId,
   makeDisputeId,
+  deriveProtocolPda,
+  deriveAgentPda,
+  deriveTaskPda,
+  deriveEscrowPda,
+  deriveClaimPda,
+  deriveDisputePda,
+  deriveVotePda,
+  deriveAuthorityVotePda,
 } from "./test-utils";
 
 describe("coordination-security", () => {
@@ -28,10 +36,7 @@ describe("coordination-security", () => {
 
   const program = anchor.workspace.AgencCoordination as Program<AgencCoordination>;
 
-  const [protocolPda] = PublicKey.findProgramAddressSync(
-    [Buffer.from("protocol")],
-    program.programId
-  );
+  const protocolPda = deriveProtocolPda(program.programId);
 
   // Generate unique run ID to prevent conflicts with persisted validator state
   const runId = generateRunId();
@@ -145,10 +150,7 @@ describe("coordination-security", () => {
       // May already be configured
     }
 
-    creatorAgentPda = PublicKey.findProgramAddressSync(
-      [Buffer.from("agent"), creatorAgentId],
-      program.programId
-    )[0];
+    creatorAgentPda = deriveAgentPda(creatorAgentId, program.programId);
 
     try {
       await program.methods
@@ -171,15 +173,6 @@ describe("coordination-security", () => {
     }
   });
 
-  // Helper function to derive agent PDA
-  function deriveAgentPda(agentId: Buffer): PublicKey {
-    const [pda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("agent"), agentId],
-      program.programId
-    );
-    return pda;
-  }
-
   // Ensure all shared agents are active before each test
   // This prevents cascading failures when a test deactivates an agent
   beforeEach(async () => {
@@ -192,7 +185,7 @@ describe("coordination-security", () => {
 
     for (const agent of agentsToCheck) {
       try {
-        const agentPda = deriveAgentPda(agent.id);
+        const agentPda = deriveAgentPda(agent.id, program.programId);
         const agentAccount = await program.account.agentRegistration.fetch(agentPda);
 
         // If agent is inactive, reactivate it
@@ -236,10 +229,7 @@ describe("coordination-security", () => {
 
     describe("Agent Registration", () => {
       it("Successfully registers a new agent", async () => {
-        const [agentPda] = PublicKey.findProgramAddressSync(
-          [Buffer.from("agent"), agentId1],
-          program.programId
-        );
+        const agentPda = deriveAgentPda(agentId1, program.programId);
 
         const balanceBefore = await provider.connection.getBalance(worker1.publicKey);
 
@@ -270,10 +260,7 @@ describe("coordination-security", () => {
       });
 
       it("Emits AgentRegistered event", async () => {
-        const [agentPda] = PublicKey.findProgramAddressSync(
-          [Buffer.from("agent"), agentId2],
-          program.programId
-        );
+        const agentPda = deriveAgentPda(agentId2, program.programId);
 
         let eventEmitted = false;
         const listener = program.addEventListener("AgentRegistered", (event) => {
@@ -305,10 +292,7 @@ describe("coordination-security", () => {
 
       it("Fails when registering agent with empty endpoint", async () => {
         const emptyEndpointAgentId = makeAgentId("empty", runId);
-        const [agentPda] = PublicKey.findProgramAddressSync(
-          [Buffer.from("agent"), emptyEndpointAgentId],
-          program.programId
-        );
+        const agentPda = deriveAgentPda(emptyEndpointAgentId, program.programId);
 
         try {
           await program.methods
@@ -336,10 +320,7 @@ describe("coordination-security", () => {
 
     describe("Agent Update and Deregister", () => {
       it("Successfully updates agent capabilities and status", async () => {
-        const [agentPda] = PublicKey.findProgramAddressSync(
-          [Buffer.from("agent"), agentId1],
-          program.programId
-        );
+        const agentPda = deriveAgentPda(agentId1, program.programId);
 
         await program.methods
           .updateAgent(
@@ -361,10 +342,7 @@ describe("coordination-security", () => {
       });
 
       it("Successfully deregisters agent with no active tasks", async () => {
-        const [agentPda] = PublicKey.findProgramAddressSync(
-          [Buffer.from("agent"), agentId2],
-          program.programId
-        );
+        const agentPda = deriveAgentPda(agentId2, program.programId);
 
         await program.methods
           .deregisterAgent()
@@ -391,14 +369,8 @@ describe("coordination-security", () => {
 
     describe("Task Creation - All Types", () => {
       it("Successfully creates exclusive task with reward", async () => {
-        const [taskPda] = PublicKey.findProgramAddressSync(
-          [Buffer.from("task"), creator.publicKey.toBuffer(), taskId1],
-          program.programId
-        );
-        const [escrowPda] = PublicKey.findProgramAddressSync(
-          [Buffer.from("escrow"), taskPda.toBuffer()],
-          program.programId
-        );
+        const taskPda = deriveTaskPda(creator.publicKey, taskId1, program.programId);
+        const escrowPda = deriveEscrowPda(taskPda, program.programId);
 
         const rewardAmount = 2 * LAMPORTS_PER_SOL;
         const creatorBalanceBefore = await provider.connection.getBalance(creator.publicKey);
@@ -439,14 +411,8 @@ describe("coordination-security", () => {
       });
 
       it("Successfully creates collaborative task", async () => {
-        const [taskPda] = PublicKey.findProgramAddressSync(
-          [Buffer.from("task"), creator.publicKey.toBuffer(), taskId2],
-          program.programId
-        );
-        const [escrowPda] = PublicKey.findProgramAddressSync(
-          [Buffer.from("escrow"), taskPda.toBuffer()],
-          program.programId
-        );
+        const taskPda = deriveTaskPda(creator.publicKey, taskId2, program.programId);
+        const escrowPda = deriveEscrowPda(taskPda, program.programId);
 
         await program.methods
           .createTask(
@@ -475,14 +441,8 @@ describe("coordination-security", () => {
       });
 
       it("Successfully creates competitive task", async () => {
-        const [taskPda] = PublicKey.findProgramAddressSync(
-          [Buffer.from("task"), creator.publicKey.toBuffer(), taskId3],
-          program.programId
-        );
-        const [escrowPda] = PublicKey.findProgramAddressSync(
-          [Buffer.from("escrow"), taskPda.toBuffer()],
-          program.programId
-        );
+        const taskPda = deriveTaskPda(creator.publicKey, taskId3, program.programId);
+        const escrowPda = deriveEscrowPda(taskPda, program.programId);
 
         await program.methods
           .createTask(
@@ -512,21 +472,16 @@ describe("coordination-security", () => {
 
     describe("Task Claim and Complete - Exclusive Task", () => {
       it("Successfully claims exclusive task", async () => {
-        const [taskPda] = PublicKey.findProgramAddressSync(
-          [Buffer.from("task"), creator.publicKey.toBuffer(), taskId1],
-          program.programId
-        );
-        const [claimPda] = PublicKey.findProgramAddressSync(
-          [Buffer.from("claim"), taskPda.toBuffer(), deriveAgentPda(agentId1).toBuffer()],
-          program.programId
-        );
+        const taskPda = deriveTaskPda(creator.publicKey, taskId1, program.programId);
+        const worker1Pda = deriveAgentPda(agentId1, program.programId);
+        const claimPda = deriveClaimPda(taskPda, worker1Pda, program.programId);
 
         await program.methods
           .claimTask()
           .accountsPartial({
             task: taskPda,
             claim: claimPda,
-            worker: deriveAgentPda(agentId1),
+            worker: worker1Pda,
             authority: worker1.publicKey,
           })
           .signers([worker1])
@@ -537,23 +492,15 @@ describe("coordination-security", () => {
         expect(task.status).to.deep.equal({ inProgress: {} });
 
         const claim = await program.account.taskClaim.fetch(claimPda);
-        expect(claim.worker.toString()).to.equal(deriveAgentPda(agentId1).toString());
+        expect(claim.worker.toString()).to.equal(worker1Pda.toString());
         expect(claim.isCompleted).to.be.false;
       });
 
       it("Successfully completes exclusive task and receives reward", async () => {
-        const [taskPda] = PublicKey.findProgramAddressSync(
-          [Buffer.from("task"), creator.publicKey.toBuffer(), taskId1],
-          program.programId
-        );
-        const [claimPda] = PublicKey.findProgramAddressSync(
-          [Buffer.from("claim"), taskPda.toBuffer(), deriveAgentPda(agentId1).toBuffer()],
-          program.programId
-        );
-        const [escrowPda] = PublicKey.findProgramAddressSync(
-          [Buffer.from("escrow"), taskPda.toBuffer()],
-          program.programId
-        );
+        const taskPda = deriveTaskPda(creator.publicKey, taskId1, program.programId);
+        const worker1Pda = deriveAgentPda(agentId1, program.programId);
+        const claimPda = deriveClaimPda(taskPda, worker1Pda, program.programId);
+        const escrowPda = deriveEscrowPda(taskPda, program.programId);
 
         const proofHash = Buffer.from("proof-hash-00000000000001".padEnd(32, "\0"));
         const rewardAmount = 2 * LAMPORTS_PER_SOL;
@@ -569,7 +516,7 @@ describe("coordination-security", () => {
             task: taskPda,
             claim: claimPda,
             escrow: escrowPda,
-            worker: deriveAgentPda(agentId1),
+            worker: worker1Pda,
             protocolConfig: protocolPda,
             treasury: treasuryPubkey,
             authority: worker1.publicKey,
@@ -595,9 +542,7 @@ describe("coordination-security", () => {
         expect(workerBalanceAfter - workerBalanceBefore).to.be.at.least(expectedReward - 100000);
         expect(treasuryBalanceAfter - treasuryBalanceBefore).to.equal(expectedFee);
 
-        const agent = await program.account.agentRegistration.fetch(
-          PublicKey.findProgramAddressSync([Buffer.from("agent"), agentId1], program.programId)[0]
-        );
+        const agent = await program.account.agentRegistration.fetch(worker1Pda);
         expect(agent.tasksCompleted.toNumber()).to.equal(1);
         expect(agent.totalEarned.toNumber()).to.equal(expectedReward);
         expect(agent.reputation).to.equal(5100);
@@ -608,14 +553,8 @@ describe("coordination-security", () => {
     describe("Task Cancel - Unclaimed", () => {
       it("Successfully cancels unclaimed task", async () => {
         const newTaskId = Buffer.from("task-cancel00000000000001".padEnd(32, "\0"));
-        const [taskPda] = PublicKey.findProgramAddressSync(
-          [Buffer.from("task"), creator.publicKey.toBuffer(), newTaskId],
-          program.programId
-        );
-        const [escrowPda] = PublicKey.findProgramAddressSync(
-          [Buffer.from("escrow"), taskPda.toBuffer()],
-          program.programId
-        );
+        const taskPda = deriveTaskPda(creator.publicKey, newTaskId, program.programId);
+        const escrowPda = deriveEscrowPda(taskPda, program.programId);
 
         const rewardAmount = 1 * LAMPORTS_PER_SOL;
         const creatorBalanceBefore = await provider.connection.getBalance(creator.publicKey);
@@ -666,21 +605,12 @@ describe("coordination-security", () => {
       let workerPda: PublicKey;
 
       before(async () => {
-        workerPda = PublicKey.findProgramAddressSync([Buffer.from("agent"), agentId3], program.programId)[0];
+        workerPda = deriveAgentPda(agentId3, program.programId);
 
         const disputeTaskId = Buffer.from("task-dispute0000000000001".padEnd(32, "\0"));
-        taskPda = PublicKey.findProgramAddressSync(
-          [Buffer.from("task"), creator.publicKey.toBuffer(), disputeTaskId],
-          program.programId
-        )[0];
-        escrowPda = PublicKey.findProgramAddressSync(
-          [Buffer.from("escrow"), taskPda.toBuffer()],
-          program.programId
-        )[0];
-        disputePda = PublicKey.findProgramAddressSync(
-          [Buffer.from("dispute"), disputeId1],
-          program.programId
-        )[0];
+        taskPda = deriveTaskPda(creator.publicKey, disputeTaskId, program.programId);
+        escrowPda = deriveEscrowPda(taskPda, program.programId);
+        disputePda = deriveDisputePda(disputeId1, program.programId);
 
         await program.methods
           .registerAgent(
@@ -756,18 +686,9 @@ describe("coordination-security", () => {
           const arbiterId = [arbiterId1, arbiterId2, arbiterId3][i];
           const approve = i < 2;
 
-          const [arbiterPda] = PublicKey.findProgramAddressSync(
-            [Buffer.from("agent"), arbiterId],
-            program.programId
-          );
-          const [votePda] = PublicKey.findProgramAddressSync(
-            [Buffer.from("vote"), disputePda.toBuffer(), arbiterPda.toBuffer()],
-            program.programId
-          );
-          const [authorityVotePda] = PublicKey.findProgramAddressSync(
-            [Buffer.from("authority_vote"), disputePda.toBuffer(), arbiterKey.publicKey.toBuffer()],
-            program.programId
-          );
+          const arbiterPda = deriveAgentPda(arbiterId, program.programId);
+          const votePda = deriveVotePda(disputePda, arbiterPda, program.programId);
+          const authorityVotePda = deriveAuthorityVotePda(disputePda, arbiterKey.publicKey, program.programId);
 
           await program.methods
             .registerAgent(
@@ -809,30 +730,12 @@ describe("coordination-security", () => {
       it("Successfully resolves dispute with refund outcome", async () => {
         const creatorBalanceBefore = await provider.connection.getBalance(creator.publicKey);
 
-        const [arbiterPda1] = PublicKey.findProgramAddressSync(
-          [Buffer.from("agent"), arbiterId1],
-          program.programId
-        );
-        const [arbiterPda2] = PublicKey.findProgramAddressSync(
-          [Buffer.from("agent"), arbiterId2],
-          program.programId
-        );
-        const [arbiterPda3] = PublicKey.findProgramAddressSync(
-          [Buffer.from("agent"), arbiterId3],
-          program.programId
-        );
-        const [votePda1] = PublicKey.findProgramAddressSync(
-          [Buffer.from("vote"), disputePda.toBuffer(), arbiterPda1.toBuffer()],
-          program.programId
-        );
-        const [votePda2] = PublicKey.findProgramAddressSync(
-          [Buffer.from("vote"), disputePda.toBuffer(), arbiterPda2.toBuffer()],
-          program.programId
-        );
-        const [votePda3] = PublicKey.findProgramAddressSync(
-          [Buffer.from("vote"), disputePda.toBuffer(), arbiterPda3.toBuffer()],
-          program.programId
-        );
+        const arbiterPda1 = deriveAgentPda(arbiterId1, program.programId);
+        const arbiterPda2 = deriveAgentPda(arbiterId2, program.programId);
+        const arbiterPda3 = deriveAgentPda(arbiterId3, program.programId);
+        const votePda1 = deriveVotePda(disputePda, arbiterPda1, program.programId);
+        const votePda2 = deriveVotePda(disputePda, arbiterPda2, program.programId);
+        const votePda3 = deriveVotePda(disputePda, arbiterPda3, program.programId);
 
         await program.methods
           .resolveDispute()
@@ -871,10 +774,7 @@ describe("coordination-security", () => {
   describe("Security and Edge Cases", () => {
     describe("Unauthorized Access", () => {
       it("Fails when non-authority tries to update agent", async () => {
-        const [agentPda] = PublicKey.findProgramAddressSync(
-          [Buffer.from("agent"), agentId1],
-          program.programId
-        );
+        const agentPda = deriveAgentPda(agentId1, program.programId);
 
         try {
           await program.methods
@@ -895,14 +795,8 @@ describe("coordination-security", () => {
 
       it("Fails when non-creator tries to cancel task", async () => {
         const newTaskId = Buffer.from("task-unauth0000000000001".padEnd(32, "\0"));
-        const [taskPda] = PublicKey.findProgramAddressSync(
-          [Buffer.from("task"), creator.publicKey.toBuffer(), newTaskId],
-          program.programId
-        );
-        const [escrowPda] = PublicKey.findProgramAddressSync(
-          [Buffer.from("escrow"), taskPda.toBuffer()],
-          program.programId
-        );
+        const taskPda = deriveTaskPda(creator.publicKey, newTaskId, program.programId);
+        const escrowPda = deriveEscrowPda(taskPda, program.programId);
 
         await program.methods
           .createTask(
@@ -947,18 +841,10 @@ describe("coordination-security", () => {
     describe("Double Claims and Completions", () => {
       it("Fails when worker tries to claim same task twice", async () => {
         const newTaskId = Buffer.from("task-double0000000000001".padEnd(32, "\0"));
-        const [taskPda] = PublicKey.findProgramAddressSync(
-          [Buffer.from("task"), creator.publicKey.toBuffer(), newTaskId],
-          program.programId
-        );
-        const [escrowPda] = PublicKey.findProgramAddressSync(
-          [Buffer.from("escrow"), taskPda.toBuffer()],
-          program.programId
-        );
-        const [claimPda] = PublicKey.findProgramAddressSync(
-          [Buffer.from("claim"), taskPda.toBuffer(), deriveAgentPda(agentId1).toBuffer()],
-          program.programId
-        );
+        const taskPda = deriveTaskPda(creator.publicKey, newTaskId, program.programId);
+        const escrowPda = deriveEscrowPda(taskPda, program.programId);
+        const worker1Pda = deriveAgentPda(agentId1, program.programId);
+        const claimPda = deriveClaimPda(taskPda, worker1Pda, program.programId);
 
         await program.methods
           .createTask(
@@ -985,7 +871,7 @@ describe("coordination-security", () => {
           .accountsPartial({
             task: taskPda,
             claim: claimPda,
-            worker: deriveAgentPda(agentId1),
+            worker: worker1Pda,
             authority: worker1.publicKey,
           })
           .signers([worker1])
@@ -997,7 +883,7 @@ describe("coordination-security", () => {
             .accountsPartial({
               task: taskPda,
               claim: claimPda,
-              worker: deriveAgentPda(agentId1),
+              worker: worker1Pda,
               authority: worker1.publicKey,
             })
             .signers([worker1])
@@ -1012,18 +898,10 @@ describe("coordination-security", () => {
 
       it("Fails when worker tries to complete task twice", async () => {
         const newTaskId = Buffer.from("task-doublecomp000000001".padEnd(32, "\0"));
-        const [taskPda] = PublicKey.findProgramAddressSync(
-          [Buffer.from("task"), creator.publicKey.toBuffer(), newTaskId],
-          program.programId
-        );
-        const [escrowPda] = PublicKey.findProgramAddressSync(
-          [Buffer.from("escrow"), taskPda.toBuffer()],
-          program.programId
-        );
-        const [claimPda] = PublicKey.findProgramAddressSync(
-          [Buffer.from("claim"), taskPda.toBuffer(), deriveAgentPda(agentId1).toBuffer()],
-          program.programId
-        );
+        const taskPda = deriveTaskPda(creator.publicKey, newTaskId, program.programId);
+        const escrowPda = deriveEscrowPda(taskPda, program.programId);
+        const worker1Pda = deriveAgentPda(agentId1, program.programId);
+        const claimPda = deriveClaimPda(taskPda, worker1Pda, program.programId);
 
         await program.methods
           .createTask(
@@ -1050,7 +928,7 @@ describe("coordination-security", () => {
           .accountsPartial({
             task: taskPda,
             claim: claimPda,
-            worker: deriveAgentPda(agentId1),
+            worker: worker1Pda,
             authority: worker1.publicKey,
           })
           .signers([worker1])
@@ -1064,7 +942,7 @@ describe("coordination-security", () => {
             task: taskPda,
             claim: claimPda,
             escrow: escrowPda,
-            worker: deriveAgentPda(agentId1),
+            worker: worker1Pda,
             protocolConfig: protocolPda,
             treasury: treasuryPubkey,
             authority: worker1.publicKey,
@@ -1079,7 +957,7 @@ describe("coordination-security", () => {
               task: taskPda,
               claim: claimPda,
               escrow: escrowPda,
-              worker: deriveAgentPda(agentId1),
+              worker: worker1Pda,
               protocolConfig: protocolPda,
               treasury: treasuryPubkey,
               authority: worker1.publicKey,
@@ -1098,18 +976,10 @@ describe("coordination-security", () => {
     describe("Capability and Status Validation", () => {
       it("Fails when worker lacks required capabilities", async () => {
         const newTaskId = Buffer.from("task-capcheck0000000001".padEnd(32, "\0"));
-        const [taskPda] = PublicKey.findProgramAddressSync(
-          [Buffer.from("task"), creator.publicKey.toBuffer(), newTaskId],
-          program.programId
-        );
-        const [escrowPda] = PublicKey.findProgramAddressSync(
-          [Buffer.from("escrow"), taskPda.toBuffer()],
-          program.programId
-        );
-        const [claimPda] = PublicKey.findProgramAddressSync(
-          [Buffer.from("claim"), taskPda.toBuffer(), deriveAgentPda(agentId1).toBuffer()],
-          program.programId
-        );
+        const taskPda = deriveTaskPda(creator.publicKey, newTaskId, program.programId);
+        const escrowPda = deriveEscrowPda(taskPda, program.programId);
+        const worker1Pda = deriveAgentPda(agentId1, program.programId);
+        const claimPda = deriveClaimPda(taskPda, worker1Pda, program.programId);
 
         await program.methods
           .createTask(
@@ -1137,7 +1007,7 @@ describe("coordination-security", () => {
             .accountsPartial({
               task: taskPda,
               claim: claimPda,
-              worker: deriveAgentPda(agentId1),
+              worker: worker1Pda,
               authority: worker1.publicKey,
             })
             .signers([worker1])
@@ -1151,10 +1021,7 @@ describe("coordination-security", () => {
       });
 
       it("Fails when inactive agent tries to claim task", async () => {
-        const [agentPda] = PublicKey.findProgramAddressSync(
-          [Buffer.from("agent"), agentId1],
-          program.programId
-        );
+        const agentPda = deriveAgentPda(agentId1, program.programId);
 
         await program.methods
           .updateAgent(null, null, null, 0)  // 0 = Inactive
@@ -1166,18 +1033,9 @@ describe("coordination-security", () => {
           .rpc();
 
         const newTaskId = Buffer.from("task-inactive00000000001".padEnd(32, "\0"));
-        const [taskPda] = PublicKey.findProgramAddressSync(
-          [Buffer.from("task"), creator.publicKey.toBuffer(), newTaskId],
-          program.programId
-        );
-        const [escrowPda] = PublicKey.findProgramAddressSync(
-          [Buffer.from("escrow"), taskPda.toBuffer()],
-          program.programId
-        );
-        const [claimPda] = PublicKey.findProgramAddressSync(
-          [Buffer.from("claim"), taskPda.toBuffer(), deriveAgentPda(agentId1).toBuffer()],
-          program.programId
-        );
+        const taskPda = deriveTaskPda(creator.publicKey, newTaskId, program.programId);
+        const escrowPda = deriveEscrowPda(taskPda, program.programId);
+        const claimPda = deriveClaimPda(taskPda, agentPda, program.programId);
 
         await program.methods
           .createTask(
@@ -1205,7 +1063,7 @@ describe("coordination-security", () => {
             .accountsPartial({
               task: taskPda,
               claim: claimPda,
-              worker: deriveAgentPda(agentId1),
+              worker: agentPda,
               authority: worker1.publicKey,
             })
             .signers([worker1])
@@ -1231,14 +1089,8 @@ describe("coordination-security", () => {
     describe("Deadline Expiry", () => {
       it("Fails to claim task after deadline", async () => {
         const newTaskId = Buffer.from("task-expired000000000001".padEnd(32, "\0"));
-        const [taskPda] = PublicKey.findProgramAddressSync(
-          [Buffer.from("task"), creator.publicKey.toBuffer(), newTaskId],
-          program.programId
-        );
-        const [escrowPda] = PublicKey.findProgramAddressSync(
-          [Buffer.from("escrow"), taskPda.toBuffer()],
-          program.programId
-        );
+        const taskPda = deriveTaskPda(creator.publicKey, newTaskId, program.programId);
+        const escrowPda = deriveEscrowPda(taskPda, program.programId);
 
         const pastDeadline = Math.floor(Date.now() / 1000) - 3600;
 
@@ -1262,10 +1114,8 @@ describe("coordination-security", () => {
           .signers([creator])
           .rpc();
 
-        const [claimPda] = PublicKey.findProgramAddressSync(
-          [Buffer.from("claim"), taskPda.toBuffer(), deriveAgentPda(agentId1).toBuffer()],
-          program.programId
-        );
+        const worker1Pda = deriveAgentPda(agentId1, program.programId);
+        const claimPda = deriveClaimPda(taskPda, worker1Pda, program.programId);
 
         try {
           await program.methods
@@ -1273,7 +1123,7 @@ describe("coordination-security", () => {
             .accountsPartial({
               task: taskPda,
               claim: claimPda,
-              worker: deriveAgentPda(agentId1),
+              worker: worker1Pda,
               authority: worker1.publicKey,
             })
             .signers([worker1])
@@ -1288,14 +1138,8 @@ describe("coordination-security", () => {
 
       it("Successfully cancels expired task with no completions", async () => {
         const newTaskId = Buffer.from("task-cancalexp0000000001".padEnd(32, "\0"));
-        const [taskPda] = PublicKey.findProgramAddressSync(
-          [Buffer.from("task"), creator.publicKey.toBuffer(), newTaskId],
-          program.programId
-        );
-        const [escrowPda] = PublicKey.findProgramAddressSync(
-          [Buffer.from("escrow"), taskPda.toBuffer()],
-          program.programId
-        );
+        const taskPda = deriveTaskPda(creator.publicKey, newTaskId, program.programId);
+        const escrowPda = deriveEscrowPda(taskPda, program.programId);
 
         const nearFutureDeadline = Math.floor(Date.now() / 1000) + 2;
 
@@ -1319,17 +1163,15 @@ describe("coordination-security", () => {
           .signers([creator])
           .rpc();
 
-        const [claimPda] = PublicKey.findProgramAddressSync(
-          [Buffer.from("claim"), taskPda.toBuffer(), deriveAgentPda(agentId1).toBuffer()],
-          program.programId
-        );
+        const worker1Pda = deriveAgentPda(agentId1, program.programId);
+        const claimPda = deriveClaimPda(taskPda, worker1Pda, program.programId);
 
         await program.methods
           .claimTask()
           .accountsPartial({
             task: taskPda,
             claim: claimPda,
-            worker: deriveAgentPda(agentId1),
+            worker: worker1Pda,
             authority: worker1.publicKey,
           })
           .signers([worker1])
@@ -1357,18 +1199,9 @@ describe("coordination-security", () => {
       it("Successfully resolves with exact threshold match", async () => {
         const newDisputeId = Buffer.from("disp-thres00000000000001".padEnd(32, "\0"));
         const newTaskId = Buffer.from("task-thres000000000000001".padEnd(32, "\0"));
-        const [disputePda] = PublicKey.findProgramAddressSync(
-          [Buffer.from("dispute"), newDisputeId],
-          program.programId
-        );
-        const [taskPda] = PublicKey.findProgramAddressSync(
-          [Buffer.from("task"), creator.publicKey.toBuffer(), newTaskId],
-          program.programId
-        );
-        const [escrowPda] = PublicKey.findProgramAddressSync(
-          [Buffer.from("escrow"), taskPda.toBuffer()],
-          program.programId
-        );
+        const disputePda = deriveDisputePda(newDisputeId, program.programId);
+        const taskPda = deriveTaskPda(creator.publicKey, newTaskId, program.programId);
+        const escrowPda = deriveEscrowPda(taskPda, program.programId);
 
         await program.methods
           .createTask(
@@ -1390,8 +1223,7 @@ describe("coordination-security", () => {
           .signers([creator])
           .rpc();
 
-        // Derive agent PDA for worker3 (agentId3) locally for this test
-        const worker3AgentPda = PublicKey.findProgramAddressSync([Buffer.from("agent"), agentId3], program.programId)[0];
+        const worker3AgentPda = deriveAgentPda(agentId3, program.programId);
 
         await program.methods
           .initiateDispute(
@@ -1411,25 +1243,13 @@ describe("coordination-security", () => {
           .signers([worker3])
           .rpc();
 
-        const arbiterPda1 = PublicKey.findProgramAddressSync([Buffer.from("agent"), arbiterId1], program.programId)[0];
-        const arbiterPda2 = PublicKey.findProgramAddressSync([Buffer.from("agent"), arbiterId2], program.programId)[0];
+        const arbiterPda1 = deriveAgentPda(arbiterId1, program.programId);
+        const arbiterPda2 = deriveAgentPda(arbiterId2, program.programId);
 
-        const [votePda1] = PublicKey.findProgramAddressSync(
-          [Buffer.from("vote"), disputePda.toBuffer(), arbiterPda1.toBuffer()],
-          program.programId
-        );
-        const [votePda2] = PublicKey.findProgramAddressSync(
-          [Buffer.from("vote"), disputePda.toBuffer(), arbiterPda2.toBuffer()],
-          program.programId
-        );
-        const [authorityVotePda1] = PublicKey.findProgramAddressSync(
-          [Buffer.from("authority_vote"), disputePda.toBuffer(), arbiter1.publicKey.toBuffer()],
-          program.programId
-        );
-        const [authorityVotePda2] = PublicKey.findProgramAddressSync(
-          [Buffer.from("authority_vote"), disputePda.toBuffer(), arbiter2.publicKey.toBuffer()],
-          program.programId
-        );
+        const votePda1 = deriveVotePda(disputePda, arbiterPda1, program.programId);
+        const votePda2 = deriveVotePda(disputePda, arbiterPda2, program.programId);
+        const authorityVotePda1 = deriveAuthorityVotePda(disputePda, arbiter1.publicKey, program.programId);
+        const authorityVotePda2 = deriveAuthorityVotePda(disputePda, arbiter2.publicKey, program.programId);
 
         await program.methods
           .voteDispute(true)
@@ -1493,14 +1313,8 @@ describe("coordination-security", () => {
     describe("Max Workers Boundary", () => {
       it("Fails when task exceeds max workers", async () => {
         const newTaskId = Buffer.from("task-maxwork000000000001".padEnd(32, "\0"));
-        const [taskPda] = PublicKey.findProgramAddressSync(
-          [Buffer.from("task"), creator.publicKey.toBuffer(), newTaskId],
-          program.programId
-        );
-        const [escrowPda] = PublicKey.findProgramAddressSync(
-          [Buffer.from("escrow"), taskPda.toBuffer()],
-          program.programId
-        );
+        const taskPda = deriveTaskPda(creator.publicKey, newTaskId, program.programId);
+        const escrowPda = deriveEscrowPda(taskPda, program.programId);
 
         await program.methods
           .createTask(
@@ -1522,21 +1336,17 @@ describe("coordination-security", () => {
           .signers([creator])
           .rpc();
 
-        const [claimPda1] = PublicKey.findProgramAddressSync(
-          [Buffer.from("claim"), taskPda.toBuffer(), deriveAgentPda(agentId1).toBuffer()],
-          program.programId
-        );
-        const [claimPda2] = PublicKey.findProgramAddressSync(
-          [Buffer.from("claim"), taskPda.toBuffer(), deriveAgentPda(agentId3).toBuffer()],
-          program.programId
-        );
+        const worker1Pda = deriveAgentPda(agentId1, program.programId);
+        const worker3Pda = deriveAgentPda(agentId3, program.programId);
+        const claimPda1 = deriveClaimPda(taskPda, worker1Pda, program.programId);
+        const claimPda2 = deriveClaimPda(taskPda, worker3Pda, program.programId);
 
         await program.methods
           .claimTask()
           .accountsPartial({
             task: taskPda,
             claim: claimPda1,
-            worker: deriveAgentPda(agentId1),
+            worker: worker1Pda,
             authority: worker1.publicKey,
           })
           .signers([worker1])
@@ -1547,7 +1357,7 @@ describe("coordination-security", () => {
           .accountsPartial({
             task: taskPda,
             claim: claimPda2,
-            worker: deriveAgentPda(agentId3),
+            worker: worker3Pda,
             authority: worker3.publicKey,
           })
           .signers([worker3])
@@ -1558,14 +1368,8 @@ describe("coordination-security", () => {
 
         const extraWorker = Keypair.generate();
         const extraAgentId = Buffer.from("agent-extra00000000000001".padEnd(32, "\0"));
-        const [extraAgentPda] = PublicKey.findProgramAddressSync(
-          [Buffer.from("agent"), extraAgentId],
-          program.programId
-        );
-        const [claimPda3] = PublicKey.findProgramAddressSync(
-          [Buffer.from("claim"), taskPda.toBuffer(), extraWorker.publicKey.toBuffer()],
-          program.programId
-        );
+        const extraAgentPda = deriveAgentPda(extraAgentId, program.programId);
+        const claimPda3 = deriveClaimPda(taskPda, extraAgentPda, program.programId);
 
         await provider.connection.confirmTransaction(
           await provider.connection.requestAirdrop(extraWorker.publicKey, 2 * LAMPORTS_PER_SOL),
@@ -1594,7 +1398,7 @@ describe("coordination-security", () => {
             .accountsPartial({
               task: taskPda,
               claim: claimPda3,
-              worker: deriveAgentPda(extraAgentId),
+              worker: extraAgentPda,
               authority: extraWorker.publicKey,
             })
             .signers([extraWorker])
@@ -1611,14 +1415,8 @@ describe("coordination-security", () => {
     describe("Zero Reward Tasks", () => {
       it("Successfully creates and completes zero-reward task", async () => {
         const newTaskId = Buffer.from("task-zerorew000000000001".padEnd(32, "\0"));
-        const [taskPda] = PublicKey.findProgramAddressSync(
-          [Buffer.from("task"), creator.publicKey.toBuffer(), newTaskId],
-          program.programId
-        );
-        const [escrowPda] = PublicKey.findProgramAddressSync(
-          [Buffer.from("escrow"), taskPda.toBuffer()],
-          program.programId
-        );
+        const taskPda = deriveTaskPda(creator.publicKey, newTaskId, program.programId);
+        const escrowPda = deriveEscrowPda(taskPda, program.programId);
 
         await program.methods
           .createTask(
@@ -1643,17 +1441,15 @@ describe("coordination-security", () => {
         const task = await program.account.task.fetch(taskPda);
         expect(task.rewardAmount.toNumber()).to.equal(0);
 
-        const [claimPda] = PublicKey.findProgramAddressSync(
-          [Buffer.from("claim"), taskPda.toBuffer(), deriveAgentPda(agentId1).toBuffer()],
-          program.programId
-        );
+        const worker1Pda = deriveAgentPda(agentId1, program.programId);
+        const claimPda = deriveClaimPda(taskPda, worker1Pda, program.programId);
 
         await program.methods
           .claimTask()
           .accountsPartial({
             task: taskPda,
             claim: claimPda,
-            worker: deriveAgentPda(agentId1),
+            worker: worker1Pda,
             authority: worker1.publicKey,
           })
           .signers([worker1])
@@ -1667,7 +1463,7 @@ describe("coordination-security", () => {
             task: taskPda,
             claim: claimPda,
             escrow: escrowPda,
-            worker: deriveAgentPda(agentId1),
+            worker: worker1Pda,
             protocolConfig: protocolPda,
             treasury: treasuryPubkey,
             authority: worker1.publicKey,
@@ -1686,14 +1482,8 @@ describe("coordination-security", () => {
     describe("Deregister with Active Tasks", () => {
       it("Fails to deregister agent with active tasks", async () => {
         const newTaskId = Buffer.from("task-deregfail000000001".padEnd(32, "\0"));
-        const [taskPda] = PublicKey.findProgramAddressSync(
-          [Buffer.from("task"), creator.publicKey.toBuffer(), newTaskId],
-          program.programId
-        );
-        const [escrowPda] = PublicKey.findProgramAddressSync(
-          [Buffer.from("escrow"), taskPda.toBuffer()],
-          program.programId
-        );
+        const taskPda = deriveTaskPda(creator.publicKey, newTaskId, program.programId);
+        const escrowPda = deriveEscrowPda(taskPda, program.programId);
 
         await program.methods
           .createTask(
@@ -1715,26 +1505,21 @@ describe("coordination-security", () => {
           .signers([creator])
           .rpc();
 
-        const [claimPda] = PublicKey.findProgramAddressSync(
-          [Buffer.from("claim"), taskPda.toBuffer(), deriveAgentPda(agentId1).toBuffer()],
-          program.programId
-        );
+        const worker1Pda = deriveAgentPda(agentId1, program.programId);
+        const claimPda = deriveClaimPda(taskPda, worker1Pda, program.programId);
 
         await program.methods
           .claimTask()
           .accountsPartial({
             task: taskPda,
             claim: claimPda,
-            worker: deriveAgentPda(agentId1),
+            worker: worker1Pda,
             authority: worker1.publicKey,
           })
           .signers([worker1])
           .rpc();
 
-        const [agentPda] = PublicKey.findProgramAddressSync(
-          [Buffer.from("agent"), agentId1],
-          program.programId
-        );
+        const agentPda = deriveAgentPda(agentId1, program.programId);
 
         try {
           await program.methods
@@ -1759,18 +1544,9 @@ describe("coordination-security", () => {
       it("Fails when non-arbiter tries to vote", async () => {
         const newDisputeId = Buffer.from("disp-nonarb000000000001".padEnd(32, "\0"));
         const newTaskId = Buffer.from("task-nonarb000000000001".padEnd(32, "\0"));
-        const [disputePda] = PublicKey.findProgramAddressSync(
-          [Buffer.from("dispute"), newDisputeId],
-          program.programId
-        );
-        const [taskPda] = PublicKey.findProgramAddressSync(
-          [Buffer.from("task"), creator.publicKey.toBuffer(), newTaskId],
-          program.programId
-        );
-        const [escrowPda] = PublicKey.findProgramAddressSync(
-          [Buffer.from("escrow"), taskPda.toBuffer()],
-          program.programId
-        );
+        const disputePda = deriveDisputePda(newDisputeId, program.programId);
+        const taskPda = deriveTaskPda(creator.publicKey, newTaskId, program.programId);
+        const escrowPda = deriveEscrowPda(taskPda, program.programId);
 
         await program.methods
           .createTask(
@@ -1792,8 +1568,7 @@ describe("coordination-security", () => {
           .signers([creator])
           .rpc();
 
-        // Derive agent PDA for worker3 (agentId3) locally for this test
-        const worker3AgentPda = PublicKey.findProgramAddressSync([Buffer.from("agent"), agentId3], program.programId)[0];
+        const worker3AgentPda = deriveAgentPda(agentId3, program.programId);
 
         await program.methods
           .initiateDispute(
@@ -1813,14 +1588,9 @@ describe("coordination-security", () => {
           .signers([worker3])
           .rpc();
 
-        const [votePda] = PublicKey.findProgramAddressSync(
-          [Buffer.from("vote"), disputePda.toBuffer(), deriveAgentPda(agentId1).toBuffer()],
-          program.programId
-        );
-        const [authorityVotePda] = PublicKey.findProgramAddressSync(
-          [Buffer.from("authority_vote"), disputePda.toBuffer(), worker1.publicKey.toBuffer()],
-          program.programId
-        );
+        const worker1Pda = deriveAgentPda(agentId1, program.programId);
+        const votePda = deriveVotePda(disputePda, worker1Pda, program.programId);
+        const authorityVotePda = deriveAuthorityVotePda(disputePda, worker1.publicKey, program.programId);
 
         try {
           await program.methods
@@ -1829,7 +1599,7 @@ describe("coordination-security", () => {
               dispute: disputePda,
               vote: votePda,
               authorityVote: authorityVotePda,
-              arbiter: deriveAgentPda(agentId1),
+              arbiter: worker1Pda,
               protocolConfig: protocolPda,
               authority: worker1.publicKey,
             })
@@ -1927,14 +1697,8 @@ describe("coordination-security", () => {
     describe("Fund Leak Prevention", () => {
       it("Verifies no lamport leaks in task lifecycle", async () => {
         const newTaskId = Buffer.from("task-fundleak0000000001".padEnd(32, "\0"));
-        const [taskPda] = PublicKey.findProgramAddressSync(
-          [Buffer.from("task"), creator.publicKey.toBuffer(), newTaskId],
-          program.programId
-        );
-        const [escrowPda] = PublicKey.findProgramAddressSync(
-          [Buffer.from("escrow"), taskPda.toBuffer()],
-          program.programId
-        );
+        const taskPda = deriveTaskPda(creator.publicKey, newTaskId, program.programId);
+        const escrowPda = deriveEscrowPda(taskPda, program.programId);
 
         const initialBalance = await provider.connection.getBalance(creator.publicKey);
         const rewardAmount = 2 * LAMPORTS_PER_SOL;
@@ -1965,17 +1729,15 @@ describe("coordination-security", () => {
         expect(initialBalance - afterCreateBalance).to.be.at.most(rewardAmount + 100000);
         expect(escrowBalance).to.equal(rewardAmount);
 
-        const [claimPda] = PublicKey.findProgramAddressSync(
-          [Buffer.from("claim"), taskPda.toBuffer(), deriveAgentPda(agentId1).toBuffer()],
-          program.programId
-        );
+        const worker1Pda = deriveAgentPda(agentId1, program.programId);
+        const claimPda = deriveClaimPda(taskPda, worker1Pda, program.programId);
 
         await program.methods
           .claimTask()
           .accountsPartial({
             task: taskPda,
             claim: claimPda,
-            worker: deriveAgentPda(agentId1),
+            worker: worker1Pda,
             authority: worker1.publicKey,
           })
           .signers([worker1])
@@ -1989,7 +1751,7 @@ describe("coordination-security", () => {
             task: taskPda,
             claim: claimPda,
             escrow: escrowPda,
-            worker: deriveAgentPda(agentId1),
+            worker: worker1Pda,
             protocolConfig: protocolPda,
             treasury: treasuryPubkey,
             authority: worker1.publicKey,
@@ -2003,4 +1765,3 @@ describe("coordination-security", () => {
     });
   });
 });
-
