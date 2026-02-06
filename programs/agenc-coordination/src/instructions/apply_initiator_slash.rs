@@ -9,12 +9,11 @@
 //! After this window, slashing can no longer be applied.
 
 use crate::errors::CoordinationError;
-use crate::events::{reputation_reason, ReputationChanged};
-use crate::instructions::constants::{MIN_REPUTATION, PERCENT_BASE, REPUTATION_SLASH_LOSS};
-
-/// Window for applying slashing after dispute resolution (7 days)
-/// After this period, slashing can no longer be applied (fix #414)
-const SLASH_WINDOW: i64 = 7 * 24 * 60 * 60;
+use crate::instructions::constants::PERCENT_BASE;
+use crate::instructions::slash_helpers::{
+    apply_reputation_penalty, calculate_approval_percentage, transfer_slash_to_treasury,
+    validate_slash_window,
+};
 use crate::state::{AgentRegistration, Dispute, DisputeStatus, ProtocolConfig, Task};
 use crate::utils::version::check_version_compatible;
 use anchor_lang::prelude::*;
@@ -76,10 +75,7 @@ pub fn handler(ctx: Context<ApplyInitiatorSlash>) -> Result<()> {
 
     // Check slash window hasn't expired (fix #414)
     let clock = Clock::get()?;
-    require!(
-        clock.unix_timestamp <= dispute.resolved_at.saturating_add(SLASH_WINDOW),
-        CoordinationError::SlashWindowExpired
-    );
+    validate_slash_window(dispute.resolved_at, &clock)?;
 
     require!(
         initiator_agent.key() == dispute.initiator,
@@ -107,18 +103,8 @@ pub fn handler(ctx: Context<ApplyInitiatorSlash>) -> Result<()> {
     // initiate_dispute validated they had an active claim at dispute creation time.
     let _initiator_is_creator = dispute.initiator_authority == task.creator;
 
-    let total_votes = dispute
-        .votes_for
-        .checked_add(dispute.votes_against)
-        .ok_or(CoordinationError::ArithmeticOverflow)?;
-    require!(total_votes > 0, CoordinationError::InsufficientVotes);
-
-    let approval_pct = dispute
-        .votes_for
-        .checked_mul(PERCENT_BASE)
-        .ok_or(CoordinationError::ArithmeticOverflow)?
-        .checked_div(total_votes)
-        .ok_or(CoordinationError::ArithmeticOverflow)?;
+    let (_total_votes, approval_pct) =
+        calculate_approval_percentage(dispute.votes_for, dispute.votes_against)?;
 
     // Dispute is rejected if approval percentage is below threshold
     let approved = approval_pct >= config.dispute_threshold as u64;
@@ -138,20 +124,7 @@ pub fn handler(ctx: Context<ApplyInitiatorSlash>) -> Result<()> {
         .ok_or(CoordinationError::ArithmeticOverflow)?;
 
     // Apply reputation penalty for frivolous dispute (before lamport transfer to satisfy borrow checker)
-    let old_rep = initiator_agent.reputation;
-    initiator_agent.reputation = initiator_agent
-        .reputation
-        .saturating_sub(REPUTATION_SLASH_LOSS)
-        .max(MIN_REPUTATION);
-    if initiator_agent.reputation != old_rep {
-        emit!(ReputationChanged {
-            agent_id: initiator_agent.agent_id,
-            old_reputation: old_rep,
-            new_reputation: initiator_agent.reputation,
-            reason: reputation_reason::DISPUTE_SLASH,
-            timestamp: clock.unix_timestamp,
-        });
-    }
+    apply_reputation_penalty(initiator_agent, &clock)?;
 
     if slash_amount > 0 {
         initiator_agent.stake = initiator_agent
@@ -160,18 +133,11 @@ pub fn handler(ctx: Context<ApplyInitiatorSlash>) -> Result<()> {
             .ok_or(CoordinationError::ArithmeticOverflow)?;
 
         // Fix #374: Actually transfer lamports to treasury
-        let initiator_agent_info = ctx.accounts.initiator_agent.to_account_info();
-        let treasury_info = ctx.accounts.treasury.to_account_info();
-
-        **initiator_agent_info.try_borrow_mut_lamports()? = initiator_agent_info
-            .lamports()
-            .checked_sub(slash_amount)
-            .ok_or(CoordinationError::InsufficientFunds)?;
-
-        **treasury_info.try_borrow_mut_lamports()? = treasury_info
-            .lamports()
-            .checked_add(slash_amount)
-            .ok_or(CoordinationError::ArithmeticOverflow)?;
+        transfer_slash_to_treasury(
+            &ctx.accounts.initiator_agent.to_account_info(),
+            &ctx.accounts.treasury.to_account_info(),
+            slash_amount,
+        )?;
     }
 
     dispute.initiator_slash_applied = true;

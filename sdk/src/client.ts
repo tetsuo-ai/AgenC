@@ -9,6 +9,7 @@ import { type Idl, Program, AnchorProvider, Wallet } from '@coral-xyz/anchor';
 import { AgenCPrivacyClient } from './privacy';
 import { PROGRAM_ID, DEVNET_RPC, MAINNET_RPC } from './constants';
 import { validateCircuitPath } from './validation';
+import { createLogger, silentLogger, type Logger, type LogLevel } from './logger';
 
 export interface PrivacyClientConfig {
   /** Solana RPC endpoint URL */
@@ -21,6 +22,8 @@ export interface PrivacyClientConfig {
   wallet?: Keypair;
   /** Enable debug logging */
   debug?: boolean;
+  /** Log level (overrides debug flag if set) */
+  logLevel?: LogLevel;
   /** Program IDL (required for full functionality) */
   idl?: Idl;
 }
@@ -31,6 +34,7 @@ export class PrivacyClient {
   private privacyClient: AgenCPrivacyClient | null = null;
   private config: PrivacyClientConfig;
   private wallet: Keypair | null = null;
+  private logger: Logger;
 
   constructor(config: PrivacyClientConfig = {}) {
     // Validate circuit path before accepting it (uses shared validator with shell metacharacter checks)
@@ -48,6 +52,15 @@ export class PrivacyClient {
       ...config,
     };
 
+    // Set up logger: explicit logLevel takes priority, then debug flag, then silent
+    if (config.logLevel) {
+      this.logger = createLogger(config.logLevel);
+    } else if (this.config.debug) {
+      this.logger = createLogger('debug');
+    } else {
+      this.logger = silentLogger;
+    }
+
     const rpcUrl = config.rpcUrl || (this.config.devnet ? DEVNET_RPC : MAINNET_RPC);
     this.connection = new Connection(rpcUrl, 'confirmed');
 
@@ -55,12 +68,10 @@ export class PrivacyClient {
       this.wallet = config.wallet;
     }
 
-    if (this.config.debug) {
-      // Security: Only log non-sensitive info in debug mode
-      console.log('PrivacyClient initialized');
-      console.log('  Network:', this.config.devnet ? 'devnet' : 'mainnet');
-      console.log('  Circuit:', this.config.circuitPath);
-    }
+    // Security: Only log non-sensitive info in debug mode
+    this.logger.debug('PrivacyClient initialized');
+    this.logger.debug(`  Network: ${this.config.devnet ? 'devnet' : 'mainnet'}`);
+    this.logger.debug(`  Circuit: ${this.config.circuitPath}`);
   }
 
   /**
@@ -83,18 +94,14 @@ export class PrivacyClient {
     const programIdl = idl || this.config.idl;
     if (programIdl) {
       this.program = new Program(programIdl, provider);
-      if (this.config.debug) {
-        console.log('Program initialized with IDL');
-      }
-    } else if (this.config.debug) {
-      console.warn('No IDL provided - some features may not be available');
+      this.logger.debug('Program initialized with IDL');
+    } else {
+      this.logger.warn('No IDL provided - some features may not be available');
     }
 
-    if (this.config.debug) {
-      // Security: Truncate public key to avoid full exposure in logs
-      const pubkey = wallet.publicKey.toBase58();
-      console.log('Wallet initialized:', pubkey.substring(0, 8) + '...' + pubkey.substring(pubkey.length - 4));
-    }
+    // Security: Truncate public key to avoid full exposure in logs
+    const pubkey = wallet.publicKey.toBase58();
+    this.logger.debug(`Wallet initialized: ${pubkey.substring(0, 8)}...${pubkey.substring(pubkey.length - 4)}`);
 
     // Initialize privacy client only if program is available
     if (this.program) {
