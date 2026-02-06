@@ -224,7 +224,8 @@ describe("upgrades", () => {
           1,
           new BN(0),
           0,
-          null  // constraint_hash
+          null,  // constraint_hash
+          0, // min_reputation
         )
         .accountsPartial({
           task: taskPda,
@@ -320,7 +321,8 @@ describe("upgrades", () => {
           1,
           new BN(0),
           0,
-          null  // constraint_hash
+          null,  // constraint_hash
+          0, // min_reputation
         )
         .accountsPartial({
           task: taskPda,

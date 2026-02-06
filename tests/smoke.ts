@@ -450,7 +450,8 @@ describe("AgenC Devnet Smoke Tests", () => {
           1, // max_workers
           deadline,
           TASK_TYPE_EXCLUSIVE,
-          null // constraint_hash
+          null, // constraint_hash
+          0, // min_reputation
         )
         .accountsPartial({
           creatorAgent: creatorAgentPda,
@@ -701,7 +702,8 @@ describe("AgenC Devnet Smoke Tests", () => {
           1,
           new BN(Math.floor(Date.now() / 1000) + 86400),
           TASK_TYPE_EXCLUSIVE,
-          null
+          null,
+          0, // min_reputation
         )
         .accountsPartial({
           creatorAgent: creatorAgentPda,

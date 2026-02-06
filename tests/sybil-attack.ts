@@ -182,7 +182,8 @@ describe("sybil-attack", () => {
           1,
           new BN(0),
           TASK_TYPE_EXCLUSIVE,
-          null
+          null,
+          0, // min_reputation
         )
         .accountsPartial({
           creatorAgent: creatorAgentPda,
@@ -485,7 +486,8 @@ describe("sybil-attack", () => {
             1,
             new BN(0),
             TASK_TYPE_EXCLUSIVE,
-            null
+            null,
+            0, // min_reputation
           )
           .accountsPartial({
             creatorAgent: creatorAgentPda,

@@ -50,7 +50,7 @@
 //! - Total: 32 (task bytes) + 32 (agent bytes) + 4 (hashes including nullifier) = 68 public inputs
 
 use crate::errors::CoordinationError;
-use crate::events::{RewardDistributed, TaskCompleted};
+use crate::events::{reputation_reason, ReputationChanged, RewardDistributed, TaskCompleted};
 use crate::instructions::completion_helpers::{
     calculate_reward_split, transfer_rewards, update_claim_state, update_protocol_stats,
     update_task_state, update_worker_state,
@@ -59,7 +59,7 @@ use crate::state::{
     AgentRegistration, Nullifier, ProtocolConfig, Task, TaskClaim, TaskEscrow, TaskStatus,
     TaskType, HASH_SIZE, RESULT_DATA_SIZE,
 };
-use crate::utils::compute_budget::log_compute_units;
+use crate::utils::compute_budget::{calculate_reputation_fee_discount, log_compute_units};
 use crate::utils::version::check_version_compatible;
 use crate::verifying_key::get_verifying_key;
 use anchor_lang::prelude::*;
@@ -265,8 +265,15 @@ pub fn complete_task_private(
     claim.is_completed = true;
     claim.completed_at = clock.unix_timestamp;
 
-    let (worker_reward, protocol_fee) =
-        calculate_reward_split(task, ctx.accounts.protocol_config.protocol_fee_bps)?;
+    // Apply reputation-based fee discount
+    let rep_discount = calculate_reputation_fee_discount(worker.reputation);
+    let protocol_fee_bps = ctx
+        .accounts
+        .protocol_config
+        .protocol_fee_bps
+        .saturating_sub(rep_discount)
+        .max(1);
+    let (worker_reward, protocol_fee) = calculate_reward_split(task, protocol_fee_bps)?;
 
     transfer_rewards(
         escrow,
@@ -279,7 +286,16 @@ pub fn complete_task_private(
     update_claim_state(claim, escrow, worker_reward, protocol_fee)?;
     // Pass None for result_data to preserve privacy
     let task_completed = update_task_state(task, clock.unix_timestamp, escrow, None)?;
-    update_worker_state(worker, worker_reward, clock.unix_timestamp)?;
+    let (old_rep, new_rep) = update_worker_state(worker, worker_reward, clock.unix_timestamp)?;
+    if old_rep != new_rep {
+        emit!(ReputationChanged {
+            agent_id: worker.agent_id,
+            old_reputation: old_rep,
+            new_reputation: new_rep,
+            reason: reputation_reason::COMPLETION,
+            timestamp: clock.unix_timestamp,
+        });
+    }
 
     if task_completed {
         update_protocol_stats(&mut ctx.accounts.protocol_config, task.reward_amount)?;

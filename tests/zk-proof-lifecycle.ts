@@ -138,7 +138,8 @@ describe("ZK Proof Verification Lifecycle", () => {
         maxWorkers,
         new BN(0),
         taskType,
-        Array.from(constraintHash)
+        Array.from(constraintHash),
+        0, // min_reputation
       )
       .accountsPartial({
         task: taskPda,
@@ -410,7 +411,8 @@ describe("ZK Proof Verification Lifecycle", () => {
           1,
           new BN(0),
           TASK_TYPE_EXCLUSIVE,
-          Array.from(Buffer.alloc(HASH_SIZE, 0)) // Zero = public
+          Array.from(Buffer.alloc(HASH_SIZE, 0)), // Zero = public
+          0, // min_reputation
         )
         .accountsPartial({
           task: publicTaskPda,

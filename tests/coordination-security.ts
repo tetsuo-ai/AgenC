@@ -412,7 +412,8 @@ describe("coordination-security", () => {
             1,
             new BN(0),
             TASK_TYPE_EXCLUSIVE,
-            null  // constraint_hash
+            null,  // constraint_hash
+            0, // min_reputation
           )
           .accountsPartial({
             creatorAgent: creatorAgentPda,
@@ -456,7 +457,8 @@ describe("coordination-security", () => {
             3,
             new BN(0),
             TASK_TYPE_COLLABORATIVE,
-            null  // constraint_hash
+            null,  // constraint_hash
+            0, // min_reputation
           )
           .accountsPartial({
             creatorAgent: creatorAgentPda,
@@ -491,7 +493,8 @@ describe("coordination-security", () => {
             5,
             new BN(0),
             TASK_TYPE_COMPETITIVE,
-            null  // constraint_hash
+            null,  // constraint_hash
+            0, // min_reputation
           )
           .accountsPartial({
             creatorAgent: creatorAgentPda,
@@ -626,7 +629,8 @@ describe("coordination-security", () => {
             1,
             new BN(0),
             TASK_TYPE_EXCLUSIVE,
-            null  // constraint_hash
+            null,  // constraint_hash
+            0, // min_reputation
           )
           .accountsPartial({
             creatorAgent: creatorAgentPda,
@@ -703,7 +707,8 @@ describe("coordination-security", () => {
             1,
             new BN(0),
             TASK_TYPE_EXCLUSIVE,
-            null  // constraint_hash
+            null,  // constraint_hash
+            0, // min_reputation
           )
           .accountsPartial({
             creatorAgent: creatorAgentPda,
@@ -908,7 +913,8 @@ describe("coordination-security", () => {
             1,
             new BN(0),
             TASK_TYPE_EXCLUSIVE,
-            null  // constraint_hash
+            null,  // constraint_hash
+            0, // min_reputation
           )
           .accountsPartial({
             creatorAgent: creatorAgentPda,
@@ -963,7 +969,8 @@ describe("coordination-security", () => {
             2,
             new BN(0),
             TASK_TYPE_COLLABORATIVE,
-            null  // constraint_hash
+            null,  // constraint_hash
+            0, // min_reputation
           )
           .accountsPartial({
             creatorAgent: creatorAgentPda,
@@ -1027,7 +1034,8 @@ describe("coordination-security", () => {
             1,
             new BN(0),
             TASK_TYPE_EXCLUSIVE,
-            null  // constraint_hash
+            null,  // constraint_hash
+            0, // min_reputation
           )
           .accountsPartial({
             creatorAgent: creatorAgentPda,
@@ -1112,7 +1120,8 @@ describe("coordination-security", () => {
             1,
             new BN(0),
             TASK_TYPE_EXCLUSIVE,
-            null  // constraint_hash
+            null,  // constraint_hash
+            0, // min_reputation
           )
           .accountsPartial({
             creatorAgent: creatorAgentPda,
@@ -1179,7 +1188,8 @@ describe("coordination-security", () => {
             1,
             new BN(0),
             TASK_TYPE_EXCLUSIVE,
-            null  // constraint_hash
+            null,  // constraint_hash
+            0, // min_reputation
           )
           .accountsPartial({
             creatorAgent: creatorAgentPda,
@@ -1241,7 +1251,8 @@ describe("coordination-security", () => {
             1,
             new BN(pastDeadline),
             TASK_TYPE_EXCLUSIVE,
-            null  // constraint_hash
+            null,  // constraint_hash
+            0, // min_reputation
           )
           .accountsPartial({
             creatorAgent: creatorAgentPda,
@@ -1297,7 +1308,8 @@ describe("coordination-security", () => {
             1,
             new BN(nearFutureDeadline),
             TASK_TYPE_EXCLUSIVE,
-            null  // constraint_hash
+            null,  // constraint_hash
+            0, // min_reputation
           )
           .accountsPartial({
             creatorAgent: creatorAgentPda,
@@ -1367,7 +1379,8 @@ describe("coordination-security", () => {
             1,
             new BN(0),
             TASK_TYPE_EXCLUSIVE,
-            null  // constraint_hash
+            null,  // constraint_hash
+            0, // min_reputation
           )
           .accountsPartial({
             creatorAgent: creatorAgentPda,
@@ -1498,7 +1511,8 @@ describe("coordination-security", () => {
             2,
             new BN(0),
             TASK_TYPE_COLLABORATIVE,
-            null  // constraint_hash
+            null,  // constraint_hash
+            0, // min_reputation
           )
           .accountsPartial({
             creatorAgent: creatorAgentPda,
@@ -1615,7 +1629,8 @@ describe("coordination-security", () => {
             1,
             new BN(0),
             TASK_TYPE_EXCLUSIVE,
-            null  // constraint_hash
+            null,  // constraint_hash
+            0, // min_reputation
           )
           .accountsPartial({
             creatorAgent: creatorAgentPda,
@@ -1689,7 +1704,8 @@ describe("coordination-security", () => {
             1,
             new BN(0),
             TASK_TYPE_EXCLUSIVE,
-            null  // constraint_hash
+            null,  // constraint_hash
+            0, // min_reputation
           )
           .accountsPartial({
             creatorAgent: creatorAgentPda,
@@ -1765,7 +1781,8 @@ describe("coordination-security", () => {
             1,
             new BN(0),
             TASK_TYPE_EXCLUSIVE,
-            null  // constraint_hash
+            null,  // constraint_hash
+            0, // min_reputation
           )
           .accountsPartial({
             creatorAgent: creatorAgentPda,
@@ -1931,7 +1948,8 @@ describe("coordination-security", () => {
             1,
             new BN(0),
             TASK_TYPE_EXCLUSIVE,
-            null  // constraint_hash
+            null,  // constraint_hash
+            0, // min_reputation
           )
           .accountsPartial({
             creatorAgent: creatorAgentPda,

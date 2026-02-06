@@ -351,7 +351,8 @@ describe("AgenC Integration Tests", () => {
             1,                                    // max_workers: u8
             new BN(Math.floor(Date.now() / 1000) + 86400), // deadline: i64 (must be > 0 and in future)
             TASK_TYPE_EXCLUSIVE,                  // task_type: u8
-            null                                  // constraint_hash: Option<[u8; 32]>
+            null,                                  // constraint_hash: Option<[u8; 32]>
+            0, // min_reputation
           )
           .accountsPartial({
             // task: auto-resolved from taskId arg + creator account
@@ -411,7 +412,8 @@ describe("AgenC Integration Tests", () => {
             1,
             new BN(0),
             TASK_TYPE_EXCLUSIVE,
-            null
+            null,
+            0, // min_reputation
           )
           .accountsPartial({
             creatorAgent: creatorAgentPda,
@@ -533,7 +535,8 @@ describe("AgenC Integration Tests", () => {
             1,
             new BN(0),
             TASK_TYPE_EXCLUSIVE,
-            null
+            null,
+            0, // min_reputation
           )
           .accountsPartial({
             creatorAgent: creatorAgentPda,
@@ -715,7 +718,8 @@ describe("AgenC Integration Tests", () => {
             1,
             new BN(0),
             TASK_TYPE_EXCLUSIVE,
-            null
+            null,
+            0, // min_reputation
           )
           .accountsPartial({
             creatorAgent: creatorAgentPda,

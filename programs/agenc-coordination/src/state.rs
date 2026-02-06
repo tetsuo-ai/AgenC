@@ -518,8 +518,11 @@ pub struct Task {
     pub depends_on: Option<Pubkey>,
     /// Type of dependency relationship
     pub dependency_type: DependencyType,
+    /// Minimum reputation score (0-10000) required for workers to claim this task.
+    /// 0 means no reputation gate (default for backward compatibility).
+    pub min_reputation: u16,
     /// Reserved
-    pub _reserved: [u8; 32],
+    pub _reserved: [u8; 30],
 }
 
 impl Default for Task {
@@ -546,7 +549,8 @@ impl Default for Task {
             protocol_fee_bps: 0,
             depends_on: None,
             dependency_type: DependencyType::default(),
-            _reserved: [0u8; 32],
+            min_reputation: 0,
+            _reserved: [0u8; 30],
         }
     }
 }
@@ -576,7 +580,8 @@ impl Task {
         2 +  // protocol_fee_bps
         33 + // depends_on (Option<Pubkey>: 1 byte discriminator + 32 bytes pubkey)
         1 +  // dependency_type
-        32; // reserved
+        2 +  // min_reputation
+        30; // reserved
 }
 
 /// Worker's claim on a task

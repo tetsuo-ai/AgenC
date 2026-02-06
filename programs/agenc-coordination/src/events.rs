@@ -57,6 +57,7 @@ pub struct TaskCreated {
     pub reward_amount: u64,
     pub task_type: u8,
     pub deadline: i64,
+    pub min_reputation: u16,
     pub timestamp: i64,
 }
 
@@ -298,5 +299,26 @@ pub struct ProtocolFeeUpdated {
     pub old_fee_bps: u16,
     pub new_fee_bps: u16,
     pub updated_by: Pubkey,
+    pub timestamp: i64,
+}
+
+/// Reason codes for reputation changes
+pub mod reputation_reason {
+    /// Reputation increased from task completion
+    pub const COMPLETION: u8 = 0;
+    /// Reputation decreased from losing a dispute
+    pub const DISPUTE_SLASH: u8 = 1;
+    /// Reputation decreased from inactivity decay
+    pub const DECAY: u8 = 2;
+}
+
+/// Emitted when an agent's reputation changes
+#[event]
+pub struct ReputationChanged {
+    pub agent_id: [u8; 32],
+    pub old_reputation: u16,
+    pub new_reputation: u16,
+    /// Reason: 0=completion, 1=dispute_slash, 2=decay
+    pub reason: u8,
     pub timestamp: i64,
 }
