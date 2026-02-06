@@ -103,5 +103,18 @@ export {
   DependentTask,
 } from './queries';
 
+// High-level coordination API
+export {
+  createCoordinator,
+  createAgent,
+  Coordinator,
+  Agent,
+  PrivateTask,
+  CoordinatorConfig,
+  AgentConfig,
+  PrivateTaskConfig,
+  TaskResult,
+} from './coordinator';
+
 // Version info
 export const VERSION = '1.0.0';
