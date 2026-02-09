@@ -347,6 +347,40 @@ export {
   WELL_KNOWN_TOKENS,
 } from './skills/index.js';
 
+// LLM Adapters (Phase 4)
+export {
+  // Core types
+  type LLMProvider,
+  type LLMProviderConfig,
+  type LLMMessage,
+  type LLMResponse,
+  type LLMStreamChunk,
+  type LLMTool,
+  type LLMToolCall,
+  type LLMUsage,
+  type MessageRole,
+  type StreamProgressCallback,
+  type ToolHandler,
+  // Error classes
+  LLMProviderError,
+  LLMRateLimitError,
+  LLMResponseConversionError,
+  LLMToolCallError,
+  LLMTimeoutError,
+  // Response converter
+  responseToOutput,
+  // LLM Task Executor
+  LLMTaskExecutor,
+  type LLMTaskExecutorConfig,
+  // Provider adapters
+  GrokProvider,
+  type GrokProviderConfig,
+  AnthropicProvider,
+  type AnthropicProviderConfig,
+  OllamaProvider,
+  type OllamaProviderConfig,
+} from './llm/index.js';
+
 // Autonomous Agent System
 export {
   AutonomousAgent,
@@ -356,7 +390,7 @@ export {
   TaskStatus as AutonomousTaskStatus,
   type TaskFilter,
   type ClaimStrategy,
-  type TaskExecutor,
+  type AutonomousTaskExecutor,
   type AutonomousAgentConfig,
   type AutonomousAgentStats,
   DefaultClaimStrategy,

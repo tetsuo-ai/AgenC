@@ -107,6 +107,11 @@ export interface TaskExecutor {
 }
 
 /**
+ * Alias for TaskExecutor used in autonomous agent context
+ */
+export type AutonomousTaskExecutor = TaskExecutor;
+
+/**
  * Discovery mode for finding tasks
  */
 export type DiscoveryMode = 'polling' | 'events' | 'hybrid';

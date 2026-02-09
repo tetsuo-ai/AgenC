@@ -39,8 +39,8 @@ describe('RuntimeErrorCodes', () => {
     expect(RuntimeErrorCodes.RECENT_VOTE_ACTIVITY).toBe('RECENT_VOTE_ACTIVITY');
   });
 
-  it('has exactly 16 error codes', () => {
-    expect(Object.keys(RuntimeErrorCodes)).toHaveLength(16);
+  it('has exactly 21 error codes', () => {
+    expect(Object.keys(RuntimeErrorCodes)).toHaveLength(21);
   });
 });
 
