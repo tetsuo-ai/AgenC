@@ -395,3 +395,35 @@ export {
   type AutonomousAgentStats,
   DefaultClaimStrategy,
 } from './autonomous/index.js';
+
+// Tool System (Phase 5)
+export {
+  // Core types
+  type Tool,
+  type ToolResult,
+  type ToolContext,
+  type ToolRegistryConfig,
+  type JSONSchema,
+  bigintReplacer,
+  safeStringify,
+  // Error types
+  ToolNotFoundError,
+  ToolAlreadyRegisteredError,
+  ToolExecutionError,
+  // Registry
+  ToolRegistry,
+  // Skill-to-Tool adapter
+  skillToTools,
+  type ActionSchemaMap,
+  type SkillToToolsOptions,
+  JUPITER_ACTION_SCHEMAS,
+  // Built-in AgenC tools
+  createAgencTools,
+  createListTasksTool,
+  createGetTaskTool,
+  createGetAgentTool,
+  createGetProtocolConfigTool,
+  type SerializedTask,
+  type SerializedAgent,
+  type SerializedProtocolConfig,
+} from './tools/index.js';
