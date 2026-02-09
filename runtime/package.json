@@ -15,7 +15,7 @@
   "files": ["dist", "idl", "README.md"],
   "scripts": {
     "prebuild": "npm run build --prefix ../sdk && node scripts/copy-idl.js",
-    "build": "tsup src/index.ts --format cjs,esm --dts --clean",
+    "build": "tsup src/index.ts --format cjs,esm --dts --clean --external openai --external @anthropic-ai/sdk --external ollama",
     "typecheck": "tsc --noEmit",
     "pretest": "npm run build --prefix ../sdk",
     "test": "vitest run",
@@ -29,6 +29,11 @@
     "type": "git",
     "url": "https://github.com/tetsuo-ai/AgenC",
     "directory": "runtime"
+  },
+  "optionalDependencies": {
+    "openai": "^4.0.0",
+    "@anthropic-ai/sdk": "^0.30.0",
+    "ollama": "^0.5.0"
   },
   "dependencies": {
     "@agenc/sdk": "file:../sdk"

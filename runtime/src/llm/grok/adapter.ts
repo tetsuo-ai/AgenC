@@ -1,0 +1,235 @@
+/**
+ * Grok (xAI) LLM provider adapter.
+ *
+ * Uses the `openai` SDK pointed at the xAI API endpoint.
+ * The SDK is loaded lazily on first use — it's an optional dependency.
+ *
+ * @module
+ */
+
+import type {
+  LLMProvider,
+  LLMMessage,
+  LLMResponse,
+  LLMToolCall,
+  LLMUsage,
+  LLMTool,
+  StreamProgressCallback,
+} from '../types.js';
+import type { GrokProviderConfig } from './types.js';
+import { LLMProviderError, LLMRateLimitError, LLMTimeoutError } from '../errors.js';
+
+const DEFAULT_BASE_URL = 'https://api.x.ai/v1';
+const DEFAULT_MODEL = 'grok-3';
+
+export class GrokProvider implements LLMProvider {
+  readonly name = 'grok';
+
+  private client: unknown | null = null;
+  private readonly config: GrokProviderConfig;
+  private readonly tools: LLMTool[];
+
+  constructor(config: GrokProviderConfig) {
+    this.config = {
+      ...config,
+      model: config.model ?? DEFAULT_MODEL,
+      baseURL: config.baseURL ?? DEFAULT_BASE_URL,
+    };
+
+    // Build tools list — optionally inject web_search
+    this.tools = [...(config.tools ?? [])];
+    if (config.webSearch) {
+      this.tools.push({ type: 'function', function: { name: 'web_search', description: 'Search the web', parameters: {} } });
+    }
+  }
+
+  async chat(messages: LLMMessage[]): Promise<LLMResponse> {
+    const client = await this.ensureClient();
+    const params = this.buildParams(messages);
+
+    try {
+      const completion = await (client as any).chat.completions.create(params);
+      return this.parseResponse(completion);
+    } catch (err: unknown) {
+      throw this.mapError(err);
+    }
+  }
+
+  async chatStream(messages: LLMMessage[], onChunk: StreamProgressCallback): Promise<LLMResponse> {
+    const client = await this.ensureClient();
+    const params = { ...this.buildParams(messages), stream: true };
+
+    try {
+      const stream = await (client as any).chat.completions.create(params);
+
+      let content = '';
+      let toolCalls: LLMToolCall[] = [];
+      let model = this.config.model;
+      let finishReason: LLMResponse['finishReason'] = 'stop';
+      const toolCallAccum = new Map<number, { id: string; name: string; arguments: string }>();
+
+      for await (const chunk of stream as AsyncIterable<any>) {
+        const delta = chunk.choices?.[0]?.delta;
+        if (!delta) continue;
+
+        if (delta.content) {
+          content += delta.content;
+          onChunk({ content: delta.content, done: false });
+        }
+
+        // Accumulate tool calls from stream deltas
+        if (delta.tool_calls) {
+          for (const tc of delta.tool_calls) {
+            const idx = tc.index ?? 0;
+            const existing = toolCallAccum.get(idx);
+            if (existing) {
+              if (tc.function?.arguments) existing.arguments += tc.function.arguments;
+            } else {
+              toolCallAccum.set(idx, {
+                id: tc.id ?? `call_${idx}`,
+                name: tc.function?.name ?? '',
+                arguments: tc.function?.arguments ?? '',
+              });
+            }
+          }
+        }
+
+        if (chunk.choices?.[0]?.finish_reason) {
+          finishReason = this.mapFinishReason(chunk.choices[0].finish_reason);
+        }
+        if (chunk.model) model = chunk.model;
+      }
+
+      toolCalls = Array.from(toolCallAccum.values());
+      if (toolCalls.length > 0 && finishReason === 'stop') {
+        finishReason = 'tool_calls';
+      }
+
+      onChunk({ content: '', done: true, toolCalls });
+
+      return {
+        content,
+        toolCalls,
+        usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
+        model,
+        finishReason,
+      };
+    } catch (err: unknown) {
+      throw this.mapError(err);
+    }
+  }
+
+  async healthCheck(): Promise<boolean> {
+    try {
+      const client = await this.ensureClient();
+      await (client as any).models.list();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private async ensureClient(): Promise<unknown> {
+    if (this.client) return this.client;
+
+    let OpenAI: any;
+    try {
+      const mod = await import('openai');
+      OpenAI = mod.default ?? mod.OpenAI ?? mod;
+    } catch {
+      throw new LLMProviderError(
+        this.name,
+        'openai package not installed. Install it: npm install openai',
+      );
+    }
+
+    this.client = new OpenAI({
+      apiKey: this.config.apiKey,
+      baseURL: this.config.baseURL,
+      timeout: this.config.timeoutMs,
+      maxRetries: this.config.maxRetries ?? 2,
+    });
+    return this.client;
+  }
+
+  private buildParams(messages: LLMMessage[]): Record<string, unknown> {
+    const params: Record<string, unknown> = {
+      model: this.config.model,
+      messages: messages.map((m) => this.toOpenAIMessage(m)),
+    };
+    if (this.config.temperature !== undefined) params.temperature = this.config.temperature;
+    if (this.config.maxTokens !== undefined) params.max_tokens = this.config.maxTokens;
+    if (this.tools.length > 0) params.tools = this.tools;
+    return params;
+  }
+
+  private toOpenAIMessage(msg: LLMMessage): Record<string, unknown> {
+    if (msg.role === 'tool') {
+      return {
+        role: 'tool',
+        content: msg.content,
+        tool_call_id: msg.toolCallId,
+      };
+    }
+    return { role: msg.role, content: msg.content };
+  }
+
+  private parseResponse(completion: any): LLMResponse {
+    const choice = completion.choices?.[0];
+    const message = choice?.message ?? {};
+
+    const toolCalls: LLMToolCall[] = (message.tool_calls ?? []).map((tc: any) => ({
+      id: tc.id,
+      name: tc.function?.name ?? '',
+      arguments: tc.function?.arguments ?? '',
+    }));
+
+    const usage: LLMUsage = {
+      promptTokens: completion.usage?.prompt_tokens ?? 0,
+      completionTokens: completion.usage?.completion_tokens ?? 0,
+      totalTokens: completion.usage?.total_tokens ?? 0,
+    };
+
+    return {
+      content: message.content ?? '',
+      toolCalls,
+      usage,
+      model: completion.model ?? this.config.model,
+      finishReason: this.mapFinishReason(choice?.finish_reason),
+    };
+  }
+
+  private mapFinishReason(reason: string | undefined): LLMResponse['finishReason'] {
+    switch (reason) {
+      case 'stop': return 'stop';
+      case 'tool_calls': return 'tool_calls';
+      case 'length': return 'length';
+      case 'content_filter': return 'content_filter';
+      default: return 'stop';
+    }
+  }
+
+  private mapError(err: unknown): Error {
+    if (err instanceof LLMProviderError || err instanceof LLMRateLimitError || err instanceof LLMTimeoutError) {
+      return err;
+    }
+
+    const e = err as any;
+    const status = e?.status ?? e?.statusCode;
+    const message = e?.message ?? String(err);
+
+    if (status === 429) {
+      const retryAfter = e?.headers?.['retry-after'];
+      return new LLMRateLimitError(
+        this.name,
+        retryAfter ? parseInt(retryAfter, 10) * 1000 : undefined,
+      );
+    }
+
+    if (e?.code === 'ETIMEDOUT' || e?.code === 'ECONNABORTED' || message.includes('timeout')) {
+      return new LLMTimeoutError(this.name, this.config.timeoutMs ?? 0);
+    }
+
+    return new LLMProviderError(this.name, message, status);
+  }
+}

@@ -48,6 +48,16 @@ export const RuntimeErrorCodes = {
   CLAIM_EXPIRED: 'CLAIM_EXPIRED',
   /** All retry attempts exhausted */
   RETRY_EXHAUSTED: 'RETRY_EXHAUSTED',
+  /** LLM provider returned an error */
+  LLM_PROVIDER_ERROR: 'LLM_PROVIDER_ERROR',
+  /** LLM provider rate limit exceeded */
+  LLM_RATE_LIMIT: 'LLM_RATE_LIMIT',
+  /** Failed to convert LLM response to output */
+  LLM_RESPONSE_CONVERSION: 'LLM_RESPONSE_CONVERSION',
+  /** LLM tool call failed */
+  LLM_TOOL_CALL_ERROR: 'LLM_TOOL_CALL_ERROR',
+  /** LLM request timed out */
+  LLM_TIMEOUT: 'LLM_TIMEOUT',
 } as const;
 
 /** Union type of all runtime error code values */
