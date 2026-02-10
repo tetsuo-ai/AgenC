@@ -136,6 +136,7 @@ export {
   type Wallet,
   type SignMessageWallet,
   KeypairFileError,
+  ensureWallet,
   keypairToWallet,
   loadKeypairFromFile,
   loadKeypairFromFileSync,
@@ -393,6 +394,7 @@ export {
   type AutonomousTaskExecutor,
   type AutonomousAgentConfig,
   type AutonomousAgentStats,
+  type DiscoveryMode,
   DefaultClaimStrategy,
 } from './autonomous/index.js';
 
@@ -511,3 +513,6 @@ export {
   type VoteResult,
   type DisputeOpsConfig,
 } from './dispute/index.js';
+
+// Agent Builder (Phase 10)
+export { AgentBuilder, BuiltAgent } from './builder.js';

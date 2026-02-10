@@ -106,6 +106,7 @@ export {
   type Wallet,
   type SignMessageWallet,
   KeypairFileError,
+  ensureWallet,
   keypairToWallet,
   loadKeypairFromFile,
   loadKeypairFromFileSync,

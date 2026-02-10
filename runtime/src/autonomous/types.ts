@@ -6,6 +6,7 @@
 
 import { PublicKey } from '@solana/web3.js';
 import { AgentRuntimeConfig } from '../types/config.js';
+import type { ProofEngine } from '../proof/engine.js';
 
 /**
  * On-chain task data
@@ -162,6 +163,13 @@ export interface AutonomousAgentConfig extends AgentRuntimeConfig {
    * @default './circuits-circom/task_completion'
    */
   circuitPath?: string;
+
+  /**
+   * Optional ProofEngine for cached, stats-tracked proof generation.
+   * When provided, completeTaskPrivate() delegates to this engine
+   * instead of calling SDK generateProof() directly.
+   */
+  proofEngine?: ProofEngine;
 
   /**
    * Task discovery mode
