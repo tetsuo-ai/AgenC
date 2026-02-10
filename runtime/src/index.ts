@@ -475,3 +475,39 @@ export {
   RedisBackend,
   type RedisBackendConfig,
 } from './memory/index.js';
+
+// Dispute Operations (Phase 8)
+export {
+  // Enums
+  OnChainDisputeStatus,
+  // Constants
+  DISPUTE_STATUS_OFFSET,
+  DISPUTE_TASK_OFFSET,
+  // Functions
+  parseOnChainDispute,
+  parseOnChainDisputeVote,
+  disputeStatusToString,
+  // PDA derivation
+  deriveDisputePda,
+  findDisputePda,
+  deriveVotePda,
+  findVotePda,
+  // Error classes
+  DisputeNotFoundError,
+  DisputeVoteError,
+  DisputeResolutionError,
+  DisputeSlashError,
+  // Operations class
+  DisputeOperations,
+  // Types
+  type OnChainDispute,
+  type OnChainDisputeVote,
+  type InitiateDisputeParams,
+  type VoteDisputeParams,
+  type ResolveDisputeParams,
+  type ExpireDisputeParams,
+  type ApplySlashParams,
+  type DisputeResult,
+  type VoteResult,
+  type DisputeOpsConfig,
+} from './dispute/index.js';
