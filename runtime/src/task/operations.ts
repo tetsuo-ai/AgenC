@@ -26,6 +26,7 @@ import {
 } from './types.js';
 import { deriveTaskPda, deriveClaimPda, deriveEscrowPda } from './pda.js';
 import { deriveAgentPda, findProtocolPda } from '../agent/pda.js';
+import { fetchTreasury } from '../utils/treasury.js';
 import {
   isAnchorError,
   parseAnchorError,
@@ -466,10 +467,7 @@ export class TaskOperations {
     if (this.cachedProtocolTreasury) {
       return this.cachedProtocolTreasury;
     }
-
-    const protocolPda = findProtocolPda(this.program.programId);
-    const config = await this.program.account.protocolConfig.fetch(protocolPda);
-    this.cachedProtocolTreasury = config.treasury as PublicKey;
+    this.cachedProtocolTreasury = await fetchTreasury(this.program, this.program.programId);
     return this.cachedProtocolTreasury;
   }
 }

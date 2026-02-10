@@ -1,9 +1,10 @@
 import { describe, it, expect, vi } from 'vitest';
-import { PublicKey } from '@solana/web3.js';
+import { Keypair, PublicKey } from '@solana/web3.js';
 import { LLMTaskExecutor } from './executor.js';
 import type { LLMProvider, LLMResponse, LLMMessage, StreamProgressCallback } from './types.js';
 import type { Task } from '../autonomous/types.js';
 import { TaskStatus } from '../autonomous/types.js';
+import type { MemoryBackend, MemoryEntry, AddEntryOptions, MemoryQuery } from '../memory/types.js';
 
 function createMockProvider(overrides: Partial<LLMProvider> = {}): LLMProvider {
   return {
@@ -199,5 +200,204 @@ describe('LLMTaskExecutor', () => {
     const taskStorage = createMockTask();
     taskStorage.requiredCapabilities = 4n; // STORAGE — not in 0b11
     expect(executor.canExecute(taskStorage)).toBe(false);
+  });
+
+  // ==========================================================================
+  // Memory integration
+  // ==========================================================================
+
+  describe('memory integration', () => {
+    function createMockMemory(overrides: Partial<MemoryBackend> = {}): MemoryBackend {
+      return {
+        name: 'mock-memory',
+        addEntry: vi.fn<[AddEntryOptions], Promise<MemoryEntry>>().mockImplementation(async (opts) => ({
+          id: `entry-${Date.now()}`,
+          sessionId: opts.sessionId,
+          role: opts.role,
+          content: opts.content,
+          toolCallId: opts.toolCallId,
+          toolName: opts.toolName,
+          timestamp: Date.now(),
+          taskPda: opts.taskPda,
+          metadata: opts.metadata,
+        })),
+        getThread: vi.fn<[string, number?], Promise<MemoryEntry[]>>().mockResolvedValue([]),
+        query: vi.fn<[MemoryQuery], Promise<MemoryEntry[]>>().mockResolvedValue([]),
+        deleteThread: vi.fn<[string], Promise<number>>().mockResolvedValue(0),
+        listSessions: vi.fn<[string?], Promise<string[]>>().mockResolvedValue([]),
+        set: vi.fn<[string, unknown, number?], Promise<void>>().mockResolvedValue(undefined),
+        get: vi.fn().mockResolvedValue(undefined),
+        delete: vi.fn<[string], Promise<boolean>>().mockResolvedValue(false),
+        has: vi.fn<[string], Promise<boolean>>().mockResolvedValue(false),
+        listKeys: vi.fn<[string?], Promise<string[]>>().mockResolvedValue([]),
+        clear: vi.fn<[], Promise<void>>().mockResolvedValue(undefined),
+        close: vi.fn<[], Promise<void>>().mockResolvedValue(undefined),
+        healthCheck: vi.fn<[], Promise<boolean>>().mockResolvedValue(true),
+        ...overrides,
+      };
+    }
+
+    function createTaskWithUniquePda(descriptionStr = 'test task'): Task {
+      const task = createMockTask(descriptionStr);
+      // Use a real keypair-derived pubkey so toBase58 is deterministic and unique
+      task.pda = Keypair.generate().publicKey;
+      return task;
+    }
+
+    it('persists messages when memory provided', async () => {
+      const memory = createMockMemory();
+      const provider = createMockProvider();
+      const executor = new LLMTaskExecutor({ provider, memory });
+
+      await executor.execute(createTaskWithUniquePda());
+
+      // Should persist: user message (initial) + assistant response
+      expect(memory.addEntry).toHaveBeenCalledTimes(2);
+
+      // First call = user message
+      const firstCall = (memory.addEntry as ReturnType<typeof vi.fn>).mock.calls[0][0] as AddEntryOptions;
+      expect(firstCall.role).toBe('user');
+      expect(firstCall.sessionId).toMatch(/^conv:/);
+      expect(firstCall.taskPda).toBeDefined();
+
+      // Second call = assistant message
+      const secondCall = (memory.addEntry as ReturnType<typeof vi.fn>).mock.calls[1][0] as AddEntryOptions;
+      expect(secondCall.role).toBe('assistant');
+    });
+
+    it('loads prior messages on retry (memory has entries)', async () => {
+      const task = createTaskWithUniquePda();
+      const sessionId = `conv:${task.pda.toBase58()}`;
+
+      const priorEntries: MemoryEntry[] = [
+        { id: '1', sessionId, role: 'system', content: 'You are helpful.', timestamp: 1000 },
+        { id: '2', sessionId, role: 'user', content: 'Task info', timestamp: 1001 },
+        { id: '3', sessionId, role: 'assistant', content: 'Prior response', timestamp: 1002 },
+      ];
+
+      const memory = createMockMemory({
+        getThread: vi.fn<[string, number?], Promise<MemoryEntry[]>>().mockResolvedValue(priorEntries),
+      });
+      const provider = createMockProvider();
+      const executor = new LLMTaskExecutor({ provider, memory });
+
+      await executor.execute(task);
+
+      // getThread called to load prior messages
+      expect(memory.getThread).toHaveBeenCalledWith(sessionId);
+
+      // provider.chat should receive messages built from prior entries (3 prior + 1 assistant response pushed)
+      const messages = (provider.chat as ReturnType<typeof vi.fn>).mock.calls[0][0] as LLMMessage[];
+      expect(messages[0].role).toBe('system');
+      expect(messages[0].content).toBe('You are helpful.');
+      expect(messages[1].role).toBe('user');
+      expect(messages[2].role).toBe('assistant');
+
+      // No initial persistMessages since isNew=false, only assistant response persisted
+      expect(memory.addEntry).toHaveBeenCalledTimes(1);
+    });
+
+    it('builds fresh messages when memory is empty', async () => {
+      const memory = createMockMemory({
+        getThread: vi.fn<[string, number?], Promise<MemoryEntry[]>>().mockResolvedValue([]),
+      });
+      const provider = createMockProvider();
+      const executor = new LLMTaskExecutor({ provider, memory, systemPrompt: 'You are an agent.' });
+
+      await executor.execute(createTaskWithUniquePda());
+
+      // getThread returned empty → fresh build
+      // persist: system + user (initial) + assistant = 3
+      expect(memory.addEntry).toHaveBeenCalledTimes(3);
+    });
+
+    it('persists tool call loop messages', async () => {
+      const toolCallResponse: LLMResponse = {
+        content: 'thinking...',
+        toolCalls: [{ id: 'call_1', name: 'lookup', arguments: '{"key":"val"}' }],
+        usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
+        model: 'mock-model',
+        finishReason: 'tool_calls',
+      };
+      const finalResponse: LLMResponse = {
+        content: 'final answer',
+        toolCalls: [],
+        usage: { promptTokens: 20, completionTokens: 10, totalTokens: 30 },
+        model: 'mock-model',
+        finishReason: 'stop',
+      };
+
+      const chatFn = vi.fn<[LLMMessage[]], Promise<LLMResponse>>()
+        .mockResolvedValueOnce(toolCallResponse)
+        .mockResolvedValueOnce(finalResponse);
+
+      const memory = createMockMemory();
+      const provider = createMockProvider({ chat: chatFn });
+      const toolHandler = vi.fn().mockResolvedValue('tool result');
+
+      const executor = new LLMTaskExecutor({ provider, toolHandler, memory });
+      await executor.execute(createTaskWithUniquePda());
+
+      // Expected addEntry calls:
+      // 1. user (initial persist)
+      // 2. first assistant response (thinking...)
+      // 3. tool result
+      // 4. second assistant response (final answer)
+      expect(memory.addEntry).toHaveBeenCalledTimes(4);
+
+      const calls = (memory.addEntry as ReturnType<typeof vi.fn>).mock.calls.map(
+        (c: [AddEntryOptions]) => c[0].role
+      );
+      expect(calls).toEqual(['user', 'assistant', 'tool', 'assistant']);
+    });
+
+    it('memory failure does not block execution', async () => {
+      const memory = createMockMemory({
+        addEntry: vi.fn().mockRejectedValue(new Error('storage offline')),
+        getThread: vi.fn<[string, number?], Promise<MemoryEntry[]>>().mockResolvedValue([]),
+      });
+      const provider = createMockProvider();
+      const executor = new LLMTaskExecutor({ provider, memory });
+
+      const output = await executor.execute(createTaskWithUniquePda());
+      expect(output).toHaveLength(4);
+      for (const v of output) {
+        expect(typeof v).toBe('bigint');
+      }
+    });
+
+    it('getThread failure does not block execution', async () => {
+      const memory = createMockMemory({
+        getThread: vi.fn().mockRejectedValue(new Error('connection refused')),
+      });
+      const provider = createMockProvider();
+      const executor = new LLMTaskExecutor({ provider, memory });
+
+      const output = await executor.execute(createTaskWithUniquePda());
+      expect(output).toHaveLength(4);
+      // Should still persist (addEntry not broken)
+      expect(memory.addEntry).toHaveBeenCalled();
+    });
+
+    it('no persistence when memory not configured', async () => {
+      const provider = createMockProvider();
+      const executor = new LLMTaskExecutor({ provider }); // no memory
+
+      const output = await executor.execute(createMockTask());
+      expect(output).toHaveLength(4);
+      // Nothing to assert on memory — just verify it works without memory
+    });
+
+    it('uses configured memoryTtlMs', async () => {
+      const memory = createMockMemory();
+      const provider = createMockProvider();
+      const customTtl = 3600_000; // 1h
+      const executor = new LLMTaskExecutor({ provider, memory, memoryTtlMs: customTtl });
+
+      await executor.execute(createTaskWithUniquePda());
+
+      const firstCall = (memory.addEntry as ReturnType<typeof vi.fn>).mock.calls[0][0] as AddEntryOptions;
+      expect(firstCall.ttlMs).toBe(customTtl);
+    });
   });
 });

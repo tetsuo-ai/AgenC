@@ -21,9 +21,6 @@ export class LLMProviderError extends RuntimeError {
     this.name = 'LLMProviderError';
     this.providerName = providerName;
     this.statusCode = statusCode;
-    if (Error.captureStackTrace) {
-      Error.captureStackTrace(this, LLMProviderError);
-    }
   }
 }
 
@@ -42,9 +39,6 @@ export class LLMRateLimitError extends RuntimeError {
     this.name = 'LLMRateLimitError';
     this.providerName = providerName;
     this.retryAfterMs = retryAfterMs;
-    if (Error.captureStackTrace) {
-      Error.captureStackTrace(this, LLMRateLimitError);
-    }
   }
 }
 
@@ -58,9 +52,6 @@ export class LLMResponseConversionError extends RuntimeError {
     super(`Response conversion failed: ${message}`, RuntimeErrorCodes.LLM_RESPONSE_CONVERSION);
     this.name = 'LLMResponseConversionError';
     this.response = response;
-    if (Error.captureStackTrace) {
-      Error.captureStackTrace(this, LLMResponseConversionError);
-    }
   }
 }
 
@@ -79,9 +70,6 @@ export class LLMToolCallError extends RuntimeError {
     this.name = 'LLMToolCallError';
     this.toolName = toolName;
     this.toolCallId = toolCallId;
-    if (Error.captureStackTrace) {
-      Error.captureStackTrace(this, LLMToolCallError);
-    }
   }
 }
 
@@ -100,9 +88,6 @@ export class LLMTimeoutError extends RuntimeError {
     this.name = 'LLMTimeoutError';
     this.providerName = providerName;
     this.timeoutMs = timeoutMs;
-    if (Error.captureStackTrace) {
-      Error.captureStackTrace(this, LLMTimeoutError);
-    }
   }
 }
 

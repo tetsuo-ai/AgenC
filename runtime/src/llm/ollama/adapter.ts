@@ -18,6 +18,7 @@ import type {
 } from '../types.js';
 import type { OllamaProviderConfig } from './types.js';
 import { LLMProviderError, mapLLMError } from '../errors.js';
+import { ensureLazyImport } from '../lazy-import.js';
 
 const DEFAULT_HOST = 'http://localhost:11434';
 const DEFAULT_MODEL = 'llama3';
@@ -113,18 +114,10 @@ export class OllamaProvider implements LLMProvider {
   private async ensureClient(): Promise<unknown> {
     if (this.client) return this.client;
 
-    let OllamaClass: any;
-    try {
-      const mod = await import('ollama');
-      OllamaClass = mod.Ollama ?? mod.default;
-    } catch {
-      throw new LLMProviderError(
-        this.name,
-        'ollama package not installed. Install it: npm install ollama',
-      );
-    }
-
-    this.client = new OllamaClass({ host: this.config.host });
+    this.client = await ensureLazyImport('ollama', this.name, (mod) => {
+      const OllamaClass = (mod.Ollama ?? mod.default) as any;
+      return new OllamaClass({ host: this.config.host });
+    });
     return this.client;
   }
 

@@ -22,11 +22,13 @@ import { Logger, createLogger, silentLogger } from '../utils/logger.js';
 import { createProgram } from '../idl.js';
 import { findClaimPda, findEscrowPda } from '../task/pda.js';
 import { findProtocolPda } from '../agent/pda.js';
+import { fetchTreasury } from '../utils/treasury.js';
 import type { AgencCoordination } from '../types/agenc_coordination.js';
 import type { Wallet } from '../types/wallet.js';
 import { ensureWallet } from '../types/wallet.js';
 import type { AgentState } from '../agent/types.js';
 import type { ProofEngine } from '../proof/engine.js';
+import type { MemoryBackend } from '../memory/types.js';
 
 // Default configuration constants
 const DEFAULT_SCAN_INTERVAL_MS = 5000;
@@ -35,6 +37,7 @@ const DEFAULT_DISCOVERY_MODE: DiscoveryMode = 'hybrid';
 const DEFAULT_MAX_RETRIES = 3;
 const DEFAULT_RETRY_DELAY_MS = 1000;
 const DEFAULT_CIRCUIT_PATH = './circuits-circom/task_completion';
+const DEFAULT_MEMORY_TTL_MS = 86_400_000; // 24h
 const SHUTDOWN_TIMEOUT_MS = 30000;
 
 /**
@@ -93,6 +96,8 @@ export class AutonomousAgent extends AgentRuntime {
   private readonly generateProofs: boolean;
   private readonly circuitPath: string;
   private readonly proofEngine?: ProofEngine;
+  private readonly memory?: MemoryBackend;
+  private readonly memoryTtlMs: number;
   private readonly autonomousLogger: Logger;
   private readonly discoveryMode: DiscoveryMode;
   private readonly maxRetries: number;
@@ -150,6 +155,8 @@ export class AutonomousAgent extends AgentRuntime {
     this.generateProofs = config.generateProofs ?? true;
     this.circuitPath = config.circuitPath ?? DEFAULT_CIRCUIT_PATH;
     this.proofEngine = config.proofEngine;
+    this.memory = config.memory;
+    this.memoryTtlMs = config.memoryTtlMs ?? DEFAULT_MEMORY_TTL_MS;
     this.discoveryMode = config.discoveryMode ?? DEFAULT_DISCOVERY_MODE;
     this.maxRetries = config.maxRetries ?? DEFAULT_MAX_RETRIES;
     this.retryDelayMs = config.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS;
@@ -477,12 +484,14 @@ export class AutonomousAgent extends AgentRuntime {
       this.stats.tasksClaimed++;
 
       this.onTaskClaimed?.(task, claimTx);
+      await this.journalEvent(task, 'claimed', { claimTx });
       this.autonomousLogger.info(`Claimed task ${taskKey.slice(0, 8)}: ${claimTx}`);
 
       // Execute the task
       this.autonomousLogger.info(`Executing task ${taskKey.slice(0, 8)}...`);
       const output = await this.executeWithRetry(task);
       this.onTaskExecuted?.(task, output);
+      await this.journalEvent(task, 'executed', { outputLength: output.length });
       this.autonomousLogger.info(`Executed task ${taskKey.slice(0, 8)}`);
 
       // Complete the task with retry
@@ -498,6 +507,7 @@ export class AutonomousAgent extends AgentRuntime {
 
       this.onTaskCompleted?.(task, completeTx);
       this.onEarnings?.(task.reward, task);
+      await this.journalEvent(task, 'completed', { completionTx: completeTx, durationMs, reward: task.reward.toString() });
 
       this.autonomousLogger.info(
         `Completed task ${taskKey.slice(0, 8)} in ${durationMs}ms, earned ${Number(task.reward) / LAMPORTS_PER_SOL} SOL`
@@ -510,6 +520,7 @@ export class AutonomousAgent extends AgentRuntime {
 
       const err = error instanceof Error ? error : new Error(String(error));
       this.onTaskFailed?.(task, err);
+      await this.journalEvent(task, 'failed', { error: err.message });
       this.autonomousLogger.error(`Task ${taskKey.slice(0, 8)} failed:`, err.message);
 
       return { success: false, task, error: err, durationMs: Date.now() - startTime };
@@ -619,13 +630,8 @@ export class AutonomousAgent extends AgentRuntime {
   private async getTreasury(): Promise<PublicKey> {
     if (this.cachedTreasury) return this.cachedTreasury;
     if (!this.program) throw new Error('Agent not started');
-
-    const protocolPda = findProtocolPda(this.program.programId);
-    const config = await (
-      this.program.account as unknown as Record<string, { fetch: (key: PublicKey) => Promise<{ treasury: PublicKey }> }>
-    ).protocolConfig.fetch(protocolPda);
-    this.cachedTreasury = config.treasury;
-    return config.treasury;
+    this.cachedTreasury = await fetchTreasury(this.program, this.program.programId);
+    return this.cachedTreasury;
   }
 
   /**
@@ -750,6 +756,27 @@ export class AutonomousAgent extends AgentRuntime {
       remaining >>= 8n;
     }
     return bytes;
+  }
+
+  private async journalEvent(
+    task: Task,
+    event: string,
+    data: Record<string, unknown>,
+  ): Promise<void> {
+    if (!this.memory) return;
+    const sessionId = `lifecycle:${task.pda.toBase58()}`;
+    try {
+      await this.memory.addEntry({
+        sessionId,
+        role: 'system',
+        content: JSON.stringify({ event, timestamp: Date.now(), ...data }),
+        taskPda: task.pda.toBase58(),
+        metadata: { type: 'lifecycle', event },
+        ttlMs: this.memoryTtlMs,
+      });
+    } catch (err) {
+      this.autonomousLogger.warn(`Failed to journal ${event} event:`, err);
+    }
   }
 
   private isZeroHash(hash: Uint8Array): boolean {

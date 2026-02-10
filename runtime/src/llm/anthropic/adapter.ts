@@ -17,7 +17,8 @@ import type {
   StreamProgressCallback,
 } from '../types.js';
 import type { AnthropicProviderConfig } from './types.js';
-import { LLMProviderError, mapLLMError } from '../errors.js';
+import { mapLLMError } from '../errors.js';
+import { ensureLazyImport } from '../lazy-import.js';
 
 const DEFAULT_MODEL = 'claude-sonnet-4-5-20250929';
 
@@ -135,22 +136,14 @@ export class AnthropicProvider implements LLMProvider {
   private async ensureClient(): Promise<unknown> {
     if (this.client) return this.client;
 
-    let Anthropic: any;
-    try {
-      const mod = await import('@anthropic-ai/sdk');
-      Anthropic = mod.default ?? mod.Anthropic ?? mod;
-    } catch {
-      throw new LLMProviderError(
-        this.name,
-        '@anthropic-ai/sdk package not installed. Install it: npm install @anthropic-ai/sdk',
-      );
-    }
-
-    this.client = new Anthropic({
-      apiKey: this.config.apiKey,
-      baseURL: this.config.baseURL,
-      timeout: this.config.timeoutMs,
-      maxRetries: this.config.maxRetries ?? 2,
+    this.client = await ensureLazyImport('@anthropic-ai/sdk', this.name, (mod) => {
+      const Anthropic = (mod.default ?? mod.Anthropic ?? mod) as any;
+      return new Anthropic({
+        apiKey: this.config.apiKey,
+        baseURL: this.config.baseURL,
+        timeout: this.config.timeoutMs,
+        maxRetries: this.config.maxRetries ?? 2,
+      });
     });
     return this.client;
   }
