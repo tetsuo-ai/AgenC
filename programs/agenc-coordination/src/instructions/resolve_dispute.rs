@@ -1,14 +1,16 @@
 //! Resolve a dispute and execute the outcome
 
-use std::collections::HashSet;
-
 use crate::errors::CoordinationError;
 use crate::events::{dispute_outcome, DisputeResolved};
 use crate::instructions::completion_helpers::update_protocol_stats;
 use crate::instructions::constants::PERCENT_BASE;
+use crate::instructions::dispute_helpers::{
+    check_duplicate_arbiters, process_arbiter_vote_pair, process_worker_claim_pair,
+    validate_remaining_accounts_structure,
+};
 use crate::state::{
-    AgentRegistration, Dispute, DisputeStatus, DisputeVote, ProtocolConfig, ResolutionType, Task,
-    TaskClaim, TaskEscrow, TaskStatus,
+    AgentRegistration, Dispute, DisputeStatus, ProtocolConfig, ResolutionType, Task, TaskClaim,
+    TaskEscrow, TaskStatus,
 };
 use crate::utils::version::check_version_compatible;
 use anchor_lang::prelude::*;
@@ -297,51 +299,27 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
 
     // Update dispute status - decrement active_dispute_votes for each arbiter
     //
-    // Worker accounts processing - shared pattern with resolve_dispute/expire_dispute
-    // The duplication is intentional to avoid cross-instruction dependencies
-    // and keep each instruction self-contained.
-    //
     // remaining_accounts format (fix #333):
     // - First: (vote, arbiter) pairs for total_voters
     // - Then: optional (claim, worker) pairs for additional workers on collaborative tasks
-    let arbiter_accounts = dispute
-        .total_voters
-        .checked_mul(2)
-        .ok_or(CoordinationError::ArithmeticOverflow)? as usize;
+    let arbiter_accounts =
+        validate_remaining_accounts_structure(ctx.remaining_accounts, dispute.total_voters)?;
+    check_duplicate_arbiters(ctx.remaining_accounts, arbiter_accounts)?;
 
-    // Validate we have at least enough accounts for arbiters
-    require!(
-        ctx.remaining_accounts.len() >= arbiter_accounts,
-        CoordinationError::InvalidInput
-    );
-
-    // Additional accounts must come in pairs (claim, worker)
-    let extra_accounts = ctx.remaining_accounts.len() - arbiter_accounts;
-    require!(extra_accounts % 2 == 0, CoordinationError::InvalidInput);
-
-    // Check for duplicate arbiters (fix #583)
-    let mut seen_arbiters: HashSet<Pubkey> = HashSet::new();
     for i in (0..arbiter_accounts).step_by(2) {
-        let arbiter_key = ctx.remaining_accounts[i + 1].key();
-        require!(
-            seen_arbiters.insert(arbiter_key),
-            CoordinationError::DuplicateArbiter
-        );
+        process_arbiter_vote_pair(
+            &ctx.remaining_accounts[i],
+            &ctx.remaining_accounts[i + 1],
+            &dispute.key(),
+        )?;
     }
 
-    // Process arbiter (vote, arbiter) pairs
-    for i in (0..arbiter_accounts).step_by(2) {
-        let vote_info = &ctx.remaining_accounts[i];
-        let arbiter_info = &ctx.remaining_accounts[i + 1];
-        process_arbiter_vote_pair(vote_info, arbiter_info, &dispute.key())?;
-    }
-
-    // Process additional worker (claim, worker) pairs to decrement active_tasks (fix #333)
-    // This handles collaborative tasks where multiple workers claimed the task
     for i in (arbiter_accounts..ctx.remaining_accounts.len()).step_by(2) {
-        let claim_info = &ctx.remaining_accounts[i];
-        let worker_info = &ctx.remaining_accounts[i + 1];
-        process_worker_claim_pair(claim_info, worker_info, &task.key())?;
+        process_worker_claim_pair(
+            &ctx.remaining_accounts[i],
+            &ctx.remaining_accounts[i + 1],
+            &task.key(),
+        )?;
     }
 
     dispute.status = DisputeStatus::Resolved;
@@ -431,83 +409,3 @@ fn validate_worker_accounts(
     Ok(())
 }
 
-/// Processes a single (vote, arbiter) pair from remaining_accounts.
-///
-/// Validates ownership, deserializes the vote, verifies it belongs to the dispute
-/// and matches the arbiter, then decrements the arbiter's active_dispute_votes counter.
-fn process_arbiter_vote_pair(
-    vote_info: &AccountInfo,
-    arbiter_info: &AccountInfo,
-    dispute_key: &Pubkey,
-) -> Result<()> {
-    require!(
-        vote_info.owner == &crate::ID,
-        CoordinationError::InvalidAccountOwner
-    );
-    require!(
-        arbiter_info.owner == &crate::ID,
-        CoordinationError::InvalidAccountOwner
-    );
-
-    let vote_data = vote_info.try_borrow_data()?;
-    let vote = DisputeVote::try_deserialize(&mut &**vote_data)?;
-    require!(
-        vote.dispute == *dispute_key,
-        CoordinationError::InvalidInput
-    );
-    require!(
-        vote.voter == arbiter_info.key(),
-        CoordinationError::InvalidInput
-    );
-    drop(vote_data);
-
-    require!(arbiter_info.is_writable, CoordinationError::InvalidInput);
-    let mut arbiter_data = arbiter_info.try_borrow_mut_data()?;
-    let mut arbiter = AgentRegistration::try_deserialize(&mut &**arbiter_data)?;
-    // Using saturating_sub intentionally - underflow returns 0 (safe counter decrement)
-    arbiter.active_dispute_votes = arbiter.active_dispute_votes.saturating_sub(1);
-    arbiter.try_serialize(&mut &mut arbiter_data[8..])?;
-
-    Ok(())
-}
-
-/// Processes a single (claim, worker) pair from remaining_accounts.
-///
-/// Validates ownership, deserializes the claim, verifies it belongs to the task
-/// and matches the worker, then decrements the worker's active_tasks counter.
-/// Used for collaborative tasks where multiple workers claimed the task.
-fn process_worker_claim_pair(
-    claim_info: &AccountInfo,
-    worker_info: &AccountInfo,
-    task_key: &Pubkey,
-) -> Result<()> {
-    require!(
-        claim_info.owner == &crate::ID,
-        CoordinationError::InvalidAccountOwner
-    );
-    require!(
-        worker_info.owner == &crate::ID,
-        CoordinationError::InvalidAccountOwner
-    );
-
-    let claim_data = claim_info.try_borrow_data()?;
-    let claim = TaskClaim::try_deserialize(&mut &**claim_data)?;
-    require!(
-        claim.task == *task_key,
-        CoordinationError::InvalidInput
-    );
-    require!(
-        claim.worker == worker_info.key(),
-        CoordinationError::InvalidInput
-    );
-    drop(claim_data);
-
-    require!(worker_info.is_writable, CoordinationError::InvalidInput);
-    let mut worker_data = worker_info.try_borrow_mut_data()?;
-    let mut worker_reg = AgentRegistration::try_deserialize(&mut &**worker_data)?;
-    // Using saturating_sub intentionally - underflow returns 0 (safe counter decrement)
-    worker_reg.active_tasks = worker_reg.active_tasks.saturating_sub(1);
-    worker_reg.try_serialize(&mut &mut worker_data[8..])?;
-
-    Ok(())
-}
