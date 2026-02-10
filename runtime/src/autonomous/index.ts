@@ -19,6 +19,7 @@ export {
   type AutonomousAgentConfig,
   type AutonomousAgentStats,
   type DiscoveryMode,
+  type SpeculationConfig,
   // Default strategy
   DefaultClaimStrategy,
 } from './types.js';

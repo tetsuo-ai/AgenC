@@ -8,6 +8,8 @@ import { PublicKey } from '@solana/web3.js';
 import { AgentRuntimeConfig } from '../types/config.js';
 import type { ProofEngine } from '../proof/engine.js';
 import type { MemoryBackend } from '../memory/types.js';
+import type { DependencyType } from '../task/dependency-graph.js';
+import type { ProofPipelineConfig } from '../task/proof-pipeline.js';
 
 /**
  * On-chain task data
@@ -119,6 +121,35 @@ export type AutonomousTaskExecutor = TaskExecutor;
 export type DiscoveryMode = 'polling' | 'events' | 'hybrid';
 
 /**
+ * Configuration for speculative execution.
+ *
+ * When enabled, the agent uses a SpeculativeExecutor to overlap
+ * proof generation with task execution, reducing pipeline latency.
+ * Dependencies between tasks can be registered via
+ * `agent.registerDependency()` for full speculative child execution.
+ */
+export interface SpeculationConfig {
+  /** Enable speculative execution. @default false */
+  enabled?: boolean;
+  /** Maximum speculative tasks per parent. @default 5 */
+  maxSpeculativeTasksPerParent?: number;
+  /** Maximum speculation depth (chain length). @default 1, max: 5 */
+  maxSpeculationDepth?: number;
+  /** Dependency types eligible for speculation. @default [Data, Order] */
+  speculatableDependencyTypes?: DependencyType[];
+  /** Abort speculative tasks if parent proof fails. @default true */
+  abortOnParentFailure?: boolean;
+  /** Proof pipeline configuration overrides. */
+  proofPipelineConfig?: Partial<ProofPipelineConfig>;
+  /** Called when speculative execution starts for a dependent task. */
+  onSpeculativeStarted?: (taskPda: PublicKey, parentPda: PublicKey) => void;
+  /** Called when a speculative task's proof is confirmed on-chain. */
+  onSpeculativeConfirmed?: (taskPda: PublicKey) => void;
+  /** Called when a speculative task is aborted (e.g., parent failed). */
+  onSpeculativeAborted?: (taskPda: PublicKey, reason: string) => void;
+}
+
+/**
  * Configuration for AutonomousAgent
  */
 export interface AutonomousAgentConfig extends AgentRuntimeConfig {
@@ -211,6 +242,13 @@ export interface AutonomousAgentConfig extends AgentRuntimeConfig {
   onTaskFailed?: (task: Task, error: Error) => void;
   onEarnings?: (amount: bigint, task: Task) => void;
   onProofGenerated?: (task: Task, proofSizeBytes: number, durationMs: number) => void;
+
+  /**
+   * Speculative execution configuration.
+   * When enabled, overlaps proof generation with task execution.
+   * @default undefined (disabled)
+   */
+  speculation?: SpeculationConfig;
 }
 
 /**
@@ -233,6 +271,16 @@ export interface AutonomousAgentStats {
   avgCompletionTimeMs: number;
   /** Uptime in ms */
   uptimeMs: number;
+
+  // Speculative execution metrics (only present when speculation is enabled)
+  /** Total speculative executions started */
+  speculativeExecutionsStarted?: number;
+  /** Speculative executions that were confirmed */
+  speculativeExecutionsConfirmed?: number;
+  /** Speculative executions that were aborted */
+  speculativeExecutionsAborted?: number;
+  /** Total time saved by speculation (estimated, in ms) */
+  estimatedTimeSavedMs?: number;
 }
 
 /**

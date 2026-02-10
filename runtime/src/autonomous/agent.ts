@@ -4,9 +4,9 @@
  * @module
  */
 
-import { Connection, PublicKey, SystemProgram, LAMPORTS_PER_SOL } from '@solana/web3.js';
+import { PublicKey, SystemProgram, LAMPORTS_PER_SOL } from '@solana/web3.js';
 import { Program, AnchorProvider, BN } from '@coral-xyz/anchor';
-import { PROGRAM_ID, generateProof, generateSalt } from '@agenc/sdk';
+import { generateProof, generateSalt } from '@agenc/sdk';
 import { AgentRuntime } from '../runtime.js';
 import { TaskScanner, TaskEventSubscription } from './scanner.js';
 import {
@@ -17,18 +17,27 @@ import {
   AutonomousAgentStats,
   DefaultClaimStrategy,
   DiscoveryMode,
+  type SpeculationConfig,
 } from './types.js';
 import { Logger, createLogger, silentLogger } from '../utils/logger.js';
 import { createProgram } from '../idl.js';
 import { findClaimPda, findEscrowPda } from '../task/pda.js';
 import { findProtocolPda } from '../agent/pda.js';
 import { fetchTreasury } from '../utils/treasury.js';
+import { bigintsToProofHash, toAnchorBytes } from '../utils/encoding.js';
 import type { AgencCoordination } from '../types/agenc_coordination.js';
 import type { Wallet } from '../types/wallet.js';
 import { ensureWallet } from '../types/wallet.js';
 import type { AgentState } from '../agent/types.js';
 import type { ProofEngine } from '../proof/engine.js';
 import type { MemoryBackend } from '../memory/types.js';
+import { SpeculativeExecutor } from '../task/speculative-executor.js';
+import { TaskOperations } from '../task/operations.js';
+import { DependencyType } from '../task/dependency-graph.js';
+import {
+  autonomousTaskToOnChainTask,
+  executorToTaskHandler,
+} from './speculation-adapter.js';
 
 // Default configuration constants
 const DEFAULT_SCAN_INTERVAL_MS = 5000;
@@ -102,12 +111,18 @@ export class AutonomousAgent extends AgentRuntime {
   private readonly discoveryMode: DiscoveryMode;
   private readonly maxRetries: number;
   private readonly retryDelayMs: number;
+  private readonly speculationConfig?: SpeculationConfig;
 
   // Components
   private scanner: TaskScanner | null = null;
   private program: Program<AgencCoordination> | null = null;
   private agentWallet: Wallet;
   private taskEventSubscription: TaskEventSubscription | null = null;
+
+  // Speculative execution
+  private specExecutor: SpeculativeExecutor | null = null;
+  private taskOps: TaskOperations | null = null;
+  private awaitingProof: Map<string, Task> = new Map();
 
   // Cached protocol data
   private cachedTreasury: PublicKey | null = null;
@@ -161,6 +176,8 @@ export class AutonomousAgent extends AgentRuntime {
     this.maxRetries = config.maxRetries ?? DEFAULT_MAX_RETRIES;
     this.retryDelayMs = config.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS;
 
+    this.speculationConfig = config.speculation;
+
     // Store wallet for later use - convert Keypair to Wallet if needed
     this.agentWallet = ensureWallet(config.wallet);
 
@@ -192,9 +209,9 @@ export class AutonomousAgent extends AgentRuntime {
     const state = await super.start();
 
     // Get connection from the agent manager
-    const manager = this.getAgentManager() as unknown as { connection: Connection; programId: PublicKey };
-    const connection = manager.connection;
-    const programId = manager.programId ?? PROGRAM_ID;
+    const manager = this.getAgentManager();
+    const connection = manager.getConnection();
+    const programId = manager.getProgramId();
 
     const provider = new AnchorProvider(connection, this.agentWallet, { commitment: 'confirmed' });
     this.program = createProgram(provider, programId);
@@ -205,6 +222,9 @@ export class AutonomousAgent extends AgentRuntime {
       program: this.program,
       logger: this.autonomousLogger,
     });
+
+    // Initialize speculative executor if enabled
+    this.initSpeculation();
 
     // Start discovery based on mode
     this.startDiscovery();
@@ -226,6 +246,12 @@ export class AutonomousAgent extends AgentRuntime {
     // Stop discovery
     this.stopDiscovery();
 
+    // Shutdown speculative executor (aborts speculative tasks, waits for in-flight proofs)
+    if (this.specExecutor) {
+      await this.specExecutor.shutdown();
+      this.specExecutor = null;
+    }
+
     // Wait for active tasks to complete (with timeout)
     if (this.activeTasks.size > 0) {
       this.autonomousLogger.info(`Waiting for ${this.activeTasks.size} active tasks to complete...`);
@@ -245,15 +271,82 @@ export class AutonomousAgent extends AgentRuntime {
   }
 
   /**
+   * Initialize speculative executor and proof pipeline events.
+   *
+   * Called from start() when speculation is enabled. Creates TaskOperations,
+   * SpeculativeExecutor, and wires proof pipeline event handlers.
+   */
+  private initSpeculation(): void {
+    if (!this.speculationConfig?.enabled || !this.program) return;
+
+    const agentPda = this.getAgentPda();
+    const agentId = this.getAgentId();
+    if (!agentPda || !agentId) return;
+
+    this.taskOps = new TaskOperations({
+      program: this.program,
+      agentId,
+      logger: this.autonomousLogger,
+    });
+
+    const handler = executorToTaskHandler(this.executor);
+
+    this.specExecutor = new SpeculativeExecutor({
+      operations: this.taskOps,
+      handler,
+      agentId,
+      agentPda,
+      logger: this.autonomousLogger,
+      enableSpeculation: true,
+      maxSpeculativeTasksPerParent: this.speculationConfig.maxSpeculativeTasksPerParent,
+      maxSpeculationDepth: this.speculationConfig.maxSpeculationDepth,
+      speculatableDependencyTypes: this.speculationConfig.speculatableDependencyTypes,
+      abortOnParentFailure: this.speculationConfig.abortOnParentFailure,
+      proofPipelineConfig: this.speculationConfig.proofPipelineConfig,
+    });
+
+    // Wire proof pipeline events for async proof confirmation
+    this.specExecutor.on({
+      onSpeculativeExecutionStarted: (taskPda, parentPda) => {
+        this.speculationConfig?.onSpeculativeStarted?.(taskPda, parentPda);
+      },
+      onSpeculativeExecutionConfirmed: (taskPda) => {
+        this.speculationConfig?.onSpeculativeConfirmed?.(taskPda);
+      },
+      onSpeculativeExecutionAborted: (taskPda, reason) => {
+        this.speculationConfig?.onSpeculativeAborted?.(taskPda, reason);
+      },
+      onParentProofConfirmed: (parentPda) => {
+        this.handleProofConfirmed(parentPda);
+      },
+      onParentProofFailed: (parentPda, error) => {
+        this.handleProofFailed(parentPda, error);
+      },
+    });
+
+    this.autonomousLogger.info('Speculative execution enabled');
+  }
+
+  /**
    * Get current agent stats
    */
   getStats(): AutonomousAgentStats {
-    return {
+    const stats: AutonomousAgentStats = {
       ...this.stats,
-      activeTasks: this.activeTasks.size,
+      activeTasks: this.activeTasks.size + this.awaitingProof.size,
       uptimeMs: this.startTime > 0 ? Date.now() - this.startTime : 0,
       avgCompletionTimeMs: this.calculateAvgCompletionTime(),
     };
+
+    if (this.specExecutor) {
+      const m = this.specExecutor.getMetrics();
+      stats.speculativeExecutionsStarted = m.speculativeExecutionsStarted;
+      stats.speculativeExecutionsConfirmed = m.speculativeExecutionsConfirmed;
+      stats.speculativeExecutionsAborted = m.speculativeExecutionsAborted;
+      stats.estimatedTimeSavedMs = m.estimatedTimeSavedMs;
+    }
+
+    return stats;
   }
 
   /**
@@ -282,6 +375,70 @@ export class AutonomousAgent extends AgentRuntime {
    */
   canAcceptMoreTasks(): boolean {
     return this.activeTasks.size < this.maxConcurrentTasks;
+  }
+
+  /**
+   * Register a dependency between two tasks for speculative execution.
+   *
+   * When a child task depends on a parent, the speculative executor will
+   * start executing the child while the parent's proof is being generated.
+   *
+   * @param childPda - Child task PDA
+   * @param parentPda - Parent task PDA
+   * @param type - Dependency type (default: Data)
+   * @throws Error if speculation is not enabled or agent not started
+   */
+  registerDependency(
+    childPda: PublicKey,
+    parentPda: PublicKey,
+    type: DependencyType = DependencyType.Data,
+  ): void {
+    if (!this.specExecutor) {
+      throw new Error('Speculation not enabled — set speculation.enabled in config');
+    }
+    if (!this.isStarted()) {
+      throw new Error('Agent not started — call start() first');
+    }
+
+    const graph = this.specExecutor.getDependencyGraph();
+
+    // If child isn't in the graph yet, we can't add a parent relationship.
+    // Add it as a placeholder node with a minimal OnChainTask.
+    if (!graph.hasTask(childPda)) {
+      this.autonomousLogger.debug(
+        `Adding placeholder for child ${childPda.toBase58().slice(0, 8)} in dependency graph`,
+      );
+      // Will be replaced with real data when the task is discovered and claimed
+      graph.addTaskWithParent(
+        {
+          taskId: new Uint8Array(32),
+          creator: PublicKey.default,
+          requiredCapabilities: 0n,
+          description: new Uint8Array(64),
+          constraintHash: new Uint8Array(32),
+          rewardAmount: 0n,
+          maxWorkers: 1,
+          currentWorkers: 0,
+          status: 0, // Open
+          taskType: 0, // Exclusive
+          createdAt: 0,
+          deadline: 0,
+          completedAt: 0,
+          escrow: PublicKey.default,
+          result: new Uint8Array(64),
+          completions: 0,
+          requiredCompletions: 1,
+          bump: 0,
+        } as import('../task/types.js').OnChainTask,
+        childPda,
+        parentPda,
+        type,
+      );
+    }
+
+    this.autonomousLogger.info(
+      `Registered dependency: ${childPda.toBase58().slice(0, 8)} depends on ${parentPda.toBase58().slice(0, 8)} (${DependencyType[type]})`,
+    );
   }
 
   /**
@@ -395,8 +552,8 @@ export class AutonomousAgent extends AgentRuntime {
   private handleDiscoveredTask(task: Task): void {
     const taskKey = task.pda.toBase58();
 
-    // Skip if already active or pending
-    if (this.activeTasks.has(taskKey) || this.pendingTasks.has(taskKey)) {
+    // Skip if already active, pending, or awaiting proof
+    if (this.activeTasks.has(taskKey) || this.pendingTasks.has(taskKey) || this.awaitingProof.has(taskKey)) {
       return;
     }
 
@@ -453,7 +610,10 @@ export class AutonomousAgent extends AgentRuntime {
   }
 
   /**
-   * Claim a task and process it
+   * Claim a task and process it.
+   *
+   * Verifies availability, claims the task, then delegates to the speculative
+   * or sequential execution path.
    */
   private async claimAndProcess(task: Task): Promise<TaskResult> {
     const taskKey = task.pda.toBase58();
@@ -487,33 +647,11 @@ export class AutonomousAgent extends AgentRuntime {
       await this.journalEvent(task, 'claimed', { claimTx });
       this.autonomousLogger.info(`Claimed task ${taskKey.slice(0, 8)}: ${claimTx}`);
 
-      // Execute the task
-      this.autonomousLogger.info(`Executing task ${taskKey.slice(0, 8)}...`);
-      const output = await this.executeWithRetry(task);
-      this.onTaskExecuted?.(task, output);
-      await this.journalEvent(task, 'executed', { outputLength: output.length });
-      this.autonomousLogger.info(`Executed task ${taskKey.slice(0, 8)}`);
-
-      // Complete the task with retry
-      const completeTx = await this.completeTaskWithRetry(task, output);
-
-      // Success!
-      const durationMs = Date.now() - activeTask.claimedAt;
-      this.recordCompletion(durationMs);
-
-      this.activeTasks.delete(taskKey);
-      this.stats.tasksCompleted++;
-      this.stats.totalEarnings += task.reward;
-
-      this.onTaskCompleted?.(task, completeTx);
-      this.onEarnings?.(task.reward, task);
-      await this.journalEvent(task, 'completed', { completionTx: completeTx, durationMs, reward: task.reward.toString() });
-
-      this.autonomousLogger.info(
-        `Completed task ${taskKey.slice(0, 8)} in ${durationMs}ms, earned ${Number(task.reward) / LAMPORTS_PER_SOL} SOL`
-      );
-
-      return { success: true, task, completionTx: completeTx, durationMs };
+      // Delegate to the appropriate execution path
+      if (this.specExecutor) {
+        return await this.executeSpeculative(task, taskKey, startTime);
+      }
+      return await this.executeSequential(task, activeTask, taskKey);
     } catch (error) {
       this.activeTasks.delete(taskKey);
       this.stats.tasksFailed++;
@@ -525,6 +663,67 @@ export class AutonomousAgent extends AgentRuntime {
 
       return { success: false, task, error: err, durationMs: Date.now() - startTime };
     }
+  }
+
+  /**
+   * Speculative execution path.
+   *
+   * Delegates execution and proof generation to SpeculativeExecutor, moves the
+   * task to awaitingProof (freeing the concurrency slot), and returns immediately.
+   * ProofPipeline events drive async completion tracking and callbacks.
+   */
+  private async executeSpeculative(task: Task, taskKey: string, startTime: number): Promise<TaskResult> {
+    const adaptedTask = autonomousTaskToOnChainTask(task);
+    this.specExecutor!.addTaskToGraph(adaptedTask, task.pda);
+
+    this.autonomousLogger.info(`Executing task ${taskKey.slice(0, 8)} (speculative)...`);
+    await this.specExecutor!.executeWithSpeculation(task.pda);
+
+    // Move from activeTasks → awaitingProof (frees concurrency slot)
+    this.activeTasks.delete(taskKey);
+    this.awaitingProof.set(taskKey, task);
+    await this.journalEvent(task, 'executed_speculative', {});
+    this.autonomousLogger.info(`Task ${taskKey.slice(0, 8)} executed, proof queued (speculative)`);
+
+    return { success: true, task, durationMs: Date.now() - startTime };
+  }
+
+  /**
+   * Sequential execution path (default).
+   *
+   * Executes the task, generates proof, and submits on-chain — all blocking.
+   * The concurrency slot is held until completion.
+   */
+  private async executeSequential(
+    task: Task,
+    activeTask: ActiveTask,
+    taskKey: string,
+  ): Promise<TaskResult> {
+    this.autonomousLogger.info(`Executing task ${taskKey.slice(0, 8)}...`);
+    const output = await this.executeWithRetry(task);
+    this.onTaskExecuted?.(task, output);
+    await this.journalEvent(task, 'executed', { outputLength: output.length });
+    this.autonomousLogger.info(`Executed task ${taskKey.slice(0, 8)}`);
+
+    // Complete the task with retry
+    const completeTx = await this.completeTaskWithRetry(task, output);
+
+    const durationMs = Date.now() - activeTask.claimedAt;
+    this.recordCompletion(durationMs);
+
+    this.activeTasks.delete(taskKey);
+    this.stats.tasksCompleted++;
+    this.stats.totalEarnings += task.reward;
+
+    this.onTaskCompleted?.(task, completeTx);
+    this.onEarnings?.(task.reward, task);
+    await this.journalEvent(task, 'completed', { completionTx: completeTx, durationMs, reward: task.reward.toString() });
+
+    this.autonomousLogger.info(
+      `Completed task ${taskKey.slice(0, 8)} in ${durationMs}ms, earned ${Number(task.reward) / LAMPORTS_PER_SOL} SOL`
+    );
+
+    return { success: true, task, completionTx: completeTx, durationMs };
   }
 
   /**
@@ -651,10 +850,10 @@ export class AutonomousAgent extends AgentRuntime {
     const treasury = await this.getTreasury();
 
     // Hash the output for public completion
-    const resultHash = this.hashOutput(output);
+    const resultHash = bigintsToProofHash(output);
 
     const tx = await this.program.methods
-      .completeTask(Array.from(resultHash), null)
+      .completeTask(toAnchorBytes(resultHash), null)
       .accountsPartial({
         task: task.pda,
         claim: claimPda,
@@ -716,10 +915,10 @@ export class AutonomousAgent extends AgentRuntime {
 
     const tx = await this.program.methods
       .completeTaskPrivate(new BN(0), {
-        proofData: Array.from(proofResult.proof),
-        constraintHash: Array.from(proofResult.constraintHash),
-        outputCommitment: Array.from(proofResult.outputCommitment),
-        expectedBinding: Array.from(proofResult.expectedBinding),
+        proofData: toAnchorBytes(proofResult.proof),
+        constraintHash: toAnchorBytes(proofResult.constraintHash),
+        outputCommitment: toAnchorBytes(proofResult.outputCommitment),
+        expectedBinding: toAnchorBytes(proofResult.expectedBinding),
       })
       .accountsPartial({
         task: task.pda,
@@ -734,28 +933,6 @@ export class AutonomousAgent extends AgentRuntime {
       .rpc();
 
     return tx;
-  }
-
-  /**
-   * Hash output for public task completion
-   */
-  private hashOutput(output: bigint[]): Uint8Array {
-    const buffer = new Uint8Array(32);
-    for (let i = 0; i < Math.min(output.length, 4); i++) {
-      const bytes = this.bigintToBytes(output[i], 8);
-      buffer.set(bytes, i * 8);
-    }
-    return buffer;
-  }
-
-  private bigintToBytes(value: bigint, length: number): Uint8Array {
-    const bytes = new Uint8Array(length);
-    let remaining = value;
-    for (let i = 0; i < length; i++) {
-      bytes[i] = Number(remaining & 0xffn);
-      remaining >>= 8n;
-    }
-    return bytes;
   }
 
   private async journalEvent(
@@ -798,5 +975,61 @@ export class AutonomousAgent extends AgentRuntime {
 
   private sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  // ==========================================================================
+  // Speculative Execution Event Handlers
+  // ==========================================================================
+
+  /**
+   * Handle proof confirmed from ProofPipeline (via SpeculativeExecutor event).
+   * Updates stats, fires callbacks, and removes from awaitingProof.
+   */
+  private handleProofConfirmed(taskPda: PublicKey): void {
+    const taskKey = taskPda.toBase58();
+    const task = this.awaitingProof.get(taskKey);
+    if (!task) return;
+
+    this.awaitingProof.delete(taskKey);
+    this.stats.tasksCompleted++;
+    this.stats.totalEarnings += task.reward;
+
+    // Get the transaction signature from the proof pipeline job
+    const job = this.specExecutor?.getProofPipeline().getJob(taskPda);
+    const txSig = job?.transactionSignature ?? '';
+
+    this.onTaskCompleted?.(task, txSig);
+    this.onEarnings?.(task.reward, task);
+
+    void this.journalEvent(task, 'completed_speculative', {
+      completionTx: txSig,
+    });
+
+    this.autonomousLogger.info(
+      `Task ${taskKey.slice(0, 8)} proof confirmed (speculative), earned ${Number(task.reward) / LAMPORTS_PER_SOL} SOL`,
+    );
+  }
+
+  /**
+   * Handle proof failed from ProofPipeline (via SpeculativeExecutor event).
+   * Updates stats, fires callbacks, and removes from awaitingProof.
+   */
+  private handleProofFailed(taskPda: PublicKey, error: Error): void {
+    const taskKey = taskPda.toBase58();
+    const task = this.awaitingProof.get(taskKey);
+    if (!task) return;
+
+    this.awaitingProof.delete(taskKey);
+    this.stats.tasksFailed++;
+
+    this.onTaskFailed?.(task, error);
+
+    void this.journalEvent(task, 'proof_failed', {
+      error: error.message,
+    });
+
+    this.autonomousLogger.error(
+      `Task ${taskKey.slice(0, 8)} proof failed: ${error.message}`,
+    );
   }
 }

@@ -15,6 +15,9 @@ export {
   agentIdsEqual,
   lamportsToSol,
   solToLamports,
+  bigintsToProofHash,
+  proofHashToBigints,
+  toAnchorBytes,
 } from './encoding.js';
 
 export { PdaWithBump, derivePda, validateIdLength } from './pda.js';
