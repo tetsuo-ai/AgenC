@@ -239,3 +239,75 @@ export function solToLamports(sol: number | string): bigint {
   }
   return BigInt(Math.round(solNum * 1e9));
 }
+
+// ============================================================================
+// Bigint ↔ byte encoding (proof hash format)
+// ============================================================================
+
+/** Number of bytes per bigint element in LE encoding */
+const BYTES_PER_ELEMENT = 8;
+
+/** Total proof hash size in bytes (4 elements × 8 bytes) */
+const PROOF_HASH_SIZE = 32;
+
+/** Maximum output field elements */
+const MAX_OUTPUT_ELEMENTS = 4;
+
+/**
+ * Pack an array of bigints into a 32-byte LE-encoded proof hash.
+ *
+ * Each bigint is written as 8 bytes in little-endian order.
+ * Up to 4 elements are packed; extras are silently ignored.
+ *
+ * @param output - Array of up to 4 bigints
+ * @returns 32-byte Uint8Array
+ */
+export function bigintsToProofHash(output: bigint[]): Uint8Array {
+  const buffer = new Uint8Array(PROOF_HASH_SIZE);
+  const count = Math.min(output.length, MAX_OUTPUT_ELEMENTS);
+
+  for (let i = 0; i < count; i++) {
+    let remaining = output[i];
+    const offset = i * BYTES_PER_ELEMENT;
+    for (let j = 0; j < BYTES_PER_ELEMENT; j++) {
+      buffer[offset + j] = Number(remaining & 0xffn);
+      remaining >>= 8n;
+    }
+  }
+
+  return buffer;
+}
+
+/**
+ * Unpack a 32-byte LE buffer into 4 bigints.
+ *
+ * Inverse of {@link bigintsToProofHash}. Reads 4 × 8-byte LE chunks.
+ *
+ * @param hash - 32-byte buffer (e.g. SHA-256 digest)
+ * @returns Array of exactly 4 bigints
+ */
+export function proofHashToBigints(hash: Uint8Array): bigint[] {
+  const output: bigint[] = [];
+  for (let i = 0; i < MAX_OUTPUT_ELEMENTS; i++) {
+    let value = 0n;
+    for (let j = 0; j < BYTES_PER_ELEMENT; j++) {
+      value |= BigInt(hash[i * BYTES_PER_ELEMENT + j]) << BigInt(j * 8);
+    }
+    output.push(value);
+  }
+  return output;
+}
+
+/**
+ * Convert a Uint8Array to the number[] format Anchor expects.
+ *
+ * Anchor's IDL types represent `[u8; N]` as `number[]` in TypeScript,
+ * but actual byte arrays are `Uint8Array`. This helper bridges the gap
+ * without `as unknown as number[]` casts scattered through the codebase.
+ *
+ * @param bytes - Input byte array
+ * @returns Plain number array suitable for Anchor method calls
+ */
+export function toAnchorBytes(bytes: Uint8Array): number[] {
+  return Array.from(bytes) as unknown as number[];
+}

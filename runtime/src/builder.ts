@@ -43,6 +43,7 @@ import type {
   DiscoveryMode,
   Task,
   AutonomousAgentStats,
+  SpeculationConfig,
 } from './autonomous/types.js';
 import { DisputeOperations } from './dispute/operations.js';
 import type { AgencCoordination } from './types/agenc_coordination.js';
@@ -156,6 +157,9 @@ export class AgentBuilder {
   private scanIntervalMs?: number;
   private maxConcurrentTasks?: number;
 
+  // Speculation
+  private speculationConfig?: SpeculationConfig;
+
   // Callbacks
   private callbacks?: AgentCallbacks;
 
@@ -261,6 +265,11 @@ export class AgentBuilder {
     return this;
   }
 
+  withSpeculation(config?: SpeculationConfig): this {
+    this.speculationConfig = config ?? { enabled: true };
+    return this;
+  }
+
   withCallbacks(callbacks: AgentCallbacks): this {
     this.callbacks = callbacks;
     return this;
@@ -359,6 +368,7 @@ export class AgentBuilder {
       discoveryMode: this.discoveryMode,
       scanIntervalMs: this.scanIntervalMs,
       maxConcurrentTasks: this.maxConcurrentTasks,
+      speculation: this.speculationConfig,
       onTaskDiscovered: this.callbacks?.onTaskDiscovered,
       onTaskClaimed: this.callbacks?.onTaskClaimed,
       onTaskExecuted: this.callbacks?.onTaskExecuted,
