@@ -8,6 +8,7 @@
  */
 
 import { PublicKey, SystemProgram, type AccountMeta } from '@solana/web3.js';
+import { toAnchorBytes } from '../utils/encoding.js';
 import type { Program } from '@coral-xyz/anchor';
 import type { AgencCoordination } from '../types/agenc_coordination.js';
 import type { Logger } from '../utils/logger.js';
@@ -255,9 +256,9 @@ export class DisputeOperations {
 
       const builder = this.program.methods
         .initiateDispute(
-          Array.from(params.disputeId) as unknown as number[],
-          Array.from(params.taskId) as unknown as number[],
-          Array.from(params.evidenceHash) as unknown as number[],
+          toAnchorBytes(params.disputeId),
+          toAnchorBytes(params.taskId),
+          toAnchorBytes(params.evidenceHash),
           params.resolutionType,
           params.evidence,
         )
