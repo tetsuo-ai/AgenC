@@ -428,6 +428,27 @@ export {
   type SerializedProtocolConfig,
 } from './tools/index.js';
 
+// ZK Proof Engine (Phase 7)
+export {
+  // Core types
+  type ProofEngineConfig,
+  type ProofCacheConfig,
+  type ProofInputs,
+  type EngineProofResult,
+  type ProofEngineStats,
+  type HashResult,
+  type ToolsStatus,
+  // Error classes
+  ProofGenerationError,
+  ProofVerificationError,
+  ProofCacheError,
+  // Cache
+  ProofCache,
+  deriveCacheKey,
+  // Engine
+  ProofEngine,
+} from './proof/index.js';
+
 // Memory Backends (Phase 6)
 export {
   // Core types
