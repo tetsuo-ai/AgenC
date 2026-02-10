@@ -230,6 +230,9 @@ export {
   agentIdsEqual,
   lamportsToSol,
   solToLamports,
+  bigintsToProofHash,
+  proofHashToBigints,
+  toAnchorBytes,
 } from './utils/index.js';
 
 // Event monitoring (Phase 2)
@@ -395,6 +398,7 @@ export {
   type AutonomousAgentConfig,
   type AutonomousAgentStats,
   type DiscoveryMode,
+  type SpeculationConfig,
   DefaultClaimStrategy,
 } from './autonomous/index.js';
 

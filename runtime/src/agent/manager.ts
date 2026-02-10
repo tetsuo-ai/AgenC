@@ -648,6 +648,20 @@ export class AgentManager {
   }
 
   /**
+   * Get the Solana RPC connection used by this manager.
+   */
+  getConnection(): Connection {
+    return this.connection;
+  }
+
+  /**
+   * Get the program ID used by this manager.
+   */
+  getProgramId(): PublicKey {
+    return this.programId;
+  }
+
+  /**
    * Get current reputation score (0-10000, representing 0.00% - 100.00%).
    *
    * @returns Reputation score

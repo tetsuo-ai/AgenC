@@ -9,6 +9,7 @@
  */
 
 import { PublicKey, SystemProgram } from '@solana/web3.js';
+import { toAnchorBytes } from '../utils/encoding.js';
 import { BN, type Program } from '@coral-xyz/anchor';
 import type { AgencCoordination } from '../types/agenc_coordination.js';
 import type { Logger } from '../utils/logger.js';
@@ -350,8 +351,8 @@ export class TaskOperations {
     try {
       const signature = await this.program.methods
         .completeTask(
-          Array.from(proofHash) as unknown as number[],
-          resultData ? (Array.from(resultData) as unknown as number[]) : null,
+          toAnchorBytes(proofHash),
+          resultData ? (toAnchorBytes(resultData)) : null,
         )
         .accountsPartial({
           task: taskPda,
@@ -413,9 +414,9 @@ export class TaskOperations {
 
       const proof = {
         proofData: Buffer.from(proofData),
-        constraintHash: Array.from(constraintHash) as unknown as number[],
-        outputCommitment: Array.from(outputCommitment) as unknown as number[],
-        expectedBinding: Array.from(expectedBinding) as unknown as number[],
+        constraintHash: toAnchorBytes(constraintHash),
+        outputCommitment: toAnchorBytes(outputCommitment),
+        expectedBinding: toAnchorBytes(expectedBinding),
       };
 
       const signature = await this.program.methods
