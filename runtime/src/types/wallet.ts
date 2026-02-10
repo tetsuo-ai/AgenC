@@ -96,6 +96,16 @@ export class KeypairFileError extends Error {
  * @param keypair - The Keypair to wrap
  * @returns A Wallet interface wrapping the keypair
  */
+/**
+ * Convert a Keypair or Wallet to a Wallet.
+ *
+ * If the input is already a Wallet, it is returned as-is.
+ * If it is a Keypair, it is wrapped via keypairToWallet().
+ */
+export function ensureWallet(wallet: Keypair | Wallet): Wallet {
+  return 'secretKey' in wallet ? keypairToWallet(wallet) : wallet;
+}
+
 export function keypairToWallet(keypair: Keypair): Wallet {
   return {
     publicKey: keypair.publicKey,

@@ -24,9 +24,18 @@ import { findClaimPda, findEscrowPda } from '../task/pda.js';
 import { findProtocolPda } from '../agent/pda.js';
 import type { AgencCoordination } from '../types/agenc_coordination.js';
 import type { Wallet } from '../types/wallet.js';
-import { keypairToWallet } from '../types/wallet.js';
-import { isKeypair } from '../types/config.js';
+import { ensureWallet } from '../types/wallet.js';
 import type { AgentState } from '../agent/types.js';
+import type { ProofEngine } from '../proof/engine.js';
+
+// Default configuration constants
+const DEFAULT_SCAN_INTERVAL_MS = 5000;
+const DEFAULT_MAX_CONCURRENT_TASKS = 1;
+const DEFAULT_DISCOVERY_MODE: DiscoveryMode = 'hybrid';
+const DEFAULT_MAX_RETRIES = 3;
+const DEFAULT_RETRY_DELAY_MS = 1000;
+const DEFAULT_CIRCUIT_PATH = './circuits-circom/task_completion';
+const SHUTDOWN_TIMEOUT_MS = 30000;
 
 /**
  * Internal task tracking
@@ -83,6 +92,7 @@ export class AutonomousAgent extends AgentRuntime {
   private readonly maxConcurrentTasks: number;
   private readonly generateProofs: boolean;
   private readonly circuitPath: string;
+  private readonly proofEngine?: ProofEngine;
   private readonly autonomousLogger: Logger;
   private readonly discoveryMode: DiscoveryMode;
   private readonly maxRetries: number;
@@ -93,6 +103,9 @@ export class AutonomousAgent extends AgentRuntime {
   private program: Program<AgencCoordination> | null = null;
   private agentWallet: Wallet;
   private taskEventSubscription: TaskEventSubscription | null = null;
+
+  // Cached protocol data
+  private cachedTreasury: PublicKey | null = null;
 
   // State
   private scanLoopRunning = false;
@@ -132,20 +145,17 @@ export class AutonomousAgent extends AgentRuntime {
 
     this.executor = config.executor;
     this.claimStrategy = config.claimStrategy ?? DefaultClaimStrategy;
-    this.scanIntervalMs = config.scanIntervalMs ?? 5000;
-    this.maxConcurrentTasks = config.maxConcurrentTasks ?? 1;
+    this.scanIntervalMs = config.scanIntervalMs ?? DEFAULT_SCAN_INTERVAL_MS;
+    this.maxConcurrentTasks = config.maxConcurrentTasks ?? DEFAULT_MAX_CONCURRENT_TASKS;
     this.generateProofs = config.generateProofs ?? true;
-    this.circuitPath = config.circuitPath ?? './circuits-circom/task_completion';
-    this.discoveryMode = config.discoveryMode ?? 'hybrid';
-    this.maxRetries = config.maxRetries ?? 3;
-    this.retryDelayMs = config.retryDelayMs ?? 1000;
+    this.circuitPath = config.circuitPath ?? DEFAULT_CIRCUIT_PATH;
+    this.proofEngine = config.proofEngine;
+    this.discoveryMode = config.discoveryMode ?? DEFAULT_DISCOVERY_MODE;
+    this.maxRetries = config.maxRetries ?? DEFAULT_MAX_RETRIES;
+    this.retryDelayMs = config.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS;
 
     // Store wallet for later use - convert Keypair to Wallet if needed
-    if (isKeypair(config.wallet)) {
-      this.agentWallet = keypairToWallet(config.wallet);
-    } else {
-      this.agentWallet = config.wallet;
-    }
+    this.agentWallet = ensureWallet(config.wallet);
 
     // Setup logger
     this.autonomousLogger = config.logLevel
@@ -212,7 +222,7 @@ export class AutonomousAgent extends AgentRuntime {
     // Wait for active tasks to complete (with timeout)
     if (this.activeTasks.size > 0) {
       this.autonomousLogger.info(`Waiting for ${this.activeTasks.size} active tasks to complete...`);
-      const timeout = Date.now() + 30000;
+      const timeout = Date.now() + SHUTDOWN_TIMEOUT_MS;
       while (this.activeTasks.size > 0 && Date.now() < timeout) {
         await this.sleep(1000);
       }
@@ -237,6 +247,13 @@ export class AutonomousAgent extends AgentRuntime {
       uptimeMs: this.startTime > 0 ? Date.now() - this.startTime : 0,
       avgCompletionTimeMs: this.calculateAvgCompletionTime(),
     };
+  }
+
+  /**
+   * Get the Anchor program instance (available after start())
+   */
+  getProgram(): Program<AgencCoordination> | null {
+    return this.program;
   }
 
   /**
@@ -597,6 +614,21 @@ export class AutonomousAgent extends AgentRuntime {
   }
 
   /**
+   * Fetch treasury address, caching the result to avoid repeated RPC calls.
+   */
+  private async getTreasury(): Promise<PublicKey> {
+    if (this.cachedTreasury) return this.cachedTreasury;
+    if (!this.program) throw new Error('Agent not started');
+
+    const protocolPda = findProtocolPda(this.program.programId);
+    const config = await (
+      this.program.account as unknown as Record<string, { fetch: (key: PublicKey) => Promise<{ treasury: PublicKey }> }>
+    ).protocolConfig.fetch(protocolPda);
+    this.cachedTreasury = config.treasury;
+    return config.treasury;
+  }
+
+  /**
    * Complete a public task
    */
   private async completeTaskPublic(task: Task, output: bigint[]): Promise<string> {
@@ -610,11 +642,7 @@ export class AutonomousAgent extends AgentRuntime {
     const claimPda = findClaimPda(task.pda, agentPda, this.program.programId);
     const escrowPda = findEscrowPda(task.pda, this.program.programId);
     const protocolPda = findProtocolPda(this.program.programId);
-
-    // Fetch protocol config for treasury
-    const protocolConfig = await (
-      this.program.account as unknown as Record<string, { fetch: (key: PublicKey) => Promise<{ treasury: PublicKey }> }>
-    ).protocolConfig.fetch(protocolPda);
+    const treasury = await this.getTreasury();
 
     // Hash the output for public completion
     const resultHash = this.hashOutput(output);
@@ -627,7 +655,7 @@ export class AutonomousAgent extends AgentRuntime {
         escrow: escrowPda,
         worker: agentPda,
         protocolConfig: protocolPda,
-        treasury: protocolConfig.treasury,
+        treasury,
         authority: this.agentWallet.publicKey,
         systemProgram: SystemProgram.programId,
       })
@@ -647,18 +675,29 @@ export class AutonomousAgent extends AgentRuntime {
     const agentPda = this.getAgentPda();
     if (!agentPda) throw new Error('Agent not registered');
 
-    // Generate proof
+    // Generate proof — delegate to ProofEngine when available for caching + stats
     this.autonomousLogger.info('Generating ZK proof...');
     const proofStartTime = Date.now();
 
-    const salt = generateSalt();
-    const proofResult = await generateProof({
-      taskPda: task.pda,
-      agentPubkey: this.agentWallet.publicKey,
-      output,
-      salt,
-      circuitPath: this.circuitPath,
-    });
+    let proofResult: { proof: Uint8Array; constraintHash: Uint8Array; outputCommitment: Uint8Array; expectedBinding: Uint8Array; proofSize: number };
+    if (this.proofEngine) {
+      const salt = this.proofEngine.generateSalt();
+      proofResult = await this.proofEngine.generate({
+        taskPda: task.pda,
+        agentPubkey: this.agentWallet.publicKey,
+        output,
+        salt,
+      });
+    } else {
+      const salt = generateSalt();
+      proofResult = await generateProof({
+        taskPda: task.pda,
+        agentPubkey: this.agentWallet.publicKey,
+        output,
+        salt,
+        circuitPath: this.circuitPath,
+      });
+    }
 
     const proofDuration = Date.now() - proofStartTime;
     this.onProofGenerated?.(task, proofResult.proofSize, proofDuration);
@@ -667,11 +706,7 @@ export class AutonomousAgent extends AgentRuntime {
     const claimPda = findClaimPda(task.pda, agentPda, this.program.programId);
     const escrowPda = findEscrowPda(task.pda, this.program.programId);
     const protocolPda = findProtocolPda(this.program.programId);
-
-    // Fetch protocol config
-    const protocolConfig = await (
-      this.program.account as unknown as Record<string, { fetch: (key: PublicKey) => Promise<{ treasury: PublicKey }> }>
-    ).protocolConfig.fetch(protocolPda);
+    const treasury = await this.getTreasury();
 
     const tx = await this.program.methods
       .completeTaskPrivate(new BN(0), {
@@ -686,7 +721,7 @@ export class AutonomousAgent extends AgentRuntime {
         escrow: escrowPda,
         worker: agentPda,
         protocolConfig: protocolPda,
-        treasury: protocolConfig.treasury,
+        treasury,
         authority: this.agentWallet.publicKey,
         systemProgram: SystemProgram.programId,
       })
