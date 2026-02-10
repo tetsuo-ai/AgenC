@@ -3,6 +3,7 @@
 //! Used by both `complete_task` (public) and `complete_task_private` (ZK) instructions.
 
 use crate::errors::CoordinationError;
+use crate::events::{reputation_reason, ReputationChanged, RewardDistributed, TaskCompleted};
 use crate::instructions::constants::{
     BASIS_POINTS_DIVISOR, MAX_REPUTATION, REPUTATION_PER_COMPLETION,
 };
@@ -10,7 +11,7 @@ use crate::state::{
     AgentRegistration, ProtocolConfig, Task, TaskClaim, TaskEscrow, TaskStatus, TaskType,
     RESULT_DATA_SIZE,
 };
-use crate::utils::compute_budget::calculate_tiered_fee;
+use crate::utils::compute_budget::{calculate_reputation_fee_discount, calculate_tiered_fee};
 use anchor_lang::prelude::*;
 
 /// Calculate worker reward and protocol fee from task reward amount.
@@ -201,6 +202,127 @@ pub fn update_protocol_stats(config: &mut Account<ProtocolConfig>, reward: u64) 
         .total_value_distributed
         .checked_add(reward)
         .ok_or(CoordinationError::ArithmeticOverflow)?;
+    Ok(())
+}
+
+/// Validate that a task is ready for completion.
+///
+/// Shared by `complete_task` (public) and `complete_task_private` (ZK).
+/// Checks status, status transition, deadline, claim, and competitive-task guard.
+pub fn validate_completion_prereqs(
+    task: &Task,
+    claim: &TaskClaim,
+    clock: &Clock,
+) -> Result<()> {
+    require!(
+        task.status == TaskStatus::InProgress,
+        CoordinationError::TaskNotInProgress
+    );
+    require!(
+        task.status.can_transition_to(TaskStatus::Completed),
+        CoordinationError::InvalidStatusTransition
+    );
+    if task.deadline > 0 {
+        require!(
+            clock.unix_timestamp <= task.deadline,
+            CoordinationError::DeadlinePassed
+        );
+    }
+    require!(
+        !claim.is_completed,
+        CoordinationError::ClaimAlreadyCompleted
+    );
+    if task.task_type == TaskType::Competitive {
+        require!(
+            task.completions == 0,
+            CoordinationError::CompetitiveTaskAlreadyWon
+        );
+    }
+    Ok(())
+}
+
+/// Calculate protocol fee with reputation-based discount.
+///
+/// Uses the task-locked fee (not current protocol config) per PR #479.
+/// Floors at 1 bps to prevent zero-fee completion.
+pub fn calculate_fee_with_reputation(task_protocol_fee_bps: u16, worker_reputation: u16) -> u16 {
+    let rep_discount = calculate_reputation_fee_discount(worker_reputation);
+    task_protocol_fee_bps.saturating_sub(rep_discount).max(1)
+}
+
+/// Execute reward transfer, state updates, and event emissions.
+///
+/// Shared by both `complete_task` (public) and `complete_task_private` (ZK) handlers.
+///
+/// # Preconditions
+///
+/// The caller MUST set these claim fields before calling:
+/// - `claim.proof_hash`
+/// - `claim.result_data`
+/// - `claim.is_completed`
+/// - `claim.completed_at`
+///
+/// The `TaskCompleted` event reads `proof_hash` and `result_data` from the claim.
+pub fn execute_completion_rewards<'info>(
+    task: &mut Account<'info, Task>,
+    claim: &mut Account<'info, TaskClaim>,
+    escrow: &mut Account<'info, TaskEscrow>,
+    worker: &mut Account<'info, AgentRegistration>,
+    protocol_config: &mut Account<'info, ProtocolConfig>,
+    authority_info: &AccountInfo<'info>,
+    treasury_info: &AccountInfo<'info>,
+    protocol_fee_bps: u16,
+    result_data_for_task: Option<[u8; RESULT_DATA_SIZE]>,
+    clock: &Clock,
+) -> Result<()> {
+    let (worker_reward, protocol_fee) = calculate_reward_split(task, protocol_fee_bps)?;
+
+    // Validate escrow has sufficient balance
+    let total = worker_reward
+        .checked_add(protocol_fee)
+        .ok_or(CoordinationError::ArithmeticOverflow)?;
+    require!(
+        escrow.to_account_info().lamports() >= total,
+        CoordinationError::InsufficientEscrowBalance
+    );
+
+    transfer_rewards(escrow, authority_info, treasury_info, worker_reward, protocol_fee)?;
+    update_claim_state(claim, escrow, worker_reward, protocol_fee)?;
+    let task_completed =
+        update_task_state(task, clock.unix_timestamp, escrow, result_data_for_task)?;
+    let (old_rep, new_rep) = update_worker_state(worker, worker_reward, clock.unix_timestamp)?;
+
+    if old_rep != new_rep {
+        emit!(ReputationChanged {
+            agent_id: worker.agent_id,
+            old_reputation: old_rep,
+            new_reputation: new_rep,
+            reason: reputation_reason::COMPLETION,
+            timestamp: clock.unix_timestamp,
+        });
+    }
+
+    if task_completed {
+        update_protocol_stats(protocol_config, task.reward_amount)?;
+    }
+
+    emit!(TaskCompleted {
+        task_id: task.task_id,
+        worker: worker.key(),
+        proof_hash: claim.proof_hash,
+        result_data: claim.result_data,
+        reward_paid: worker_reward,
+        timestamp: clock.unix_timestamp,
+    });
+
+    emit!(RewardDistributed {
+        task_id: task.task_id,
+        recipient: worker.key(),
+        amount: worker_reward,
+        protocol_fee,
+        timestamp: clock.unix_timestamp,
+    });
+
     Ok(())
 }
 

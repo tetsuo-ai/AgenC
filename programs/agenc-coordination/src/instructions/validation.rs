@@ -25,3 +25,15 @@ pub fn validate_endpoint(endpoint: &str) -> Result<()> {
 
     Ok(())
 }
+
+/// Validates that an account is owned by this program.
+///
+/// Use when processing `remaining_accounts` before deserialization to ensure
+/// the account belongs to the AgenC program and not an attacker-controlled program.
+pub fn validate_account_owner(account: &AccountInfo) -> Result<()> {
+    require!(
+        account.owner == &crate::ID,
+        CoordinationError::InvalidAccountOwner
+    );
+    Ok(())
+}

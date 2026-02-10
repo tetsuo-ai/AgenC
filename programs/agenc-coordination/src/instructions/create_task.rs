@@ -8,7 +8,7 @@ use anchor_lang::prelude::*;
 use anchor_lang::system_program;
 
 use super::rate_limit_helpers::check_task_creation_rate_limits;
-use super::task_init_helpers::{init_escrow_fields, init_task_fields, increment_total_tasks, validate_task_params};
+use super::task_init_helpers::{init_escrow_fields, init_task_fields, increment_total_tasks, validate_deadline, validate_task_params};
 
 #[derive(Accounts)]
 #[instruction(task_id: [u8; 32])]
@@ -89,11 +89,7 @@ pub fn handler(
     check_version_compatible(config)?;
 
     // Validate deadline - must be set and in the future (#575)
-    require!(deadline > 0, CoordinationError::InvalidDeadline);
-    require!(
-        deadline > clock.unix_timestamp,
-        CoordinationError::InvalidInput
-    );
+    validate_deadline(deadline, &clock, true)?;
 
     let creator_agent = &mut ctx.accounts.creator_agent;
 

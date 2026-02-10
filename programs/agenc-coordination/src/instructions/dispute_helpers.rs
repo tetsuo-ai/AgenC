@@ -7,6 +7,7 @@
 use std::collections::HashSet;
 
 use crate::errors::CoordinationError;
+use crate::instructions::validation::validate_account_owner;
 use crate::state::{AgentRegistration, DisputeVote, TaskClaim};
 use anchor_lang::prelude::*;
 
@@ -65,14 +66,8 @@ pub(crate) fn process_arbiter_vote_pair(
     arbiter_info: &AccountInfo,
     dispute_key: &Pubkey,
 ) -> Result<()> {
-    require!(
-        vote_info.owner == &crate::ID,
-        CoordinationError::InvalidAccountOwner
-    );
-    require!(
-        arbiter_info.owner == &crate::ID,
-        CoordinationError::InvalidAccountOwner
-    );
+    validate_account_owner(vote_info)?;
+    validate_account_owner(arbiter_info)?;
 
     let vote_data = vote_info.try_borrow_data()?;
     let vote = DisputeVote::try_deserialize(&mut &**vote_data)?;
@@ -106,14 +101,8 @@ pub(crate) fn process_worker_claim_pair(
     worker_info: &AccountInfo,
     task_key: &Pubkey,
 ) -> Result<()> {
-    require!(
-        claim_info.owner == &crate::ID,
-        CoordinationError::InvalidAccountOwner
-    );
-    require!(
-        worker_info.owner == &crate::ID,
-        CoordinationError::InvalidAccountOwner
-    );
+    validate_account_owner(claim_info)?;
+    validate_account_owner(worker_info)?;
 
     let claim_data = claim_info.try_borrow_data()?;
     let claim = TaskClaim::try_deserialize(&mut &**claim_data)?;

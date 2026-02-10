@@ -254,6 +254,9 @@ export class AgenCPrivacyClient {
     }): Promise<{ zkProof: Buffer; publicWitness: Buffer }> {
         const { taskId, agentPubkey, constraintHash, outputCommitment, output, salt } = params;
 
+        // Validate external tools are available before doing any work
+        this.validateExternalTools();
+
         // Security: Re-validate circuit path before use
         validateCircuitPath(this.circuitPath);
 
@@ -386,6 +389,28 @@ salt = "${params.salt}"
 `;
     }
     
+    /**
+     * Validate that nargo and sunspot external tools are available.
+     * Call before proof generation to fail fast with a clear error message.
+     */
+    private validateExternalTools(): void {
+        try {
+            execSync('nargo --version', { stdio: 'pipe', timeout: 5000 });
+        } catch {
+            throw new Error(
+                'nargo not found. Install Noir: https://noir-lang.org/docs/getting_started/installation'
+            );
+        }
+
+        try {
+            execSync('sunspot --version', { stdio: 'pipe', timeout: 5000 });
+        } catch {
+            throw new Error(
+                'sunspot not found. Install Sunspot for Groth16 proof generation.'
+            );
+        }
+    }
+
     private async fetchTask(taskId: number): Promise<{ constraintHash: Buffer }> {
         const [taskPda] = PublicKey.findProgramAddressSync(
             [Buffer.from('task'), Buffer.from(new Uint8Array(new BigUint64Array([BigInt(taskId)]).buffer))],
