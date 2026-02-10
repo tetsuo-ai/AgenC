@@ -5,10 +5,14 @@
 
 import { PublicKey } from '@solana/web3.js';
 import { PROGRAM_ID, SEEDS } from '@agenc/sdk';
-import type { PdaWithBump } from '../agent/pda.js';
+import { derivePda, validateIdLength } from '../utils/pda.js';
 
-// Re-export PdaWithBump for consumers importing from dispute module
-export type { PdaWithBump } from '../agent/pda.js';
+// Re-export PdaWithBump from utils — existing consumers import from here
+export type { PdaWithBump } from '../utils/pda.js';
+import type { PdaWithBump } from '../utils/pda.js';
+
+/** Length of dispute_id field (bytes) */
+export const DISPUTE_ID_LENGTH = 32;
 
 /**
  * Derives the dispute PDA and bump seed.
@@ -23,18 +27,8 @@ export function deriveDisputePda(
   disputeId: Uint8Array,
   programId: PublicKey = PROGRAM_ID
 ): PdaWithBump {
-  if (disputeId.length !== 32) {
-    throw new Error(
-      `Invalid disputeId length: ${disputeId.length} (must be 32)`
-    );
-  }
-
-  const [address, bump] = PublicKey.findProgramAddressSync(
-    [SEEDS.DISPUTE, Buffer.from(disputeId)],
-    programId
-  );
-
-  return { address, bump };
+  validateIdLength(disputeId, DISPUTE_ID_LENGTH, 'disputeId');
+  return derivePda([SEEDS.DISPUTE, Buffer.from(disputeId)], programId);
 }
 
 /**
@@ -69,12 +63,7 @@ export function deriveVotePda(
   arbiterAgentPda: PublicKey,
   programId: PublicKey = PROGRAM_ID
 ): PdaWithBump {
-  const [address, bump] = PublicKey.findProgramAddressSync(
-    [SEEDS.VOTE, disputePda.toBuffer(), arbiterAgentPda.toBuffer()],
-    programId
-  );
-
-  return { address, bump };
+  return derivePda([SEEDS.VOTE, disputePda.toBuffer(), arbiterAgentPda.toBuffer()], programId);
 }
 
 /**

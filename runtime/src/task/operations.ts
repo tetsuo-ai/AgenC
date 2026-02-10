@@ -9,7 +9,7 @@
  */
 
 import { PublicKey, SystemProgram } from '@solana/web3.js';
-import { BN, type Program, utils } from '@coral-xyz/anchor';
+import { BN, type Program } from '@coral-xyz/anchor';
 import type { AgencCoordination } from '../types/agenc_coordination.js';
 import type { Logger } from '../utils/logger.js';
 import { silentLogger } from '../utils/logger.js';
@@ -33,6 +33,7 @@ import {
   TaskSubmissionError,
   AnchorErrorCodes,
 } from '../types/errors.js';
+import { encodeStatusByte, queryWithFallback } from '../utils/query.js';
 
 // ============================================================================
 // Account Layout Constants
@@ -169,45 +170,47 @@ export class TaskOperations {
    * @returns Array of claimable tasks with their PDAs
    */
   async fetchClaimableTasks(): Promise<Array<{ task: OnChainTask; taskPda: PublicKey }>> {
-    try {
-      const [openAccounts, inProgressAccounts] = await Promise.all([
-        this.program.account.task.all([
-          {
-            memcmp: {
-              offset: TASK_STATUS_OFFSET,
-              bytes: utils.bytes.bs58.encode(Buffer.from([OnChainTaskStatus.Open])),
+    return queryWithFallback(
+      async () => {
+        const [openAccounts, inProgressAccounts] = await Promise.all([
+          this.program.account.task.all([
+            {
+              memcmp: {
+                offset: TASK_STATUS_OFFSET,
+                bytes: encodeStatusByte(OnChainTaskStatus.Open),
+              },
             },
-          },
-        ]),
-        this.program.account.task.all([
-          {
-            memcmp: {
-              offset: TASK_STATUS_OFFSET,
-              bytes: utils.bytes.bs58.encode(Buffer.from([OnChainTaskStatus.InProgress])),
+          ]),
+          this.program.account.task.all([
+            {
+              memcmp: {
+                offset: TASK_STATUS_OFFSET,
+                bytes: encodeStatusByte(OnChainTaskStatus.InProgress),
+              },
             },
-          },
-        ]),
-      ]);
+          ]),
+        ]);
 
-      const results: Array<{ task: OnChainTask; taskPda: PublicKey }> = [];
-      for (const acc of openAccounts) {
-        results.push({ task: parseOnChainTask(acc.account), taskPda: acc.publicKey });
-      }
-      for (const acc of inProgressAccounts) {
-        results.push({ task: parseOnChainTask(acc.account), taskPda: acc.publicKey });
-      }
-      return results;
-    } catch (err) {
-      this.logger.warn(
-        `memcmp-filtered fetch failed, falling back to full scan: ${err}`,
-      );
-      const all = await this.fetchAllTasks();
-      return all.filter(
-        ({ task }) =>
-          task.status === OnChainTaskStatus.Open ||
-          task.status === OnChainTaskStatus.InProgress,
-      );
-    }
+        const results: Array<{ task: OnChainTask; taskPda: PublicKey }> = [];
+        for (const acc of openAccounts) {
+          results.push({ task: parseOnChainTask(acc.account), taskPda: acc.publicKey });
+        }
+        for (const acc of inProgressAccounts) {
+          results.push({ task: parseOnChainTask(acc.account), taskPda: acc.publicKey });
+        }
+        return results;
+      },
+      async () => {
+        const all = await this.fetchAllTasks();
+        return all.filter(
+          ({ task }) =>
+            task.status === OnChainTaskStatus.Open ||
+            task.status === OnChainTaskStatus.InProgress,
+        );
+      },
+      this.logger,
+      'fetchClaimableTasks',
+    );
   }
 
   /**

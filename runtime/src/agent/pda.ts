@@ -6,16 +6,11 @@
 import { PublicKey } from '@solana/web3.js';
 import { PROGRAM_ID, SEEDS } from '@agenc/sdk';
 import { AGENT_ID_LENGTH } from './types.js';
+import { derivePda, validateIdLength } from '../utils/pda.js';
 
-/**
- * PDA with its bump seed for account creation
- */
-export interface PdaWithBump {
-  /** The derived program address */
-  address: PublicKey;
-  /** The bump seed used in derivation */
-  bump: number;
-}
+// Re-export PdaWithBump from utils — existing consumers import from here
+export type { PdaWithBump } from '../utils/pda.js';
+import type { PdaWithBump } from '../utils/pda.js';
 
 /**
  * Derives the agent PDA and bump seed from an agent ID.
@@ -36,18 +31,8 @@ export function deriveAgentPda(
   agentId: Uint8Array,
   programId: PublicKey = PROGRAM_ID
 ): PdaWithBump {
-  if (agentId.length !== AGENT_ID_LENGTH) {
-    throw new Error(
-      `Invalid agentId length: ${agentId.length} (must be ${AGENT_ID_LENGTH})`
-    );
-  }
-
-  const [address, bump] = PublicKey.findProgramAddressSync(
-    [SEEDS.AGENT, Buffer.from(agentId)],
-    programId
-  );
-
-  return { address, bump };
+  validateIdLength(agentId, AGENT_ID_LENGTH, 'agentId');
+  return derivePda([SEEDS.AGENT, Buffer.from(agentId)], programId);
 }
 
 /**
@@ -64,12 +49,7 @@ export function deriveAgentPda(
  * ```
  */
 export function deriveProtocolPda(programId: PublicKey = PROGRAM_ID): PdaWithBump {
-  const [address, bump] = PublicKey.findProgramAddressSync(
-    [SEEDS.PROTOCOL],
-    programId
-  );
-
-  return { address, bump };
+  return derivePda([SEEDS.PROTOCOL], programId);
 }
 
 /**
@@ -132,12 +112,7 @@ export function deriveAuthorityVotePda(
   authority: PublicKey,
   programId: PublicKey = PROGRAM_ID
 ): PdaWithBump {
-  const [address, bump] = PublicKey.findProgramAddressSync(
-    [Buffer.from('authority_vote'), disputePda.toBuffer(), authority.toBuffer()],
-    programId
-  );
-
-  return { address, bump };
+  return derivePda([SEEDS.AUTHORITY_VOTE, disputePda.toBuffer(), authority.toBuffer()], programId);
 }
 
 /**
