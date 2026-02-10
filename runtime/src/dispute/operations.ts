@@ -8,7 +8,7 @@
  */
 
 import { PublicKey, SystemProgram, type AccountMeta } from '@solana/web3.js';
-import { type Program, utils } from '@coral-xyz/anchor';
+import type { Program } from '@coral-xyz/anchor';
 import type { AgencCoordination } from '../types/agenc_coordination.js';
 import type { Logger } from '../utils/logger.js';
 import { silentLogger } from '../utils/logger.js';
@@ -42,6 +42,7 @@ import {
   DisputeResolutionError,
   DisputeSlashError,
 } from './errors.js';
+import { encodeStatusByte, queryWithFallback } from '../utils/query.js';
 
 // ============================================================================
 // Configuration
@@ -158,24 +159,28 @@ export class DisputeOperations {
    * @returns Array of active disputes with their PDAs
    */
   async fetchActiveDisputes(): Promise<Array<{ dispute: OnChainDispute; disputePda: PublicKey }>> {
-    try {
-      const accounts = await this.program.account.dispute.all([
-        {
-          memcmp: {
-            offset: DISPUTE_STATUS_OFFSET,
-            bytes: utils.bytes.bs58.encode(Buffer.from([OnChainDisputeStatus.Active])),
+    return queryWithFallback(
+      async () => {
+        const accounts = await this.program.account.dispute.all([
+          {
+            memcmp: {
+              offset: DISPUTE_STATUS_OFFSET,
+              bytes: encodeStatusByte(OnChainDisputeStatus.Active),
+            },
           },
-        },
-      ]);
-      return accounts.map((acc) => ({
-        dispute: parseOnChainDispute(acc.account as Record<string, unknown>),
-        disputePda: acc.publicKey,
-      }));
-    } catch (err) {
-      this.logger.warn(`memcmp-filtered fetch failed, falling back to full scan: ${err}`);
-      const all = await this.fetchAllDisputes();
-      return all.filter(({ dispute }) => dispute.status === OnChainDisputeStatus.Active);
-    }
+        ]);
+        return accounts.map((acc) => ({
+          dispute: parseOnChainDispute(acc.account as Record<string, unknown>),
+          disputePda: acc.publicKey,
+        }));
+      },
+      async () => {
+        const all = await this.fetchAllDisputes();
+        return all.filter(({ dispute }) => dispute.status === OnChainDisputeStatus.Active);
+      },
+      this.logger,
+      'fetchActiveDisputes',
+    );
   }
 
   /**
@@ -187,24 +192,28 @@ export class DisputeOperations {
   async fetchDisputesForTask(
     taskPda: PublicKey,
   ): Promise<Array<{ dispute: OnChainDispute; disputePda: PublicKey }>> {
-    try {
-      const accounts = await this.program.account.dispute.all([
-        {
-          memcmp: {
-            offset: DISPUTE_TASK_OFFSET,
-            bytes: taskPda.toBase58(),
+    return queryWithFallback(
+      async () => {
+        const accounts = await this.program.account.dispute.all([
+          {
+            memcmp: {
+              offset: DISPUTE_TASK_OFFSET,
+              bytes: taskPda.toBase58(),
+            },
           },
-        },
-      ]);
-      return accounts.map((acc) => ({
-        dispute: parseOnChainDispute(acc.account as Record<string, unknown>),
-        disputePda: acc.publicKey,
-      }));
-    } catch (err) {
-      this.logger.warn(`memcmp-filtered fetch by task failed, falling back to full scan: ${err}`);
-      const all = await this.fetchAllDisputes();
-      return all.filter(({ dispute }) => dispute.task.equals(taskPda));
-    }
+        ]);
+        return accounts.map((acc) => ({
+          dispute: parseOnChainDispute(acc.account as Record<string, unknown>),
+          disputePda: acc.publicKey,
+        }));
+      },
+      async () => {
+        const all = await this.fetchAllDisputes();
+        return all.filter(({ dispute }) => dispute.task.equals(taskPda));
+      },
+      this.logger,
+      'fetchDisputesForTask',
+    );
   }
 
   /**

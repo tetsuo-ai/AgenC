@@ -16,3 +16,7 @@ export {
   lamportsToSol,
   solToLamports,
 } from './encoding.js';
+
+export { PdaWithBump, derivePda, validateIdLength } from './pda.js';
+
+export { encodeStatusByte, queryWithFallback } from './query.js';
