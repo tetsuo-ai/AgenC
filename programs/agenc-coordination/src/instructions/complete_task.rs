@@ -1,16 +1,14 @@
 //! Complete a task and claim reward
 
 use crate::errors::CoordinationError;
-use crate::events::{reputation_reason, ReputationChanged, RewardDistributed, TaskCompleted};
 use crate::instructions::completion_helpers::{
-    calculate_reward_split, transfer_rewards, update_claim_state, update_protocol_stats,
-    update_task_state, update_worker_state,
+    calculate_fee_with_reputation, execute_completion_rewards, validate_completion_prereqs,
 };
 use crate::state::{
     AgentRegistration, DependencyType, ProtocolConfig, Task, TaskClaim, TaskEscrow, TaskStatus,
-    TaskType, HASH_SIZE, RESULT_DATA_SIZE,
+    HASH_SIZE, RESULT_DATA_SIZE,
 };
-use crate::utils::compute_budget::{calculate_reputation_fee_discount, log_compute_units};
+use crate::utils::compute_budget::log_compute_units;
 use crate::utils::version::check_version_compatible;
 use anchor_lang::prelude::*;
 
@@ -136,8 +134,7 @@ pub fn handler(
     }
 
     // Use the protocol fee locked at task creation (#479), with reputation discount
-    let rep_discount = calculate_reputation_fee_discount(worker.reputation);
-    let protocol_fee_bps = task.protocol_fee_bps.saturating_sub(rep_discount).max(1);
+    let protocol_fee_bps = calculate_fee_with_reputation(task.protocol_fee_bps, worker.reputation);
 
     // Validate proof_hash is not zero
     require!(
@@ -153,41 +150,10 @@ pub fn handler(
         );
     }
 
-    // Validate task state
-    require!(
-        task.status == TaskStatus::InProgress,
-        CoordinationError::TaskNotInProgress
-    );
+    // Shared validation: status, transition, deadline, claim, competitive guard
+    validate_completion_prereqs(task, claim, &clock)?;
 
-    // Validate status transition is allowed (fix #538)
-    require!(
-        task.status.can_transition_to(TaskStatus::Completed),
-        CoordinationError::InvalidStatusTransition
-    );
-
-    // Enforce deadline
-    if task.deadline > 0 {
-        require!(
-            clock.unix_timestamp <= task.deadline,
-            CoordinationError::DeadlinePassed
-        );
-    }
-
-    // Validate claim not already completed
-    require!(
-        !claim.is_completed,
-        CoordinationError::ClaimAlreadyCompleted
-    );
-
-    // For competitive tasks, ensure no one else has completed
-    if task.task_type == TaskType::Competitive {
-        require!(
-            task.completions == 0,
-            CoordinationError::CompetitiveTaskAlreadyWon
-        );
-    }
-
-    // Update claim
+    // Update claim fields (must be set before execute_completion_rewards)
     let claim_result_data = result_data.unwrap_or([0u8; RESULT_DATA_SIZE]);
     claim.proof_hash = proof_hash;
     claim.result_data = claim_result_data;
@@ -196,66 +162,19 @@ pub fn handler(
 
     log_compute_units("complete_task_validated");
 
-    // Calculate rewards
-    let (worker_reward, protocol_fee) = calculate_reward_split(task, protocol_fee_bps)?;
-
-    // Validate escrow has sufficient balance before transfer
-    let total_transfer_amount = worker_reward
-        .checked_add(protocol_fee)
-        .ok_or(CoordinationError::ArithmeticOverflow)?;
-    let escrow_lamports = escrow.to_account_info().lamports();
-    require!(
-        escrow_lamports >= total_transfer_amount,
-        CoordinationError::InsufficientEscrowBalance
-    );
-
-    // Transfer rewards
-    transfer_rewards(
+    // Execute reward transfer, state updates, and event emissions
+    execute_completion_rewards(
+        task,
+        claim,
         escrow,
+        worker,
+        &mut ctx.accounts.protocol_config,
         &ctx.accounts.authority.to_account_info(),
         &ctx.accounts.treasury.to_account_info(),
-        worker_reward,
-        protocol_fee,
+        protocol_fee_bps,
+        Some(claim_result_data),
+        &clock,
     )?;
-
-    // Update states
-    update_claim_state(claim, escrow, worker_reward, protocol_fee)?;
-    let task_completed =
-        update_task_state(task, clock.unix_timestamp, escrow, Some(claim_result_data))?;
-    let (old_rep, new_rep) = update_worker_state(worker, worker_reward, clock.unix_timestamp)?;
-    if old_rep != new_rep {
-        emit!(ReputationChanged {
-            agent_id: worker.agent_id,
-            old_reputation: old_rep,
-            new_reputation: new_rep,
-            reason: reputation_reason::COMPLETION,
-            timestamp: clock.unix_timestamp,
-        });
-    }
-
-    // Update protocol stats after other mutable borrows are done
-    if task_completed {
-        update_protocol_stats(&mut ctx.accounts.protocol_config, task.reward_amount)?;
-    }
-
-    log_compute_units("complete_task_state_updated");
-
-    emit!(TaskCompleted {
-        task_id: task.task_id,
-        worker: worker.key(),
-        proof_hash,
-        result_data: claim_result_data,
-        reward_paid: worker_reward,
-        timestamp: clock.unix_timestamp,
-    });
-
-    emit!(RewardDistributed {
-        task_id: task.task_id,
-        recipient: worker.key(),
-        amount: worker_reward,
-        protocol_fee,
-        timestamp: clock.unix_timestamp,
-    });
 
     log_compute_units("complete_task_done");
 

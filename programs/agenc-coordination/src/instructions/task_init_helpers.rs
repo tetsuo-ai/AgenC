@@ -42,6 +42,23 @@ pub fn validate_task_params(
     Ok(())
 }
 
+/// Validates a task deadline.
+///
+/// If `required` is true, the deadline must be > 0 (uses `InvalidDeadline`).
+/// If the deadline is set (> 0), it must be in the future (uses `InvalidInput`).
+pub fn validate_deadline(deadline: i64, clock: &Clock, required: bool) -> Result<()> {
+    if required {
+        require!(deadline > 0, CoordinationError::InvalidDeadline);
+    }
+    if deadline > 0 {
+        require!(
+            deadline > clock.unix_timestamp,
+            CoordinationError::InvalidInput
+        );
+    }
+    Ok(())
+}
+
 /// Initializes common task fields. Sets `dependency_type = None` and `depends_on = None`
 /// by default; callers should override these after if the task has dependencies.
 pub fn init_task_fields(

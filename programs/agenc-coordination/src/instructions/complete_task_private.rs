@@ -50,29 +50,25 @@
 //! - Total: 32 (task bytes) + 32 (agent bytes) + 4 (hashes including nullifier) = 68 public inputs
 
 use crate::errors::CoordinationError;
-use crate::events::{reputation_reason, ReputationChanged, RewardDistributed, TaskCompleted};
 use crate::instructions::completion_helpers::{
-    calculate_reward_split, transfer_rewards, update_claim_state, update_protocol_stats,
-    update_task_state, update_worker_state,
+    calculate_fee_with_reputation, execute_completion_rewards, validate_completion_prereqs,
+};
+use crate::instructions::constants::{
+    ZK_EXPECTED_PROOF_SIZE, ZK_PROOF_A_SIZE, ZK_PROOF_B_SIZE, ZK_PROOF_C_SIZE,
+    ZK_WITNESS_FIELD_COUNT,
 };
 use crate::state::{
-    AgentRegistration, Nullifier, ProtocolConfig, Task, TaskClaim, TaskEscrow, TaskStatus,
-    TaskType, HASH_SIZE, RESULT_DATA_SIZE,
+    AgentRegistration, Nullifier, ProtocolConfig, Task, TaskClaim, TaskEscrow, HASH_SIZE,
+    RESULT_DATA_SIZE,
 };
-use crate::utils::compute_budget::{calculate_reputation_fee_discount, log_compute_units};
+use crate::utils::compute_budget::log_compute_units;
 use crate::utils::version::check_version_compatible;
 use crate::verifying_key::get_verifying_key;
 use anchor_lang::prelude::*;
 use groth16_solana::groth16::Groth16Verifier;
 
-// ZK proof format constants
-// 32 (task_id bytes) + 32 (agent bytes) + 1 (constraint_hash) + 1 (output_commitment) + 1 (expected_binding) + 1 (nullifier)
-const PUBLIC_INPUTS_COUNT: usize = 68;
+// Semantic alias: field element size matches hash size
 const FIELD_SIZE: usize = HASH_SIZE;
-
-/// Expected Groth16 proof size in bytes (2 G1 points + 1 G2 point on BN254)
-/// groth16-solana format: 256 bytes (compressed)
-const EXPECTED_PROOF_SIZE: usize = 256;
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
 pub struct PrivateCompletionProof {
@@ -186,7 +182,7 @@ pub fn complete_task_private(
         CoordinationError::TaskNotFound
     );
 
-    // Deadline check (issue #384)
+    // Deadline check (issue #384) — explicit check before shared prereqs preserves ordering
     require!(
         task.deadline == 0 || clock.unix_timestamp <= task.deadline,
         CoordinationError::DeadlinePassed
@@ -194,14 +190,8 @@ pub fn complete_task_private(
 
     check_version_compatible(&ctx.accounts.protocol_config)?;
 
-    require!(
-        task.status == TaskStatus::InProgress,
-        CoordinationError::TaskNotInProgress
-    );
-    require!(
-        !claim.is_completed,
-        CoordinationError::ClaimAlreadyCompleted
-    );
+    // Shared validation: status, transition, deadline (redundant but harmless), claim, competitive guard
+    validate_completion_prereqs(task, claim, &clock)?;
 
     // CRITICAL: Verify this is a private task (has a non-zero constraint_hash)
     // Tasks without constraint_hash should use complete_task, not complete_task_private
@@ -241,15 +231,6 @@ pub fn complete_task_private(
     // automatically reject the transaction with AccountAlreadyInitialized error.
     // This prevents proof/knowledge reuse without explicit duplicate checking.
 
-    // CRITICAL: For competitive tasks, ensure no one else has completed (fix: double-reward vulnerability)
-    // This check must happen BEFORE proof verification to prevent wasted compute on invalid completions
-    if task.task_type == TaskType::Competitive {
-        require!(
-            task.completions == 0,
-            CoordinationError::CompetitiveTaskAlreadyWon
-        );
-    }
-
     verify_zk_proof(&proof, task.key(), worker.authority)?;
 
     // Initialize the nullifier account to mark it as spent
@@ -259,64 +240,29 @@ pub fn complete_task_private(
     nullifier_account.spent_at = clock.unix_timestamp;
     // bump is set automatically by Anchor's init constraint
 
+    // Update claim fields (must be set before execute_completion_rewards)
     claim.proof_hash = proof.output_commitment;
     // Private completions don't store result data on-chain (privacy preserved)
     claim.result_data = [0u8; RESULT_DATA_SIZE];
     claim.is_completed = true;
     claim.completed_at = clock.unix_timestamp;
 
-    // Apply reputation-based fee discount
-    let rep_discount = calculate_reputation_fee_discount(worker.reputation);
-    let protocol_fee_bps = ctx
-        .accounts
-        .protocol_config
-        .protocol_fee_bps
-        .saturating_sub(rep_discount)
-        .max(1);
-    let (worker_reward, protocol_fee) = calculate_reward_split(task, protocol_fee_bps)?;
+    // FIX: Use task-locked fee (was incorrectly using protocol_config.protocol_fee_bps)
+    let protocol_fee_bps = calculate_fee_with_reputation(task.protocol_fee_bps, worker.reputation);
 
-    transfer_rewards(
+    // Execute reward transfer, state updates, and event emissions
+    execute_completion_rewards(
+        task,
+        claim,
         escrow,
+        worker,
+        &mut ctx.accounts.protocol_config,
         &ctx.accounts.authority.to_account_info(),
         &ctx.accounts.treasury.to_account_info(),
-        worker_reward,
-        protocol_fee,
+        protocol_fee_bps,
+        None, // Private: preserve privacy
+        &clock,
     )?;
-
-    update_claim_state(claim, escrow, worker_reward, protocol_fee)?;
-    // Pass None for result_data to preserve privacy
-    let task_completed = update_task_state(task, clock.unix_timestamp, escrow, None)?;
-    let (old_rep, new_rep) = update_worker_state(worker, worker_reward, clock.unix_timestamp)?;
-    if old_rep != new_rep {
-        emit!(ReputationChanged {
-            agent_id: worker.agent_id,
-            old_reputation: old_rep,
-            new_reputation: new_rep,
-            reason: reputation_reason::COMPLETION,
-            timestamp: clock.unix_timestamp,
-        });
-    }
-
-    if task_completed {
-        update_protocol_stats(&mut ctx.accounts.protocol_config, task.reward_amount)?;
-    }
-
-    emit!(TaskCompleted {
-        task_id: task.task_id,
-        worker: worker.key(),
-        proof_hash: proof.output_commitment,
-        result_data: [0u8; 64], // Zeroed for privacy
-        reward_paid: worker_reward,
-        timestamp: clock.unix_timestamp,
-    });
-
-    emit!(RewardDistributed {
-        task_id: task.task_id,
-        recipient: worker.key(),
-        amount: worker_reward,
-        protocol_fee,
-        timestamp: clock.unix_timestamp,
-    });
 
     Ok(())
 }
@@ -328,7 +274,7 @@ pub fn complete_task_private(
 /// Encode a pubkey as 32 separate field elements (one per byte) for the ZK witness.
 /// Each byte becomes a 32-byte big-endian field element with the byte in the last position.
 fn append_pubkey_as_field_elements(
-    inputs: &mut [[u8; 32]; PUBLIC_INPUTS_COUNT],
+    inputs: &mut [[u8; 32]; ZK_WITNESS_FIELD_COUNT],
     offset: usize,
     pubkey: &Pubkey,
 ) {
@@ -343,8 +289,8 @@ fn build_public_inputs(
     task_key: &Pubkey,
     agent: &Pubkey,
     proof: &PrivateCompletionProof,
-) -> [[u8; 32]; PUBLIC_INPUTS_COUNT] {
-    let mut inputs = [[0u8; 32]; PUBLIC_INPUTS_COUNT];
+) -> [[u8; 32]; ZK_WITNESS_FIELD_COUNT] {
+    let mut inputs = [[0u8; 32]; ZK_WITNESS_FIELD_COUNT];
 
     // Public inputs 0-31: task_id (each byte as separate field element)
     append_pubkey_as_field_elements(&mut inputs, 0, task_key);
@@ -367,17 +313,12 @@ fn build_public_inputs(
     inputs
 }
 
-/// Groth16 proof component sizes (BN254 curve)
-const PROOF_A_SIZE: usize = 64; // G1 point
-const PROOF_B_SIZE: usize = 128; // G2 point
-const PROOF_C_SIZE: usize = 64; // G1 point
-
 fn verify_zk_proof(proof: &PrivateCompletionProof, task_key: Pubkey, agent: Pubkey) -> Result<()> {
     log_compute_units("zk_verify_start");
 
     // Validate proof size matches expected Groth16 proof format
     require!(
-        proof.proof_data.len() == EXPECTED_PROOF_SIZE,
+        proof.proof_data.len() == ZK_EXPECTED_PROOF_SIZE,
         CoordinationError::InvalidProofSize
     );
 
@@ -395,15 +336,15 @@ fn verify_zk_proof(proof: &PrivateCompletionProof, task_key: Pubkey, agent: Pubk
 
     // Split proof into components: proof_a (G1), proof_b (G2), proof_c (G1)
     // Using direct slice references avoids unnecessary copies on the stack
-    let proof_a: [u8; PROOF_A_SIZE] = proof.proof_data[0..PROOF_A_SIZE]
+    let proof_a: [u8; ZK_PROOF_A_SIZE] = proof.proof_data[0..ZK_PROOF_A_SIZE]
         .try_into()
         .map_err(|_| CoordinationError::InvalidProofSize)?;
 
-    let proof_b: [u8; PROOF_B_SIZE] = proof.proof_data[PROOF_A_SIZE..PROOF_A_SIZE + PROOF_B_SIZE]
+    let proof_b: [u8; ZK_PROOF_B_SIZE] = proof.proof_data[ZK_PROOF_A_SIZE..ZK_PROOF_A_SIZE + ZK_PROOF_B_SIZE]
         .try_into()
         .map_err(|_| CoordinationError::InvalidProofSize)?;
 
-    let proof_c: [u8; PROOF_C_SIZE] = proof.proof_data[PROOF_A_SIZE + PROOF_B_SIZE..]
+    let proof_c: [u8; ZK_PROOF_C_SIZE] = proof.proof_data[ZK_PROOF_A_SIZE + ZK_PROOF_B_SIZE..]
         .try_into()
         .map_err(|_| CoordinationError::InvalidProofSize)?;
 

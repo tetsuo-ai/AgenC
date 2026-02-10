@@ -38,6 +38,34 @@ import {
   autonomousTaskToOnChainTask,
   executorToTaskHandler,
 } from './speculation-adapter.js';
+import type { OnChainTask } from '../task/types.js';
+
+/**
+ * Create a minimal placeholder OnChainTask for dependency graph registration.
+ * Replaced with real data when the task is discovered and claimed.
+ */
+function createPlaceholderOnChainTask(): OnChainTask {
+  return {
+    taskId: new Uint8Array(32),
+    creator: PublicKey.default,
+    requiredCapabilities: 0n,
+    description: new Uint8Array(64),
+    constraintHash: new Uint8Array(32),
+    rewardAmount: 0n,
+    maxWorkers: 1,
+    currentWorkers: 0,
+    status: 0, // Open
+    taskType: 0, // Exclusive
+    createdAt: 0,
+    deadline: 0,
+    completedAt: 0,
+    escrow: PublicKey.default,
+    result: new Uint8Array(64),
+    completions: 0,
+    requiredCompletions: 1,
+    bump: 0,
+  } as OnChainTask;
+}
 
 // Default configuration constants
 const DEFAULT_SCAN_INTERVAL_MS = 5000;
@@ -134,6 +162,13 @@ export class AutonomousAgent extends AgentRuntime {
   private pendingTasks: Map<string, Task> = new Map(); // Tasks waiting to be claimed
   private startTime: number = 0;
   private processingLock = false;
+
+  // Poll backoff tracking
+  private consecutivePollFailures = 0;
+  private readonly maxConsecutiveFailures = 5;
+
+  // Fire-and-forget operation tracking for graceful shutdown
+  private pendingOperations = new Set<Promise<unknown>>();
 
   // Stats
   private stats: AutonomousAgentStats = {
@@ -245,6 +280,12 @@ export class AutonomousAgent extends AgentRuntime {
 
     // Stop discovery
     this.stopDiscovery();
+
+    // Drain pending fire-and-forget operations
+    if (this.pendingOperations.size > 0) {
+      this.autonomousLogger.debug(`Waiting for ${this.pendingOperations.size} pending operations...`);
+      await Promise.allSettled([...this.pendingOperations]);
+    }
 
     // Shutdown speculative executor (aborts speculative tasks, waits for in-flight proofs)
     if (this.specExecutor) {
@@ -410,26 +451,7 @@ export class AutonomousAgent extends AgentRuntime {
       );
       // Will be replaced with real data when the task is discovered and claimed
       graph.addTaskWithParent(
-        {
-          taskId: new Uint8Array(32),
-          creator: PublicKey.default,
-          requiredCapabilities: 0n,
-          description: new Uint8Array(64),
-          constraintHash: new Uint8Array(32),
-          rewardAmount: 0n,
-          maxWorkers: 1,
-          currentWorkers: 0,
-          status: 0, // Open
-          taskType: 0, // Exclusive
-          createdAt: 0,
-          deadline: 0,
-          completedAt: 0,
-          escrow: PublicKey.default,
-          result: new Uint8Array(64),
-          completions: 0,
-          requiredCompletions: 1,
-          bump: 0,
-        } as import('../task/types.js').OnChainTask,
+        createPlaceholderOnChainTask(),
         childPda,
         parentPda,
         type,
@@ -534,6 +556,7 @@ export class AutonomousAgent extends AgentRuntime {
     try {
       // Scan for tasks
       const tasks = await this.scanner.scan();
+      this.consecutivePollFailures = 0;
 
       for (const task of tasks) {
         this.handleDiscoveredTask(task);
@@ -542,7 +565,23 @@ export class AutonomousAgent extends AgentRuntime {
       // Process pending tasks
       await this.processPendingTasks();
     } catch (error) {
-      this.autonomousLogger.error('Poll cycle failed:', error);
+      this.consecutivePollFailures++;
+      this.autonomousLogger.error(
+        `Poll cycle failed (${this.consecutivePollFailures}/${this.maxConsecutiveFailures}):`,
+        error,
+      );
+
+      if (this.consecutivePollFailures >= this.maxConsecutiveFailures) {
+        this.autonomousLogger.error('Max consecutive poll failures reached, pausing discovery');
+        this.stopPolling();
+        // Auto-resume after 60s cooldown (only if agent is still running)
+        setTimeout(() => {
+          if (this.isStarted()) {
+            this.consecutivePollFailures = 0;
+            this.startPolling();
+          }
+        }, 60_000);
+      }
     }
   }
 
@@ -553,7 +592,7 @@ export class AutonomousAgent extends AgentRuntime {
     const taskKey = task.pda.toBase58();
 
     // Skip if already active, pending, or awaiting proof
-    if (this.activeTasks.has(taskKey) || this.pendingTasks.has(taskKey) || this.awaitingProof.has(taskKey)) {
+    if (this.isTaskTracked(taskKey)) {
       return;
     }
 
@@ -571,7 +610,7 @@ export class AutonomousAgent extends AgentRuntime {
 
     // Trigger processing if not already running
     if (!this.processingLock) {
-      void this.processPendingTasks();
+      this.trackOperation(this.processPendingTasks());
     }
   }
 
@@ -602,7 +641,7 @@ export class AutonomousAgent extends AgentRuntime {
         this.pendingTasks.delete(task.pda.toBase58());
 
         // Claim and process (don't await - process concurrently)
-        void this.claimAndProcess(task);
+        this.trackOperation(this.claimAndProcess(task));
       }
     } finally {
       this.processingLock = false;
@@ -954,6 +993,23 @@ export class AutonomousAgent extends AgentRuntime {
     } catch (err) {
       this.autonomousLogger.warn(`Failed to journal ${event} event:`, err);
     }
+  }
+
+  /**
+   * Track a fire-and-forget promise for graceful shutdown.
+   */
+  private trackOperation(promise: Promise<unknown>): void {
+    this.pendingOperations.add(promise);
+    promise.finally(() => this.pendingOperations.delete(promise));
+  }
+
+  /**
+   * Check if a task is already tracked in any map.
+   */
+  private isTaskTracked(taskKey: string): boolean {
+    return this.activeTasks.has(taskKey)
+      || this.pendingTasks.has(taskKey)
+      || this.awaitingProof.has(taskKey);
   }
 
   private isZeroHash(hash: Uint8Array): boolean {
