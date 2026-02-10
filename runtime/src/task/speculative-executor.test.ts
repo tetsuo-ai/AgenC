@@ -711,7 +711,7 @@ describe('SpeculativeExecutor', () => {
       // Verify speculative task was aborted
       expect(events.onSpeculativeExecutionAborted).toHaveBeenCalledWith(
         childPda,
-        expect.stringContaining('parent proof failed')
+        expect.stringContaining('ancestor proof failed')
       );
     });
 
