@@ -58,8 +58,8 @@ use crate::instructions::constants::{
     ZK_WITNESS_FIELD_COUNT,
 };
 use crate::state::{
-    AgentRegistration, Nullifier, ProtocolConfig, Task, TaskClaim, TaskEscrow, HASH_SIZE,
-    RESULT_DATA_SIZE,
+    AgentRegistration, Nullifier, ProtocolConfig, Task, TaskClaim, TaskEscrow, TaskStatus,
+    HASH_SIZE, RESULT_DATA_SIZE,
 };
 use crate::utils::compute_budget::log_compute_units;
 use crate::utils::version::check_version_compatible;
@@ -102,11 +102,10 @@ pub struct CompleteTaskPrivate<'info> {
     )]
     pub claim: Box<Account<'info, TaskClaim>>,
 
-    /// Note: Escrow account is closed after completion.
-    /// Rent is returned to the task creator who funded it.
+    /// Note: Escrow account is closed conditionally after the final completion.
+    /// For collaborative tasks with multiple workers, it stays open until all complete.
     #[account(
         mut,
-        close = creator,
         seeds = [b"escrow", task.key().as_ref()],
         bump = escrow.bump
     )]
@@ -264,6 +263,13 @@ pub fn complete_task_private(
         &clock,
     )?;
 
+    // Only close escrow when task is fully completed (all required completions done).
+    // For collaborative tasks with max_workers > 1, this keeps the escrow open
+    // for subsequent workers to complete and receive their share.
+    if task.status == TaskStatus::Completed {
+        escrow.close(ctx.accounts.creator.to_account_info())?;
+    }
+
     Ok(())
 }
 
@@ -322,12 +328,13 @@ fn verify_zk_proof(proof: &PrivateCompletionProof, task_key: Pubkey, agent: Pubk
         CoordinationError::InvalidProofSize
     );
 
-    // Security check: warn if using development verifying key (issues #356, #358)
-    // In devnet/localnet this is expected; on mainnet this would be a critical issue.
-    // The key must be replaced via MPC ceremony before mainnet deployment.
-    if crate::verifying_key::is_development_key() {
-        msg!("WARNING: Using development verifying key (gamma == delta). Proofs are forgeable. Do NOT use on mainnet.");
-    }
+    // Security check: block ZK proofs with development verifying key (issues #356, #358)
+    // Development keys (gamma == delta) make proofs forgeable.
+    // The key must be replaced via MPC ceremony before use.
+    require!(
+        !crate::verifying_key::is_development_key(),
+        CoordinationError::DevelopmentKeyNotAllowed
+    );
 
     let public_inputs = build_public_inputs(&task_key, &agent, proof);
     let vk = get_verifying_key();
