@@ -427,3 +427,30 @@ export {
   type SerializedAgent,
   type SerializedProtocolConfig,
 } from './tools/index.js';
+
+// Memory Backends (Phase 6)
+export {
+  // Core types
+  type MemoryBackend,
+  type MemoryBackendConfig,
+  type MemoryEntry,
+  type MemoryRole,
+  type MemoryQuery,
+  type AddEntryOptions,
+  // LLM interop helpers
+  entryToMessage,
+  messageToEntryOptions,
+  // Error classes
+  MemoryBackendError,
+  MemoryConnectionError,
+  MemorySerializationError,
+  // In-memory backend
+  InMemoryBackend,
+  type InMemoryBackendConfig,
+  // SQLite backend
+  SqliteBackend,
+  type SqliteBackendConfig,
+  // Redis backend
+  RedisBackend,
+  type RedisBackendConfig,
+} from './memory/index.js';

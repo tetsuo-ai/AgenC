@@ -4,8 +4,8 @@
  * Validates AgentManager and AgentRuntime lifecycle against a localnet validator.
  * Requires a running Solana test validator with the AgenC program deployed.
  *
- * Run: cd runtime && npx vitest run tests/integration.test.ts
- * Skip: SKIP_INTEGRATION=true npx vitest run tests/integration.test.ts
+ * Run: RUN_INTEGRATION=true npx vitest run tests/integration.test.ts
+ * Requires a running local validator (solana-test-validator).
  *
  * @see https://github.com/tetsuo-ai/AgenC/issues/124
  */
@@ -19,10 +19,10 @@ import { generateAgentId } from '../src/utils/encoding.js';
 import { AgentStatus } from '../src/agent/types.js';
 import { keypairToWallet } from '../src/types/wallet.js';
 
-// Skip integration tests if not running against localnet
-const SKIP_INTEGRATION = process.env.SKIP_INTEGRATION === 'true';
+// Only run integration tests when explicitly opted in (requires local validator)
+const RUN_INTEGRATION = process.env.RUN_INTEGRATION === 'true';
 
-describe.skipIf(SKIP_INTEGRATION)('Integration Tests', () => {
+describe.skipIf(!RUN_INTEGRATION)('Integration Tests', () => {
   let connection: Connection;
   let payer: Keypair;
 

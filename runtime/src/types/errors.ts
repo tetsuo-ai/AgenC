@@ -58,6 +58,12 @@ export const RuntimeErrorCodes = {
   LLM_TOOL_CALL_ERROR: 'LLM_TOOL_CALL_ERROR',
   /** LLM request timed out */
   LLM_TIMEOUT: 'LLM_TIMEOUT',
+  /** Memory backend operation failure */
+  MEMORY_BACKEND_ERROR: 'MEMORY_BACKEND_ERROR',
+  /** Memory backend connection failure or missing dependency */
+  MEMORY_CONNECTION_ERROR: 'MEMORY_CONNECTION_ERROR',
+  /** Memory serialization/deserialization failure */
+  MEMORY_SERIALIZATION_ERROR: 'MEMORY_SERIALIZATION_ERROR',
 } as const;
 
 /** Union type of all runtime error code values */
