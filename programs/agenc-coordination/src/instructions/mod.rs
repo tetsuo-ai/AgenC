@@ -21,6 +21,7 @@
 
 pub mod completion_helpers;
 pub mod constants;
+pub mod dispute_helpers;
 pub mod rate_limit_helpers;
 pub mod slash_helpers;
 pub mod task_init_helpers;
