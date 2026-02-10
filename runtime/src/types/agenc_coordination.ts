@@ -286,6 +286,85 @@ export type AgencCoordination = {
       "args": []
     },
     {
+      "name": "cancelDispute",
+      "docs": [
+        "Cancel a dispute before any votes are cast.",
+        "Only the dispute initiator can cancel, and only if no arbiter has voted yet."
+      ],
+      "discriminator": [
+        23,
+        155,
+        220,
+        94,
+        76,
+        141,
+        231,
+        124
+      ],
+      "accounts": [
+        {
+          "name": "dispute",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  105,
+                  115,
+                  112,
+                  117,
+                  116,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "dispute.dispute_id",
+                "account": "dispute"
+              }
+            ]
+          }
+        },
+        {
+          "name": "task",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  97,
+                  115,
+                  107
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "task.creator",
+                "account": "task"
+              },
+              {
+                "kind": "account",
+                "path": "task.task_id",
+                "account": "task"
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "docs": [
+            "Only the initiator's authority can cancel"
+          ],
+          "signer": true
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "cancelTask",
       "docs": [
         "Cancel an unclaimed or expired task and reclaim funds."
@@ -1057,6 +1136,10 @@ export type AgencCoordination = {
         },
         {
           "name": "creator",
+          "docs": [
+            "The creator who pays for and owns the task",
+            "Must match authority to prevent social engineering attacks (#375)"
+          ],
           "writable": true,
           "signer": true
         },
@@ -1118,6 +1201,10 @@ export type AgencCoordination = {
         {
           "name": "dependencyType",
           "type": "u8"
+        },
+        {
+          "name": "minReputation",
+          "type": "u16"
         }
       ]
     },
@@ -1256,6 +1343,10 @@ export type AgencCoordination = {
         },
         {
           "name": "creator",
+          "docs": [
+            "The creator who pays for and owns the task",
+            "Must match authority to prevent social engineering attacks (#375)"
+          ],
           "writable": true,
           "signer": true
         },
@@ -1313,6 +1404,10 @@ export type AgencCoordination = {
               ]
             }
           }
+        },
+        {
+          "name": "minReputation",
+          "type": "u16"
         }
       ]
     },
@@ -1513,10 +1608,6 @@ export type AgencCoordination = {
           }
         },
         {
-          "name": "rentRecipient",
-          "writable": true
-        },
-        {
           "name": "protocolConfig",
           "pda": {
             "seeds": [
@@ -1535,6 +1626,10 @@ export type AgencCoordination = {
               }
             ]
           }
+        },
+        {
+          "name": "rentRecipient",
+          "writable": true
         },
         {
           "name": "systemProgram",
@@ -1662,7 +1757,8 @@ export type AgencCoordination = {
           "name": "workerClaim",
           "docs": [
             "Worker's claim on the disputed task (fix #137)",
-            "Optional - when provided, allows decrementing worker's active_tasks"
+            "Optional - when provided, allows decrementing worker's active_tasks",
+            "and enables fair refund distribution (fix #418)"
           ],
           "optional": true,
           "pda": {
@@ -1691,6 +1787,14 @@ export type AgencCoordination = {
         },
         {
           "name": "worker",
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "workerAuthority",
+          "docs": [
+            "Required when worker should receive funds on expiration"
+          ],
           "writable": true,
           "optional": true
         }
@@ -2644,6 +2748,26 @@ export type AgencCoordination = {
           ]
         },
         {
+          "name": "protocolConfig",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108
+                ]
+              }
+            ]
+          }
+        },
+        {
           "name": "systemProgram",
           "address": "11111111111111111111111111111111"
         }
@@ -3157,6 +3281,19 @@ export type AgencCoordination = {
       ]
     },
     {
+      "name": "disputeCancelled",
+      "discriminator": [
+        38,
+        80,
+        189,
+        225,
+        112,
+        190,
+        156,
+        178
+      ]
+    },
+    {
       "name": "disputeExpired",
       "discriminator": [
         28,
@@ -3284,6 +3421,19 @@ export type AgencCoordination = {
         25,
         219,
         10
+      ]
+    },
+    {
+      "name": "reputationChanged",
+      "discriminator": [
+        190,
+        190,
+        93,
+        65,
+        6,
+        39,
+        92,
+        250
       ]
     },
     {
@@ -3421,623 +3571,668 @@ export type AgencCoordination = {
     },
     {
       "code": 6008,
+      "name": "creatorAuthorityMismatch",
+      "msg": "Creator must match authority to prevent social engineering"
+    },
+    {
+      "code": 6009,
       "name": "invalidAgentId",
       "msg": "Invalid agent ID: agent_id cannot be all zeros"
     },
     {
-      "code": 6009,
+      "code": 6010,
       "name": "agentRegistrationRequired",
       "msg": "Agent registration required to create tasks"
     },
     {
-      "code": 6010,
+      "code": 6011,
       "name": "agentSuspended",
       "msg": "Agent is suspended and cannot change status"
     },
     {
-      "code": 6011,
+      "code": 6012,
       "name": "agentBusyWithTasks",
       "msg": "Agent cannot set status to Active while having active tasks"
     },
     {
-      "code": 6012,
+      "code": 6013,
       "name": "taskNotFound",
       "msg": "Task not found"
     },
     {
-      "code": 6013,
+      "code": 6014,
       "name": "taskNotOpen",
       "msg": "Task is not open for claims"
     },
     {
-      "code": 6014,
+      "code": 6015,
       "name": "taskFullyClaimed",
       "msg": "Task has reached maximum workers"
     },
     {
-      "code": 6015,
+      "code": 6016,
       "name": "taskExpired",
       "msg": "Task has expired"
     },
     {
-      "code": 6016,
+      "code": 6017,
       "name": "taskNotExpired",
       "msg": "Task deadline has not passed"
     },
     {
-      "code": 6017,
+      "code": 6018,
       "name": "deadlinePassed",
       "msg": "Task deadline has passed"
     },
     {
-      "code": 6018,
+      "code": 6019,
       "name": "taskNotInProgress",
       "msg": "Task is not in progress"
     },
     {
-      "code": 6019,
+      "code": 6020,
       "name": "taskAlreadyCompleted",
       "msg": "Task is already completed"
     },
     {
-      "code": 6020,
+      "code": 6021,
       "name": "taskCannotBeCancelled",
       "msg": "Task cannot be cancelled"
     },
     {
-      "code": 6021,
+      "code": 6022,
       "name": "unauthorizedTaskAction",
       "msg": "Only the task creator can perform this action"
     },
     {
-      "code": 6022,
+      "code": 6023,
       "name": "invalidCreator",
       "msg": "Invalid creator"
     },
     {
-      "code": 6023,
+      "code": 6024,
       "name": "invalidTaskId",
       "msg": "Invalid task ID: cannot be zero"
     },
     {
-      "code": 6024,
+      "code": 6025,
       "name": "invalidDescription",
       "msg": "Invalid description: cannot be empty"
     },
     {
-      "code": 6025,
+      "code": 6026,
       "name": "invalidMaxWorkers",
       "msg": "Invalid max workers: must be between 1 and 100"
     },
     {
-      "code": 6026,
+      "code": 6027,
       "name": "invalidTaskType",
       "msg": "Invalid task type"
     },
     {
-      "code": 6027,
+      "code": 6028,
       "name": "invalidDeadline",
       "msg": "Invalid deadline: deadline must be greater than zero"
     },
     {
-      "code": 6028,
+      "code": 6029,
       "name": "invalidReward",
       "msg": "Invalid reward: reward must be greater than zero"
     },
     {
-      "code": 6029,
+      "code": 6030,
+      "name": "invalidRequiredCapabilities",
+      "msg": "Invalid required capabilities: required_capabilities cannot be zero"
+    },
+    {
+      "code": 6031,
       "name": "competitiveTaskAlreadyWon",
       "msg": "Competitive task already completed by another worker"
     },
     {
-      "code": 6030,
+      "code": 6032,
       "name": "noWorkers",
       "msg": "Task has no workers"
     },
     {
-      "code": 6031,
+      "code": 6033,
       "name": "constraintHashMismatch",
       "msg": "Proof constraint hash does not match task's stored constraint hash"
     },
     {
-      "code": 6032,
+      "code": 6034,
       "name": "notPrivateTask",
       "msg": "Task is not a private task (no constraint hash set)"
     },
     {
-      "code": 6033,
+      "code": 6035,
       "name": "alreadyClaimed",
       "msg": "Worker has already claimed this task"
     },
     {
-      "code": 6034,
+      "code": 6036,
       "name": "notClaimed",
       "msg": "Worker has not claimed this task"
     },
     {
-      "code": 6035,
+      "code": 6037,
       "name": "claimAlreadyCompleted",
       "msg": "Claim has already been completed"
     },
     {
-      "code": 6036,
+      "code": 6038,
       "name": "claimNotExpired",
       "msg": "Claim has not expired yet"
     },
     {
-      "code": 6037,
+      "code": 6039,
       "name": "claimExpired",
       "msg": "Claim has expired"
     },
     {
-      "code": 6038,
+      "code": 6040,
       "name": "invalidExpiration",
       "msg": "Invalid expiration: expires_at cannot be zero"
     },
     {
-      "code": 6039,
+      "code": 6041,
       "name": "invalidProof",
       "msg": "Invalid proof of work"
     },
     {
-      "code": 6040,
+      "code": 6042,
       "name": "zkVerificationFailed",
       "msg": "ZK proof verification failed"
     },
     {
-      "code": 6041,
+      "code": 6043,
       "name": "invalidProofSize",
       "msg": "Invalid proof size - expected 256 bytes for Groth16"
     },
     {
-      "code": 6042,
+      "code": 6044,
       "name": "invalidProofBinding",
       "msg": "Invalid proof binding: expected_binding cannot be all zeros"
     },
     {
-      "code": 6043,
+      "code": 6045,
       "name": "invalidOutputCommitment",
       "msg": "Invalid output commitment: output_commitment cannot be all zeros"
     },
     {
-      "code": 6044,
+      "code": 6046,
       "name": "invalidRentRecipient",
       "msg": "Invalid rent recipient: must be worker authority"
     },
     {
-      "code": 6045,
+      "code": 6047,
+      "name": "gracePeriodNotPassed",
+      "msg": "Grace period not passed: only worker authority can expire claim within 60 seconds of expiry"
+    },
+    {
+      "code": 6048,
       "name": "invalidProofHash",
       "msg": "Invalid proof hash: proof_hash cannot be all zeros"
     },
     {
-      "code": 6046,
+      "code": 6049,
       "name": "invalidResultData",
       "msg": "Invalid result data: result_data cannot be all zeros when provided"
     },
     {
-      "code": 6047,
+      "code": 6050,
       "name": "disputeNotActive",
       "msg": "Dispute is not active"
     },
     {
-      "code": 6048,
+      "code": 6051,
       "name": "votingEnded",
       "msg": "Voting period has ended"
     },
     {
-      "code": 6049,
+      "code": 6052,
       "name": "votingNotEnded",
       "msg": "Voting period has not ended"
     },
     {
-      "code": 6050,
+      "code": 6053,
       "name": "alreadyVoted",
       "msg": "Already voted on this dispute"
     },
     {
-      "code": 6051,
+      "code": 6054,
       "name": "notArbiter",
       "msg": "Not authorized to vote (not an arbiter)"
     },
     {
-      "code": 6052,
+      "code": 6055,
       "name": "insufficientVotes",
       "msg": "Insufficient votes to resolve"
     },
     {
-      "code": 6053,
+      "code": 6056,
       "name": "disputeAlreadyResolved",
       "msg": "Dispute has already been resolved"
     },
     {
-      "code": 6054,
+      "code": 6057,
       "name": "unauthorizedResolver",
       "msg": "Only protocol authority or dispute initiator can resolve disputes"
     },
     {
-      "code": 6055,
+      "code": 6058,
       "name": "activeDisputeVotes",
       "msg": "Agent has active dispute votes pending resolution"
     },
     {
-      "code": 6056,
+      "code": 6059,
       "name": "recentVoteActivity",
       "msg": "Agent must wait 24 hours after voting before deregistering"
     },
     {
-      "code": 6057,
+      "code": 6060,
       "name": "authorityAlreadyVoted",
       "msg": "Authority has already voted on this dispute"
     },
     {
-      "code": 6058,
+      "code": 6061,
       "name": "insufficientEvidence",
       "msg": "Insufficient dispute evidence provided"
     },
     {
-      "code": 6059,
+      "code": 6062,
       "name": "evidenceTooLong",
       "msg": "Dispute evidence exceeds maximum allowed length"
     },
     {
-      "code": 6060,
+      "code": 6063,
       "name": "disputeNotExpired",
       "msg": "Dispute has not expired"
     },
     {
-      "code": 6061,
+      "code": 6064,
       "name": "slashAlreadyApplied",
       "msg": "Dispute slashing already applied"
     },
     {
-      "code": 6062,
+      "code": 6065,
+      "name": "slashWindowExpired",
+      "msg": "Slash window expired: must apply slashing within 7 days of resolution"
+    },
+    {
+      "code": 6066,
       "name": "disputeNotResolved",
       "msg": "Dispute has not been resolved"
     },
     {
-      "code": 6063,
+      "code": 6067,
       "name": "notTaskParticipant",
       "msg": "Only task creator or workers can initiate disputes"
     },
     {
-      "code": 6064,
+      "code": 6068,
       "name": "invalidEvidenceHash",
       "msg": "Invalid evidence hash: cannot be all zeros"
     },
     {
-      "code": 6065,
+      "code": 6069,
       "name": "arbiterIsDisputeParticipant",
       "msg": "Arbiter cannot vote on disputes they are a participant in"
     },
     {
-      "code": 6066,
+      "code": 6070,
       "name": "insufficientQuorum",
       "msg": "Insufficient quorum: minimum number of voters not reached"
     },
     {
-      "code": 6067,
+      "code": 6071,
       "name": "activeDisputesExist",
       "msg": "Agent has active disputes as defendant and cannot deregister"
     },
     {
-      "code": 6068,
+      "code": 6072,
       "name": "workerAgentRequired",
       "msg": "Worker agent account required when creator initiates dispute"
     },
     {
-      "code": 6069,
+      "code": 6073,
       "name": "workerClaimRequired",
       "msg": "Worker claim account required when creator initiates dispute"
     },
     {
-      "code": 6070,
+      "code": 6074,
       "name": "workerNotInDispute",
       "msg": "Worker was not involved in this dispute"
     },
     {
-      "code": 6071,
+      "code": 6075,
       "name": "initiatorCannotResolve",
       "msg": "Dispute initiator cannot resolve their own dispute"
     },
     {
-      "code": 6072,
+      "code": 6076,
       "name": "versionMismatch",
       "msg": "State version mismatch (concurrent modification)"
     },
     {
-      "code": 6073,
+      "code": 6077,
       "name": "stateKeyExists",
       "msg": "State key already exists"
     },
     {
-      "code": 6074,
+      "code": 6078,
       "name": "stateNotFound",
       "msg": "State not found"
     },
     {
-      "code": 6075,
+      "code": 6079,
       "name": "invalidStateValue",
       "msg": "Invalid state value: state_value cannot be all zeros"
     },
     {
-      "code": 6076,
+      "code": 6080,
+      "name": "stateOwnershipViolation",
+      "msg": "State ownership violation: only the creator agent can update this state"
+    },
+    {
+      "code": 6081,
+      "name": "invalidStateKey",
+      "msg": "Invalid state key: state_key cannot be all zeros"
+    },
+    {
+      "code": 6082,
       "name": "protocolAlreadyInitialized",
       "msg": "Protocol is already initialized"
     },
     {
-      "code": 6077,
+      "code": 6083,
       "name": "protocolNotInitialized",
       "msg": "Protocol is not initialized"
     },
     {
-      "code": 6078,
+      "code": 6084,
       "name": "invalidProtocolFee",
       "msg": "Invalid protocol fee (must be <= 1000 bps)"
     },
     {
-      "code": 6079,
+      "code": 6085,
       "name": "invalidTreasury",
       "msg": "Invalid treasury: treasury account cannot be default pubkey"
     },
     {
-      "code": 6080,
+      "code": 6086,
       "name": "invalidDisputeThreshold",
       "msg": "Invalid dispute threshold: must be 1-100 (percentage of votes required)"
     },
     {
-      "code": 6081,
+      "code": 6087,
       "name": "insufficientStake",
       "msg": "Insufficient stake for arbiter registration"
     },
     {
-      "code": 6082,
+      "code": 6088,
       "name": "multisigInvalidThreshold",
       "msg": "Invalid multisig threshold"
     },
     {
-      "code": 6083,
+      "code": 6089,
       "name": "multisigInvalidSigners",
       "msg": "Invalid multisig signer configuration"
     },
     {
-      "code": 6084,
+      "code": 6090,
       "name": "multisigNotEnoughSigners",
       "msg": "Not enough multisig signers"
     },
     {
-      "code": 6085,
+      "code": 6091,
       "name": "multisigDuplicateSigner",
       "msg": "Duplicate multisig signer provided"
     },
     {
-      "code": 6086,
+      "code": 6092,
       "name": "multisigDefaultSigner",
       "msg": "Multisig signer cannot be default pubkey"
     },
     {
-      "code": 6087,
+      "code": 6093,
       "name": "multisigSignerNotSystemOwned",
       "msg": "Multisig signer account not owned by System Program"
     },
     {
-      "code": 6088,
+      "code": 6094,
       "name": "invalidInput",
       "msg": "Invalid input parameter"
     },
     {
-      "code": 6089,
+      "code": 6095,
       "name": "arithmeticOverflow",
       "msg": "Arithmetic overflow"
     },
     {
-      "code": 6090,
+      "code": 6096,
       "name": "voteOverflow",
       "msg": "Vote count overflow"
     },
     {
-      "code": 6091,
+      "code": 6097,
       "name": "insufficientFunds",
       "msg": "Insufficient funds"
     },
     {
-      "code": 6092,
+      "code": 6098,
       "name": "rewardTooSmall",
       "msg": "Reward too small: worker must receive at least 1 lamport"
     },
     {
-      "code": 6093,
+      "code": 6099,
       "name": "corruptedData",
       "msg": "Account data is corrupted"
     },
     {
-      "code": 6094,
+      "code": 6100,
       "name": "stringTooLong",
       "msg": "String too long"
     },
     {
-      "code": 6095,
+      "code": 6101,
       "name": "invalidAccountOwner",
       "msg": "Account owner validation failed: account not owned by this program"
     },
     {
-      "code": 6096,
+      "code": 6102,
       "name": "rateLimitExceeded",
       "msg": "Rate limit exceeded: maximum actions per 24h window reached"
     },
     {
-      "code": 6097,
+      "code": 6103,
       "name": "cooldownNotElapsed",
       "msg": "Cooldown period has not elapsed since last action"
     },
     {
-      "code": 6098,
+      "code": 6104,
       "name": "updateTooFrequent",
       "msg": "Agent update too frequent: must wait cooldown period"
     },
     {
-      "code": 6099,
+      "code": 6105,
       "name": "invalidCooldown",
       "msg": "Cooldown value cannot be negative"
     },
     {
-      "code": 6100,
+      "code": 6106,
       "name": "cooldownTooLarge",
       "msg": "Cooldown value exceeds maximum (24 hours)"
     },
     {
-      "code": 6101,
+      "code": 6107,
       "name": "rateLimitTooHigh",
       "msg": "Rate limit value exceeds maximum allowed (1000)"
     },
     {
-      "code": 6102,
+      "code": 6108,
       "name": "cooldownTooLong",
       "msg": "Cooldown value exceeds maximum allowed (1 week)"
     },
     {
-      "code": 6103,
+      "code": 6109,
       "name": "insufficientStakeForDispute",
       "msg": "Insufficient stake to initiate dispute"
     },
     {
-      "code": 6104,
+      "code": 6110,
+      "name": "insufficientStakeForCreatorDispute",
+      "msg": "Creator-initiated disputes require 2x the minimum stake"
+    },
+    {
+      "code": 6111,
       "name": "versionMismatchProtocol",
       "msg": "Protocol version mismatch: account version incompatible with current program"
     },
     {
-      "code": 6105,
+      "code": 6112,
       "name": "accountVersionTooOld",
       "msg": "Account version too old: migration required"
     },
     {
-      "code": 6106,
+      "code": 6113,
       "name": "accountVersionTooNew",
       "msg": "Account version too new: program upgrade required"
     },
     {
-      "code": 6107,
+      "code": 6114,
       "name": "invalidMigrationSource",
       "msg": "Migration not allowed: invalid source version"
     },
     {
-      "code": 6108,
+      "code": 6115,
       "name": "invalidMigrationTarget",
       "msg": "Migration not allowed: invalid target version"
     },
     {
-      "code": 6109,
+      "code": 6116,
       "name": "unauthorizedUpgrade",
       "msg": "Only upgrade authority can perform this action"
     },
     {
-      "code": 6110,
+      "code": 6117,
       "name": "invalidMinVersion",
       "msg": "Minimum version cannot exceed current protocol version"
     },
     {
-      "code": 6111,
+      "code": 6118,
       "name": "protocolConfigRequired",
       "msg": "Protocol config account required: suspending an agent requires the protocol config PDA in remaining_accounts"
     },
     {
-      "code": 6112,
+      "code": 6119,
       "name": "parentTaskCancelled",
       "msg": "Parent task has been cancelled"
     },
     {
-      "code": 6113,
+      "code": 6120,
       "name": "parentTaskDisputed",
       "msg": "Parent task is in disputed state"
     },
     {
-      "code": 6114,
+      "code": 6121,
       "name": "invalidDependencyType",
       "msg": "Invalid dependency type"
     },
     {
-      "code": 6115,
+      "code": 6122,
       "name": "parentTaskNotCompleted",
       "msg": "Parent task must be completed before completing a proof-dependent task"
     },
     {
-      "code": 6116,
+      "code": 6123,
       "name": "parentTaskAccountRequired",
       "msg": "Parent task account required for proof-dependent task completion"
     },
     {
-      "code": 6117,
+      "code": 6124,
       "name": "unauthorizedCreator",
       "msg": "Parent task does not belong to the same creator"
     },
     {
-      "code": 6118,
+      "code": 6125,
       "name": "nullifierAlreadySpent",
       "msg": "Nullifier has already been spent - proof/knowledge reuse detected"
     },
     {
-      "code": 6119,
+      "code": 6126,
       "name": "invalidNullifier",
       "msg": "Invalid nullifier: nullifier value cannot be all zeros"
     },
     {
-      "code": 6120,
+      "code": 6127,
       "name": "incompleteWorkerAccounts",
       "msg": "All worker accounts must be provided when cancelling a task with active claims"
     },
     {
-      "code": 6121,
+      "code": 6128,
       "name": "workerAccountsRequired",
       "msg": "Worker accounts required when task has active workers"
     },
     {
-      "code": 6122,
+      "code": 6129,
       "name": "duplicateArbiter",
       "msg": "Duplicate arbiter provided in remaining_accounts"
     },
     {
-      "code": 6123,
+      "code": 6130,
       "name": "insufficientEscrowBalance",
       "msg": "Escrow has insufficient balance for reward transfer"
     },
     {
-      "code": 6124,
+      "code": 6131,
       "name": "invalidStatusTransition",
       "msg": "Invalid task status transition"
     },
     {
-      "code": 6125,
+      "code": 6132,
       "name": "stakeTooLow",
       "msg": "Stake value is below minimum required (0.001 SOL)"
     },
     {
-      "code": 6126,
+      "code": 6133,
       "name": "invalidMinStake",
       "msg": "min_stake_for_dispute must be greater than zero"
     },
     {
-      "code": 6127,
+      "code": 6134,
       "name": "invalidSlashAmount",
       "msg": "Slash amount must be greater than zero"
     },
     {
-      "code": 6128,
+      "code": 6135,
       "name": "bondAmountTooLow",
       "msg": "Bond amount too low"
     },
     {
-      "code": 6129,
+      "code": 6136,
       "name": "bondAlreadyExists",
       "msg": "Bond already exists"
     },
     {
-      "code": 6130,
+      "code": 6137,
       "name": "bondNotFound",
       "msg": "Bond not found"
     },
     {
-      "code": 6131,
+      "code": 6138,
       "name": "bondNotMatured",
       "msg": "Bond not yet matured"
+    },
+    {
+      "code": 6139,
+      "name": "insufficientReputation",
+      "msg": "Agent reputation below task minimum requirement"
+    },
+    {
+      "code": 6140,
+      "name": "invalidMinReputation",
+      "msg": "Invalid minimum reputation: must be <= 10000"
     }
   ],
   "types": [
@@ -4841,6 +5036,14 @@ export type AgencCoordination = {
             "type": "u64"
           },
           {
+            "name": "initiatedByCreator",
+            "docs": [
+              "Whether the dispute was initiated by the task creator (fix #407)",
+              "Used to apply stricter requirements and different expiration behavior for creator disputes"
+            ],
+            "type": "bool"
+          },
+          {
             "name": "bump",
             "docs": [
               "Bump seed"
@@ -4851,9 +5054,42 @@ export type AgencCoordination = {
       }
     },
     {
+      "name": "disputeCancelled",
+      "docs": [
+        "Emitted when a dispute is cancelled by its initiator (fix #587)"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "disputeId",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "task",
+            "type": "pubkey"
+          },
+          {
+            "name": "initiator",
+            "type": "pubkey"
+          },
+          {
+            "name": "cancelledAt",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
       "name": "disputeExpired",
       "docs": [
-        "Emitted when a dispute expires without resolution"
+        "Emitted when a dispute expires without resolution",
+        "Updated in fix #418 to include fair distribution details"
       ],
       "type": {
         "kind": "struct",
@@ -4878,6 +5114,20 @@ export type AgencCoordination = {
           },
           {
             "name": "refundAmount",
+            "type": "u64"
+          },
+          {
+            "name": "creatorAmount",
+            "docs": [
+              "Amount refunded to creator (fix #418)"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "workerAmount",
+            "docs": [
+              "Amount paid to worker (fix #418)"
+            ],
             "type": "u64"
           },
           {
@@ -5003,6 +5253,9 @@ export type AgencCoordination = {
           },
           {
             "name": "expired"
+          },
+          {
+            "name": "cancelled"
           }
         ]
       }
@@ -5394,6 +5647,13 @@ export type AgencCoordination = {
             "type": "u8"
           },
           {
+            "name": "stateUpdateCooldown",
+            "docs": [
+              "Cooldown between state updates per agent (seconds, 0 = disabled) (fix #415)"
+            ],
+            "type": "i64"
+          },
+          {
             "name": "votingPeriod",
             "docs": [
               "Voting period for disputes in seconds (default: 24 hours)"
@@ -5614,6 +5874,45 @@ export type AgencCoordination = {
           {
             "name": "updatedBy",
             "type": "pubkey"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "reputationChanged",
+      "docs": [
+        "Emitted when an agent's reputation changes"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "agentId",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "oldReputation",
+            "type": "u16"
+          },
+          {
+            "name": "newReputation",
+            "type": "u16"
+          },
+          {
+            "name": "reason",
+            "docs": [
+              "Reason: 0=completion, 1=dispute_slash, 2=decay"
+            ],
+            "type": "u8"
           },
           {
             "name": "timestamp",
@@ -5955,6 +6254,14 @@ export type AgencCoordination = {
             }
           },
           {
+            "name": "minReputation",
+            "docs": [
+              "Minimum reputation score (0-10000) required for workers to claim this task.",
+              "0 means no reputation gate (default for backward compatibility)."
+            ],
+            "type": "u16"
+          },
+          {
             "name": "reserved",
             "docs": [
               "Reserved"
@@ -5962,7 +6269,7 @@ export type AgencCoordination = {
             "type": {
               "array": [
                 "u8",
-                32
+                30
               ]
             }
           }
@@ -6222,6 +6529,10 @@ export type AgencCoordination = {
           {
             "name": "deadline",
             "type": "i64"
+          },
+          {
+            "name": "minReputation",
+            "type": "u16"
           },
           {
             "name": "timestamp",

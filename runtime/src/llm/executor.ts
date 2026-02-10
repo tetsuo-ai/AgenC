@@ -10,6 +10,11 @@
 import type { TaskExecutor, Task } from '../autonomous/types.js';
 import type { LLMProvider, LLMMessage, StreamProgressCallback, ToolHandler } from './types.js';
 import { responseToOutput } from './response-converter.js';
+import type { MemoryBackend } from '../memory/types.js';
+import { entryToMessage, messageToEntryOptions } from '../memory/types.js';
+
+/** Default TTL for memory entries: 24 hours */
+const DEFAULT_MEMORY_TTL_MS = 86_400_000;
 
 /**
  * Configuration for LLMTaskExecutor
@@ -31,6 +36,10 @@ export interface LLMTaskExecutorConfig {
   responseToOutput?: (response: string) => bigint[];
   /** Required capabilities bitmask — canExecute returns false if task doesn't match */
   requiredCapabilities?: bigint;
+  /** Optional memory backend for conversation persistence */
+  memory?: MemoryBackend;
+  /** TTL for persisted conversations in ms (default: 86_400_000 = 24h) */
+  memoryTtlMs?: number;
 }
 
 /**
@@ -52,6 +61,8 @@ export class LLMTaskExecutor implements TaskExecutor {
   private readonly maxToolRounds: number;
   private readonly convertResponse: (response: string) => bigint[];
   private readonly requiredCapabilities?: bigint;
+  private readonly memory?: MemoryBackend;
+  private readonly memoryTtlMs: number;
 
   constructor(config: LLMTaskExecutorConfig) {
     this.provider = config.provider;
@@ -62,11 +73,22 @@ export class LLMTaskExecutor implements TaskExecutor {
     this.maxToolRounds = config.maxToolRounds ?? 10;
     this.convertResponse = config.responseToOutput ?? responseToOutput;
     this.requiredCapabilities = config.requiredCapabilities;
+    this.memory = config.memory;
+    this.memoryTtlMs = config.memoryTtlMs ?? DEFAULT_MEMORY_TTL_MS;
   }
 
   async execute(task: Task): Promise<bigint[]> {
     const description = decodeDescription(task.description);
-    const messages = this.buildMessages(task, description);
+    const sessionId = this.deriveSessionId(task);
+    const taskPda = task.pda.toBase58();
+
+    // Load prior messages if memory available (supports retry)
+    const { messages, isNew } = await this.loadOrBuildMessages(task, description, sessionId);
+
+    // Persist the initial messages only for a fresh conversation
+    if (isNew) {
+      await this.persistMessages(sessionId, messages, taskPda);
+    }
 
     let response;
     if (this.streaming && this.onStreamChunk) {
@@ -75,6 +97,11 @@ export class LLMTaskExecutor implements TaskExecutor {
       response = await this.provider.chat(messages);
     }
 
+    // Persist assistant response
+    const assistantMsg: LLMMessage = { role: 'assistant', content: response.content };
+    messages.push(assistantMsg);
+    await this.persistMessage(sessionId, assistantMsg, taskPda);
+
     // Handle tool call loop
     let rounds = 0;
     while (response.finishReason === 'tool_calls' && response.toolCalls.length > 0 && this.toolHandler) {
@@ -82,12 +109,6 @@ export class LLMTaskExecutor implements TaskExecutor {
         break;
       }
       rounds++;
-
-      // Add assistant message with tool calls
-      messages.push({
-        role: 'assistant',
-        content: response.content,
-      });
 
       // Execute each tool call and add results
       for (const toolCall of response.toolCalls) {
@@ -98,12 +119,14 @@ export class LLMTaskExecutor implements TaskExecutor {
           args = {};
         }
         const result = await this.toolHandler(toolCall.name, args);
-        messages.push({
+        const toolMsg: LLMMessage = {
           role: 'tool',
           content: result,
           toolCallId: toolCall.id,
           toolName: toolCall.name,
-        });
+        };
+        messages.push(toolMsg);
+        await this.persistMessage(sessionId, toolMsg, taskPda);
       }
 
       if (this.streaming && this.onStreamChunk) {
@@ -111,6 +134,11 @@ export class LLMTaskExecutor implements TaskExecutor {
       } else {
         response = await this.provider.chat(messages);
       }
+
+      // Persist new assistant response
+      const nextAssistantMsg: LLMMessage = { role: 'assistant', content: response.content };
+      messages.push(nextAssistantMsg);
+      await this.persistMessage(sessionId, nextAssistantMsg, taskPda);
     }
 
     return this.convertResponse(response.content);
@@ -121,6 +149,47 @@ export class LLMTaskExecutor implements TaskExecutor {
       return true;
     }
     return (task.requiredCapabilities & this.requiredCapabilities) === task.requiredCapabilities;
+  }
+
+  private deriveSessionId(task: Task): string {
+    return `conv:${task.pda.toBase58()}`;
+  }
+
+  private async loadOrBuildMessages(
+    task: Task,
+    description: string,
+    sessionId: string,
+  ): Promise<{ messages: LLMMessage[]; isNew: boolean }> {
+    if (this.memory) {
+      try {
+        const entries = await this.memory.getThread(sessionId);
+        if (entries.length > 0) {
+          return { messages: entries.map(entryToMessage), isNew: false };
+        }
+      } catch {
+        // Memory failure — fall through to fresh build
+      }
+    }
+    return { messages: this.buildMessages(task, description), isNew: true };
+  }
+
+  private async persistMessage(sessionId: string, msg: LLMMessage, taskPda: string): Promise<void> {
+    if (!this.memory) return;
+    try {
+      await this.memory.addEntry({
+        ...messageToEntryOptions(msg, sessionId),
+        taskPda,
+        ttlMs: this.memoryTtlMs,
+      });
+    } catch {
+      // Memory failure — non-blocking
+    }
+  }
+
+  private async persistMessages(sessionId: string, msgs: LLMMessage[], taskPda: string): Promise<void> {
+    for (const msg of msgs) {
+      await this.persistMessage(sessionId, msg, taskPda);
+    }
   }
 
   private buildMessages(task: Task, description: string): LLMMessage[] {

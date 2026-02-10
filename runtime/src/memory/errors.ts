@@ -19,9 +19,6 @@ export class MemoryBackendError extends RuntimeError {
     );
     this.name = 'MemoryBackendError';
     this.backendName = backendName;
-    if (Error.captureStackTrace) {
-      Error.captureStackTrace(this, MemoryBackendError);
-    }
   }
 }
 
@@ -38,9 +35,6 @@ export class MemoryConnectionError extends RuntimeError {
     );
     this.name = 'MemoryConnectionError';
     this.backendName = backendName;
-    if (Error.captureStackTrace) {
-      Error.captureStackTrace(this, MemoryConnectionError);
-    }
   }
 }
 
@@ -57,8 +51,5 @@ export class MemorySerializationError extends RuntimeError {
     );
     this.name = 'MemorySerializationError';
     this.backendName = backendName;
-    if (Error.captureStackTrace) {
-      Error.captureStackTrace(this, MemorySerializationError);
-    }
   }
 }

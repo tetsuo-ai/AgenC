@@ -18,6 +18,7 @@ import type {
 } from '../types.js';
 import type { RedisBackendConfig } from './types.js';
 import { MemoryBackendError, MemoryConnectionError, MemorySerializationError } from '../errors.js';
+import { ensureLazyBackend } from '../lazy-import.js';
 
 export class RedisBackend implements MemoryBackend {
   readonly name = 'redis';
@@ -282,16 +283,9 @@ export class RedisBackend implements MemoryBackend {
     }
     if (this.client) return this.client;
 
-    let Redis: any;
-    try {
-      const mod = await import('ioredis');
-      Redis = mod.default ?? mod;
-    } catch {
-      throw new MemoryConnectionError(
-        this.name,
-        'ioredis package not installed. Install it: npm install ioredis',
-      );
-    }
+    const Redis = await ensureLazyBackend('ioredis', this.name, (mod) => {
+      return (mod.default ?? mod) as any;
+    });
 
     const opts: Record<string, unknown> = {
       lazyConnect: true,

@@ -736,6 +736,62 @@ describe('AgentBuilder', () => {
   });
 
   // ========================================================================
+  // Memory wiring
+  // ========================================================================
+
+  describe('memory wiring', () => {
+    it('passes memory to LLMTaskExecutor when configured', async () => {
+      await new AgentBuilder(mockConnection, mockKeypair)
+        .withCapabilities(COMPUTE)
+        .withLLM('grok', { apiKey: 'test', model: 'grok-3' })
+        .withMemory('memory')
+        .build();
+
+      expect(LLMTaskExecutor).toHaveBeenCalledTimes(1);
+      const executorConfig = (LLMTaskExecutor as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0];
+      expect(executorConfig.memory).toBeDefined();
+    });
+
+    it('passes memory to AutonomousAgent config', async () => {
+      await new AgentBuilder(mockConnection, mockKeypair)
+        .withCapabilities(COMPUTE)
+        .withLLM('grok', { apiKey: 'test', model: 'grok-3' })
+        .withMemory('memory')
+        .build();
+
+      const config = (AutonomousAgent as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0];
+      expect(config.memory).toBeDefined();
+    });
+
+    it('same memory instance shared between executor and agent', async () => {
+      await new AgentBuilder(mockConnection, mockKeypair)
+        .withCapabilities(COMPUTE)
+        .withLLM('grok', { apiKey: 'test', model: 'grok-3' })
+        .withMemory('memory')
+        .build();
+
+      const executorConfig = (LLMTaskExecutor as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0];
+      const autonomousConfig = (AutonomousAgent as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0];
+      expect(executorConfig.memory).toBe(autonomousConfig.memory);
+    });
+
+    it('does not pass memory to custom executor', async () => {
+      await new AgentBuilder(mockConnection, mockKeypair)
+        .withCapabilities(COMPUTE)
+        .withExecutor(createMockExecutor())
+        .withMemory('memory')
+        .build();
+
+      // Custom executor path skips LLMTaskExecutor, so no memory passing to executor
+      expect(LLMTaskExecutor).not.toHaveBeenCalled();
+
+      // But AutonomousAgent still gets memory for lifecycle journaling
+      const config = (AutonomousAgent as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0];
+      expect(config.memory).toBeDefined();
+    });
+  });
+
+  // ========================================================================
   // Full integration (all modules wired)
   // ========================================================================
 
