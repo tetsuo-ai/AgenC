@@ -105,3 +105,37 @@ export class LLMTimeoutError extends RuntimeError {
     }
   }
 }
+
+/**
+ * Map an unknown error from an LLM SDK call into a typed LLM error.
+ *
+ * Handles: already-typed errors (passthrough), 429 rate limits,
+ * timeout codes (ETIMEDOUT, ECONNABORTED), and generic provider errors.
+ */
+export function mapLLMError(
+  providerName: string,
+  err: unknown,
+  timeoutMs: number,
+): Error {
+  if (err instanceof LLMProviderError || err instanceof LLMRateLimitError || err instanceof LLMTimeoutError) {
+    return err;
+  }
+
+  const e = err as any;
+  const status = e?.status ?? e?.statusCode;
+  const message = e?.message ?? String(err);
+
+  if (status === 429) {
+    const retryAfter = e?.headers?.['retry-after'];
+    return new LLMRateLimitError(
+      providerName,
+      retryAfter ? parseInt(retryAfter, 10) * 1000 : undefined,
+    );
+  }
+
+  if (e?.code === 'ETIMEDOUT' || e?.code === 'ECONNABORTED' || message.includes('timeout')) {
+    return new LLMTimeoutError(providerName, timeoutMs);
+  }
+
+  return new LLMProviderError(providerName, message, status);
+}

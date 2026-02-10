@@ -29,6 +29,7 @@ export {
   LLMResponseConversionError,
   LLMToolCallError,
   LLMTimeoutError,
+  mapLLMError,
 } from './errors.js';
 
 // Response converter

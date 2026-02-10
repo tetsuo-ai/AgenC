@@ -17,7 +17,7 @@ import type {
   StreamProgressCallback,
 } from '../types.js';
 import type { OllamaProviderConfig } from './types.js';
-import { LLMProviderError, LLMTimeoutError } from '../errors.js';
+import { LLMProviderError, mapLLMError } from '../errors.js';
 
 const DEFAULT_HOST = 'http://localhost:11434';
 const DEFAULT_MODEL = 'llama3';
@@ -185,13 +185,8 @@ export class OllamaProvider implements LLMProvider {
   }
 
   private mapError(err: unknown): Error {
-    if (err instanceof LLMProviderError || err instanceof LLMTimeoutError) {
-      return err;
-    }
-
+    // Ollama-specific: connection refused means server isn't running
     const e = err as any;
-    const message = e?.message ?? String(err);
-
     if (e?.code === 'ECONNREFUSED') {
       return new LLMProviderError(
         this.name,
@@ -199,10 +194,6 @@ export class OllamaProvider implements LLMProvider {
       );
     }
 
-    if (e?.code === 'ETIMEDOUT' || message.includes('timeout')) {
-      return new LLMTimeoutError(this.name, this.config.timeoutMs ?? 0);
-    }
-
-    return new LLMProviderError(this.name, message, e?.status);
+    return mapLLMError(this.name, err, this.config.timeoutMs ?? 0);
   }
 }
