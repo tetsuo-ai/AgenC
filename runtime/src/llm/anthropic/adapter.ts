@@ -17,7 +17,7 @@ import type {
   StreamProgressCallback,
 } from '../types.js';
 import type { AnthropicProviderConfig } from './types.js';
-import { LLMProviderError, LLMRateLimitError, LLMTimeoutError } from '../errors.js';
+import { LLMProviderError, mapLLMError } from '../errors.js';
 
 const DEFAULT_MODEL = 'claude-sonnet-4-5-20250929';
 
@@ -256,26 +256,6 @@ export class AnthropicProvider implements LLMProvider {
   }
 
   private mapError(err: unknown): Error {
-    if (err instanceof LLMProviderError || err instanceof LLMRateLimitError || err instanceof LLMTimeoutError) {
-      return err;
-    }
-
-    const e = err as any;
-    const status = e?.status ?? e?.statusCode;
-    const message = e?.message ?? String(err);
-
-    if (status === 429) {
-      const retryAfter = e?.headers?.['retry-after'];
-      return new LLMRateLimitError(
-        this.name,
-        retryAfter ? parseInt(retryAfter, 10) * 1000 : undefined,
-      );
-    }
-
-    if (e?.code === 'ETIMEDOUT' || e?.code === 'ECONNABORTED' || message.includes('timeout')) {
-      return new LLMTimeoutError(this.name, this.config.timeoutMs ?? 0);
-    }
-
-    return new LLMProviderError(this.name, message, status);
+    return mapLLMError(this.name, err, this.config.timeoutMs ?? 0);
   }
 }

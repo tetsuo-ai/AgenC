@@ -15,9 +15,9 @@ import { findAgentPda } from './agent/pda.js';
 import { EventMonitor } from './events/index.js';
 import { TaskExecutor } from './task/index.js';
 import type { TaskExecutorConfig } from './task/types.js';
-import { AgentRuntimeConfig, isKeypair } from './types/config.js';
+import type { AgentRuntimeConfig } from './types/config.js';
 import type { Wallet } from './types/wallet.js';
-import { keypairToWallet } from './types/wallet.js';
+import { ensureWallet } from './types/wallet.js';
 import { Logger, createLogger, silentLogger } from './utils/logger.js';
 import { generateAgentId, agentIdToShortString } from './utils/encoding.js';
 import { ValidationError } from './types/errors.js';
@@ -95,11 +95,7 @@ export class AgentRuntime {
     this.programId = config.programId ?? PROGRAM_ID;
 
     // Convert Keypair to Wallet if needed
-    if (isKeypair(config.wallet)) {
-      this.wallet = keypairToWallet(config.wallet);
-    } else {
-      this.wallet = config.wallet;
-    }
+    this.wallet = ensureWallet(config.wallet);
 
     // Setup logger
     if (config.logLevel !== undefined) {
