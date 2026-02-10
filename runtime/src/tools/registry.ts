@@ -112,13 +112,17 @@ export class ToolRegistry {
   }
 
   /**
-   * Generate LLMTool definitions for all registered tools.
+   * Generate LLMTool definitions for registered tools.
+   *
+   * When `allowedTools` is provided, only tools whose names are in the set
+   * are included. This prevents the LLM from knowing about disallowed tools.
    *
    * Use the result as the `tools` config for an LLM provider.
    */
-  toLLMTools(): LLMTool[] {
+  toLLMTools(allowedTools?: ReadonlySet<string>): LLMTool[] {
     const result: LLMTool[] = [];
     for (const tool of this.tools.values()) {
+      if (allowedTools && !allowedTools.has(tool.name)) continue;
       result.push({
         type: 'function',
         function: {

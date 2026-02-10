@@ -586,9 +586,9 @@ describe("ZK Proof Verification Lifecycle", () => {
           .signers([worker1])
           .rpc();
       } catch (e: any) {
-        // Expected: ZkVerificationFailed (no real verifier)
-        // or InvalidProofBinding/InvalidOutputCommitment from defense checks
-        console.log("  First completion attempt (expected to fail ZK):", e.message.slice(0, 50));
+        // Expected: DevelopmentKeyNotAllowed (dev key hard block),
+        // ZkVerificationFailed (no real verifier), or pre-verification defense checks
+        console.log("  First completion attempt (expected to fail ZK):", e.message.slice(0, 80));
       }
 
       // Verify claim is not marked completed after failed attempt
