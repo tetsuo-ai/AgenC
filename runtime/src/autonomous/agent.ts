@@ -20,6 +20,8 @@ import {
 } from './types.js';
 import { Logger, createLogger, silentLogger } from '../utils/logger.js';
 import { createProgram } from '../idl.js';
+import { findClaimPda, findEscrowPda } from '../task/pda.js';
+import { findProtocolPda } from '../agent/pda.js';
 import type { AgencCoordination } from '../types/agenc_coordination.js';
 import type { Wallet } from '../types/wallet.js';
 import { keypairToWallet } from '../types/wallet.js';
@@ -554,17 +556,8 @@ export class AutonomousAgent extends AgentRuntime {
       throw new Error('Agent not registered');
     }
 
-    // Derive claim PDA
-    const [claimPda] = PublicKey.findProgramAddressSync(
-      [Buffer.from('claim'), task.pda.toBuffer(), agentPda.toBuffer()],
-      this.program.programId
-    );
-
-    // Derive protocol PDA
-    const [protocolPda] = PublicKey.findProgramAddressSync(
-      [Buffer.from('protocol')],
-      this.program.programId
-    );
+    const claimPda = findClaimPda(task.pda, agentPda, this.program.programId);
+    const protocolPda = findProtocolPda(this.program.programId);
 
     const tx = await this.program.methods
       .claimTask()
@@ -614,19 +607,9 @@ export class AutonomousAgent extends AgentRuntime {
     const agentPda = this.getAgentPda();
     if (!agentPda) throw new Error('Agent not registered');
 
-    // Derive PDAs
-    const [claimPda] = PublicKey.findProgramAddressSync(
-      [Buffer.from('claim'), task.pda.toBuffer(), agentPda.toBuffer()],
-      this.program.programId
-    );
-    const [escrowPda] = PublicKey.findProgramAddressSync(
-      [Buffer.from('escrow'), task.pda.toBuffer()],
-      this.program.programId
-    );
-    const [protocolPda] = PublicKey.findProgramAddressSync(
-      [Buffer.from('protocol')],
-      this.program.programId
-    );
+    const claimPda = findClaimPda(task.pda, agentPda, this.program.programId);
+    const escrowPda = findEscrowPda(task.pda, this.program.programId);
+    const protocolPda = findProtocolPda(this.program.programId);
 
     // Fetch protocol config for treasury
     const protocolConfig = await (
@@ -681,19 +664,9 @@ export class AutonomousAgent extends AgentRuntime {
     this.onProofGenerated?.(task, proofResult.proofSize, proofDuration);
     this.autonomousLogger.info(`Proof generated in ${proofDuration}ms (${proofResult.proofSize} bytes)`);
 
-    // Derive PDAs
-    const [claimPda] = PublicKey.findProgramAddressSync(
-      [Buffer.from('claim'), task.pda.toBuffer(), agentPda.toBuffer()],
-      this.program.programId
-    );
-    const [escrowPda] = PublicKey.findProgramAddressSync(
-      [Buffer.from('escrow'), task.pda.toBuffer()],
-      this.program.programId
-    );
-    const [protocolPda] = PublicKey.findProgramAddressSync(
-      [Buffer.from('protocol')],
-      this.program.programId
-    );
+    const claimPda = findClaimPda(task.pda, agentPda, this.program.programId);
+    const escrowPda = findEscrowPda(task.pda, this.program.programId);
+    const protocolPda = findProtocolPda(this.program.programId);
 
     // Fetch protocol config
     const protocolConfig = await (
