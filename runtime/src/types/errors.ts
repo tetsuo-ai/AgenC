@@ -64,6 +64,12 @@ export const RuntimeErrorCodes = {
   MEMORY_CONNECTION_ERROR: 'MEMORY_CONNECTION_ERROR',
   /** Memory serialization/deserialization failure */
   MEMORY_SERIALIZATION_ERROR: 'MEMORY_SERIALIZATION_ERROR',
+  /** ZK proof generation failed */
+  PROOF_GENERATION_ERROR: 'PROOF_GENERATION_ERROR',
+  /** ZK proof verification failed */
+  PROOF_VERIFICATION_ERROR: 'PROOF_VERIFICATION_ERROR',
+  /** Proof cache operation failed */
+  PROOF_CACHE_ERROR: 'PROOF_CACHE_ERROR',
 } as const;
 
 /** Union type of all runtime error code values */
