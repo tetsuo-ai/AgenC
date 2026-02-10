@@ -49,7 +49,7 @@ function makeMockAgent() {
   return {
     agentId: new Uint8Array(32),
     authority: PublicKey.unique(),
-    capabilities: 1n,
+    capabilities: { toString: () => '1' },
     status: { active: {} },
     registeredAt: { toNumber: () => 1700000000 },
     lastActive: { toNumber: () => 1700000100 },
