@@ -7,8 +7,8 @@
  * - Inline groth16-solana verifier validates Circom circuit proofs
  */
 
-// Privacy exports available when privacycash is installed
-// import { AgenCPrivacyClient } from './privacy';
+// AgenCPrivacyClient is not directly exported — it is used internally by PrivacyClient.
+// Requires optional peer dependency: privacycash
 
 export {
   PrivacyClient,
