@@ -287,12 +287,12 @@ export class AgentBuilder {
     const builderWallet: Wallet = ensureWallet(this.wallet);
 
     const { registry, initializedSkills } = await this.buildToolRegistry(logger, builderWallet);
-    const taskExecutor = this.buildExecutor(registry);
+    const memory = this.memoryType ? this.createMemoryBackend() : undefined;
+    const taskExecutor = this.buildExecutor(registry, memory);
     const proofEngine = this.proofConfig
       ? new ProofEngine({ ...this.proofConfig, logger })
       : undefined;
-    const memory = this.memoryType ? this.createMemoryBackend() : undefined;
-    const autonomous = this.buildAutonomousAgent(taskExecutor, proofEngine);
+    const autonomous = this.buildAutonomousAgent(taskExecutor, proofEngine, memory);
 
     return new BuiltAgent(autonomous, memory, proofEngine, registry, initializedSkills, logger);
   }
@@ -325,7 +325,7 @@ export class AgentBuilder {
     return { registry, initializedSkills };
   }
 
-  private buildExecutor(registry: ToolRegistry | undefined): TaskExecutor {
+  private buildExecutor(registry: ToolRegistry | undefined, memory: MemoryBackend | undefined): TaskExecutor {
     if (this.executor) return this.executor;
 
     const provider = this.createLLMProvider(registry?.toLLMTools());
@@ -333,12 +333,14 @@ export class AgentBuilder {
       provider,
       systemPrompt: this.systemPrompt,
       toolHandler: registry?.createToolHandler(),
+      memory,
     });
   }
 
   private buildAutonomousAgent(
     executor: TaskExecutor,
     proofEngine: ProofEngine | undefined,
+    memory: MemoryBackend | undefined,
   ): AutonomousAgent {
     return new AutonomousAgent({
       connection: this.connection,
@@ -351,6 +353,7 @@ export class AgentBuilder {
       logLevel: this.logLevel,
       executor,
       proofEngine,
+      memory,
       taskFilter: this.taskFilter,
       claimStrategy: this.claimStrategy,
       discoveryMode: this.discoveryMode,

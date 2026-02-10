@@ -17,9 +17,6 @@ export class SkillNotFoundError extends RuntimeError {
     super(`Skill not found: "${skillName}"`, RuntimeErrorCodes.VALIDATION_ERROR);
     this.name = 'SkillNotFoundError';
     this.skillName = skillName;
-    if (Error.captureStackTrace) {
-      Error.captureStackTrace(this, SkillNotFoundError);
-    }
   }
 }
 
@@ -37,9 +34,6 @@ export class SkillNotReadyError extends RuntimeError {
     );
     this.name = 'SkillNotReadyError';
     this.skillName = skillName;
-    if (Error.captureStackTrace) {
-      Error.captureStackTrace(this, SkillNotReadyError);
-    }
   }
 }
 
@@ -60,9 +54,6 @@ export class SkillActionNotFoundError extends RuntimeError {
     this.name = 'SkillActionNotFoundError';
     this.skillName = skillName;
     this.actionName = actionName;
-    if (Error.captureStackTrace) {
-      Error.captureStackTrace(this, SkillActionNotFoundError);
-    }
   }
 }
 
@@ -80,9 +71,6 @@ export class SkillInitializationError extends RuntimeError {
     );
     this.name = 'SkillInitializationError';
     this.skillName = skillName;
-    if (Error.captureStackTrace) {
-      Error.captureStackTrace(this, SkillInitializationError);
-    }
   }
 }
 
@@ -100,8 +88,5 @@ export class SkillAlreadyRegisteredError extends RuntimeError {
     );
     this.name = 'SkillAlreadyRegisteredError';
     this.skillName = skillName;
-    if (Error.captureStackTrace) {
-      Error.captureStackTrace(this, SkillAlreadyRegisteredError);
-    }
   }
 }

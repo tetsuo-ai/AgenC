@@ -32,6 +32,7 @@ import {
 } from './types.js';
 import { deriveDisputePda, deriveVotePda } from './pda.js';
 import { findAgentPda, findProtocolPda, deriveAuthorityVotePda } from '../agent/pda.js';
+import { fetchTreasury } from '../utils/treasury.js';
 import { deriveClaimPda, deriveEscrowPda } from '../task/pda.js';
 import {
   isAnchorError,
@@ -562,8 +563,7 @@ export class DisputeOperations {
    */
   private async getTreasury(): Promise<PublicKey> {
     if (this.cachedTreasury) return this.cachedTreasury;
-    const config = await this.program.account.protocolConfig.fetch(this.protocolPda);
-    this.cachedTreasury = config.treasury as PublicKey;
+    this.cachedTreasury = await fetchTreasury(this.program, this.program.programId);
     return this.cachedTreasury;
   }
 

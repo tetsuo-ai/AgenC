@@ -385,9 +385,11 @@ export class RuntimeError extends Error {
     super(message);
     this.name = 'RuntimeError';
     this.code = code;
-    // Maintain proper stack trace in V8 environments
+    // Maintain proper stack trace in V8 environments.
+    // Using this.constructor ensures subclass constructors are hidden from the
+    // stack, making the redundant captureStackTrace calls in subclasses unnecessary.
     if (Error.captureStackTrace) {
-      Error.captureStackTrace(this, RuntimeError);
+      Error.captureStackTrace(this, this.constructor);
     }
   }
 }
@@ -410,9 +412,6 @@ export class AgentNotRegisteredError extends RuntimeError {
   constructor() {
     super('Agent is not registered in the protocol', RuntimeErrorCodes.AGENT_NOT_REGISTERED);
     this.name = 'AgentNotRegisteredError';
-    if (Error.captureStackTrace) {
-      Error.captureStackTrace(this, AgentNotRegisteredError);
-    }
   }
 }
 
@@ -435,9 +434,6 @@ export class AgentAlreadyRegisteredError extends RuntimeError {
     super(`Agent "${agentId}" is already registered`, RuntimeErrorCodes.AGENT_ALREADY_REGISTERED);
     this.name = 'AgentAlreadyRegisteredError';
     this.agentId = agentId;
-    if (Error.captureStackTrace) {
-      Error.captureStackTrace(this, AgentAlreadyRegisteredError);
-    }
   }
 }
 
@@ -455,9 +451,6 @@ export class ValidationError extends RuntimeError {
   constructor(message: string) {
     super(message, RuntimeErrorCodes.VALIDATION_ERROR);
     this.name = 'ValidationError';
-    if (Error.captureStackTrace) {
-      Error.captureStackTrace(this, ValidationError);
-    }
   }
 }
 
@@ -485,9 +478,6 @@ export class RateLimitError extends RuntimeError {
     this.name = 'RateLimitError';
     this.limitType = limitType;
     this.cooldownEnds = cooldownEnds;
-    if (Error.captureStackTrace) {
-      Error.captureStackTrace(this, RateLimitError);
-    }
   }
 }
 
@@ -515,9 +505,6 @@ export class InsufficientStakeError extends RuntimeError {
     this.name = 'InsufficientStakeError';
     this.required = required;
     this.available = available;
-    if (Error.captureStackTrace) {
-      Error.captureStackTrace(this, InsufficientStakeError);
-    }
   }
 }
 
@@ -542,9 +529,6 @@ export class ActiveTasksError extends RuntimeError {
     );
     this.name = 'ActiveTasksError';
     this.activeTaskCount = activeTaskCount;
-    if (Error.captureStackTrace) {
-      Error.captureStackTrace(this, ActiveTasksError);
-    }
   }
 }
 
@@ -569,9 +553,6 @@ export class PendingDisputeVotesError extends RuntimeError {
     );
     this.name = 'PendingDisputeVotesError';
     this.voteCount = voteCount;
-    if (Error.captureStackTrace) {
-      Error.captureStackTrace(this, PendingDisputeVotesError);
-    }
   }
 }
 
@@ -597,9 +578,6 @@ export class RecentVoteActivityError extends RuntimeError {
     );
     this.name = 'RecentVoteActivityError';
     this.lastVoteTimestamp = lastVoteTimestamp;
-    if (Error.captureStackTrace) {
-      Error.captureStackTrace(this, RecentVoteActivityError);
-    }
   }
 }
 
@@ -619,9 +597,6 @@ export class TaskNotFoundError extends RuntimeError {
     super(message || 'Task not found', RuntimeErrorCodes.TASK_NOT_FOUND);
     this.name = 'TaskNotFoundError';
     this.taskPda = taskPda;
-    if (Error.captureStackTrace) {
-      Error.captureStackTrace(this, TaskNotFoundError);
-    }
   }
 }
 
@@ -644,9 +619,6 @@ export class TaskNotClaimableError extends RuntimeError {
     this.name = 'TaskNotClaimableError';
     this.taskPda = taskPda;
     this.reason = reason;
-    if (Error.captureStackTrace) {
-      Error.captureStackTrace(this, TaskNotClaimableError);
-    }
   }
 }
 
@@ -669,9 +641,6 @@ export class TaskExecutionError extends RuntimeError {
     this.name = 'TaskExecutionError';
     this.taskPda = taskPda;
     this.cause = cause;
-    if (Error.captureStackTrace) {
-      Error.captureStackTrace(this, TaskExecutionError);
-    }
   }
 }
 
@@ -694,9 +663,6 @@ export class TaskSubmissionError extends RuntimeError {
     this.name = 'TaskSubmissionError';
     this.taskPda = taskPda;
     this.cause = cause;
-    if (Error.captureStackTrace) {
-      Error.captureStackTrace(this, TaskSubmissionError);
-    }
   }
 }
 
@@ -712,9 +678,6 @@ export class ExecutorStateError extends RuntimeError {
   constructor(message: string) {
     super(message, RuntimeErrorCodes.EXECUTOR_STATE_ERROR);
     this.name = 'ExecutorStateError';
-    if (Error.captureStackTrace) {
-      Error.captureStackTrace(this, ExecutorStateError);
-    }
   }
 }
 
@@ -741,9 +704,6 @@ export class TaskTimeoutError extends RuntimeError {
     );
     this.name = 'TaskTimeoutError';
     this.timeoutMs = timeoutMs;
-    if (Error.captureStackTrace) {
-      Error.captureStackTrace(this, TaskTimeoutError);
-    }
   }
 }
 
@@ -773,9 +733,6 @@ export class ClaimExpiredError extends RuntimeError {
     this.name = 'ClaimExpiredError';
     this.expiresAt = expiresAt;
     this.bufferMs = bufferMs;
-    if (Error.captureStackTrace) {
-      Error.captureStackTrace(this, ClaimExpiredError);
-    }
   }
 }
 
@@ -810,9 +767,6 @@ export class RetryExhaustedError extends RuntimeError {
     this.stage = stage;
     this.attempts = attempts;
     this.lastError = lastError;
-    if (Error.captureStackTrace) {
-      Error.captureStackTrace(this, RetryExhaustedError);
-    }
   }
 }
 

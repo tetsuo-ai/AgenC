@@ -19,9 +19,6 @@ export class ProofGenerationError extends RuntimeError {
     );
     this.name = 'ProofGenerationError';
     this.cause = cause;
-    if (Error.captureStackTrace) {
-      Error.captureStackTrace(this, ProofGenerationError);
-    }
   }
 }
 
@@ -35,9 +32,6 @@ export class ProofVerificationError extends RuntimeError {
       RuntimeErrorCodes.PROOF_VERIFICATION_ERROR,
     );
     this.name = 'ProofVerificationError';
-    if (Error.captureStackTrace) {
-      Error.captureStackTrace(this, ProofVerificationError);
-    }
   }
 }
 
@@ -51,8 +45,5 @@ export class ProofCacheError extends RuntimeError {
       RuntimeErrorCodes.PROOF_CACHE_ERROR,
     );
     this.name = 'ProofCacheError';
-    if (Error.captureStackTrace) {
-      Error.captureStackTrace(this, ProofCacheError);
-    }
   }
 }

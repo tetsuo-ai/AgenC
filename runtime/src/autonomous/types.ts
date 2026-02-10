@@ -7,6 +7,7 @@
 import { PublicKey } from '@solana/web3.js';
 import { AgentRuntimeConfig } from '../types/config.js';
 import type { ProofEngine } from '../proof/engine.js';
+import type { MemoryBackend } from '../memory/types.js';
 
 /**
  * On-chain task data
@@ -170,6 +171,16 @@ export interface AutonomousAgentConfig extends AgentRuntimeConfig {
    * instead of calling SDK generateProof() directly.
    */
   proofEngine?: ProofEngine;
+
+  /**
+   * Optional memory backend for conversation persistence and lifecycle journaling
+   */
+  memory?: MemoryBackend;
+
+  /**
+   * TTL for memory entries in ms (default: 86_400_000 = 24h)
+   */
+  memoryTtlMs?: number;
 
   /**
    * Task discovery mode
