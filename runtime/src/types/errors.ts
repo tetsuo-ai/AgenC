@@ -70,6 +70,14 @@ export const RuntimeErrorCodes = {
   PROOF_VERIFICATION_ERROR: 'PROOF_VERIFICATION_ERROR',
   /** Proof cache operation failed */
   PROOF_CACHE_ERROR: 'PROOF_CACHE_ERROR',
+  /** Dispute not found by PDA */
+  DISPUTE_NOT_FOUND: 'DISPUTE_NOT_FOUND',
+  /** Dispute vote operation failed */
+  DISPUTE_VOTE_ERROR: 'DISPUTE_VOTE_ERROR',
+  /** Dispute resolution operation failed */
+  DISPUTE_RESOLUTION_ERROR: 'DISPUTE_RESOLUTION_ERROR',
+  /** Dispute slash operation failed */
+  DISPUTE_SLASH_ERROR: 'DISPUTE_SLASH_ERROR',
 } as const;
 
 /** Union type of all runtime error code values */
