@@ -22,9 +22,6 @@ export class DisputeNotFoundError extends RuntimeError {
     );
     this.name = 'DisputeNotFoundError';
     this.disputePda = disputePda;
-    if (Error.captureStackTrace) {
-      Error.captureStackTrace(this, DisputeNotFoundError);
-    }
   }
 }
 
@@ -45,9 +42,6 @@ export class DisputeVoteError extends RuntimeError {
     this.name = 'DisputeVoteError';
     this.disputePda = disputePda;
     this.reason = reason;
-    if (Error.captureStackTrace) {
-      Error.captureStackTrace(this, DisputeVoteError);
-    }
   }
 }
 
@@ -68,9 +62,6 @@ export class DisputeResolutionError extends RuntimeError {
     this.name = 'DisputeResolutionError';
     this.disputePda = disputePda;
     this.reason = reason;
-    if (Error.captureStackTrace) {
-      Error.captureStackTrace(this, DisputeResolutionError);
-    }
   }
 }
 
@@ -91,8 +82,5 @@ export class DisputeSlashError extends RuntimeError {
     this.name = 'DisputeSlashError';
     this.disputePda = disputePda;
     this.reason = reason;
-    if (Error.captureStackTrace) {
-      Error.captureStackTrace(this, DisputeSlashError);
-    }
   }
 }

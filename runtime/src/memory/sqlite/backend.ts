@@ -17,7 +17,8 @@ import type {
   AddEntryOptions,
 } from '../types.js';
 import type { SqliteBackendConfig } from './types.js';
-import { MemoryBackendError, MemoryConnectionError, MemorySerializationError } from '../errors.js';
+import { MemoryBackendError, MemorySerializationError } from '../errors.js';
+import { ensureLazyBackend } from '../lazy-import.js';
 
 export class SqliteBackend implements MemoryBackend {
   readonly name = 'sqlite';
@@ -279,18 +280,10 @@ export class SqliteBackend implements MemoryBackend {
     }
     if (this.db) return this.db;
 
-    let Database: any;
-    try {
-      const mod = await import('better-sqlite3');
-      Database = mod.default ?? mod;
-    } catch {
-      throw new MemoryConnectionError(
-        this.name,
-        'better-sqlite3 package not installed. Install it: npm install better-sqlite3',
-      );
-    }
-
-    this.db = new Database(this.config.dbPath);
+    this.db = await ensureLazyBackend('better-sqlite3', this.name, (mod) => {
+      const Database = (mod.default ?? mod) as any;
+      return new Database(this.config.dbPath);
+    });
 
     if (this.config.walMode && this.config.dbPath !== ':memory:') {
       this.db.pragma('journal_mode = WAL');

@@ -17,9 +17,6 @@ export class ToolNotFoundError extends RuntimeError {
     super(`Tool not found: "${toolName}"`, RuntimeErrorCodes.VALIDATION_ERROR);
     this.name = 'ToolNotFoundError';
     this.toolName = toolName;
-    if (Error.captureStackTrace) {
-      Error.captureStackTrace(this, ToolNotFoundError);
-    }
   }
 }
 
@@ -37,9 +34,6 @@ export class ToolAlreadyRegisteredError extends RuntimeError {
     );
     this.name = 'ToolAlreadyRegisteredError';
     this.toolName = toolName;
-    if (Error.captureStackTrace) {
-      Error.captureStackTrace(this, ToolAlreadyRegisteredError);
-    }
   }
 }
 
@@ -60,8 +54,5 @@ export class ToolExecutionError extends RuntimeError {
     this.name = 'ToolExecutionError';
     this.toolName = toolName;
     this.cause = cause;
-    if (Error.captureStackTrace) {
-      Error.captureStackTrace(this, ToolExecutionError);
-    }
   }
 }

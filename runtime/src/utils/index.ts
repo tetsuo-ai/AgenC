@@ -20,3 +20,5 @@ export {
 export { PdaWithBump, derivePda, validateIdLength } from './pda.js';
 
 export { encodeStatusByte, queryWithFallback } from './query.js';
+
+export { fetchTreasury } from './treasury.js';

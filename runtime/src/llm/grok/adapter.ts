@@ -17,7 +17,8 @@ import type {
   StreamProgressCallback,
 } from '../types.js';
 import type { GrokProviderConfig } from './types.js';
-import { LLMProviderError, mapLLMError } from '../errors.js';
+import { mapLLMError } from '../errors.js';
+import { ensureLazyImport } from '../lazy-import.js';
 
 const DEFAULT_BASE_URL = 'https://api.x.ai/v1';
 const DEFAULT_MODEL = 'grok-3';
@@ -132,22 +133,14 @@ export class GrokProvider implements LLMProvider {
   private async ensureClient(): Promise<unknown> {
     if (this.client) return this.client;
 
-    let OpenAI: any;
-    try {
-      const mod = await import('openai');
-      OpenAI = mod.default ?? mod.OpenAI ?? mod;
-    } catch {
-      throw new LLMProviderError(
-        this.name,
-        'openai package not installed. Install it: npm install openai',
-      );
-    }
-
-    this.client = new OpenAI({
-      apiKey: this.config.apiKey,
-      baseURL: this.config.baseURL,
-      timeout: this.config.timeoutMs,
-      maxRetries: this.config.maxRetries ?? 2,
+    this.client = await ensureLazyImport('openai', this.name, (mod) => {
+      const OpenAI = (mod.default ?? mod.OpenAI ?? mod) as any;
+      return new OpenAI({
+        apiKey: this.config.apiKey,
+        baseURL: this.config.baseURL,
+        timeout: this.config.timeoutMs,
+        maxRetries: this.config.maxRetries ?? 2,
+      });
     });
     return this.client;
   }
