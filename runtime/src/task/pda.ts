@@ -5,10 +5,11 @@
 
 import { PublicKey } from '@solana/web3.js';
 import { PROGRAM_ID, SEEDS } from '@agenc/sdk';
+import { derivePda, validateIdLength } from '../utils/pda.js';
 
-// Re-export PdaWithBump from agent module
-export { type PdaWithBump } from '../agent/pda.js';
-import type { PdaWithBump } from '../agent/pda.js';
+// Re-export PdaWithBump from utils — existing consumers import from here
+export type { PdaWithBump } from '../utils/pda.js';
+import type { PdaWithBump } from '../utils/pda.js';
 
 /** Length of task_id field (bytes) */
 export const TASK_ID_LENGTH = 32;
@@ -34,18 +35,8 @@ export function deriveTaskPda(
   taskId: Uint8Array,
   programId: PublicKey = PROGRAM_ID
 ): PdaWithBump {
-  if (taskId.length !== TASK_ID_LENGTH) {
-    throw new Error(
-      `Invalid taskId length: ${taskId.length} (must be ${TASK_ID_LENGTH})`
-    );
-  }
-
-  const [address, bump] = PublicKey.findProgramAddressSync(
-    [SEEDS.TASK, creator.toBuffer(), Buffer.from(taskId)],
-    programId
-  );
-
-  return { address, bump };
+  validateIdLength(taskId, TASK_ID_LENGTH, 'taskId');
+  return derivePda([SEEDS.TASK, creator.toBuffer(), Buffer.from(taskId)], programId);
 }
 
 /**
@@ -92,12 +83,7 @@ export function deriveClaimPda(
   workerAgentPda: PublicKey,
   programId: PublicKey = PROGRAM_ID
 ): PdaWithBump {
-  const [address, bump] = PublicKey.findProgramAddressSync(
-    [SEEDS.CLAIM, taskPda.toBuffer(), workerAgentPda.toBuffer()],
-    programId
-  );
-
-  return { address, bump };
+  return derivePda([SEEDS.CLAIM, taskPda.toBuffer(), workerAgentPda.toBuffer()], programId);
 }
 
 /**
@@ -141,12 +127,7 @@ export function deriveEscrowPda(
   taskPda: PublicKey,
   programId: PublicKey = PROGRAM_ID
 ): PdaWithBump {
-  const [address, bump] = PublicKey.findProgramAddressSync(
-    [SEEDS.ESCROW, taskPda.toBuffer()],
-    programId
-  );
-
-  return { address, bump };
+  return derivePda([SEEDS.ESCROW, taskPda.toBuffer()], programId);
 }
 
 /**
