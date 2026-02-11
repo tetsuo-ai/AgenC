@@ -19,6 +19,8 @@ import type {
 import type { RedisBackendConfig } from './types.js';
 import { MemoryBackendError, MemoryConnectionError, MemorySerializationError } from '../errors.js';
 import { ensureLazyBackend } from '../lazy-import.js';
+import type { MetricsProvider } from '../../task/types.js';
+import { TELEMETRY_METRIC_NAMES } from '../../telemetry/metric-names.js';
 
 export class RedisBackend implements MemoryBackend {
   readonly name = 'redis';
@@ -28,6 +30,7 @@ export class RedisBackend implements MemoryBackend {
   private readonly logger: Logger;
   private readonly defaultTtlMs: number;
   private readonly prefix: string;
+  private readonly metrics?: MetricsProvider;
   private closed = false;
 
   constructor(config: RedisBackendConfig = {}) {
@@ -35,6 +38,7 @@ export class RedisBackend implements MemoryBackend {
     this.logger = config.logger ?? silentLogger;
     this.defaultTtlMs = config.defaultTtlMs ?? 0;
     this.prefix = config.keyPrefix ?? 'agenc:memory:';
+    this.metrics = config.metrics;
   }
 
   // ---------- Key Helpers ----------
@@ -55,6 +59,7 @@ export class RedisBackend implements MemoryBackend {
 
   async addEntry(options: AddEntryOptions): Promise<MemoryEntry> {
     const client = await this.ensureClient();
+    const start = Date.now();
     const now = Date.now();
     const id = randomUUID();
     const ttl = options.ttlMs ?? this.defaultTtlMs;
@@ -91,11 +96,13 @@ export class RedisBackend implements MemoryBackend {
     }
 
     this.logger.debug(`Added entry ${id} to session ${options.sessionId}`);
+    this.recordMemoryMetrics('addEntry', Date.now() - start);
     return entry;
   }
 
   async getThread(sessionId: string, limit?: number): Promise<MemoryEntry[]> {
     const client = await this.ensureClient();
+    const start = Date.now();
     const key = this.threadKey(sessionId);
 
     let members: string[];
@@ -107,11 +114,14 @@ export class RedisBackend implements MemoryBackend {
       members = await client.zrangebyscore(key, '-inf', '+inf');
     }
 
-    return members.map((m: string) => this.parseEntry(m)).filter(Boolean) as MemoryEntry[];
+    const result = members.map((m: string) => this.parseEntry(m)).filter(Boolean) as MemoryEntry[];
+    this.recordMemoryMetrics('getThread', Date.now() - start);
+    return result;
   }
 
   async query(query: MemoryQuery): Promise<MemoryEntry[]> {
     const client = await this.ensureClient();
+    const start = Date.now();
     const minScore = query.after !== undefined ? `(${query.after}` : '-inf';
     const maxScore = query.before !== undefined ? `(${query.before}` : '+inf';
 
@@ -150,6 +160,7 @@ export class RedisBackend implements MemoryBackend {
       results = results.slice(0, query.limit);
     }
 
+    this.recordMemoryMetrics('query', Date.now() - start);
     return results;
   }
 
@@ -276,6 +287,13 @@ export class RedisBackend implements MemoryBackend {
   }
 
   // ---------- Internals ----------
+
+  private recordMemoryMetrics(operation: string, durationMs: number): void {
+    if (!this.metrics) return;
+    const labels = { operation, backend: 'redis' };
+    this.metrics.counter(TELEMETRY_METRIC_NAMES.MEMORY_OPS_TOTAL, 1, labels);
+    this.metrics.histogram(TELEMETRY_METRIC_NAMES.MEMORY_OP_DURATION, durationMs, labels);
+  }
 
   private async ensureClient(): Promise<any> {
     if (this.closed) {

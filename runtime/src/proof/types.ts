@@ -6,6 +6,7 @@
 
 import type { PublicKey } from '@solana/web3.js';
 import type { Logger } from '../utils/logger.js';
+import type { MetricsProvider } from '../task/types.js';
 
 // Re-export HashResult from SDK for convenience
 export type { HashResult } from '@agenc/sdk';
@@ -33,6 +34,8 @@ export interface ProofEngineConfig {
   cache?: ProofCacheConfig;
   /** Logger instance */
   logger?: Logger;
+  /** Optional metrics provider for telemetry */
+  metrics?: MetricsProvider;
 }
 
 /**

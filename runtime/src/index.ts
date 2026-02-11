@@ -569,5 +569,24 @@ export {
   ConnectionManager,
 } from './connection/index.js';
 
+// Telemetry (Phase 11)
+export {
+  // Core types
+  type TelemetryCollector,
+  type TelemetrySnapshot,
+  type TelemetrySink,
+  type TelemetryConfig,
+  // Collector implementations
+  UnifiedTelemetryCollector,
+  NoopTelemetryCollector,
+  // Built-in sinks
+  ConsoleSink,
+  CallbackSink,
+  // Error class
+  TelemetryError,
+  // Metric name constants
+  TELEMETRY_METRIC_NAMES,
+} from './telemetry/index.js';
+
 // Agent Builder (Phase 10)
 export { AgentBuilder, BuiltAgent } from './builder.js';
