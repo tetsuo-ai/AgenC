@@ -121,6 +121,9 @@ pub(crate) fn process_worker_claim_pair(
     let mut worker_reg = AgentRegistration::try_deserialize(&mut &**worker_data)?;
     // Using saturating_sub intentionally - underflow returns 0 (safe counter decrement)
     worker_reg.active_tasks = worker_reg.active_tasks.saturating_sub(1);
+    // Decrement disputes_as_defendant (fix #821)
+    // Using saturating_sub intentionally - underflow returns 0 (safe counter decrement)
+    worker_reg.disputes_as_defendant = worker_reg.disputes_as_defendant.saturating_sub(1);
     worker_reg.try_serialize(&mut &mut worker_data[8..])?;
 
     Ok(())
