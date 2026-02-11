@@ -172,13 +172,18 @@ pub fn handler(
     // Count signers: authority + second_signer + any additional in remaining_accounts
     let mut valid_signers = 2usize; // authority and second_signer are always counted
 
+    // Fix #822: Track counted keys to prevent duplicate signer entries from inflating the count
+    let mut counted_keys = std::collections::BTreeSet::new();
+    counted_keys.insert(ctx.accounts.authority.key());
+    counted_keys.insert(ctx.accounts.second_signer.key());
+
     // Add any additional signers from remaining_accounts (skip [0] which is ProgramData)
     for acc in ctx.remaining_accounts.iter().skip(1) {
         if acc.is_signer
             && multisig_owners.contains(acc.key)
-            && acc.key != &ctx.accounts.authority.key()
-            && acc.key != &ctx.accounts.second_signer.key()
+            && !counted_keys.contains(acc.key)
         {
+            counted_keys.insert(*acc.key);
             valid_signers += 1;
         }
     }
