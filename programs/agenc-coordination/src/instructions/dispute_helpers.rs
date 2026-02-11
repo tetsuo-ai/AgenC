@@ -57,6 +57,25 @@ pub(crate) fn check_duplicate_arbiters(
     Ok(())
 }
 
+/// Checks for duplicate workers in remaining_accounts (fix #826).
+///
+/// Iterates over (claim, worker) pairs and ensures no worker appears twice.
+/// This prevents `active_tasks` over-decrement via repeated `saturating_sub(1)`.
+pub(crate) fn check_duplicate_workers(
+    remaining_accounts: &[AccountInfo],
+    arbiter_accounts: usize,
+) -> Result<()> {
+    let mut seen_workers: HashSet<Pubkey> = HashSet::new();
+    for i in (arbiter_accounts..remaining_accounts.len()).step_by(2) {
+        let worker_key = remaining_accounts[i + 1].key();
+        require!(
+            seen_workers.insert(worker_key),
+            CoordinationError::InvalidInput
+        );
+    }
+    Ok(())
+}
+
 /// Processes a single (vote, arbiter) pair from remaining_accounts.
 ///
 /// Validates ownership, deserializes the vote, verifies it belongs to the dispute
