@@ -6,6 +6,8 @@ use crate::state::{AgentRegistration, ProtocolConfig, Task, TaskEscrow};
 use crate::utils::version::check_version_compatible;
 use anchor_lang::prelude::*;
 use anchor_lang::system_program;
+use anchor_spl::associated_token::AssociatedToken;
+use anchor_spl::token::{self, Mint, Token, TokenAccount, Transfer};
 
 use super::rate_limit_helpers::check_task_creation_rate_limits;
 use super::task_init_helpers::{init_escrow_fields, init_task_fields, increment_total_tasks, validate_deadline, validate_task_params};
@@ -59,6 +61,27 @@ pub struct CreateTask<'info> {
     pub creator: Signer<'info>,
 
     pub system_program: Program<'info, System>,
+
+    // === Optional SPL Token accounts (only required for token-denominated tasks) ===
+
+    /// SPL token mint for reward denomination (optional)
+    pub reward_mint: Option<Account<'info, Mint>>,
+
+    /// Creator's token account holding reward tokens (optional)
+    #[account(mut)]
+    pub creator_token_account: Option<Account<'info, TokenAccount>>,
+
+    /// Escrow's associated token account for holding reward tokens (optional).
+    /// Created via ATA CPI during handler if token task.
+    /// CHECK: Validated in handler via ATA derivation check
+    #[account(mut)]
+    pub token_escrow_ata: Option<UncheckedAccount<'info>>,
+
+    /// SPL Token program (optional, required for token tasks)
+    pub token_program: Option<Program<'info, Token>>,
+
+    /// Associated Token Account program (optional, required for token tasks)
+    pub associated_token_program: Option<Program<'info, AssociatedToken>>,
 }
 
 /// Creates a new task.
@@ -78,6 +101,7 @@ pub fn handler(
     task_type: u8,
     constraint_hash: Option<[u8; 32]>,
     min_reputation: u16,
+    reward_mint: Option<Pubkey>,
 ) -> Result<()> {
     validate_task_params(&task_id, &description, required_capabilities, max_workers, task_type, min_reputation)?;
     // Validate reward is not zero (#540) - not in shared validator since dependent tasks allow zero
@@ -96,17 +120,67 @@ pub fn handler(
     // Check rate limits and update agent state
     check_task_creation_rate_limits(creator_agent, config, &clock)?;
 
-    // Transfer reward to escrow
-    system_program::transfer(
-        CpiContext::new(
-            ctx.accounts.system_program.to_account_info(),
-            system_program::Transfer {
-                from: ctx.accounts.creator.to_account_info(),
-                to: ctx.accounts.escrow.to_account_info(),
+    if reward_mint.is_some() {
+        // Token path: validate required token accounts are provided
+        require!(
+            ctx.accounts.reward_mint.is_some()
+                && ctx.accounts.creator_token_account.is_some()
+                && ctx.accounts.token_escrow_ata.is_some()
+                && ctx.accounts.token_program.is_some()
+                && ctx.accounts.associated_token_program.is_some(),
+            CoordinationError::MissingTokenAccounts
+        );
+
+        let mint = ctx.accounts.reward_mint.as_ref().unwrap();
+        let creator_ta = ctx.accounts.creator_token_account.as_ref().unwrap();
+        let token_escrow_ata = ctx.accounts.token_escrow_ata.as_ref().unwrap();
+        let token_program = ctx.accounts.token_program.as_ref().unwrap();
+        let ata_program = ctx.accounts.associated_token_program.as_ref().unwrap();
+
+        // Validate mint matches the provided reward_mint
+        require!(
+            mint.key() == reward_mint.unwrap(),
+            CoordinationError::InvalidTokenMint
+        );
+
+        // Create escrow ATA via CPI (payer = creator)
+        anchor_spl::associated_token::create(CpiContext::new(
+            ata_program.to_account_info(),
+            anchor_spl::associated_token::Create {
+                payer: ctx.accounts.creator.to_account_info(),
+                associated_token: token_escrow_ata.to_account_info(),
+                authority: ctx.accounts.escrow.to_account_info(),
+                mint: mint.to_account_info(),
+                system_program: ctx.accounts.system_program.to_account_info(),
+                token_program: token_program.to_account_info(),
             },
-        ),
-        reward_amount,
-    )?;
+        ))?;
+
+        // Transfer tokens from creator ATA to escrow ATA
+        token::transfer(
+            CpiContext::new(
+                token_program.to_account_info(),
+                Transfer {
+                    from: creator_ta.to_account_info(),
+                    to: token_escrow_ata.to_account_info(),
+                    authority: ctx.accounts.creator.to_account_info(),
+                },
+            ),
+            reward_amount,
+        )?;
+    } else {
+        // SOL path: existing lamport transfer (unchanged)
+        system_program::transfer(
+            CpiContext::new(
+                ctx.accounts.system_program.to_account_info(),
+                system_program::Transfer {
+                    from: ctx.accounts.creator.to_account_info(),
+                    to: ctx.accounts.escrow.to_account_info(),
+                },
+            ),
+            reward_amount,
+        )?;
+    }
 
     // Initialize task
     let task = &mut ctx.accounts.task;
@@ -126,6 +200,7 @@ pub fn handler(
         config.protocol_fee_bps,
         clock.unix_timestamp,
         min_reputation,
+        reward_mint,
     )?;
 
     // Initialize escrow
@@ -144,6 +219,7 @@ pub fn handler(
         task_type,
         deadline,
         min_reputation,
+        reward_mint,
         timestamp: clock.unix_timestamp,
     });
 

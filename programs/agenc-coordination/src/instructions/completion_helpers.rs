@@ -14,6 +14,7 @@ use crate::state::{
 };
 use crate::utils::compute_budget::{calculate_reputation_fee_discount, calculate_tiered_fee};
 use anchor_lang::prelude::*;
+use anchor_spl::token::{self, CloseAccount, Transfer};
 
 /// Calculate worker reward and protocol fee from task reward amount.
 ///
@@ -84,6 +85,67 @@ fn calculate_reward_per_worker(task: &Task) -> Result<u64> {
         }
         TaskType::Competitive | TaskType::Exclusive => Ok(task.reward_amount),
     }
+}
+
+/// Optional token accounts for SPL token task rewards.
+/// When `None` is passed for this in `execute_completion_rewards`, the SOL path is used.
+///
+/// Uses owned `AccountInfo` values (not references) to avoid lifetime conflicts
+/// with mutable borrows of task/claim/escrow in handler functions.
+pub struct TokenPaymentAccounts<'info> {
+    pub token_escrow_ata: AccountInfo<'info>,
+    pub worker_token_account: AccountInfo<'info>,
+    pub treasury_token_account: AccountInfo<'info>,
+    pub token_program: AccountInfo<'info>,
+    pub escrow_authority: AccountInfo<'info>,
+    pub escrow_bump: u8,
+    pub task_key: Pubkey,
+}
+
+/// Transfer tokens from escrow ATA to worker and treasury ATAs via PDA-signed CPI.
+fn transfer_token_rewards<'info>(
+    ta: &TokenPaymentAccounts<'info>,
+    worker_reward: u64,
+    protocol_fee: u64,
+) -> Result<()> {
+    let task_key_bytes = ta.task_key.to_bytes();
+    let bump_slice = [ta.escrow_bump];
+    let escrow_seeds: &[&[u8]] = &[b"escrow", task_key_bytes.as_ref(), &bump_slice];
+    let signer_seeds: &[&[&[u8]]] = &[escrow_seeds];
+
+    if worker_reward > 0 {
+        token::transfer(
+            CpiContext::new_with_signer(
+                ta.token_program.clone(),
+                Transfer {
+                    from: ta.token_escrow_ata.clone(),
+                    to: ta.worker_token_account.clone(),
+                    authority: ta.escrow_authority.clone(),
+                },
+                signer_seeds,
+            ),
+            worker_reward,
+        )
+        .map_err(|_| CoordinationError::TokenTransferFailed)?;
+    }
+
+    if protocol_fee > 0 {
+        token::transfer(
+            CpiContext::new_with_signer(
+                ta.token_program.clone(),
+                Transfer {
+                    from: ta.token_escrow_ata.clone(),
+                    to: ta.treasury_token_account.clone(),
+                    authority: ta.escrow_authority.clone(),
+                },
+                signer_seeds,
+            ),
+            protocol_fee,
+        )
+        .map_err(|_| CoordinationError::TokenTransferFailed)?;
+    }
+
+    Ok(())
 }
 
 /// Transfer lamports from escrow to worker and treasury.
@@ -318,19 +380,26 @@ pub fn execute_completion_rewards<'info>(
     protocol_fee_bps: u16,
     result_data_for_task: Option<[u8; RESULT_DATA_SIZE]>,
     clock: &Clock,
+    token_accounts: Option<TokenPaymentAccounts<'info>>,
 ) -> Result<()> {
     let (worker_reward, protocol_fee) = calculate_reward_split(task, protocol_fee_bps)?;
 
-    // Validate escrow has sufficient balance
-    let total = worker_reward
-        .checked_add(protocol_fee)
-        .ok_or(CoordinationError::ArithmeticOverflow)?;
-    require!(
-        escrow.to_account_info().lamports() >= total,
-        CoordinationError::InsufficientEscrowBalance
-    );
+    if let Some(ref ta) = token_accounts {
+        // Token path: transfer via SPL token CPI
+        transfer_token_rewards(ta, worker_reward, protocol_fee)?;
+    } else {
+        // SOL path: existing lamport transfer (unchanged)
+        // Validate escrow has sufficient balance
+        let total = worker_reward
+            .checked_add(protocol_fee)
+            .ok_or(CoordinationError::ArithmeticOverflow)?;
+        require!(
+            escrow.to_account_info().lamports() >= total,
+            CoordinationError::InsufficientEscrowBalance
+        );
+        transfer_rewards(escrow, authority_info, treasury_info, worker_reward, protocol_fee)?;
+    }
 
-    transfer_rewards(escrow, authority_info, treasury_info, worker_reward, protocol_fee)?;
     update_claim_state(claim, escrow, worker_reward, protocol_fee)?;
     let task_completed =
         update_task_state(task, clock.unix_timestamp, escrow, result_data_for_task)?;
@@ -371,6 +440,24 @@ pub fn execute_completion_rewards<'info>(
     // For collaborative tasks with max_workers > 1, this keeps the escrow open
     // for subsequent workers to complete and receive their share.
     if task_completed {
+        if let Some(ref ta) = token_accounts {
+            // Close token escrow ATA first, return rent to creator
+            let task_key_bytes = ta.task_key.to_bytes();
+            let bump_slice = [ta.escrow_bump];
+            let escrow_seeds: &[&[u8]] = &[b"escrow", task_key_bytes.as_ref(), &bump_slice];
+            let signer_seeds: &[&[&[u8]]] = &[escrow_seeds];
+            token::close_account(CpiContext::new_with_signer(
+                ta.token_program.clone(),
+                CloseAccount {
+                    account: ta.token_escrow_ata.clone(),
+                    destination: creator_info.clone(),
+                    authority: ta.escrow_authority.clone(),
+                },
+                signer_seeds,
+            ))
+            .map_err(|_| CoordinationError::TokenTransferFailed)?;
+        }
+        // Always close the escrow PDA (returns rent-exempt SOL to creator)
         close_escrow_to_creator(escrow, creator_info)?;
     }
 
@@ -440,7 +527,7 @@ mod tests {
             depends_on: None,
             dependency_type: DependencyType::default(),
             min_reputation: 0,
-            _reserved: [0u8; 30],
+            reward_mint: None,
         }
     }
 
@@ -573,12 +660,11 @@ mod tests {
 
         #[test]
         fn test_max_fee_100_percent() {
-            // 100% = 10000 basis points - this would take all funds
-            // Our max is usually capped at 1000 bps (10%), but let's test the math
+            // 100% = 10000 basis points - takes all funds, leaving 0 for worker
+            // This must fail with RewardTooSmall since worker_reward == 0
             let task = create_test_task(TaskType::Exclusive, 1000, 1, 0);
-            let (worker, fee) = calculate_reward_split(&task, 10000).unwrap();
-            assert_eq!(fee, 1000); // All goes to fee
-            assert_eq!(worker, 0);
+            let result = calculate_reward_split(&task, 10000);
+            assert!(result.is_err(), "100% fee should fail: worker gets nothing");
         }
 
         #[test]
@@ -596,10 +682,10 @@ mod tests {
 
         #[test]
         fn test_zero_reward() {
+            // Zero reward must fail with RewardTooSmall since worker gets nothing
             let task = create_test_task(TaskType::Exclusive, 0, 1, 0);
-            let (worker, fee) = calculate_reward_split(&task, 100).unwrap();
-            assert_eq!(worker, 0);
-            assert_eq!(fee, 0);
+            let result = calculate_reward_split(&task, 100);
+            assert!(result.is_err(), "Zero reward should fail: worker gets nothing");
         }
 
         #[test]

@@ -25,6 +25,8 @@ use crate::state::{
 };
 use crate::utils::version::check_version_compatible;
 use anchor_lang::prelude::*;
+use anchor_spl::token::{Mint, Token, TokenAccount};
+use crate::instructions::token_helpers::{close_token_escrow, transfer_tokens_from_escrow, validate_token_account};
 
 /// Note: Large accounts use Box<Account<...>> to avoid stack overflow
 /// Consistent with Anchor best practices for accounts > 10KB
@@ -84,6 +86,28 @@ pub struct ExpireDispute<'info> {
     /// Required when worker should receive funds on expiration
     #[account(mut)]
     pub worker_authority: Option<UncheckedAccount<'info>>,
+
+    // === Optional SPL Token accounts (only required for token-denominated tasks) ===
+
+    /// Token escrow ATA holding reward tokens (optional)
+    #[account(mut)]
+    pub token_escrow_ata: Option<Account<'info, TokenAccount>>,
+
+    /// Creator's token account for refund (optional)
+    /// CHECK: Validated in handler
+    #[account(mut)]
+    pub creator_token_account: Option<UncheckedAccount<'info>>,
+
+    /// Worker's token account for payment (optional)
+    /// CHECK: Validated in handler
+    #[account(mut)]
+    pub worker_token_account_ata: Option<UncheckedAccount<'info>>,
+
+    /// SPL token mint (optional, must match task.reward_mint)
+    pub reward_mint: Option<Account<'info, Mint>>,
+
+    /// SPL Token program (optional, required for token tasks)
+    pub token_program: Option<Program<'info, Token>>,
 }
 
 /// Expires a dispute after voting period ends.
@@ -173,6 +197,9 @@ pub fn handler(ctx: Context<ExpireDispute>) -> Result<()> {
     let mut worker_amount: u64 = 0;
 
     // Fair refund distribution based on context (fix #418)
+    let is_token_task = task.reward_mint.is_some();
+    let task_key = task.key();
+
     if remaining_funds > 0 {
         let worker_completed = ctx
             .accounts
@@ -182,16 +209,51 @@ pub fn handler(ctx: Context<ExpireDispute>) -> Result<()> {
             .unwrap_or(false);
         let no_votes = dispute.total_voters == 0;
 
-        let (ca, wa) = distribute_expired_funds(
-            &escrow.to_account_info(),
-            &ctx.accounts.creator.to_account_info(),
-            ctx.accounts.worker_authority.as_ref().map(|w| w.to_account_info()).as_ref(),
-            remaining_funds,
-            worker_completed,
-            no_votes,
-        )?;
-        creator_amount = ca;
-        worker_amount = wa;
+        if is_token_task {
+            require!(
+                ctx.accounts.token_escrow_ata.is_some()
+                    && ctx.accounts.reward_mint.is_some()
+                    && ctx.accounts.token_program.is_some(),
+                CoordinationError::MissingTokenAccounts
+            );
+            let mint = ctx.accounts.reward_mint.as_ref().unwrap();
+            require!(mint.key() == task.reward_mint.unwrap(), CoordinationError::InvalidTokenMint);
+            let token_escrow = ctx.accounts.token_escrow_ata.as_ref().unwrap();
+            validate_token_account(token_escrow, &mint.key(), &escrow.key())?;
+            let token_program = ctx.accounts.token_program.as_ref().unwrap();
+            let task_key_bytes = task_key.to_bytes();
+            let bump_slice = [escrow.bump];
+            let escrow_seeds: &[&[u8]] = &[b"escrow", task_key_bytes.as_ref(), &bump_slice];
+
+            let (ca, wa) = distribute_expired_tokens(
+                token_escrow,
+                &escrow.to_account_info(),
+                ctx.accounts.creator_token_account.as_ref().map(|a| a.to_account_info()).as_ref(),
+                ctx.accounts.worker_token_account_ata.as_ref().map(|a| a.to_account_info()).as_ref(),
+                &ctx.accounts.creator.to_account_info(),
+                remaining_funds,
+                worker_completed,
+                no_votes,
+                escrow_seeds,
+                token_program,
+            )?;
+            creator_amount = ca;
+            worker_amount = wa;
+
+            // Close token escrow ATA
+            close_token_escrow(token_escrow, &ctx.accounts.creator.to_account_info(), &escrow.to_account_info(), escrow_seeds, token_program)?;
+        } else {
+            let (ca, wa) = distribute_expired_funds(
+                &escrow.to_account_info(),
+                &ctx.accounts.creator.to_account_info(),
+                ctx.accounts.worker_authority.as_ref().map(|w| w.to_account_info()).as_ref(),
+                remaining_funds,
+                worker_completed,
+                no_votes,
+            )?;
+            creator_amount = ca;
+            worker_amount = wa;
+        }
     }
 
     // Decrement worker's active_tasks counter (fix #137)
@@ -325,6 +387,58 @@ fn distribute_expired_funds<'a>(
         // Creator gets refund (dispute was actively contested but inconclusive)
         creator_amount = remaining_funds;
         transfer_lamports(escrow_info, creator_info, remaining_funds)?;
+    }
+
+    Ok((creator_amount, worker_amount))
+}
+
+/// Token variant of distribute_expired_funds for SPL token tasks.
+/// Same logic but uses token CPI transfers instead of lamport transfers.
+///
+/// Returns (creator_amount, worker_amount) for event emission.
+fn distribute_expired_tokens<'a>(
+    token_escrow: &Account<'a, TokenAccount>,
+    escrow_authority: &AccountInfo<'a>,
+    creator_token_account: Option<&AccountInfo<'a>>,
+    worker_token_account: Option<&AccountInfo<'a>>,
+    _creator_info: &AccountInfo<'a>,
+    remaining_funds: u64,
+    worker_completed: bool,
+    no_votes: bool,
+    escrow_seeds: &[&[u8]],
+    token_program: &Program<'a, Token>,
+) -> Result<(u64, u64)> {
+    let mut creator_amount: u64 = 0;
+    let mut worker_amount: u64 = 0;
+
+    if no_votes && worker_completed {
+        if let Some(worker_ta) = worker_token_account {
+            worker_amount = remaining_funds;
+            transfer_tokens_from_escrow(token_escrow, worker_ta, escrow_authority, remaining_funds, escrow_seeds, token_program)?;
+        } else if let Some(creator_ta) = creator_token_account {
+            creator_amount = remaining_funds;
+            transfer_tokens_from_escrow(token_escrow, creator_ta, escrow_authority, remaining_funds, escrow_seeds, token_program)?;
+        }
+    } else if no_votes {
+        let worker_share = remaining_funds.checked_div(2).ok_or(CoordinationError::ArithmeticOverflow)?;
+        let creator_share = remaining_funds.checked_sub(worker_share).ok_or(CoordinationError::ArithmeticOverflow)?;
+
+        if let Some(creator_ta) = creator_token_account {
+            creator_amount = creator_share;
+            transfer_tokens_from_escrow(token_escrow, creator_ta, escrow_authority, creator_share, escrow_seeds, token_program)?;
+        }
+        if let Some(worker_ta) = worker_token_account {
+            worker_amount = worker_share;
+            transfer_tokens_from_escrow(token_escrow, worker_ta, escrow_authority, worker_share, escrow_seeds, token_program)?;
+        } else if let Some(creator_ta) = creator_token_account {
+            creator_amount = remaining_funds;
+            transfer_tokens_from_escrow(token_escrow, creator_ta, escrow_authority, worker_share, escrow_seeds, token_program)?;
+        }
+    } else {
+        if let Some(creator_ta) = creator_token_account {
+            creator_amount = remaining_funds;
+            transfer_tokens_from_escrow(token_escrow, creator_ta, escrow_authority, remaining_funds, escrow_seeds, token_program)?;
+        }
     }
 
     Ok((creator_amount, worker_amount))
