@@ -179,7 +179,11 @@ pub fn handler(
 
     // Add any additional signers from remaining_accounts (skip [0] which is ProgramData)
     for acc in ctx.remaining_accounts.iter().skip(1) {
+        // Fix #840: Match require_multisig validation — only system-owned accounts
+        // can be valid multisig signers. This prevents PDAs that are signers via CPI
+        // from being counted during initialization but rejected during runtime operations.
         if acc.is_signer
+            && acc.owner == &anchor_lang::system_program::ID
             && multisig_owners.contains(acc.key)
             && !counted_keys.contains(acc.key)
         {
