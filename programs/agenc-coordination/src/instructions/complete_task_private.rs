@@ -58,8 +58,8 @@ use crate::instructions::constants::{
     ZK_WITNESS_FIELD_COUNT,
 };
 use crate::state::{
-    AgentRegistration, Nullifier, ProtocolConfig, Task, TaskClaim, TaskEscrow, TaskStatus,
-    HASH_SIZE, RESULT_DATA_SIZE,
+    AgentRegistration, Nullifier, ProtocolConfig, Task, TaskClaim, TaskEscrow, HASH_SIZE,
+    RESULT_DATA_SIZE,
 };
 use crate::utils::compute_budget::log_compute_units;
 use crate::utils::version::check_version_compatible;
@@ -249,7 +249,7 @@ pub fn complete_task_private(
     // FIX: Use task-locked fee (was incorrectly using protocol_config.protocol_fee_bps)
     let protocol_fee_bps = calculate_fee_with_reputation(task.protocol_fee_bps, worker.reputation);
 
-    // Execute reward transfer, state updates, and event emissions
+    // Execute reward transfer, state updates, event emissions, and conditional escrow closure
     execute_completion_rewards(
         task,
         claim,
@@ -258,17 +258,11 @@ pub fn complete_task_private(
         &mut ctx.accounts.protocol_config,
         &ctx.accounts.authority.to_account_info(),
         &ctx.accounts.treasury.to_account_info(),
+        &ctx.accounts.creator.to_account_info(),
         protocol_fee_bps,
         None, // Private: preserve privacy
         &clock,
     )?;
-
-    // Only close escrow when task is fully completed (all required completions done).
-    // For collaborative tasks with max_workers > 1, this keeps the escrow open
-    // for subsequent workers to complete and receive their share.
-    if task.status == TaskStatus::Completed {
-        escrow.close(ctx.accounts.creator.to_account_info())?;
-    }
 
     Ok(())
 }

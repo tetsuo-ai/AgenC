@@ -161,7 +161,7 @@ pub fn handler(
 
     log_compute_units("complete_task_validated");
 
-    // Execute reward transfer, state updates, and event emissions
+    // Execute reward transfer, state updates, event emissions, and conditional escrow closure
     execute_completion_rewards(
         task,
         claim,
@@ -170,17 +170,11 @@ pub fn handler(
         &mut ctx.accounts.protocol_config,
         &ctx.accounts.authority.to_account_info(),
         &ctx.accounts.treasury.to_account_info(),
+        &ctx.accounts.creator.to_account_info(),
         protocol_fee_bps,
         Some(claim_result_data),
         &clock,
     )?;
-
-    // Only close escrow when task is fully completed (all required completions done).
-    // For collaborative tasks with max_workers > 1, this keeps the escrow open
-    // for subsequent workers to complete and receive their share.
-    if task.status == TaskStatus::Completed {
-        escrow.close(ctx.accounts.creator.to_account_info())?;
-    }
 
     log_compute_units("complete_task_done");
 
