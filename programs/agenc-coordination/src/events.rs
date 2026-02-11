@@ -74,6 +74,8 @@ pub struct TaskCreated {
     pub task_type: u8,
     pub deadline: i64,
     pub min_reputation: u16,
+    /// SPL token mint for reward denomination (None = SOL)
+    pub reward_mint: Option<Pubkey>,
     pub timestamp: i64,
 }
 
@@ -84,6 +86,8 @@ pub struct DependentTaskCreated {
     pub creator: Pubkey,
     pub depends_on: Pubkey,
     pub dependency_type: u8,
+    /// SPL token mint for reward denomination (None = SOL)
+    pub reward_mint: Option<Pubkey>,
     pub timestamp: i64,
 }
 

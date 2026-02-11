@@ -6,6 +6,8 @@ use crate::instructions::lamport_transfer::transfer_lamports;
 use crate::state::{AgentRegistration, ProtocolConfig, Task, TaskClaim, TaskEscrow, TaskStatus};
 use crate::utils::version::check_version_compatible;
 use anchor_lang::prelude::*;
+use anchor_spl::token::{Mint, Token, TokenAccount};
+use crate::instructions::token_helpers::{close_token_escrow, transfer_tokens_from_escrow, validate_token_account};
 
 #[derive(Accounts)]
 pub struct CancelTask<'info> {
@@ -35,6 +37,23 @@ pub struct CancelTask<'info> {
     pub protocol_config: Account<'info, ProtocolConfig>,
 
     pub system_program: Program<'info, System>,
+
+    // === Optional SPL Token accounts (only required for token-denominated tasks) ===
+
+    /// Token escrow ATA holding reward tokens (optional)
+    #[account(mut)]
+    pub token_escrow_ata: Option<Account<'info, TokenAccount>>,
+
+    /// Creator's token account to receive refund (optional)
+    /// CHECK: Validated in handler
+    #[account(mut)]
+    pub creator_token_account: Option<UncheckedAccount<'info>>,
+
+    /// SPL token mint (optional, must match task.reward_mint)
+    pub reward_mint: Option<Account<'info, Mint>>,
+
+    /// SPL Token program (optional, required for token tasks)
+    pub token_program: Option<Program<'info, Token>>,
 }
 
 pub fn handler(ctx: Context<CancelTask>) -> Result<()> {
@@ -79,11 +98,58 @@ pub fn handler(ctx: Context<CancelTask>) -> Result<()> {
         .ok_or(CoordinationError::ArithmeticOverflow)?;
 
     // Transfer refund to creator
-    transfer_lamports(
-        &escrow.to_account_info(),
-        &ctx.accounts.creator.to_account_info(),
-        refund_amount,
-    )?;
+    if task.reward_mint.is_some() {
+        // Token path: transfer tokens back to creator, then close token escrow ATA
+        require!(
+            ctx.accounts.token_escrow_ata.is_some()
+                && ctx.accounts.creator_token_account.is_some()
+                && ctx.accounts.reward_mint.is_some()
+                && ctx.accounts.token_program.is_some(),
+            CoordinationError::MissingTokenAccounts
+        );
+
+        let token_escrow = ctx.accounts.token_escrow_ata.as_ref().unwrap();
+        let creator_ta = ctx.accounts.creator_token_account.as_ref().unwrap();
+        let mint = ctx.accounts.reward_mint.as_ref().unwrap();
+        let token_program = ctx.accounts.token_program.as_ref().unwrap();
+
+        require!(
+            mint.key() == task.reward_mint.unwrap(),
+            CoordinationError::InvalidTokenMint
+        );
+        validate_token_account(token_escrow, &mint.key(), &escrow.key())?;
+
+        let task_key = task.key();
+        let task_key_bytes = task_key.to_bytes();
+        let bump_slice = [escrow.bump];
+        let escrow_seeds: &[&[u8]] = &[b"escrow", task_key_bytes.as_ref(), &bump_slice];
+
+        // Transfer remaining tokens back to creator
+        transfer_tokens_from_escrow(
+            token_escrow,
+            &creator_ta.to_account_info(),
+            &escrow.to_account_info(),
+            refund_amount,
+            escrow_seeds,
+            token_program,
+        )?;
+
+        // Close token escrow ATA, return rent to creator
+        close_token_escrow(
+            token_escrow,
+            &ctx.accounts.creator.to_account_info(),
+            &escrow.to_account_info(),
+            escrow_seeds,
+            token_program,
+        )?;
+    } else {
+        // SOL path: existing lamport transfer (unchanged)
+        transfer_lamports(
+            &escrow.to_account_info(),
+            &ctx.accounts.creator.to_account_info(),
+            refund_amount,
+        )?;
+    }
 
     // Update task status
     task.status = TaskStatus::Cancelled;

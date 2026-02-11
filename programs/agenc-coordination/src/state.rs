@@ -78,7 +78,7 @@ pub mod capability {
 }
 
 /// Agent status
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Default, InitSpace)]
 #[repr(u8)]
 pub enum AgentStatus {
     #[default]
@@ -166,7 +166,7 @@ pub enum DependencyType {
 }
 
 /// Dispute resolution type
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Default, InitSpace)]
 #[repr(u8)]
 pub enum ResolutionType {
     #[default]
@@ -176,7 +176,7 @@ pub enum ResolutionType {
 }
 
 /// Dispute status
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Default, InitSpace)]
 #[repr(u8)]
 pub enum DisputeStatus {
     #[default]
@@ -210,6 +210,7 @@ pub const MIN_SUPPORTED_VERSION: u8 = 1;
 /// Protocol configuration account
 /// PDA seeds: ["protocol"]
 #[account]
+#[derive(InitSpace)]
 pub struct ProtocolConfig {
     /// Protocol authority
     /// Note: Cannot be updated after initialization.
@@ -373,7 +374,7 @@ impl ProtocolConfig {
 /// Agent registration account
 /// PDA seeds: ["agent", agent_id]
 #[account]
-#[derive(Default)]
+#[derive(Default, InitSpace)]
 pub struct AgentRegistration {
     /// Unique agent identifier
     pub agent_id: [u8; 32],
@@ -392,8 +393,10 @@ pub struct AgentRegistration {
     /// Agent status
     pub status: AgentStatus,
     /// Network endpoint (max 256 chars)
+    #[max_len(256)]
     pub endpoint: String,
     /// Extended metadata URI (max 128 chars)
+    #[max_len(128)]
     pub metadata_uri: String,
     /// Registration timestamp
     pub registered_at: i64,
@@ -521,8 +524,10 @@ pub struct Task {
     /// Minimum reputation score (0-10000) required for workers to claim this task.
     /// 0 means no reputation gate (default for backward compatibility).
     pub min_reputation: u16,
-    /// Reserved
-    pub _reserved: [u8; 30],
+    /// Optional SPL token mint for reward denomination.
+    /// None = SOL rewards (default, backward compatible).
+    /// Some(mint) = SPL token rewards using the specified mint.
+    pub reward_mint: Option<Pubkey>,
 }
 
 impl Default for Task {
@@ -550,7 +555,7 @@ impl Default for Task {
             depends_on: None,
             dependency_type: DependencyType::default(),
             min_reputation: 0,
-            _reserved: [0u8; 30],
+            reward_mint: None,
         }
     }
 }
@@ -581,12 +586,13 @@ impl Task {
         33 + // depends_on (Option<Pubkey>: 1 byte discriminator + 32 bytes pubkey)
         1 +  // dependency_type
         2 +  // min_reputation
-        30; // reserved
+        33; // reward_mint (Option<Pubkey>: 1 byte discriminator + 32 bytes pubkey)
 }
 
 /// Worker's claim on a task
 /// PDA seeds: ["claim", task, worker_agent]
 #[account]
+#[derive(InitSpace)]
 pub struct TaskClaim {
     /// Task being claimed
     pub task: Pubkey,
@@ -648,6 +654,7 @@ impl TaskClaim {
 /// Shared coordination state
 /// PDA seeds: ["state", owner, state_key]
 #[account]
+#[derive(InitSpace)]
 pub struct CoordinationState {
     /// Owner authority - namespaces state to prevent cross-user collisions
     pub owner: Pubkey,
@@ -693,7 +700,7 @@ impl CoordinationState {
 /// Dispute account for conflict resolution
 /// PDA seeds: ["dispute", dispute_id]
 #[account]
-#[derive(Default)]
+#[derive(Default, InitSpace)]
 pub struct Dispute {
     /// Dispute identifier
     pub dispute_id: [u8; 32],
@@ -765,14 +772,13 @@ impl Dispute {
         8 +  // worker_stake_at_dispute
         1 +  // initiated_by_creator
         1 +  // bump
-        32 + // defendant (fix #827)
-        1; // struct alignment padding
+        32; // defendant (fix #827)
 }
 
 /// Vote record for dispute
 /// PDA seeds: ["vote", dispute, voter]
 #[account]
-#[derive(Default)]
+#[derive(Default, InitSpace)]
 pub struct DisputeVote {
     /// Dispute being voted on
     pub dispute: Pubkey,
@@ -802,7 +808,7 @@ impl DisputeVote {
 /// One authority can only vote once per dispute, regardless of how many agents they control
 /// PDA seeds: ["authority_vote", dispute, authority]
 #[account]
-#[derive(Default)]
+#[derive(Default, InitSpace)]
 pub struct AuthorityDisputeVote {
     /// Dispute being voted on
     pub dispute: Pubkey,
@@ -828,7 +834,7 @@ impl AuthorityDisputeVote {
 /// Task escrow account
 /// PDA seeds: ["escrow", task]
 #[account]
-#[derive(Default)]
+#[derive(Default, InitSpace)]
 pub struct TaskEscrow {
     /// Task this escrow belongs to
     pub task: Pubkey,
@@ -854,7 +860,7 @@ impl TaskEscrow {
 /// Agent's speculation bond account
 /// PDA seeds: ["speculation_bond", agent]
 #[account]
-#[derive(Default)]
+#[derive(Default, InitSpace)]
 pub struct SpeculationBond {
     pub agent: Pubkey,
     pub total_bonded: u64,
@@ -870,7 +876,7 @@ impl SpeculationBond {
 
 /// On-chain record of a speculative commitment
 #[account]
-#[derive(Default)]
+#[derive(Default, InitSpace)]
 pub struct SpeculativeCommitment {
     pub task: Pubkey,
     pub producer: Pubkey,
@@ -891,7 +897,7 @@ impl SpeculativeCommitment {
 /// combination cannot be used again.
 /// PDA seeds: ["nullifier", nullifier_value]
 #[account]
-#[derive(Default)]
+#[derive(Default, InitSpace)]
 pub struct Nullifier {
     /// The nullifier value (derived from constraint_hash + agent_secret in ZK circuit)
     pub nullifier_value: [u8; 32],
@@ -918,13 +924,15 @@ impl Nullifier {
 mod tests {
     use super::*;
 
-    /// Helper: SIZE should equal struct size + 8-byte discriminator
+    /// Helper: SIZE should equal INIT_SPACE (borsh serialized) + 8-byte discriminator.
+    /// Note: std::mem::size_of doesn't work here because Rust adds alignment padding
+    /// that borsh serialization doesn't include.
     macro_rules! test_size_constant {
         ($struct:ty) => {
             assert_eq!(
                 <$struct>::SIZE,
-                std::mem::size_of::<$struct>() + 8,
-                concat!(stringify!($struct), "::SIZE mismatch")
+                <$struct as anchor_lang::Space>::INIT_SPACE + 8,
+                concat!(stringify!($struct), "::SIZE mismatch with INIT_SPACE")
             );
         };
     }
