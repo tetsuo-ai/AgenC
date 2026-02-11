@@ -44,6 +44,21 @@ vi.mock('@agenc/sdk', () => {
     PRIVACY_CASH_PROGRAM_ID: new PublicKey('11111111111111111111111111111111'),
     TaskState: { Open: 0, InProgress: 1 },
     TaskStatus: {},
+    // Logger re-exports needed by utils/logger.ts
+    silentLogger: {
+      debug: () => {},
+      info: () => {},
+      warn: () => {},
+      error: () => {},
+      setLevel: () => {},
+    },
+    createLogger: () => ({
+      debug: () => {},
+      info: () => {},
+      warn: () => {},
+      error: () => {},
+      setLevel: () => {},
+    }),
   };
 });
 

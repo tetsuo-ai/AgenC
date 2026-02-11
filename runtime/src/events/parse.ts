@@ -24,17 +24,7 @@ import type {
   RawMigrationCompletedEvent, MigrationCompletedEvent,
   RawProtocolVersionUpdatedEvent, ProtocolVersionUpdatedEvent,
 } from './types.js';
-
-/**
- * Converts array-like value to Uint8Array.
- * Defined locally (same as agent/events.ts and agent/types.ts).
- */
-function toUint8Array(value: number[] | Uint8Array): Uint8Array {
-  if (value instanceof Uint8Array) {
-    return value;
-  }
-  return new Uint8Array(value);
-}
+import { toUint8Array } from '../utils/encoding.js';
 
 // --- Task Parse Functions ---
 

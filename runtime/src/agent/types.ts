@@ -7,6 +7,7 @@ import {
   parseCapabilities,
   type CapabilityName,
 } from './capabilities.js';
+import { toUint8Array } from '../utils/encoding.js';
 
 // Re-export capability functions from canonical source
 export { hasCapability, getCapabilityNames, type CapabilityName };
@@ -468,16 +469,6 @@ function parseAgentStatus(
  */
 function toBigInt(value: { toString: () => string }): bigint {
   return BigInt(value.toString());
-}
-
-/**
- * Converts array-like value to Uint8Array.
- */
-function toUint8Array(value: number[] | Uint8Array): Uint8Array {
-  if (value instanceof Uint8Array) {
-    return value;
-  }
-  return new Uint8Array(value);
 }
 
 // ============================================================================

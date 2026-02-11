@@ -8,6 +8,7 @@
 import type { PublicKey, TransactionSignature } from '@solana/web3.js';
 import { TaskType } from '../events/types.js';
 import type { Logger } from '../utils/logger.js';
+import { toUint8Array } from '../utils/encoding.js';
 import type { TaskOperations } from './operations.js';
 import type { TaskDiscovery, TaskDiscoveryResult } from './discovery.js';
 
@@ -266,20 +267,6 @@ export function isRawOnChainTaskClaim(data: unknown): data is RawOnChainTaskClai
   if (typeof obj.bump !== 'number') return false;
 
   return true;
-}
-
-// ============================================================================
-// Conversion Helpers
-// ============================================================================
-
-/**
- * Converts array-like value to Uint8Array.
- */
-function toUint8Array(value: number[] | Uint8Array): Uint8Array {
-  if (value instanceof Uint8Array) {
-    return value;
-  }
-  return new Uint8Array(value);
 }
 
 // ============================================================================
