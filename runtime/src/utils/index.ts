@@ -18,6 +18,7 @@ export {
   bigintsToProofHash,
   proofHashToBigints,
   toAnchorBytes,
+  toUint8Array,
 } from './encoding.js';
 
 export { PdaWithBump, derivePda, validateIdLength } from './pda.js';
@@ -25,3 +26,5 @@ export { PdaWithBump, derivePda, validateIdLength } from './pda.js';
 export { encodeStatusByte, queryWithFallback } from './query.js';
 
 export { fetchTreasury } from './treasury.js';
+
+export { ensureLazyModule } from './lazy-import.js';

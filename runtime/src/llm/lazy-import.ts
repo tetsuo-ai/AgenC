@@ -1,12 +1,13 @@
 /**
  * Shared lazy-import helper for LLM provider adapters.
  *
- * Centralizes the dynamic `import()` pattern used by all three adapters
- * (Grok, Anthropic, Ollama) to load optional SDK dependencies on first use.
+ * Thin wrapper around the generic {@link ensureLazyModule} that throws
+ * {@link LLMProviderError} on missing packages.
  *
  * @module
  */
 
+import { ensureLazyModule } from '../utils/lazy-import.js';
 import { LLMProviderError } from './errors.js';
 
 /**
@@ -25,14 +26,9 @@ export async function ensureLazyImport<T>(
   providerName: string,
   configure: (mod: Record<string, unknown>) => T,
 ): Promise<T> {
-  let mod: Record<string, unknown>;
-  try {
-    mod = await import(packageName) as Record<string, unknown>;
-  } catch {
-    throw new LLMProviderError(
-      providerName,
-      `${packageName} package not installed. Install it: npm install ${packageName}`,
-    );
-  }
-  return configure(mod);
+  return ensureLazyModule(
+    packageName,
+    (msg) => new LLMProviderError(providerName, msg),
+    configure,
+  );
 }

@@ -547,5 +547,27 @@ export {
   DAGOrchestrator,
 } from './workflow/index.js';
 
+// Connection Manager
+export {
+  // Types
+  type EndpointConfig,
+  type RetryConfig,
+  type HealthCheckConfig,
+  type ConnectionManagerConfig,
+  type EndpointHealth,
+  type ConnectionManagerStats,
+  // Error classes
+  ConnectionError,
+  AllEndpointsUnhealthyError,
+  // Utilities
+  isRetryableError,
+  isConnectionLevelError,
+  isWriteMethod,
+  computeBackoff,
+  deriveCoalesceKey,
+  // Class
+  ConnectionManager,
+} from './connection/index.js';
+
 // Agent Builder (Phase 10)
 export { AgentBuilder, BuiltAgent } from './builder.js';

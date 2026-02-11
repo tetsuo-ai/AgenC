@@ -311,3 +311,19 @@ export function proofHashToBigints(hash: Uint8Array): bigint[] {
 export function toAnchorBytes(bytes: Uint8Array): number[] {
   return Array.from(bytes) as unknown as number[];
 }
+
+// ============================================================================
+// Array → Uint8Array conversion
+// ============================================================================
+
+/**
+ * Converts an array-like value to Uint8Array.
+ *
+ * Handles `number[]`, `Uint8Array` (pass-through), and `unknown` (returns empty).
+ * Used by event parsing and account deserialization across all modules.
+ */
+export function toUint8Array(value: unknown): Uint8Array {
+  if (value instanceof Uint8Array) return value;
+  if (Array.isArray(value)) return new Uint8Array(value);
+  return new Uint8Array(0);
+}

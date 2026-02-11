@@ -86,6 +86,10 @@ export const RuntimeErrorCodes = {
   WORKFLOW_MONITORING_ERROR: 'WORKFLOW_MONITORING_ERROR',
   /** Workflow state transition or lookup failed */
   WORKFLOW_STATE_ERROR: 'WORKFLOW_STATE_ERROR',
+  /** RPC connection error (timeout, server error, etc.) */
+  CONNECTION_ERROR: 'CONNECTION_ERROR',
+  /** All configured RPC endpoints are unhealthy */
+  ALL_ENDPOINTS_UNHEALTHY: 'ALL_ENDPOINTS_UNHEALTHY',
 } as const;
 
 /** Union type of all runtime error code values */
