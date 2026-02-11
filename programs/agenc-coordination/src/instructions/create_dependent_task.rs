@@ -108,19 +108,24 @@ pub fn handler(
     // Check rate limits and update agent state
     check_task_creation_rate_limits(creator_agent, config, &clock)?;
 
+    // Reject zero-reward dependent tasks (issue #837)
+    // Zero-reward tasks cannot be completed due to RewardTooSmall check in completion_helpers
+    require!(
+        reward_amount > 0,
+        CoordinationError::RewardTooSmall
+    );
+
     // Transfer reward to escrow
-    if reward_amount > 0 {
-        system_program::transfer(
-            CpiContext::new(
-                ctx.accounts.system_program.to_account_info(),
-                system_program::Transfer {
-                    from: ctx.accounts.creator.to_account_info(),
-                    to: ctx.accounts.escrow.to_account_info(),
-                },
-            ),
-            reward_amount,
-        )?;
-    }
+    system_program::transfer(
+        CpiContext::new(
+            ctx.accounts.system_program.to_account_info(),
+            system_program::Transfer {
+                from: ctx.accounts.creator.to_account_info(),
+                to: ctx.accounts.escrow.to_account_info(),
+            },
+        ),
+        reward_amount,
+    )?;
 
     // Initialize task (BUG FIX: protocol_fee_bps was not set before this refactor)
     let task = &mut ctx.accounts.task;
