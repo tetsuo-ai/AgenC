@@ -2,6 +2,7 @@
 
 use crate::errors::CoordinationError;
 use crate::events::TaskCancelled;
+use crate::instructions::lamport_transfer::transfer_lamports;
 use crate::state::{AgentRegistration, ProtocolConfig, Task, TaskClaim, TaskEscrow, TaskStatus};
 use crate::utils::version::check_version_compatible;
 use anchor_lang::prelude::*;
@@ -78,14 +79,11 @@ pub fn handler(ctx: Context<CancelTask>) -> Result<()> {
         .ok_or(CoordinationError::ArithmeticOverflow)?;
 
     // Transfer refund to creator
-    if refund_amount > 0 {
-        **escrow.to_account_info().try_borrow_mut_lamports()? -= refund_amount;
-        let creator_info = ctx.accounts.creator.to_account_info();
-        **creator_info.try_borrow_mut_lamports()? = creator_info
-            .lamports()
-            .checked_add(refund_amount)
-            .ok_or(CoordinationError::ArithmeticOverflow)?;
-    }
+    transfer_lamports(
+        &escrow.to_account_info(),
+        &ctx.accounts.creator.to_account_info(),
+        refund_amount,
+    )?;
 
     // Update task status
     task.status = TaskStatus::Cancelled;
