@@ -2430,6 +2430,146 @@ export type AgencCoordination = {
       "args": []
     },
     {
+      "name": "suspendAgent",
+      "docs": [
+        "Suspend an agent (protocol authority only, fix #819).",
+        "Prevents the agent from claiming tasks or participating in disputes."
+      ],
+      "discriminator": [
+        242,
+        28,
+        54,
+        59,
+        247,
+        20,
+        59,
+        110
+      ],
+      "accounts": [
+        {
+          "name": "agent",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  103,
+                  101,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "agent.agent_id",
+                "account": "agentRegistration"
+              }
+            ]
+          }
+        },
+        {
+          "name": "protocolConfig",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "signer": true,
+          "relations": [
+            "protocolConfig"
+          ]
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "unsuspendAgent",
+      "docs": [
+        "Unsuspend an agent (protocol authority only, fix #819).",
+        "Restores the agent to Inactive status."
+      ],
+      "discriminator": [
+        79,
+        75,
+        53,
+        57,
+        177,
+        142,
+        131,
+        149
+      ],
+      "accounts": [
+        {
+          "name": "agent",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  103,
+                  101,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "agent.agent_id",
+                "account": "agentRegistration"
+              }
+            ]
+          }
+        },
+        {
+          "name": "protocolConfig",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "signer": true,
+          "relations": [
+            "protocolConfig"
+          ]
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "updateAgent",
       "docs": [
         "Update an existing agent's registration data.",
@@ -3187,6 +3327,32 @@ export type AgencCoordination = {
         100,
         189,
         85
+      ]
+    },
+    {
+      "name": "agentSuspended",
+      "discriminator": [
+        219,
+        202,
+        177,
+        3,
+        116,
+        220,
+        164,
+        148
+      ]
+    },
+    {
+      "name": "agentUnsuspended",
+      "discriminator": [
+        26,
+        114,
+        30,
+        199,
+        235,
+        91,
+        134,
+        255
       ]
     },
     {
@@ -4542,6 +4708,62 @@ export type AgencCoordination = {
       }
     },
     {
+      "name": "agentSuspended",
+      "docs": [
+        "Emitted when an agent is suspended by the protocol authority (fix #819)"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "agentId",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "agentUnsuspended",
+      "docs": [
+        "Emitted when an agent is unsuspended by the protocol authority (fix #819)"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "agentId",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
       "name": "agentUpdated",
       "docs": [
         "Emitted when an agent updates its registration"
@@ -5054,6 +5276,15 @@ export type AgencCoordination = {
               "Bump seed"
             ],
             "type": "u8"
+          },
+          {
+            "name": "defendant",
+            "docs": [
+              "The defendant worker's agent PDA (fix #827)",
+              "Binds slashing target at dispute initiation to prevent slashing wrong worker",
+              "on collaborative tasks with multiple claimants."
+            ],
+            "type": "pubkey"
           }
         ]
       }
@@ -5170,6 +5401,13 @@ export type AgencCoordination = {
           },
           {
             "name": "initiator",
+            "type": "pubkey"
+          },
+          {
+            "name": "defendant",
+            "docs": [
+              "The defendant worker's agent PDA (fix #827)"
+            ],
             "type": "pubkey"
           },
           {

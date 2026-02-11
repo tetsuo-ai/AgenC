@@ -71,8 +71,14 @@ pub fn handler(ctx: Context<ApplyDisputeSlash>) -> Result<()> {
 
     check_version_compatible(config)?;
 
-    // Verify the worker was actually part of this disputed task
-    // Check that worker has/had a claim on the task
+    // Verify the worker being slashed is the actual defendant (fix #827)
+    // Prevents slashing wrong worker on collaborative tasks with multiple claimants
+    require!(
+        worker_agent.key() == dispute.defendant,
+        CoordinationError::WorkerNotInDispute
+    );
+
+    // Belt-and-suspenders: also verify worker has a valid claim on the disputed task
     require!(
         ctx.accounts.worker_claim.task == dispute.task
             && ctx.accounts.worker_claim.worker == worker_agent.key(),
@@ -91,10 +97,6 @@ pub fn handler(ctx: Context<ApplyDisputeSlash>) -> Result<()> {
     // Check slash window hasn't expired (fix #414)
     let clock = Clock::get()?;
     validate_slash_window(dispute.resolved_at, &clock)?;
-    require!(
-        worker_agent.key() == ctx.accounts.worker_claim.worker,
-        CoordinationError::UnauthorizedAgent
-    );
 
     let (_total_votes, approval_pct) =
         calculate_approval_percentage(dispute.votes_for, dispute.votes_against)?;
