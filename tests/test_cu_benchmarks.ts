@@ -26,6 +26,7 @@ import {
   deriveEscrowPda,
   deriveClaimPda,
   deriveProtocolPda,
+  deriveProgramDataPda,
   generateRunId,
   makeAgentId,
 } from "./test-utils";
@@ -131,6 +132,7 @@ describe("CU Benchmarks", () => {
           secondSigner: secondSigner.publicKey,
           systemProgram: SystemProgram.programId,
         })
+        .remainingAccounts([{ pubkey: deriveProgramDataPda(program.programId), isSigner: false, isWritable: false }])
         .signers([secondSigner])
         .rpc();
     } catch {

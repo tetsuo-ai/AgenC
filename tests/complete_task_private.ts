@@ -20,6 +20,7 @@ import { AgencCoordination } from "../target/types/agenc_coordination";
 import {
   CAPABILITY_COMPUTE,
   TASK_TYPE_EXCLUSIVE,
+  deriveProgramDataPda,
 } from "./test-utils";
 
 describe("complete_task_private", () => {
@@ -115,17 +116,18 @@ describe("complete_task_private", () => {
 
     // Initialize protocol if not already done
     try {
+      const programDataPda = deriveProgramDataPda(program.programId);
       await program.methods
-        .initializeProtocol(51, 100, new BN(1 * LAMPORTS_PER_SOL), 1, [provider.wallet.publicKey])
+        .initializeProtocol(51, 100, new BN(1 * LAMPORTS_PER_SOL), new BN(LAMPORTS_PER_SOL / 100), 1, [provider.wallet.publicKey, treasury.publicKey])
         .accountsPartial({
           protocolConfig: protocolPda,
           treasury: treasury.publicKey,
           authority: provider.wallet.publicKey,
+          secondSigner: treasury.publicKey,
           systemProgram: SystemProgram.programId,
         })
-        .remainingAccounts([
-          { pubkey: provider.wallet.publicKey, isSigner: true, isWritable: false },
-        ])
+        .remainingAccounts([{ pubkey: deriveProgramDataPda(program.programId), isSigner: false, isWritable: false }])
+        .signers([treasury])
         .rpc();
       treasuryPubkey = treasury.publicKey;
     } catch (e: unknown) {

@@ -27,6 +27,7 @@ import {
   CAPABILITY_COMPUTE,
   TASK_TYPE_EXCLUSIVE,
   TASK_TYPE_COMPETITIVE,
+  deriveProgramDataPda,
 } from "./test-utils";
 
 describe("ZK Proof Verification Lifecycle", () => {
@@ -206,17 +207,18 @@ describe("ZK Proof Verification Lifecycle", () => {
 
     // Initialize protocol
     try {
+      const programDataPda = deriveProgramDataPda(program.programId);
       await program.methods
-        .initializeProtocol(51, 100, new BN(LAMPORTS_PER_SOL / 10), 1, [provider.wallet.publicKey])
+        .initializeProtocol(51, 100, new BN(LAMPORTS_PER_SOL / 10), new BN(LAMPORTS_PER_SOL / 100), 1, [provider.wallet.publicKey, treasury.publicKey])
         .accountsPartial({
           protocolConfig: protocolPda,
           treasury: treasury.publicKey,
           authority: provider.wallet.publicKey,
+          secondSigner: treasury.publicKey,
           systemProgram: SystemProgram.programId,
         })
-        .remainingAccounts([
-          { pubkey: provider.wallet.publicKey, isSigner: true, isWritable: false },
-        ])
+        .remainingAccounts([{ pubkey: deriveProgramDataPda(program.programId), isSigner: false, isWritable: false }])
+        .signers([treasury])
         .rpc();
       treasuryPubkey = treasury.publicKey;
     } catch (e) {

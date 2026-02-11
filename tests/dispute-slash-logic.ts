@@ -42,6 +42,7 @@ import {
   TASK_TYPE_EXCLUSIVE,
   RESOLUTION_TYPE_REFUND,
   getDefaultDeadline,
+  deriveProgramDataPda,
 } from "./test-utils";
 
 describe("dispute-slash-logic (issue #136)", () => {
@@ -158,9 +159,10 @@ describe("dispute-slash-logic (issue #136)", () => {
           protocolConfig: protocolPda,
           treasury: treasury.publicKey,
           authority: provider.wallet.publicKey,
-          secondSigner: secondSigner.publicKey,  // new account (fix #556)
+          secondSigner: secondSigner.publicKey,
           systemProgram: SystemProgram.programId,
         })
+        .remainingAccounts([{ pubkey: deriveProgramDataPda(program.programId), isSigner: false, isWritable: false }])
         .signers([secondSigner])
         .rpc();
       treasuryPubkey = treasury.publicKey;
