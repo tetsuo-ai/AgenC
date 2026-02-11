@@ -16,8 +16,8 @@ use crate::errors::CoordinationError;
 use crate::events::{ArbiterVotesCleanedUp, DisputeExpired};
 use crate::instructions::lamport_transfer::{credit_lamports, debit_lamports, transfer_lamports};
 use crate::instructions::dispute_helpers::{
-    check_duplicate_arbiters, process_arbiter_vote_pair, process_worker_claim_pair,
-    validate_remaining_accounts_structure,
+    check_duplicate_arbiters, check_duplicate_workers, process_arbiter_vote_pair,
+    process_worker_claim_pair, validate_remaining_accounts_structure,
 };
 use crate::state::{
     AgentRegistration, Dispute, DisputeStatus, ProtocolConfig, Task, TaskClaim, TaskEscrow,
@@ -236,6 +236,9 @@ pub fn handler(ctx: Context<ExpireDispute>) -> Result<()> {
         dispute_id: dispute.dispute_id,
         arbiter_count: dispute.total_voters,
     });
+
+    // Check for duplicate workers before processing (fix #826)
+    check_duplicate_workers(ctx.remaining_accounts, arbiter_accounts)?;
 
     // Process additional worker (claim, worker) pairs to decrement active_tasks (fix #333)
     for i in (arbiter_accounts..ctx.remaining_accounts.len()).step_by(2) {
