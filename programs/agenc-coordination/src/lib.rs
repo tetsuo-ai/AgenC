@@ -110,6 +110,7 @@ pub mod agenc_coordination {
         task_type: u8,
         constraint_hash: Option<[u8; 32]>,
         min_reputation: u16,
+        reward_mint: Option<Pubkey>,
     ) -> Result<()> {
         instructions::create_task::handler(
             ctx,
@@ -122,6 +123,7 @@ pub mod agenc_coordination {
             task_type,
             constraint_hash,
             min_reputation,
+            reward_mint,
         )
     }
 
@@ -152,6 +154,7 @@ pub mod agenc_coordination {
         constraint_hash: Option<[u8; 32]>,
         dependency_type: u8,
         min_reputation: u16,
+        reward_mint: Option<Pubkey>,
     ) -> Result<()> {
         instructions::create_dependent_task::handler(
             ctx,
@@ -165,6 +168,7 @@ pub mod agenc_coordination {
             constraint_hash,
             dependency_type,
             min_reputation,
+            reward_mint,
         )
     }
 

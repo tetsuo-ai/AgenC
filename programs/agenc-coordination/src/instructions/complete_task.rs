@@ -5,13 +5,16 @@ use crate::instructions::completion_helpers::{
     calculate_fee_with_reputation, execute_completion_rewards, validate_completion_prereqs,
     validate_task_dependency,
 };
+use crate::instructions::completion_helpers::TokenPaymentAccounts;
+use crate::instructions::token_helpers::validate_token_account;
 use crate::state::{
-    AgentRegistration, ProtocolConfig, Task, TaskClaim, TaskEscrow, TaskStatus,
+    AgentRegistration, ProtocolConfig, Task, TaskClaim, TaskEscrow,
     HASH_SIZE, RESULT_DATA_SIZE,
 };
 use crate::utils::compute_budget::log_compute_units;
 use crate::utils::version::check_version_compatible;
 use anchor_lang::prelude::*;
+use anchor_spl::token::{Mint, Token, TokenAccount};
 
 /// Note: Large accounts use Box<Account<...>> to avoid stack overflow
 /// Consistent with Anchor best practices for accounts > 10KB
@@ -78,6 +81,27 @@ pub struct CompleteTask<'info> {
     pub authority: Signer<'info>,
 
     pub system_program: Program<'info, System>,
+
+    // === Optional SPL Token accounts (only required for token-denominated tasks) ===
+
+    /// Token escrow ATA holding reward tokens (optional)
+    #[account(mut)]
+    pub token_escrow_ata: Option<Account<'info, TokenAccount>>,
+
+    /// Worker's token account to receive reward (optional)
+    /// CHECK: Validated in handler; ATA created via CPI if needed
+    #[account(mut)]
+    pub worker_token_account: Option<UncheckedAccount<'info>>,
+
+    /// Treasury's token account for protocol fees (optional, must pre-exist)
+    #[account(mut)]
+    pub treasury_token_account: Option<Account<'info, TokenAccount>>,
+
+    /// SPL token mint (optional, must match task.reward_mint)
+    pub reward_mint: Option<Account<'info, Mint>>,
+
+    /// SPL Token program (optional, required for token tasks)
+    pub token_program: Option<Program<'info, Token>>,
 }
 
 pub fn handler(
@@ -118,6 +142,42 @@ pub fn handler(
     // Shared validation: status, transition, deadline, claim, competitive guard
     validate_completion_prereqs(task, claim, &clock)?;
 
+    // Build optional token payment accounts
+    let token_accounts = if task.reward_mint.is_some() {
+        require!(
+            ctx.accounts.token_escrow_ata.is_some()
+                && ctx.accounts.worker_token_account.is_some()
+                && ctx.accounts.treasury_token_account.is_some()
+                && ctx.accounts.reward_mint.is_some()
+                && ctx.accounts.token_program.is_some(),
+            CoordinationError::MissingTokenAccounts
+        );
+
+        let mint = ctx.accounts.reward_mint.as_ref().unwrap();
+        let token_escrow = ctx.accounts.token_escrow_ata.as_ref().unwrap();
+        let treasury_ta = ctx.accounts.treasury_token_account.as_ref().unwrap();
+
+        require!(
+            mint.key() == task.reward_mint.unwrap(),
+            CoordinationError::InvalidTokenMint
+        );
+
+        validate_token_account(token_escrow, &mint.key(), &escrow.key())?;
+        validate_token_account(treasury_ta, &mint.key(), &ctx.accounts.protocol_config.treasury)?;
+
+        Some(TokenPaymentAccounts {
+            token_escrow_ata: token_escrow.to_account_info(),
+            worker_token_account: ctx.accounts.worker_token_account.as_ref().unwrap().to_account_info(),
+            treasury_token_account: treasury_ta.to_account_info(),
+            token_program: ctx.accounts.token_program.as_ref().unwrap().to_account_info(),
+            escrow_authority: escrow.to_account_info(),
+            escrow_bump: escrow.bump,
+            task_key: task.key(),
+        })
+    } else {
+        None
+    };
+
     // Update claim fields (must be set before execute_completion_rewards)
     let claim_result_data = result_data.unwrap_or([0u8; RESULT_DATA_SIZE]);
     claim.proof_hash = proof_hash;
@@ -140,6 +200,7 @@ pub fn handler(
         protocol_fee_bps,
         Some(claim_result_data),
         &clock,
+        token_accounts,
     )?;
 
     log_compute_units("complete_task_done");

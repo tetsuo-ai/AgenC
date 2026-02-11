@@ -455,4 +455,17 @@ pub enum CoordinationError {
 
     #[msg("Cannot claim own task: worker authority matches task creator")]
     SelfTaskNotAllowed,
+
+    // SPL Token errors (7800-7899)
+    #[msg("Token accounts not provided for token-denominated task")]
+    MissingTokenAccounts,
+
+    #[msg("Token escrow ATA does not match expected derivation")]
+    InvalidTokenEscrow,
+
+    #[msg("Provided mint does not match task's reward_mint")]
+    InvalidTokenMint,
+
+    #[msg("SPL token transfer CPI failed")]
+    TokenTransferFailed,
 }

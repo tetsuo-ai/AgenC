@@ -77,6 +77,7 @@ pub fn init_task_fields(
     protocol_fee_bps: u16,
     timestamp: i64,
     min_reputation: u16,
+    reward_mint: Option<Pubkey>,
 ) -> Result<()> {
     task.task_id = task_id;
     task.creator = creator;
@@ -105,6 +106,7 @@ pub fn init_task_fields(
     task.dependency_type = DependencyType::None;
     task.depends_on = None;
     task.min_reputation = min_reputation;
+    task.reward_mint = reward_mint;
 
     Ok(())
 }

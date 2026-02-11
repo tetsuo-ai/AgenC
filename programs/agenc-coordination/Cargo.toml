@@ -22,7 +22,7 @@ init-if-needed = []
 
 [dependencies]
 anchor-lang = { version = "0.32.1", features = ["init-if-needed"] }
-anchor-spl  = { version = "0.32.1", default-features = false, features = ["token", "token_2022"] }
+anchor-spl  = { version = "0.32.1", default-features = false, features = ["token", "token_2022", "associated_token"] }
 
 # MSRV compatibility: Solana BPF toolchain uses rustc 1.79.0-dev
 # indexmap 2.12.1+ requires rustc 1.82, so pin to last compatible version

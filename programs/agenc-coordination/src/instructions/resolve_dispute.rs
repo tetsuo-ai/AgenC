@@ -15,6 +15,8 @@ use crate::state::{
 };
 use crate::utils::version::check_version_compatible;
 use anchor_lang::prelude::*;
+use anchor_spl::token::{Mint, Token, TokenAccount};
+use crate::instructions::token_helpers::{close_token_escrow, transfer_tokens_from_escrow, validate_token_account};
 
 /// Note: Large accounts use Box<Account<...>> to avoid stack overflow
 /// Consistent with Anchor best practices for accounts > 10KB
@@ -84,6 +86,32 @@ pub struct ResolveDispute<'info> {
     pub worker_authority: Option<UncheckedAccount<'info>>,
 
     pub system_program: Program<'info, System>,
+
+    // === Optional SPL Token accounts (only required for token-denominated tasks) ===
+
+    /// Token escrow ATA holding reward tokens (optional)
+    #[account(mut)]
+    pub token_escrow_ata: Option<Account<'info, TokenAccount>>,
+
+    /// Creator's token account for refund (optional)
+    /// CHECK: Validated in handler
+    #[account(mut)]
+    pub creator_token_account: Option<UncheckedAccount<'info>>,
+
+    /// Worker's token account for payment (optional)
+    /// CHECK: Validated in handler
+    #[account(mut)]
+    pub worker_token_account_ata: Option<UncheckedAccount<'info>>,
+
+    /// Treasury's token account for protocol fees (optional)
+    #[account(mut)]
+    pub treasury_token_account: Option<Account<'info, TokenAccount>>,
+
+    /// SPL token mint (optional, must match task.reward_mint)
+    pub reward_mint: Option<Account<'info, Mint>>,
+
+    /// SPL Token program (optional, required for token tasks)
+    pub token_program: Option<Program<'info, Token>>,
 }
 
 pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
@@ -186,20 +214,46 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
         .checked_sub(escrow.distributed)
         .ok_or(CoordinationError::ArithmeticOverflow)?;
 
+    // Prepare token context if this is a token-denominated task
+    let is_token_task = task.reward_mint.is_some();
+    let task_key = task.key();
+
+    if is_token_task {
+        require!(
+            ctx.accounts.token_escrow_ata.is_some()
+                && ctx.accounts.reward_mint.is_some()
+                && ctx.accounts.token_program.is_some(),
+            CoordinationError::MissingTokenAccounts
+        );
+        let mint = ctx.accounts.reward_mint.as_ref().unwrap();
+        require!(
+            mint.key() == task.reward_mint.unwrap(),
+            CoordinationError::InvalidTokenMint
+        );
+        let token_escrow = ctx.accounts.token_escrow_ata.as_ref().unwrap();
+        validate_token_account(token_escrow, &mint.key(), &escrow.key())?;
+    }
+
     // Execute resolution based on type and approval
     if approved {
         match dispute.resolution_type {
             ResolutionType::Refund => {
-                // Full refund to creator
-                transfer_lamports(
-                    &escrow.to_account_info(),
-                    &ctx.accounts.creator.to_account_info(),
-                    remaining_funds,
-                )?;
+                if is_token_task {
+                    let token_escrow = ctx.accounts.token_escrow_ata.as_ref().unwrap();
+                    let token_program = ctx.accounts.token_program.as_ref().unwrap();
+                    require!(ctx.accounts.creator_token_account.is_some(), CoordinationError::MissingTokenAccounts);
+                    let creator_ta = ctx.accounts.creator_token_account.as_ref().unwrap();
+                    let task_key_bytes = task_key.to_bytes();
+                    let bump_slice = [escrow.bump];
+                    let escrow_seeds: &[&[u8]] = &[b"escrow", task_key_bytes.as_ref(), &bump_slice];
+                    transfer_tokens_from_escrow(token_escrow, &creator_ta.to_account_info(), &escrow.to_account_info(), remaining_funds, escrow_seeds, token_program)?;
+                    close_token_escrow(token_escrow, &ctx.accounts.creator.to_account_info(), &escrow.to_account_info(), escrow_seeds, token_program)?;
+                } else {
+                    transfer_lamports(&escrow.to_account_info(), &ctx.accounts.creator.to_account_info(), remaining_funds)?;
+                }
                 task.status = TaskStatus::Cancelled;
             }
             ResolutionType::Complete => {
-                // Pay worker - requires valid worker_claim and worker_authority (fix #296)
                 require!(
                     ctx.accounts.worker_claim.is_some()
                         && ctx.accounts.worker.is_some()
@@ -207,59 +261,54 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
                     CoordinationError::NotClaimed
                 );
 
-                // Pay to worker_authority (the actual wallet) instead of worker PDA (fix #296)
-                if let Some(worker_authority) = &ctx.accounts.worker_authority {
-                    transfer_lamports(
-                        &escrow.to_account_info(),
-                        &worker_authority.to_account_info(),
-                        remaining_funds,
-                    )?;
+                if is_token_task {
+                    let token_escrow = ctx.accounts.token_escrow_ata.as_ref().unwrap();
+                    let token_program = ctx.accounts.token_program.as_ref().unwrap();
+                    require!(ctx.accounts.worker_token_account_ata.is_some(), CoordinationError::MissingTokenAccounts);
+                    let worker_ta = ctx.accounts.worker_token_account_ata.as_ref().unwrap();
+                    let task_key_bytes = task_key.to_bytes();
+                    let bump_slice = [escrow.bump];
+                    let escrow_seeds: &[&[u8]] = &[b"escrow", task_key_bytes.as_ref(), &bump_slice];
+                    transfer_tokens_from_escrow(token_escrow, &worker_ta.to_account_info(), &escrow.to_account_info(), remaining_funds, escrow_seeds, token_program)?;
+                    close_token_escrow(token_escrow, &ctx.accounts.creator.to_account_info(), &escrow.to_account_info(), escrow_seeds, token_program)?;
+                } else if let Some(worker_authority) = &ctx.accounts.worker_authority {
+                    transfer_lamports(&escrow.to_account_info(), &worker_authority.to_account_info(), remaining_funds)?;
                 }
                 task.status = TaskStatus::Completed;
                 task.completed_at = clock.unix_timestamp;
-
-                // Update protocol stats for completed dispute resolution (fix #359)
                 update_protocol_stats(&mut ctx.accounts.protocol_config, remaining_funds)?;
             }
             ResolutionType::Split => {
-                // Split remaining funds between creator and worker.
-                // Use remaining_funds > 0 (not half > 0) to handle the edge case
-                // where remaining_funds = 1 and half rounds down to 0.
-                // Fix #563: Creator gets the rounding remainder for fairness
-                // (creator funded the task, so any remainder returns to them)
                 if remaining_funds > 0 {
-                    let worker_share = remaining_funds
-                        .checked_div(2)
-                        .ok_or(CoordinationError::ArithmeticOverflow)?;
-                    let creator_share = remaining_funds
-                        .checked_sub(worker_share)
-                        .ok_or(CoordinationError::ArithmeticOverflow)?;
+                    let worker_share = remaining_funds.checked_div(2).ok_or(CoordinationError::ArithmeticOverflow)?;
+                    let creator_share = remaining_funds.checked_sub(worker_share).ok_or(CoordinationError::ArithmeticOverflow)?;
 
-                    // Fix #834: Require worker accounts when worker gets a share.
-                    // Without this, omitting worker accounts causes the worker's
-                    // share to be sent to the creator, defeating the split.
                     if worker_share > 0 {
-                        require!(
-                            ctx.accounts.worker_authority.is_some(),
-                            CoordinationError::IncompleteWorkerAccounts
-                        );
+                        require!(ctx.accounts.worker_authority.is_some(), CoordinationError::IncompleteWorkerAccounts);
                     }
 
-                    // Debit escrow once for total, credit recipients individually
-                    debit_lamports(&escrow.to_account_info(), remaining_funds)?;
-                    let creator_info = ctx.accounts.creator.to_account_info();
-                    credit_lamports(&creator_info, creator_share)?;
-
-                    if let Some(worker_authority) = &ctx.accounts.worker_authority {
-                        // Worker must have valid claim (fix #296: pay to authority wallet)
-                        require!(
-                            ctx.accounts.worker_claim.is_some() && ctx.accounts.worker.is_some(),
-                            CoordinationError::NotClaimed
-                        );
-                        credit_lamports(&worker_authority.to_account_info(), worker_share)?;
+                    if is_token_task {
+                        let token_escrow = ctx.accounts.token_escrow_ata.as_ref().unwrap();
+                        let token_program = ctx.accounts.token_program.as_ref().unwrap();
+                        require!(ctx.accounts.creator_token_account.is_some(), CoordinationError::MissingTokenAccounts);
+                        let creator_ta = ctx.accounts.creator_token_account.as_ref().unwrap();
+                        let task_key_bytes = task_key.to_bytes();
+                        let bump_slice = [escrow.bump];
+                        let escrow_seeds: &[&[u8]] = &[b"escrow", task_key_bytes.as_ref(), &bump_slice];
+                        transfer_tokens_from_escrow(token_escrow, &creator_ta.to_account_info(), &escrow.to_account_info(), creator_share, escrow_seeds, token_program)?;
+                        if let Some(worker_ta) = &ctx.accounts.worker_token_account_ata {
+                            require!(ctx.accounts.worker_claim.is_some() && ctx.accounts.worker.is_some(), CoordinationError::NotClaimed);
+                            transfer_tokens_from_escrow(token_escrow, &worker_ta.to_account_info(), &escrow.to_account_info(), worker_share, escrow_seeds, token_program)?;
+                        }
+                        close_token_escrow(token_escrow, &ctx.accounts.creator.to_account_info(), &escrow.to_account_info(), escrow_seeds, token_program)?;
                     } else {
-                        // worker_share must be 0 to reach here (enforced above)
-                        // Only the creator_share (== remaining_funds) was already credited
+                        debit_lamports(&escrow.to_account_info(), remaining_funds)?;
+                        let creator_info = ctx.accounts.creator.to_account_info();
+                        credit_lamports(&creator_info, creator_share)?;
+                        if let Some(worker_authority) = &ctx.accounts.worker_authority {
+                            require!(ctx.accounts.worker_claim.is_some() && ctx.accounts.worker.is_some(), CoordinationError::NotClaimed);
+                            credit_lamports(&worker_authority.to_account_info(), worker_share)?;
+                        }
                     }
                 }
                 task.status = TaskStatus::Cancelled;
@@ -267,11 +316,19 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
         }
     } else {
         // Dispute rejected - refund to creator by default
-        transfer_lamports(
-            &escrow.to_account_info(),
-            &ctx.accounts.creator.to_account_info(),
-            remaining_funds,
-        )?;
+        if is_token_task {
+            let token_escrow = ctx.accounts.token_escrow_ata.as_ref().unwrap();
+            let token_program = ctx.accounts.token_program.as_ref().unwrap();
+            require!(ctx.accounts.creator_token_account.is_some(), CoordinationError::MissingTokenAccounts);
+            let creator_ta = ctx.accounts.creator_token_account.as_ref().unwrap();
+            let task_key_bytes = task_key.to_bytes();
+            let bump_slice = [escrow.bump];
+            let escrow_seeds: &[&[u8]] = &[b"escrow", task_key_bytes.as_ref(), &bump_slice];
+            transfer_tokens_from_escrow(token_escrow, &creator_ta.to_account_info(), &escrow.to_account_info(), remaining_funds, escrow_seeds, token_program)?;
+            close_token_escrow(token_escrow, &ctx.accounts.creator.to_account_info(), &escrow.to_account_info(), escrow_seeds, token_program)?;
+        } else {
+            transfer_lamports(&escrow.to_account_info(), &ctx.accounts.creator.to_account_info(), remaining_funds)?;
+        }
         task.status = TaskStatus::Cancelled;
     }
 

@@ -67,6 +67,9 @@ use crate::utils::compute_budget::log_compute_units;
 use crate::utils::version::check_version_compatible;
 use crate::verifying_key::get_verifying_key;
 use anchor_lang::prelude::*;
+use anchor_spl::token::{Mint, Token, TokenAccount};
+use crate::instructions::completion_helpers::TokenPaymentAccounts;
+use crate::instructions::token_helpers::validate_token_account;
 use groth16_solana::groth16::Groth16Verifier;
 
 // Semantic alias: field element size matches hash size
@@ -157,6 +160,27 @@ pub struct CompleteTaskPrivate<'info> {
     pub authority: Signer<'info>,
 
     pub system_program: Program<'info, System>,
+
+    // === Optional SPL Token accounts (only required for token-denominated tasks) ===
+
+    /// Token escrow ATA holding reward tokens (optional)
+    #[account(mut)]
+    pub token_escrow_ata: Option<Account<'info, TokenAccount>>,
+
+    /// Worker's token account to receive reward (optional)
+    /// CHECK: Validated in handler
+    #[account(mut)]
+    pub worker_token_account: Option<UncheckedAccount<'info>>,
+
+    /// Treasury's token account for protocol fees (optional, must pre-exist)
+    #[account(mut)]
+    pub treasury_token_account: Option<Account<'info, TokenAccount>>,
+
+    /// SPL token mint (optional, must match task.reward_mint)
+    pub reward_mint: Option<Account<'info, Mint>>,
+
+    /// SPL Token program (optional, required for token tasks)
+    pub token_program: Option<Program<'info, Token>>,
 }
 
 /// Complete a task with private ZK proof verification.
@@ -244,6 +268,42 @@ pub fn complete_task_private(
     nullifier_account.spent_at = clock.unix_timestamp;
     // bump is set automatically by Anchor's init constraint
 
+    // Build optional token payment accounts
+    let token_accounts = if task.reward_mint.is_some() {
+        require!(
+            ctx.accounts.token_escrow_ata.is_some()
+                && ctx.accounts.worker_token_account.is_some()
+                && ctx.accounts.treasury_token_account.is_some()
+                && ctx.accounts.reward_mint.is_some()
+                && ctx.accounts.token_program.is_some(),
+            CoordinationError::MissingTokenAccounts
+        );
+
+        let mint = ctx.accounts.reward_mint.as_ref().unwrap();
+        let token_escrow = ctx.accounts.token_escrow_ata.as_ref().unwrap();
+        let treasury_ta = ctx.accounts.treasury_token_account.as_ref().unwrap();
+
+        require!(
+            mint.key() == task.reward_mint.unwrap(),
+            CoordinationError::InvalidTokenMint
+        );
+
+        validate_token_account(token_escrow, &mint.key(), &escrow.key())?;
+        validate_token_account(treasury_ta, &mint.key(), &ctx.accounts.protocol_config.treasury)?;
+
+        Some(TokenPaymentAccounts {
+            token_escrow_ata: token_escrow.to_account_info(),
+            worker_token_account: ctx.accounts.worker_token_account.as_ref().unwrap().to_account_info(),
+            treasury_token_account: treasury_ta.to_account_info(),
+            token_program: ctx.accounts.token_program.as_ref().unwrap().to_account_info(),
+            escrow_authority: escrow.to_account_info(),
+            escrow_bump: escrow.bump,
+            task_key: task.key(),
+        })
+    } else {
+        None
+    };
+
     // Update claim fields (must be set before execute_completion_rewards)
     claim.proof_hash = proof.output_commitment;
     // Private completions don't store result data on-chain (privacy preserved)
@@ -267,6 +327,7 @@ pub fn complete_task_private(
         protocol_fee_bps,
         None, // Private: preserve privacy
         &clock,
+        token_accounts,
     )?;
 
     Ok(())

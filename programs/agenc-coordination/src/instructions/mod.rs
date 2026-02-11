@@ -26,6 +26,7 @@ pub mod lamport_transfer;
 pub mod rate_limit_helpers;
 pub mod slash_helpers;
 pub mod task_init_helpers;
+pub mod token_helpers;
 pub mod validation;
 
 pub mod apply_dispute_slash;
