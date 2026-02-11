@@ -237,9 +237,14 @@ pub fn calculate_fee_with_reputation(task_protocol_fee_bps: u16, worker_reputati
     task_protocol_fee_bps.saturating_sub(rep_discount).max(1)
 }
 
-/// Execute reward transfer, state updates, and event emissions.
+/// Execute reward transfer, state updates, event emissions, and conditional escrow closure.
 ///
 /// Shared by both `complete_task` (public) and `complete_task_private` (ZK) handlers.
+///
+/// When all required completions are done (`task.completions >= task.required_completions`),
+/// the escrow is manually closed: remaining lamports are transferred to the creator and
+/// the escrow account data is zeroed. For collaborative tasks with multiple workers,
+/// the escrow stays open until the final completion.
 ///
 /// # Preconditions
 ///
@@ -258,6 +263,7 @@ pub fn execute_completion_rewards<'info>(
     protocol_config: &mut Account<'info, ProtocolConfig>,
     authority_info: &AccountInfo<'info>,
     treasury_info: &AccountInfo<'info>,
+    creator_info: &AccountInfo<'info>,
     protocol_fee_bps: u16,
     result_data_for_task: Option<[u8; RESULT_DATA_SIZE]>,
     clock: &Clock,
@@ -309,6 +315,41 @@ pub fn execute_completion_rewards<'info>(
         protocol_fee,
         timestamp: clock.unix_timestamp,
     });
+
+    // Only close escrow when task is fully completed (all required completions done).
+    // For collaborative tasks with max_workers > 1, this keeps the escrow open
+    // for subsequent workers to complete and receive their share.
+    if task_completed {
+        close_escrow_to_creator(escrow, creator_info)?;
+    }
+
+    Ok(())
+}
+
+/// Manually close the escrow account by transferring all remaining lamports to the
+/// creator and zeroing the account data.
+///
+/// This replaces Anchor's `close` attribute to enable conditional closure — the escrow
+/// must stay open for collaborative tasks until all required completions are done.
+fn close_escrow_to_creator<'info>(
+    escrow: &mut Account<'info, TaskEscrow>,
+    creator_info: &AccountInfo<'info>,
+) -> Result<()> {
+    let escrow_info = escrow.to_account_info();
+    let remaining_lamports = escrow_info.lamports();
+
+    // Transfer remaining lamports (rent + any leftover) from escrow to creator
+    **escrow_info.try_borrow_mut_lamports()? = 0;
+    **creator_info.try_borrow_mut_lamports()? = creator_info
+        .lamports()
+        .checked_add(remaining_lamports)
+        .ok_or(CoordinationError::ArithmeticOverflow)?;
+
+    // Zero the escrow account data to mark it as closed
+    let mut data = escrow_info.try_borrow_mut_data()?;
+    for byte in data.iter_mut() {
+        *byte = 0;
+    }
 
     Ok(())
 }
