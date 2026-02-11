@@ -236,6 +236,18 @@ pub fn handler(
     dispute.initiated_by_creator = is_creator;
     dispute.bump = ctx.bumps.dispute;
 
+    // Bind the defendant worker at dispute initiation (fix #827)
+    // This prevents slashing the wrong worker on collaborative tasks.
+    dispute.defendant = if is_creator {
+        // Creator path: worker_agent was already validated above (lines 182-203)
+        ctx.accounts.worker_agent.as_ref()
+            .ok_or(CoordinationError::WorkerAgentRequired)?
+            .key()
+    } else {
+        // Worker path: the initiating agent is the subject of the dispute
+        agent.key()
+    };
+
     // Mark task as disputed
     task.status = TaskStatus::Disputed;
 
@@ -248,6 +260,7 @@ pub fn handler(
         dispute_id,
         task_id,
         initiator: agent.key(),
+        defendant: dispute.defendant,
         resolution_type,
         voting_deadline: dispute.voting_deadline,
         timestamp: clock.unix_timestamp,
