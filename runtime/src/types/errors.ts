@@ -90,6 +90,8 @@ export const RuntimeErrorCodes = {
   CONNECTION_ERROR: 'CONNECTION_ERROR',
   /** All configured RPC endpoints are unhealthy */
   ALL_ENDPOINTS_UNHEALTHY: 'ALL_ENDPOINTS_UNHEALTHY',
+  /** Telemetry system error */
+  TELEMETRY_ERROR: 'TELEMETRY_ERROR',
 } as const;
 
 /** Union type of all runtime error code values */

@@ -45,6 +45,8 @@ import {
   DisputeSlashError,
 } from './errors.js';
 import { encodeStatusByte, queryWithFallback } from '../utils/query.js';
+import type { MetricsProvider } from '../task/types.js';
+import { TELEMETRY_METRIC_NAMES } from '../telemetry/metric-names.js';
 
 // ============================================================================
 // Configuration
@@ -60,6 +62,8 @@ export interface DisputeOpsConfig {
   agentId: Uint8Array;
   /** Logger instance (defaults to silent logger) */
   logger?: Logger;
+  /** Optional metrics provider for telemetry */
+  metrics?: MetricsProvider;
 }
 
 // ============================================================================
@@ -91,6 +95,7 @@ export class DisputeOperations {
   private readonly program: Program<AgencCoordination>;
   private readonly agentId: Uint8Array;
   private readonly logger: Logger;
+  private readonly metrics?: MetricsProvider;
 
   // Cached derived values
   private readonly agentPda: PublicKey;
@@ -101,6 +106,7 @@ export class DisputeOperations {
     this.program = config.program;
     this.agentId = new Uint8Array(config.agentId);
     this.logger = config.logger ?? silentLogger;
+    this.metrics = config.metrics;
 
     this.agentPda = findAgentPda(this.agentId, this.program.programId);
     this.protocolPda = findProtocolPda(this.program.programId);
@@ -246,6 +252,7 @@ export class DisputeOperations {
    * @returns Dispute result with PDA and transaction signature
    */
   async initiateDispute(params: InitiateDisputeParams): Promise<DisputeResult> {
+    const start = Date.now();
     const { address: disputePda } = deriveDisputePda(params.disputeId, this.program.programId);
     const { address: claimPda } = deriveClaimPda(params.taskPda, this.agentPda, this.program.programId);
 
@@ -281,6 +288,7 @@ export class DisputeOperations {
       const signature = await builder.rpc();
 
       this.logger.info(`Dispute initiated: ${signature}`);
+      this.recordDisputeMetrics('initiate', Date.now() - start);
 
       return { disputePda, transactionSignature: signature };
     } catch (err) {
@@ -306,6 +314,7 @@ export class DisputeOperations {
    * @returns Vote result with PDA and transaction signature
    */
   async voteOnDispute(params: VoteDisputeParams): Promise<VoteResult> {
+    const start = Date.now();
     const { address: votePda } = deriveVotePda(
       params.disputePda,
       this.agentPda,
@@ -338,6 +347,7 @@ export class DisputeOperations {
         .rpc();
 
       this.logger.info(`Vote cast: ${signature}`);
+      this.recordDisputeMetrics('vote', Date.now() - start);
 
       return { votePda, transactionSignature: signature };
     } catch (err) {
@@ -366,6 +376,7 @@ export class DisputeOperations {
    * @returns Dispute result with transaction signature
    */
   async resolveDispute(params: ResolveDisputeParams): Promise<DisputeResult> {
+    const start = Date.now();
     const { address: escrowPda } = deriveEscrowPda(params.taskPda, this.program.programId);
 
     this.logger.info(`Resolving dispute ${params.disputePda.toBase58()}`);
@@ -398,6 +409,7 @@ export class DisputeOperations {
       const signature = await builder.rpc();
 
       this.logger.info(`Dispute resolved: ${signature}`);
+      this.recordDisputeMetrics('resolve', Date.now() - start);
 
       return { disputePda: params.disputePda, transactionSignature: signature };
     } catch (err) {
@@ -433,6 +445,7 @@ export class DisputeOperations {
     disputePda: PublicKey,
     taskPda: PublicKey,
   ): Promise<DisputeResult> {
+    const start = Date.now();
     this.logger.info(`Cancelling dispute ${disputePda.toBase58()}`);
 
     try {
@@ -446,6 +459,7 @@ export class DisputeOperations {
         .rpc();
 
       this.logger.info(`Dispute cancelled: ${signature}`);
+      this.recordDisputeMetrics('cancel', Date.now() - start);
 
       return { disputePda, transactionSignature: signature };
     } catch (err) {
@@ -469,6 +483,7 @@ export class DisputeOperations {
    * @returns Dispute result with transaction signature
    */
   async expireDispute(params: ExpireDisputeParams): Promise<DisputeResult> {
+    const start = Date.now();
     const { address: escrowPda } = deriveEscrowPda(params.taskPda, this.program.programId);
 
     this.logger.info(`Expiring dispute ${params.disputePda.toBase58()}`);
@@ -499,6 +514,7 @@ export class DisputeOperations {
       const signature = await builder.rpc();
 
       this.logger.info(`Dispute expired: ${signature}`);
+      this.recordDisputeMetrics('expire', Date.now() - start);
 
       return { disputePda: params.disputePda, transactionSignature: signature };
     } catch (err) {
@@ -522,6 +538,7 @@ export class DisputeOperations {
    * @returns Dispute result with transaction signature
    */
   async applySlash(params: ApplySlashParams): Promise<DisputeResult> {
+    const start = Date.now();
     const treasury = await this.getTreasury();
 
     this.logger.info(`Applying slash for dispute ${params.disputePda.toBase58()}`);
@@ -540,6 +557,7 @@ export class DisputeOperations {
         .rpc();
 
       this.logger.info(`Slash applied: ${signature}`);
+      this.recordDisputeMetrics('applySlash', Date.now() - start);
 
       return { disputePda: params.disputePda, transactionSignature: signature };
     } catch (err) {
@@ -558,6 +576,13 @@ export class DisputeOperations {
   // ==========================================================================
   // Private Helpers
   // ==========================================================================
+
+  private recordDisputeMetrics(operation: string, durationMs: number): void {
+    if (!this.metrics) return;
+    const labels = { operation };
+    this.metrics.counter(TELEMETRY_METRIC_NAMES.DISPUTE_OPS_TOTAL, 1, labels);
+    this.metrics.histogram(TELEMETRY_METRIC_NAMES.DISPUTE_OP_DURATION, durationMs, labels);
+  }
 
   /**
    * Get the protocol treasury address, fetching and caching from protocolConfig.
