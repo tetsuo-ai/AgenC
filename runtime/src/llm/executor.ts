@@ -12,6 +12,8 @@ import type { LLMProvider, LLMMessage, StreamProgressCallback, ToolHandler } fro
 import { responseToOutput } from './response-converter.js';
 import type { MemoryBackend } from '../memory/types.js';
 import { entryToMessage, messageToEntryOptions } from '../memory/types.js';
+import type { MetricsProvider } from '../task/types.js';
+import { TELEMETRY_METRIC_NAMES } from '../telemetry/metric-names.js';
 
 /** Default TTL for memory entries: 24 hours */
 const DEFAULT_MEMORY_TTL_MS = 86_400_000;
@@ -40,6 +42,8 @@ export interface LLMTaskExecutorConfig {
   memory?: MemoryBackend;
   /** TTL for persisted conversations in ms (default: 86_400_000 = 24h) */
   memoryTtlMs?: number;
+  /** Optional metrics provider for telemetry */
+  metrics?: MetricsProvider;
   /**
    * Allowlist of tool names the LLM is permitted to invoke.
    * Defense-in-depth: rejects tool calls not in this list even if the LLM
@@ -71,6 +75,7 @@ export class LLMTaskExecutor implements TaskExecutor {
   private readonly memory?: MemoryBackend;
   private readonly memoryTtlMs: number;
   private readonly allowedTools: Set<string> | null;
+  private readonly metrics?: MetricsProvider;
 
   constructor(config: LLMTaskExecutorConfig) {
     this.provider = config.provider;
@@ -84,6 +89,7 @@ export class LLMTaskExecutor implements TaskExecutor {
     this.memory = config.memory;
     this.memoryTtlMs = config.memoryTtlMs ?? DEFAULT_MEMORY_TTL_MS;
     this.allowedTools = config.allowedTools ? new Set(config.allowedTools) : null;
+    this.metrics = config.metrics;
   }
 
   async execute(task: Task): Promise<bigint[]> {
@@ -100,10 +106,17 @@ export class LLMTaskExecutor implements TaskExecutor {
     }
 
     let response;
-    if (this.streaming && this.onStreamChunk) {
-      response = await this.provider.chatStream(messages, this.onStreamChunk);
-    } else {
-      response = await this.provider.chat(messages);
+    try {
+      const chatStart = Date.now();
+      if (this.streaming && this.onStreamChunk) {
+        response = await this.provider.chatStream(messages, this.onStreamChunk);
+      } else {
+        response = await this.provider.chat(messages);
+      }
+      this.recordLLMMetrics(response, Date.now() - chatStart);
+    } catch (err) {
+      this.metrics?.counter(TELEMETRY_METRIC_NAMES.LLM_ERRORS_TOTAL);
+      throw err;
     }
 
     // Persist assistant response
@@ -121,6 +134,8 @@ export class LLMTaskExecutor implements TaskExecutor {
 
       // Execute each tool call and add results
       for (const toolCall of response.toolCalls) {
+        this.metrics?.counter(TELEMETRY_METRIC_NAMES.LLM_TOOL_CALLS_TOTAL);
+
         // Defense-in-depth: reject tool calls not in the allowlist.
         // This catches LLM hallucinations of tool names filtered at the registry level.
         if (this.allowedTools && !this.allowedTools.has(toolCall.name)) {
@@ -152,10 +167,17 @@ export class LLMTaskExecutor implements TaskExecutor {
         await this.persistMessage(sessionId, toolMsg, taskPda);
       }
 
-      if (this.streaming && this.onStreamChunk) {
-        response = await this.provider.chatStream(messages, this.onStreamChunk);
-      } else {
-        response = await this.provider.chat(messages);
+      try {
+        const chatStart = Date.now();
+        if (this.streaming && this.onStreamChunk) {
+          response = await this.provider.chatStream(messages, this.onStreamChunk);
+        } else {
+          response = await this.provider.chat(messages);
+        }
+        this.recordLLMMetrics(response, Date.now() - chatStart);
+      } catch (err) {
+        this.metrics?.counter(TELEMETRY_METRIC_NAMES.LLM_ERRORS_TOTAL);
+        throw err;
       }
 
       // Persist new assistant response
@@ -165,6 +187,16 @@ export class LLMTaskExecutor implements TaskExecutor {
     }
 
     return this.convertResponse(response.content);
+  }
+
+  private recordLLMMetrics(response: { model: string; usage: { promptTokens: number; completionTokens: number; totalTokens: number } }, durationMs: number): void {
+    if (!this.metrics) return;
+    const labels = { provider: response.model };
+    this.metrics.histogram(TELEMETRY_METRIC_NAMES.LLM_REQUEST_DURATION, durationMs, labels);
+    this.metrics.counter(TELEMETRY_METRIC_NAMES.LLM_REQUESTS_TOTAL, 1, labels);
+    this.metrics.counter(TELEMETRY_METRIC_NAMES.LLM_PROMPT_TOKENS, response.usage.promptTokens, labels);
+    this.metrics.counter(TELEMETRY_METRIC_NAMES.LLM_COMPLETION_TOKENS, response.usage.completionTokens, labels);
+    this.metrics.counter(TELEMETRY_METRIC_NAMES.LLM_TOTAL_TOKENS, response.usage.totalTokens, labels);
   }
 
   canExecute(task: Task): boolean {

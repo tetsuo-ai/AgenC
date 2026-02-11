@@ -8,6 +8,7 @@ import { PublicKey } from '@solana/web3.js';
 import { AgentRuntimeConfig } from '../types/config.js';
 import type { ProofEngine } from '../proof/engine.js';
 import type { MemoryBackend } from '../memory/types.js';
+import type { MetricsProvider } from '../task/types.js';
 import type { DependencyType } from '../task/dependency-graph.js';
 import type { ProofPipelineConfig } from '../task/proof-pipeline.js';
 
@@ -249,6 +250,12 @@ export interface AutonomousAgentConfig extends AgentRuntimeConfig {
    * @default undefined (disabled)
    */
   speculation?: SpeculationConfig;
+
+  /**
+   * Optional metrics provider for telemetry instrumentation.
+   * Passed through to internal components (LLMTaskExecutor, etc.).
+   */
+  metrics?: MetricsProvider;
 }
 
 /**

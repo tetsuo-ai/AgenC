@@ -50,6 +50,8 @@ import type { AgencCoordination } from './types/agenc_coordination.js';
 import type { Program } from '@coral-xyz/anchor';
 import { ConnectionManager } from './connection/manager.js';
 import type { EndpointConfig, ConnectionManagerConfig } from './connection/types.js';
+import type { TelemetryCollector, TelemetryConfig, TelemetrySnapshot } from './telemetry/types.js';
+import { UnifiedTelemetryCollector } from './telemetry/collector.js';
 
 // ============================================================================
 // LLM provider type discriminator
@@ -167,6 +169,9 @@ export class AgentBuilder {
 
   // Connection manager
   private connectionManager?: ConnectionManager;
+
+  // Telemetry
+  private telemetryConfig?: TelemetryConfig;
 
   constructor(connection: Connection, wallet: Keypair | Wallet) {
     this.connection = connection;
@@ -307,6 +312,18 @@ export class AgentBuilder {
   }
 
   /**
+   * Enable unified telemetry collection.
+   *
+   * Creates a `UnifiedTelemetryCollector` in `build()` and passes it as
+   * `metrics` to all instrumented components (LLM, memory, proofs, disputes,
+   * connection manager).
+   */
+  withTelemetry(config?: TelemetryConfig): this {
+    this.telemetryConfig = config ?? {};
+    return this;
+  }
+
+  /**
    * Build and return a fully wired BuiltAgent.
    *
    * Validates configuration, creates all components, and wires them together.
@@ -328,15 +345,25 @@ export class AgentBuilder {
 
     const resolvedConnection = this.connectionManager?.getConnection() ?? this.connection;
 
-    const { registry, initializedSkills } = await this.buildToolRegistry(logger, builderWallet, resolvedConnection);
-    const memory = this.memoryType ? this.createMemoryBackend() : undefined;
-    const taskExecutor = this.buildExecutor(registry, memory);
-    const proofEngine = this.proofConfig
-      ? new ProofEngine({ ...this.proofConfig, logger })
+    // Create telemetry collector if configured
+    const telemetry = this.telemetryConfig
+      ? new UnifiedTelemetryCollector(this.telemetryConfig, logger)
       : undefined;
-    const autonomous = this.buildAutonomousAgent(taskExecutor, proofEngine, memory, resolvedConnection);
 
-    return new BuiltAgent(autonomous, memory, proofEngine, registry, initializedSkills, this.connectionManager, logger);
+    // Inject metrics into connection manager (created before collector exists)
+    if (telemetry && this.connectionManager) {
+      this.connectionManager.setMetrics(telemetry);
+    }
+
+    const { registry, initializedSkills } = await this.buildToolRegistry(logger, builderWallet, resolvedConnection);
+    const memory = this.memoryType ? this.createMemoryBackend(telemetry) : undefined;
+    const taskExecutor = this.buildExecutor(registry, memory, telemetry);
+    const proofEngine = this.proofConfig
+      ? new ProofEngine({ ...this.proofConfig, logger, metrics: telemetry })
+      : undefined;
+    const autonomous = this.buildAutonomousAgent(taskExecutor, proofEngine, memory, resolvedConnection, telemetry);
+
+    return new BuiltAgent(autonomous, memory, proofEngine, registry, initializedSkills, this.connectionManager, logger, telemetry);
   }
 
   private async buildToolRegistry(
@@ -368,7 +395,11 @@ export class AgentBuilder {
     return { registry, initializedSkills };
   }
 
-  private buildExecutor(registry: ToolRegistry | undefined, memory: MemoryBackend | undefined): TaskExecutor {
+  private buildExecutor(
+    registry: ToolRegistry | undefined,
+    memory: MemoryBackend | undefined,
+    metrics?: TelemetryCollector,
+  ): TaskExecutor {
     if (this.executor) return this.executor;
 
     const provider = this.createLLMProvider(registry?.toLLMTools());
@@ -377,6 +408,7 @@ export class AgentBuilder {
       systemPrompt: this.systemPrompt,
       toolHandler: registry?.createToolHandler(),
       memory,
+      metrics,
     });
   }
 
@@ -385,6 +417,7 @@ export class AgentBuilder {
     proofEngine: ProofEngine | undefined,
     memory: MemoryBackend | undefined,
     resolvedConnection: Connection,
+    metrics?: TelemetryCollector,
   ): AutonomousAgent {
     return new AutonomousAgent({
       connection: resolvedConnection,
@@ -398,6 +431,7 @@ export class AgentBuilder {
       executor,
       proofEngine,
       memory,
+      metrics,
       taskFilter: this.taskFilter,
       claimStrategy: this.claimStrategy,
       discoveryMode: this.discoveryMode,
@@ -429,8 +463,8 @@ export class AgentBuilder {
     }
   }
 
-  private createMemoryBackend(): MemoryBackend {
-    const config = this.memoryConfig ?? {};
+  private createMemoryBackend(metrics?: TelemetryCollector): MemoryBackend {
+    const config = { ...(this.memoryConfig ?? {}), metrics };
 
     switch (this.memoryType) {
       case 'memory':
@@ -458,6 +492,7 @@ export class AgentBuilder {
 export class BuiltAgent {
   private _disputeOps?: DisputeOperations;
   private readonly logger: Logger;
+  readonly telemetry: TelemetryCollector | undefined;
 
   constructor(
     readonly autonomous: AutonomousAgent,
@@ -467,8 +502,10 @@ export class BuiltAgent {
     private readonly skills: Skill[],
     private readonly connectionManager?: ConnectionManager,
     logger?: Logger,
+    telemetry?: TelemetryCollector,
   ) {
     this.logger = logger ?? silentLogger;
+    this.telemetry = telemetry;
   }
 
   async start(): Promise<void> {
@@ -505,6 +542,10 @@ export class BuiltAgent {
     if (this.connectionManager) {
       this.connectionManager.destroy();
     }
+
+    if (this.telemetry) {
+      this.telemetry.destroy();
+    }
   }
 
   /**
@@ -526,6 +567,7 @@ export class BuiltAgent {
     this._disputeOps = new DisputeOperations({
       program,
       agentId,
+      metrics: this.telemetry,
     });
 
     return this._disputeOps;
@@ -533,5 +575,20 @@ export class BuiltAgent {
 
   getStats(): AutonomousAgentStats {
     return this.autonomous.getStats();
+  }
+
+  /**
+   * Get a full telemetry snapshot (counters, gauges, bigintGauges, histograms).
+   * Returns null if telemetry is not configured.
+   */
+  getTelemetrySnapshot(): TelemetrySnapshot | null {
+    return this.telemetry?.getFullSnapshot() ?? null;
+  }
+
+  /**
+   * Flush telemetry to all registered sinks.
+   */
+  flushTelemetry(): void {
+    this.telemetry?.flush();
   }
 }

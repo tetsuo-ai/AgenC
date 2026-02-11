@@ -20,6 +20,8 @@ import type { ProofGenerator } from '../task/proof-pipeline.js';
 import type { OnChainTask, TaskExecutionResult, PrivateTaskExecutionResult } from '../task/types.js';
 import type { Logger } from '../utils/logger.js';
 import { silentLogger } from '../utils/logger.js';
+import type { MetricsProvider } from '../task/types.js';
+import { TELEMETRY_METRIC_NAMES } from '../telemetry/metric-names.js';
 import type {
   ProofEngineConfig,
   ProofInputs,
@@ -57,6 +59,7 @@ export class ProofEngine implements ProofGenerator {
   private readonly verifyAfterGeneration: boolean;
   private readonly cache: ProofCache | null;
   private readonly logger: Logger;
+  private readonly metrics?: MetricsProvider;
 
   // Stats
   private _proofsGenerated = 0;
@@ -72,6 +75,7 @@ export class ProofEngine implements ProofGenerator {
     this.verifyAfterGeneration = config?.verifyAfterGeneration ?? false;
     this.cache = config?.cache ? new ProofCache(config.cache) : null;
     this.logger = config?.logger ?? silentLogger;
+    this.metrics = config?.metrics;
   }
 
   /**
@@ -88,10 +92,12 @@ export class ProofEngine implements ProofGenerator {
       const cached = this.cache.get(inputs);
       if (cached) {
         this._cacheHits++;
+        this.metrics?.counter(TELEMETRY_METRIC_NAMES.PROOF_CACHE_HITS);
         this.logger.debug('Proof cache hit');
         return { ...cached, fromCache: true };
       }
       this._cacheMisses++;
+      this.metrics?.counter(TELEMETRY_METRIC_NAMES.PROOF_CACHE_MISSES);
     }
 
     // Generate proof via SDK
@@ -125,6 +131,7 @@ export class ProofEngine implements ProofGenerator {
 
     this._proofsGenerated++;
     this._totalGenerationTimeMs += generationTimeMs;
+    this.metrics?.histogram(TELEMETRY_METRIC_NAMES.PROOF_GENERATION_DURATION, generationTimeMs);
 
     // Verify if configured
     if (this.verifyAfterGeneration) {

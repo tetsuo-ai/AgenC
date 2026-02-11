@@ -9,6 +9,7 @@
 
 import type { Logger } from '../utils/logger.js';
 import type { LLMMessage } from '../llm/types.js';
+import type { MetricsProvider } from '../task/types.js';
 
 /**
  * Message role in a memory entry
@@ -93,6 +94,8 @@ export interface MemoryBackendConfig {
   logger?: Logger;
   /** Default TTL in milliseconds. 0 = no expiry */
   defaultTtlMs?: number;
+  /** Optional metrics provider for instrumentation */
+  metrics?: MetricsProvider;
 }
 
 // ============================================================================

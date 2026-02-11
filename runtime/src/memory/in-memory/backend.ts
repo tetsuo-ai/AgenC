@@ -18,6 +18,8 @@ import type {
   MemoryBackendConfig,
 } from '../types.js';
 import { MemoryBackendError } from '../errors.js';
+import type { MetricsProvider } from '../../task/types.js';
+import { TELEMETRY_METRIC_NAMES } from '../../telemetry/metric-names.js';
 
 /**
  * Configuration for the in-memory backend
@@ -43,6 +45,7 @@ export class InMemoryBackend implements MemoryBackend {
   private readonly defaultTtlMs: number;
   private readonly maxEntriesPerSession: number;
   private readonly maxTotalEntries: number;
+  private readonly metrics?: MetricsProvider;
   private totalEntries = 0;
   private closed = false;
 
@@ -51,10 +54,12 @@ export class InMemoryBackend implements MemoryBackend {
     this.defaultTtlMs = config.defaultTtlMs ?? 0;
     this.maxEntriesPerSession = config.maxEntriesPerSession ?? 1000;
     this.maxTotalEntries = config.maxTotalEntries ?? 100_000;
+    this.metrics = config.metrics;
   }
 
   async addEntry(options: AddEntryOptions): Promise<MemoryEntry> {
     this.ensureOpen();
+    const start = Date.now();
 
     const ttl = options.ttlMs ?? this.defaultTtlMs;
     const now = Date.now();
@@ -98,11 +103,13 @@ export class InMemoryBackend implements MemoryBackend {
     this.totalEntries++;
 
     this.logger.debug(`Added entry ${entry.id} to session ${options.sessionId}`);
+    this.recordMemoryMetrics('addEntry', Date.now() - start);
     return entry;
   }
 
   async getThread(sessionId: string, limit?: number): Promise<MemoryEntry[]> {
     this.ensureOpen();
+    const start = Date.now();
     const thread = this.threads.get(sessionId);
     if (!thread) return [];
 
@@ -110,14 +117,18 @@ export class InMemoryBackend implements MemoryBackend {
     const alive = thread.filter((e) => !this.isExpired(e, now));
 
     if (limit !== undefined && limit > 0) {
-      // Return the most recent `limit` entries
-      return alive.slice(-limit).map((e) => this.stripInternal(e));
+      const result = alive.slice(-limit).map((e) => this.stripInternal(e));
+      this.recordMemoryMetrics('getThread', Date.now() - start);
+      return result;
     }
-    return alive.map((e) => this.stripInternal(e));
+    const result = alive.map((e) => this.stripInternal(e));
+    this.recordMemoryMetrics('getThread', Date.now() - start);
+    return result;
   }
 
   async query(query: MemoryQuery): Promise<MemoryEntry[]> {
     this.ensureOpen();
+    const start = Date.now();
     const now = Date.now();
     let results: MemoryEntry[] = [];
 
@@ -154,6 +165,7 @@ export class InMemoryBackend implements MemoryBackend {
       results = results.slice(0, query.limit);
     }
 
+    this.recordMemoryMetrics('query', Date.now() - start);
     return results;
   }
 
@@ -272,6 +284,13 @@ export class InMemoryBackend implements MemoryBackend {
       return clean as MemoryEntry;
     }
     return entry;
+  }
+
+  private recordMemoryMetrics(operation: string, durationMs: number): void {
+    if (!this.metrics) return;
+    const labels = { operation, backend: 'in-memory' };
+    this.metrics.counter(TELEMETRY_METRIC_NAMES.MEMORY_OPS_TOTAL, 1, labels);
+    this.metrics.histogram(TELEMETRY_METRIC_NAMES.MEMORY_OP_DURATION, durationMs, labels);
   }
 
   private evictOldest(): void {
