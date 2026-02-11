@@ -5264,6 +5264,15 @@
               "Bump seed"
             ],
             "type": "u8"
+          },
+          {
+            "name": "defendant",
+            "docs": [
+              "The defendant worker's agent PDA (fix #827)",
+              "Binds slashing target at dispute initiation to prevent slashing wrong worker",
+              "on collaborative tasks with multiple claimants."
+            ],
+            "type": "pubkey"
           }
         ]
       }
@@ -5380,6 +5389,13 @@
           },
           {
             "name": "initiator",
+            "type": "pubkey"
+          },
+          {
+            "name": "defendant",
+            "docs": [
+              "The defendant worker's agent PDA (fix #827)"
+            ],
             "type": "pubkey"
           },
           {

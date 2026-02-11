@@ -98,6 +98,8 @@ export interface OnChainDispute {
   initiatedByCreator: boolean;
   /** Bump seed */
   bump: number;
+  /** The defendant worker's agent PDA (fix #827) */
+  defendant: PublicKey;
 }
 
 /**
@@ -276,6 +278,7 @@ export function parseOnChainDispute(raw: Record<string, unknown>): OnChainDisput
     workerStakeAtDispute: toBNBigint(r.workerStakeAtDispute),
     initiatedByCreator: Boolean(r.initiatedByCreator),
     bump: typeof r.bump === 'number' ? r.bump : Number(r.bump),
+    defendant: r.defendant,
   };
 }
 
