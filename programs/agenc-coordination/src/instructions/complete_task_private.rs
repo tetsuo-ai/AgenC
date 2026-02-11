@@ -47,7 +47,8 @@
 //! The witness format matches Circom's public input encoding:
 //! - Each byte of task_id and agent_pubkey becomes a separate field element
 //! - Field elements are 32 bytes big-endian (BN254 scalar field)
-//! - Total: 32 (task bytes) + 32 (agent bytes) + 4 (hashes including nullifier) = 68 public inputs
+//! - Total: 32 (task bytes) + 32 (agent bytes) + 3 (constraint_hash, output_commitment, expected_binding) = 67 public inputs
+//! - Note: The nullifier is NOT a public input to the verifier, it's only used for the PDA
 
 use crate::errors::CoordinationError;
 use crate::instructions::completion_helpers::{
@@ -55,8 +56,8 @@ use crate::instructions::completion_helpers::{
 };
 use crate::instructions::constants::{
     ZK_EXPECTED_PROOF_SIZE, ZK_PROOF_A_SIZE, ZK_PROOF_B_SIZE, ZK_PROOF_C_SIZE,
-    ZK_WITNESS_FIELD_COUNT,
 };
+use crate::verifying_key::PUBLIC_INPUTS_COUNT;
 use crate::state::{
     AgentRegistration, Nullifier, ProtocolConfig, Task, TaskClaim, TaskEscrow, TaskStatus,
     HASH_SIZE, RESULT_DATA_SIZE,
@@ -280,7 +281,7 @@ pub fn complete_task_private(
 /// Encode a pubkey as 32 separate field elements (one per byte) for the ZK witness.
 /// Each byte becomes a 32-byte big-endian field element with the byte in the last position.
 fn append_pubkey_as_field_elements(
-    inputs: &mut [[u8; 32]; ZK_WITNESS_FIELD_COUNT],
+    inputs: &mut [[u8; 32]; PUBLIC_INPUTS_COUNT],
     offset: usize,
     pubkey: &Pubkey,
 ) {
@@ -290,13 +291,15 @@ fn append_pubkey_as_field_elements(
 }
 
 /// Build public inputs array for groth16-solana verification.
-/// Format: 68 field elements, each 32 bytes big-endian.
+/// Format: 67 field elements, each 32 bytes big-endian.
+/// Note: The nullifier is NOT included as a public input to the ZK verifier.
+/// It's used only for the on-chain nullifier PDA to prevent proof reuse.
 fn build_public_inputs(
     task_key: &Pubkey,
     agent: &Pubkey,
     proof: &PrivateCompletionProof,
-) -> [[u8; 32]; ZK_WITNESS_FIELD_COUNT] {
-    let mut inputs = [[0u8; 32]; ZK_WITNESS_FIELD_COUNT];
+) -> [[u8; 32]; PUBLIC_INPUTS_COUNT] {
+    let mut inputs = [[0u8; 32]; PUBLIC_INPUTS_COUNT];
 
     // Public inputs 0-31: task_id (each byte as separate field element)
     append_pubkey_as_field_elements(&mut inputs, 0, task_key);
@@ -312,9 +315,6 @@ fn build_public_inputs(
 
     // Public input 66: expected_binding
     inputs[66] = proof.expected_binding;
-
-    // Public input 67: nullifier (prevents proof/knowledge reuse)
-    inputs[67] = proof.nullifier;
 
     inputs
 }
