@@ -52,6 +52,7 @@
 use crate::errors::CoordinationError;
 use crate::instructions::completion_helpers::{
     calculate_fee_with_reputation, execute_completion_rewards, validate_completion_prereqs,
+    validate_task_dependency,
 };
 use crate::instructions::constants::{
     ZK_EXPECTED_PROOF_SIZE, ZK_PROOF_A_SIZE, ZK_PROOF_B_SIZE, ZK_PROOF_C_SIZE,
@@ -188,6 +189,9 @@ pub fn complete_task_private(
     );
 
     check_version_compatible(&ctx.accounts.protocol_config)?;
+
+    // If task has a proof dependency, verify parent task is completed (fix: issue #832)
+    validate_task_dependency(task, ctx.remaining_accounts, ctx.program_id)?;
 
     // Shared validation: status, transition, deadline (redundant but harmless), claim, competitive guard
     validate_completion_prereqs(task, claim, &clock)?;

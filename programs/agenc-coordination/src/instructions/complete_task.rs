@@ -3,9 +3,10 @@
 use crate::errors::CoordinationError;
 use crate::instructions::completion_helpers::{
     calculate_fee_with_reputation, execute_completion_rewards, validate_completion_prereqs,
+    validate_task_dependency,
 };
 use crate::state::{
-    AgentRegistration, DependencyType, ProtocolConfig, Task, TaskClaim, TaskEscrow, TaskStatus,
+    AgentRegistration, ProtocolConfig, Task, TaskClaim, TaskEscrow, TaskStatus,
     HASH_SIZE, RESULT_DATA_SIZE,
 };
 use crate::utils::compute_budget::log_compute_units;
@@ -94,43 +95,8 @@ pub fn handler(
 
     check_version_compatible(&ctx.accounts.protocol_config)?;
 
-    // If task has a proof dependency, verify parent task is completed
-    if task.dependency_type == DependencyType::Proof {
-        // Parent task account must be provided in remaining_accounts
-        let parent_task_key = task
-            .depends_on
-            .ok_or(CoordinationError::InvalidDependencyType)?;
-
-        // Get parent task from remaining_accounts
-        require!(
-            !ctx.remaining_accounts.is_empty(),
-            CoordinationError::ParentTaskAccountRequired
-        );
-        let parent_task_info = &ctx.remaining_accounts[0];
-
-        // Validate the account matches the expected parent
-        require!(
-            parent_task_info.key() == parent_task_key,
-            CoordinationError::InvalidInput
-        );
-
-        // Validate owner is this program
-        require!(
-            parent_task_info.owner == ctx.program_id,
-            CoordinationError::InvalidAccountOwner
-        );
-
-        // Deserialize and check parent task status
-        let parent_data = parent_task_info.try_borrow_data()?;
-        // Skip 8-byte discriminator, then deserialize Task
-        let parent_task =
-            Task::try_deserialize(&mut &parent_data[..]).map_err(|_| CoordinationError::InvalidInput)?;
-
-        require!(
-            parent_task.status == TaskStatus::Completed,
-            CoordinationError::ParentTaskNotCompleted
-        );
-    }
+    // If task has a proof dependency, verify parent task is completed (shared helper)
+    validate_task_dependency(task, ctx.remaining_accounts, ctx.program_id)?;
 
     // Use the protocol fee locked at task creation (#479), with reputation discount
     let protocol_fee_bps = calculate_fee_with_reputation(task.protocol_fee_bps, worker.reputation);
