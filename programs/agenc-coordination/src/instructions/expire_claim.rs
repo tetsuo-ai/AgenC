@@ -139,12 +139,16 @@ pub fn handler(ctx: Context<ExpireClaim>) -> Result<()> {
 
     let reward = CLEANUP_REWARD.min(remaining_funds);
     if reward > 0 {
-        **escrow.to_account_info().try_borrow_mut_lamports()? -= reward;
-        **ctx
-            .accounts
-            .caller
-            .to_account_info()
-            .try_borrow_mut_lamports()? += reward;
+        let escrow_info = escrow.to_account_info();
+        **escrow_info.try_borrow_mut_lamports()? = escrow_info
+            .lamports()
+            .checked_sub(reward)
+            .ok_or(CoordinationError::ArithmeticOverflow)?;
+        let caller_info = ctx.accounts.caller.to_account_info();
+        **caller_info.try_borrow_mut_lamports()? = caller_info
+            .lamports()
+            .checked_add(reward)
+            .ok_or(CoordinationError::ArithmeticOverflow)?;
         escrow.distributed = escrow
             .distributed
             .checked_add(reward)

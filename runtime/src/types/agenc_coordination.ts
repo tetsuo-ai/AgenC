@@ -676,8 +676,8 @@ export type AgencCoordination = {
         {
           "name": "escrow",
           "docs": [
-            "Note: Escrow account is closed after completion.",
-            "Rent is returned to the task creator who funded it."
+            "Note: Escrow account is closed conditionally after the final completion.",
+            "For collaborative tasks with multiple workers, it stays open until all complete."
           ],
           "writable": true,
           "pda": {
@@ -860,8 +860,8 @@ export type AgencCoordination = {
         {
           "name": "escrow",
           "docs": [
-            "Note: Escrow account is closed after completion.",
-            "Rent is returned to the task creator who funded it."
+            "Note: Escrow account is closed conditionally after the final completion.",
+            "For collaborative tasks with multiple workers, it stays open until all complete."
           ],
           "writable": true,
           "pda": {
@@ -4233,6 +4233,11 @@ export type AgencCoordination = {
       "code": 6140,
       "name": "invalidMinReputation",
       "msg": "Invalid minimum reputation: must be <= 10000"
+    },
+    {
+      "code": 6141,
+      "name": "developmentKeyNotAllowed",
+      "msg": "Development verifying key detected (gamma == delta). ZK proofs are forgeable. Run MPC ceremony before use."
     }
   ],
   "types": [

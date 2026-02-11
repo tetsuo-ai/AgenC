@@ -35,11 +35,10 @@ pub struct CompleteTask<'info> {
     )]
     pub claim: Box<Account<'info, TaskClaim>>,
 
-    /// Note: Escrow account is closed after completion.
-    /// Rent is returned to the task creator who funded it.
+    /// Note: Escrow account is closed conditionally after the final completion.
+    /// For collaborative tasks with multiple workers, it stays open until all complete.
     #[account(
         mut,
-        close = creator,
         seeds = [b"escrow", task.key().as_ref()],
         bump = escrow.bump
     )]
@@ -175,6 +174,13 @@ pub fn handler(
         Some(claim_result_data),
         &clock,
     )?;
+
+    // Only close escrow when task is fully completed (all required completions done).
+    // For collaborative tasks with max_workers > 1, this keeps the escrow open
+    // for subsequent workers to complete and receive their share.
+    if task.status == TaskStatus::Completed {
+        escrow.close(ctx.accounts.creator.to_account_info())?;
+    }
 
     log_compute_units("complete_task_done");
 
