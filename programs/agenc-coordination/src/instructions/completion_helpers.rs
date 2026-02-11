@@ -4,6 +4,7 @@
 
 use crate::errors::CoordinationError;
 use crate::events::{reputation_reason, ReputationChanged, RewardDistributed, TaskCompleted};
+use crate::instructions::lamport_transfer::transfer_lamports;
 use crate::instructions::constants::{
     BASIS_POINTS_DIVISOR, MAX_REPUTATION, REPUTATION_PER_COMPLETION,
 };
@@ -93,22 +94,8 @@ pub fn transfer_rewards<'info>(
     worker_reward: u64,
     protocol_fee: u64,
 ) -> Result<()> {
-    if worker_reward > 0 {
-        **escrow.to_account_info().try_borrow_mut_lamports()? -= worker_reward;
-        let mut worker_lamports = worker_account.try_borrow_mut_lamports()?;
-        **worker_lamports = (*worker_lamports)
-            .checked_add(worker_reward)
-            .ok_or(CoordinationError::ArithmeticOverflow)?;
-    }
-
-    if protocol_fee > 0 {
-        **escrow.to_account_info().try_borrow_mut_lamports()? -= protocol_fee;
-        let mut treasury_lamports = treasury.try_borrow_mut_lamports()?;
-        **treasury_lamports = (*treasury_lamports)
-            .checked_add(protocol_fee)
-            .ok_or(CoordinationError::ArithmeticOverflow)?;
-    }
-
+    transfer_lamports(&escrow.to_account_info(), worker_account, worker_reward)?;
+    transfer_lamports(&escrow.to_account_info(), treasury, protocol_fee)?;
     Ok(())
 }
 

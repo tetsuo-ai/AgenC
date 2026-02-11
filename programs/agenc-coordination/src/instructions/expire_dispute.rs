@@ -14,6 +14,7 @@
 
 use crate::errors::CoordinationError;
 use crate::events::{ArbiterVotesCleanedUp, DisputeExpired};
+use crate::instructions::lamport_transfer::{credit_lamports, debit_lamports, transfer_lamports};
 use crate::instructions::dispute_helpers::{
     check_duplicate_arbiters, process_arbiter_vote_pair, process_worker_claim_pair,
     validate_remaining_accounts_structure,
@@ -259,10 +260,10 @@ pub fn handler(ctx: Context<ExpireDispute>) -> Result<()> {
 /// - Some votes but insufficient quorum: Creator gets refund (dispute was contested)
 ///
 /// Returns (creator_amount, worker_amount) for event emission.
-fn distribute_expired_funds(
-    escrow_info: &AccountInfo,
-    creator_info: &AccountInfo,
-    worker_authority_info: Option<&AccountInfo>,
+fn distribute_expired_funds<'a>(
+    escrow_info: &AccountInfo<'a>,
+    creator_info: &AccountInfo<'a>,
+    worker_authority_info: Option<&AccountInfo<'a>>,
     remaining_funds: u64,
     worker_completed: bool,
     no_votes: bool,
@@ -275,36 +276,11 @@ fn distribute_expired_funds(
         // Worker should receive funds since they did the work
         if let Some(worker_authority) = worker_authority_info {
             worker_amount = remaining_funds;
-            **escrow_info.try_borrow_mut_lamports()? = escrow_info
-                .lamports()
-                .checked_sub(remaining_funds)
-                .ok_or(CoordinationError::ArithmeticOverflow)?;
-            **worker_authority.try_borrow_mut_lamports()? = worker_authority
-                .lamports()
-                .checked_add(remaining_funds)
-                .ok_or(CoordinationError::ArithmeticOverflow)?;
+            transfer_lamports(escrow_info, worker_authority, remaining_funds)?;
         } else {
             // Fallback: if no worker_authority provided, creator gets all
-            let worker_share = remaining_funds
-                .checked_div(2)
-                .ok_or(CoordinationError::ArithmeticOverflow)?;
-            let creator_share = remaining_funds
-                .checked_sub(worker_share)
-                .ok_or(CoordinationError::ArithmeticOverflow)?;
-            // Note: worker_share goes to creator as fallback since we can't pay worker
             creator_amount = remaining_funds;
-            **escrow_info.try_borrow_mut_lamports()? = escrow_info
-                .lamports()
-                .checked_sub(remaining_funds)
-                .ok_or(CoordinationError::ArithmeticOverflow)?;
-            **creator_info.try_borrow_mut_lamports()? = creator_info
-                .lamports()
-                .checked_add(creator_share)
-                .ok_or(CoordinationError::ArithmeticOverflow)?;
-            **creator_info.try_borrow_mut_lamports()? = creator_info
-                .lamports()
-                .checked_add(worker_share)
-                .ok_or(CoordinationError::ArithmeticOverflow)?;
+            transfer_lamports(escrow_info, creator_info, remaining_funds)?;
         }
     } else if no_votes {
         // Neither party engaged arbiters, split 50/50
@@ -315,41 +291,24 @@ fn distribute_expired_funds(
             .checked_sub(worker_share)
             .ok_or(CoordinationError::ArithmeticOverflow)?;
         creator_amount = creator_share;
-        **escrow_info.try_borrow_mut_lamports()? = escrow_info
-            .lamports()
-            .checked_sub(remaining_funds)
-            .ok_or(CoordinationError::ArithmeticOverflow)?;
-        **creator_info.try_borrow_mut_lamports()? = creator_info
-            .lamports()
-            .checked_add(creator_share)
-            .ok_or(CoordinationError::ArithmeticOverflow)?;
+
+        // Debit escrow once, credit recipients individually
+        debit_lamports(escrow_info, remaining_funds)?;
+        credit_lamports(creator_info, creator_share)?;
 
         if let Some(worker_authority) = worker_authority_info {
             worker_amount = worker_share;
-            **worker_authority.try_borrow_mut_lamports()? = worker_authority
-                .lamports()
-                .checked_add(worker_share)
-                .ok_or(CoordinationError::ArithmeticOverflow)?;
+            credit_lamports(worker_authority, worker_share)?;
         } else {
             // Fallback: creator gets all if no worker_authority
             creator_amount = remaining_funds;
-            **creator_info.try_borrow_mut_lamports()? = creator_info
-                .lamports()
-                .checked_add(worker_share)
-                .ok_or(CoordinationError::ArithmeticOverflow)?;
+            credit_lamports(creator_info, worker_share)?;
         }
     } else {
         // Some votes were cast but not enough for quorum
         // Creator gets refund (dispute was actively contested but inconclusive)
         creator_amount = remaining_funds;
-        **escrow_info.try_borrow_mut_lamports()? = escrow_info
-            .lamports()
-            .checked_sub(remaining_funds)
-            .ok_or(CoordinationError::ArithmeticOverflow)?;
-        **creator_info.try_borrow_mut_lamports()? = creator_info
-            .lamports()
-            .checked_add(remaining_funds)
-            .ok_or(CoordinationError::ArithmeticOverflow)?;
+        transfer_lamports(escrow_info, creator_info, remaining_funds)?;
     }
 
     Ok((creator_amount, worker_amount))
