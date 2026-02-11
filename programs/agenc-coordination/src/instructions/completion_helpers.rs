@@ -9,8 +9,8 @@ use crate::instructions::constants::{
     BASIS_POINTS_DIVISOR, MAX_REPUTATION, REPUTATION_PER_COMPLETION,
 };
 use crate::state::{
-    AgentRegistration, ProtocolConfig, Task, TaskClaim, TaskEscrow, TaskStatus, TaskType,
-    RESULT_DATA_SIZE,
+    AgentRegistration, DependencyType, ProtocolConfig, Task, TaskClaim, TaskEscrow, TaskStatus,
+    TaskType, RESULT_DATA_SIZE,
 };
 use crate::utils::compute_budget::{calculate_reputation_fee_discount, calculate_tiered_fee};
 use anchor_lang::prelude::*;
@@ -225,6 +225,57 @@ pub fn validate_completion_prereqs(
             CoordinationError::CompetitiveTaskAlreadyWon
         );
     }
+    Ok(())
+}
+
+/// Validate that a task's dependency requirements are met before completion.
+///
+/// If the task has a `DependencyType::Proof` dependency, the parent task must be
+/// provided in `remaining_accounts[0]` and must have `TaskStatus::Completed`.
+///
+/// Shared by `complete_task` (public) and `complete_task_private` (ZK).
+pub fn validate_task_dependency(
+    task: &Task,
+    remaining_accounts: &[AccountInfo],
+    program_id: &Pubkey,
+) -> Result<()> {
+    if task.dependency_type == DependencyType::Proof {
+        // Parent task account must be provided in remaining_accounts
+        let parent_task_key = task
+            .depends_on
+            .ok_or(CoordinationError::InvalidDependencyType)?;
+
+        // Get parent task from remaining_accounts
+        require!(
+            !remaining_accounts.is_empty(),
+            CoordinationError::ParentTaskAccountRequired
+        );
+        let parent_task_info = &remaining_accounts[0];
+
+        // Validate the account matches the expected parent
+        require!(
+            parent_task_info.key() == parent_task_key,
+            CoordinationError::InvalidInput
+        );
+
+        // Validate owner is this program
+        require!(
+            parent_task_info.owner == program_id,
+            CoordinationError::InvalidAccountOwner
+        );
+
+        // Deserialize and check parent task status
+        let parent_data = parent_task_info.try_borrow_data()?;
+        // Skip 8-byte discriminator, then deserialize Task
+        let parent_task = Task::try_deserialize(&mut &parent_data[..])
+            .map_err(|_| CoordinationError::InvalidInput)?;
+
+        require!(
+            parent_task.status == TaskStatus::Completed,
+            CoordinationError::ParentTaskNotCompleted
+        );
+    }
+
     Ok(())
 }
 
