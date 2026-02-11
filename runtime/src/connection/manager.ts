@@ -32,6 +32,8 @@ import {
 } from './retry.js';
 import type { Logger } from '../utils/logger.js';
 import { silentLogger } from '../utils/logger.js';
+import type { MetricsProvider } from '../task/types.js';
+import { TELEMETRY_METRIC_NAMES } from '../telemetry/metric-names.js';
 
 // ============================================================================
 // Defaults
@@ -91,6 +93,7 @@ export class ConnectionManager {
   private readonly retryConfig: RetryConfig;
   private readonly healthConfig: HealthCheckConfig;
   private readonly logger: Logger;
+  private metrics?: MetricsProvider;
 
   // Shutdown
   private readonly abortController = new AbortController();
@@ -113,6 +116,7 @@ export class ConnectionManager {
     this.healthConfig = { ...DEFAULT_HEALTH, ...config.healthCheck };
     this.coalesceEnabled = config.coalesce !== false;
     this.logger = config.logger ?? silentLogger;
+    this.metrics = config.metrics;
 
     const commitment = config.commitment ?? 'confirmed';
 
@@ -219,6 +223,16 @@ export class ConnectionManager {
     this.logger.info('ConnectionManager destroyed');
   }
 
+  /**
+   * Set the metrics provider (post-construction injection).
+   *
+   * Used by AgentBuilder.build() which creates the ConnectionManager
+   * before the telemetry collector exists.
+   */
+  setMetrics(metrics: MetricsProvider): void {
+    this.metrics = metrics;
+  }
+
   // ==========================================================================
   // Core resilient request
   // ==========================================================================
@@ -257,11 +271,13 @@ export class ConnectionManager {
   private async executeWrite(method: string, args: unknown[]): Promise<unknown> {
     const activeUrl = this.endpointUrls[this.activeIndex];
     const conn = this.connections.get(activeUrl)!;
+    const rpcStart = Date.now();
 
     try {
       const start = Date.now();
       const result = await this.callRpcRequest(conn, method, args);
       this.recordSuccess(activeUrl, Date.now() - start);
+      this.metrics?.histogram(TELEMETRY_METRIC_NAMES.RPC_REQUEST_DURATION, Date.now() - rpcStart, { method });
       return result;
     } catch (error) {
       this.recordFailure(activeUrl, error);
@@ -271,6 +287,7 @@ export class ConnectionManager {
         const nextUrl = this.getNextHealthyEndpoint(activeUrl);
         if (nextUrl) {
           this._totalFailovers++;
+          this.metrics?.counter(TELEMETRY_METRIC_NAMES.RPC_FAILOVERS_TOTAL, 1, { method });
           this.activeIndex = this.endpointUrls.indexOf(nextUrl);
           this.logger.warn(
             `Write failover: ${this.endpointLabels.get(activeUrl)} → ${this.endpointLabels.get(nextUrl)}`,
@@ -281,6 +298,7 @@ export class ConnectionManager {
             const start = Date.now();
             const result = await this.callRpcRequest(nextConn, method, args);
             this.recordSuccess(nextUrl, Date.now() - start);
+            this.metrics?.histogram(TELEMETRY_METRIC_NAMES.RPC_REQUEST_DURATION, Date.now() - rpcStart, { method });
             return result;
           } catch (failoverError) {
             this.recordFailure(nextUrl, failoverError);
@@ -301,12 +319,14 @@ export class ConnectionManager {
     // Try all endpoints (active first, then failovers)
     let triedEndpoints = 0;
     let currentUrl = this.endpointUrls[this.activeIndex];
+    const rpcStart = Date.now();
 
     while (triedEndpoints < this.endpointUrls.length) {
       const conn = this.connections.get(currentUrl)!;
       const retryResult = await this.retryOnEndpoint(conn, currentUrl, method, args);
 
       if (retryResult.success) {
+        this.metrics?.histogram(TELEMETRY_METRIC_NAMES.RPC_REQUEST_DURATION, Date.now() - rpcStart, { method });
         return retryResult.value;
       }
 
@@ -317,6 +337,7 @@ export class ConnectionManager {
       if (!nextUrl) break;
 
       this._totalFailovers++;
+      this.metrics?.counter(TELEMETRY_METRIC_NAMES.RPC_FAILOVERS_TOTAL, 1, { method });
       currentUrl = nextUrl;
       this.activeIndex = this.endpointUrls.indexOf(currentUrl);
       this.logger.warn(
@@ -363,6 +384,7 @@ export class ConnectionManager {
         }
 
         this._totalRetries++;
+        this.metrics?.counter(TELEMETRY_METRIC_NAMES.RPC_RETRIES_TOTAL, 1, { method });
         const delay = computeBackoff(attempt, this.retryConfig);
         this.logger.debug(
           `Retry ${attempt + 1}/${this.retryConfig.maxRetries} on ${this.endpointLabels.get(url)} in ${delay}ms`,

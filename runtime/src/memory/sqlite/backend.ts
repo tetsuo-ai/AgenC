@@ -19,6 +19,8 @@ import type {
 import type { SqliteBackendConfig } from './types.js';
 import { MemoryBackendError, MemorySerializationError } from '../errors.js';
 import { ensureLazyBackend } from '../lazy-import.js';
+import type { MetricsProvider } from '../../task/types.js';
+import { TELEMETRY_METRIC_NAMES } from '../../telemetry/metric-names.js';
 
 export class SqliteBackend implements MemoryBackend {
   readonly name = 'sqlite';
@@ -27,6 +29,7 @@ export class SqliteBackend implements MemoryBackend {
   private readonly config: Required<Pick<SqliteBackendConfig, 'dbPath' | 'walMode' | 'cleanupOnConnect'>> & SqliteBackendConfig;
   private readonly logger: Logger;
   private readonly defaultTtlMs: number;
+  private readonly metrics?: MetricsProvider;
   private closed = false;
 
   constructor(config: SqliteBackendConfig = {}) {
@@ -38,12 +41,14 @@ export class SqliteBackend implements MemoryBackend {
     };
     this.logger = config.logger ?? silentLogger;
     this.defaultTtlMs = config.defaultTtlMs ?? 0;
+    this.metrics = config.metrics;
   }
 
   // ---------- Thread Operations ----------
 
   async addEntry(options: AddEntryOptions): Promise<MemoryEntry> {
     const db = await this.ensureDb();
+    const start = Date.now();
     const now = Date.now();
     const id = randomUUID();
     const ttl = options.ttlMs ?? this.defaultTtlMs;
@@ -75,6 +80,7 @@ export class SqliteBackend implements MemoryBackend {
     );
 
     this.logger.debug(`Added entry ${id} to session ${options.sessionId}`);
+    this.recordMemoryMetrics('addEntry', Date.now() - start);
 
     return {
       id,
@@ -91,6 +97,7 @@ export class SqliteBackend implements MemoryBackend {
 
   async getThread(sessionId: string, limit?: number): Promise<MemoryEntry[]> {
     const db = await this.ensureDb();
+    const start = Date.now();
     const now = Date.now();
 
     let sql = `SELECT * FROM memory_entries
@@ -110,11 +117,13 @@ export class SqliteBackend implements MemoryBackend {
     }
 
     const rows = db.prepare(sql).all(...params);
+    this.recordMemoryMetrics('getThread', Date.now() - start);
     return rows.map((row: any) => this.rowToEntry(row));
   }
 
   async query(query: MemoryQuery): Promise<MemoryEntry[]> {
     const db = await this.ensureDb();
+    const start = Date.now();
     const now = Date.now();
     const conditions: string[] = ['(expires_at IS NULL OR expires_at > ?)'];
     const params: unknown[] = [now];
@@ -149,6 +158,7 @@ export class SqliteBackend implements MemoryBackend {
     }
 
     const rows = db.prepare(sql).all(...params);
+    this.recordMemoryMetrics('query', Date.now() - start);
     return rows.map((row: any) => this.rowToEntry(row));
   }
 
@@ -273,6 +283,13 @@ export class SqliteBackend implements MemoryBackend {
   }
 
   // ---------- Internals ----------
+
+  private recordMemoryMetrics(operation: string, durationMs: number): void {
+    if (!this.metrics) return;
+    const labels = { operation, backend: 'sqlite' };
+    this.metrics.counter(TELEMETRY_METRIC_NAMES.MEMORY_OPS_TOTAL, 1, labels);
+    this.metrics.histogram(TELEMETRY_METRIC_NAMES.MEMORY_OP_DURATION, durationMs, labels);
+  }
 
   private async ensureDb(): Promise<any> {
     if (this.closed) {

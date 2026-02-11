@@ -6,6 +6,7 @@
 
 import type { Commitment } from '@solana/web3.js';
 import type { Logger } from '../utils/logger.js';
+import type { MetricsProvider } from '../task/types.js';
 
 // ============================================================================
 // Configuration
@@ -49,6 +50,8 @@ export interface ConnectionManagerConfig {
   commitment?: Commitment;
   /** Logger instance. */
   logger?: Logger;
+  /** Optional metrics provider for telemetry. */
+  metrics?: MetricsProvider;
 }
 
 // ============================================================================
