@@ -8,6 +8,7 @@ use crate::state::{
 };
 use crate::utils::version::check_version_compatible;
 use anchor_lang::prelude::*;
+use std::collections::BTreeSet;
 
 use super::rate_limit_helpers::check_dispute_initiation_rate_limits;
 
@@ -282,9 +283,20 @@ fn mark_defendant_workers(
         CoordinationError::InvalidInput
     );
 
+    // Track seen worker keys to reject duplicate (claim, worker) pairs (fix #820).
+    // Without this, an attacker could pass the same pair multiple times to inflate
+    // disputes_as_defendant, permanently blocking agent deregistration.
+    let mut seen_workers: BTreeSet<Pubkey> = BTreeSet::new();
+
     for i in (0..remaining_accounts.len()).step_by(2) {
         let claim_info = &remaining_accounts[i];
         let worker_info = &remaining_accounts[i + 1];
+
+        // Reject duplicate worker keys
+        require!(
+            seen_workers.insert(worker_info.key()),
+            CoordinationError::DuplicateArbiter
+        );
 
         // Validate account ownership
         require!(

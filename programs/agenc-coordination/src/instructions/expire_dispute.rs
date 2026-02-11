@@ -211,6 +211,9 @@ pub fn handler(ctx: Context<ExpireDispute>) -> Result<()> {
             .active_tasks
             .checked_sub(1)
             .ok_or(CoordinationError::ArithmeticOverflow)?;
+        // Decrement disputes_as_defendant (fix #821)
+        // Using saturating_sub intentionally - underflow returns 0 (safe counter decrement)
+        worker_reg.disputes_as_defendant = worker_reg.disputes_as_defendant.saturating_sub(1);
         worker_reg.try_serialize(&mut &mut worker_data[8..])?;
     }
 
