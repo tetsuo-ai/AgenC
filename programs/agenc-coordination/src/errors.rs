@@ -452,4 +452,7 @@ pub enum CoordinationError {
     // Security errors (7700-7799)
     #[msg("Development verifying key detected (gamma == delta). ZK proofs are forgeable. Run MPC ceremony before use.")]
     DevelopmentKeyNotAllowed,
+
+    #[msg("Cannot claim own task: worker authority matches task creator")]
+    SelfTaskNotAllowed,
 }
