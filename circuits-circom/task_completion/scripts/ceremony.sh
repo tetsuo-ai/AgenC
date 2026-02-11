@@ -88,17 +88,21 @@ add_contribution_to_transcript() {
     local contribution_hash="$2"
     local index="$3"
 
-    # Use node to update JSON properly
+    # Use node to update JSON properly — pass values via env to prevent injection
+    TRANSCRIPT_FILE="$TRANSCRIPT_FILE" \
+    CONTRIB_NAME="$contributor_name" \
+    CONTRIB_HASH="$contribution_hash" \
+    CONTRIB_INDEX="$index" \
     node -e "
         const fs = require('fs');
-        const t = JSON.parse(fs.readFileSync('$TRANSCRIPT_FILE', 'utf8'));
+        const t = JSON.parse(fs.readFileSync(process.env.TRANSCRIPT_FILE, 'utf8'));
         t.contributions.push({
-            index: $index,
-            contributor: '$contributor_name',
-            hash: '$contribution_hash',
+            index: parseInt(process.env.CONTRIB_INDEX),
+            contributor: process.env.CONTRIB_NAME,
+            hash: process.env.CONTRIB_HASH,
             timestamp: new Date().toISOString()
         });
-        fs.writeFileSync('$TRANSCRIPT_FILE', JSON.stringify(t, null, 2));
+        fs.writeFileSync(process.env.TRANSCRIPT_FILE, JSON.stringify(t, null, 2));
     "
 }
 
@@ -148,6 +152,11 @@ cmd_contribute() {
     read -rp "Enter your name/identifier: " contributor_name
     if [ -z "$contributor_name" ]; then
         log_error "Contributor name required."
+        exit 1
+    fi
+    # Reject shell metacharacters to prevent injection
+    if [[ "$contributor_name" =~ [\;\$\`\'\"\(\)\{\}\<\>\|\\] ]]; then
+        log_error "Name contains shell metacharacters."
         exit 1
     fi
 
@@ -215,14 +224,16 @@ cmd_beacon() {
 
     snarkjs zkey beacon "$input" "$output" "$beacon_hash" 10
 
-    # Update transcript
+    # Update transcript — pass values via env to prevent injection
+    TRANSCRIPT_FILE="$TRANSCRIPT_FILE" \
+    BEACON_HASH="$beacon_hash" \
     node -e "
         const fs = require('fs');
-        const t = JSON.parse(fs.readFileSync('$TRANSCRIPT_FILE', 'utf8'));
+        const t = JSON.parse(fs.readFileSync(process.env.TRANSCRIPT_FILE, 'utf8'));
         t.beaconApplied = true;
-        t.beaconHash = '$beacon_hash';
+        t.beaconHash = process.env.BEACON_HASH;
         t.beaconTimestamp = new Date().toISOString();
-        fs.writeFileSync('$TRANSCRIPT_FILE', JSON.stringify(t, null, 2));
+        fs.writeFileSync(process.env.TRANSCRIPT_FILE, JSON.stringify(t, null, 2));
     "
 
     log_info "Beacon applied. Final zkey: $output"
@@ -267,13 +278,14 @@ cmd_finalize() {
     cp "$final_zkey" target/circuit.zkey
     cp "$vk_json" target/verification_key.json
 
-    # Update transcript
+    # Update transcript — pass values via env to prevent injection
+    TRANSCRIPT_FILE="$TRANSCRIPT_FILE" \
     node -e "
         const fs = require('fs');
-        const t = JSON.parse(fs.readFileSync('$TRANSCRIPT_FILE', 'utf8'));
+        const t = JSON.parse(fs.readFileSync(process.env.TRANSCRIPT_FILE, 'utf8'));
         t.finalized = true;
         t.finalizedAt = new Date().toISOString();
-        fs.writeFileSync('$TRANSCRIPT_FILE', JSON.stringify(t, null, 2));
+        fs.writeFileSync(process.env.TRANSCRIPT_FILE, JSON.stringify(t, null, 2));
     "
 
     echo ""
@@ -333,11 +345,12 @@ cmd_verify() {
         log_info "Final zkey: VALID"
     fi
 
-    # Check gamma != delta in final verification key
+    # Check gamma != delta in final verification key — pass path via env
     local vk_json="$CEREMONY_DIR/verification_key.json"
     if [ -f "$vk_json" ]; then
+        VK_JSON_PATH="$vk_json" \
         node -e "
-            const vk = JSON.parse(require('fs').readFileSync('$vk_json', 'utf8'));
+            const vk = JSON.parse(require('fs').readFileSync(process.env.VK_JSON_PATH, 'utf8'));
             const g = JSON.stringify(vk.vk_gamma_2);
             const d = JSON.stringify(vk.vk_delta_2);
             if (g === d) {
@@ -355,9 +368,10 @@ cmd_verify() {
     echo ""
     log_info "=== All ceremony checks passed ==="
 
-    # Print transcript summary
+    # Print transcript summary — pass path via env
+    TRANSCRIPT_FILE="$TRANSCRIPT_FILE" \
     node -e "
-        const t = JSON.parse(require('fs').readFileSync('$TRANSCRIPT_FILE', 'utf8'));
+        const t = JSON.parse(require('fs').readFileSync(process.env.TRANSCRIPT_FILE, 'utf8'));
         console.log('');
         console.log('Ceremony Summary:');
         console.log('  Started:       ' + t.startedAt);

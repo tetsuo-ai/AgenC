@@ -4553,10 +4553,6 @@ describe("test_1", () => {
       });
 
       it("Collaborative task: reward splits exactly among workers, no dust left", async () => {
-        // NOTE: Current program design has an issue where escrow and claim accounts
-        // are closed after EACH completion (close = creator/authority directives).
-        // This test verifies first completion calculates reward correctly and
-        // documents that multi-worker collaborative tasks don't work as designed.
         const w1 = await createFreshWorker();
         const w2 = await createFreshWorker();
         const w3 = await createFreshWorker();
@@ -4620,7 +4616,7 @@ describe("test_1", () => {
         const feePerWorker = Math.floor((rewardPerWorker * PROTOCOL_FEE_BPS) / 10000);
         const netRewardPerWorker = rewardPerWorker - feePerWorker;
 
-        // Worker 1 completes - this should succeed
+        // Worker 1 completes — escrow stays open for remaining workers
         const w1Before = await provider.connection.getBalance(w1.wallet.publicKey);
         const tx1 = await program.methods.completeTask(Array.from(Buffer.from("proof1".padEnd(32, "\0"))), null).accountsPartial({
           task: taskPda, claim: claimPda1, escrow: escrowPda, worker: w1.agentPda,
@@ -4634,38 +4630,38 @@ describe("test_1", () => {
         // Use closeTo with wider tolerance to account for claim rent refund
         expect(w1After - w1Before + tx1Fee).to.be.closeTo(netRewardPerWorker, 2500000);
 
-        // KNOWN ISSUE: Escrow is closed after first completion due to `close = creator` directive
-        // Workers 2 and 3 cannot complete because escrow no longer exists
-        // Attempt Worker 2 completion - expected to fail
-        try {
-          await program.methods.completeTask(Array.from(Buffer.from("proof2".padEnd(32, "\0"))), null).accountsPartial({
-            task: taskPda, claim: claimPda2, escrow: escrowPda, worker: w2.agentPda,
-            creator: creator.publicKey,
-            protocolConfig: protocolPda, treasury: treasuryPubkey,
-            authority: w2.wallet.publicKey, systemProgram: SystemProgram.programId,
-          }).signers([w2.wallet]).rpc();
-          // If this succeeds, collaborative tasks work correctly - continue testing
-          // Worker 3 completes
-          await program.methods.completeTask(Array.from(Buffer.from("proof3".padEnd(32, "\0"))), null).accountsPartial({
-            task: taskPda, claim: claimPda3, escrow: escrowPda, worker: w3.agentPda,
-            creator: creator.publicKey,
-            protocolConfig: protocolPda, treasury: treasuryPubkey,
-            authority: w3.wallet.publicKey, systemProgram: SystemProgram.programId,
-          }).signers([w3.wallet]).rpc();
+        // Escrow should still exist after first completion
+        const escrowMid1 = await provider.connection.getAccountInfo(escrowPda);
+        expect(escrowMid1).to.not.be.null;
 
-          // Verify escrow is closed (balance is 0 after final completion)
-          const escrowAfter = await provider.connection.getBalance(escrowPda);
-          expect(escrowAfter).to.equal(0);
+        // Worker 2 completes — escrow stays open (2/3 done)
+        await program.methods.completeTask(Array.from(Buffer.from("proof2".padEnd(32, "\0"))), null).accountsPartial({
+          task: taskPda, claim: claimPda2, escrow: escrowPda, worker: w2.agentPda,
+          creator: creator.publicKey,
+          protocolConfig: protocolPda, treasury: treasuryPubkey,
+          authority: w2.wallet.publicKey, systemProgram: SystemProgram.programId,
+        }).signers([w2.wallet]).rpc();
 
-          // Verify task is completed
-          const task = await program.account.task.fetch(taskPda);
-          expect(task.status).to.deep.equal({ completed: {} });
-          expect(task.completions).to.equal(3);
-        } catch (e: any) {
-          // Expected: AccountNotInitialized because escrow was closed after first completion
-          expect(e.error?.errorCode?.code || e.message).to.include("AccountNotInitialized");
-          // This documents a known limitation - collaborative tasks don't work as designed
-        }
+        // Escrow should still exist after second completion
+        const escrowMid2 = await provider.connection.getAccountInfo(escrowPda);
+        expect(escrowMid2).to.not.be.null;
+
+        // Worker 3 completes — final completion closes escrow
+        await program.methods.completeTask(Array.from(Buffer.from("proof3".padEnd(32, "\0"))), null).accountsPartial({
+          task: taskPda, claim: claimPda3, escrow: escrowPda, worker: w3.agentPda,
+          creator: creator.publicKey,
+          protocolConfig: protocolPda, treasury: treasuryPubkey,
+          authority: w3.wallet.publicKey, systemProgram: SystemProgram.programId,
+        }).signers([w3.wallet]).rpc();
+
+        // Verify escrow is closed after final completion
+        const escrowAfter = await provider.connection.getAccountInfo(escrowPda);
+        expect(escrowAfter).to.be.null;
+
+        // Verify task is completed
+        const task = await program.account.task.fetch(taskPda);
+        expect(task.status).to.deep.equal({ completed: {} });
+        expect(task.completions).to.equal(3);
       });
     });
 
@@ -7356,10 +7352,6 @@ describe("test_1", () => {
       });
 
       it("Collaborative task: all required completions must happen", async () => {
-        // NOTE: Current program design has an issue where escrow and claim accounts
-        // are closed after EACH completion (close = creator/authority directives),
-        // making multi-worker collaborative tasks fail after first completion.
-        // This test verifies first completion works and documents the limitation.
         const taskId = Buffer.from("concurrent-005".padEnd(32, "\0"));
         const taskPda = deriveTaskPda(creator.publicKey, taskId);
         const escrowPda = deriveEscrowPda(taskPda);
@@ -7391,7 +7383,7 @@ describe("test_1", () => {
           authority: worker2.wallet.publicKey,
         }).signers([worker2.wallet]).rpc();
 
-        // First completion pays first worker
+        // First completion pays first worker — escrow stays open for collaborative tasks
         await program.methods.completeTask(
           Array.from(Buffer.from("proof1".padEnd(32, "\0"))), null
         ).accountsPartial({
@@ -7403,27 +7395,27 @@ describe("test_1", () => {
 
         let task = await program.account.task.fetch(taskPda);
         expect(task.completions).to.equal(1);
+        // Escrow should still exist after first completion
+        const escrowAccount = await provider.connection.getAccountInfo(escrowPda);
+        expect(escrowAccount).to.not.be.null;
 
-        // KNOWN ISSUE: Escrow is closed after first completion due to `close = creator` directive
-        // Second worker cannot complete because escrow no longer exists
-        // This is a program design limitation for collaborative tasks
-        try {
-          await program.methods.completeTask(
-            Array.from(Buffer.from("proof2".padEnd(32, "\0"))), null
-          ).accountsPartial({
-            task: taskPda, claim: claimPda2, escrow: escrowPda, worker: worker2.agentPda,
-            creator: creator.publicKey,
-            protocolConfig: protocolPda, treasury: treasuryPubkey,
-            authority: worker2.wallet.publicKey,
-          }).signers([worker2.wallet]).rpc();
-          // If this succeeds, collaborative tasks work (unexpected with current code)
-          task = await program.account.task.fetch(taskPda);
-          expect(task.completions).to.equal(2);
-        } catch (e: any) {
-          // Expected: AccountNotInitialized because escrow was closed after first completion
-          expect(e.error?.errorCode?.code || e.message).to.include("AccountNotInitialized");
-          // Document this as a known limitation
-        }
+        // Second completion succeeds — escrow closes after final completion
+        await program.methods.completeTask(
+          Array.from(Buffer.from("proof2".padEnd(32, "\0"))), null
+        ).accountsPartial({
+          task: taskPda, claim: claimPda2, escrow: escrowPda, worker: worker2.agentPda,
+          creator: creator.publicKey,
+          protocolConfig: protocolPda, treasury: treasuryPubkey,
+          authority: worker2.wallet.publicKey,
+        }).signers([worker2.wallet]).rpc();
+
+        task = await program.account.task.fetch(taskPda);
+        expect(task.completions).to.equal(2);
+        expect(task.status).to.deep.equal({ completed: {} });
+
+        // Escrow should be closed after all completions
+        const escrowAfter = await provider.connection.getAccountInfo(escrowPda);
+        expect(escrowAfter).to.be.null;
       });
     });
 
@@ -7485,9 +7477,6 @@ describe("test_1", () => {
       });
 
       it("completions count stays accurate across multiple completions", async () => {
-        // NOTE: Current program design has an issue where escrow and claim accounts
-        // are closed after EACH completion (close = creator/authority directives).
-        // This test verifies first completion works and documents the limitation.
         const taskId = Buffer.from("concurrent-007".padEnd(32, "\0"));
         const taskPda = deriveTaskPda(creator.publicKey, taskId);
         const escrowPda = deriveEscrowPda(taskPda);
@@ -7529,7 +7518,7 @@ describe("test_1", () => {
         let task = await program.account.task.fetch(taskPda);
         expect(task.completions).to.equal(0);
 
-        // Complete 1 - this should succeed
+        // Complete 1 — escrow stays open
         await program.methods.completeTask(
           Array.from(Buffer.from("proof1".padEnd(32, "\0"))), null
         ).accountsPartial({
@@ -7542,40 +7531,32 @@ describe("test_1", () => {
         task = await program.account.task.fetch(taskPda);
         expect(task.completions).to.equal(1);
 
-        // KNOWN ISSUE: Escrow is closed after first completion due to `close = creator` directive
-        // Subsequent workers cannot complete because escrow no longer exists
-        // Attempt Complete 2 - expected to fail due to closed escrow
-        try {
-          await program.methods.completeTask(
-            Array.from(Buffer.from("proof2".padEnd(32, "\0"))), null
-          ).accountsPartial({
-            task: taskPda, claim: claimPda2, escrow: escrowPda, worker: worker2.agentPda,
-            creator: creator.publicKey,
-            protocolConfig: protocolPda, treasury: treasuryPubkey,
-            authority: worker2.wallet.publicKey,
-          }).signers([worker2.wallet]).rpc();
+        // Complete 2 — escrow stays open
+        await program.methods.completeTask(
+          Array.from(Buffer.from("proof2".padEnd(32, "\0"))), null
+        ).accountsPartial({
+          task: taskPda, claim: claimPda2, escrow: escrowPda, worker: worker2.agentPda,
+          creator: creator.publicKey,
+          protocolConfig: protocolPda, treasury: treasuryPubkey,
+          authority: worker2.wallet.publicKey,
+        }).signers([worker2.wallet]).rpc();
 
-          // If this succeeds, collaborative tasks work correctly
-          task = await program.account.task.fetch(taskPda);
-          expect(task.completions).to.equal(2);
+        task = await program.account.task.fetch(taskPda);
+        expect(task.completions).to.equal(2);
 
-          // Complete 3
-          await program.methods.completeTask(
-            Array.from(Buffer.from("proof3".padEnd(32, "\0"))), null
-          ).accountsPartial({
-            task: taskPda, claim: claimPda3, escrow: escrowPda, worker: worker3.agentPda,
-            creator: creator.publicKey,
-            protocolConfig: protocolPda, treasury: treasuryPubkey,
-            authority: worker3.wallet.publicKey,
-          }).signers([worker3.wallet]).rpc();
+        // Complete 3 — final completion closes escrow
+        await program.methods.completeTask(
+          Array.from(Buffer.from("proof3".padEnd(32, "\0"))), null
+        ).accountsPartial({
+          task: taskPda, claim: claimPda3, escrow: escrowPda, worker: worker3.agentPda,
+          creator: creator.publicKey,
+          protocolConfig: protocolPda, treasury: treasuryPubkey,
+          authority: worker3.wallet.publicKey,
+        }).signers([worker3.wallet]).rpc();
 
-          task = await program.account.task.fetch(taskPda);
-          expect(task.completions).to.equal(3);
-        } catch (e: any) {
-          // Expected: AccountNotInitialized because escrow was closed after first completion
-          expect(e.error?.errorCode?.code || e.message).to.include("AccountNotInitialized");
-          // Document this as a known limitation - collaborative tasks don't work as designed
-        }
+        task = await program.account.task.fetch(taskPda);
+        expect(task.completions).to.equal(3);
+        expect(task.status).to.deep.equal({ completed: {} });
       });
 
       it("Worker active_tasks count stays consistent", async () => {
@@ -8077,9 +8058,7 @@ describe("test_1", () => {
           authority: worker1.wallet.publicKey,
         }).signers([worker1.wallet]).rpc();
 
-        // Note: Escrow is closed after first completion in current program design
-        // Second completion would fail with "AccountNotInitialized" for escrow
-        // This is expected behavior - task completions are capped by escrow closure
+        // Note: For exclusive tasks (max_workers=1), escrow is closed after single completion
 
         const task = await program.account.task.fetch(taskPda);
         expect(task.completions).to.be.at.most(task.requiredCompletions);

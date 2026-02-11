@@ -448,4 +448,8 @@ pub enum CoordinationError {
 
     #[msg("Invalid minimum reputation: must be <= 10000")]
     InvalidMinReputation,
+
+    // Security errors (7700-7799)
+    #[msg("Development verifying key detected (gamma == delta). ZK proofs are forgeable. Run MPC ceremony before use.")]
+    DevelopmentKeyNotAllowed,
 }

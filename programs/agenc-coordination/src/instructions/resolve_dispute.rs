@@ -191,12 +191,16 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
             ResolutionType::Refund => {
                 // Full refund to creator
                 if remaining_funds > 0 {
-                    **escrow.to_account_info().try_borrow_mut_lamports()? -= remaining_funds;
-                    **ctx
-                        .accounts
-                        .creator
-                        .to_account_info()
-                        .try_borrow_mut_lamports()? += remaining_funds;
+                    let escrow_info = escrow.to_account_info();
+                    **escrow_info.try_borrow_mut_lamports()? = escrow_info
+                        .lamports()
+                        .checked_sub(remaining_funds)
+                        .ok_or(CoordinationError::ArithmeticOverflow)?;
+                    let creator_info = ctx.accounts.creator.to_account_info();
+                    **creator_info.try_borrow_mut_lamports()? = creator_info
+                        .lamports()
+                        .checked_add(remaining_funds)
+                        .ok_or(CoordinationError::ArithmeticOverflow)?;
                 }
                 task.status = TaskStatus::Cancelled;
             }
@@ -212,9 +216,16 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
                 // Pay to worker_authority (the actual wallet) instead of worker PDA (fix #296)
                 if let Some(worker_authority) = &ctx.accounts.worker_authority {
                     if remaining_funds > 0 {
-                        **escrow.to_account_info().try_borrow_mut_lamports()? -= remaining_funds;
-                        **worker_authority.to_account_info().try_borrow_mut_lamports()? +=
-                            remaining_funds;
+                        let escrow_info = escrow.to_account_info();
+                        **escrow_info.try_borrow_mut_lamports()? = escrow_info
+                            .lamports()
+                            .checked_sub(remaining_funds)
+                            .ok_or(CoordinationError::ArithmeticOverflow)?;
+                        let wa_info = worker_authority.to_account_info();
+                        **wa_info.try_borrow_mut_lamports()? = wa_info
+                            .lamports()
+                            .checked_add(remaining_funds)
+                            .ok_or(CoordinationError::ArithmeticOverflow)?;
                     }
                 }
                 task.status = TaskStatus::Completed;
@@ -237,12 +248,16 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
                         .checked_sub(worker_share)
                         .ok_or(CoordinationError::ArithmeticOverflow)?;
 
-                    **escrow.to_account_info().try_borrow_mut_lamports()? -= remaining_funds;
-                    **ctx
-                        .accounts
-                        .creator
-                        .to_account_info()
-                        .try_borrow_mut_lamports()? += creator_share;
+                    let escrow_info = escrow.to_account_info();
+                    **escrow_info.try_borrow_mut_lamports()? = escrow_info
+                        .lamports()
+                        .checked_sub(remaining_funds)
+                        .ok_or(CoordinationError::ArithmeticOverflow)?;
+                    let creator_info = ctx.accounts.creator.to_account_info();
+                    **creator_info.try_borrow_mut_lamports()? = creator_info
+                        .lamports()
+                        .checked_add(creator_share)
+                        .ok_or(CoordinationError::ArithmeticOverflow)?;
 
                     if let Some(worker_authority) = &ctx.accounts.worker_authority {
                         // Worker must have valid claim (fix #296: pay to authority wallet)
@@ -250,15 +265,17 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
                             ctx.accounts.worker_claim.is_some() && ctx.accounts.worker.is_some(),
                             CoordinationError::NotClaimed
                         );
-                        **worker_authority.to_account_info().try_borrow_mut_lamports()? +=
-                            worker_share;
+                        let wa_info = worker_authority.to_account_info();
+                        **wa_info.try_borrow_mut_lamports()? = wa_info
+                            .lamports()
+                            .checked_add(worker_share)
+                            .ok_or(CoordinationError::ArithmeticOverflow)?;
                     } else {
                         // If no worker_authority, give all to creator
-                        **ctx
-                            .accounts
-                            .creator
-                            .to_account_info()
-                            .try_borrow_mut_lamports()? += worker_share;
+                        **creator_info.try_borrow_mut_lamports()? = creator_info
+                            .lamports()
+                            .checked_add(worker_share)
+                            .ok_or(CoordinationError::ArithmeticOverflow)?;
                     }
                 }
                 task.status = TaskStatus::Cancelled;
@@ -267,12 +284,16 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
     } else {
         // Dispute rejected - refund to creator by default
         if remaining_funds > 0 {
-            **escrow.to_account_info().try_borrow_mut_lamports()? -= remaining_funds;
-            **ctx
-                .accounts
-                .creator
-                .to_account_info()
-                .try_borrow_mut_lamports()? += remaining_funds;
+            let escrow_info = escrow.to_account_info();
+            **escrow_info.try_borrow_mut_lamports()? = escrow_info
+                .lamports()
+                .checked_sub(remaining_funds)
+                .ok_or(CoordinationError::ArithmeticOverflow)?;
+            let creator_info = ctx.accounts.creator.to_account_info();
+            **creator_info.try_borrow_mut_lamports()? = creator_info
+                .lamports()
+                .checked_add(remaining_funds)
+                .ok_or(CoordinationError::ArithmeticOverflow)?;
         }
         task.status = TaskStatus::Cancelled;
     }
