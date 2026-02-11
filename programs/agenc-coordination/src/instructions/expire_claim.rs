@@ -15,6 +15,7 @@
 //! to incentivize timely cleanup of expired claims.
 
 use crate::errors::CoordinationError;
+use crate::instructions::lamport_transfer::transfer_lamports;
 use crate::state::{AgentRegistration, ProtocolConfig, Task, TaskClaim, TaskEscrow, TaskStatus};
 use crate::utils::version::check_version_compatible;
 use anchor_lang::prelude::*;
@@ -139,16 +140,11 @@ pub fn handler(ctx: Context<ExpireClaim>) -> Result<()> {
 
     let reward = CLEANUP_REWARD.min(remaining_funds);
     if reward > 0 {
-        let escrow_info = escrow.to_account_info();
-        **escrow_info.try_borrow_mut_lamports()? = escrow_info
-            .lamports()
-            .checked_sub(reward)
-            .ok_or(CoordinationError::ArithmeticOverflow)?;
-        let caller_info = ctx.accounts.caller.to_account_info();
-        **caller_info.try_borrow_mut_lamports()? = caller_info
-            .lamports()
-            .checked_add(reward)
-            .ok_or(CoordinationError::ArithmeticOverflow)?;
+        transfer_lamports(
+            &escrow.to_account_info(),
+            &ctx.accounts.caller.to_account_info(),
+            reward,
+        )?;
         escrow.distributed = escrow
             .distributed
             .checked_add(reward)
