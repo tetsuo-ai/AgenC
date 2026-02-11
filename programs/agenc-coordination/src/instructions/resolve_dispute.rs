@@ -5,8 +5,8 @@ use crate::events::{dispute_outcome, DisputeResolved};
 use crate::instructions::completion_helpers::update_protocol_stats;
 use crate::instructions::constants::PERCENT_BASE;
 use crate::instructions::dispute_helpers::{
-    check_duplicate_arbiters, process_arbiter_vote_pair, process_worker_claim_pair,
-    validate_remaining_accounts_structure,
+    check_duplicate_arbiters, check_duplicate_workers, process_arbiter_vote_pair,
+    process_worker_claim_pair, validate_remaining_accounts_structure,
 };
 use crate::instructions::lamport_transfer::{credit_lamports, debit_lamports, transfer_lamports};
 use crate::state::{
@@ -301,6 +301,9 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
             &dispute.key(),
         )?;
     }
+
+    // Check for duplicate workers before processing (fix #826)
+    check_duplicate_workers(ctx.remaining_accounts, arbiter_accounts)?;
 
     for i in (arbiter_accounts..ctx.remaining_accounts.len()).step_by(2) {
         process_worker_claim_pair(
