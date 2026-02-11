@@ -738,6 +738,10 @@ pub struct Dispute {
     pub initiated_by_creator: bool,
     /// Bump seed
     pub bump: u8,
+    /// The defendant worker's agent PDA (fix #827)
+    /// Binds slashing target at dispute initiation to prevent slashing wrong worker
+    /// on collaborative tasks with multiple claimants.
+    pub defendant: Pubkey,
 }
 
 impl Dispute {
@@ -760,7 +764,9 @@ impl Dispute {
         1 +  // initiator_slash_applied
         8 +  // worker_stake_at_dispute
         1 +  // initiated_by_creator
-        1; // bump
+        1 +  // bump
+        32 + // defendant (fix #827)
+        1; // struct alignment padding
 }
 
 /// Vote record for dispute

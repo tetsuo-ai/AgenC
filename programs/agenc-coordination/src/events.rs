@@ -133,6 +133,8 @@ pub struct DisputeInitiated {
     pub dispute_id: [u8; 32],
     pub task_id: [u8; 32],
     pub initiator: Pubkey,
+    /// The defendant worker's agent PDA (fix #827)
+    pub defendant: Pubkey,
     pub resolution_type: u8,
     pub voting_deadline: i64,
     pub timestamp: i64,

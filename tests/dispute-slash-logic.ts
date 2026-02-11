@@ -40,6 +40,7 @@ import {
   CAPABILITY_COMPUTE,
   CAPABILITY_ARBITER,
   TASK_TYPE_EXCLUSIVE,
+  TASK_TYPE_COLLABORATIVE,
   RESOLUTION_TYPE_REFUND,
   getDefaultDeadline,
   deriveProgramDataPda,
@@ -514,6 +515,129 @@ describe("dispute-slash-logic (issue #136)", () => {
     it("documents expected behavior for each scenario", () => {
       // This is a pure documentation test
       expect(true).to.be.true;
+    });
+  });
+
+  describe("defendant binding (issue #827)", () => {
+    let workerB: Keypair;
+    let workerBAgentId: Buffer;
+
+    before(async () => {
+      workerB = Keypair.generate();
+      workerBAgentId = makeId("wrB");
+      await airdrop([workerB]);
+      const actualWorkerStake = Math.max(WORKER_STAKE, minAgentStake);
+      await registerAgent(workerBAgentId, workerB, CAPABILITY_COMPUTE, actualWorkerStake);
+    });
+
+    it("should set defendant field and reject slash on wrong worker", async () => {
+      // Create collaborative task with max_workers=3
+      const taskId = makeId("task-def");
+      const disputeId = makeId("disp-def");
+
+      const creatorAgentPda = deriveAgentPda(creatorAgentId);
+      const workerAgentPda = deriveAgentPda(workerAgentId);
+      const workerBPda = deriveAgentPda(workerBAgentId);
+      const taskPda = deriveTaskPda(creator.publicKey, taskId);
+      const claimAPda = deriveClaimPda(taskPda, workerAgentPda);
+      const claimBPda = deriveClaimPda(taskPda, workerBPda);
+      const disputePda = deriveDisputePda(disputeId);
+
+      // 1. Create collaborative task (max_workers=3)
+      await program.methods
+        .createTask(
+          Array.from(taskId),
+          new BN(CAPABILITY_COMPUTE),
+          Buffer.from("Test task for defendant binding".padEnd(64, "\0")),
+          new BN(LAMPORTS_PER_SOL),
+          3,  // max_workers
+          getDefaultDeadline(),
+          TASK_TYPE_COLLABORATIVE,
+          null,
+          0, // min_reputation
+        )
+        .accountsPartial({
+          creatorAgent: creatorAgentPda,
+          authority: creator.publicKey,
+          creator: creator.publicKey,
+        })
+        .signers([creator])
+        .rpc();
+
+      // 2. Worker A claims
+      await program.methods
+        .claimTask()
+        .accountsPartial({
+          task: taskPda,
+          claim: claimAPda,
+          protocolConfig: protocolPda,
+          worker: workerAgentPda,
+          authority: worker.publicKey,
+        })
+        .signers([worker])
+        .rpc();
+
+      // 3. Worker B claims
+      await program.methods
+        .claimTask()
+        .accountsPartial({
+          task: taskPda,
+          claim: claimBPda,
+          protocolConfig: protocolPda,
+          worker: workerBPda,
+          authority: workerB.publicKey,
+        })
+        .signers([workerB])
+        .rpc();
+
+      // 4. Creator initiates dispute targeting worker A
+      await program.methods
+        .initiateDispute(
+          Array.from(disputeId),
+          Array.from(taskId),
+          Array.from(Buffer.from("evidence-hash".padEnd(32, "\0"))),
+          RESOLUTION_TYPE_REFUND,
+          VALID_EVIDENCE
+        )
+        .accountsPartial({
+          dispute: disputePda,
+          task: taskPda,
+          agent: creatorAgentPda,
+          protocolConfig: protocolPda,
+          initiatorClaim: null,
+          workerAgent: workerAgentPda,
+          workerClaim: claimAPda,
+          authority: creator.publicKey,
+        })
+        .signers([creator])
+        .rpc();
+
+      // 5. Verify defendant is worker A
+      const dispute = await program.account.dispute.fetch(disputePda);
+      expect(dispute.defendant.toBase58()).to.equal(workerAgentPda.toBase58());
+
+      // 6. Try to slash worker B — should fail with WorkerNotInDispute
+      try {
+        await program.methods
+          .applyDisputeSlash()
+          .accountsPartial({
+            dispute: disputePda,
+            task: taskPda,
+            workerClaim: claimBPda,
+            workerAgent: workerBPda,
+            protocolConfig: protocolPda,
+            treasury: treasuryPubkey,
+          })
+          .rpc();
+        expect.fail("Should have failed — worker B is not the defendant");
+      } catch (e: unknown) {
+        const anchorError = e as any;
+        // WorkerNotInDispute or DisputeNotResolved both indicate the slash was rejected
+        expect(anchorError.error?.errorCode?.code).to.satisfy(
+          (code: string) => code === "WorkerNotInDispute" || code === "DisputeNotResolved",
+          `Expected WorkerNotInDispute or DisputeNotResolved, got ${anchorError.error?.errorCode?.code}`
+        );
+      }
     });
   });
 
