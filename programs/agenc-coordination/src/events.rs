@@ -40,6 +40,22 @@ pub struct AgentUpdated {
     pub timestamp: i64,
 }
 
+/// Emitted when an agent is suspended by the protocol authority (fix #819)
+#[event]
+pub struct AgentSuspended {
+    pub agent_id: [u8; 32],
+    pub authority: Pubkey,
+    pub timestamp: i64,
+}
+
+/// Emitted when an agent is unsuspended by the protocol authority (fix #819)
+#[event]
+pub struct AgentUnsuspended {
+    pub agent_id: [u8; 32],
+    pub authority: Pubkey,
+    pub timestamp: i64,
+}
+
 /// Emitted when an agent deregisters
 #[event]
 pub struct AgentDeregistered {

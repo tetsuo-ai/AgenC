@@ -67,6 +67,18 @@ pub mod agenc_coordination {
         instructions::update_agent::handler(ctx, capabilities, endpoint, metadata_uri, status)
     }
 
+    /// Suspend an agent (protocol authority only, fix #819).
+    /// Prevents the agent from claiming tasks or participating in disputes.
+    pub fn suspend_agent(ctx: Context<SuspendAgent>) -> Result<()> {
+        instructions::suspend_agent::handler(ctx)
+    }
+
+    /// Unsuspend an agent (protocol authority only, fix #819).
+    /// Restores the agent to Inactive status.
+    pub fn unsuspend_agent(ctx: Context<UnsuspendAgent>) -> Result<()> {
+        instructions::unsuspend_agent::handler(ctx)
+    }
+
     /// Deregister an agent and reclaim rent.
     /// Agent must have no active tasks.
     pub fn deregister_agent(ctx: Context<DeregisterAgent>) -> Result<()> {

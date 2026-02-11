@@ -4,6 +4,7 @@ import BN from "bn.js";
 import { expect } from "chai";
 import { Keypair, PublicKey, SystemProgram, LAMPORTS_PER_SOL } from "@solana/web3.js";
 import { AgencCoordination } from "../target/types/agenc_coordination";
+import { deriveProgramDataPda } from "./test-utils";
 
 describe("upgrades", () => {
   const provider = anchor.AnchorProvider.env();
@@ -15,6 +16,8 @@ describe("upgrades", () => {
     [Buffer.from("protocol")],
     program.programId
   );
+
+  const programDataPda = deriveProgramDataPda(program.programId);
 
   const CURRENT_PROTOCOL_VERSION = 1;
   const FUTURE_PROTOCOL_VERSION = CURRENT_PROTOCOL_VERSION + 1;
@@ -72,10 +75,7 @@ describe("upgrades", () => {
           treasury: treasury.publicKey,
           authority: provider.wallet.publicKey,
         })
-        .remainingAccounts([
-          { pubkey: provider.wallet.publicKey, isSigner: true, isWritable: false },
-          { pubkey: multisigSigner.publicKey, isSigner: true, isWritable: false },
-        ])
+        .remainingAccounts([{ pubkey: deriveProgramDataPda(program.programId), isSigner: false, isWritable: false }])
         .signers([multisigSigner])
         .rpc();
     } catch (e) {

@@ -41,6 +41,7 @@ import {
   deriveDisputePda as deriveDisputePdaUtil,
   deriveVotePda as deriveVotePdaUtil,
   deriveAuthorityVotePda as deriveAuthorityVotePdaUtil,
+  deriveProgramDataPda,
   generateRunId,
   makeAgentId,
   makeTaskId,
@@ -76,6 +77,7 @@ describe("AgenC Integration Tests", () => {
 
   // PDAs
   let protocolConfigPda: PublicKey;
+  let programDataPda: PublicKey;
 
   // ============================================================================
   // HELPER FUNCTIONS
@@ -119,6 +121,7 @@ describe("AgenC Integration Tests", () => {
 
     // Derive protocol PDA
     protocolConfigPda = deriveProtocolPda(program.programId);
+    programDataPda = deriveProgramDataPda(program.programId);
 
     // Airdrop SOL to test accounts
     const airdropAmount = 10 * LAMPORTS_PER_SOL;
@@ -166,6 +169,7 @@ describe("AgenC Integration Tests", () => {
             authority: provider.wallet.publicKey,
             // systemProgram: auto-resolved from address field
           })
+          .remainingAccounts([{ pubkey: deriveProgramDataPda(program.programId), isSigner: false, isWritable: false }])
           .rpc();
 
         treasuryPubkey = treasury.publicKey;

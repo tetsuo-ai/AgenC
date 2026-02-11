@@ -45,6 +45,8 @@ pub mod initiate_dispute;
 pub mod migrate;
 pub mod register_agent;
 pub mod resolve_dispute;
+pub mod suspend_agent;
+pub mod unsuspend_agent;
 pub mod update_agent;
 pub mod update_protocol_fee;
 pub mod update_rate_limits;
@@ -85,6 +87,10 @@ pub use migrate::*;
 pub use register_agent::*;
 #[allow(ambiguous_glob_reexports)]
 pub use resolve_dispute::*;
+#[allow(ambiguous_glob_reexports)]
+pub use suspend_agent::*;
+#[allow(ambiguous_glob_reexports)]
+pub use unsuspend_agent::*;
 #[allow(ambiguous_glob_reexports)]
 pub use update_agent::*;
 #[allow(ambiguous_glob_reexports)]

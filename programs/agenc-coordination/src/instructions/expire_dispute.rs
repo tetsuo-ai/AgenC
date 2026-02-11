@@ -102,6 +102,16 @@ pub fn handler(ctx: Context<ExpireDispute>) -> Result<()> {
 
     check_version_compatible(config)?;
 
+    // Prevent worker_authority without worker — blocks fund redirection attack (fix #828)
+    // An attacker could provide worker_authority pointing to their own wallet without
+    // providing a valid worker account, redirecting expired dispute funds to themselves
+    if ctx.accounts.worker_authority.is_some() {
+        require!(
+            ctx.accounts.worker.is_some(),
+            CoordinationError::InvalidInput
+        );
+    }
+
     require!(
         dispute.status == DisputeStatus::Active,
         CoordinationError::DisputeNotActive
