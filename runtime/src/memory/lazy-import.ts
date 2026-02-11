@@ -1,12 +1,13 @@
 /**
  * Shared lazy-import helper for memory backend adapters.
  *
- * Centralizes the dynamic `import()` pattern used by SQLite and Redis
- * backends to load optional dependencies on first use.
+ * Thin wrapper around the generic {@link ensureLazyModule} that throws
+ * {@link MemoryConnectionError} on missing packages.
  *
  * @module
  */
 
+import { ensureLazyModule } from '../utils/lazy-import.js';
 import { MemoryConnectionError } from './errors.js';
 
 /**
@@ -25,14 +26,9 @@ export async function ensureLazyBackend<T>(
   backendName: string,
   configure: (mod: Record<string, unknown>) => T,
 ): Promise<T> {
-  let mod: Record<string, unknown>;
-  try {
-    mod = await import(packageName) as Record<string, unknown>;
-  } catch {
-    throw new MemoryConnectionError(
-      backendName,
-      `${packageName} package not installed. Install it: npm install ${packageName}`,
-    );
-  }
-  return configure(mod);
+  return ensureLazyModule(
+    packageName,
+    (msg) => new MemoryConnectionError(backendName, msg),
+    configure,
+  );
 }

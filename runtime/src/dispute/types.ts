@@ -7,6 +7,7 @@
 
 import type { PublicKey } from '@solana/web3.js';
 import { ResolutionType } from '../events/types.js';
+import { toUint8Array } from '../utils/encoding.js';
 
 // Re-export ResolutionType for consumers importing from dispute module
 export { ResolutionType } from '../events/types.js';
@@ -330,13 +331,6 @@ function toBNBigint(val: unknown): bigint {
   if (typeof val === 'bigint') return val;
   if (val && typeof (val as any).toString === 'function') return BigInt((val as any).toString());
   return BigInt(String(val));
-}
-
-/** Convert number[] or Uint8Array to Uint8Array */
-function toUint8Array(val: unknown): Uint8Array {
-  if (val instanceof Uint8Array) return val;
-  if (Array.isArray(val)) return new Uint8Array(val);
-  return new Uint8Array(0);
 }
 
 /** Parse Anchor's resolution_type enum object to ResolutionType */

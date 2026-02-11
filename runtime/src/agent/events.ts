@@ -12,6 +12,7 @@ import type {
   AgentDeregisteredEvent,
 } from './types.js';
 import type { EventSubscription } from '../events/types.js';
+import { toUint8Array } from '../utils/encoding.js';
 export type { EventSubscription };
 import { createEventSubscription } from '../events/factory.js';
 
@@ -63,16 +64,6 @@ interface RawAgentDeregisteredEvent {
   agentId: number[] | Uint8Array;
   authority: PublicKey;
   timestamp: { toNumber: () => number };
-}
-
-/**
- * Converts array-like value to Uint8Array
- */
-function toUint8Array(value: number[] | Uint8Array): Uint8Array {
-  if (value instanceof Uint8Array) {
-    return value;
-  }
-  return new Uint8Array(value);
 }
 
 /**

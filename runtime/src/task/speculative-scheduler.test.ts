@@ -717,44 +717,6 @@ describe('SpeculativeTaskScheduler', () => {
     });
   });
 
-  describe('addDependency', () => {
-    it('should warn when downstream task not in graph', () => {
-      const { scheduler, graph } = createScheduler();
-
-      const upstreamPda = randomPda();
-      const downstreamPda = randomPda();
-
-      // Add upstream first
-      graph.addTask(createMockTask(), upstreamPda);
-
-      // Add dependency via scheduler - should not throw
-      scheduler.addDependency(upstreamPda, downstreamPda, DependencyType.Data);
-
-      // Downstream should NOT be in graph (scheduler warns but doesn't add)
-      const node = graph.getNode(downstreamPda);
-      expect(node).toBeUndefined();
-    });
-
-    it('should be no-op when downstream already exists', () => {
-      const { scheduler, graph } = createScheduler();
-
-      const upstreamPda = randomPda();
-      const downstreamPda = randomPda();
-
-      // Add both tasks
-      graph.addTask(createMockTask(), upstreamPda);
-      graph.addTaskWithParent(createMockTask(), downstreamPda, upstreamPda);
-
-      // addDependency should be no-op since downstream exists
-      scheduler.addDependency(upstreamPda, downstreamPda, DependencyType.Data);
-
-      // Check downstream still exists with original parent
-      const node = graph.getNode(downstreamPda);
-      expect(node).toBeDefined();
-      expect(node?.dependsOn).toEqual(upstreamPda);
-    });
-  });
-
   describe('component accessors', () => {
     it('should return all components', () => {
       const { scheduler, graph } = createScheduler();

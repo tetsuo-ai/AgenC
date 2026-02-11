@@ -48,6 +48,8 @@ import type {
 import { DisputeOperations } from './dispute/operations.js';
 import type { AgencCoordination } from './types/agenc_coordination.js';
 import type { Program } from '@coral-xyz/anchor';
+import { ConnectionManager } from './connection/manager.js';
+import type { EndpointConfig, ConnectionManagerConfig } from './connection/types.js';
 
 // ============================================================================
 // LLM provider type discriminator
@@ -163,6 +165,9 @@ export class AgentBuilder {
   // Callbacks
   private callbacks?: AgentCallbacks;
 
+  // Connection manager
+  private connectionManager?: ConnectionManager;
+
   constructor(connection: Connection, wallet: Keypair | Wallet) {
     this.connection = connection;
     this.wallet = wallet;
@@ -276,6 +281,32 @@ export class AgentBuilder {
   }
 
   /**
+   * Configure resilient RPC with multiple endpoints, retry, and failover.
+   *
+   * Creates a ConnectionManager internally. The resulting connection is used
+   * for all agent operations.
+   */
+  withRpcEndpoints(
+    endpoints: (string | EndpointConfig)[],
+    config?: Omit<ConnectionManagerConfig, 'endpoints' | 'logger'>,
+  ): this {
+    this.connectionManager = new ConnectionManager({
+      ...config,
+      endpoints,
+      logger: this.logLevel ? createLogger(this.logLevel, '[ConnectionManager]') : undefined,
+    });
+    return this;
+  }
+
+  /**
+   * Use a pre-configured ConnectionManager.
+   */
+  withConnectionManager(manager: ConnectionManager): this {
+    this.connectionManager = manager;
+    return this;
+  }
+
+  /**
    * Build and return a fully wired BuiltAgent.
    *
    * Validates configuration, creates all components, and wires them together.
@@ -295,20 +326,23 @@ export class AgentBuilder {
 
     const builderWallet: Wallet = ensureWallet(this.wallet);
 
-    const { registry, initializedSkills } = await this.buildToolRegistry(logger, builderWallet);
+    const resolvedConnection = this.connectionManager?.getConnection() ?? this.connection;
+
+    const { registry, initializedSkills } = await this.buildToolRegistry(logger, builderWallet, resolvedConnection);
     const memory = this.memoryType ? this.createMemoryBackend() : undefined;
     const taskExecutor = this.buildExecutor(registry, memory);
     const proofEngine = this.proofConfig
       ? new ProofEngine({ ...this.proofConfig, logger })
       : undefined;
-    const autonomous = this.buildAutonomousAgent(taskExecutor, proofEngine, memory);
+    const autonomous = this.buildAutonomousAgent(taskExecutor, proofEngine, memory, resolvedConnection);
 
-    return new BuiltAgent(autonomous, memory, proofEngine, registry, initializedSkills, logger);
+    return new BuiltAgent(autonomous, memory, proofEngine, registry, initializedSkills, this.connectionManager, logger);
   }
 
   private async buildToolRegistry(
     logger: Logger,
     wallet: Wallet,
+    resolvedConnection: Connection,
   ): Promise<{ registry: ToolRegistry | undefined; initializedSkills: Skill[] }> {
     const hasTools = this.customTools.length > 0 || this.skillEntries.length > 0 || this.useAgencTools;
     if (!hasTools) return { registry: undefined, initializedSkills: [] };
@@ -317,7 +351,7 @@ export class AgentBuilder {
     const initializedSkills: Skill[] = [];
 
     for (const entry of this.skillEntries) {
-      const ctx: SkillContext = { connection: this.connection, wallet, logger };
+      const ctx: SkillContext = { connection: resolvedConnection, wallet, logger };
       await entry.skill.initialize(ctx);
       initializedSkills.push(entry.skill);
       registry.registerAll(skillToTools(entry.skill, { schemas: entry.schemas }));
@@ -328,7 +362,7 @@ export class AgentBuilder {
     }
 
     if (this.useAgencTools) {
-      registry.registerAll(createAgencTools({ connection: this.connection, logger }));
+      registry.registerAll(createAgencTools({ connection: resolvedConnection, logger }));
     }
 
     return { registry, initializedSkills };
@@ -350,9 +384,10 @@ export class AgentBuilder {
     executor: TaskExecutor,
     proofEngine: ProofEngine | undefined,
     memory: MemoryBackend | undefined,
+    resolvedConnection: Connection,
   ): AutonomousAgent {
     return new AutonomousAgent({
-      connection: this.connection,
+      connection: resolvedConnection,
       wallet: this.wallet,
       programId: this.programId,
       agentId: this.agentId,
@@ -430,6 +465,7 @@ export class BuiltAgent {
     readonly proofEngine: ProofEngine | undefined,
     readonly toolRegistry: ToolRegistry | undefined,
     private readonly skills: Skill[],
+    private readonly connectionManager?: ConnectionManager,
     logger?: Logger,
   ) {
     this.logger = logger ?? silentLogger;
@@ -464,6 +500,10 @@ export class BuiltAgent {
 
     if (this.proofEngine) {
       this.proofEngine.clearCache();
+    }
+
+    if (this.connectionManager) {
+      this.connectionManager.destroy();
     }
   }
 

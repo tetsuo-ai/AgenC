@@ -465,39 +465,6 @@ export class SpeculativeTaskScheduler {
   }
 
   // ==========================================================================
-  // Dependency Management
-  // ==========================================================================
-
-  /**
-   * Adds a dependency between tasks.
-   *
-   * Note: This method assumes both tasks already exist in the graph.
-   * Use the DependencyGraph directly for more control.
-   *
-   * @param _upstream - Parent task PDA (unused, for API consistency)
-   * @param downstream - Child task PDA
-   * @param _type - Type of dependency (unused, for API consistency)
-   */
-  addDependency(
-    _upstream: PublicKey,
-    downstream: PublicKey,
-    _type: DependencyType
-  ): void {
-    // Check if downstream already exists
-    const existingNode = this.dependencyGraph.getNode(downstream);
-    if (existingNode) {
-      // Task already exists in graph
-      return;
-    }
-
-    // Add edge via graph's edge API if available, or log warning
-    this.logger.warn(
-      `addDependency: downstream task ${downstream.toBase58()} not in graph. ` +
-      `Add it via DependencyGraph.addTaskWithParent() first.`
-    );
-  }
-
-  // ==========================================================================
   // Proof Lifecycle Handlers
   // ==========================================================================
 
