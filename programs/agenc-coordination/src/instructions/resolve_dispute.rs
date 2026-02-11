@@ -235,6 +235,16 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
                         .checked_sub(worker_share)
                         .ok_or(CoordinationError::ArithmeticOverflow)?;
 
+                    // Fix #834: Require worker accounts when worker gets a share.
+                    // Without this, omitting worker accounts causes the worker's
+                    // share to be sent to the creator, defeating the split.
+                    if worker_share > 0 {
+                        require!(
+                            ctx.accounts.worker_authority.is_some(),
+                            CoordinationError::IncompleteWorkerAccounts
+                        );
+                    }
+
                     // Debit escrow once for total, credit recipients individually
                     debit_lamports(&escrow.to_account_info(), remaining_funds)?;
                     let creator_info = ctx.accounts.creator.to_account_info();
@@ -248,8 +258,8 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
                         );
                         credit_lamports(&worker_authority.to_account_info(), worker_share)?;
                     } else {
-                        // If no worker_authority, give all to creator
-                        credit_lamports(&creator_info, worker_share)?;
+                        // worker_share must be 0 to reach here (enforced above)
+                        // Only the creator_share (== remaining_funds) was already credited
                     }
                 }
                 task.status = TaskStatus::Cancelled;
