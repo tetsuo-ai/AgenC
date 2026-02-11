@@ -31,6 +31,7 @@ import {
   deriveEscrowPda,
   deriveClaimPda,
   deriveProtocolPda,
+  deriveProgramDataPda,
   generateRunId,
   makeAgentId,
   createWorkerPool,
@@ -100,6 +101,7 @@ export function setupTestContext(ctx: TestContext): void {
     try {
       const minStake = new BN(LAMPORTS_PER_SOL / 100);
       const minStakeForDispute = new BN(LAMPORTS_PER_SOL / 100);
+      const programDataPda = deriveProgramDataPda(program.programId);
       await program.methods
         .initializeProtocol(51, 100, minStake, minStakeForDispute, 1, [provider.wallet.publicKey, ctx.secondSigner.publicKey])
         .accountsPartial({
@@ -109,6 +111,7 @@ export function setupTestContext(ctx: TestContext): void {
           secondSigner: ctx.secondSigner.publicKey,
           systemProgram: SystemProgram.programId,
         })
+        .remainingAccounts([{ pubkey: deriveProgramDataPda(program.programId), isSigner: false, isWritable: false }])
         .signers([ctx.secondSigner])
         .rpc();
       ctx.treasuryPubkey = ctx.treasury.publicKey;
