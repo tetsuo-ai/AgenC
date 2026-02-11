@@ -327,10 +327,15 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
     dispute.resolved_at = clock.unix_timestamp;
     escrow.is_closed = true;
 
-    // Close worker_claim account and return lamports to creator (fix #439)
-    // The claim is no longer needed once the dispute is resolved
+    // Close worker_claim account and return rent lamports to worker authority (fix #838)
+    // The claim rent was paid by worker authority at creation, so return it there
     if let Some(claim) = ctx.accounts.worker_claim.as_ref() {
-        claim.close(ctx.accounts.creator.to_account_info())?;
+        if let Some(worker_authority) = &ctx.accounts.worker_authority {
+            claim.close(worker_authority.to_account_info())?;
+        } else {
+            // No worker authority provided (refund-only resolution) - return to creator as fallback
+            claim.close(ctx.accounts.creator.to_account_info())?;
+        }
     }
 
     emit!(DisputeResolved {
