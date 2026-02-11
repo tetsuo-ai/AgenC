@@ -518,5 +518,34 @@ export {
   type DisputeOpsConfig,
 } from './dispute/index.js';
 
+// Workflow DAG Orchestrator (Phase 9)
+export {
+  // Enums
+  OnChainDependencyType,
+  WorkflowNodeStatus,
+  WorkflowStatus,
+  // Types
+  type TaskTemplate,
+  type WorkflowEdge,
+  type WorkflowDefinition,
+  type WorkflowNode,
+  type WorkflowState,
+  type WorkflowStats,
+  type WorkflowCallbacks,
+  type DAGOrchestratorConfig,
+  // Error classes
+  WorkflowValidationError,
+  WorkflowSubmissionError,
+  WorkflowMonitoringError,
+  WorkflowStateError,
+  // Validation
+  validateWorkflow,
+  topologicalSort,
+  // Classes
+  DAGSubmitter,
+  DAGMonitor,
+  DAGOrchestrator,
+} from './workflow/index.js';
+
 // Agent Builder (Phase 10)
 export { AgentBuilder, BuiltAgent } from './builder.js';
