@@ -78,6 +78,14 @@ export const RuntimeErrorCodes = {
   DISPUTE_RESOLUTION_ERROR: 'DISPUTE_RESOLUTION_ERROR',
   /** Dispute slash operation failed */
   DISPUTE_SLASH_ERROR: 'DISPUTE_SLASH_ERROR',
+  /** Workflow definition failed validation */
+  WORKFLOW_VALIDATION_ERROR: 'WORKFLOW_VALIDATION_ERROR',
+  /** Workflow on-chain task submission failed */
+  WORKFLOW_SUBMISSION_ERROR: 'WORKFLOW_SUBMISSION_ERROR',
+  /** Workflow event subscription or polling failed */
+  WORKFLOW_MONITORING_ERROR: 'WORKFLOW_MONITORING_ERROR',
+  /** Workflow state transition or lookup failed */
+  WORKFLOW_STATE_ERROR: 'WORKFLOW_STATE_ERROR',
 } as const;
 
 /** Union type of all runtime error code values */
