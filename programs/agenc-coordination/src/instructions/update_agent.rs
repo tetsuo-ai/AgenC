@@ -7,7 +7,7 @@
 use crate::errors::CoordinationError;
 use crate::events::AgentUpdated;
 use crate::instructions::validation::validate_endpoint;
-use crate::state::{AgentRegistration, AgentStatus, ProtocolConfig};
+use crate::state::{AgentRegistration, AgentStatus};
 use crate::utils::validation::validate_string_input;
 use anchor_lang::prelude::*;
 
@@ -82,31 +82,8 @@ pub fn handler(
             0 => AgentStatus::Inactive,
             1 => AgentStatus::Active,
             2 => AgentStatus::Busy,
-            3 => {
-                let protocol_config_info = ctx
-                    .remaining_accounts
-                    .first()
-                    .ok_or(CoordinationError::ProtocolConfigRequired)?;
-                let (expected_pda, _) =
-                    Pubkey::find_program_address(&[b"protocol"], ctx.program_id);
-                require!(
-                    protocol_config_info.key() == expected_pda,
-                    CoordinationError::InvalidInput
-                );
-                // Validate account ownership before deserializing (defense in depth)
-                require!(
-                    protocol_config_info.owner == ctx.program_id,
-                    CoordinationError::InvalidAccountOwner
-                );
-                let protocol_data = protocol_config_info.try_borrow_data()?;
-                // try_deserialize expects full data including discriminator
-                let config = ProtocolConfig::try_deserialize(&mut &**protocol_data)?;
-                require!(
-                    ctx.accounts.authority.key() == config.authority,
-                    CoordinationError::UnauthorizedAgent
-                );
-                AgentStatus::Suspended
-            }
+            // Suspension is now handled by dedicated suspend_agent instruction (fix #819)
+            3 => return Err(CoordinationError::InvalidInput.into()),
             _ => return Err(CoordinationError::InvalidInput.into()),
         };
     }

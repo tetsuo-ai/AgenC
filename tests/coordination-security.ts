@@ -28,6 +28,7 @@ import {
   deriveDisputePda,
   deriveVotePda,
   deriveAuthorityVotePda,
+  deriveProgramDataPda,
 } from "./test-utils";
 
 describe("coordination-security", () => {
@@ -37,6 +38,7 @@ describe("coordination-security", () => {
   const program = anchor.workspace.AgencCoordination as Program<AgencCoordination>;
 
   const protocolPda = deriveProtocolPda(program.programId);
+  const programDataPda = deriveProgramDataPda(program.programId);
 
   // Generate unique run ID to prevent conflicts with persisted validator state
   const runId = generateRunId();
@@ -111,9 +113,7 @@ describe("coordination-security", () => {
           authority: provider.wallet.publicKey,
           systemProgram: SystemProgram.programId,
         })
-        .remainingAccounts([
-          { pubkey: provider.wallet.publicKey, isSigner: true, isWritable: false },
-        ])
+        .remainingAccounts([{ pubkey: deriveProgramDataPda(program.programId), isSigner: false, isWritable: false }])
         .rpc();
       treasuryPubkey = treasury.publicKey;
       console.log("Protocol initialized with treasury:", treasuryPubkey.toString());
@@ -1629,9 +1629,7 @@ describe("coordination-security", () => {
               treasury: treasury.publicKey,
               authority: provider.wallet.publicKey,
             })
-            .remainingAccounts([
-              { pubkey: provider.wallet.publicKey, isSigner: true, isWritable: false },
-            ])
+            .remainingAccounts([{ pubkey: deriveProgramDataPda(program.programId), isSigner: false, isWritable: false }])
             .rpc();
           expect.fail("Should have failed - invalid fee");
         } catch (e: unknown) {
@@ -1655,9 +1653,7 @@ describe("coordination-security", () => {
               treasury: treasury.publicKey,
               authority: provider.wallet.publicKey,
             })
-            .remainingAccounts([
-              { pubkey: provider.wallet.publicKey, isSigner: true, isWritable: false },
-            ])
+            .remainingAccounts([{ pubkey: deriveProgramDataPda(program.programId), isSigner: false, isWritable: false }])
             .rpc();
           expect.fail("Should have failed - invalid dispute threshold");
         } catch (e: unknown) {
@@ -1681,9 +1677,7 @@ describe("coordination-security", () => {
               treasury: treasury.publicKey,
               authority: provider.wallet.publicKey,
             })
-            .remainingAccounts([
-              { pubkey: provider.wallet.publicKey, isSigner: true, isWritable: false },
-            ])
+            .remainingAccounts([{ pubkey: deriveProgramDataPda(program.programId), isSigner: false, isWritable: false }])
             .rpc();
           expect.fail("Should have failed - invalid dispute threshold > 100");
         } catch (e: unknown) {

@@ -64,6 +64,22 @@ export function deriveProtocolPda(programId: PublicKey): PublicKey {
   )[0];
 }
 
+/** BPF Loader Upgradeable program ID */
+export const BPF_LOADER_UPGRADEABLE_ID = new PublicKey(
+  "BPFLoaderUpgradeab1e11111111111111111111111"
+);
+
+/**
+ * Derive the ProgramData PDA for an upgradeable program.
+ * Used for initialize_protocol's upgrade authority check (fix #839).
+ */
+export function deriveProgramDataPda(programId: PublicKey): PublicKey {
+  return PublicKey.findProgramAddressSync(
+    [programId.toBuffer()],
+    BPF_LOADER_UPGRADEABLE_ID
+  )[0];
+}
+
 /**
  * Derive an agent registration PDA from agent ID.
  */

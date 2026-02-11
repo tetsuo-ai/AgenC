@@ -17,6 +17,7 @@ use crate::instructions::constants::MAX_PROTOCOL_FEE_BPS;
 use crate::state::{ProtocolConfig, CURRENT_PROTOCOL_VERSION, MIN_SUPPORTED_VERSION};
 use crate::utils::multisig::validate_multisig_owners;
 use anchor_lang::prelude::*;
+use anchor_lang::solana_program::bpf_loader_upgradeable;
 
 #[derive(Accounts)]
 pub struct InitializeProtocol<'info> {
@@ -41,6 +42,8 @@ pub struct InitializeProtocol<'info> {
     pub second_signer: Signer<'info>,
 
     pub system_program: Program<'info, System>,
+    // NOTE: remaining_accounts[0] must be the program's ProgramData account (fix #839).
+    // Validated in handler: PDA derivation + owner check + upgrade authority match.
 }
 
 /// Minimum reasonable stake value (0.001 SOL in lamports)
@@ -72,6 +75,45 @@ pub fn handler(
     multisig_threshold: u8,
     multisig_owners: Vec<Pubkey>,
 ) -> Result<()> {
+    // Verify the caller is the program's upgrade authority (fix #839)
+    // The ProgramData account must be passed as remaining_accounts[0]
+    let program_data_info = ctx.remaining_accounts
+        .first()
+        .ok_or(CoordinationError::UnauthorizedUpgrade)?;
+
+    // Verify the ProgramData PDA matches: findProgramAddress([program_id], bpf_loader_upgradeable)
+    let (expected_program_data, _) = Pubkey::find_program_address(
+        &[crate::ID.as_ref()],
+        &bpf_loader_upgradeable::id(),
+    );
+    require!(
+        program_data_info.key() == expected_program_data,
+        CoordinationError::UnauthorizedUpgrade
+    );
+
+    // Verify the account is owned by BPF Loader Upgradeable
+    require!(
+        program_data_info.owner == &bpf_loader_upgradeable::id(),
+        CoordinationError::InvalidAccountOwner
+    );
+
+    // Deserialize ProgramData and verify upgrade authority matches signer
+    let data = program_data_info.try_borrow_data()?;
+    // ProgramData layout: 4 bytes (enum tag) + 8 bytes (slot) + 1 byte (option tag) + 32 bytes (authority)
+    // Total offset to authority option: 12, authority pubkey at: 13
+    require!(data.len() >= 45, CoordinationError::CorruptedData);
+    let has_authority = data[12];
+    require!(has_authority == 1, CoordinationError::UnauthorizedUpgrade); // Must have upgrade authority
+    let authority_bytes: [u8; 32] = data[13..45]
+        .try_into()
+        .map_err(|_| error!(CoordinationError::CorruptedData))?;
+    let upgrade_authority = Pubkey::new_from_array(authority_bytes);
+    require!(
+        upgrade_authority == ctx.accounts.authority.key(),
+        CoordinationError::UnauthorizedUpgrade
+    );
+    drop(data);
+
     // Threshold must be 1-99, not 100
     // 100% makes disputes impossible to approve (fixes #484)
     require!(
@@ -130,8 +172,8 @@ pub fn handler(
     // Count signers: authority + second_signer + any additional in remaining_accounts
     let mut valid_signers = 2usize; // authority and second_signer are always counted
 
-    // Add any additional signers from remaining_accounts
-    for acc in ctx.remaining_accounts.iter() {
+    // Add any additional signers from remaining_accounts (skip [0] which is ProgramData)
+    for acc in ctx.remaining_accounts.iter().skip(1) {
         if acc.is_signer
             && multisig_owners.contains(acc.key)
             && acc.key != &ctx.accounts.authority.key()

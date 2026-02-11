@@ -19,6 +19,7 @@ import {
   deriveTaskPda as _deriveTaskPda,
   deriveEscrowPda as _deriveEscrowPda,
   deriveClaimPda as _deriveClaimPda,
+  deriveProgramDataPda,
 } from "./test-utils";
 
 describe("test_1", () => {
@@ -212,6 +213,7 @@ describe("test_1", () => {
       // - threshold < multisig_owners.length
       const minStake = new BN(LAMPORTS_PER_SOL / 100);  // 0.01 SOL = 10_000_000 lamports
       const minStakeForDispute = new BN(LAMPORTS_PER_SOL / 100);  // 0.01 SOL
+      const programDataPda = deriveProgramDataPda(program.programId);
       await program.methods
         .initializeProtocol(
           51,                // dispute_threshold
@@ -228,6 +230,7 @@ describe("test_1", () => {
           secondSigner: secondSigner.publicKey,  // new account (fix #556)
           systemProgram: SystemProgram.programId,
         })
+        .remainingAccounts([{ pubkey: deriveProgramDataPda(program.programId), isSigner: false, isWritable: false }])
         .signers([secondSigner])
         .rpc();
       treasuryPubkey = treasury.publicKey;
@@ -4048,6 +4051,7 @@ describe("test_1", () => {
         // The protocol is already initialized in the before() hook
         // Trying to initialize again should fail because PDA already exists
         try {
+          const programDataPda = deriveProgramDataPda(program.programId);
           await program.methods
             .initializeProtocol(51, 100, 1 * LAMPORTS_PER_SOL)
             .accountsPartial({
@@ -4056,6 +4060,7 @@ describe("test_1", () => {
               authority: provider.wallet.publicKey,
               systemProgram: SystemProgram.programId,
             })
+            .remainingAccounts([{ pubkey: deriveProgramDataPda(program.programId), isSigner: false, isWritable: false }])
             .rpc();
           expect.fail("Should have failed");
         } catch (e: unknown) {

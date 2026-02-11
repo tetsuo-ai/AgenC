@@ -30,6 +30,7 @@ import {
   createDescription,
   createHash,
   deriveProtocolPda,
+  deriveProgramDataPda,
   deriveAgentPda as _deriveAgentPda,
   deriveTaskPda as _deriveTaskPda,
   deriveEscrowPda as _deriveEscrowPda,
@@ -201,6 +202,8 @@ describe("AgenC Devnet Smoke Tests", () => {
     it("should initialize or verify protocol config", async () => {
       console.log("\n[TEST] Checking protocol initialization...");
 
+      const programDataPda = deriveProgramDataPda(program.programId);
+
       try {
         // Try to initialize protocol
         // Args: dispute_threshold, protocol_fee_bps, min_stake, min_stake_for_dispute, multisig_threshold, multisig_owners
@@ -213,11 +216,12 @@ describe("AgenC Devnet Smoke Tests", () => {
             2,                                                    // multisig_threshold: u8
             [protocolAuthority.publicKey, secondSigner.publicKey] // multisig_owners: Vec<Pubkey>
           )
-          .accounts({
+          .accountsPartial({
             treasury: treasury.publicKey,
             authority: protocolAuthority.publicKey,
             secondSigner: secondSigner.publicKey,
           })
+          .remainingAccounts([{ pubkey: deriveProgramDataPda(program.programId), isSigner: false, isWritable: false }])
           .signers([protocolAuthority, secondSigner])
           .rpc();
 

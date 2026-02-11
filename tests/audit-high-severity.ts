@@ -14,6 +14,7 @@ import {
   makeAgentId,
   makeTaskId,
   makeDisputeId,
+  deriveProgramDataPda,
 } from "./test-utils";
 
 describe("audit-high-severity", () => {
@@ -93,17 +94,18 @@ describe("audit-high-severity", () => {
       const config = await program.account.protocolConfig.fetch(protocolPda);
       treasuryPubkey = config.treasury;
     } catch {
+      const programDataPda = deriveProgramDataPda(program.programId);
       await program.methods
-        .initializeProtocol(51, 100, new BN(0), 1, [provider.wallet.publicKey])
+        .initializeProtocol(51, 100, new BN(LAMPORTS_PER_SOL / 100), new BN(LAMPORTS_PER_SOL / 100), 1, [provider.wallet.publicKey, treasury.publicKey])
         .accountsPartial({
           protocolConfig: protocolPda,
           treasury: treasury.publicKey,
           authority: provider.wallet.publicKey,
+          secondSigner: treasury.publicKey,
           systemProgram: SystemProgram.programId,
         })
-        .remainingAccounts([
-          { pubkey: provider.wallet.publicKey, isSigner: true, isWritable: false },
-        ])
+        .remainingAccounts([{ pubkey: deriveProgramDataPda(program.programId), isSigner: false, isWritable: false }])
+        .signers([treasury])
         .rpc();
       treasuryPubkey = treasury.publicKey;
     }
@@ -733,16 +735,14 @@ describe("audit-high-severity", () => {
     let agentAccount = await program.account.agentRegistration.fetch(suspendTestAgentPda);
     expect('active' in agentAccount.status).to.be.true;
 
-    // Suspend the agent (requires protocol config in remaining accounts)
+    // Suspend the agent via dedicated instruction (fix #819)
     await program.methods
-      .updateAgent(null, null, null, 3) // 3 = Suspended
+      .suspendAgent()
       .accountsPartial({
         agent: suspendTestAgentPda,
+        protocolConfig: protocolPda,
         authority: provider.wallet.publicKey,
       })
-      .remainingAccounts([
-        { pubkey: protocolPda, isSigner: false, isWritable: false },
-      ])
       .rpc();
 
     // Verify agent is now suspended

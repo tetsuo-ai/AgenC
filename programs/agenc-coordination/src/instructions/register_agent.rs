@@ -95,6 +95,21 @@ pub fn handler(
     agent.active_tasks = 0;
     agent.stake = stake_amount;
     agent.bump = ctx.bumps.agent;
+
+    // Transfer stake SOL from authority to agent PDA (fix #823)
+    // Previously stake was recorded but never actually deposited
+    if stake_amount > 0 {
+        anchor_lang::system_program::transfer(
+            CpiContext::new(
+                ctx.accounts.system_program.to_account_info(),
+                anchor_lang::system_program::Transfer {
+                    from: ctx.accounts.authority.to_account_info(),
+                    to: agent.to_account_info(),
+                },
+            ),
+            stake_amount,
+        )?;
+    }
     // Initialize rate limiting fields
     agent.last_task_created = 0;
     agent.last_dispute_initiated = 0;

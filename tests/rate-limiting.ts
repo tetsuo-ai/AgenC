@@ -8,6 +8,7 @@ import {
   CAPABILITY_COMPUTE,
   TASK_TYPE_EXCLUSIVE,
   VALID_EVIDENCE,
+  deriveProgramDataPda,
 } from "./test-utils";
 
 describe("rate-limiting", () => {
@@ -44,23 +45,25 @@ describe("rate-limiting", () => {
 
     // Initialize protocol with rate limits
     try {
+      const programDataPda = deriveProgramDataPda(program.programId);
       await program.methods
         .initializeProtocol(
           51, // dispute_threshold
           100, // protocol_fee_bps
           new BN(LAMPORTS_PER_SOL), // min_arbiter_stake
+          new BN(LAMPORTS_PER_SOL / 100), // min_stake_for_dispute
           1, // multisig_threshold
-          [provider.wallet.publicKey] // multisig_owners
+          [provider.wallet.publicKey, treasury.publicKey] // multisig_owners
         )
         .accountsPartial({
           protocolConfig: protocolPda,
           treasury: treasury.publicKey,
           authority: provider.wallet.publicKey,
+          secondSigner: treasury.publicKey,
           systemProgram: SystemProgram.programId,
         })
-        .remainingAccounts([
-          { pubkey: provider.wallet.publicKey, isSigner: true, isWritable: false },
-        ])
+        .remainingAccounts([{ pubkey: deriveProgramDataPda(program.programId), isSigner: false, isWritable: false }])
+        .signers([treasury])
         .rpc();
     } catch (e) {
       // Protocol may already be initialized

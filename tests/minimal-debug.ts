@@ -7,6 +7,7 @@ import { Program } from "@coral-xyz/anchor";
 import BN from "bn.js";
 import { Keypair, PublicKey, SystemProgram, LAMPORTS_PER_SOL } from "@solana/web3.js";
 import { AgencCoordination } from "../target/types/agenc_coordination";
+import { deriveProgramDataPda } from "./test-utils";
 
 describe("minimal-debug", () => {
   const provider = anchor.AnchorProvider.env();
@@ -60,6 +61,7 @@ describe("minimal-debug", () => {
       // - threshold < multisig_owners.length
       const minStake = new BN(LAMPORTS_PER_SOL / 100);  // 0.01 SOL
       const minStakeForDispute = new BN(LAMPORTS_PER_SOL / 100);  // 0.01 SOL
+      const programDataPda = deriveProgramDataPda(program.programId);
       const tx = await program.methods
         .initializeProtocol(
           51,                // dispute_threshold
@@ -76,6 +78,7 @@ describe("minimal-debug", () => {
           secondSigner: secondSigner.publicKey,  // new account (fix #556)
           systemProgram: SystemProgram.programId,
         })
+        .remainingAccounts([{ pubkey: deriveProgramDataPda(program.programId), isSigner: false, isWritable: false }])
         .signers([secondSigner])
         .rpc();
       console.log("Transaction signature:", tx);
