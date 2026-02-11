@@ -34,6 +34,16 @@ pub struct VoteDispute<'info> {
     )]
     pub worker_claim: Option<Account<'info, TaskClaim>>,
 
+    /// Optional: Defendant's agent registration (for authority-level participant check, fix #824)
+    /// If provided, validates arbiter's authority is not the defendant worker's authority.
+    /// Must match the dispute's defendant field.
+    #[account(
+        seeds = [b"agent", defendant_agent.agent_id.as_ref()],
+        bump = defendant_agent.bump,
+        constraint = defendant_agent.key() == dispute.defendant @ CoordinationError::WorkerNotInDispute
+    )]
+    pub defendant_agent: Option<Account<'info, AgentRegistration>>,
+
     #[account(
         init,
         payer = authority,
@@ -84,8 +94,14 @@ pub fn handler(ctx: Context<VoteDispute>, approve: bool) -> Result<()> {
 
     check_version_compatible(config)?;
 
-    // Verify arbiter is not a dispute participant (fix #391, #461)
-    validate_arbiter_not_participant(arbiter, dispute, task, &ctx.accounts.worker_claim)?;
+    // Verify arbiter is not a dispute participant (fix #391, #461, #824)
+    validate_arbiter_not_participant(
+        arbiter,
+        dispute,
+        task,
+        &ctx.accounts.worker_claim,
+        &ctx.accounts.defendant_agent,
+    )?;
 
     // Verify dispute is active
     require!(
@@ -187,22 +203,30 @@ pub fn handler(ctx: Context<VoteDispute>, approve: bool) -> Result<()> {
     Ok(())
 }
 
-/// Validates that the arbiter is not a participant in the dispute (fix #391, #461, #825).
+/// Validates that the arbiter is not a participant in the dispute (fix #391, #461, #824, #825).
 ///
 /// An arbiter cannot be:
-/// 1. The dispute initiator
-/// 2. The task creator
+/// 1. The dispute initiator (by PDA or by authority wallet — fix #824)
+/// 2. The task creator (by authority wallet)
 /// 3. The defendant (the worker being disputed) — checked via dispute.defendant (fix #825)
-/// 4. Any worker on the task (if worker_claim is provided, defense-in-depth)
+/// 4. Any worker on the task (if worker_claim/defendant_agent provided, defense-in-depth)
 fn validate_arbiter_not_participant(
     arbiter: &Account<AgentRegistration>,
     dispute: &Account<Dispute>,
     task: &Account<Task>,
     worker_claim: &Option<Account<TaskClaim>>,
+    defendant_agent: &Option<Account<AgentRegistration>>,
 ) -> Result<()> {
-    // Check 1: Arbiter cannot be the dispute initiator
+    // Check 1: Arbiter cannot be the dispute initiator (fix #824)
+    // Compare both PDA keys AND authority pubkeys to prevent same-wallet Sybil voting.
+    // A single authority can register multiple agents with different PDAs, so PDA
+    // comparison alone is insufficient.
     require!(
         arbiter.key() != dispute.initiator,
+        CoordinationError::ArbiterIsDisputeParticipant
+    );
+    require!(
+        arbiter.authority != dispute.initiator_authority,
         CoordinationError::ArbiterIsDisputeParticipant
     );
 
@@ -221,10 +245,17 @@ fn validate_arbiter_not_participant(
     );
 
     // Check 4: Defense-in-depth — if worker_claim is provided, also verify
-    // arbiter is not the worker referenced by the claim (fix #461)
+    // arbiter is not the worker referenced by the claim (fix #461, #824)
+    // Compare both PDA keys AND authority pubkeys via the defendant agent account.
     if let Some(ref worker_claim) = worker_claim {
         require!(
             arbiter.key() != worker_claim.worker,
+            CoordinationError::ArbiterIsDisputeParticipant
+        );
+    }
+    if let Some(ref defendant) = defendant_agent {
+        require!(
+            arbiter.authority != defendant.authority,
             CoordinationError::ArbiterIsDisputeParticipant
         );
     }

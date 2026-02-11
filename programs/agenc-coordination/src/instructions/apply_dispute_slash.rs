@@ -125,12 +125,17 @@ pub fn handler(ctx: Context<ApplyDisputeSlash>) -> Result<()> {
     require!(worker_lost, CoordinationError::InvalidInput);
     require!(worker_agent.stake > 0, CoordinationError::InsufficientStake);
 
-    let slash_amount = worker_agent
-        .stake
+    // Calculate slash based on stake at dispute time, not current stake (fix #836)
+    // This prevents workers from withdrawing stake after dispute to reduce slashing exposure
+    let slash_amount_calculated = dispute
+        .worker_stake_at_dispute
         .checked_mul(config.slash_percentage as u64)
         .ok_or(CoordinationError::ArithmeticOverflow)?
         .checked_div(PERCENT_BASE)
         .ok_or(CoordinationError::ArithmeticOverflow)?;
+
+    // Cap slash at current stake to avoid underflow (can't slash more than what's staked)
+    let slash_amount = slash_amount_calculated.min(worker_agent.stake);
 
     require!(
         slash_amount > 0,
