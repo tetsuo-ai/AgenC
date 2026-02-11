@@ -56,6 +56,14 @@ pub fn handler(ctx: Context<ClaimTask>) -> Result<()> {
 
     check_version_compatible(config)?;
 
+    // Prevent self-task claiming: worker authority must differ from task creator (fix #831)
+    // Without this check, the same wallet can create, claim, and complete its own task,
+    // farming +100 reputation per cycle at near-zero cost.
+    require!(
+        worker.authority != task.creator,
+        CoordinationError::SelfTaskNotAllowed
+    );
+
     // Check if worker already has a claim on this task (fix #480)
     // claimed_at > 0 indicates an existing claim (not freshly initialized)
     if claim.claimed_at > 0 {
