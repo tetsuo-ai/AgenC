@@ -258,6 +258,12 @@ export interface VerifierAdaptiveRiskConfig {
   maxVerificationDurationMsByRisk?: Partial<Record<'low' | 'medium' | 'high', number>>;
   /** Confidence floors by risk tier. */
   minConfidenceByRisk?: Partial<Record<'low' | 'medium' | 'high', number>>;
+  /** Scheduler route by risk tier. */
+  routeByRisk?: Partial<
+    Record<'low' | 'medium' | 'high', 'single_pass' | 'retry_execute' | 'revision_first'>
+  >;
+  /** Escalate after this many disagreements per risk tier. */
+  maxDisagreementsByRisk?: Partial<Record<'low' | 'medium' | 'high', number>>;
   /** Hard ceilings for retries, duration, and spend. */
   hardMaxVerificationRetries?: number;
   hardMaxVerificationDurationMs?: number;
@@ -292,6 +298,7 @@ export interface VerifierEscalationMetadata {
     | 'verifier_timeout'
     | 'verifier_error'
     | 'revision_unavailable'
+    | 'verifier_disagreement'
     | 'verifier_budget_exhausted';
   attempts: number;
   revisions: number;

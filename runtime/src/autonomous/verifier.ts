@@ -24,6 +24,8 @@ import {
   allocateVerificationBudget,
   type VerificationBudgetDecision,
 } from './verification-budget.js';
+import { resolveEscalationTransition } from './escalation-graph.js';
+import { planVerifierSchedule } from './verifier-scheduler.js';
 
 const DEFAULT_MIN_CONFIDENCE = 0.7;
 const DEFAULT_MAX_VERIFICATION_RETRIES = 1;
@@ -39,6 +41,8 @@ export const VERIFIER_METRIC_NAMES = {
   REVISIONS_TOTAL: 'agenc.verifier.revisions.total',
   ESCALATIONS_TOTAL: 'agenc.verifier.escalations.total',
   ADDED_LATENCY_MS: 'agenc.verifier.added_latency_ms',
+  ADDED_LATENCY_BY_RISK_TIER_MS: 'agenc.verifier.added_latency_by_risk_tier_ms',
+  QUALITY_LIFT_BY_RISK_TIER: 'agenc.verifier.quality_lift_by_risk_tier',
   ADAPTIVE_RISK_SCORE: 'agenc.verifier.adaptive.risk_score',
   ADAPTIVE_RISK_TIER_TOTAL: 'agenc.verifier.adaptive.risk_tier.total',
   ADAPTIVE_MAX_RETRIES: 'agenc.verifier.adaptive.max_retries',
@@ -161,8 +165,18 @@ export class VerifierExecutor {
     let currentOutput = output;
     let revisions = 0;
     let lastVerdict: VerifierVerdictPayload | null = null;
+    let disagreements = 0;
 
-    const maxAttempts = policy.maxVerificationRetries + 1;
+    const schedule = planVerifierSchedule({
+      adaptiveEnabled: policy.budgetDecision?.adaptive ?? false,
+      riskTier: policy.riskAssessment?.tier ?? 'medium',
+      baseMaxAttempts: policy.maxVerificationRetries + 1,
+      hasRevisionExecutor: this.reviseTask !== undefined,
+      reexecuteOnNeedsRevision: this.config.reexecuteOnNeedsRevision === true,
+      adaptiveRiskConfig: this.config.policy?.adaptiveRisk,
+    });
+
+    const maxAttempts = schedule.maxAttempts;
 
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       this.ensureSpendWithinBudget(
@@ -189,11 +203,35 @@ export class VerifierExecutor {
       lastVerdict = normalized;
       this.recordVerdictMetrics(normalized, attempt);
       this.onVerdict?.(task, normalized, attempt);
+      if (attempt === 1 && normalized.verdict !== 'pass') {
+        disagreements++;
+      }
 
-      if (normalized.verdict === 'pass') {
+      const transition = resolveEscalationTransition({
+        verdict: normalized.verdict,
+        attempt,
+        maxAttempts,
+        disagreements,
+        maxDisagreements: schedule.maxDisagreements,
+        revisionAvailable: schedule.route === 'revision_first' && this.reviseTask !== undefined,
+        reexecuteOnNeedsRevision:
+          schedule.route === 'retry_execute' || this.config.reexecuteOnNeedsRevision === true,
+      });
+
+      if (transition.state === 'pass') {
         const durationMs = this.now() - startedAt;
         this.laneMetrics.addedLatencyMs += durationMs;
         this.metrics?.histogram(VERIFIER_METRIC_NAMES.ADDED_LATENCY_MS, durationMs);
+        this.metrics?.histogram(
+          VERIFIER_METRIC_NAMES.ADDED_LATENCY_BY_RISK_TIER_MS,
+          durationMs,
+          { risk_tier: schedule.riskTier },
+        );
+        this.metrics?.histogram(
+          VERIFIER_METRIC_NAMES.QUALITY_LIFT_BY_RISK_TIER,
+          history.length > 1 ? 1 : 0,
+          { risk_tier: schedule.riskTier },
+        );
 
         return {
           output: currentOutput,
@@ -208,15 +246,15 @@ export class VerifierExecutor {
         };
       }
 
-      if (attempt >= maxAttempts) {
-        this.escalate(task, 'verifier_failed', startedAt, revisions, history, lastVerdict);
-      }
-
-      const allowReexecute = this.config.reexecuteOnNeedsRevision === true;
-      const shouldRevise = normalized.verdict === 'needs_revision';
-      const canRevise = this.reviseTask !== undefined;
-      if (shouldRevise && !canRevise && !allowReexecute) {
-        this.escalate(task, 'revision_unavailable', startedAt, revisions, history, lastVerdict);
+      if (transition.state === 'escalate') {
+        this.escalate(
+          task,
+          this.mapTransitionReason(transition.reason),
+          startedAt,
+          revisions,
+          history,
+          lastVerdict,
+        );
       }
 
       revisions++;
@@ -230,7 +268,7 @@ export class VerifierExecutor {
 
       this.ensureWithinBudget(task, deadline, startedAt, revisions, history, lastVerdict);
 
-      if (canRevise && shouldRevise) {
+      if (transition.state === 'revise' && this.reviseTask) {
         currentOutput = await this.runWithinBudget(
           () =>
             this.reviseTask!({
@@ -583,10 +621,24 @@ export class VerifierExecutor {
     throw new VerifierLaneEscalationError(task, metadata, [...history]);
   }
 
+  private mapTransitionReason(reason: string): VerifierEscalationMetadata['reason'] {
+    if (reason === 'timeout') return 'verifier_timeout';
+    if (reason === 'revision_unavailable') return 'revision_unavailable';
+    if (reason === 'disagreement_threshold') return 'verifier_disagreement';
+    if (reason === 'budget_exhausted') return 'verifier_budget_exhausted';
+    if (reason === 'policy_denied') return 'verifier_error';
+    return 'verifier_failed';
+  }
+
   private recordAdaptiveDecisionMetrics(
     riskAssessment: TaskRiskScoreResult,
     budgetDecision: VerificationBudgetDecision,
   ): void {
+    const maxCostLamports =
+      budgetDecision.maxAllowedSpendLamports > BigInt(Number.MAX_SAFE_INTEGER)
+        ? Number.MAX_SAFE_INTEGER
+        : Number(budgetDecision.maxAllowedSpendLamports);
+
     this.metrics?.histogram(
       VERIFIER_METRIC_NAMES.ADAPTIVE_RISK_SCORE,
       riskAssessment.score,
@@ -609,7 +661,7 @@ export class VerifierExecutor {
     );
     this.metrics?.histogram(
       VERIFIER_METRIC_NAMES.ADAPTIVE_MAX_COST_LAMPORTS,
-      Number(budgetDecision.maxAllowedSpendLamports),
+      maxCostLamports,
       { tier: budgetDecision.riskTier },
     );
 
