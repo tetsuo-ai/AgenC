@@ -122,6 +122,35 @@ export function buildExpireDisputeTokenAccounts(
 }
 
 /**
+ * Token accounts for applyDisputeSlash.
+ *
+ * On-chain account names:
+ *   escrow, tokenEscrowAta, treasuryTokenAccount, rewardMint, tokenProgram
+ */
+export function buildApplyDisputeSlashTokenAccounts(
+  rewardMint: PublicKey | null | undefined,
+  escrowPda: PublicKey,
+  treasury: PublicKey,
+): Record<string, PublicKey | null> {
+  if (!rewardMint) {
+    return {
+      escrow: null,
+      tokenEscrowAta: null,
+      treasuryTokenAccount: null,
+      rewardMint: null,
+      tokenProgram: null,
+    };
+  }
+  return {
+    escrow: escrowPda,
+    tokenEscrowAta: getAssociatedTokenAddressSync(rewardMint, escrowPda, true),
+    treasuryTokenAccount: getAssociatedTokenAddressSync(rewardMint, treasury),
+    rewardMint,
+    tokenProgram: TOKEN_PROGRAM_ID,
+  };
+}
+
+/**
  * Token accounts for createTask / createDependentTask.
  *
  * On-chain account names:

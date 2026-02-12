@@ -839,6 +839,28 @@ describe('DisputeOperations', () => {
       expect(program.methods.applyDisputeSlash).toHaveBeenCalled();
       // Treasury fetched from protocol config
       expect(program.account.protocolConfig.fetch).toHaveBeenCalled();
+      // Task fetched to determine token account wiring
+      expect(program.account.task.fetch).toHaveBeenCalled();
+    });
+
+    it('wires token slash accounts for token-denominated task', async () => {
+      const mint = randomPubkey();
+      const taskPda = randomPubkey();
+      program.account.task.fetch.mockResolvedValueOnce({ rewardMint: mint });
+
+      await ops.applySlash({
+        disputePda: randomPubkey(),
+        taskPda,
+        workerClaimPda: randomPubkey(),
+        workerAgentPda: randomPubkey(),
+      });
+
+      const accounts = program._methodBuilder.accountsPartial.mock.calls[0][0];
+      expect(accounts.escrow).toBeInstanceOf(PublicKey);
+      expect(accounts.tokenEscrowAta).toBeInstanceOf(PublicKey);
+      expect(accounts.treasuryTokenAccount).toBeInstanceOf(PublicKey);
+      expect(accounts.rewardMint?.equals(mint)).toBe(true);
+      expect(accounts.tokenProgram).toBeInstanceOf(PublicKey);
     });
 
     it('caches treasury across calls', async () => {
