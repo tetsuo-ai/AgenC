@@ -9,6 +9,7 @@
  */
 
 import { PublicKey, SystemProgram } from '@solana/web3.js';
+import { getAssociatedTokenAddressSync } from '@solana/spl-token';
 import { toAnchorBytes } from '../utils/encoding.js';
 import { BN, type Program } from '@coral-xyz/anchor';
 import type { AgencCoordination } from '../types/agenc_coordination.js';
@@ -262,6 +263,26 @@ export class TaskOperations {
     }
 
     return results;
+  }
+
+  /**
+   * Fetch token escrow ATA balance for a token-denominated task.
+   *
+   * Returns 0 when the ATA does not exist (e.g. already closed).
+   */
+  async fetchEscrowTokenBalance(taskPda: PublicKey, rewardMint: PublicKey): Promise<bigint> {
+    const { address: escrowPda } = deriveEscrowPda(taskPda, this.program.programId);
+    const escrowTokenAta = getAssociatedTokenAddressSync(rewardMint, escrowPda, true);
+    try {
+      const balance = await this.program.provider.connection.getTokenAccountBalance(escrowTokenAta);
+      return BigInt(balance.value.amount);
+    } catch (err) {
+      if (isAccountNotFoundError(err)) {
+        return 0n;
+      }
+      this.logger.error(`Failed to fetch escrow token balance for ${taskPda.toBase58()}: ${err}`);
+      throw err;
+    }
   }
 
   // ==========================================================================

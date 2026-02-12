@@ -42,6 +42,8 @@ export {
   createAgencTools,
   createListTasksTool,
   createGetTaskTool,
+  createGetTokenBalanceTool,
+  createCreateTaskTool,
   createGetAgentTool,
   createGetProtocolConfigTool,
   type SerializedTask,

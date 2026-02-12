@@ -195,7 +195,7 @@ export class AutonomousAgent extends AgentRuntime {
   private readonly onTaskExecuted?: (task: Task, output: bigint[]) => void;
   private readonly onTaskCompleted?: (task: Task, txSignature: string) => void;
   private readonly onTaskFailed?: (task: Task, error: Error) => void;
-  private readonly onEarnings?: (amount: bigint, task: Task) => void;
+  private readonly onEarnings?: (amount: bigint, task: Task, mint?: PublicKey | null) => void;
   private readonly onProofGenerated?: (task: Task, proofSizeBytes: number, durationMs: number) => void;
 
   constructor(config: AutonomousAgentConfig) {
@@ -760,7 +760,7 @@ export class AutonomousAgent extends AgentRuntime {
     this.stats.earningsByMint[mintKey] = (this.stats.earningsByMint[mintKey] ?? 0n) + task.reward;
 
     this.onTaskCompleted?.(task, completeTx);
-    this.onEarnings?.(task.reward, task);
+    this.onEarnings?.(task.reward, task, task.rewardMint ?? null);
     await this.journalEvent(task, 'completed', { completionTx: completeTx, durationMs, reward: task.reward.toString() });
 
     this.autonomousLogger.info(

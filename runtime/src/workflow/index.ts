@@ -16,6 +16,7 @@ export {
   type TaskTemplate,
   type WorkflowEdge,
   type WorkflowDefinition,
+  type WorkflowConfig,
   type WorkflowNode,
   type WorkflowState,
   type WorkflowStats,

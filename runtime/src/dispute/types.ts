@@ -100,6 +100,8 @@ export interface OnChainDispute {
   bump: number;
   /** The defendant worker's agent PDA (fix #827) */
   defendant: PublicKey;
+  /** Reward mint for the disputed task (null = SOL). Enriched by DisputeOperations query helpers. */
+  rewardMint: PublicKey | null;
 }
 
 /**
@@ -279,6 +281,7 @@ export function parseOnChainDispute(raw: Record<string, unknown>): OnChainDisput
     initiatedByCreator: Boolean(r.initiatedByCreator),
     bump: typeof r.bump === 'number' ? r.bump : Number(r.bump),
     defendant: r.defendant,
+    rewardMint: null,
   };
 }
 

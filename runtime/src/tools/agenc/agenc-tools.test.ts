@@ -4,6 +4,8 @@ import { createAgencTools } from './index.js';
 import {
   createListTasksTool,
   createGetTaskTool,
+  createGetTokenBalanceTool,
+  createCreateTaskTool,
   createGetAgentTool,
   createGetProtocolConfigTool,
 } from './tools.js';
@@ -20,6 +22,8 @@ const TASK_PDA = PublicKey.unique();
 const AGENT_PDA = PublicKey.unique();
 const CREATOR = PublicKey.unique();
 const ESCROW = PublicKey.unique();
+const SIGNER = PublicKey.unique();
+const USDC_MINT = new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v');
 
 function makeMockTask(overrides: Record<string, unknown> = {}) {
   return {
@@ -124,6 +128,7 @@ function createMockOps() {
       if (pda.equals(TASK_PDA)) return makeMockTask();
       return null;
     }),
+    fetchEscrowTokenBalance: vi.fn(async () => 123_456n),
   };
 }
 
@@ -132,19 +137,50 @@ function createMockOps() {
 // ============================================================================
 
 function createMockProgram() {
+  const methodChain = {
+    accountsPartial: vi.fn().mockReturnThis(),
+    rpc: vi.fn(async () => 'mock-create-task-sig'),
+  };
+
   return {
     programId: PublicKey.unique(),
+    provider: {
+      publicKey: SIGNER,
+      connection: {
+        getTokenAccountBalance: vi.fn(async () => ({
+          context: { slot: 1 },
+          value: {
+            amount: '2500000',
+            decimals: 6,
+            uiAmount: 2.5,
+            uiAmountString: '2.5',
+          },
+        })),
+      },
+    },
     account: {
       agentRegistration: {
         fetch: vi.fn(async (pda: PublicKey) => {
           if (pda.equals(AGENT_PDA)) return makeMockAgent();
           throw new Error('Account does not exist');
         }),
+        all: vi.fn(async () => [
+          {
+            publicKey: AGENT_PDA,
+            account: {
+              authority: SIGNER,
+            },
+          },
+        ]),
       },
       protocolConfig: {
         fetch: vi.fn(async () => makeMockProtocolConfig()),
       },
     },
+    methods: {
+      createTask: vi.fn().mockReturnValue(methodChain),
+    },
+    _methodChain: methodChain,
   };
 }
 
@@ -153,7 +189,7 @@ function createMockProgram() {
 // ============================================================================
 
 describe('createAgencTools', () => {
-  it('returns exactly 4 tools', () => {
+  it('returns all built-in agenc tools', () => {
     const mockProgram = createMockProgram() as unknown as ToolContext['program'];
     const tools = createAgencTools({
       connection: {} as ToolContext['connection'],
@@ -161,11 +197,13 @@ describe('createAgencTools', () => {
       logger: silentLogger,
     });
 
-    expect(tools).toHaveLength(4);
+    expect(tools).toHaveLength(6);
     expect(tools.map((t) => t.name).sort()).toEqual([
+      'agenc.createTask',
       'agenc.getAgent',
       'agenc.getProtocolConfig',
       'agenc.getTask',
+      'agenc.getTokenBalance',
       'agenc.listTasks',
     ]);
   });
@@ -251,6 +289,36 @@ describe('agenc.listTasks', () => {
 
     expect(parsed.tasks[0].rewardMint).toBe(TOKEN_MINT.toBase58());
   });
+
+  it('filters list by rewardMint base58', async () => {
+    const mintA = PublicKey.unique();
+    const mintB = PublicKey.unique();
+    mockOps.fetchClaimableTasks.mockResolvedValueOnce([
+      { task: makeMockTask({ rewardMint: mintA }), taskPda: PublicKey.unique() },
+      { task: makeMockTask({ rewardMint: mintB }), taskPda: PublicKey.unique() },
+      { task: makeMockTask({ rewardMint: null }), taskPda: PublicKey.unique() },
+    ]);
+
+    const result = await tool.execute({ rewardMint: mintB.toBase58() });
+    const parsed = JSON.parse(result.content);
+
+    expect(parsed.count).toBe(1);
+    expect(parsed.tasks[0].rewardMint).toBe(mintB.toBase58());
+  });
+
+  it('filters list by SOL rewardMint alias', async () => {
+    const mintA = PublicKey.unique();
+    mockOps.fetchClaimableTasks.mockResolvedValueOnce([
+      { task: makeMockTask({ rewardMint: mintA }), taskPda: PublicKey.unique() },
+      { task: makeMockTask({ rewardMint: null }), taskPda: PublicKey.unique() },
+    ]);
+
+    const result = await tool.execute({ rewardMint: 'SOL' });
+    const parsed = JSON.parse(result.content);
+
+    expect(parsed.count).toBe(1);
+    expect(parsed.tasks[0].rewardMint).toBeNull();
+  });
 });
 
 describe('agenc.getTask', () => {
@@ -271,6 +339,18 @@ describe('agenc.getTask', () => {
     expect(parsed.status).toBe('Open');
   });
 
+  it('includes escrow token balance for token tasks', async () => {
+    mockOps.fetchTask.mockResolvedValueOnce(makeMockTask({ rewardMint: USDC_MINT, escrow: ESCROW }));
+    mockOps.fetchEscrowTokenBalance.mockResolvedValueOnce(123n);
+
+    const result = await tool.execute({ taskPda: TASK_PDA.toBase58() });
+    const parsed = JSON.parse(result.content);
+
+    expect(parsed.rewardMint).toBe(USDC_MINT.toBase58());
+    expect(parsed.escrowTokenBalance).toBe('123');
+    expect(parsed.escrowTokenAccount).toBeTypeOf('string');
+  });
+
   it('returns isError for invalid base58', async () => {
     const result = await tool.execute({ taskPda: 'not-valid-base58!!!' });
 
@@ -288,6 +368,57 @@ describe('agenc.getTask', () => {
   it('returns isError for missing taskPda', async () => {
     const result = await tool.execute({});
     expect(result.isError).toBe(true);
+  });
+});
+
+describe('agenc.getTokenBalance', () => {
+  it('returns token balance for mint and default owner', async () => {
+    const mockProgram = createMockProgram();
+    const tool = createGetTokenBalanceTool(mockProgram as never, silentLogger);
+
+    const result = await tool.execute({ mint: USDC_MINT.toBase58() });
+    const parsed = JSON.parse(result.content);
+
+    expect(result.isError).toBeUndefined();
+    expect(parsed.mint).toBe(USDC_MINT.toBase58());
+    expect(parsed.owner).toBe(SIGNER.toBase58());
+    expect(parsed.amount).toBe('2500000');
+  });
+});
+
+describe('agenc.createTask', () => {
+  it('creates a SOL task with defaults', async () => {
+    const mockProgram = createMockProgram();
+    const tool = createCreateTaskTool(mockProgram as never, silentLogger);
+
+    const result = await tool.execute({
+      description: 'hello task',
+      reward: '1000000',
+      requiredCapabilities: '1',
+    });
+    const parsed = JSON.parse(result.content);
+
+    expect(result.isError).toBeUndefined();
+    expect(parsed.taskPda).toBeTypeOf('string');
+    expect(parsed.transactionSignature).toBe('mock-create-task-sig');
+    expect(parsed.rewardMint).toBeNull();
+    expect(mockProgram.methods.createTask).toHaveBeenCalledOnce();
+  });
+
+  it('rejects unknown reward mints', async () => {
+    const mockProgram = createMockProgram();
+    const tool = createCreateTaskTool(mockProgram as never, silentLogger);
+    const unknownMint = PublicKey.unique();
+
+    const result = await tool.execute({
+      description: 'hello task',
+      reward: '1000000',
+      requiredCapabilities: '1',
+      rewardMint: unknownMint.toBase58(),
+    });
+
+    expect(result.isError).toBe(true);
+    expect(JSON.parse(result.content).error).toContain('Unsupported rewardMint');
   });
 });
 

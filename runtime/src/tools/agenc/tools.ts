@@ -1,21 +1,28 @@
 /**
- * Built-in AgenC protocol query tools.
+ * Built-in AgenC protocol tools.
  *
- * Four read-only tools for querying on-chain state:
+ * Query tools:
  * - agenc.listTasks — list tasks with optional status filter
  * - agenc.getTask — fetch a single task by PDA
  * - agenc.getAgent — fetch agent registration by PDA
  * - agenc.getProtocolConfig — fetch protocol configuration
+ * - agenc.getTokenBalance — fetch token ATA balance for owner+mint
+ *
+ * Mutation tools:
+ * - agenc.createTask — create a task with SOL or known SPL token rewards
  *
  * @module
  */
 
-import { PublicKey } from '@solana/web3.js';
-import type { Program } from '@coral-xyz/anchor';
+import { PublicKey, SystemProgram } from '@solana/web3.js';
+import { BN, type Program } from '@coral-xyz/anchor';
+import { getAssociatedTokenAddressSync } from '@solana/spl-token';
 import type { AgencCoordination } from '../../types/agenc_coordination.js';
 import type { Tool, ToolResult } from '../types.js';
 import { safeStringify } from '../types.js';
 import { TaskOperations } from '../../task/operations.js';
+import { findProtocolPda } from '../../agent/pda.js';
+import { findTaskPda, findEscrowPda } from '../../task/pda.js';
 import {
   taskStatusToString,
   taskTypeToString,
@@ -25,8 +32,14 @@ import {
 import { parseAgentState, agentStatusToString } from '../../agent/types.js';
 import { getCapabilityNames } from '../../agent/capabilities.js';
 import { parseProtocolConfig } from '../../types/protocol.js';
-import { findProtocolPda } from '../../agent/pda.js';
-import { lamportsToSol, bytesToHex } from '../../utils/encoding.js';
+import { buildCreateTaskTokenAccounts } from '../../utils/token.js';
+import {
+  lamportsToSol,
+  bytesToHex,
+  generateAgentId,
+  hexToBytes,
+  toAnchorBytes,
+} from '../../utils/encoding.js';
 import type { Logger } from '../../utils/logger.js';
 import type { OnChainTask } from '../../task/types.js';
 import type { AgentState } from '../../agent/types.js';
@@ -35,6 +48,13 @@ import type { SerializedTask, SerializedAgent, SerializedProtocolConfig } from '
 
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 200;
+const DESCRIPTION_BYTES = 64;
+const TASK_ID_BYTES = 32;
+
+const KNOWN_MINTS: Record<string, { symbol: string; decimals: number }> = {
+  EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v: { symbol: 'USDC', decimals: 6 },
+  Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB: { symbol: 'USDT', decimals: 6 },
+};
 
 /**
  * Return a JSON error ToolResult without throwing.
@@ -58,11 +78,146 @@ function parseBase58(input: unknown): [PublicKey | null, ToolResult | null] {
   }
 }
 
+/**
+ * Parse optional reward mint filter input.
+ * Accepts base58 mint, "SOL", or omitted.
+ */
+function parseRewardMintFilter(input: unknown): [PublicKey | null | undefined, ToolResult | null] {
+  if (input === undefined) return [undefined, null];
+  if (typeof input !== 'string' || input.trim().length === 0) {
+    return [undefined, errorResult('Invalid rewardMint filter. Use mint base58 or "SOL".')];
+  }
+  if (input.toUpperCase() === 'SOL') return [null, null];
+  const [mint, err] = parseBase58(input);
+  if (err) return [undefined, errorResult('Invalid rewardMint filter. Use mint base58 or "SOL".')];
+  return [mint, null];
+}
+
+function parseBigIntInput(value: unknown, field: string): [bigint | null, ToolResult | null] {
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value) || value < 0) {
+      return [null, errorResult(`${field} must be a non-negative integer`)];
+    }
+    return [BigInt(Math.trunc(value)), null];
+  }
+  if (typeof value === 'string') {
+    const v = value.trim();
+    if (!/^\d+$/.test(v)) {
+      return [null, errorResult(`${field} must be an integer string`)];
+    }
+    return [BigInt(v), null];
+  }
+  return [null, errorResult(`Missing or invalid ${field}`)];
+}
+
+function parseBoundedNumber(
+  value: unknown,
+  field: string,
+  min: number,
+  max: number,
+  defaultValue: number,
+): [number, ToolResult | null] {
+  if (value === undefined) return [defaultValue, null];
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return [defaultValue, errorResult(`${field} must be a number`)];
+  }
+  const v = Math.trunc(value);
+  if (v < min || v > max) {
+    return [defaultValue, errorResult(`${field} must be between ${min} and ${max}`)];
+  }
+  return [v, null];
+}
+
+function parseTaskDescription(input: unknown): [Uint8Array | null, ToolResult | null] {
+  if (typeof input !== 'string' || input.trim().length === 0) {
+    return [null, errorResult('description must be a non-empty string')];
+  }
+  const encoded = new TextEncoder().encode(input);
+  if (encoded.length > DESCRIPTION_BYTES) {
+    return [null, errorResult(`description exceeds ${DESCRIPTION_BYTES} bytes`)];
+  }
+  const out = new Uint8Array(DESCRIPTION_BYTES);
+  out.set(encoded);
+  return [out, null];
+}
+
+function parseTaskId(input: unknown): [Uint8Array | null, ToolResult | null] {
+  if (input === undefined) return [generateAgentId(), null];
+  if (typeof input !== 'string' || input.trim().length === 0) {
+    return [null, errorResult('taskId must be a 64-char hex string if provided')];
+  }
+  try {
+    const bytes = hexToBytes(input);
+    if (bytes.length !== TASK_ID_BYTES) {
+      return [null, errorResult(`taskId must be ${TASK_ID_BYTES} bytes (64 hex chars)`)];
+    }
+    return [bytes, null];
+  } catch {
+    return [null, errorResult('taskId must be a valid hex string')];
+  }
+}
+
+function parseKnownRewardMint(input: unknown): [PublicKey | null, ToolResult | null] {
+  if (input === undefined || input === null) return [null, null];
+  const [mint, err] = parseBase58(input);
+  if (err || !mint) return [null, errorResult('Invalid rewardMint address')];
+  if (!KNOWN_MINTS[mint.toBase58()]) {
+    return [null, errorResult(`Unsupported rewardMint: ${mint.toBase58()}`)];
+  }
+  return [mint, null];
+}
+
+async function resolveCreatorAgentPda(
+  program: Program<AgencCoordination>,
+  creator: PublicKey,
+  providedCreatorAgentPda?: unknown,
+): Promise<[PublicKey | null, ToolResult | null]> {
+  if (providedCreatorAgentPda !== undefined) {
+    const [pda, err] = parseBase58(providedCreatorAgentPda);
+    return [pda, err];
+  }
+
+  const accounts = await program.account.agentRegistration.all();
+  const matches = accounts.filter((acc) => {
+    const account = acc.account as unknown as { authority?: PublicKey };
+    return account.authority?.equals(creator) ?? false;
+  });
+
+  if (matches.length === 0) {
+    return [null, errorResult('No agent registration found for signer. Provide creatorAgentPda.')];
+  }
+  if (matches.length > 1) {
+    return [null, errorResult('Multiple agent registrations found. Provide creatorAgentPda.')];
+  }
+
+  return [matches[0].publicKey, null];
+}
+
+function isMissingAccountError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  const lower = msg.toLowerCase();
+  return (
+    lower.includes('account does not exist') ||
+    lower.includes('could not find account') ||
+    lower.includes('invalid param') ||
+    lower.includes('not found')
+  );
+}
+
 // ============================================================================
 // Serialization Helpers
 // ============================================================================
 
-function serializeTask(task: OnChainTask, taskPda: PublicKey): SerializedTask {
+function getRewardSymbol(rewardMint: PublicKey | null): string | undefined {
+  if (!rewardMint) return 'SOL';
+  return KNOWN_MINTS[rewardMint.toBase58()]?.symbol;
+}
+
+function serializeTask(
+  task: OnChainTask,
+  taskPda: PublicKey,
+  extras?: Partial<Pick<SerializedTask, 'escrowTokenAccount' | 'escrowTokenBalance'>>,
+): SerializedTask {
   return {
     taskPda: taskPda.toBase58(),
     taskId: bytesToHex(task.taskId),
@@ -81,6 +236,8 @@ function serializeTask(task: OnChainTask, taskPda: PublicKey): SerializedTask {
     requiredCompletions: task.requiredCompletions,
     description: bytesToHex(task.description),
     rewardMint: task.rewardMint?.toBase58() ?? null,
+    rewardSymbol: getRewardSymbol(task.rewardMint),
+    ...extras,
   };
 }
 
@@ -154,6 +311,10 @@ export function createListTasksTool(
           type: 'number',
           description: `Maximum tasks to return (default: ${DEFAULT_LIMIT}, max: ${MAX_LIMIT})`,
         },
+        rewardMint: {
+          type: 'string',
+          description: 'Optional reward mint filter (base58), or "SOL" for native SOL rewards',
+        },
       },
     },
     async execute(args: Record<string, unknown>): Promise<ToolResult> {
@@ -161,6 +322,8 @@ export function createListTasksTool(
         const status = (args.status as string) || 'open';
         const rawLimit = typeof args.limit === 'number' ? args.limit : DEFAULT_LIMIT;
         const limit = Math.min(Math.max(1, rawLimit), MAX_LIMIT);
+        const [rewardMintFilter, rewardMintErr] = parseRewardMintFilter(args.rewardMint);
+        if (rewardMintErr) return rewardMintErr;
 
         let tasks: Array<{ task: OnChainTask; taskPda: PublicKey }>;
 
@@ -175,6 +338,13 @@ export function createListTasksTool(
             // in_progress
             tasks = claimable.filter((t) => t.task.status === OnChainTaskStatus.InProgress);
           }
+        }
+
+        if (rewardMintFilter !== undefined) {
+          tasks = tasks.filter(({ task }) => {
+            if (rewardMintFilter === null) return task.rewardMint === null;
+            return task.rewardMint?.equals(rewardMintFilter) ?? false;
+          });
         }
 
         const limited = tasks.slice(0, limit);
@@ -226,10 +396,293 @@ export function createGetTaskTool(
         if (!task) {
           return errorResult(`Task not found: ${pda!.toBase58()}`);
         }
-        return { content: safeStringify(serializeTask(task, pda!)) };
+        if (task.rewardMint) {
+          const escrowTokenAccount = getAssociatedTokenAddressSync(task.rewardMint, task.escrow, true);
+          const escrowTokenBalance = await ops.fetchEscrowTokenBalance(pda!, task.rewardMint);
+          return {
+            content: safeStringify(
+              serializeTask(task, pda!, {
+                escrowTokenAccount: escrowTokenAccount.toBase58(),
+                escrowTokenBalance: escrowTokenBalance.toString(),
+              }),
+            ),
+          };
+        }
+        return {
+          content: safeStringify(
+            serializeTask(task, pda!, {
+              escrowTokenAccount: null,
+              escrowTokenBalance: null,
+            }),
+          ),
+        };
       } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
         logger.error(`agenc.getTask failed: ${msg}`);
+        return errorResult(msg);
+      }
+    },
+  };
+}
+
+/**
+ * Create the agenc.getTokenBalance tool.
+ */
+export function createGetTokenBalanceTool(
+  program: Program<AgencCoordination>,
+  logger: Logger,
+): Tool {
+  return {
+    name: 'agenc.getTokenBalance',
+    description:
+      'Get SPL token ATA balance for an owner and mint. Owner defaults to the connected signer wallet.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        mint: {
+          type: 'string',
+          description: 'SPL token mint address (base58)',
+        },
+        owner: {
+          type: 'string',
+          description: 'Owner wallet address (base58). Defaults to connected signer.',
+        },
+      },
+      required: ['mint'],
+    },
+    async execute(args: Record<string, unknown>): Promise<ToolResult> {
+      const [mint, mintErr] = parseBase58(args.mint);
+      if (mintErr) return mintErr;
+
+      let owner: PublicKey;
+      if (args.owner === undefined) {
+        if (!program.provider.publicKey) {
+          return errorResult('No default owner available. Provide owner explicitly.');
+        }
+        owner = program.provider.publicKey;
+      } else {
+        const [parsedOwner, ownerErr] = parseBase58(args.owner);
+        if (ownerErr || !parsedOwner) return ownerErr ?? errorResult('Invalid owner address');
+        owner = parsedOwner;
+      }
+
+      try {
+        const ata = getAssociatedTokenAddressSync(mint!, owner);
+        let amount = '0';
+        let decimals = KNOWN_MINTS[mint!.toBase58()]?.decimals ?? 0;
+        let uiAmountString = '0';
+        try {
+          const balance = await program.provider.connection.getTokenAccountBalance(ata);
+          amount = balance.value.amount;
+          decimals = balance.value.decimals;
+          uiAmountString = balance.value.uiAmountString ?? '0';
+        } catch (err) {
+          if (!isMissingAccountError(err)) {
+            throw err;
+          }
+        }
+        return {
+          content: safeStringify({
+            mint: mint!.toBase58(),
+            symbol: KNOWN_MINTS[mint!.toBase58()]?.symbol,
+            owner: owner.toBase58(),
+            tokenAccount: ata.toBase58(),
+            amount,
+            decimals,
+            uiAmountString,
+          }),
+        };
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        logger.error(`agenc.getTokenBalance failed: ${msg}`);
+        return errorResult(msg);
+      }
+    },
+  };
+}
+
+/**
+ * Create the agenc.createTask tool.
+ */
+export function createCreateTaskTool(
+  program: Program<AgencCoordination>,
+  logger: Logger,
+): Tool {
+  return {
+    name: 'agenc.createTask',
+    description:
+      'Create a new AgenC task with SOL rewards or supported SPL reward mints. Requires signer-backed program context.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        description: {
+          type: 'string',
+          description: `Task description (max ${DESCRIPTION_BYTES} UTF-8 bytes)`,
+        },
+        reward: {
+          type: 'string',
+          description: 'Reward amount in lamports or token base units (integer string)',
+        },
+        requiredCapabilities: {
+          type: 'string',
+          description: 'Required capability bitmask as integer string (u64)',
+        },
+        rewardMint: {
+          type: 'string',
+          description: 'Optional reward mint (base58). Must be in known mint registry.',
+        },
+        maxWorkers: {
+          type: 'number',
+          description: 'Max workers (1-100). Default 1.',
+        },
+        deadline: {
+          type: 'number',
+          description: 'Unix timestamp seconds. Default now + 1 hour.',
+        },
+        taskType: {
+          type: 'number',
+          enum: [0, 1, 2],
+          description: '0=Exclusive, 1=Collaborative, 2=Competitive (default 0)',
+        },
+        minReputation: {
+          type: 'number',
+          description: 'Minimum worker reputation (0-10000). Default 0.',
+        },
+        constraintHash: {
+          type: 'string',
+          description: 'Optional 32-byte hex string for private tasks',
+        },
+        taskId: {
+          type: 'string',
+          description: 'Optional 32-byte task id as 64-char hex. Random when omitted.',
+        },
+        creatorAgentPda: {
+          type: 'string',
+          description: 'Optional creator agent PDA (base58). Auto-resolved when omitted.',
+        },
+      },
+      required: ['description', 'reward', 'requiredCapabilities'],
+    },
+    async execute(args: Record<string, unknown>): Promise<ToolResult> {
+      try {
+        if (!program.provider.publicKey) {
+          return errorResult('agenc.createTask requires a signer-backed program context');
+        }
+        const creator = program.provider.publicKey;
+
+        const [taskId, taskIdErr] = parseTaskId(args.taskId);
+        if (taskIdErr || !taskId) return taskIdErr ?? errorResult('Invalid taskId');
+
+        const [descBytes, descErr] = parseTaskDescription(args.description);
+        if (descErr || !descBytes) return descErr ?? errorResult('Invalid description');
+
+        const [reward, rewardErr] = parseBigIntInput(args.reward, 'reward');
+        if (rewardErr || reward === null) return rewardErr ?? errorResult('Invalid reward');
+        if (reward <= 0n) return errorResult('reward must be greater than zero');
+
+        const [requiredCapabilities, capabilitiesErr] = parseBigIntInput(
+          args.requiredCapabilities,
+          'requiredCapabilities',
+        );
+        if (capabilitiesErr || requiredCapabilities === null) {
+          return capabilitiesErr ?? errorResult('Invalid requiredCapabilities');
+        }
+
+        const [taskType, taskTypeErr] = parseBoundedNumber(args.taskType, 'taskType', 0, 2, 0);
+        if (taskTypeErr) return taskTypeErr;
+        const [maxWorkers, maxWorkersErr] = parseBoundedNumber(args.maxWorkers, 'maxWorkers', 1, 100, 1);
+        if (maxWorkersErr) return maxWorkersErr;
+        const [minReputation, minReputationErr] = parseBoundedNumber(
+          args.minReputation,
+          'minReputation',
+          0,
+          10_000,
+          0,
+        );
+        if (minReputationErr) return minReputationErr;
+
+        const now = Math.floor(Date.now() / 1000);
+        const [deadline, deadlineErr] = parseBoundedNumber(
+          args.deadline,
+          'deadline',
+          now + 1,
+          Number.MAX_SAFE_INTEGER,
+          now + 3600,
+        );
+        if (deadlineErr) return deadlineErr;
+
+        let constraintHash: Uint8Array | null = null;
+        if (args.constraintHash !== undefined) {
+          if (typeof args.constraintHash !== 'string') {
+            return errorResult('constraintHash must be a hex string');
+          }
+          try {
+            const parsed = hexToBytes(args.constraintHash);
+            if (parsed.length !== 32) {
+              return errorResult('constraintHash must be exactly 32 bytes');
+            }
+            constraintHash = parsed;
+          } catch {
+            return errorResult('constraintHash must be a valid hex string');
+          }
+        }
+
+        const [rewardMint, rewardMintErr] = parseKnownRewardMint(args.rewardMint);
+        if (rewardMintErr) return rewardMintErr;
+
+        const [creatorAgentPda, creatorAgentErr] = await resolveCreatorAgentPda(
+          program,
+          creator,
+          args.creatorAgentPda,
+        );
+        if (creatorAgentErr || !creatorAgentPda) {
+          return creatorAgentErr ?? errorResult('Unable to resolve creator agent');
+        }
+
+        const taskPda = findTaskPda(creator, taskId, program.programId);
+        const escrowPda = findEscrowPda(taskPda, program.programId);
+        const protocolPda = findProtocolPda(program.programId);
+        const tokenAccounts = buildCreateTaskTokenAccounts(rewardMint, escrowPda, creator);
+
+        const txSignature = await program.methods
+          .createTask(
+            toAnchorBytes(taskId),
+            new BN(requiredCapabilities.toString()),
+            toAnchorBytes(descBytes),
+            new BN(reward.toString()),
+            maxWorkers,
+            new BN(deadline),
+            taskType,
+            constraintHash ? toAnchorBytes(constraintHash) : null,
+            minReputation,
+            rewardMint,
+          )
+          .accountsPartial({
+            task: taskPda,
+            escrow: escrowPda,
+            protocolConfig: protocolPda,
+            creatorAgent: creatorAgentPda,
+            authority: creator,
+            creator,
+            systemProgram: SystemProgram.programId,
+            ...tokenAccounts,
+          })
+          .rpc();
+
+        return {
+          content: safeStringify({
+            taskPda: taskPda.toBase58(),
+            escrowPda: escrowPda.toBase58(),
+            creatorAgentPda: creatorAgentPda.toBase58(),
+            taskId: bytesToHex(taskId),
+            rewardMint: rewardMint?.toBase58() ?? null,
+            rewardSymbol: getRewardSymbol(rewardMint),
+            transactionSignature: txSignature,
+          }),
+        };
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        logger.error(`agenc.createTask failed: ${msg}`);
         return errorResult(msg);
       }
     },

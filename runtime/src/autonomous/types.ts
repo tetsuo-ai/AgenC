@@ -69,8 +69,16 @@ export interface TaskFilter {
   /** Only public tasks (zero constraint hash) */
   publicOnly?: boolean;
   /**
+   * Reward mint filter.
+   * - `null` = SOL-only tasks
+   * - `PublicKey` = one SPL mint
+   * - `PublicKey[]` = any of the listed SPL mints
+   */
+  rewardMint?: PublicKey | PublicKey[] | null;
+  /**
    * Accepted reward mints. null means SOL, PublicKey means that mint.
    * Undefined (or omitted) means accept all mints.
+   * @deprecated Prefer `rewardMint` for new code.
    */
   acceptedMints?: (PublicKey | null)[];
   /** Custom filter function */
@@ -248,7 +256,7 @@ export interface AutonomousAgentConfig extends AgentRuntimeConfig {
   onTaskExecuted?: (task: Task, output: bigint[]) => void;
   onTaskCompleted?: (task: Task, txSignature: string) => void;
   onTaskFailed?: (task: Task, error: Error) => void;
-  onEarnings?: (amount: bigint, task: Task) => void;
+  onEarnings?: (amount: bigint, task: Task, mint?: PublicKey | null) => void;
   onProofGenerated?: (task: Task, proofSizeBytes: number, durationMs: number) => void;
 
   /**
