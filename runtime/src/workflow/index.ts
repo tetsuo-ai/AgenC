@@ -35,6 +35,22 @@ export {
 // Validation
 export { validateWorkflow, topologicalSort } from './validation.js';
 
+// Goal compiler
+export {
+  GoalCompiler,
+  estimateWorkflow,
+  type GoalPlannerInput,
+  type PlannerTaskDraft,
+  type PlannerWorkflowDraft,
+  type GoalPlanner,
+  type GoalCompileRequest,
+  type GoalCompileWarning,
+  type WorkflowDryRunEstimate,
+  type GoalCompileResult,
+  type GoalCompilerDefaults,
+  type GoalCompilerConfig,
+} from './compiler.js';
+
 // Submitter
 export { DAGSubmitter } from './submitter.js';
 

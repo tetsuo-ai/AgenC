@@ -16,6 +16,7 @@ import type {
   WorkflowStats,
   WorkflowCallbacks,
 } from './types.js';
+import type { GoalCompileRequest, GoalCompileResult, GoalCompiler } from './compiler.js';
 import {
   WorkflowStatus,
   WorkflowNodeStatus,
@@ -73,6 +74,36 @@ export class DAGOrchestrator {
    */
   validate(definition: WorkflowDefinition): void {
     validateWorkflow(definition);
+  }
+
+  /**
+   * Compile a natural-language goal into a validated workflow definition.
+   *
+   * @param request - Goal compilation request
+   * @param compiler - Goal compiler instance
+   * @returns Compiled workflow result
+   */
+  async compileGoal(
+    request: GoalCompileRequest,
+    compiler: GoalCompiler,
+  ): Promise<GoalCompileResult> {
+    return compiler.compile(request);
+  }
+
+  /**
+   * Compile a natural-language goal and immediately submit it on-chain.
+   *
+   * @param request - Goal compilation request
+   * @param compiler - Goal compiler instance
+   * @returns Compiled plan and submitted workflow state
+   */
+  async compileAndSubmitGoal(
+    request: GoalCompileRequest,
+    compiler: GoalCompiler,
+  ): Promise<{ compiled: GoalCompileResult; state: WorkflowState }> {
+    const compiled = await compiler.compile(request);
+    const state = await this.submit(compiled.definition);
+    return { compiled, state };
   }
 
   /**

@@ -556,6 +556,19 @@ export {
   // Validation
   validateWorkflow,
   topologicalSort,
+  // Goal compiler
+  GoalCompiler,
+  estimateWorkflow,
+  type GoalPlannerInput,
+  type PlannerTaskDraft,
+  type PlannerWorkflowDraft,
+  type GoalPlanner,
+  type GoalCompileRequest,
+  type GoalCompileWarning,
+  type WorkflowDryRunEstimate,
+  type GoalCompileResult,
+  type GoalCompilerDefaults,
+  type GoalCompilerConfig,
   // Classes
   DAGSubmitter,
   DAGMonitor,
