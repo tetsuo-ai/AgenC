@@ -6,6 +6,7 @@ import {
   buildCompleteTaskTokenAccounts,
   buildResolveDisputeTokenAccounts,
   buildExpireDisputeTokenAccounts,
+  buildApplyDisputeSlashTokenAccounts,
   buildCreateTaskTokenAccounts,
 } from './token.js';
 
@@ -175,6 +176,36 @@ describe('buildExpireDisputeTokenAccounts', () => {
 
     expect(result.workerTokenAccountAta).toBeNull();
     expect(result.tokenEscrowAta).not.toBeNull();
+  });
+});
+
+// ============================================================================
+// buildApplyDisputeSlashTokenAccounts
+// ============================================================================
+
+describe('buildApplyDisputeSlashTokenAccounts', () => {
+  it('returns all nulls for SOL task', () => {
+    const result = buildApplyDisputeSlashTokenAccounts(null, ESCROW_PDA, TREASURY);
+
+    expect(result.escrow).toBeNull();
+    expect(result.tokenEscrowAta).toBeNull();
+    expect(result.treasuryTokenAccount).toBeNull();
+    expect(result.rewardMint).toBeNull();
+    expect(result.tokenProgram).toBeNull();
+  });
+
+  it('returns escrow + ATAs for token task', () => {
+    const result = buildApplyDisputeSlashTokenAccounts(MINT, ESCROW_PDA, TREASURY);
+
+    expect(result.escrow).toEqual(ESCROW_PDA);
+    expect(result.tokenEscrowAta).toEqual(
+      getAssociatedTokenAddressSync(MINT, ESCROW_PDA, true),
+    );
+    expect(result.treasuryTokenAccount).toEqual(
+      getAssociatedTokenAddressSync(MINT, TREASURY),
+    );
+    expect(result.rewardMint).toEqual(MINT);
+    expect(result.tokenProgram).toEqual(TOKEN_PROGRAM_ID);
   });
 });
 

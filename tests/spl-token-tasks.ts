@@ -44,7 +44,7 @@ import {
   getDefaultDeadline,
   deriveProgramDataPda,
 } from "./test-utils";
-import { createLiteSVMContext, fundAccount } from "./litesvm-helpers";
+import { createLiteSVMContext, fundAccount, advanceClock } from "./litesvm-helpers";
 
 describe("spl-token-tasks (issue #860)", () => {
   const { svm, provider, program, payer: payerKp } = createLiteSVMContext({ splTokens: true });
@@ -66,6 +66,7 @@ describe("spl-token-tasks (issue #860)", () => {
   let worker2: Keypair;
   let arbiter1: Keypair;
   let arbiter2: Keypair;
+  let arbiter3: Keypair;
 
   // Agent IDs
   let creatorAgentId: Buffer;
@@ -73,6 +74,7 @@ describe("spl-token-tasks (issue #860)", () => {
   let worker2AgentId: Buffer;
   let arbiter1AgentId: Buffer;
   let arbiter2AgentId: Buffer;
+  let arbiter3AgentId: Buffer;
 
   // Token state
   let mint: PublicKey;
@@ -392,12 +394,14 @@ describe("spl-token-tasks (issue #860)", () => {
     worker2 = Keypair.generate();
     arbiter1 = Keypair.generate();
     arbiter2 = Keypair.generate();
+    arbiter3 = Keypair.generate();
 
     creatorAgentId = makeId("cre");
     workerAgentId = makeId("wrk");
     worker2AgentId = makeId("wr2");
     arbiter1AgentId = makeId("ar1");
     arbiter2AgentId = makeId("ar2");
+    arbiter3AgentId = makeId("ar3");
 
     // Airdrop SOL
     await airdrop([
@@ -408,6 +412,7 @@ describe("spl-token-tasks (issue #860)", () => {
       worker2,
       arbiter1,
       arbiter2,
+      arbiter3,
     ]);
 
     await ensureProtocol();
@@ -418,6 +423,7 @@ describe("spl-token-tasks (issue #860)", () => {
     await registerAgent(worker2AgentId, worker2, CAPABILITY_COMPUTE, minAgentStake);
     await registerAgent(arbiter1AgentId, arbiter1, CAPABILITY_ARBITER, minArbiterStake);
     await registerAgent(arbiter2AgentId, arbiter2, CAPABILITY_ARBITER, minArbiterStake);
+    await registerAgent(arbiter3AgentId, arbiter3, CAPABILITY_ARBITER, minArbiterStake);
 
     // Create 9-decimal test mint
     mint = await createMint(
@@ -1359,6 +1365,250 @@ describe("spl-token-tasks (issue #860)", () => {
         const err = e as any;
         expect(err.error?.errorCode?.code).to.equal("VotingNotEnded");
       }
+    });
+  });
+
+  describe("token dispute resolution + slash", () => {
+    it("should reserve token slash at resolve and settle it in applyDisputeSlash", async () => {
+      const taskId = makeId("t-slash");
+      const disputeId = makeId("d-slash");
+      const rewardAmount = 4_000_000_000;
+
+      const creatorAgentPda = deriveAgentPda(creatorAgentId);
+      const workerAgentPda = deriveAgentPda(workerAgentId);
+      const arbiter1Pda = deriveAgentPda(arbiter1AgentId);
+      const arbiter2Pda = deriveAgentPda(arbiter2AgentId);
+      const arbiter3Pda = deriveAgentPda(arbiter3AgentId);
+
+      const { taskPda, escrowPda, escrowAta } = await createTokenTask({
+        taskId,
+        tokenMint: mint,
+        creatorKp: creator,
+        creatorAgentPda,
+        creatorTokenAccount: creatorAta,
+        rewardAmount,
+      });
+      const claimPda = await claimTask(taskPda, workerAgentPda, worker);
+
+      const disputePda = deriveDisputePda(disputeId);
+      await program.methods
+        .initiateDispute(
+          Array.from(disputeId),
+          Array.from(taskId),
+          Array.from(Buffer.from("slash-evidence-hash".padEnd(32, "\0"))),
+          RESOLUTION_TYPE_REFUND,
+          VALID_EVIDENCE
+        )
+        .accountsPartial({
+          dispute: disputePda,
+          task: taskPda,
+          agent: creatorAgentPda,
+          protocolConfig: protocolPda,
+          initiatorClaim: null,
+          workerAgent: workerAgentPda,
+          workerClaim: claimPda,
+          authority: creator.publicKey,
+        })
+        .signers([creator])
+        .rpc();
+
+      const initiatedDispute = await program.account.dispute.fetch(disputePda);
+      const votingDeadline = initiatedDispute.votingDeadline.toNumber();
+      const currentClock = Number(svm.getClock().unixTimestamp);
+      if (currentClock >= votingDeadline) {
+        // Work around zero voting_period in test protocol config by extending
+        // this dispute's deadline in-place for deterministic vote/resolve flow.
+        const disputeAccount = svm.getAccount(disputePda);
+        expect(disputeAccount).to.not.equal(null);
+        const patchedData = new Uint8Array(disputeAccount!.data);
+        const view = new DataView(
+          patchedData.buffer,
+          patchedData.byteOffset,
+          patchedData.byteLength
+        );
+        view.setBigInt64(203, BigInt(currentClock + 3600), true); // voting_deadline
+        view.setBigInt64(211, BigInt(currentClock + 7200), true); // expires_at
+        svm.setAccount(disputePda, {
+          ...disputeAccount!,
+          data: patchedData,
+        });
+      }
+
+      const arbiters = [
+        { kp: arbiter1, pda: arbiter1Pda },
+        { kp: arbiter2, pda: arbiter2Pda },
+        { kp: arbiter3, pda: arbiter3Pda },
+      ];
+      for (const arbiter of arbiters) {
+        const votePda = deriveVotePda(disputePda, arbiter.pda);
+        const authorityVotePda = deriveAuthorityVotePda(
+          disputePda,
+          arbiter.kp.publicKey
+        );
+        await program.methods
+          .voteDispute(true)
+          .accountsPartial({
+            dispute: disputePda,
+            task: taskPda,
+            workerClaim: claimPda,
+            defendantAgent: workerAgentPda,
+            vote: votePda,
+            authorityVote: authorityVotePda,
+            arbiter: arbiter.pda,
+            protocolConfig: protocolPda,
+            authority: arbiter.kp.publicKey,
+          })
+          .signers([arbiter.kp])
+          .rpc();
+      }
+
+      const votedDispute = await program.account.dispute.fetch(disputePda);
+      expect(votedDispute.votesFor.toNumber()).to.be.greaterThan(0);
+      expect(votedDispute.votesAgainst.toNumber()).to.equal(0);
+      expect(votedDispute.totalVoters).to.equal(3);
+
+      const secondsUntilVotingEnds = Math.max(
+        1,
+        (
+          await program.account.dispute.fetch(disputePda)
+        ).votingDeadline.toNumber() - Number(svm.getClock().unixTimestamp) + 1
+      );
+      advanceClock(svm, secondsUntilVotingEnds);
+
+      const disputeBeforeResolve = await program.account.dispute.fetch(disputePda);
+      const config = await program.account.protocolConfig.fetch(protocolPda);
+      const taskBeforeResolve = await program.account.task.fetch(taskPda);
+      const workerBeforeResolve = await program.account.agentRegistration.fetch(
+        workerAgentPda
+      );
+      const expectedSlash = Math.floor(
+        (disputeBeforeResolve.workerStakeAtDispute.toNumber() *
+          config.slashPercentage) /
+          100
+      );
+      const expectedReserved = Math.min(expectedSlash, rewardAmount);
+      expect(workerBeforeResolve.stake.toNumber()).to.be.greaterThan(0);
+      expect(expectedSlash).to.be.greaterThan(0);
+      expect(taskBeforeResolve.rewardMint?.toBase58()).to.equal(mint.toBase58());
+
+      const creatorBeforeResolve = await getTokenBalance(creatorAta);
+      const treasuryBeforeResolve = await getTokenBalance(treasuryAta);
+
+      await program.methods
+        .resolveDispute()
+        .accountsPartial({
+          dispute: disputePda,
+          task: taskPda,
+          escrow: escrowPda,
+          protocolConfig: protocolPda,
+          resolver: provider.wallet.publicKey,
+          creator: creator.publicKey,
+          workerClaim: claimPda,
+          worker: workerAgentPda,
+          workerAuthority: worker.publicKey,
+          systemProgram: SystemProgram.programId,
+          tokenEscrowAta: escrowAta,
+          creatorTokenAccount: creatorAta,
+          workerTokenAccountAta: null,
+          treasuryTokenAccount: treasuryAta,
+          rewardMint: mint,
+          tokenProgram: TOKEN_PROGRAM_ID,
+        })
+        .remainingAccounts([
+          {
+            pubkey: deriveVotePda(disputePda, arbiter1Pda),
+            isSigner: false,
+            isWritable: true,
+          },
+          { pubkey: arbiter1Pda, isSigner: false, isWritable: true },
+          {
+            pubkey: deriveVotePda(disputePda, arbiter2Pda),
+            isSigner: false,
+            isWritable: true,
+          },
+          { pubkey: arbiter2Pda, isSigner: false, isWritable: true },
+          {
+            pubkey: deriveVotePda(disputePda, arbiter3Pda),
+            isSigner: false,
+            isWritable: true,
+          },
+          { pubkey: arbiter3Pda, isSigner: false, isWritable: true },
+        ])
+        .rpc();
+
+      const escrowPdaInfoAfterResolve = await provider.connection.getAccountInfo(
+        escrowPda
+      );
+      expect(
+        escrowPdaInfoAfterResolve,
+        "escrow PDA unexpectedly closed during resolve"
+      ).to.not.equal(null);
+
+      const escrowAtaInfoAfterResolve = await provider.connection.getAccountInfo(
+        escrowAta
+      );
+      expect(
+        escrowAtaInfoAfterResolve,
+        "escrow ATA unexpectedly closed during resolve"
+      ).to.not.equal(null);
+
+      const creatorAfterResolve = await getTokenBalance(creatorAta);
+      const treasuryAfterResolve = await getTokenBalance(treasuryAta);
+      const escrowAfterResolve = await getTokenBalance(escrowAta);
+
+      expect(Number(creatorAfterResolve - creatorBeforeResolve)).to.equal(
+        rewardAmount - expectedReserved
+      );
+      expect(Number(treasuryAfterResolve - treasuryBeforeResolve)).to.equal(0);
+      expect(Number(escrowAfterResolve)).to.equal(expectedReserved);
+
+      const escrowState = await program.account.taskEscrow.fetch(escrowPda);
+      expect(escrowState.isClosed).to.equal(false);
+      expect(escrowState.distributed.toNumber()).to.equal(
+        rewardAmount - expectedReserved
+      );
+
+      const treasuryBeforeSlash = await getTokenBalance(treasuryAta);
+      const workerBeforeSlash = await program.account.agentRegistration.fetch(
+        workerAgentPda
+      );
+
+      await program.methods
+        .applyDisputeSlash()
+        .accountsPartial({
+          dispute: disputePda,
+          task: taskPda,
+          workerClaim: claimPda,
+          workerAgent: workerAgentPda,
+          protocolConfig: protocolPda,
+          treasury: treasuryPubkey,
+          escrow: escrowPda,
+          tokenEscrowAta: escrowAta,
+          treasuryTokenAccount: treasuryAta,
+          rewardMint: mint,
+          tokenProgram: TOKEN_PROGRAM_ID,
+        })
+        .rpc();
+
+      const disputeAfterSlash = await program.account.dispute.fetch(disputePda);
+      expect(disputeAfterSlash.slashApplied).to.equal(true);
+
+      const treasuryAfterSlash = await getTokenBalance(treasuryAta);
+      expect(Number(treasuryAfterSlash - treasuryBeforeSlash)).to.equal(
+        expectedReserved
+      );
+
+      const workerAfterSlash = await program.account.agentRegistration.fetch(
+        workerAgentPda
+      );
+      expect(
+        workerBeforeSlash.stake.sub(workerAfterSlash.stake).toNumber()
+      ).to.equal(expectedSlash);
+
+      const escrowPdaAccount = await provider.connection.getAccountInfo(escrowPda);
+      const escrowAtaAccount = await provider.connection.getAccountInfo(escrowAta);
+      expect(escrowPdaAccount).to.equal(null);
+      expect(escrowAtaAccount).to.equal(null);
     });
   });
 });
