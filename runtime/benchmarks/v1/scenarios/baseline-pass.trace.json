@@ -1,0 +1,57 @@
+{
+  "schemaVersion": 1,
+  "traceId": "fixture-baseline",
+  "seed": 0,
+  "createdAtMs": 1700000000000,
+  "metadata": {
+    "source": "benchmark-fixture"
+  },
+  "events": [
+    {
+      "seq": 1,
+      "type": "discovered",
+      "taskPda": "task-baseline",
+      "timestampMs": 1700000000001,
+      "payload": {}
+    },
+    {
+      "seq": 2,
+      "type": "claimed",
+      "taskPda": "task-baseline",
+      "timestampMs": 1700000000002,
+      "payload": {
+        "claimTx": "claim-baseline"
+      }
+    },
+    {
+      "seq": 3,
+      "type": "verifier_verdict",
+      "taskPda": "task-baseline",
+      "timestampMs": 1700000000003,
+      "payload": {
+        "attempt": 1,
+        "verdict": "pass",
+        "confidence": 0.92
+      }
+    },
+    {
+      "seq": 4,
+      "type": "executed",
+      "taskPda": "task-baseline",
+      "timestampMs": 1700000000004,
+      "payload": {
+        "outputLength": 1
+      }
+    },
+    {
+      "seq": 5,
+      "type": "completed",
+      "taskPda": "task-baseline",
+      "timestampMs": 1700000000030,
+      "payload": {
+        "completionTx": "complete-baseline",
+        "durationMs": 26
+      }
+    }
+  ]
+}
