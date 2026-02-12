@@ -14,6 +14,7 @@ import type { MemoryBackend } from '../memory/types.js';
 import { entryToMessage, messageToEntryOptions } from '../memory/types.js';
 import type { MetricsProvider } from '../task/types.js';
 import { TELEMETRY_METRIC_NAMES } from '../telemetry/metric-names.js';
+import type { MemoryGraph, MemoryGraphResult } from '../memory/graph.js';
 
 /** Default TTL for memory entries: 24 hours */
 const DEFAULT_MEMORY_TTL_MS = 86_400_000;
@@ -51,6 +52,8 @@ export interface LLMTaskExecutorConfig {
    * When undefined, all tools are permitted.
    */
   allowedTools?: string[];
+  /** Optional memory graph used for provenance-aware retrieval and ingestion. */
+  memoryGraph?: Pick<MemoryGraph, 'query' | 'ingestToolOutput'>;
 }
 
 /**
@@ -76,6 +79,7 @@ export class LLMTaskExecutor implements TaskExecutor {
   private readonly memoryTtlMs: number;
   private readonly allowedTools: Set<string> | null;
   private readonly metrics?: MetricsProvider;
+  private readonly memoryGraph?: Pick<MemoryGraph, 'query' | 'ingestToolOutput'>;
 
   constructor(config: LLMTaskExecutorConfig) {
     this.provider = config.provider;
@@ -90,6 +94,7 @@ export class LLMTaskExecutor implements TaskExecutor {
     this.memoryTtlMs = config.memoryTtlMs ?? DEFAULT_MEMORY_TTL_MS;
     this.allowedTools = config.allowedTools ? new Set(config.allowedTools) : null;
     this.metrics = config.metrics;
+    this.memoryGraph = config.memoryGraph;
   }
 
   async execute(task: Task): Promise<bigint[]> {
@@ -104,6 +109,8 @@ export class LLMTaskExecutor implements TaskExecutor {
     if (isNew) {
       await this.persistMessages(sessionId, messages, taskPda);
     }
+
+    await this.appendGraphContext(messages, sessionId, taskPda);
 
     let response;
     try {
@@ -157,6 +164,7 @@ export class LLMTaskExecutor implements TaskExecutor {
           args = {};
         }
         const result = await this.toolHandler(toolCall.name, args);
+        await this.ingestToolResult(sessionId, taskPda, toolCall.name, result);
         const toolMsg: LLMMessage = {
           role: 'tool',
           content: result,
@@ -266,6 +274,61 @@ export class LLMTaskExecutor implements TaskExecutor {
 
     messages.push({ role: 'user', content: taskInfo });
     return messages;
+  }
+
+  private async appendGraphContext(
+    messages: LLMMessage[],
+    sessionId: string,
+    taskPda: string,
+  ): Promise<void> {
+    if (!this.memoryGraph) return;
+    try {
+      const results = await this.memoryGraph.query({
+        sessionId,
+        taskPda,
+        requireProvenance: true,
+        minConfidence: 0.6,
+        includeContradicted: false,
+        includeSuperseded: false,
+        limit: 3,
+      });
+      if (results.length === 0) return;
+      messages.push({
+        role: 'system',
+        content: this.formatGraphContext(results),
+      });
+    } catch {
+      // Memory graph failure — non-blocking
+    }
+  }
+
+  private formatGraphContext(results: MemoryGraphResult[]): string {
+    const lines = results.map((result, index) => (
+      `${index + 1}. ${result.node.content} (confidence=${result.effectiveConfidence.toFixed(2)})`
+    ));
+    return [
+      'Relevant high-confidence memory (with provenance):',
+      ...lines,
+    ].join('\n');
+  }
+
+  private async ingestToolResult(
+    sessionId: string,
+    taskPda: string,
+    toolName: string,
+    output: string,
+  ): Promise<void> {
+    if (!this.memoryGraph) return;
+    try {
+      await this.memoryGraph.ingestToolOutput({
+        sessionId,
+        taskPda,
+        toolName,
+        output,
+      });
+    } catch {
+      // Memory graph failure — non-blocking
+    }
   }
 }
 

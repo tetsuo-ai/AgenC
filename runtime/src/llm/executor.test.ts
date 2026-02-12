@@ -5,6 +5,7 @@ import type { LLMProvider, LLMResponse, LLMMessage, StreamProgressCallback } fro
 import type { Task } from '../autonomous/types.js';
 import { TaskStatus } from '../autonomous/types.js';
 import type { MemoryBackend, MemoryEntry, AddEntryOptions, MemoryQuery } from '../memory/types.js';
+import type { MemoryGraphResult } from '../memory/graph.js';
 
 function createMockProvider(overrides: Partial<LLMProvider> = {}): LLMProvider {
   return {
@@ -349,6 +350,89 @@ describe('LLMTaskExecutor', () => {
         (c: [AddEntryOptions]) => c[0].role
       );
       expect(calls).toEqual(['user', 'assistant', 'tool', 'assistant']);
+    });
+
+    it('injects high-confidence graph facts into prompt context', async () => {
+      const task = createTaskWithUniquePda();
+      const provider = createMockProvider();
+      const memoryGraph = {
+        query: vi.fn().mockResolvedValue([
+          {
+            node: {
+              id: 'fact-1',
+              content: 'Critical treasury migration completed',
+              createdAt: Date.now(),
+              updatedAt: Date.now(),
+              baseConfidence: 0.92,
+              provenance: [{ type: 'onchain_event', sourceId: 'tx-abc' }],
+            },
+            effectiveConfidence: 0.88,
+            contradicted: false,
+            superseded: false,
+            sources: [{ type: 'onchain_event', sourceId: 'tx-abc' }],
+          } satisfies MemoryGraphResult,
+        ]),
+        ingestToolOutput: vi.fn().mockResolvedValue(undefined),
+      };
+
+      const executor = new LLMTaskExecutor({
+        provider,
+        memoryGraph,
+      });
+
+      await executor.execute(task);
+
+      const messages = (provider.chat as ReturnType<typeof vi.fn>).mock.calls[0][0] as LLMMessage[];
+      expect(messages.some(
+        (message) =>
+          message.role === 'system'
+          && message.content.includes('Relevant high-confidence memory'),
+      )).toBe(true);
+      expect(memoryGraph.query).toHaveBeenCalled();
+    });
+
+    it('ingests tool outputs into memory graph during tool loops', async () => {
+      const toolCallResponse: LLMResponse = {
+        content: 'thinking...',
+        toolCalls: [{ id: 'call_1', name: 'lookup', arguments: '{"key":"val"}' }],
+        usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
+        model: 'mock-model',
+        finishReason: 'tool_calls',
+      };
+      const finalResponse: LLMResponse = {
+        content: 'final answer',
+        toolCalls: [],
+        usage: { promptTokens: 20, completionTokens: 10, totalTokens: 30 },
+        model: 'mock-model',
+        finishReason: 'stop',
+      };
+      const task = createTaskWithUniquePda();
+      const chatFn = vi.fn<[LLMMessage[]], Promise<LLMResponse>>()
+        .mockResolvedValueOnce(toolCallResponse)
+        .mockResolvedValueOnce(finalResponse);
+      const provider = createMockProvider({ chat: chatFn });
+      const toolHandler = vi.fn().mockResolvedValue('tool result');
+      const memoryGraph = {
+        query: vi.fn().mockResolvedValue([]),
+        ingestToolOutput: vi.fn().mockResolvedValue(undefined),
+      };
+
+      const executor = new LLMTaskExecutor({
+        provider,
+        toolHandler,
+        memoryGraph,
+      });
+
+      await executor.execute(task);
+
+      expect(memoryGraph.ingestToolOutput).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sessionId: `conv:${task.pda.toBase58()}`,
+          taskPda: task.pda.toBase58(),
+          toolName: 'lookup',
+          output: 'tool result',
+        }),
+      );
     });
 
     it('memory failure does not block execution', async () => {

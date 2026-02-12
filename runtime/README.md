@@ -206,6 +206,33 @@ const agent = await new AgentBuilder(connection, wallet)
 agent.policyEngine?.setMode('halt_submissions', 'manual_incident');
 ```
 
+### Provenance-Aware Memory Graph
+
+Persist reusable facts with source traceability and confidence-aware retrieval:
+
+```typescript
+import { MemoryGraph, InMemoryBackend } from '@agenc/runtime';
+
+const backend = new InMemoryBackend();
+const graph = new MemoryGraph(backend);
+
+await graph.upsertNode({
+  content: 'Treasury key rotated on Feb 10',
+  sessionId: 'ops',
+  baseConfidence: 0.92,
+  provenance: [
+    { type: 'onchain_event', sourceId: '5uW...txsig' },
+  ],
+});
+
+const facts = await graph.query({
+  sessionId: 'ops',
+  requireProvenance: true,
+  minConfidence: 0.8,
+  includeContradicted: false,
+});
+```
+
 ## Core Modules
 
 ### AgentRuntime
