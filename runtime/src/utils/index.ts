@@ -34,6 +34,7 @@ export {
   buildCompleteTaskTokenAccounts,
   buildResolveDisputeTokenAccounts,
   buildExpireDisputeTokenAccounts,
+  buildApplyDisputeSlashTokenAccounts,
   buildCreateTaskTokenAccounts,
   TOKEN_PROGRAM_ID,
   ASSOCIATED_TOKEN_PROGRAM_ID,

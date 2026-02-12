@@ -27,10 +27,7 @@ pub fn validate_slash_window(resolved_at: i64, clock: &Clock) -> Result<()> {
 ///
 /// Returns `(total_votes, approval_pct)`.
 /// Errors if total_votes is 0 or on arithmetic overflow.
-pub fn calculate_approval_percentage(
-    votes_for: u64,
-    votes_against: u64,
-) -> Result<(u64, u64)> {
+pub fn calculate_approval_percentage(votes_for: u64, votes_against: u64) -> Result<(u64, u64)> {
     let total_votes = votes_for
         .checked_add(votes_against)
         .ok_or(CoordinationError::ArithmeticOverflow)?;
@@ -43,6 +40,24 @@ pub fn calculate_approval_percentage(
         .ok_or(CoordinationError::ArithmeticOverflow)?;
 
     Ok((total_votes, approval_pct))
+}
+
+/// Calculates slash amount from stake snapshot and current stake.
+///
+/// Uses snapshot stake to prevent post-dispute withdrawal attacks, then caps by
+/// current stake to avoid underflow if stake dropped before slash execution.
+pub fn calculate_slash_amount(
+    stake_at_dispute: u64,
+    current_stake: u64,
+    slash_percentage: u8,
+) -> Result<u64> {
+    let slash_amount = stake_at_dispute
+        .checked_mul(slash_percentage as u64)
+        .ok_or(CoordinationError::ArithmeticOverflow)?
+        .checked_div(PERCENT_BASE)
+        .ok_or(CoordinationError::ArithmeticOverflow)?;
+
+    Ok(slash_amount.min(current_stake))
 }
 
 /// Applies a reputation penalty to an agent for losing a dispute.

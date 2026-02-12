@@ -159,6 +159,45 @@ export type AgencCoordination = {
         {
           "name": "treasury",
           "writable": true
+        },
+        {
+          "name": "escrow",
+          "docs": [
+            "Escrow PDA for the disputed task (kept open until slash for token disputes)"
+          ],
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "tokenEscrowAta",
+          "docs": [
+            "Token escrow ATA holding deferred slash amount"
+          ],
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "treasuryTokenAccount",
+          "docs": [
+            "Treasury token ATA receiving slashed tokens"
+          ],
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "rewardMint",
+          "docs": [
+            "SPL mint for task rewards (must match task.reward_mint)"
+          ],
+          "optional": true
+        },
+        {
+          "name": "tokenProgram",
+          "docs": [
+            "SPL Token program"
+          ],
+          "optional": true,
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         }
       ],
       "args": []
@@ -1964,6 +2003,7 @@ export type AgencCoordination = {
             "Optional - when provided, allows decrementing worker's active_tasks",
             "and enables fair refund distribution (fix #418)"
           ],
+          "writable": true,
           "optional": true,
           "pda": {
             "seeds": [
@@ -1991,6 +2031,9 @@ export type AgencCoordination = {
         },
         {
           "name": "worker",
+          "docs": [
+            "Worker's AgentRegistration PDA (must be dispute defendant)."
+          ],
           "writable": true,
           "optional": true
         },
@@ -2285,6 +2328,7 @@ export type AgencCoordination = {
           "docs": [
             "Optional: Worker agent to be disputed (required when initiator is task creator)"
           ],
+          "writable": true,
           "optional": true
         },
         {
@@ -2657,6 +2701,9 @@ export type AgencCoordination = {
         },
         {
           "name": "worker",
+          "docs": [
+            "Worker agent account for the dispute defendant."
+          ],
           "writable": true,
           "optional": true
         },

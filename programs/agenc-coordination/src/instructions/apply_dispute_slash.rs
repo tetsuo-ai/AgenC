@@ -9,16 +9,20 @@
 //! After this window, slashing can no longer be applied.
 
 use crate::errors::CoordinationError;
-use crate::instructions::constants::PERCENT_BASE;
 use crate::instructions::slash_helpers::{
-    apply_reputation_penalty, calculate_approval_percentage, transfer_slash_to_treasury,
-    validate_slash_window,
+    apply_reputation_penalty, calculate_approval_percentage, calculate_slash_amount,
+    transfer_slash_to_treasury, validate_slash_window,
+};
+use crate::instructions::token_helpers::{
+    close_token_escrow, transfer_tokens_from_escrow, validate_token_account,
 };
 use crate::state::{
     AgentRegistration, Dispute, DisputeStatus, ProtocolConfig, ResolutionType, Task, TaskClaim,
+    TaskEscrow,
 };
 use crate::utils::version::check_version_compatible;
 use anchor_lang::prelude::*;
+use anchor_spl::token::{Mint, Token, TokenAccount};
 
 #[derive(Accounts)]
 pub struct ApplyDisputeSlash<'info> {
@@ -62,6 +66,25 @@ pub struct ApplyDisputeSlash<'info> {
         constraint = treasury.key() == protocol_config.treasury @ CoordinationError::InvalidInput
     )]
     pub treasury: UncheckedAccount<'info>,
+
+    // === Optional SPL Token slash accounts (token-denominated tasks only) ===
+    /// Escrow PDA for the disputed task (kept open until slash for token disputes)
+    #[account(mut)]
+    pub escrow: Option<Box<Account<'info, TaskEscrow>>>,
+
+    /// Token escrow ATA holding deferred slash amount
+    #[account(mut)]
+    pub token_escrow_ata: Option<Account<'info, TokenAccount>>,
+
+    /// Treasury token ATA receiving slashed tokens
+    #[account(mut)]
+    pub treasury_token_account: Option<Account<'info, TokenAccount>>,
+
+    /// SPL mint for task rewards (must match task.reward_mint)
+    pub reward_mint: Option<Account<'info, Mint>>,
+
+    /// SPL Token program
+    pub token_program: Option<Program<'info, Token>>,
 }
 
 pub fn handler(ctx: Context<ApplyDisputeSlash>) -> Result<()> {
@@ -125,22 +148,14 @@ pub fn handler(ctx: Context<ApplyDisputeSlash>) -> Result<()> {
     require!(worker_lost, CoordinationError::InvalidInput);
     require!(worker_agent.stake > 0, CoordinationError::InsufficientStake);
 
-    // Calculate slash based on stake at dispute time, not current stake (fix #836)
-    // This prevents workers from withdrawing stake after dispute to reduce slashing exposure
-    let slash_amount_calculated = dispute
-        .worker_stake_at_dispute
-        .checked_mul(config.slash_percentage as u64)
-        .ok_or(CoordinationError::ArithmeticOverflow)?
-        .checked_div(PERCENT_BASE)
-        .ok_or(CoordinationError::ArithmeticOverflow)?;
+    // Calculate slash from stake snapshot and cap by current stake (fix #836).
+    let slash_amount = calculate_slash_amount(
+        dispute.worker_stake_at_dispute,
+        worker_agent.stake,
+        config.slash_percentage,
+    )?;
 
-    // Cap slash at current stake to avoid underflow (can't slash more than what's staked)
-    let slash_amount = slash_amount_calculated.min(worker_agent.stake);
-
-    require!(
-        slash_amount > 0,
-        CoordinationError::InvalidSlashAmount
-    );
+    require!(slash_amount > 0, CoordinationError::InvalidSlashAmount);
 
     // Apply reputation penalty for losing the dispute (before lamport transfer to satisfy borrow checker)
     apply_reputation_penalty(worker_agent, &clock)?;
@@ -150,8 +165,82 @@ pub fn handler(ctx: Context<ApplyDisputeSlash>) -> Result<()> {
             .stake
             .checked_sub(slash_amount)
             .ok_or(CoordinationError::ArithmeticOverflow)?;
+    }
 
-        // Fix #374: Actually transfer lamports to treasury
+    // Token-denominated disputes that slash a losing worker must settle reserved
+    // tokens during this instruction.
+    let token_task_requires_settlement =
+        ctx.accounts.task.reward_mint.is_some() && worker_lost && slash_amount > 0;
+
+    // If any token accounts are provided, require a complete set.
+    let token_accounts_provided = ctx.accounts.escrow.is_some()
+        || ctx.accounts.token_escrow_ata.is_some()
+        || ctx.accounts.treasury_token_account.is_some()
+        || ctx.accounts.reward_mint.is_some()
+        || ctx.accounts.token_program.is_some();
+
+    if token_accounts_provided || token_task_requires_settlement {
+        require!(
+            ctx.accounts.escrow.is_some()
+                && ctx.accounts.token_escrow_ata.is_some()
+                && ctx.accounts.treasury_token_account.is_some()
+                && ctx.accounts.reward_mint.is_some()
+                && ctx.accounts.token_program.is_some(),
+            CoordinationError::MissingTokenAccounts
+        );
+
+        let escrow = ctx.accounts.escrow.as_mut().unwrap();
+        let token_escrow = ctx.accounts.token_escrow_ata.as_ref().unwrap();
+        let treasury_ta = ctx.accounts.treasury_token_account.as_ref().unwrap();
+        let mint = ctx.accounts.reward_mint.as_ref().unwrap();
+        let token_program = ctx.accounts.token_program.as_ref().unwrap();
+
+        require!(
+            escrow.task == ctx.accounts.task.key() && ctx.accounts.task.escrow == escrow.key(),
+            CoordinationError::TaskNotFound
+        );
+        require!(
+            mint.key() == ctx.accounts.task.reward_mint.unwrap(),
+            CoordinationError::InvalidTokenMint
+        );
+        validate_token_account(token_escrow, &mint.key(), &escrow.key())?;
+        validate_token_account(
+            treasury_ta,
+            &mint.key(),
+            &ctx.accounts.protocol_config.treasury,
+        )?;
+
+        let task_key_bytes = ctx.accounts.task.key().to_bytes();
+        let bump_slice = [escrow.bump];
+        let escrow_seeds: &[&[u8]] = &[b"escrow", task_key_bytes.as_ref(), &bump_slice];
+
+        let token_slash_amount = slash_amount.min(token_escrow.amount);
+        if token_slash_amount > 0 {
+            transfer_tokens_from_escrow(
+                token_escrow,
+                &treasury_ta.to_account_info(),
+                &escrow.to_account_info(),
+                token_slash_amount,
+                escrow_seeds,
+                token_program,
+            )?;
+        }
+
+        close_token_escrow(
+            token_escrow,
+            &ctx.accounts.treasury.to_account_info(),
+            &escrow.to_account_info(),
+            escrow_seeds,
+            token_program,
+        )?;
+
+        escrow.is_closed = true;
+        escrow.close(ctx.accounts.treasury.to_account_info())?;
+    }
+
+    // Perform lamport transfer after all CPIs. Direct lamport mutations are
+    // checked against CPI boundaries by the runtime.
+    if slash_amount > 0 {
         transfer_slash_to_treasury(
             &ctx.accounts.worker_agent.to_account_info(),
             &ctx.accounts.treasury.to_account_info(),

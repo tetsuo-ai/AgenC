@@ -147,6 +147,45 @@
         {
           "name": "treasury",
           "writable": true
+        },
+        {
+          "name": "escrow",
+          "docs": [
+            "Escrow PDA for the disputed task (kept open until slash for token disputes)"
+          ],
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "token_escrow_ata",
+          "docs": [
+            "Token escrow ATA holding deferred slash amount"
+          ],
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "treasury_token_account",
+          "docs": [
+            "Treasury token ATA receiving slashed tokens"
+          ],
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "reward_mint",
+          "docs": [
+            "SPL mint for task rewards (must match task.reward_mint)"
+          ],
+          "optional": true
+        },
+        {
+          "name": "token_program",
+          "docs": [
+            "SPL Token program"
+          ],
+          "optional": true,
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         }
       ],
       "args": []
@@ -1952,6 +1991,7 @@
             "Optional - when provided, allows decrementing worker's active_tasks",
             "and enables fair refund distribution (fix #418)"
           ],
+          "writable": true,
           "optional": true,
           "pda": {
             "seeds": [
@@ -1979,6 +2019,9 @@
         },
         {
           "name": "worker",
+          "docs": [
+            "Worker's AgentRegistration PDA (must be dispute defendant)."
+          ],
           "writable": true,
           "optional": true
         },
@@ -2273,6 +2316,7 @@
           "docs": [
             "Optional: Worker agent to be disputed (required when initiator is task creator)"
           ],
+          "writable": true,
           "optional": true
         },
         {
@@ -2645,6 +2689,9 @@
         },
         {
           "name": "worker",
+          "docs": [
+            "Worker agent account for the dispute defendant."
+          ],
           "writable": true,
           "optional": true
         },

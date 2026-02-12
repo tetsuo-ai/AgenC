@@ -9,6 +9,7 @@ use crate::instructions::dispute_helpers::{
     process_worker_claim_pair, validate_remaining_accounts_structure,
 };
 use crate::instructions::lamport_transfer::{credit_lamports, debit_lamports, transfer_lamports};
+use crate::instructions::slash_helpers::calculate_slash_amount;
 use crate::instructions::token_helpers::{
     close_token_escrow, transfer_tokens_from_escrow, validate_token_account,
 };
@@ -41,7 +42,6 @@ pub struct ResolveDispute<'info> {
 
     #[account(
         mut,
-        close = creator,
         seeds = [b"escrow", task.key().as_ref()],
         bump = escrow.bump
     )]
@@ -218,6 +218,12 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
     // Prepare token context if this is a token-denominated task
     let is_token_task = task.reward_mint.is_some();
     let task_key = task.key();
+    let worker_stake_now = ctx
+        .accounts
+        .worker
+        .as_ref()
+        .ok_or(CoordinationError::WorkerAgentRequired)?
+        .stake;
 
     if is_token_task {
         require!(
@@ -235,6 +241,26 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
         validate_token_account(token_escrow, &mint.key(), &escrow.key())?;
     }
 
+    // A worker "loses" when dispute is approved and resolution is not Complete.
+    // This matches apply_dispute_slash semantics.
+    let worker_lost = approved && dispute.resolution_type != ResolutionType::Complete;
+    let slash_amount = if worker_lost {
+        calculate_slash_amount(
+            dispute.worker_stake_at_dispute,
+            worker_stake_now,
+            config.slash_percentage,
+        )?
+    } else {
+        0
+    };
+    let token_slash_reserve = if is_token_task && worker_lost {
+        slash_amount.min(remaining_funds)
+    } else {
+        0
+    };
+    let defer_token_escrow_close = is_token_task && worker_lost && slash_amount > 0;
+    let defer_worker_claim_close = worker_lost && slash_amount > 0;
+
     // Execute resolution based on type and approval
     if approved {
         match dispute.resolution_type {
@@ -250,21 +276,26 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
                     let task_key_bytes = task_key.to_bytes();
                     let bump_slice = [escrow.bump];
                     let escrow_seeds: &[&[u8]] = &[b"escrow", task_key_bytes.as_ref(), &bump_slice];
+                    let creator_refund = remaining_funds
+                        .checked_sub(token_slash_reserve)
+                        .ok_or(CoordinationError::ArithmeticOverflow)?;
                     transfer_tokens_from_escrow(
                         token_escrow,
                         &creator_ta.to_account_info(),
                         &escrow.to_account_info(),
-                        remaining_funds,
+                        creator_refund,
                         escrow_seeds,
                         token_program,
                     )?;
-                    close_token_escrow(
-                        token_escrow,
-                        &ctx.accounts.creator.to_account_info(),
-                        &escrow.to_account_info(),
-                        escrow_seeds,
-                        token_program,
-                    )?;
+                    if !defer_token_escrow_close {
+                        close_token_escrow(
+                            token_escrow,
+                            &ctx.accounts.creator.to_account_info(),
+                            &escrow.to_account_info(),
+                            escrow_seeds,
+                            token_program,
+                        )?;
+                    }
                 } else {
                     transfer_lamports(
                         &escrow.to_account_info(),
@@ -315,10 +346,13 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
             }
             ResolutionType::Split => {
                 if remaining_funds > 0 {
-                    let worker_share = remaining_funds
+                    let distributable = remaining_funds
+                        .checked_sub(token_slash_reserve)
+                        .ok_or(CoordinationError::ArithmeticOverflow)?;
+                    let worker_share = distributable
                         .checked_div(2)
                         .ok_or(CoordinationError::ArithmeticOverflow)?;
-                    let creator_share = remaining_funds
+                    let creator_share = distributable
                         .checked_sub(worker_share)
                         .ok_or(CoordinationError::ArithmeticOverflow)?;
 
@@ -354,13 +388,15 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
                             escrow_seeds,
                             token_program,
                         )?;
-                        close_token_escrow(
-                            token_escrow,
-                            &ctx.accounts.creator.to_account_info(),
-                            &escrow.to_account_info(),
-                            escrow_seeds,
-                            token_program,
-                        )?;
+                        if !defer_token_escrow_close {
+                            close_token_escrow(
+                                token_escrow,
+                                &ctx.accounts.creator.to_account_info(),
+                                &escrow.to_account_info(),
+                                escrow_seeds,
+                                token_program,
+                            )?;
+                        }
                     } else {
                         debit_lamports(&escrow.to_account_info(), remaining_funds)?;
                         let creator_info = ctx.accounts.creator.to_account_info();
@@ -467,22 +503,35 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
 
     dispute.status = DisputeStatus::Resolved;
     dispute.resolved_at = clock.unix_timestamp;
-    escrow.is_closed = true;
+    let distributed_now = remaining_funds
+        .checked_sub(token_slash_reserve)
+        .ok_or(CoordinationError::ArithmeticOverflow)?;
+    escrow.distributed = escrow
+        .distributed
+        .checked_add(distributed_now)
+        .ok_or(CoordinationError::ArithmeticOverflow)?;
+    escrow.is_closed = !defer_token_escrow_close;
     task.current_workers = 0;
+
+    if !defer_token_escrow_close {
+        escrow.close(ctx.accounts.creator.to_account_info())?;
+    }
 
     // Close worker_claim account and return rent lamports to worker authority (fix #838)
     // The claim rent was paid by worker authority at creation, so return it there
-    let claim = ctx
-        .accounts
-        .worker_claim
-        .as_ref()
-        .expect("worker claim validated above");
-    let worker_authority = ctx
-        .accounts
-        .worker_authority
-        .as_ref()
-        .expect("worker authority validated above");
-    claim.close(worker_authority.to_account_info())?;
+    if !defer_worker_claim_close {
+        let claim = ctx
+            .accounts
+            .worker_claim
+            .as_ref()
+            .expect("worker claim validated above");
+        let worker_authority = ctx
+            .accounts
+            .worker_authority
+            .as_ref()
+            .expect("worker authority validated above");
+        claim.close(worker_authority.to_account_info())?;
+    }
 
     emit!(DisputeResolved {
         dispute_id: dispute.dispute_id,

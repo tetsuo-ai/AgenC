@@ -35,7 +35,11 @@ import { deriveDisputePda, deriveVotePda } from './pda.js';
 import { findAgentPda, findProtocolPda, deriveAuthorityVotePda } from '../agent/pda.js';
 import { fetchTreasury } from '../utils/treasury.js';
 import { deriveClaimPda, deriveEscrowPda } from '../task/pda.js';
-import { buildResolveDisputeTokenAccounts, buildExpireDisputeTokenAccounts } from '../utils/token.js';
+import {
+  buildResolveDisputeTokenAccounts,
+  buildExpireDisputeTokenAccounts,
+  buildApplyDisputeSlashTokenAccounts,
+} from '../utils/token.js';
 import {
   isAnchorError,
   AnchorErrorCodes,
@@ -589,10 +593,18 @@ export class DisputeOperations {
   async applySlash(params: ApplySlashParams): Promise<DisputeResult> {
     const start = Date.now();
     const treasury = await this.getTreasury();
+    const { address: escrowPda } = deriveEscrowPda(params.taskPda, this.program.programId);
 
     this.logger.info(`Applying slash for dispute ${params.disputePda.toBase58()}`);
 
     try {
+      const rawTask = await this.program.account.task.fetch(params.taskPda) as { rewardMint: PublicKey | null };
+      const tokenAccounts = buildApplyDisputeSlashTokenAccounts(
+        rawTask.rewardMint ?? null,
+        escrowPda,
+        treasury,
+      );
+
       const signature = await this.program.methods
         .applyDisputeSlash()
         .accountsPartial({
@@ -602,6 +614,7 @@ export class DisputeOperations {
           workerAgent: params.workerAgentPda,
           protocolConfig: this.protocolPda,
           treasury,
+          ...tokenAccounts,
         })
         .rpc();
 
