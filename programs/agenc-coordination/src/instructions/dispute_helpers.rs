@@ -64,8 +64,12 @@ pub(crate) fn check_duplicate_arbiters(
 pub(crate) fn check_duplicate_workers(
     remaining_accounts: &[AccountInfo],
     arbiter_accounts: usize,
+    primary_worker: Option<Pubkey>,
 ) -> Result<()> {
     let mut seen_workers: HashSet<Pubkey> = HashSet::new();
+    if let Some(worker_key) = primary_worker {
+        seen_workers.insert(worker_key);
+    }
     for i in (arbiter_accounts..remaining_accounts.len()).step_by(2) {
         let worker_key = remaining_accounts[i + 1].key();
         require!(
@@ -125,10 +129,7 @@ pub(crate) fn process_worker_claim_pair(
 
     let claim_data = claim_info.try_borrow_data()?;
     let claim = TaskClaim::try_deserialize(&mut &**claim_data)?;
-    require!(
-        claim.task == *task_key,
-        CoordinationError::InvalidInput
-    );
+    require!(claim.task == *task_key, CoordinationError::InvalidInput);
     require!(
         claim.worker == worker_info.key(),
         CoordinationError::InvalidInput
@@ -140,9 +141,6 @@ pub(crate) fn process_worker_claim_pair(
     let mut worker_reg = AgentRegistration::try_deserialize(&mut &**worker_data)?;
     // Using saturating_sub intentionally - underflow returns 0 (safe counter decrement)
     worker_reg.active_tasks = worker_reg.active_tasks.saturating_sub(1);
-    // Decrement disputes_as_defendant (fix #821)
-    // Using saturating_sub intentionally - underflow returns 0 (safe counter decrement)
-    worker_reg.disputes_as_defendant = worker_reg.disputes_as_defendant.saturating_sub(1);
     worker_reg.try_serialize(&mut &mut worker_data[8..])?;
 
     Ok(())

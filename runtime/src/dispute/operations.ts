@@ -449,6 +449,14 @@ export class DisputeOperations {
     this.logger.info(`Cancelling dispute ${disputePda.toBase58()}`);
 
     try {
+      const dispute = await this.fetchDispute(disputePda);
+      if (!dispute) {
+        throw new DisputeResolutionError(
+          disputePda.toBase58(),
+          'Dispute not found',
+        );
+      }
+
       const signature = await this.program.methods
         .cancelDispute()
         .accountsPartial({
@@ -456,6 +464,9 @@ export class DisputeOperations {
           task: taskPda,
           authority: this.program.provider.publicKey,
         })
+        .remainingAccounts([
+          { pubkey: dispute.defendant, isSigner: false, isWritable: true },
+        ])
         .rpc();
 
       this.logger.info(`Dispute cancelled: ${signature}`);
