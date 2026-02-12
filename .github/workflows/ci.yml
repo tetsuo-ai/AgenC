@@ -36,7 +36,10 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        run: npm install --no-audit --no-fund
+        run: |
+          npm install --no-audit --no-fund --prefix sdk
+          npm install --no-audit --no-fund --prefix runtime
+          npm install --no-audit --no-fund --prefix mcp
 
       - name: Runtime tests
         run: npm run test --prefix runtime
@@ -64,7 +67,10 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        run: npm install --no-audit --no-fund
+        run: |
+          npm install --no-audit --no-fund --prefix sdk
+          npm install --no-audit --no-fund --prefix runtime
+          npm install --no-audit --no-fund --prefix mcp
 
       - name: Run benchmark corpus
         run: npm run benchmark:ci --prefix runtime
@@ -105,7 +111,10 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        run: npm install --no-audit --no-fund
+        run: |
+          npm install --no-audit --no-fund --prefix sdk
+          npm install --no-audit --no-fund --prefix runtime
+          npm install --no-audit --no-fund --prefix mcp
 
       - name: Run nightly benchmark corpus
         run: |
