@@ -52,7 +52,7 @@ jobs:
         run: npm run typecheck --prefix runtime
 
       - name: Build runtime package
-        run: npm run build --prefix runtime
+        run: npm_config_ignore_scripts=true npm run build --prefix runtime
 
       - name: MCP typecheck
         run: npm run typecheck --prefix mcp
