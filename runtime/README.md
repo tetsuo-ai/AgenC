@@ -269,6 +269,46 @@ Notes:
 - Hash stability is guaranteed for the same trace + seed + replay config.
 - Legacy traces are migrated through `migrateTrajectoryTrace(...)`.
 
+### Workflow Optimizer Feature Store
+
+Extract deterministic optimizer-ready workflow features from runtime state:
+
+```typescript
+import {
+  extractWorkflowFeatureVectorFromCollector,
+  createDefaultWorkflowObjectiveSpec,
+  scoreWorkflowObjective,
+} from '@agenc/runtime';
+
+const feature = extractWorkflowFeatureVectorFromCollector(workflowState, telemetryCollector, {
+  taskRoleByTaskName: teamWorkflowBuildResult?.taskRole,
+});
+
+const objective = createDefaultWorkflowObjectiveSpec();
+const score = scoreWorkflowObjective(
+  {
+    successRate: feature.outcomes.success ? 1 : 0,
+    conformanceScore: feature.outcomes.conformanceScore,
+    latencyMs: feature.outcomes.elapsedMs,
+    costUnits: feature.outcomes.costUnits,
+    rollbackRate: feature.outcomes.rollbackRate,
+    verifierDisagreementRate: feature.outcomes.verifierDisagreementRate,
+  },
+  objective,
+);
+```
+
+Objective definitions and invariants:
+- `success_rate`, `conformance_score` are maximize objectives in `[0,1]`.
+- `latency_ms`, `cost_units`, `rollback_rate`, `verifier_disagreement_rate` are minimize objectives.
+- Objective weights must be non-negative and sum to `> 0`; defaults are conservative for production safety.
+- Feature extraction is deterministic: node features and histogram keys are stable-sorted.
+
+Backward compatibility strategy:
+- Feature vectors are versioned by `schemaVersion` (`WORKFLOW_FEATURE_SCHEMA_VERSION`).
+- `parseWorkflowFeatureVector(...)` migrates legacy vectors (missing schema version) to the current schema.
+- Additive evolution is preferred; breaking field changes require a schema version bump and migration path.
+
 ### Team Contracts (Role-Based Agent Runs)
 
 Coordinate planner/worker/reviewer teams with deterministic role checks, checkpoint gating, and payout splitting:
