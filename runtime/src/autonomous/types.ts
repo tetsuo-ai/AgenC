@@ -40,6 +40,11 @@ export interface Task {
   status: TaskStatus;
   /** SPL token mint for reward denomination (null = SOL) */
   rewardMint: PublicKey | null;
+  /**
+   * Optional on-chain task type.
+   * Present when the scanner/account parser includes this field.
+   */
+  taskType?: number;
 }
 
 export enum TaskStatus {
@@ -130,6 +135,155 @@ export interface TaskExecutor {
  * Alias for TaskExecutor used in autonomous agent context
  */
 export type AutonomousTaskExecutor = TaskExecutor;
+
+/**
+ * Structured reason for verifier decisions.
+ */
+export interface VerifierReason {
+  /** Stable machine-readable code (for routing/escalation). */
+  code: string;
+  /** Human-readable detail for debugging/review. */
+  message: string;
+  /** Optional field/path that failed validation. */
+  field?: string;
+  /** Optional severity bucket from verifier implementation. */
+  severity?: 'low' | 'medium' | 'high';
+}
+
+/**
+ * Supported verifier verdict values.
+ */
+export type VerifierVerdict = 'pass' | 'fail' | 'needs_revision';
+
+/**
+ * Structured verifier output contract.
+ */
+export interface VerifierVerdictPayload {
+  verdict: VerifierVerdict;
+  /** Confidence in [0, 1]. */
+  confidence: number;
+  reasons: VerifierReason[];
+  /** Optional metadata propagated to telemetry/journaling. */
+  metadata?: Record<string, unknown>;
+}
+
+/**
+ * Input passed to verifier implementations.
+ */
+export interface VerifierInput {
+  task: Task;
+  output: bigint[];
+  /** 1-based verification attempt index. */
+  attempt: number;
+  /** Full prior verdict history for this task run. */
+  history: readonly VerifierVerdictPayload[];
+}
+
+/**
+ * Verifier agent contract (Executor + Critic pattern).
+ */
+export interface TaskVerifier {
+  verify(input: VerifierInput): Promise<VerifierVerdictPayload>;
+}
+
+/**
+ * Input passed to revision-capable executors.
+ */
+export interface RevisionInput {
+  task: Task;
+  previousOutput: bigint[];
+  verdict: VerifierVerdictPayload;
+  /** 1-based revision attempt index. */
+  revisionAttempt: number;
+  history: readonly VerifierVerdictPayload[];
+}
+
+/**
+ * Optional extension for executors that can produce targeted revisions.
+ */
+export interface RevisionCapableTaskExecutor extends TaskExecutor {
+  revise(input: RevisionInput): Promise<bigint[]>;
+}
+
+/**
+ * Task-type scoped verifier policy override.
+ */
+export interface VerifierTaskTypePolicy {
+  enabled?: boolean;
+  minRewardLamports?: bigint;
+  minConfidence?: number;
+  maxVerificationRetries?: number;
+  maxVerificationDurationMs?: number;
+}
+
+/**
+ * Policy controls for determining when verifier gating applies.
+ */
+export interface VerifierPolicyConfig {
+  /** Global opt-in switch (default: false). */
+  enabled?: boolean;
+  /** Value-tier trigger; tasks below this reward skip verifier lane. */
+  minRewardLamports?: bigint;
+  /**
+   * Per-task-type policy. Key is on-chain numeric task type.
+   * Uses task.taskType when available.
+   */
+  taskTypePolicies?: Record<number, VerifierTaskTypePolicy>;
+  /** Optional custom gate hook for app-specific policy. */
+  taskSelector?: (task: Task) => boolean;
+}
+
+/**
+ * Escalation metadata for verifier-gated failures.
+ */
+export interface VerifierEscalationMetadata {
+  reason: 'verifier_failed' | 'verifier_timeout' | 'verifier_error' | 'revision_unavailable';
+  attempts: number;
+  revisions: number;
+  durationMs: number;
+  lastVerdict: VerifierVerdictPayload | null;
+}
+
+/**
+ * Runtime verifier lane configuration.
+ */
+export interface VerifierLaneConfig {
+  verifier: TaskVerifier;
+  /** Policy gate for when verifier lane is active. */
+  policy?: VerifierPolicyConfig;
+  /** Minimum confidence required for pass verdict (default: 0.7). */
+  minConfidence?: number;
+  /** Maximum number of revision attempts after initial output (default: 1). */
+  maxVerificationRetries?: number;
+  /** Upper bound for verifier lane processing time in ms (default: 30_000). */
+  maxVerificationDurationMs?: number;
+  /** Optional delay between verification attempts (default: 0). */
+  revisionDelayMs?: number;
+  /**
+   * When true, verifier exceptions are treated as terminal escalation.
+   * When false (default), they are converted to fail verdicts and retried.
+   */
+  failOnVerifierError?: boolean;
+  /**
+   * When true, non-revision-capable executors may re-run execute() on
+   * needs_revision verdicts. Default false for deterministic behavior.
+   */
+  reexecuteOnNeedsRevision?: boolean;
+}
+
+/**
+ * Result summary for a verifier-gated execution.
+ */
+export interface VerifierExecutionResult {
+  output: bigint[];
+  attempts: number;
+  revisions: number;
+  durationMs: number;
+  passed: boolean;
+  escalated: boolean;
+  history: VerifierVerdictPayload[];
+  lastVerdict: VerifierVerdictPayload | null;
+}
 
 /**
  * Discovery mode for finding tasks
@@ -271,6 +425,23 @@ export interface AutonomousAgentConfig extends AgentRuntimeConfig {
    * Passed through to internal components (LLMTaskExecutor, etc.).
    */
   metrics?: MetricsProvider;
+
+  /**
+   * Optional verifier lane (Executor + Critic quality gate).
+   * When configured and policy matches a task, completion submission is gated
+   * on verifier pass.
+   */
+  verifier?: VerifierLaneConfig;
+
+  /**
+   * Optional callback fired after each verifier verdict.
+   */
+  onVerifierVerdict?: (task: Task, verdict: VerifierVerdictPayload) => void;
+
+  /**
+   * Optional callback fired when verifier lane escalates a task failure.
+   */
+  onTaskEscalated?: (task: Task, metadata: VerifierEscalationMetadata) => void;
 }
 
 /**
@@ -305,6 +476,28 @@ export interface AutonomousAgentStats {
   speculativeExecutionsAborted?: number;
   /** Total time saved by speculation (estimated, in ms) */
   estimatedTimeSavedMs?: number;
+
+  // Verifier lane metrics (only present when verifier lane is enabled)
+  /** Total verifier decisions recorded. */
+  verifierChecks?: number;
+  /** Verifier pass verdict count. */
+  verifierPasses?: number;
+  /** Verifier fail verdict count. */
+  verifierFailures?: number;
+  /** Verifier needs_revision verdict count. */
+  verifierNeedsRevision?: number;
+  /** Count of first-pass disagreements (non-pass on first verifier attempt). */
+  verifierDisagreements?: number;
+  /** Number of revision attempts executed. */
+  verifierRevisions?: number;
+  /** Number of tasks escalated by verifier lane. */
+  verifierEscalations?: number;
+  /** Aggregate verifier-induced latency in ms. */
+  verifierAddedLatencyMs?: number;
+  /** Verifier pass ratio (passes / checks). */
+  verifierPassRate?: number;
+  /** Verifier disagreement ratio (first-check non-pass / checks). */
+  verifierDisagreementRate?: number;
 }
 
 /**

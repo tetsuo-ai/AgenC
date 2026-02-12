@@ -44,6 +44,9 @@ import type {
   Task,
   AutonomousAgentStats,
   SpeculationConfig,
+  VerifierLaneConfig,
+  VerifierEscalationMetadata,
+  VerifierVerdictPayload,
 } from './autonomous/types.js';
 import { DisputeOperations } from './dispute/operations.js';
 import type { AgencCoordination } from './types/agenc_coordination.js';
@@ -98,6 +101,8 @@ export interface AgentCallbacks {
   onTaskFailed?: (task: Task, error: Error) => void;
   onEarnings?: (amount: bigint, task: Task, mint?: PublicKey | null) => void;
   onProofGenerated?: (task: Task, proofSizeBytes: number, durationMs: number) => void;
+  onVerifierVerdict?: (task: Task, verdict: VerifierVerdictPayload) => void;
+  onTaskEscalated?: (task: Task, metadata: VerifierEscalationMetadata) => void;
 }
 
 // ============================================================================
@@ -163,6 +168,7 @@ export class AgentBuilder {
 
   // Speculation
   private speculationConfig?: SpeculationConfig;
+  private verifierConfig?: VerifierLaneConfig;
 
   // Callbacks
   private callbacks?: AgentCallbacks;
@@ -293,6 +299,11 @@ export class AgentBuilder {
 
   withSpeculation(config?: SpeculationConfig): this {
     this.speculationConfig = config ?? { enabled: true };
+    return this;
+  }
+
+  withVerifier(config: VerifierLaneConfig): this {
+    this.verifierConfig = config;
     return this;
   }
 
@@ -459,6 +470,7 @@ export class AgentBuilder {
       scanIntervalMs: this.scanIntervalMs,
       maxConcurrentTasks: this.maxConcurrentTasks,
       speculation: this.speculationConfig,
+      verifier: this.verifierConfig,
       onTaskDiscovered: this.callbacks?.onTaskDiscovered,
       onTaskClaimed: this.callbacks?.onTaskClaimed,
       onTaskExecuted: this.callbacks?.onTaskExecuted,
@@ -466,6 +478,8 @@ export class AgentBuilder {
       onTaskFailed: this.callbacks?.onTaskFailed,
       onEarnings: this.callbacks?.onEarnings,
       onProofGenerated: this.callbacks?.onProofGenerated,
+      onVerifierVerdict: this.callbacks?.onVerifierVerdict,
+      onTaskEscalated: this.callbacks?.onTaskEscalated,
     });
   }
 
