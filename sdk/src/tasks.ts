@@ -1,405 +1,624 @@
 /**
  * Task Management Helpers for AgenC
  *
- * Create, claim, and complete tasks on the AgenC protocol
+ * Create, claim, complete, and cancel tasks on the AgenC protocol.
+ * Supports both native SOL and SPL token-denominated tasks.
  */
 
 import {
   Connection,
   PublicKey,
-  Transaction,
   Keypair,
   SystemProgram,
-  LAMPORTS_PER_SOL,
 } from '@solana/web3.js';
 import { type Program, BN } from '@coral-xyz/anchor';
-import { PROGRAM_ID, SEEDS, TaskState, U64_SIZE, DISCRIMINATOR_SIZE, PERCENT_BASE, DEFAULT_FEE_PERCENT } from './constants';
+import {
+  getAssociatedTokenAddressSync,
+  TOKEN_PROGRAM_ID,
+  ASSOCIATED_TOKEN_PROGRAM_ID,
+} from '@solana/spl-token';
+import { PROGRAM_ID, SEEDS, TaskState, DISCRIMINATOR_SIZE, PERCENT_BASE, DEFAULT_FEE_PERCENT } from './constants';
+import { getAccount } from './anchor-utils';
 import { getSdkLogger } from './logger';
 
 export { TaskState };
 
-/**
- * Helper type for dynamic account access on Anchor programs.
- * Anchor's generic Program type doesn't know about specific account types,
- * so we use this to access accounts dynamically.
- */
-type AccountFetcher = {
-  fetch: (key: PublicKey) => Promise<unknown>;
-  all: (filters?: Array<{ memcmp: { offset: number; bytes: string } }>) => Promise<Array<{ account: unknown; publicKey: PublicKey }>>;
-};
-
-function getAccount(program: Program, name: string): AccountFetcher {
-  const accounts = program.account as Record<string, AccountFetcher | undefined>;
-  const account = accounts[name];
-  if (!account) {
-    throw new Error(
-      `Account "${name}" not found in program. ` +
-      `Available accounts: ${Object.keys(accounts).join(', ') || 'none'}`
-    );
-  }
-  return account;
-}
+// ============================================================================
+// Types
+// ============================================================================
 
 export interface TaskParams {
-  /** Task description/title */
-  description: string;
-  /** Escrow amount in lamports */
-  escrowLamports: number;
-  /** Deadline as Unix timestamp */
+  /** Task ID — 32-byte identifier */
+  taskId: Uint8Array | number[];
+  /** Required capability bitmask (u64) */
+  requiredCapabilities: number | bigint;
+  /** Task description or instruction hash — exactly 64 bytes */
+  description: Uint8Array | Buffer;
+  /** Reward amount in lamports (SOL) or smallest token units */
+  rewardAmount: number | bigint;
+  /** Maximum workers allowed (u8) */
+  maxWorkers: number;
+  /** Deadline as Unix timestamp (seconds) */
   deadline: number;
-  /**
-   * Constraint hash for private task verification.
-   * For private tasks, this is the Poseidon hash of the expected output.
-   * Workers must prove they know an output that hashes to this value.
-   * CRITICAL: Must be set for private tasks, verified on-chain during completion.
-   */
-  constraintHash?: Buffer;
-  /** Required skills (optional) */
-  requiredSkills?: string[];
-  /** Maximum number of claims allowed */
-  maxClaims?: number;
+  /** Task type: 0=Exclusive, 1=Collaborative, 2=Competitive */
+  taskType: number;
+  /** Constraint hash for private task verification (32 bytes). Null for public tasks. */
+  constraintHash?: number[] | null;
+  /** Minimum reputation score required (u16, default 0) */
+  minReputation?: number;
+  /** SPL token mint for reward denomination. Null/undefined for SOL tasks. */
+  rewardMint?: PublicKey | null;
+  /** Creator's token account. Required when rewardMint is set. If omitted, derived as ATA. */
+  creatorTokenAccount?: PublicKey;
 }
 
 export interface TaskStatus {
-  /** Task ID */
-  taskId: number;
+  /** Task ID bytes */
+  taskId: Uint8Array;
   /** Current state */
   state: TaskState;
   /** Creator public key */
   creator: PublicKey;
-  /** Escrow amount */
-  escrowLamports: number;
+  /** Reward amount in lamports or token units */
+  rewardAmount: bigint;
   /** Deadline timestamp */
   deadline: number;
   /** Constraint hash (if private) */
-  constraintHash: Buffer | null;
-  /** Claimed by agent (if claimed) */
-  claimedBy: PublicKey | null;
+  constraintHash: Uint8Array | null;
+  /** Number of current workers */
+  currentWorkers: number;
+  /** Max workers */
+  maxWorkers: number;
   /** Completion timestamp (if completed) */
   completedAt: number | null;
+  /** SPL token mint (null for SOL tasks) */
+  rewardMint: PublicKey | null;
 }
 
+export interface PrivateCompletionProof {
+  /** Groth16 proof data (256 bytes) */
+  proofData: Buffer | Uint8Array;
+  /** Constraint hash — Poseidon hash of output (32 bytes) */
+  constraintHash: Buffer | Uint8Array;
+  /** Output commitment — Poseidon(constraintHash, salt) (32 bytes) */
+  outputCommitment: Buffer | Uint8Array;
+  /** Expected binding for anti-replay (32 bytes) */
+  expectedBinding: Buffer | Uint8Array;
+  /** Nullifier to prevent proof reuse (32 bytes) */
+  nullifier: Buffer | Uint8Array;
+}
+
+// ============================================================================
+// PDA Derivation
+// ============================================================================
+
 /**
- * Derive task PDA from task ID
- * @param taskId - Task ID (must be a non-negative integer)
- * @param programId - Program ID (defaults to PROGRAM_ID)
- * @returns Task PDA public key
- * @throws Error if taskId is invalid
+ * Derive task PDA from creator and task ID.
+ * Seeds: ["task", creator, task_id]
  */
-export function deriveTaskPda(taskId: number, programId: PublicKey = PROGRAM_ID): PublicKey {
-  // Security: Validate taskId is a valid non-negative integer
-  if (!Number.isInteger(taskId) || taskId < 0) {
-    throw new Error('Invalid taskId: must be a non-negative integer');
-  }
-  // Security: Check taskId fits in u64 range
-  if (taskId > Number.MAX_SAFE_INTEGER) {
-    throw new Error('Invalid taskId: exceeds maximum safe integer');
-  }
-
-  const taskIdBuffer = Buffer.alloc(U64_SIZE);
-  taskIdBuffer.writeBigUInt64LE(BigInt(taskId));
-
+export function deriveTaskPda(
+  creator: PublicKey,
+  taskId: Uint8Array | number[],
+  programId: PublicKey = PROGRAM_ID,
+): PublicKey {
+  const idBytes = taskId instanceof Uint8Array ? taskId : Buffer.from(taskId);
   const [pda] = PublicKey.findProgramAddressSync(
-    [SEEDS.TASK, taskIdBuffer],
-    programId
+    [SEEDS.TASK, creator.toBuffer(), idBytes],
+    programId,
   );
   return pda;
 }
 
 /**
- * Derive claim PDA from task and agent
+ * Derive claim PDA from task and worker agent PDA.
+ * Seeds: ["claim", task_pda, worker_agent_pda]
  */
 export function deriveClaimPda(
   taskPda: PublicKey,
-  agent: PublicKey,
-  programId: PublicKey = PROGRAM_ID
+  workerAgentPda: PublicKey,
+  programId: PublicKey = PROGRAM_ID,
 ): PublicKey {
   const [pda] = PublicKey.findProgramAddressSync(
-    [SEEDS.CLAIM, taskPda.toBuffer(), agent.toBuffer()],
-    programId
+    [SEEDS.CLAIM, taskPda.toBuffer(), workerAgentPda.toBuffer()],
+    programId,
   );
   return pda;
 }
 
 /**
- * Derive escrow PDA from task
+ * Derive escrow PDA from task.
+ * Seeds: ["escrow", task_pda]
  */
 export function deriveEscrowPda(
   taskPda: PublicKey,
-  programId: PublicKey = PROGRAM_ID
+  programId: PublicKey = PROGRAM_ID,
 ): PublicKey {
   const [pda] = PublicKey.findProgramAddressSync(
     [SEEDS.ESCROW, taskPda.toBuffer()],
-    programId
+    programId,
   );
   return pda;
 }
 
+// ============================================================================
+// Internal Helpers
+// ============================================================================
+
+function deriveProtocolPda(programId: PublicKey): PublicKey {
+  const [pda] = PublicKey.findProgramAddressSync(
+    [SEEDS.PROTOCOL],
+    programId,
+  );
+  return pda;
+}
+
+function deriveAgentPda(agentId: Uint8Array | number[], programId: PublicKey): PublicKey {
+  const idBytes = agentId instanceof Uint8Array ? agentId : Buffer.from(agentId);
+  const [pda] = PublicKey.findProgramAddressSync(
+    [SEEDS.AGENT, idBytes],
+    programId,
+  );
+  return pda;
+}
+
+// ============================================================================
+// Task Functions
+// ============================================================================
+
 /**
- * Create a new task
+ * Create a new task.
+ *
+ * For SPL token tasks, the caller must ensure the creator's token account
+ * exists and has sufficient balance. The escrow ATA is created by the
+ * on-chain instruction via CPI.
  */
 export async function createTask(
   connection: Connection,
   program: Program,
   creator: Keypair,
-  params: TaskParams
-): Promise<{ taskId: number; txSignature: string }> {
-  // Get next task ID from protocol state
-  const [protocolPda] = PublicKey.findProgramAddressSync(
-    [SEEDS.PROTOCOL],
-    program.programId
-  );
+  creatorAgentId: Uint8Array | number[],
+  params: TaskParams,
+): Promise<{ taskPda: PublicKey; txSignature: string }> {
+  const programId = program.programId;
+  const idBytes = params.taskId instanceof Uint8Array ? params.taskId : Buffer.from(params.taskId);
 
-  const protocolState = await getAccount(program, 'protocolState').fetch(protocolPda) as { nextTaskId?: BN };
-  const taskId = protocolState.nextTaskId?.toNumber() || 0;
+  const taskPda = deriveTaskPda(creator.publicKey, idBytes, programId);
+  const escrowPda = deriveEscrowPda(taskPda, programId);
+  const protocolPda = deriveProtocolPda(programId);
+  const creatorAgentPda = deriveAgentPda(creatorAgentId, programId);
 
-  const taskPda = deriveTaskPda(taskId, program.programId);
-  const escrowPda = deriveEscrowPda(taskPda, program.programId);
+  const mint = params.rewardMint ?? null;
+
+  // Build token-specific accounts
+  let tokenAccounts: Record<string, PublicKey | null>;
+  if (mint) {
+    const creatorTokenAccount = params.creatorTokenAccount
+      ?? getAssociatedTokenAddressSync(mint, creator.publicKey);
+    const tokenEscrowAta = getAssociatedTokenAddressSync(mint, escrowPda, true);
+
+    tokenAccounts = {
+      rewardMint: mint,
+      creatorTokenAccount,
+      tokenEscrowAta,
+      tokenProgram: TOKEN_PROGRAM_ID,
+      associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+    };
+  } else {
+    tokenAccounts = {
+      rewardMint: null,
+      creatorTokenAccount: null,
+      tokenEscrowAta: null,
+      tokenProgram: null,
+      associatedTokenProgram: null,
+    };
+  }
 
   const tx = await program.methods
-    .createTask({
-      description: params.description,
-      escrowLamports: new BN(params.escrowLamports),
-      deadline: new BN(params.deadline),
-      constraintHash: params.constraintHash ? Array.from(params.constraintHash) : null,
-      requiredSkills: params.requiredSkills || [],
-      maxClaims: params.maxClaims || 1,
-    })
-    .accounts({
-      creator: creator.publicKey,
+    .createTask(
+      Array.from(idBytes),
+      new BN(params.requiredCapabilities.toString()),
+      Buffer.from(params.description),
+      new BN(params.rewardAmount.toString()),
+      params.maxWorkers,
+      new BN(params.deadline),
+      params.taskType,
+      params.constraintHash ?? null,
+      params.minReputation ?? 0,
+      mint,
+    )
+    .accountsPartial({
       task: taskPda,
       escrow: escrowPda,
-      protocolState: protocolPda,
+      protocolConfig: protocolPda,
+      creatorAgent: creatorAgentPda,
+      authority: creator.publicKey,
+      creator: creator.publicKey,
       systemProgram: SystemProgram.programId,
+      ...tokenAccounts,
     })
     .signers([creator])
     .rpc();
 
-  // Security: Wait for transaction confirmation before returning
   await connection.confirmTransaction(tx, 'confirmed');
 
-  return { taskId, txSignature: tx };
+  return { taskPda, txSignature: tx };
 }
 
 /**
- * Claim a task as an agent
+ * Claim a task as a worker agent.
  */
 export async function claimTask(
   connection: Connection,
   program: Program,
-  agent: Keypair,
-  taskId: number
-): Promise<{ txSignature: string }> {
-  const taskPda = deriveTaskPda(taskId, program.programId);
-  const claimPda = deriveClaimPda(taskPda, agent.publicKey, program.programId);
-
-  const [agentPda] = PublicKey.findProgramAddressSync(
-    [SEEDS.AGENT, agent.publicKey.toBuffer()],
-    program.programId
-  );
-
-  const tx = await program.methods
-    .claimTask(taskId)
-    .accounts({
-      agent: agent.publicKey,
-      agentAccount: agentPda,
-      task: taskPda,
-      taskClaim: claimPda,
-      systemProgram: SystemProgram.programId,
-    })
-    .signers([agent])
-    .rpc();
-
-  // Security: Wait for transaction confirmation before returning
-  await connection.confirmTransaction(tx, 'confirmed');
-
-  return { txSignature: tx };
-}
-
-/**
- * Complete a task (standard, non-private)
- */
-export async function completeTask(
-  connection: Connection,
-  program: Program,
   worker: Keypair,
-  taskId: number,
-  resultHash: Buffer
+  workerAgentId: Uint8Array | number[],
+  taskPda: PublicKey,
 ): Promise<{ txSignature: string }> {
-  const taskPda = deriveTaskPda(taskId, program.programId);
-  const claimPda = deriveClaimPda(taskPda, worker.publicKey, program.programId);
-  const escrowPda = deriveEscrowPda(taskPda, program.programId);
-
-  const task = await getAccount(program, 'task').fetch(taskPda) as { creator: PublicKey };
+  const programId = program.programId;
+  const workerAgentPda = deriveAgentPda(workerAgentId, programId);
+  const claimPda = deriveClaimPda(taskPda, workerAgentPda, programId);
+  const protocolPda = deriveProtocolPda(programId);
 
   const tx = await program.methods
-    .completeTask({
-      resultHash: Array.from(resultHash),
-    })
-    .accounts({
-      worker: worker.publicKey,
-      task: taskPda,
-      taskClaim: claimPda,
-      escrow: escrowPda,
-      creator: task.creator,
-      systemProgram: SystemProgram.programId,
-    })
-    .signers([worker])
-    .rpc();
-
-  // Security: Wait for transaction confirmation before returning
-  await connection.confirmTransaction(tx, 'confirmed');
-
-  return { txSignature: tx };
-}
-
-export interface PrivateCompletionProof {
-  proofData: Buffer;
-  constraintHash: Buffer;
-  outputCommitment: Buffer;
-  expectedBinding: Buffer;
-}
-
-/**
- * Complete a task privately with ZK proof
- */
-export async function completeTaskPrivate(
-  connection: Connection,
-  program: Program,
-  worker: Keypair,
-  taskId: number,
-  proof: PrivateCompletionProof,
-  verifierProgramId: PublicKey
-): Promise<{ txSignature: string }> {
-  const taskPda = deriveTaskPda(taskId, program.programId);
-  const claimPda = deriveClaimPda(taskPda, worker.publicKey, program.programId);
-  const escrowPda = deriveEscrowPda(taskPda, program.programId);
-
-  const [workerAgentPda] = PublicKey.findProgramAddressSync(
-    [SEEDS.AGENT, worker.publicKey.toBuffer()],
-    program.programId
-  );
-
-  const [protocolPda] = PublicKey.findProgramAddressSync(
-    [SEEDS.PROTOCOL],
-    program.programId
-  );
-
-  const protocolState = await getAccount(program, 'protocolConfig').fetch(protocolPda) as { treasury: PublicKey };
-
-  const tx = await program.methods
-    .completeTaskPrivate(new BN(taskId), {
-      proofData: Array.from(proof.proofData),
-      constraintHash: Array.from(proof.constraintHash),
-      outputCommitment: Array.from(proof.outputCommitment),
-      expectedBinding: Array.from(proof.expectedBinding),
-    })
-    .accounts({
+    .claimTask()
+    .accountsPartial({
       task: taskPda,
       claim: claimPda,
-      escrow: escrowPda,
-      worker: workerAgentPda,
       protocolConfig: protocolPda,
-      treasury: protocolState.treasury,
-      zkVerifier: verifierProgramId,
+      worker: workerAgentPda,
       authority: worker.publicKey,
       systemProgram: SystemProgram.programId,
     })
     .signers([worker])
     .rpc();
 
-  // Security: Wait for transaction confirmation before returning
   await connection.confirmTransaction(tx, 'confirmed');
 
   return { txSignature: tx };
 }
 
 /**
- * Get task status
+ * Complete a task (public completion with proof hash).
+ *
+ * Fetches the task and protocol config on-chain to determine accounts.
+ * For SPL token tasks, the caller must ensure the worker's token account exists.
  */
-export async function getTask(
+export async function completeTask(
   connection: Connection,
   program: Program,
-  taskId: number
-): Promise<TaskStatus | null> {
-  const taskPda = deriveTaskPda(taskId, program.programId);
+  worker: Keypair,
+  workerAgentId: Uint8Array | number[],
+  taskPda: PublicKey,
+  proofHash: Uint8Array | number[],
+  resultData?: Uint8Array | number[] | null,
+): Promise<{ txSignature: string }> {
+  const programId = program.programId;
+  const workerAgentPda = deriveAgentPda(workerAgentId, programId);
+  const claimPda = deriveClaimPda(taskPda, workerAgentPda, programId);
+  const escrowPda = deriveEscrowPda(taskPda, programId);
+  const protocolPda = deriveProtocolPda(programId);
 
+  // Fetch task to get creator and reward_mint
+  const task = await getAccount(program, 'task').fetch(taskPda) as {
+    creator: PublicKey;
+    rewardMint: PublicKey | null;
+  };
+
+  // Fetch protocol config to get treasury
+  const protocolConfig = await getAccount(program, 'protocolConfig').fetch(protocolPda) as {
+    treasury: PublicKey;
+  };
+
+  const mint = task.rewardMint;
+
+  // Build token-specific accounts
+  let tokenAccounts: Record<string, PublicKey | null>;
+  if (mint) {
+    tokenAccounts = {
+      tokenEscrowAta: getAssociatedTokenAddressSync(mint, escrowPda, true),
+      workerTokenAccount: getAssociatedTokenAddressSync(mint, worker.publicKey),
+      treasuryTokenAccount: getAssociatedTokenAddressSync(mint, protocolConfig.treasury),
+      rewardMint: mint,
+      tokenProgram: TOKEN_PROGRAM_ID,
+    };
+  } else {
+    tokenAccounts = {
+      tokenEscrowAta: null,
+      workerTokenAccount: null,
+      treasuryTokenAccount: null,
+      rewardMint: null,
+      tokenProgram: null,
+    };
+  }
+
+  const proofHashArr = Array.from(proofHash);
+  const resultDataBuf = resultData ? Buffer.from(resultData) : null;
+
+  const tx = await program.methods
+    .completeTask(proofHashArr, resultDataBuf)
+    .accountsPartial({
+      task: taskPda,
+      claim: claimPda,
+      escrow: escrowPda,
+      creator: task.creator,
+      worker: workerAgentPda,
+      protocolConfig: protocolPda,
+      treasury: protocolConfig.treasury,
+      authority: worker.publicKey,
+      systemProgram: SystemProgram.programId,
+      ...tokenAccounts,
+    })
+    .signers([worker])
+    .rpc();
+
+  await connection.confirmTransaction(tx, 'confirmed');
+
+  return { txSignature: tx };
+}
+
+/**
+ * Complete a task privately with a ZK proof.
+ *
+ * Fetches the task and protocol config on-chain to determine accounts.
+ * The task_id u64 argument is derived from the first 8 bytes of the task's taskId field.
+ */
+export async function completeTaskPrivate(
+  connection: Connection,
+  program: Program,
+  worker: Keypair,
+  workerAgentId: Uint8Array | number[],
+  taskPda: PublicKey,
+  proof: PrivateCompletionProof,
+): Promise<{ txSignature: string }> {
+  const programId = program.programId;
+  const workerAgentPda = deriveAgentPda(workerAgentId, programId);
+  const claimPda = deriveClaimPda(taskPda, workerAgentPda, programId);
+  const escrowPda = deriveEscrowPda(taskPda, programId);
+  const protocolPda = deriveProtocolPda(programId);
+
+  // Derive nullifier PDA
+  const nullifierBytes = proof.nullifier instanceof Uint8Array
+    ? proof.nullifier
+    : Buffer.from(proof.nullifier);
+  const [nullifierAccount] = PublicKey.findProgramAddressSync(
+    [SEEDS.NULLIFIER, nullifierBytes],
+    programId,
+  );
+
+  // Fetch task to get creator, taskId, and reward_mint
+  const task = await getAccount(program, 'task').fetch(taskPda) as {
+    creator: PublicKey;
+    taskId: number[] | Uint8Array;
+    rewardMint: PublicKey | null;
+  };
+
+  // Extract task_id as u64 (first 8 bytes LE)
+  const taskIdBuf = Buffer.from(task.taskId);
+  const taskIdU64 = new BN(taskIdBuf.subarray(0, 8), 'le');
+
+  // Fetch protocol config to get treasury
+  const protocolConfig = await getAccount(program, 'protocolConfig').fetch(protocolPda) as {
+    treasury: PublicKey;
+  };
+
+  const mint = task.rewardMint;
+
+  // Build token-specific accounts
+  let tokenAccounts: Record<string, PublicKey | null>;
+  if (mint) {
+    tokenAccounts = {
+      tokenEscrowAta: getAssociatedTokenAddressSync(mint, escrowPda, true),
+      workerTokenAccount: getAssociatedTokenAddressSync(mint, worker.publicKey),
+      treasuryTokenAccount: getAssociatedTokenAddressSync(mint, protocolConfig.treasury),
+      rewardMint: mint,
+      tokenProgram: TOKEN_PROGRAM_ID,
+    };
+  } else {
+    tokenAccounts = {
+      tokenEscrowAta: null,
+      workerTokenAccount: null,
+      treasuryTokenAccount: null,
+      rewardMint: null,
+      tokenProgram: null,
+    };
+  }
+
+  const tx = await program.methods
+    .completeTaskPrivate(taskIdU64, {
+      proofData: Array.from(proof.proofData),
+      constraintHash: Array.from(proof.constraintHash),
+      outputCommitment: Array.from(proof.outputCommitment),
+      expectedBinding: Array.from(proof.expectedBinding),
+      nullifier: Array.from(proof.nullifier),
+    })
+    .accountsPartial({
+      task: taskPda,
+      claim: claimPda,
+      escrow: escrowPda,
+      creator: task.creator,
+      worker: workerAgentPda,
+      protocolConfig: protocolPda,
+      nullifierAccount,
+      treasury: protocolConfig.treasury,
+      authority: worker.publicKey,
+      systemProgram: SystemProgram.programId,
+      ...tokenAccounts,
+    })
+    .signers([worker])
+    .rpc();
+
+  await connection.confirmTransaction(tx, 'confirmed');
+
+  return { txSignature: tx };
+}
+
+/**
+ * Cancel a task and refund the escrow to the creator.
+ *
+ * For tasks with active workers, pass workerPairs to close their claim accounts.
+ * The on-chain instruction uses remaining_accounts for worker claim/agent pairs.
+ */
+export async function cancelTask(
+  connection: Connection,
+  program: Program,
+  creator: Keypair,
+  taskPda: PublicKey,
+  workerPairs?: Array<{ claimPda: PublicKey; workerAgentPda: PublicKey }>,
+): Promise<{ txSignature: string }> {
+  const programId = program.programId;
+  const escrowPda = deriveEscrowPda(taskPda, programId);
+  const protocolPda = deriveProtocolPda(programId);
+
+  // Fetch task to get reward_mint
+  const task = await getAccount(program, 'task').fetch(taskPda) as {
+    rewardMint: PublicKey | null;
+  };
+
+  const mint = task.rewardMint;
+
+  // Build token-specific accounts
+  let tokenAccounts: Record<string, PublicKey | null>;
+  if (mint) {
+    tokenAccounts = {
+      tokenEscrowAta: getAssociatedTokenAddressSync(mint, escrowPda, true),
+      creatorTokenAccount: getAssociatedTokenAddressSync(mint, creator.publicKey),
+      rewardMint: mint,
+      tokenProgram: TOKEN_PROGRAM_ID,
+    };
+  } else {
+    tokenAccounts = {
+      tokenEscrowAta: null,
+      creatorTokenAccount: null,
+      rewardMint: null,
+      tokenProgram: null,
+    };
+  }
+
+  // Build remaining accounts for worker claim pairs
+  const remainingAccounts = (workerPairs ?? []).flatMap((pair) => [
+    { pubkey: pair.claimPda, isSigner: false, isWritable: true },
+    { pubkey: pair.workerAgentPda, isSigner: false, isWritable: true },
+  ]);
+
+  const builder = program.methods
+    .cancelTask()
+    .accountsPartial({
+      task: taskPda,
+      escrow: escrowPda,
+      creator: creator.publicKey,
+      protocolConfig: protocolPda,
+      systemProgram: SystemProgram.programId,
+      ...tokenAccounts,
+    })
+    .signers([creator]);
+
+  if (remainingAccounts.length > 0) {
+    builder.remainingAccounts(remainingAccounts);
+  }
+
+  const tx = await builder.rpc();
+
+  await connection.confirmTransaction(tx, 'confirmed');
+
+  return { txSignature: tx };
+}
+
+// ============================================================================
+// Query Functions
+// ============================================================================
+
+/**
+ * Get task status by PDA.
+ */
+export async function getTask(
+  program: Program,
+  taskPda: PublicKey,
+): Promise<TaskStatus | null> {
   try {
     const task = await getAccount(program, 'task').fetch(taskPda);
 
-    // Security: Type guard to validate fetched account data structure
     interface TaskAccountData {
-      state?: number;
+      taskId?: number[] | Uint8Array;
+      status?: { [key: string]: Record<string, never> } | number;
       creator?: PublicKey;
-      escrowLamports?: { toNumber: () => number };
+      rewardAmount?: { toString: () => string };
       deadline?: { toNumber: () => number };
       constraintHash?: number[] | Uint8Array | null;
-      claimedBy?: PublicKey | null;
+      currentWorkers?: number;
+      maxWorkers?: number;
       completedAt?: { toNumber: () => number } | null;
+      rewardMint?: PublicKey | null;
     }
 
-    const taskData = task as TaskAccountData;
+    const data = task as TaskAccountData;
 
-    // Validate required fields exist
-    if (taskData.creator === undefined || taskData.state === undefined) {
+    if (data.creator === undefined || data.status === undefined) {
       getSdkLogger().warn('Task account data missing required fields');
       return null;
     }
 
+    // Parse Anchor enum status (e.g. { open: {} } → 0)
+    const state = parseTaskState(data.status);
+
+    // Parse constraint hash — check if all zeros (means no constraint)
+    let constraintHash: Uint8Array | null = null;
+    if (data.constraintHash) {
+      const bytes = new Uint8Array(data.constraintHash);
+      if (bytes.some((b) => b !== 0)) {
+        constraintHash = bytes;
+      }
+    }
+
     return {
-      taskId,
-      state: taskData.state as TaskState,
-      creator: taskData.creator,
-      escrowLamports: taskData.escrowLamports?.toNumber() || 0,
-      deadline: taskData.deadline?.toNumber() || 0,
-      constraintHash: taskData.constraintHash
-        ? Buffer.from(taskData.constraintHash)
-        : null,
-      claimedBy: taskData.claimedBy || null,
-      completedAt: taskData.completedAt?.toNumber() || null,
+      taskId: data.taskId ? new Uint8Array(data.taskId) : new Uint8Array(32),
+      state,
+      creator: data.creator,
+      rewardAmount: BigInt(data.rewardAmount?.toString() ?? '0'),
+      deadline: data.deadline?.toNumber() ?? 0,
+      constraintHash,
+      currentWorkers: data.currentWorkers ?? 0,
+      maxWorkers: data.maxWorkers ?? 1,
+      completedAt: data.completedAt?.toNumber() ?? null,
+      rewardMint: data.rewardMint ?? null,
     };
   } catch (error) {
-    // Security: Distinguish between "account not found" and other errors
-    // Account not found is expected for non-existent tasks, but other errors should be logged
     const errorMessage = error instanceof Error ? error.message : String(error);
     if (errorMessage.includes('Account does not exist') ||
         errorMessage.includes('could not find account')) {
-      // Task doesn't exist - this is a normal case
       return null;
     }
-    // Log unexpected errors for debugging while still returning null for API compatibility
-    getSdkLogger().warn(`getTask(${taskId}) encountered unexpected error: ${errorMessage}`);
+    getSdkLogger().warn(`getTask encountered unexpected error: ${errorMessage}`);
     return null;
   }
 }
 
 /**
- * Get all tasks created by an address
+ * Get all tasks created by an address.
  */
 export async function getTasksByCreator(
-  connection: Connection,
   program: Program,
-  creator: PublicKey
+  creator: PublicKey,
 ): Promise<TaskStatus[]> {
   const tasks = await getAccount(program, 'task').all([
     {
       memcmp: {
-        offset: DISCRIMINATOR_SIZE, // After discriminator
+        offset: DISCRIMINATOR_SIZE + 32, // After discriminator + task_id
         bytes: creator.toBase58(),
       },
     },
   ]);
 
-  // Security: Type guard for task account data
   interface TaskAccountData {
-    state?: number;
+    taskId?: number[] | Uint8Array;
+    status?: { [key: string]: Record<string, never> } | number;
     creator?: PublicKey;
-    escrowLamports?: { toNumber: () => number };
+    rewardAmount?: { toString: () => string };
     deadline?: { toNumber: () => number };
     constraintHash?: number[] | Uint8Array | null;
-    claimedBy?: PublicKey | null;
+    currentWorkers?: number;
+    maxWorkers?: number;
     completedAt?: { toNumber: () => number } | null;
-    taskId?: { toNumber: () => number };
+    rewardMint?: PublicKey | null;
   }
 
   const result: TaskStatus[] = [];
@@ -408,25 +627,59 @@ export async function getTasksByCreator(
     const t = tasks[idx];
     const data = t.account as TaskAccountData;
 
-    // Validate required fields exist
-    if (data.creator === undefined || data.state === undefined) {
+    if (data.creator === undefined || data.status === undefined) {
       getSdkLogger().warn(`Task at index ${idx} missing required fields, skipping`);
       continue;
     }
 
+    const state = parseTaskState(data.status);
+
+    let constraintHash: Uint8Array | null = null;
+    if (data.constraintHash) {
+      const bytes = new Uint8Array(data.constraintHash);
+      if (bytes.some((b) => b !== 0)) {
+        constraintHash = bytes;
+      }
+    }
+
     result.push({
-      taskId: data.taskId?.toNumber() ?? idx, // Use actual taskId if available, fallback to index
-      state: data.state as TaskState,
+      taskId: data.taskId ? new Uint8Array(data.taskId) : new Uint8Array(32),
+      state,
       creator: data.creator,
-      escrowLamports: data.escrowLamports?.toNumber() || 0,
-      deadline: data.deadline?.toNumber() || 0,
-      constraintHash: data.constraintHash ? Buffer.from(data.constraintHash) : null,
-      claimedBy: data.claimedBy || null,
-      completedAt: data.completedAt?.toNumber() || null,
+      rewardAmount: BigInt(data.rewardAmount?.toString() ?? '0'),
+      deadline: data.deadline?.toNumber() ?? 0,
+      constraintHash,
+      currentWorkers: data.currentWorkers ?? 0,
+      maxWorkers: data.maxWorkers ?? 1,
+      completedAt: data.completedAt?.toNumber() ?? null,
+      rewardMint: data.rewardMint ?? null,
     });
   }
 
   return result;
+}
+
+// ============================================================================
+// Utility Functions
+// ============================================================================
+
+/**
+ * Parse Anchor enum status to TaskState number.
+ * Anchor returns enums as objects like { open: {} }, { inProgress: {} }, etc.
+ */
+function parseTaskState(status: { [key: string]: Record<string, never> } | number): TaskState {
+  if (typeof status === 'number') return status as TaskState;
+
+  const key = Object.keys(status)[0];
+  const stateMap: Record<string, TaskState> = {
+    open: TaskState.Open,
+    inProgress: TaskState.InProgress,
+    pendingValidation: TaskState.PendingValidation,
+    completed: TaskState.Completed,
+    cancelled: TaskState.Cancelled,
+    disputed: TaskState.Disputed,
+  };
+  return stateMap[key] ?? TaskState.Open;
 }
 
 /**
@@ -449,13 +702,11 @@ export function formatTaskState(state: TaskState): string {
  * @param escrowLamports - Escrow amount in lamports (must be non-negative)
  * @param feePercentage - Fee percentage (must be between 0 and PERCENT_BASE)
  * @returns Fee amount in lamports
- * @throws Error if inputs would cause overflow or are invalid
  */
 export function calculateEscrowFee(
   escrowLamports: number,
   feePercentage: number = DEFAULT_FEE_PERCENT
 ): number {
-  // Security: Validate inputs to prevent unexpected behavior
   if (escrowLamports < 0 || !Number.isFinite(escrowLamports)) {
     throw new Error('Invalid escrow amount: must be a non-negative finite number');
   }
@@ -463,8 +714,6 @@ export function calculateEscrowFee(
     throw new Error(`Invalid fee percentage: must be between 0 and ${PERCENT_BASE}`);
   }
 
-  // Security: Check for potential overflow before multiplication
-  // JavaScript's Number.MAX_SAFE_INTEGER is 2^53 - 1
   const maxSafeMultiplier = Math.floor(Number.MAX_SAFE_INTEGER / PERCENT_BASE);
   if (escrowLamports > maxSafeMultiplier) {
     throw new Error('Escrow amount too large: would cause arithmetic overflow');

@@ -103,6 +103,20 @@ export const RECOMMENDED_CU_VOTE_DISPUTE = 30_000;
 /** CU budget for resolve_dispute instruction */
 export const RECOMMENDED_CU_RESOLVE_DISPUTE = 60_000;
 
+// Token-path CU budgets (higher due to ATA creation/CPI overhead)
+
+/** CU budget for create_task with SPL token escrow */
+export const RECOMMENDED_CU_CREATE_TASK_TOKEN = 100_000;
+
+/** CU budget for complete_task with SPL token payment */
+export const RECOMMENDED_CU_COMPLETE_TASK_TOKEN = 100_000;
+
+/** CU budget for complete_task_private with SPL token payment */
+export const RECOMMENDED_CU_COMPLETE_TASK_PRIVATE_TOKEN = 250_000;
+
+/** CU budget for cancel_task with SPL token refund */
+export const RECOMMENDED_CU_CANCEL_TASK_TOKEN = 80_000;
+
 // ============================================================================
 // Fee Constants
 // ============================================================================
@@ -162,4 +176,5 @@ export const SEEDS = {
   DISPUTE: Buffer.from('dispute'),
   VOTE: Buffer.from('vote'),
   AUTHORITY_VOTE: Buffer.from('authority_vote'),
+  NULLIFIER: Buffer.from('nullifier'),
 } as const;
