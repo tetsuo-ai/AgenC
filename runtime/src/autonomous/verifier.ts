@@ -16,6 +16,14 @@ import type {
   VerifierVerdictPayload,
   VerifierEscalationMetadata,
 } from './types.js';
+import {
+  scoreTaskRisk,
+  type TaskRiskScoreResult,
+} from './risk-scoring.js';
+import {
+  allocateVerificationBudget,
+  type VerificationBudgetDecision,
+} from './verification-budget.js';
 
 const DEFAULT_MIN_CONFIDENCE = 0.7;
 const DEFAULT_MAX_VERIFICATION_RETRIES = 1;
@@ -31,6 +39,12 @@ export const VERIFIER_METRIC_NAMES = {
   REVISIONS_TOTAL: 'agenc.verifier.revisions.total',
   ESCALATIONS_TOTAL: 'agenc.verifier.escalations.total',
   ADDED_LATENCY_MS: 'agenc.verifier.added_latency_ms',
+  ADAPTIVE_RISK_SCORE: 'agenc.verifier.adaptive.risk_score',
+  ADAPTIVE_RISK_TIER_TOTAL: 'agenc.verifier.adaptive.risk_tier.total',
+  ADAPTIVE_MAX_RETRIES: 'agenc.verifier.adaptive.max_retries',
+  ADAPTIVE_MAX_DURATION_MS: 'agenc.verifier.adaptive.max_duration_ms',
+  ADAPTIVE_MAX_COST_LAMPORTS: 'agenc.verifier.adaptive.max_cost_lamports',
+  ADAPTIVE_DISABLED_TOTAL: 'agenc.verifier.adaptive.disabled.total',
 } as const;
 
 export interface VerifierLaneMetrics {
@@ -49,6 +63,9 @@ interface VerifierExecutionPolicy {
   minConfidence: number;
   maxVerificationRetries: number;
   maxVerificationDurationMs: number;
+  maxAllowedSpendLamports: bigint;
+  riskAssessment?: TaskRiskScoreResult;
+  budgetDecision?: VerificationBudgetDecision;
 }
 
 export interface VerifierExecutorConfig {
@@ -135,6 +152,7 @@ export class VerifierExecutor {
         escalated: false,
         history,
         lastVerdict: null,
+        adaptiveRisk: this.toAdaptiveRiskSummary(policy),
       };
     }
 
@@ -147,6 +165,15 @@ export class VerifierExecutor {
     const maxAttempts = policy.maxVerificationRetries + 1;
 
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      this.ensureSpendWithinBudget(
+        task,
+        attempt,
+        policy.maxAllowedSpendLamports,
+        startedAt,
+        revisions,
+        history,
+        lastVerdict,
+      );
       this.ensureWithinBudget(task, deadline, startedAt, revisions, history, lastVerdict);
 
       const verdictInput: VerifierInput = {
@@ -177,6 +204,7 @@ export class VerifierExecutor {
           escalated: false,
           history,
           lastVerdict,
+          adaptiveRisk: this.toAdaptiveRiskSummary(policy),
         };
       }
 
@@ -244,6 +272,9 @@ export class VerifierExecutor {
         minConfidence: this.normalizeMinConfidence(this.config.minConfidence),
         maxVerificationRetries: this.normalizeRetries(this.config.maxVerificationRetries),
         maxVerificationDurationMs: this.normalizeDuration(this.config.maxVerificationDurationMs),
+        maxAllowedSpendLamports:
+          taskTypePolicy?.maxVerificationCostLamports ??
+          task.reward * BigInt(this.normalizeRetries(this.config.maxVerificationRetries) + 1),
       };
     }
 
@@ -273,11 +304,46 @@ export class VerifierExecutor {
       taskTypePolicy?.maxVerificationDurationMs ?? this.config.maxVerificationDurationMs,
     );
 
-    return {
+    const staticPolicy: VerifierExecutionPolicy = {
       enabled,
       minConfidence,
       maxVerificationRetries,
       maxVerificationDurationMs,
+      maxAllowedSpendLamports:
+        taskTypePolicy?.maxVerificationCostLamports ??
+        task.reward * BigInt(maxVerificationRetries + 1),
+    };
+
+    const adaptiveRisk = policy?.adaptiveRisk;
+    if (adaptiveRisk?.enabled !== true) {
+      return staticPolicy;
+    }
+
+    const riskAssessment = scoreTaskRisk(
+      task,
+      {
+        nowMs: this.now(),
+        verifierDisagreementRate:
+          this.laneMetrics.checks > 0
+            ? this.laneMetrics.disagreements / this.laneMetrics.checks
+            : 0,
+        rollbackRate: 0,
+        taskTypeRiskMultiplier: taskTypePolicy?.riskMultiplier,
+      },
+      adaptiveRisk,
+    );
+
+    const budgetDecision = allocateVerificationBudget(task, riskAssessment, this.config);
+    this.recordAdaptiveDecisionMetrics(riskAssessment, budgetDecision);
+
+    return {
+      enabled: budgetDecision.enabled,
+      minConfidence: this.normalizeMinConfidence(budgetDecision.minConfidence),
+      maxVerificationRetries: this.normalizeRetries(budgetDecision.maxVerificationRetries),
+      maxVerificationDurationMs: this.normalizeDuration(budgetDecision.maxVerificationDurationMs),
+      maxAllowedSpendLamports: budgetDecision.maxAllowedSpendLamports,
+      riskAssessment,
+      budgetDecision,
     };
   }
 
@@ -447,6 +513,21 @@ export class VerifierExecutor {
     }
   }
 
+  private ensureSpendWithinBudget(
+    task: Task,
+    attempt: number,
+    maxAllowedSpendLamports: bigint,
+    startedAt: number,
+    revisions: number,
+    history: VerifierVerdictPayload[],
+    lastVerdict: VerifierVerdictPayload | null,
+  ): void {
+    const projected = task.reward * BigInt(Math.max(1, attempt));
+    if (projected > maxAllowedSpendLamports) {
+      this.escalate(task, 'verifier_budget_exhausted', startedAt, revisions, history, lastVerdict);
+    }
+  }
+
   private async sleepWithinBudget(
     task: Task,
     delayMs: number,
@@ -500,5 +581,66 @@ export class VerifierExecutor {
       lastVerdict,
     };
     throw new VerifierLaneEscalationError(task, metadata, [...history]);
+  }
+
+  private recordAdaptiveDecisionMetrics(
+    riskAssessment: TaskRiskScoreResult,
+    budgetDecision: VerificationBudgetDecision,
+  ): void {
+    this.metrics?.histogram(
+      VERIFIER_METRIC_NAMES.ADAPTIVE_RISK_SCORE,
+      riskAssessment.score,
+      { tier: riskAssessment.tier },
+    );
+    this.metrics?.counter(
+      VERIFIER_METRIC_NAMES.ADAPTIVE_RISK_TIER_TOTAL,
+      1,
+      { tier: riskAssessment.tier },
+    );
+    this.metrics?.histogram(
+      VERIFIER_METRIC_NAMES.ADAPTIVE_MAX_RETRIES,
+      budgetDecision.maxVerificationRetries,
+      { tier: budgetDecision.riskTier },
+    );
+    this.metrics?.histogram(
+      VERIFIER_METRIC_NAMES.ADAPTIVE_MAX_DURATION_MS,
+      budgetDecision.maxVerificationDurationMs,
+      { tier: budgetDecision.riskTier },
+    );
+    this.metrics?.histogram(
+      VERIFIER_METRIC_NAMES.ADAPTIVE_MAX_COST_LAMPORTS,
+      Number(budgetDecision.maxAllowedSpendLamports),
+      { tier: budgetDecision.riskTier },
+    );
+
+    if (!budgetDecision.enabled) {
+      this.metrics?.counter(VERIFIER_METRIC_NAMES.ADAPTIVE_DISABLED_TOTAL, 1, {
+        tier: budgetDecision.riskTier,
+        reason: String(budgetDecision.metadata.reason ?? 'unknown'),
+      });
+    }
+  }
+
+  private toAdaptiveRiskSummary(policy: VerifierExecutionPolicy): VerifierExecutionResult['adaptiveRisk'] {
+    if (!policy.riskAssessment || !policy.budgetDecision) {
+      return undefined;
+    }
+
+    return {
+      score: policy.riskAssessment.score,
+      tier: policy.riskAssessment.tier,
+      contributions: policy.riskAssessment.contributions.map((item) => ({
+        feature: item.feature,
+        value: item.value,
+        weight: item.weight,
+        contribution: item.contribution,
+      })),
+      budget: {
+        maxVerificationRetries: policy.budgetDecision.maxVerificationRetries,
+        maxVerificationDurationMs: policy.budgetDecision.maxVerificationDurationMs,
+        minConfidence: policy.budgetDecision.minConfidence,
+        maxAllowedSpendLamports: policy.budgetDecision.maxAllowedSpendLamports.toString(),
+      },
+    };
   }
 }
