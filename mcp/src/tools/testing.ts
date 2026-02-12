@@ -5,22 +5,27 @@
  */
 
 import { execFile } from 'child_process';
-import { readdir } from 'fs/promises';
+import { existsSync } from 'fs';
+import { readdir, readFile } from 'fs/promises';
 import path from 'path';
+import { fileURLToPath } from 'url';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
+
+const MODULE_DIR = typeof __dirname !== 'undefined'
+  ? __dirname
+  : path.dirname(fileURLToPath(import.meta.url));
 
 /** Root of the AgenC repository (parent of mcp/).
  *  When bundled into dist/index.cjs, __dirname is mcp/dist/ (2 up).
  *  When running from source, __dirname is mcp/src/tools/ (4 up).
  *  We detect by checking if Anchor.toml exists at the resolved path. */
 function findProjectRoot(): string {
-  const { existsSync } = require('fs');
   // Try bundled path first (mcp/dist/ -> 2 up)
-  const bundled = path.resolve(__dirname, '..', '..');
+  const bundled = path.resolve(MODULE_DIR, '..', '..');
   if (existsSync(path.join(bundled, 'Anchor.toml'))) return bundled;
   // Try source path (mcp/src/tools/ -> 4 up)
-  const source = path.resolve(__dirname, '..', '..', '..', '..');
+  const source = path.resolve(MODULE_DIR, '..', '..', '..', '..');
   if (existsSync(path.join(source, 'Anchor.toml'))) return source;
   // Fallback to cwd
   return process.cwd();
@@ -76,6 +81,146 @@ interface TestRunResult {
 
 /** Cached last result */
 let lastResults: TestRunResult[] | null = null;
+
+const DEFAULT_BENCHMARK_ARTIFACT = path.join(
+  PROJECT_ROOT,
+  'runtime',
+  'benchmarks',
+  'artifacts',
+  'latest.json',
+);
+
+const DEFAULT_MUTATION_ARTIFACT = path.join(
+  PROJECT_ROOT,
+  'runtime',
+  'benchmarks',
+  'artifacts',
+  'mutation.latest.json',
+);
+
+type UnknownRecord = Record<string, unknown>;
+
+function asRecord(value: unknown): UnknownRecord | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return null;
+  }
+  return value as UnknownRecord;
+}
+
+function getNested(value: unknown, pathParts: string[]): unknown {
+  let current: unknown = value;
+  for (const part of pathParts) {
+    const record = asRecord(current);
+    if (!record) return undefined;
+    current = record[part];
+  }
+  return current;
+}
+
+function asNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+function asString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+function asRegressionArray(value: unknown): Array<Record<string, unknown>> {
+  if (!Array.isArray(value)) return [];
+  return value.filter((entry) => typeof entry === 'object' && entry !== null) as Array<Record<string, unknown>>;
+}
+
+export interface BenchmarkMutationSummaryInput {
+  benchmarkArtifact: unknown;
+  mutationArtifact?: unknown;
+}
+
+/**
+ * Render a compact benchmark + mutation report for developer debugging.
+ */
+export function summarizeBenchmarkMutationArtifacts(
+  input: BenchmarkMutationSummaryInput,
+): string {
+  const lines: string[] = [];
+
+  const benchmarkRunId = asString(getNested(input.benchmarkArtifact, ['runId'])) ?? 'unknown';
+  const benchmarkCorpus = asString(getNested(input.benchmarkArtifact, ['corpusVersion'])) ?? 'unknown';
+  const benchmarkPassRate = asNumber(getNested(input.benchmarkArtifact, ['aggregate', 'scorecard', 'aggregate', 'passRate']));
+  const benchmarkConformance = asNumber(getNested(input.benchmarkArtifact, ['aggregate', 'scorecard', 'aggregate', 'conformanceScore']));
+  const benchmarkCostUtility = asNumber(getNested(input.benchmarkArtifact, ['aggregate', 'scorecard', 'aggregate', 'costNormalizedUtility']));
+
+  lines.push(`Benchmark run: ${benchmarkRunId}`);
+  lines.push(`Benchmark corpus: ${benchmarkCorpus}`);
+  if (benchmarkPassRate !== undefined) {
+    lines.push(`Benchmark aggregate pass-rate: ${benchmarkPassRate.toFixed(4)}`);
+  }
+  if (benchmarkConformance !== undefined) {
+    lines.push(`Benchmark aggregate conformance: ${benchmarkConformance.toFixed(4)}`);
+  }
+  if (benchmarkCostUtility !== undefined) {
+    lines.push(`Benchmark aggregate cost-utility: ${benchmarkCostUtility.toFixed(4)}`);
+  }
+
+  if (!input.mutationArtifact) {
+    lines.push('');
+    lines.push('Mutation artifact not provided.');
+    return lines.join('\n');
+  }
+
+  const mutationRunId = asString(getNested(input.mutationArtifact, ['runId'])) ?? 'unknown';
+  const mutationSeed = asNumber(getNested(input.mutationArtifact, ['mutationSeed']));
+  const mutationPassDelta = asNumber(getNested(input.mutationArtifact, ['aggregate', 'deltasFromBaseline', 'passRate']));
+  const mutationConformanceDelta = asNumber(getNested(input.mutationArtifact, ['aggregate', 'deltasFromBaseline', 'conformanceScore']));
+  const mutationCostDelta = asNumber(getNested(input.mutationArtifact, ['aggregate', 'deltasFromBaseline', 'costNormalizedUtility']));
+
+  lines.push('');
+  lines.push(`Mutation run: ${mutationRunId}`);
+  if (mutationSeed !== undefined) {
+    lines.push(`Mutation seed: ${mutationSeed}`);
+  }
+  if (mutationPassDelta !== undefined) {
+    lines.push(`Mutation aggregate pass-rate delta: ${mutationPassDelta.toFixed(4)}`);
+  }
+  if (mutationConformanceDelta !== undefined) {
+    lines.push(`Mutation aggregate conformance delta: ${mutationConformanceDelta.toFixed(4)}`);
+  }
+  if (mutationCostDelta !== undefined) {
+    lines.push(`Mutation aggregate cost-utility delta: ${mutationCostDelta.toFixed(4)}`);
+  }
+
+  const topRegressions = asRegressionArray(getNested(input.mutationArtifact, ['topRegressions']))
+    .slice(0, 5)
+    .map((entry) => ({
+      scope: asString(entry.scope) ?? 'unknown',
+      id: asString(entry.id) ?? 'unknown',
+      delta: asNumber(entry.passRateDelta),
+    }));
+
+  if (topRegressions.length > 0) {
+    lines.push('');
+    lines.push('Top regressions (pass-rate delta):');
+    for (const regression of topRegressions) {
+      const delta = regression.delta !== undefined ? regression.delta.toFixed(4) : 'n/a';
+      lines.push(`  [${regression.scope}] ${regression.id}: ${delta}`);
+    }
+  }
+
+  return lines.join('\n');
+}
+
+async function loadJsonArtifact(artifactPath: string): Promise<unknown> {
+  const raw = await readFile(artifactPath, 'utf8');
+  return JSON.parse(raw) as unknown;
+}
+
+function resolveArtifactPath(candidate: string | undefined, fallback: string): string {
+  if (!candidate) {
+    return fallback;
+  }
+  return path.isAbsolute(candidate)
+    ? candidate
+    : path.resolve(PROJECT_ROOT, candidate);
+}
 
 /**
  * Parse mocha spec output into structured results.
@@ -450,6 +595,49 @@ export function registerTestingTools(server: McpServer): void {
       return {
         content: [{ type: 'text' as const, text: formatTestResults(lastResults) }],
       };
+    },
+  );
+
+  server.tool(
+    'agenc_get_benchmark_mutation_summary',
+    'Summarize latest benchmark and mutation artifacts for reliability regression debugging',
+    {
+      benchmark_artifact: z.string().optional().describe('Path to benchmark artifact JSON (default: runtime/benchmarks/artifacts/latest.json)'),
+      mutation_artifact: z.string().optional().describe('Path to mutation artifact JSON (default: runtime/benchmarks/artifacts/mutation.latest.json)'),
+    },
+    async ({ benchmark_artifact, mutation_artifact }) => {
+      try {
+        const benchmarkPath = resolveArtifactPath(benchmark_artifact, DEFAULT_BENCHMARK_ARTIFACT);
+        const mutationPath = resolveArtifactPath(mutation_artifact, DEFAULT_MUTATION_ARTIFACT);
+
+        const benchmarkArtifact = await loadJsonArtifact(benchmarkPath);
+        let mutationArtifact: unknown | undefined;
+        try {
+          mutationArtifact = await loadJsonArtifact(mutationPath);
+        } catch {
+          mutationArtifact = undefined;
+        }
+
+        const summary = summarizeBenchmarkMutationArtifacts({
+          benchmarkArtifact,
+          mutationArtifact,
+        });
+
+        const lines = [
+          `Benchmark artifact: ${benchmarkPath}`,
+          `Mutation artifact: ${mutationArtifact ? mutationPath : `${mutationPath} (missing)`}`,
+          '',
+          summary,
+        ];
+
+        return {
+          content: [{ type: 'text' as const, text: lines.join('\n') }],
+        };
+      } catch (error) {
+        return {
+          content: [{ type: 'text' as const, text: 'Error: ' + (error as Error).message }],
+        };
+      }
     },
   );
 
