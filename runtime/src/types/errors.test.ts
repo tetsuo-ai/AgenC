@@ -41,10 +41,14 @@ describe('RuntimeErrorCodes', () => {
     expect(RuntimeErrorCodes.TEAM_CONTRACT_STATE_ERROR).toBe('TEAM_CONTRACT_STATE_ERROR');
     expect(RuntimeErrorCodes.TEAM_PAYOUT_ERROR).toBe('TEAM_PAYOUT_ERROR');
     expect(RuntimeErrorCodes.TEAM_WORKFLOW_TOPOLOGY_ERROR).toBe('TEAM_WORKFLOW_TOPOLOGY_ERROR');
+    expect(RuntimeErrorCodes.MARKETPLACE_VALIDATION_ERROR).toBe('MARKETPLACE_VALIDATION_ERROR');
+    expect(RuntimeErrorCodes.MARKETPLACE_STATE_ERROR).toBe('MARKETPLACE_STATE_ERROR');
+    expect(RuntimeErrorCodes.MARKETPLACE_AUTHORIZATION_ERROR).toBe('MARKETPLACE_AUTHORIZATION_ERROR');
+    expect(RuntimeErrorCodes.MARKETPLACE_MATCHING_ERROR).toBe('MARKETPLACE_MATCHING_ERROR');
   });
 
-  it('has exactly 42 error codes', () => {
-    expect(Object.keys(RuntimeErrorCodes)).toHaveLength(42);
+  it('has exactly 46 error codes', () => {
+    expect(Object.keys(RuntimeErrorCodes)).toHaveLength(46);
   });
 });
 

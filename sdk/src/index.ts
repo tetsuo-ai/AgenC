@@ -55,6 +55,29 @@ export {
 } from './tasks';
 
 export {
+  BPS_BASE,
+  BID_ID_MAX_LENGTH,
+  MARKETPLACE_ID_PATTERN,
+  DEFAULT_WEIGHTED_SCORE_WEIGHTS,
+  canonicalizeMarketplaceId,
+  validateMarketplaceId,
+  isValidBps,
+  // Types
+  type BidStatus,
+  type MatchingPolicy,
+  type WeightedScoreWeights,
+  type MatchingPolicyConfig,
+  type BidRateLimitConfig,
+  type BidAntiSpamConfig,
+  type TaskBidInput,
+  type TaskBidUpdateInput,
+  type TaskBid,
+  type TaskBidBookState,
+  type WeightedScoringBreakdown,
+  type TaskBidSelection,
+} from './bids';
+
+export {
   deriveTokenEscrowAddress,
   isTokenTask,
   getEscrowTokenBalance,
