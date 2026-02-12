@@ -32,4 +32,7 @@ export const TELEMETRY_METRIC_NAMES = {
   // Dispute
   DISPUTE_OPS_TOTAL: 'agenc.dispute.ops.total',
   DISPUTE_OP_DURATION: 'agenc.dispute.op.duration_ms',
+  // Policy
+  POLICY_VIOLATIONS_TOTAL: 'agenc.policy.violations.total',
+  POLICY_DECISIONS_TOTAL: 'agenc.policy.decisions.total',
 } as const;

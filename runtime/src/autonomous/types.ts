@@ -11,6 +11,8 @@ import type { MemoryBackend } from '../memory/types.js';
 import type { MetricsProvider } from '../task/types.js';
 import type { DependencyType } from '../task/dependency-graph.js';
 import type { ProofPipelineConfig } from '../task/proof-pipeline.js';
+import type { PolicyEngine } from '../policy/engine.js';
+import type { PolicyViolation } from '../policy/types.js';
 
 /**
  * On-chain task data
@@ -442,6 +444,16 @@ export interface AutonomousAgentConfig extends AgentRuntimeConfig {
    * Optional callback fired when verifier lane escalates a task failure.
    */
   onTaskEscalated?: (task: Task, metadata: VerifierEscalationMetadata) => void;
+
+  /**
+   * Optional policy/safety engine for runtime action enforcement.
+   */
+  policyEngine?: PolicyEngine;
+
+  /**
+   * Optional callback fired on policy violations.
+   */
+  onPolicyViolation?: (violation: PolicyViolation) => void;
 }
 
 /**
