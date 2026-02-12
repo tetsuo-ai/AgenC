@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { ToolRegistry } from './registry.js';
 import { ToolNotFoundError, ToolAlreadyRegisteredError } from './errors.js';
 import type { Tool, ToolResult } from './types.js';
+import { PolicyEngine } from '../policy/engine.js';
 
 function makeTool(name: string, overrides?: Partial<Tool>): Tool {
   return {
@@ -165,5 +166,47 @@ describe('ToolRegistry', () => {
     const result = await handler('test.soft-fail', {});
 
     expect(result).toBe('{"error":"invalid input"}');
+  });
+
+  it('createToolHandler blocks denied tools via policy engine', async () => {
+    const policyEngine = new PolicyEngine({
+      policy: {
+        enabled: true,
+        toolDenyList: ['test.write'],
+      },
+    });
+    const registry = new ToolRegistry({ policyEngine });
+    registry.register(makeTool('test.write'));
+
+    const handler = registry.createToolHandler();
+    const result = await handler('test.write', {});
+    const parsed = JSON.parse(result) as { error: string; violation?: { code: string } };
+
+    expect(parsed.error).toContain('denied');
+    expect(parsed.violation?.code).toBe('tool_denied');
+  });
+
+  it('createToolHandler allows read tools in safe mode and blocks writes', async () => {
+    const policyEngine = new PolicyEngine({
+      policy: { enabled: true },
+    });
+    policyEngine.setMode('safe_mode', 'manual');
+
+    const readExec = vi.fn(async (): Promise<ToolResult> => ({ content: 'read-ok' }));
+    const writeExec = vi.fn(async (): Promise<ToolResult> => ({ content: 'write-ok' }));
+    const registry = new ToolRegistry({ policyEngine });
+    registry.register(makeTool('test.listThings', { execute: readExec }));
+    registry.register(makeTool('test.createThing', { execute: writeExec }));
+
+    const handler = registry.createToolHandler();
+
+    const readResult = await handler('test.listThings', {});
+    expect(readResult).toBe('read-ok');
+    expect(readExec).toHaveBeenCalledTimes(1);
+
+    const writeResult = await handler('test.createThing', {});
+    const parsedWrite = JSON.parse(writeResult) as { violation?: { code: string } };
+    expect(parsedWrite.violation?.code).toBe('circuit_breaker_active');
+    expect(writeExec).not.toHaveBeenCalled();
   });
 });

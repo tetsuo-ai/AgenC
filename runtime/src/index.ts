@@ -431,6 +431,24 @@ export {
   DefaultClaimStrategy,
 } from './autonomous/index.js';
 
+// Policy and Safety Engine
+export {
+  PolicyEngine,
+  PolicyViolationError,
+  type PolicyActionType,
+  type PolicyAccess,
+  type CircuitBreakerMode,
+  type PolicyAction,
+  type PolicyBudgetRule,
+  type SpendBudgetRule,
+  type CircuitBreakerConfig,
+  type RuntimePolicyConfig,
+  type PolicyViolation,
+  type PolicyDecision,
+  type PolicyEngineState,
+  type PolicyEngineConfig,
+} from './policy/index.js';
+
 // Tool System (Phase 5)
 export {
   // Core types

@@ -10,6 +10,8 @@ import { ToolNotFoundError, ToolAlreadyRegisteredError } from './errors.js';
 import type { LLMTool, ToolHandler } from '../llm/types.js';
 import type { Logger } from '../utils/logger.js';
 import { silentLogger } from '../utils/logger.js';
+import type { PolicyEngine } from '../policy/engine.js';
+import type { PolicyAction } from '../policy/types.js';
 
 /**
  * Registry for managing tool instances.
@@ -34,9 +36,11 @@ import { silentLogger } from '../utils/logger.js';
 export class ToolRegistry {
   private readonly tools: Map<string, Tool> = new Map();
   private readonly logger: Logger;
+  private readonly policyEngine?: PolicyEngine;
 
   constructor(config?: ToolRegistryConfig) {
     this.logger = config?.logger ?? silentLogger;
+    this.policyEngine = config?.policyEngine;
   }
 
   /**
@@ -152,6 +156,26 @@ export class ToolRegistry {
         return safeStringify({ error: `Tool not found: "${name}"` });
       }
 
+      if (this.policyEngine) {
+        const action: PolicyAction = {
+          type: 'tool_call',
+          name,
+          access: inferToolAccess(name),
+          metadata: { args },
+        };
+        const decision = this.policyEngine.evaluate(action);
+        if (!decision.allowed) {
+          const violation = decision.violations[0];
+          this.logger.warn(
+            `Tool "${name}" blocked by policy (${violation?.code ?? 'unknown'})`,
+          );
+          return safeStringify({
+            error: violation?.message ?? 'Tool blocked by policy',
+            violation,
+          });
+        }
+      }
+
       try {
         const result = await tool.execute(args);
         if (result.isError) {
@@ -165,4 +189,18 @@ export class ToolRegistry {
       }
     };
   }
+}
+
+function inferToolAccess(toolName: string): 'read' | 'write' {
+  const name = toolName.toLowerCase();
+  if (
+    name.includes('.get')
+    || name.includes('.list')
+    || name.includes('.query')
+    || name.includes('.inspect')
+    || name.includes('.status')
+  ) {
+    return 'read';
+  }
+  return 'write';
 }
