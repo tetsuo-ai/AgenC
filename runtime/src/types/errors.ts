@@ -86,6 +86,14 @@ export const RuntimeErrorCodes = {
   WORKFLOW_MONITORING_ERROR: 'WORKFLOW_MONITORING_ERROR',
   /** Workflow state transition or lookup failed */
   WORKFLOW_STATE_ERROR: 'WORKFLOW_STATE_ERROR',
+  /** Team contract definition failed validation */
+  TEAM_CONTRACT_VALIDATION_ERROR: 'TEAM_CONTRACT_VALIDATION_ERROR',
+  /** Team contract state transition or lifecycle operation failed */
+  TEAM_CONTRACT_STATE_ERROR: 'TEAM_CONTRACT_STATE_ERROR',
+  /** Team payout configuration or computation failed */
+  TEAM_PAYOUT_ERROR: 'TEAM_PAYOUT_ERROR',
+  /** Team workflow topology is not launch-compatible */
+  TEAM_WORKFLOW_TOPOLOGY_ERROR: 'TEAM_WORKFLOW_TOPOLOGY_ERROR',
   /** RPC connection error (timeout, server error, etc.) */
   CONNECTION_ERROR: 'CONNECTION_ERROR',
   /** All configured RPC endpoints are unhealthy */
