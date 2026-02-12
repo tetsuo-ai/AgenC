@@ -37,10 +37,14 @@ describe('RuntimeErrorCodes', () => {
     expect(RuntimeErrorCodes.ACTIVE_TASKS_ERROR).toBe('ACTIVE_TASKS_ERROR');
     expect(RuntimeErrorCodes.PENDING_DISPUTE_VOTES).toBe('PENDING_DISPUTE_VOTES');
     expect(RuntimeErrorCodes.RECENT_VOTE_ACTIVITY).toBe('RECENT_VOTE_ACTIVITY');
+    expect(RuntimeErrorCodes.TEAM_CONTRACT_VALIDATION_ERROR).toBe('TEAM_CONTRACT_VALIDATION_ERROR');
+    expect(RuntimeErrorCodes.TEAM_CONTRACT_STATE_ERROR).toBe('TEAM_CONTRACT_STATE_ERROR');
+    expect(RuntimeErrorCodes.TEAM_PAYOUT_ERROR).toBe('TEAM_PAYOUT_ERROR');
+    expect(RuntimeErrorCodes.TEAM_WORKFLOW_TOPOLOGY_ERROR).toBe('TEAM_WORKFLOW_TOPOLOGY_ERROR');
   });
 
-  it('has exactly 38 error codes', () => {
-    expect(Object.keys(RuntimeErrorCodes)).toHaveLength(38);
+  it('has exactly 42 error codes', () => {
+    expect(Object.keys(RuntimeErrorCodes)).toHaveLength(42);
   });
 });
 

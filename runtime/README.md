@@ -233,6 +233,53 @@ const facts = await graph.query({
 });
 ```
 
+### Team Contracts (Role-Based Agent Runs)
+
+Coordinate planner/worker/reviewer teams with deterministic role checks, checkpoint gating, and payout splitting:
+
+```typescript
+import { TeamContractEngine, TeamWorkflowAdapter } from '@agenc/runtime';
+
+const engine = new TeamContractEngine();
+const adapter = new TeamWorkflowAdapter();
+
+engine.createContract({
+  contractId: 'team-run-001',
+  creatorId: 'creator-a',
+  template: {
+    id: 'planner-worker-reviewer',
+    name: 'PWR',
+    roles: [
+      { id: 'planner', requiredCapabilities: 1n, minMembers: 1, maxMembers: 1 },
+      { id: 'worker', requiredCapabilities: 2n, minMembers: 1, maxMembers: 1 },
+      { id: 'reviewer', requiredCapabilities: 4n, minMembers: 1, maxMembers: 1 },
+    ],
+    checkpoints: [
+      { id: 'plan', roleId: 'planner', label: 'Plan' },
+      { id: 'build', roleId: 'worker', label: 'Build', dependsOn: ['plan'] },
+      { id: 'review', roleId: 'reviewer', label: 'Review', dependsOn: ['build'] },
+    ],
+    payout: {
+      mode: 'fixed',
+      rolePayoutBps: { planner: 2000, worker: 5000, reviewer: 3000 },
+    },
+  },
+});
+
+engine.joinContract({ contractId: 'team-run-001', member: { id: 'p1', capabilities: 1n, roles: ['planner'] } });
+engine.joinContract({ contractId: 'team-run-001', member: { id: 'w1', capabilities: 2n, roles: ['worker'] } });
+engine.joinContract({ contractId: 'team-run-001', member: { id: 'r1', capabilities: 4n, roles: ['reviewer'] } });
+engine.startRun('team-run-001');
+
+const snapshot = engine.getContract('team-run-001')!;
+const { definition } = adapter.build(snapshot, { totalRewardLamports: 1_000_000n });
+```
+
+Lifecycle invariants:
+- Membership/role assignment is mutable only in `draft`; roster freezes at `startRun(...)`.
+- `finalizePayout(...)` is idempotent and returns an immutable snapshot.
+- Audit logging is best-effort by default; `onAuditError` is called when a custom audit store fails.
+
 ## Core Modules
 
 ### AgentRuntime
