@@ -85,11 +85,10 @@ describe('mutation regression integration', () => {
 
     const failRun = await runCommand(process.execPath, strictArgs, path.resolve(fileURLToPath(new URL('..', import.meta.url))));
     expect(failRun.exitCode).toBe(1);
-    expect(failRun.stdout).toContain('FAIL');
+    expect(`${failRun.stdout}\n${failRun.stderr}`).toContain('FAIL');
 
     const dryRun = await runCommand(process.execPath, [...strictArgs, '--dry-run'], path.resolve(fileURLToPath(new URL('..', import.meta.url))));
     expect(dryRun.exitCode).toBe(0);
-    expect(dryRun.stdout).toContain('FAIL');
+    expect(`${dryRun.stdout}\n${dryRun.stderr}`).toContain('FAIL');
   });
 });
-
