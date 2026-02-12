@@ -14,10 +14,13 @@
 
 use crate::errors::CoordinationError;
 use crate::events::{ArbiterVotesCleanedUp, DisputeExpired};
-use crate::instructions::lamport_transfer::{credit_lamports, debit_lamports, transfer_lamports};
 use crate::instructions::dispute_helpers::{
     check_duplicate_arbiters, check_duplicate_workers, process_arbiter_vote_pair,
     process_worker_claim_pair, validate_remaining_accounts_structure,
+};
+use crate::instructions::lamport_transfer::{credit_lamports, debit_lamports, transfer_lamports};
+use crate::instructions::token_helpers::{
+    close_token_escrow, transfer_tokens_from_escrow, validate_token_account,
 };
 use crate::state::{
     AgentRegistration, Dispute, DisputeStatus, ProtocolConfig, Task, TaskClaim, TaskEscrow,
@@ -26,7 +29,6 @@ use crate::state::{
 use crate::utils::version::check_version_compatible;
 use anchor_lang::prelude::*;
 use anchor_spl::token::{Mint, Token, TokenAccount};
-use crate::instructions::token_helpers::{close_token_escrow, transfer_tokens_from_escrow, validate_token_account};
 
 /// Note: Large accounts use Box<Account<...>> to avoid stack overflow
 /// Consistent with Anchor best practices for accounts > 10KB
@@ -72,15 +74,16 @@ pub struct ExpireDispute<'info> {
     /// Optional - when provided, allows decrementing worker's active_tasks
     /// and enables fair refund distribution (fix #418)
     #[account(
+        mut,
         seeds = [b"claim", task.key().as_ref(), worker_claim.worker.as_ref()],
         bump = worker_claim.bump,
         constraint = worker_claim.task == task.key() @ CoordinationError::NotClaimed
     )]
     pub worker_claim: Option<Box<Account<'info, TaskClaim>>>,
 
-    /// CHECK: Worker's AgentRegistration PDA - validated to match worker_claim.worker (fix #137)
+    /// Worker's AgentRegistration PDA (must be dispute defendant).
     #[account(mut)]
-    pub worker: Option<UncheckedAccount<'info>>,
+    pub worker: Option<Box<Account<'info, AgentRegistration>>>,
 
     /// CHECK: Worker's authority wallet for receiving payment (fix #418)
     /// Required when worker should receive funds on expiration
@@ -88,7 +91,6 @@ pub struct ExpireDispute<'info> {
     pub worker_authority: Option<UncheckedAccount<'info>>,
 
     // === Optional SPL Token accounts (only required for token-denominated tasks) ===
-
     /// Token escrow ATA holding reward tokens (optional)
     #[account(mut)]
     pub token_escrow_ata: Option<Account<'info, TokenAccount>>,
@@ -126,16 +128,6 @@ pub fn handler(ctx: Context<ExpireDispute>) -> Result<()> {
 
     check_version_compatible(config)?;
 
-    // Prevent worker_authority without worker — blocks fund redirection attack (fix #828)
-    // An attacker could provide worker_authority pointing to their own wallet without
-    // providing a valid worker account, redirecting expired dispute funds to themselves
-    if ctx.accounts.worker_authority.is_some() {
-        require!(
-            ctx.accounts.worker.is_some(),
-            CoordinationError::InvalidInput
-        );
-    }
-
     require!(
         dispute.status == DisputeStatus::Active,
         CoordinationError::DisputeNotActive
@@ -160,32 +152,14 @@ pub fn handler(ctx: Context<ExpireDispute>) -> Result<()> {
         CoordinationError::DisputeNotExpired
     );
 
-    // Validate worker account matches worker_claim if both provided (fix #137)
-    if let (Some(worker), Some(worker_claim)) =
-        (&ctx.accounts.worker, &ctx.accounts.worker_claim)
-    {
-        require!(
-            worker.key() == worker_claim.worker,
-            CoordinationError::UnauthorizedAgent
-        );
-    }
-
-    // Validate worker_authority matches worker's authority field (fix #418)
-    if let (Some(worker), Some(worker_authority)) =
-        (&ctx.accounts.worker, &ctx.accounts.worker_authority)
-    {
-        require!(
-            worker.owner == &crate::ID,
-            CoordinationError::InvalidAccountOwner
-        );
-        let worker_data = worker.try_borrow_data()?;
-        let worker_reg = AgentRegistration::try_deserialize(&mut &**worker_data)?;
-        require!(
-            worker_authority.key() == worker_reg.authority,
-            CoordinationError::UnauthorizedAgent
-        );
-        drop(worker_data);
-    }
+    // Validate and bind defendant worker accounts (fix #842)
+    validate_worker_accounts(
+        dispute.as_ref(),
+        &ctx.accounts.worker,
+        &ctx.accounts.worker_claim,
+        &ctx.accounts.worker_authority,
+        &task.key(),
+    )?;
 
     let remaining_funds = escrow
         .amount
@@ -199,16 +173,15 @@ pub fn handler(ctx: Context<ExpireDispute>) -> Result<()> {
     // Fair refund distribution based on context (fix #418)
     let is_token_task = task.reward_mint.is_some();
     let task_key = task.key();
+    let worker_completed = ctx
+        .accounts
+        .worker_claim
+        .as_ref()
+        .expect("worker claim validated above")
+        .is_completed;
+    let no_votes = dispute.total_voters == 0;
 
     if remaining_funds > 0 {
-        let worker_completed = ctx
-            .accounts
-            .worker_claim
-            .as_ref()
-            .map(|c| c.is_completed)
-            .unwrap_or(false);
-        let no_votes = dispute.total_voters == 0;
-
         if is_token_task {
             require!(
                 ctx.accounts.token_escrow_ata.is_some()
@@ -217,7 +190,10 @@ pub fn handler(ctx: Context<ExpireDispute>) -> Result<()> {
                 CoordinationError::MissingTokenAccounts
             );
             let mint = ctx.accounts.reward_mint.as_ref().unwrap();
-            require!(mint.key() == task.reward_mint.unwrap(), CoordinationError::InvalidTokenMint);
+            require!(
+                mint.key() == task.reward_mint.unwrap(),
+                CoordinationError::InvalidTokenMint
+            );
             let token_escrow = ctx.accounts.token_escrow_ata.as_ref().unwrap();
             validate_token_account(token_escrow, &mint.key(), &escrow.key())?;
             let token_program = ctx.accounts.token_program.as_ref().unwrap();
@@ -228,9 +204,16 @@ pub fn handler(ctx: Context<ExpireDispute>) -> Result<()> {
             let (ca, wa) = distribute_expired_tokens(
                 token_escrow,
                 &escrow.to_account_info(),
-                ctx.accounts.creator_token_account.as_ref().map(|a| a.to_account_info()).as_ref(),
-                ctx.accounts.worker_token_account_ata.as_ref().map(|a| a.to_account_info()).as_ref(),
-                &ctx.accounts.creator.to_account_info(),
+                ctx.accounts
+                    .creator_token_account
+                    .as_ref()
+                    .map(|a| a.to_account_info())
+                    .as_ref(),
+                ctx.accounts
+                    .worker_token_account_ata
+                    .as_ref()
+                    .map(|a| a.to_account_info())
+                    .as_ref(),
                 remaining_funds,
                 worker_completed,
                 no_votes,
@@ -241,12 +224,22 @@ pub fn handler(ctx: Context<ExpireDispute>) -> Result<()> {
             worker_amount = wa;
 
             // Close token escrow ATA
-            close_token_escrow(token_escrow, &ctx.accounts.creator.to_account_info(), &escrow.to_account_info(), escrow_seeds, token_program)?;
+            close_token_escrow(
+                token_escrow,
+                &ctx.accounts.creator.to_account_info(),
+                &escrow.to_account_info(),
+                escrow_seeds,
+                token_program,
+            )?;
         } else {
             let (ca, wa) = distribute_expired_funds(
                 &escrow.to_account_info(),
                 &ctx.accounts.creator.to_account_info(),
-                ctx.accounts.worker_authority.as_ref().map(|w| w.to_account_info()).as_ref(),
+                &ctx.accounts
+                    .worker_authority
+                    .as_ref()
+                    .expect("worker authority validated above")
+                    .to_account_info(),
                 remaining_funds,
                 worker_completed,
                 no_votes,
@@ -256,28 +249,18 @@ pub fn handler(ctx: Context<ExpireDispute>) -> Result<()> {
         }
     }
 
-    // Decrement worker's active_tasks counter (fix #137)
-    // The worker account is the AgentRegistration PDA - deserialize to update state
-    if let Some(worker) = &ctx.accounts.worker {
-        require!(
-            ctx.accounts.worker_claim.is_some(),
-            CoordinationError::NotClaimed
-        );
-        require!(
-            worker.owner == &crate::ID,
-            CoordinationError::InvalidAccountOwner
-        );
-        let mut worker_data = worker.try_borrow_mut_data()?;
-        let mut worker_reg = AgentRegistration::try_deserialize(&mut &**worker_data)?;
-        worker_reg.active_tasks = worker_reg
-            .active_tasks
-            .checked_sub(1)
-            .ok_or(CoordinationError::ArithmeticOverflow)?;
-        // Decrement disputes_as_defendant (fix #821)
-        // Using saturating_sub intentionally - underflow returns 0 (safe counter decrement)
-        worker_reg.disputes_as_defendant = worker_reg.disputes_as_defendant.saturating_sub(1);
-        worker_reg.try_serialize(&mut &mut worker_data[8..])?;
-    }
+    // Decrement defendant counters deterministically (fix #544, #842)
+    let worker = ctx
+        .accounts
+        .worker
+        .as_mut()
+        .expect("worker account validated above");
+    worker.active_tasks = worker
+        .active_tasks
+        .checked_sub(1)
+        .ok_or(CoordinationError::ArithmeticOverflow)?;
+    worker.disputes_as_defendant = worker.disputes_as_defendant.saturating_sub(1);
+    let defendant_worker_key = worker.key();
 
     // Decrement active_dispute_votes for each arbiter who voted (fix #328)
     //
@@ -302,8 +285,23 @@ pub fn handler(ctx: Context<ExpireDispute>) -> Result<()> {
         arbiter_count: dispute.total_voters,
     });
 
+    let worker_pairs = (ctx.remaining_accounts.len() - arbiter_accounts) / 2;
+    let expected_worker_pairs = usize::from(
+        task.current_workers
+            .checked_sub(1)
+            .ok_or(CoordinationError::ArithmeticOverflow)?,
+    );
+    require!(
+        worker_pairs == expected_worker_pairs,
+        CoordinationError::IncompleteWorkerAccounts
+    );
+
     // Check for duplicate workers before processing (fix #826)
-    check_duplicate_workers(ctx.remaining_accounts, arbiter_accounts)?;
+    check_duplicate_workers(
+        ctx.remaining_accounts,
+        arbiter_accounts,
+        Some(defendant_worker_key),
+    )?;
 
     // Process additional worker (claim, worker) pairs to decrement active_tasks (fix #333)
     for i in (arbiter_accounts..ctx.remaining_accounts.len()).step_by(2) {
@@ -315,9 +313,23 @@ pub fn handler(ctx: Context<ExpireDispute>) -> Result<()> {
     }
 
     task.status = TaskStatus::Cancelled;
+    task.current_workers = 0;
     dispute.status = DisputeStatus::Expired;
     dispute.resolved_at = clock.unix_timestamp;
     escrow.is_closed = true;
+
+    // Close defendant claim account and return rent to worker authority.
+    let claim = ctx
+        .accounts
+        .worker_claim
+        .as_ref()
+        .expect("worker claim validated above");
+    let worker_authority = ctx
+        .accounts
+        .worker_authority
+        .as_ref()
+        .expect("worker authority validated above");
+    claim.close(worker_authority.to_account_info())?;
 
     emit!(DisputeExpired {
         dispute_id: dispute.dispute_id,
@@ -327,6 +339,43 @@ pub fn handler(ctx: Context<ExpireDispute>) -> Result<()> {
         worker_amount,
         timestamp: clock.unix_timestamp,
     });
+
+    Ok(())
+}
+
+fn validate_worker_accounts(
+    dispute: &Dispute,
+    worker: &Option<Box<Account<AgentRegistration>>>,
+    worker_claim: &Option<Box<Account<TaskClaim>>>,
+    worker_authority: &Option<UncheckedAccount>,
+    task_key: &Pubkey,
+) -> Result<()> {
+    let worker = worker
+        .as_ref()
+        .ok_or(CoordinationError::WorkerAgentRequired)?;
+    let worker_claim = worker_claim
+        .as_ref()
+        .ok_or(CoordinationError::WorkerClaimRequired)?;
+    let worker_authority = worker_authority
+        .as_ref()
+        .ok_or(CoordinationError::IncompleteWorkerAccounts)?;
+
+    require!(
+        worker.key() == dispute.defendant,
+        CoordinationError::WorkerNotInDispute
+    );
+    require!(
+        worker.key() == worker_claim.worker,
+        CoordinationError::UnauthorizedAgent
+    );
+    require!(
+        worker_claim.task == *task_key,
+        CoordinationError::NotClaimed
+    );
+    require!(
+        worker_authority.key() == worker.authority,
+        CoordinationError::UnauthorizedAgent
+    );
 
     Ok(())
 }
@@ -341,7 +390,7 @@ pub fn handler(ctx: Context<ExpireDispute>) -> Result<()> {
 fn distribute_expired_funds<'a>(
     escrow_info: &AccountInfo<'a>,
     creator_info: &AccountInfo<'a>,
-    worker_authority_info: Option<&AccountInfo<'a>>,
+    worker_authority_info: &AccountInfo<'a>,
     remaining_funds: u64,
     worker_completed: bool,
     no_votes: bool,
@@ -350,18 +399,9 @@ fn distribute_expired_funds<'a>(
     let mut worker_amount: u64 = 0;
 
     if no_votes && worker_completed {
-        // Worker completed the task but arbiters didn't engage
-        // Worker should receive funds since they did the work
-        if let Some(worker_authority) = worker_authority_info {
-            worker_amount = remaining_funds;
-            transfer_lamports(escrow_info, worker_authority, remaining_funds)?;
-        } else {
-            // Fallback: if no worker_authority provided, creator gets all
-            creator_amount = remaining_funds;
-            transfer_lamports(escrow_info, creator_info, remaining_funds)?;
-        }
+        worker_amount = remaining_funds;
+        transfer_lamports(escrow_info, worker_authority_info, remaining_funds)?;
     } else if no_votes {
-        // Neither party engaged arbiters, split 50/50
         let worker_share = remaining_funds
             .checked_div(2)
             .ok_or(CoordinationError::ArithmeticOverflow)?;
@@ -369,22 +409,12 @@ fn distribute_expired_funds<'a>(
             .checked_sub(worker_share)
             .ok_or(CoordinationError::ArithmeticOverflow)?;
         creator_amount = creator_share;
+        worker_amount = worker_share;
 
-        // Debit escrow once, credit recipients individually
         debit_lamports(escrow_info, remaining_funds)?;
         credit_lamports(creator_info, creator_share)?;
-
-        if let Some(worker_authority) = worker_authority_info {
-            worker_amount = worker_share;
-            credit_lamports(worker_authority, worker_share)?;
-        } else {
-            // Fallback: creator gets all if no worker_authority
-            creator_amount = remaining_funds;
-            credit_lamports(creator_info, worker_share)?;
-        }
+        credit_lamports(worker_authority_info, worker_share)?;
     } else {
-        // Some votes were cast but not enough for quorum
-        // Creator gets refund (dispute was actively contested but inconclusive)
         creator_amount = remaining_funds;
         transfer_lamports(escrow_info, creator_info, remaining_funds)?;
     }
@@ -401,7 +431,6 @@ fn distribute_expired_tokens<'a>(
     escrow_authority: &AccountInfo<'a>,
     creator_token_account: Option<&AccountInfo<'a>>,
     worker_token_account: Option<&AccountInfo<'a>>,
-    _creator_info: &AccountInfo<'a>,
     remaining_funds: u64,
     worker_completed: bool,
     no_votes: bool,
@@ -412,35 +441,56 @@ fn distribute_expired_tokens<'a>(
     let mut worker_amount: u64 = 0;
 
     if no_votes && worker_completed {
-        if let Some(worker_ta) = worker_token_account {
-            worker_amount = remaining_funds;
-            transfer_tokens_from_escrow(token_escrow, worker_ta, escrow_authority, remaining_funds, escrow_seeds, token_program)?;
-        } else if let Some(creator_ta) = creator_token_account {
-            creator_amount = remaining_funds;
-            transfer_tokens_from_escrow(token_escrow, creator_ta, escrow_authority, remaining_funds, escrow_seeds, token_program)?;
-        }
+        let worker_ta = worker_token_account.ok_or(CoordinationError::MissingTokenAccounts)?;
+        worker_amount = remaining_funds;
+        transfer_tokens_from_escrow(
+            token_escrow,
+            worker_ta,
+            escrow_authority,
+            remaining_funds,
+            escrow_seeds,
+            token_program,
+        )?;
     } else if no_votes {
-        let worker_share = remaining_funds.checked_div(2).ok_or(CoordinationError::ArithmeticOverflow)?;
-        let creator_share = remaining_funds.checked_sub(worker_share).ok_or(CoordinationError::ArithmeticOverflow)?;
+        let creator_ta = creator_token_account.ok_or(CoordinationError::MissingTokenAccounts)?;
+        let worker_ta = worker_token_account.ok_or(CoordinationError::MissingTokenAccounts)?;
+        let worker_share = remaining_funds
+            .checked_div(2)
+            .ok_or(CoordinationError::ArithmeticOverflow)?;
+        let creator_share = remaining_funds
+            .checked_sub(worker_share)
+            .ok_or(CoordinationError::ArithmeticOverflow)?;
+        creator_amount = creator_share;
+        worker_amount = worker_share;
 
-        if let Some(creator_ta) = creator_token_account {
-            creator_amount = creator_share;
-            transfer_tokens_from_escrow(token_escrow, creator_ta, escrow_authority, creator_share, escrow_seeds, token_program)?;
-        }
-        if let Some(worker_ta) = worker_token_account {
-            worker_amount = worker_share;
-            transfer_tokens_from_escrow(token_escrow, worker_ta, escrow_authority, worker_share, escrow_seeds, token_program)?;
-        } else if let Some(creator_ta) = creator_token_account {
-            creator_amount = remaining_funds;
-            transfer_tokens_from_escrow(token_escrow, creator_ta, escrow_authority, worker_share, escrow_seeds, token_program)?;
-        }
+        transfer_tokens_from_escrow(
+            token_escrow,
+            creator_ta,
+            escrow_authority,
+            creator_share,
+            escrow_seeds,
+            token_program,
+        )?;
+        transfer_tokens_from_escrow(
+            token_escrow,
+            worker_ta,
+            escrow_authority,
+            worker_share,
+            escrow_seeds,
+            token_program,
+        )?;
     } else {
-        if let Some(creator_ta) = creator_token_account {
-            creator_amount = remaining_funds;
-            transfer_tokens_from_escrow(token_escrow, creator_ta, escrow_authority, remaining_funds, escrow_seeds, token_program)?;
-        }
+        let creator_ta = creator_token_account.ok_or(CoordinationError::MissingTokenAccounts)?;
+        creator_amount = remaining_funds;
+        transfer_tokens_from_escrow(
+            token_escrow,
+            creator_ta,
+            escrow_authority,
+            remaining_funds,
+            escrow_seeds,
+            token_program,
+        )?;
     }
 
     Ok((creator_amount, worker_amount))
 }
-

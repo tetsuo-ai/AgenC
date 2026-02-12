@@ -8,7 +8,6 @@ use crate::state::{
 };
 use crate::utils::version::check_version_compatible;
 use anchor_lang::prelude::*;
-use std::collections::BTreeSet;
 
 use super::rate_limit_helpers::check_dispute_initiation_rate_limits;
 
@@ -57,6 +56,7 @@ pub struct InitiateDispute<'info> {
     pub initiator_claim: Option<Account<'info, TaskClaim>>,
 
     /// Optional: Worker agent to be disputed (required when initiator is task creator)
+    #[account(mut)]
     pub worker_agent: Option<Box<Account<'info, AgentRegistration>>>,
 
     /// Optional: Worker's claim (required when worker_agent is provided)
@@ -103,10 +103,7 @@ pub fn handler(
     );
 
     // Verify task has workers to dispute (fix #502)
-    require!(
-        task.current_workers > 0,
-        CoordinationError::NoWorkers
-    );
+    require!(task.current_workers > 0, CoordinationError::NoWorkers);
 
     // Verify initiator is task participant (creator or has claim)
     // Compare task.creator (wallet) with authority (signer's wallet), not agent PDA
@@ -192,10 +189,7 @@ pub fn handler(
             .ok_or(CoordinationError::WorkerClaimRequired)?;
 
         // Verify worker_claim is for this task and this worker
-        require!(
-            w_claim.task == task.key(),
-            CoordinationError::TaskNotFound
-        );
+        require!(w_claim.task == task.key(), CoordinationError::TaskNotFound);
         require!(
             w_claim.worker == worker.key(),
             CoordinationError::UnauthorizedAgent
@@ -241,7 +235,9 @@ pub fn handler(
     // This prevents slashing the wrong worker on collaborative tasks.
     dispute.defendant = if is_creator {
         // Creator path: worker_agent was already validated above (lines 182-203)
-        ctx.accounts.worker_agent.as_ref()
+        ctx.accounts
+            .worker_agent
+            .as_ref()
             .ok_or(CoordinationError::WorkerAgentRequired)?
             .key()
     } else {
@@ -252,10 +248,18 @@ pub fn handler(
     // Mark task as disputed
     task.status = TaskStatus::Disputed;
 
-    // Increment disputes_as_defendant for workers being disputed (fix #544)
-    // remaining_accounts should contain (claim, worker) pairs for defendants
-    // This prevents workers from deregistering to escape potential slashing
-    mark_defendant_workers(ctx.remaining_accounts, &task.key())?;
+    // Increment disputes_as_defendant for the bound defendant (fix #544, #842)
+    // This is now deterministic and no longer caller-controlled via remaining_accounts.
+    if is_creator {
+        let defendant_worker = ctx
+            .accounts
+            .worker_agent
+            .as_mut()
+            .ok_or(CoordinationError::WorkerAgentRequired)?;
+        increment_defendant_counter(defendant_worker)?;
+    } else {
+        increment_defendant_counter(agent)?;
+    }
 
     emit!(DisputeInitiated {
         dispute_id,
@@ -270,67 +274,10 @@ pub fn handler(
     Ok(())
 }
 
-/// Processes (claim, worker) pairs to increment `disputes_as_defendant` counters.
-///
-/// Validates account ownership, claim-task linkage, and claim-worker linkage
-/// before incrementing each worker's disputes_as_defendant counter via `checked_add`.
-fn mark_defendant_workers(
-    remaining_accounts: &[AccountInfo],
-    task_key: &Pubkey,
-) -> Result<()> {
-    require!(
-        remaining_accounts.len() % 2 == 0,
-        CoordinationError::InvalidInput
-    );
-
-    // Track seen worker keys to reject duplicate (claim, worker) pairs (fix #820).
-    // Without this, an attacker could pass the same pair multiple times to inflate
-    // disputes_as_defendant, permanently blocking agent deregistration.
-    let mut seen_workers: BTreeSet<Pubkey> = BTreeSet::new();
-
-    for i in (0..remaining_accounts.len()).step_by(2) {
-        let claim_info = &remaining_accounts[i];
-        let worker_info = &remaining_accounts[i + 1];
-
-        // Reject duplicate worker keys
-        require!(
-            seen_workers.insert(worker_info.key()),
-            CoordinationError::DuplicateArbiter
-        );
-
-        // Validate account ownership
-        require!(
-            claim_info.owner == &crate::ID,
-            CoordinationError::InvalidAccountOwner
-        );
-        require!(
-            worker_info.owner == &crate::ID,
-            CoordinationError::InvalidAccountOwner
-        );
-
-        // Validate claim belongs to this task
-        let claim_data = claim_info.try_borrow_data()?;
-        let claim = TaskClaim::try_deserialize(&mut &**claim_data)?;
-        require!(
-            claim.task == *task_key,
-            CoordinationError::InvalidInput
-        );
-        require!(
-            claim.worker == worker_info.key(),
-            CoordinationError::InvalidInput
-        );
-        drop(claim_data);
-
-        // Increment worker's disputes_as_defendant counter
-        require!(worker_info.is_writable, CoordinationError::InvalidInput);
-        let mut worker_data = worker_info.try_borrow_mut_data()?;
-        let mut worker_reg = AgentRegistration::try_deserialize(&mut &**worker_data)?;
-        worker_reg.disputes_as_defendant = worker_reg
-            .disputes_as_defendant
-            .checked_add(1)
-            .ok_or(CoordinationError::ArithmeticOverflow)?;
-        worker_reg.try_serialize(&mut &mut worker_data[8..])?;
-    }
-
+fn increment_defendant_counter(worker: &mut Account<AgentRegistration>) -> Result<()> {
+    worker.disputes_as_defendant = worker
+        .disputes_as_defendant
+        .checked_add(1)
+        .ok_or(CoordinationError::ArithmeticOverflow)?;
     Ok(())
 }

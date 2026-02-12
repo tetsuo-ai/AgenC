@@ -9,6 +9,9 @@ use crate::instructions::dispute_helpers::{
     process_worker_claim_pair, validate_remaining_accounts_structure,
 };
 use crate::instructions::lamport_transfer::{credit_lamports, debit_lamports, transfer_lamports};
+use crate::instructions::token_helpers::{
+    close_token_escrow, transfer_tokens_from_escrow, validate_token_account,
+};
 use crate::state::{
     AgentRegistration, Dispute, DisputeStatus, ProtocolConfig, ResolutionType, Task, TaskClaim,
     TaskEscrow, TaskStatus,
@@ -16,7 +19,6 @@ use crate::state::{
 use crate::utils::version::check_version_compatible;
 use anchor_lang::prelude::*;
 use anchor_spl::token::{Mint, Token, TokenAccount};
-use crate::instructions::token_helpers::{close_token_escrow, transfer_tokens_from_escrow, validate_token_account};
 
 /// Note: Large accounts use Box<Account<...>> to avoid stack overflow
 /// Consistent with Anchor best practices for accounts > 10KB
@@ -77,9 +79,9 @@ pub struct ResolveDispute<'info> {
     )]
     pub worker_claim: Option<Box<Account<'info, TaskClaim>>>,
 
-    /// CHECK: Worker receiving payment - must match worker_claim.worker (fix #59)
+    /// Worker agent account for the dispute defendant.
     #[account(mut)]
-    pub worker: Option<UncheckedAccount<'info>>,
+    pub worker: Option<Box<Account<'info, AgentRegistration>>>,
 
     /// CHECK: Worker's authority wallet for receiving payment
     #[account(mut)]
@@ -88,7 +90,6 @@ pub struct ResolveDispute<'info> {
     pub system_program: Program<'info, System>,
 
     // === Optional SPL Token accounts (only required for token-denominated tasks) ===
-
     /// Token escrow ATA holding reward tokens (optional)
     #[account(mut)]
     pub token_escrow_ata: Option<Account<'info, TokenAccount>>,
@@ -141,9 +142,9 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
         CoordinationError::VotingNotEnded
     );
 
-    // Validate worker accounts are consistent (fix #59, #296, #457)
-    // If any worker account is provided, all must be provided and valid
+    // Validate and bind defendant worker accounts (fix #842)
     validate_worker_accounts(
+        dispute.as_ref(),
         &ctx.accounts.worker,
         &ctx.accounts.worker_claim,
         &ctx.accounts.worker_authority,
@@ -241,38 +242,72 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
                 if is_token_task {
                     let token_escrow = ctx.accounts.token_escrow_ata.as_ref().unwrap();
                     let token_program = ctx.accounts.token_program.as_ref().unwrap();
-                    require!(ctx.accounts.creator_token_account.is_some(), CoordinationError::MissingTokenAccounts);
+                    require!(
+                        ctx.accounts.creator_token_account.is_some(),
+                        CoordinationError::MissingTokenAccounts
+                    );
                     let creator_ta = ctx.accounts.creator_token_account.as_ref().unwrap();
                     let task_key_bytes = task_key.to_bytes();
                     let bump_slice = [escrow.bump];
                     let escrow_seeds: &[&[u8]] = &[b"escrow", task_key_bytes.as_ref(), &bump_slice];
-                    transfer_tokens_from_escrow(token_escrow, &creator_ta.to_account_info(), &escrow.to_account_info(), remaining_funds, escrow_seeds, token_program)?;
-                    close_token_escrow(token_escrow, &ctx.accounts.creator.to_account_info(), &escrow.to_account_info(), escrow_seeds, token_program)?;
+                    transfer_tokens_from_escrow(
+                        token_escrow,
+                        &creator_ta.to_account_info(),
+                        &escrow.to_account_info(),
+                        remaining_funds,
+                        escrow_seeds,
+                        token_program,
+                    )?;
+                    close_token_escrow(
+                        token_escrow,
+                        &ctx.accounts.creator.to_account_info(),
+                        &escrow.to_account_info(),
+                        escrow_seeds,
+                        token_program,
+                    )?;
                 } else {
-                    transfer_lamports(&escrow.to_account_info(), &ctx.accounts.creator.to_account_info(), remaining_funds)?;
+                    transfer_lamports(
+                        &escrow.to_account_info(),
+                        &ctx.accounts.creator.to_account_info(),
+                        remaining_funds,
+                    )?;
                 }
                 task.status = TaskStatus::Cancelled;
             }
             ResolutionType::Complete => {
-                require!(
-                    ctx.accounts.worker_claim.is_some()
-                        && ctx.accounts.worker.is_some()
-                        && ctx.accounts.worker_authority.is_some(),
-                    CoordinationError::NotClaimed
-                );
-
+                let worker_authority = ctx.accounts.worker_authority.as_ref().unwrap();
                 if is_token_task {
                     let token_escrow = ctx.accounts.token_escrow_ata.as_ref().unwrap();
                     let token_program = ctx.accounts.token_program.as_ref().unwrap();
-                    require!(ctx.accounts.worker_token_account_ata.is_some(), CoordinationError::MissingTokenAccounts);
+                    require!(
+                        ctx.accounts.worker_token_account_ata.is_some(),
+                        CoordinationError::MissingTokenAccounts
+                    );
                     let worker_ta = ctx.accounts.worker_token_account_ata.as_ref().unwrap();
                     let task_key_bytes = task_key.to_bytes();
                     let bump_slice = [escrow.bump];
                     let escrow_seeds: &[&[u8]] = &[b"escrow", task_key_bytes.as_ref(), &bump_slice];
-                    transfer_tokens_from_escrow(token_escrow, &worker_ta.to_account_info(), &escrow.to_account_info(), remaining_funds, escrow_seeds, token_program)?;
-                    close_token_escrow(token_escrow, &ctx.accounts.creator.to_account_info(), &escrow.to_account_info(), escrow_seeds, token_program)?;
-                } else if let Some(worker_authority) = &ctx.accounts.worker_authority {
-                    transfer_lamports(&escrow.to_account_info(), &worker_authority.to_account_info(), remaining_funds)?;
+                    transfer_tokens_from_escrow(
+                        token_escrow,
+                        &worker_ta.to_account_info(),
+                        &escrow.to_account_info(),
+                        remaining_funds,
+                        escrow_seeds,
+                        token_program,
+                    )?;
+                    close_token_escrow(
+                        token_escrow,
+                        &ctx.accounts.creator.to_account_info(),
+                        &escrow.to_account_info(),
+                        escrow_seeds,
+                        token_program,
+                    )?;
+                } else {
+                    transfer_lamports(
+                        &escrow.to_account_info(),
+                        &worker_authority.to_account_info(),
+                        remaining_funds,
+                    )?;
                 }
                 task.status = TaskStatus::Completed;
                 task.completed_at = clock.unix_timestamp;
@@ -280,35 +315,57 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
             }
             ResolutionType::Split => {
                 if remaining_funds > 0 {
-                    let worker_share = remaining_funds.checked_div(2).ok_or(CoordinationError::ArithmeticOverflow)?;
-                    let creator_share = remaining_funds.checked_sub(worker_share).ok_or(CoordinationError::ArithmeticOverflow)?;
+                    let worker_share = remaining_funds
+                        .checked_div(2)
+                        .ok_or(CoordinationError::ArithmeticOverflow)?;
+                    let creator_share = remaining_funds
+                        .checked_sub(worker_share)
+                        .ok_or(CoordinationError::ArithmeticOverflow)?;
 
-                    if worker_share > 0 {
-                        require!(ctx.accounts.worker_authority.is_some(), CoordinationError::IncompleteWorkerAccounts);
-                    }
+                    let worker_authority = ctx.accounts.worker_authority.as_ref().unwrap();
 
                     if is_token_task {
                         let token_escrow = ctx.accounts.token_escrow_ata.as_ref().unwrap();
                         let token_program = ctx.accounts.token_program.as_ref().unwrap();
-                        require!(ctx.accounts.creator_token_account.is_some(), CoordinationError::MissingTokenAccounts);
+                        require!(
+                            ctx.accounts.creator_token_account.is_some()
+                                && ctx.accounts.worker_token_account_ata.is_some(),
+                            CoordinationError::MissingTokenAccounts
+                        );
                         let creator_ta = ctx.accounts.creator_token_account.as_ref().unwrap();
+                        let worker_ta = ctx.accounts.worker_token_account_ata.as_ref().unwrap();
                         let task_key_bytes = task_key.to_bytes();
                         let bump_slice = [escrow.bump];
-                        let escrow_seeds: &[&[u8]] = &[b"escrow", task_key_bytes.as_ref(), &bump_slice];
-                        transfer_tokens_from_escrow(token_escrow, &creator_ta.to_account_info(), &escrow.to_account_info(), creator_share, escrow_seeds, token_program)?;
-                        if let Some(worker_ta) = &ctx.accounts.worker_token_account_ata {
-                            require!(ctx.accounts.worker_claim.is_some() && ctx.accounts.worker.is_some(), CoordinationError::NotClaimed);
-                            transfer_tokens_from_escrow(token_escrow, &worker_ta.to_account_info(), &escrow.to_account_info(), worker_share, escrow_seeds, token_program)?;
-                        }
-                        close_token_escrow(token_escrow, &ctx.accounts.creator.to_account_info(), &escrow.to_account_info(), escrow_seeds, token_program)?;
+                        let escrow_seeds: &[&[u8]] =
+                            &[b"escrow", task_key_bytes.as_ref(), &bump_slice];
+                        transfer_tokens_from_escrow(
+                            token_escrow,
+                            &creator_ta.to_account_info(),
+                            &escrow.to_account_info(),
+                            creator_share,
+                            escrow_seeds,
+                            token_program,
+                        )?;
+                        transfer_tokens_from_escrow(
+                            token_escrow,
+                            &worker_ta.to_account_info(),
+                            &escrow.to_account_info(),
+                            worker_share,
+                            escrow_seeds,
+                            token_program,
+                        )?;
+                        close_token_escrow(
+                            token_escrow,
+                            &ctx.accounts.creator.to_account_info(),
+                            &escrow.to_account_info(),
+                            escrow_seeds,
+                            token_program,
+                        )?;
                     } else {
                         debit_lamports(&escrow.to_account_info(), remaining_funds)?;
                         let creator_info = ctx.accounts.creator.to_account_info();
                         credit_lamports(&creator_info, creator_share)?;
-                        if let Some(worker_authority) = &ctx.accounts.worker_authority {
-                            require!(ctx.accounts.worker_claim.is_some() && ctx.accounts.worker.is_some(), CoordinationError::NotClaimed);
-                            credit_lamports(&worker_authority.to_account_info(), worker_share)?;
-                        }
+                        credit_lamports(&worker_authority.to_account_info(), worker_share)?;
                     }
                 }
                 task.status = TaskStatus::Cancelled;
@@ -319,38 +376,51 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
         if is_token_task {
             let token_escrow = ctx.accounts.token_escrow_ata.as_ref().unwrap();
             let token_program = ctx.accounts.token_program.as_ref().unwrap();
-            require!(ctx.accounts.creator_token_account.is_some(), CoordinationError::MissingTokenAccounts);
+            require!(
+                ctx.accounts.creator_token_account.is_some(),
+                CoordinationError::MissingTokenAccounts
+            );
             let creator_ta = ctx.accounts.creator_token_account.as_ref().unwrap();
             let task_key_bytes = task_key.to_bytes();
             let bump_slice = [escrow.bump];
             let escrow_seeds: &[&[u8]] = &[b"escrow", task_key_bytes.as_ref(), &bump_slice];
-            transfer_tokens_from_escrow(token_escrow, &creator_ta.to_account_info(), &escrow.to_account_info(), remaining_funds, escrow_seeds, token_program)?;
-            close_token_escrow(token_escrow, &ctx.accounts.creator.to_account_info(), &escrow.to_account_info(), escrow_seeds, token_program)?;
+            transfer_tokens_from_escrow(
+                token_escrow,
+                &creator_ta.to_account_info(),
+                &escrow.to_account_info(),
+                remaining_funds,
+                escrow_seeds,
+                token_program,
+            )?;
+            close_token_escrow(
+                token_escrow,
+                &ctx.accounts.creator.to_account_info(),
+                &escrow.to_account_info(),
+                escrow_seeds,
+                token_program,
+            )?;
         } else {
-            transfer_lamports(&escrow.to_account_info(), &ctx.accounts.creator.to_account_info(), remaining_funds)?;
+            transfer_lamports(
+                &escrow.to_account_info(),
+                &ctx.accounts.creator.to_account_info(),
+                remaining_funds,
+            )?;
         }
         task.status = TaskStatus::Cancelled;
     }
 
-    // Decrement worker's active_tasks counter (fix #137)
-    // Also decrement disputes_as_defendant counter (fix #544)
-    // The worker account is the AgentRegistration PDA - deserialize to update state
-    if let Some(worker) = &ctx.accounts.worker {
-        require!(
-            worker.owner == &crate::ID,
-            CoordinationError::InvalidAccountOwner
-        );
-        let mut worker_data = worker.try_borrow_mut_data()?;
-        let mut worker_reg = AgentRegistration::try_deserialize(&mut &**worker_data)?;
-        worker_reg.active_tasks = worker_reg
-            .active_tasks
-            .checked_sub(1)
-            .ok_or(CoordinationError::ArithmeticOverflow)?;
-        // Decrement disputes_as_defendant (fix #544)
-        // Using saturating_sub intentionally - underflow returns 0 (safe counter decrement)
-        worker_reg.disputes_as_defendant = worker_reg.disputes_as_defendant.saturating_sub(1);
-        worker_reg.try_serialize(&mut &mut worker_data[8..])?;
-    }
+    // Decrement defendant counters deterministically (fix #544, #842)
+    let worker = ctx
+        .accounts
+        .worker
+        .as_mut()
+        .expect("worker account validated above");
+    worker.active_tasks = worker
+        .active_tasks
+        .checked_sub(1)
+        .ok_or(CoordinationError::ArithmeticOverflow)?;
+    worker.disputes_as_defendant = worker.disputes_as_defendant.saturating_sub(1);
+    let defendant_worker_key = worker.key();
 
     // Update dispute status - decrement active_dispute_votes for each arbiter
     //
@@ -369,8 +439,23 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
         )?;
     }
 
+    let worker_pairs = (ctx.remaining_accounts.len() - arbiter_accounts) / 2;
+    let expected_worker_pairs = usize::from(
+        task.current_workers
+            .checked_sub(1)
+            .ok_or(CoordinationError::ArithmeticOverflow)?,
+    );
+    require!(
+        worker_pairs == expected_worker_pairs,
+        CoordinationError::IncompleteWorkerAccounts
+    );
+
     // Check for duplicate workers before processing (fix #826)
-    check_duplicate_workers(ctx.remaining_accounts, arbiter_accounts)?;
+    check_duplicate_workers(
+        ctx.remaining_accounts,
+        arbiter_accounts,
+        Some(defendant_worker_key),
+    )?;
 
     for i in (arbiter_accounts..ctx.remaining_accounts.len()).step_by(2) {
         process_worker_claim_pair(
@@ -383,17 +468,21 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
     dispute.status = DisputeStatus::Resolved;
     dispute.resolved_at = clock.unix_timestamp;
     escrow.is_closed = true;
+    task.current_workers = 0;
 
     // Close worker_claim account and return rent lamports to worker authority (fix #838)
     // The claim rent was paid by worker authority at creation, so return it there
-    if let Some(claim) = ctx.accounts.worker_claim.as_ref() {
-        if let Some(worker_authority) = &ctx.accounts.worker_authority {
-            claim.close(worker_authority.to_account_info())?;
-        } else {
-            // No worker authority provided (refund-only resolution) - return to creator as fallback
-            claim.close(ctx.accounts.creator.to_account_info())?;
-        }
-    }
+    let claim = ctx
+        .accounts
+        .worker_claim
+        .as_ref()
+        .expect("worker claim validated above");
+    let worker_authority = ctx
+        .accounts
+        .worker_authority
+        .as_ref()
+        .expect("worker authority validated above");
+    claim.close(worker_authority.to_account_info())?;
 
     emit!(DisputeResolved {
         dispute_id: dispute.dispute_id,
@@ -407,42 +496,29 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
     Ok(())
 }
 
-/// Validates worker account consistency (fix #457)
-///
-/// Ensures that if any worker-related account is provided, all required accounts
-/// are present and properly linked. This replaces error-prone nested if-let checks.
+/// Validates worker account consistency and defendant binding.
 fn validate_worker_accounts(
-    worker: &Option<UncheckedAccount>,
+    dispute: &Dispute,
+    worker: &Option<Box<Account<AgentRegistration>>>,
     worker_claim: &Option<Box<Account<TaskClaim>>>,
     worker_authority: &Option<UncheckedAccount>,
     task_key: &Pubkey,
 ) -> Result<()> {
-    // Count how many worker accounts are provided
-    let has_worker = worker.is_some();
-    let has_claim = worker_claim.is_some();
-    let has_authority = worker_authority.is_some();
+    let worker = worker
+        .as_ref()
+        .ok_or(CoordinationError::WorkerAgentRequired)?;
+    let worker_claim = worker_claim
+        .as_ref()
+        .ok_or(CoordinationError::WorkerClaimRequired)?;
+    let worker_authority = worker_authority
+        .as_ref()
+        .ok_or(CoordinationError::IncompleteWorkerAccounts)?;
 
-    // All-or-nothing: either all are None, or all must be Some
-    let provided_count = [has_worker, has_claim, has_authority]
-        .iter()
-        .filter(|&&x| x)
-        .count();
-
-    if provided_count == 0 {
-        // No worker accounts - valid for refund-only resolutions
-        return Ok(());
-    }
-
-    // If any provided, all must be provided
+    // Worker must be the dispute defendant.
     require!(
-        provided_count == 3,
-        CoordinationError::NotClaimed
+        worker.key() == dispute.defendant,
+        CoordinationError::WorkerNotInDispute
     );
-
-    // Safe: we verified provided_count == 3 above (all are Some)
-    let worker = worker.as_ref().expect("verified provided_count == 3 above");
-    let worker_claim = worker_claim.as_ref().expect("verified provided_count == 3 above");
-    let worker_authority = worker_authority.as_ref().expect("verified provided_count == 3 above");
 
     // Verify worker matches claim
     require!(
@@ -456,19 +532,11 @@ fn validate_worker_accounts(
         CoordinationError::NotClaimed
     );
 
-    // Verify worker account ownership and authority
+    // Verify worker authority binding.
     require!(
-        worker.owner == &crate::ID,
-        CoordinationError::InvalidAccountOwner
-    );
-
-    let worker_data = worker.try_borrow_data()?;
-    let worker_reg = AgentRegistration::try_deserialize(&mut &**worker_data)?;
-    require!(
-        worker_authority.key() == worker_reg.authority,
+        worker_authority.key() == worker.authority,
         CoordinationError::UnauthorizedAgent
     );
 
     Ok(())
 }
-
