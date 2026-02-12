@@ -250,6 +250,14 @@ export class AgentBuilder {
     return this;
   }
 
+  withAcceptedMints(mints: (PublicKey | null)[]): this {
+    if (!this.taskFilter) {
+      this.taskFilter = {};
+    }
+    this.taskFilter.acceptedMints = mints;
+    return this;
+  }
+
   withClaimStrategy(strategy: ClaimStrategy): this {
     this.claimStrategy = strategy;
     return this;

@@ -110,6 +110,9 @@ function createMockProgram(overrides: Record<string, any> = {}) {
       protocolConfig: {
         fetch: vi.fn().mockResolvedValue({ treasury: randomPubkey() }),
       },
+      task: {
+        fetch: vi.fn().mockResolvedValue({ rewardMint: null }),
+      },
     },
     methods: {
       initiateDispute: vi.fn().mockReturnValue(methodBuilder),

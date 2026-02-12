@@ -35,6 +35,7 @@ import { deriveDisputePda, deriveVotePda } from './pda.js';
 import { findAgentPda, findProtocolPda, deriveAuthorityVotePda } from '../agent/pda.js';
 import { fetchTreasury } from '../utils/treasury.js';
 import { deriveClaimPda, deriveEscrowPda } from '../task/pda.js';
+import { buildResolveDisputeTokenAccounts, buildExpireDisputeTokenAccounts } from '../utils/token.js';
 import {
   isAnchorError,
   AnchorErrorCodes,
@@ -382,6 +383,17 @@ export class DisputeOperations {
     this.logger.info(`Resolving dispute ${params.disputePda.toBase58()}`);
 
     try {
+      // Fetch task to determine if it's a token task (only need rewardMint)
+      const rawTask = await this.program.account.task.fetch(params.taskPda) as { rewardMint: PublicKey | null };
+      const treasury = await this.getTreasury();
+      const tokenAccounts = buildResolveDisputeTokenAccounts(
+        rawTask.rewardMint ?? null,
+        escrowPda,
+        params.creatorPubkey,
+        params.workerAuthority ?? null,
+        treasury,
+      );
+
       const remainingAccounts = this.buildRemainingAccounts(
         params.arbiterVotes,
         params.extraWorkers,
@@ -400,6 +412,7 @@ export class DisputeOperations {
           worker: params.workerAgentPda ?? null,
           workerAuthority: params.workerAuthority ?? null,
           systemProgram: SystemProgram.programId,
+          ...tokenAccounts,
         });
 
       if (remainingAccounts.length > 0) {
@@ -500,6 +513,15 @@ export class DisputeOperations {
     this.logger.info(`Expiring dispute ${params.disputePda.toBase58()}`);
 
     try {
+      // Fetch task to determine if it's a token task (only need rewardMint)
+      const rawTask = await this.program.account.task.fetch(params.taskPda) as { rewardMint: PublicKey | null };
+      const tokenAccounts = buildExpireDisputeTokenAccounts(
+        rawTask.rewardMint ?? null,
+        escrowPda,
+        params.creatorPubkey,
+        params.workerAuthority ?? null,
+      );
+
       const remainingAccounts = this.buildRemainingAccounts(
         params.arbiterVotes,
         params.extraWorkers,
@@ -516,6 +538,7 @@ export class DisputeOperations {
           workerClaim: params.workerClaimPda ?? null,
           worker: params.workerAgentPda ?? null,
           workerAuthority: params.workerAuthority ?? null,
+          ...tokenAccounts,
         });
 
       if (remainingAccounts.length > 0) {

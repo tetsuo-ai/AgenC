@@ -235,6 +235,17 @@ export {
   toAnchorBytes,
 } from './utils/index.js';
 
+// SPL Token utilities
+export {
+  isTokenTask,
+  buildCompleteTaskTokenAccounts,
+  buildResolveDisputeTokenAccounts,
+  buildExpireDisputeTokenAccounts,
+  buildCreateTaskTokenAccounts,
+  TOKEN_PROGRAM_ID,
+  ASSOCIATED_TOKEN_PROGRAM_ID,
+} from './utils/index.js';
+
 // Event monitoring (Phase 2)
 export {
   // Shared types

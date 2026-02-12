@@ -28,6 +28,7 @@ import {
 import { deriveTaskPda, deriveClaimPda, deriveEscrowPda } from './pda.js';
 import { deriveAgentPda, findProtocolPda } from '../agent/pda.js';
 import { fetchTreasury } from '../utils/treasury.js';
+import { buildCompleteTaskTokenAccounts } from '../utils/token.js';
 import {
   isAnchorError,
   parseAnchorError,
@@ -345,6 +346,12 @@ export class TaskOperations {
     const { address: escrowPda } = deriveEscrowPda(taskPda, this.program.programId);
     const protocolPda = findProtocolPda(this.program.programId);
     const treasury = await this.getProtocolTreasury();
+    const tokenAccounts = buildCompleteTaskTokenAccounts(
+      task.rewardMint,
+      escrowPda,
+      this.program.provider.publicKey!,
+      treasury,
+    );
 
     this.logger.info(`Completing task ${taskPda.toBase58()}`);
 
@@ -363,6 +370,7 @@ export class TaskOperations {
           treasury,
           authority: this.program.provider.publicKey,
           systemProgram: SystemProgram.programId,
+          ...tokenAccounts,
         })
         .rpc();
 
@@ -404,6 +412,12 @@ export class TaskOperations {
     const { address: escrowPda } = deriveEscrowPda(taskPda, this.program.programId);
     const protocolPda = findProtocolPda(this.program.programId);
     const treasury = await this.getProtocolTreasury();
+    const tokenAccounts = buildCompleteTaskTokenAccounts(
+      task.rewardMint,
+      escrowPda,
+      this.program.provider.publicKey!,
+      treasury,
+    );
 
     this.logger.info(`Completing task privately ${taskPda.toBase58()}`);
 
@@ -430,6 +444,7 @@ export class TaskOperations {
           treasury,
           authority: this.program.provider.publicKey,
           systemProgram: SystemProgram.programId,
+          ...tokenAccounts,
         })
         .rpc();
 

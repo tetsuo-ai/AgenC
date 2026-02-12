@@ -17,6 +17,7 @@ import { generateAgentId, toAnchorBytes } from '../utils/encoding.js';
 import { findAgentPda, findProtocolPda } from '../agent/pda.js';
 import { findTaskPda, findEscrowPda } from '../task/pda.js';
 import { isAnchorError, AnchorErrorCodes } from '../types/errors.js';
+import { buildCreateTaskTokenAccounts } from '../utils/token.js';
 import type { WorkflowState, WorkflowEdge } from './types.js';
 import { WorkflowNodeStatus, OnChainDependencyType } from './types.js';
 import { WorkflowSubmissionError } from './errors.js';
@@ -193,6 +194,8 @@ export class DAGSubmitter {
     const constraintHash = template.constraintHash
       ? Array.from(template.constraintHash)
       : null;
+    const mint = template.rewardMint ?? null;
+    const tokenAccounts = buildCreateTaskTokenAccounts(mint, escrowPda, creator);
 
     return this.program.methods
       .createTask(
@@ -205,6 +208,7 @@ export class DAGSubmitter {
         template.taskType,
         constraintHash,
         template.minReputation ?? 0,
+        mint,
       )
       .accountsPartial({
         task: taskPda,
@@ -214,6 +218,7 @@ export class DAGSubmitter {
         authority: creator,
         creator,
         systemProgram: SystemProgram.programId,
+        ...tokenAccounts,
       })
       .rpc();
   }
@@ -233,6 +238,8 @@ export class DAGSubmitter {
     const constraintHash = template.constraintHash
       ? Array.from(template.constraintHash)
       : null;
+    const mint = template.rewardMint ?? null;
+    const tokenAccounts = buildCreateTaskTokenAccounts(mint, escrowPda, creator);
 
     return this.program.methods
       .createDependentTask(
@@ -246,6 +253,7 @@ export class DAGSubmitter {
         constraintHash,
         dependencyType,
         template.minReputation ?? 0,
+        mint,
       )
       .accountsPartial({
         task: taskPda,
@@ -256,6 +264,7 @@ export class DAGSubmitter {
         authority: creator,
         creator,
         systemProgram: SystemProgram.programId,
+        ...tokenAccounts,
       })
       .rpc();
   }
