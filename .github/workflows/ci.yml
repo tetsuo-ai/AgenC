@@ -1,213 +1,140 @@
 name: CI
 
-  on:
-    push:
-    pull_request:
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 6 * * *'
 
-  permissions:
-    contents: read
+permissions:
+  contents: read
 
-  concurrency:
-    group: ci-${{ github.workflow }}-${{ github.ref }}
-    cancel-in-progress: true
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
-  env:
-    SOLANA_VERSION: v3.0.13
-    ANCHOR_VERSION: 0.32.1
-    RUST_TOOLCHAIN: stable
+env:
+  NODE_VERSION: '20'
+  MUTATION_MAX_AGGREGATE_PASS_RATE_DROP: '0.60'
+  MUTATION_MAX_AGGREGATE_CONFORMANCE_DROP: '0.35'
+  MUTATION_MAX_AGGREGATE_COST_UTILITY_DROP: '0.45'
+  MUTATION_MAX_SCENARIO_PASS_RATE_DROP: '1.00'
+  MUTATION_MAX_OPERATOR_PASS_RATE_DROP: '0.60'
 
-  jobs:
-    rust_checks:
-      if: false  # Temporarily disabled during breaking changes
-      runs-on: ubuntu-latest
-      env:
-        RUSTFLAGS: "-Awarnings"
-      steps:
-        - uses: actions/checkout@v4
+jobs:
+  runtime_checks:
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
 
-        - name: Install Rust toolchain
-          uses: dtolnay/rust-toolchain@master
-          with:
-            toolchain: ${{ env.RUST_TOOLCHAIN }}
-            components: rustfmt, clippy
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
 
-        - name: Set Rust as default
-          run: |
-            rustup default ${{ env.RUST_TOOLCHAIN }}
-            rustc --version
-            cargo --version
+      - name: Install dependencies
+        run: npm ci
 
-        - name: Cache cargo
-          uses: Swatinem/rust-cache@v2
-          with:
-            workspaces: programs/agenc-coordination
+      - name: Runtime tests
+        run: npm run test --prefix runtime
 
-        - name: cargo fmt
-          working-directory: programs/agenc-coordination
-          run: cargo fmt --all -- --check
+      - name: Runtime typecheck
+        run: npm run typecheck --prefix runtime
 
-        - name: cargo clippy
-          working-directory: programs/agenc-coordination
-          run: cargo clippy --all-targets
+      - name: MCP typecheck
+        run: npm run typecheck --prefix mcp
 
-        - name: cargo test
-          working-directory: programs/agenc-coordination
-          run: cargo test
+      - name: MCP tests
+        run: npm run test --prefix mcp
 
-    anchor_build:
-      if: false  # Temporarily disabled during breaking changes
-      runs-on: ubuntu-latest
-      steps:
-        - uses: actions/checkout@v4
+  reliability_regression:
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    needs: runtime_checks
+    steps:
+      - uses: actions/checkout@v4
 
-        - name: Install Linux dependencies
-          run: |
-            sudo apt-get update
-            sudo apt-get install -y \
-              build-essential \
-              pkg-config \
-              libudev-dev \
-              llvm \
-              libclang-dev \
-              protobuf-compiler \
-              libssl-dev
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
 
-        - name: Install Node
-          uses: actions/setup-node@v4
-          with:
-            node-version: "20"
+      - name: Install dependencies
+        run: npm ci
 
-        - name: Install Rust toolchain
-          uses: dtolnay/rust-toolchain@master
-          with:
-            toolchain: ${{ env.RUST_TOOLCHAIN }}
+      - name: Run benchmark corpus
+        run: npm run benchmark:ci --prefix runtime
 
-        - name: Set Rust as default
-          run: |
-            rustup default ${{ env.RUST_TOOLCHAIN }}
-            rustc --version
-            cargo --version
+      - name: Run mutation suite
+        run: npm run mutation:ci --prefix runtime
 
-        - name: Cache cargo
-          uses: Swatinem/rust-cache@v2
-          with:
-            workspaces: programs/agenc-coordination
+      - name: Enforce mutation regression gates
+        run: |
+          npx tsx runtime/scripts/check-mutation-gates.ts \
+            --artifact runtime/benchmarks/artifacts/mutation.ci.json \
+            --max-aggregate-pass-rate-drop "${MUTATION_MAX_AGGREGATE_PASS_RATE_DROP}" \
+            --max-aggregate-conformance-drop "${MUTATION_MAX_AGGREGATE_CONFORMANCE_DROP}" \
+            --max-aggregate-cost-utility-drop "${MUTATION_MAX_AGGREGATE_COST_UTILITY_DROP}" \
+            --max-scenario-pass-rate-drop "${MUTATION_MAX_SCENARIO_PASS_RATE_DROP}" \
+            --max-operator-pass-rate-drop "${MUTATION_MAX_OPERATOR_PASS_RATE_DROP}"
 
-        - name: Enable Yarn
-          run: |
-            corepack enable || true
-            corepack prepare yarn@1.22.22 --activate
-            yarn --version
+      - name: Upload reliability artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: reliability-artifacts-${{ github.run_id }}
+          retention-days: 14
+          path: |
+            runtime/benchmarks/artifacts/ci.json
+            runtime/benchmarks/artifacts/mutation.ci.json
+            runtime/benchmarks/artifacts/mutation-trend.ci.json
 
-        - name: Install Solana
-          run: |
-            set -euxo pipefail
-            curl -fL --retry 8 --retry-delay 2 --retry-all-errors \
-              "https://release.anza.xyz/${{ env.SOLANA_VERSION }}/install" \
-              -o /tmp/solana_install.sh
-            bash /tmp/solana_install.sh
-            echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
+  nightly_reliability:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
 
-        - name: Install Anchor CLI
-          run: |
-            set -euxo pipefail
-            ANCHOR_URL="https://github.com/solana-foundation/anchor/releases/download/v${{
-  env.ANCHOR_VERSION }}/anchor-${{ env.ANCHOR_VERSION }}-x86_64-unknown-linux-gnu"
-            curl -fL "$ANCHOR_URL" -o /tmp/anchor
-            chmod +x /tmp/anchor
-            sudo mv /tmp/anchor /usr/local/bin/anchor
-            anchor --version
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
 
-        - name: Install JS deps
-          run: yarn install --frozen-lockfile
+      - name: Install dependencies
+        run: npm ci
 
-        - name: Create Solana keypair
-          run: |
-            mkdir -p ~/.config/solana
-            if [ ! -f ~/.config/solana/id.json ]; then
-              solana-keygen new --no-bip39-passphrase -o ~/.config/solana/id.json
-            fi
+      - name: Run nightly benchmark corpus
+        run: |
+          npx tsx runtime/scripts/run-benchmarks.ts \
+            --output runtime/benchmarks/artifacts/nightly-benchmark.json
 
-        - name: anchor build
-          run: |
-            set -euxo pipefail
-            # Two-step build to work around Rust version mismatch:
-            # - Platform-tools bundles rustc 1.84.x
-            # - anchor-syn 0.32.1 requires rustc 1.89.0+ for Span::local_file()
+      - name: Run nightly mutation suite
+        run: |
+          npx tsx runtime/scripts/run-mutations.ts \
+            --output runtime/benchmarks/artifacts/nightly-mutation.json \
+            --trend-output runtime/benchmarks/artifacts/nightly-mutation-trend.json
 
-            # Step 1: Build BPF program directly with cargo-build-sbf
-            # This bypasses anchor's wrapper and goes straight to BPF compilation
-            cargo build-sbf --manifest-path programs/agenc-coordination/Cargo.toml
+      - name: Nightly gate report (dry-run)
+        run: |
+          npx tsx runtime/scripts/check-mutation-gates.ts \
+            --artifact runtime/benchmarks/artifacts/nightly-mutation.json \
+            --max-aggregate-pass-rate-drop "${MUTATION_MAX_AGGREGATE_PASS_RATE_DROP}" \
+            --max-aggregate-conformance-drop "${MUTATION_MAX_AGGREGATE_CONFORMANCE_DROP}" \
+            --max-aggregate-cost-utility-drop "${MUTATION_MAX_AGGREGATE_COST_UTILITY_DROP}" \
+            --max-scenario-pass-rate-drop "${MUTATION_MAX_SCENARIO_PASS_RATE_DROP}" \
+            --max-operator-pass-rate-drop "${MUTATION_MAX_OPERATOR_PASS_RATE_DROP}" \
+            --dry-run
 
-            # Copy artifacts to workspace root (where anchor test expects them)
-            mkdir -p target/deploy
-            cp programs/agenc-coordination/target/deploy/agenc_coordination.so target/deploy/
-            cp programs/agenc-coordination/target/deploy/agenc_coordination-keypair.json target/deploy/
-            test -f target/deploy/agenc_coordination.so
-
-            # Step 2: Generate IDL with anchor idl build
-            # The -- --lib flag tells cargo to skip test dependencies that have
-            # proc-macro incompatibilities with recent Rust versions
-            mkdir -p target/idl target/types
-            anchor idl build \
-              -o target/idl/agenc_coordination.json \
-              -t target/types/agenc_coordination.ts \
-              -- --lib
-            test -f target/idl/agenc_coordination.json
-            test -f target/types/agenc_coordination.ts
-
-        - name: anchor test
-          run: |
-            set -euxo pipefail
-            solana config set --url http://127.0.0.1:8899
-            anchor test --skip-build || {
-              echo "=== Validator log ==="
-              cat .anchor/test-ledger/test-ledger-log.txt 2>/dev/null || echo "No validator log found"
-              exit 1
-            }
-
-    security_scans:
-      if: false  # Temporarily disabled during breaking changes
-      runs-on: ubuntu-latest
-      steps:
-        - uses: actions/checkout@v4
-
-        - name: Install Rust toolchain
-          uses: dtolnay/rust-toolchain@master
-          with:
-            toolchain: ${{ env.RUST_TOOLCHAIN }}
-
-        - name: Cache cargo
-          uses: Swatinem/rust-cache@v2
-          with:
-            workspaces: programs/agenc-coordination
-
-        - name: Install cargo-audit
-          run: cargo install cargo-audit --locked --force
-
-        - name: cargo audit
-          working-directory: programs/agenc-coordination
-          run: |
-            cargo audit \
-              --ignore RUSTSEC-2021-0145 \
-              --ignore RUSTSEC-2023-0033 \
-              --ignore RUSTSEC-2023-0042 \
-              --ignore RUSTSEC-2024-0370 \
-              --ignore RUSTSEC-2024-0445 \
-              --ignore RUSTSEC-2024-0344 \
-              --ignore RUSTSEC-2022-0093 \
-              --ignore RUSTSEC-2025-0009
-
-        - name: Install cargo-deny
-          run: |
-            if [ -f deny.toml ]; then
-              cargo install cargo-deny --locked --force
-            else
-              echo "deny.toml not found; skipping cargo-deny install"
-            fi
-
-        - name: cargo deny
-          run: |
-            if [ -f deny.toml ]; then
-              cargo deny --manifest-path programs/agenc-coordination/Cargo.toml check
-            fi
+      - name: Upload nightly reliability artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-reliability-${{ github.run_id }}
+          retention-days: 30
+          path: |
+            runtime/benchmarks/artifacts/nightly-benchmark.json
+            runtime/benchmarks/artifacts/nightly-mutation.json
+            runtime/benchmarks/artifacts/nightly-mutation-trend.json
