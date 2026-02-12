@@ -270,6 +270,52 @@ export interface VerifierAdaptiveRiskConfig {
   hardMaxVerificationCostLamports?: bigint;
 }
 
+export interface MultiCandidateArbitrationWeights {
+  /** Agreement with peers; higher is better. */
+  consistency?: number;
+  /** Diversity contribution measured during generation. */
+  diversity?: number;
+  /** Optional confidence signal supplied by callers. */
+  confidence?: number;
+  /** Small preference for earlier attempts. */
+  recency?: number;
+}
+
+export interface MultiCandidateEscalationPolicy {
+  /** Escalate when pairwise disagreement count meets/exceeds this limit. */
+  maxPairwiseDisagreements?: number;
+  /** Escalate when disagreement ratio meets/exceeds this limit (0-1). */
+  maxDisagreementRate?: number;
+}
+
+export interface MultiCandidatePolicyBudget {
+  /** Hard cap on generated candidates. */
+  maxCandidates?: number;
+  /** Hard cap on aggregate candidate generation spend. */
+  maxExecutionCostLamports?: bigint;
+  /** Hard cap on aggregate token units consumed during generation. */
+  maxTokenBudget?: number;
+}
+
+export interface MultiCandidateConfig {
+  /** Feature flag for bounded multi-candidate execution. */
+  enabled?: boolean;
+  /** Deterministic seed used by arbitration tie-break. */
+  seed?: number;
+  /** Candidate generation target before arbitration. */
+  maxCandidates?: number;
+  /** Hard cap on generation attempts (includes discarded low-diversity outputs). */
+  maxGenerationAttempts?: number;
+  /** Minimum novelty score [0,1] required after the first accepted candidate. */
+  minDiversityScore?: number;
+  /** Arbitration scoring weights. */
+  arbitrationWeights?: MultiCandidateArbitrationWeights;
+  /** Escalation policy for disagreement-heavy runs. */
+  escalation?: MultiCandidateEscalationPolicy;
+  /** Hard policy ceilings for candidate generation budgets. */
+  policyBudget?: MultiCandidatePolicyBudget;
+}
+
 /**
  * Policy controls for determining when verifier gating applies.
  */
@@ -304,6 +350,7 @@ export interface VerifierEscalationMetadata {
   revisions: number;
   durationMs: number;
   lastVerdict: VerifierVerdictPayload | null;
+  details?: Record<string, unknown>;
 }
 
 /**
@@ -542,6 +589,12 @@ export interface AutonomousAgentConfig extends AgentRuntimeConfig {
    * When disabled or omitted, workflow optimization stays inactive.
    */
   workflowOptimizer?: WorkflowOptimizerRuntimeConfig;
+
+  /**
+   * Optional bounded multi-candidate generation + arbitration controls.
+   * When disabled or omitted, execution remains single-candidate.
+   */
+  multiCandidate?: MultiCandidateConfig;
 }
 
 /**

@@ -141,14 +141,30 @@ export class VerifierExecutor {
    * Execute task with verifier gate and bounded revision loop.
    */
   async execute(task: Task): Promise<VerifierExecutionResult> {
+    const initialOutput = await this.executeTask(task);
+    return await this.executeWithPreparedOutput(task, initialOutput);
+  }
+
+  /**
+   * Execute verifier gate against a pre-selected candidate output.
+   *
+   * Useful when an upstream component already performed bounded
+   * candidate generation/arbitration.
+   */
+  async executeWithOutput(task: Task, output: bigint[]): Promise<VerifierExecutionResult> {
+    return await this.executeWithPreparedOutput(task, output);
+  }
+
+  private async executeWithPreparedOutput(
+    task: Task,
+    initialOutput: bigint[],
+  ): Promise<VerifierExecutionResult> {
     const policy = this.resolvePolicy(task);
     const history: VerifierVerdictPayload[] = [];
 
-    const output = await this.executeTask(task);
-
     if (!policy.enabled) {
       return {
-        output,
+        output: initialOutput,
         attempts: 0,
         revisions: 0,
         durationMs: 0,
@@ -162,7 +178,7 @@ export class VerifierExecutor {
 
     const startedAt = this.now();
     const deadline = startedAt + policy.maxVerificationDurationMs;
-    let currentOutput = output;
+    let currentOutput = initialOutput;
     let revisions = 0;
     let lastVerdict: VerifierVerdictPayload | null = null;
     let disagreements = 0;
