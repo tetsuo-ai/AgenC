@@ -529,6 +529,19 @@ export {
   // Redis backend
   RedisBackend,
   type RedisBackendConfig,
+  // Memory graph
+  MemoryGraph,
+  type ProvenanceSourceType,
+  type ProvenanceSource,
+  type MemoryEdgeType,
+  type MemoryGraphNode,
+  type MemoryGraphEdge,
+  type UpsertMemoryNodeInput,
+  type AddMemoryEdgeInput,
+  type MemoryGraphQuery,
+  type MemoryGraphResult,
+  type MemoryGraphConfig,
+  type CompactOptions,
 } from './memory/index.js';
 
 // Dispute Operations (Phase 8)
