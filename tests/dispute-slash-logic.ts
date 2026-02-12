@@ -45,12 +45,10 @@ import {
   getDefaultDeadline,
   deriveProgramDataPda,
 } from "./test-utils";
+import { createLiteSVMContext, fundAccount } from "./litesvm-helpers";
 
 describe("dispute-slash-logic (issue #136)", () => {
-  const provider = anchor.AnchorProvider.env();
-  anchor.setProvider(provider);
-
-  const program = anchor.workspace.AgencCoordination as Program<AgencCoordination>;
+  const { svm, provider, program, payer } = createLiteSVMContext();
 
   const [protocolPda] = PublicKey.findProgramAddressSync(
     [Buffer.from("protocol")],
@@ -118,12 +116,9 @@ describe("dispute-slash-logic (issue #136)", () => {
       program.programId
     )[0];
 
-  const airdrop = async (wallets: Keypair[], amount: number = 20 * LAMPORTS_PER_SOL) => {
+  const airdrop = (wallets: Keypair[], amount: number = 20 * LAMPORTS_PER_SOL) => {
     for (const wallet of wallets) {
-      await provider.connection.confirmTransaction(
-        await provider.connection.requestAirdrop(wallet.publicKey, amount),
-        "confirmed"
-      );
+      fundAccount(svm, wallet.publicKey, amount);
     }
   };
 
