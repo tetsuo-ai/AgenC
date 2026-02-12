@@ -176,6 +176,36 @@ Single-model setup: use the same model/provider for both `executor` and verifier
 
 Dual-model setup: keep your execution model in `executor` and implement verifier `verify(...)` with a separate model/provider for independence.
 
+### Policy And Safety Engine
+
+Add deterministic guardrails for tool usage, budgets, and circuit breakers:
+
+```typescript
+import { AgentBuilder } from '@agenc/runtime';
+
+const agent = await new AgentBuilder(connection, wallet)
+  .withCapabilities(capabilities)
+  .withLLM('grok', { apiKey: process.env.GROK_API_KEY!, model: 'grok-3' })
+  .withPolicy({
+    enabled: true,
+    toolDenyList: ['agenc.createTask'],
+    actionBudgets: {
+      'task_execution:*': { limit: 50, windowMs: 60_000 },
+    },
+    spendBudget: { limitLamports: 10_000_000n, windowMs: 86_400_000 },
+    circuitBreaker: {
+      enabled: true,
+      threshold: 5,
+      windowMs: 60_000,
+      mode: 'safe_mode',
+    },
+  })
+  .build();
+
+// Incident response kill switch without restart:
+agent.policyEngine?.setMode('halt_submissions', 'manual_incident');
+```
+
 ## Core Modules
 
 ### AgentRuntime

@@ -55,6 +55,8 @@ import { ConnectionManager } from './connection/manager.js';
 import type { EndpointConfig, ConnectionManagerConfig } from './connection/types.js';
 import type { TelemetryCollector, TelemetryConfig, TelemetrySnapshot } from './telemetry/types.js';
 import { UnifiedTelemetryCollector } from './telemetry/collector.js';
+import { PolicyEngine } from './policy/engine.js';
+import type { RuntimePolicyConfig, PolicyViolation } from './policy/types.js';
 
 // ============================================================================
 // LLM provider type discriminator
@@ -103,6 +105,7 @@ export interface AgentCallbacks {
   onProofGenerated?: (task: Task, proofSizeBytes: number, durationMs: number) => void;
   onVerifierVerdict?: (task: Task, verdict: VerifierVerdictPayload) => void;
   onTaskEscalated?: (task: Task, metadata: VerifierEscalationMetadata) => void;
+  onPolicyViolation?: (violation: PolicyViolation) => void;
 }
 
 // ============================================================================
@@ -178,6 +181,8 @@ export class AgentBuilder {
 
   // Telemetry
   private telemetryConfig?: TelemetryConfig;
+  // Policy
+  private policyConfig?: RuntimePolicyConfig;
 
   constructor(connection: Connection, wallet: Keypair | Wallet) {
     this.connection = connection;
@@ -350,6 +355,11 @@ export class AgentBuilder {
     return this;
   }
 
+  withPolicy(config: RuntimePolicyConfig): this {
+    this.policyConfig = config;
+    return this;
+  }
+
   /**
    * Build and return a fully wired BuiltAgent.
    *
@@ -376,32 +386,58 @@ export class AgentBuilder {
     const telemetry = this.telemetryConfig
       ? new UnifiedTelemetryCollector(this.telemetryConfig, logger)
       : undefined;
+    const policyEngine = this.policyConfig
+      ? new PolicyEngine({ policy: this.policyConfig, logger, metrics: telemetry })
+      : undefined;
 
     // Inject metrics into connection manager (created before collector exists)
     if (telemetry && this.connectionManager) {
       this.connectionManager.setMetrics(telemetry);
     }
 
-    const { registry, initializedSkills } = await this.buildToolRegistry(logger, builderWallet, resolvedConnection);
+    const { registry, initializedSkills } = await this.buildToolRegistry(
+      logger,
+      builderWallet,
+      resolvedConnection,
+      policyEngine,
+    );
     const memory = this.memoryType ? this.createMemoryBackend(telemetry) : undefined;
     const taskExecutor = this.buildExecutor(registry, memory, telemetry);
     const proofEngine = this.proofConfig
       ? new ProofEngine({ ...this.proofConfig, logger, metrics: telemetry })
       : undefined;
-    const autonomous = this.buildAutonomousAgent(taskExecutor, proofEngine, memory, resolvedConnection, telemetry);
+    const autonomous = this.buildAutonomousAgent(
+      taskExecutor,
+      proofEngine,
+      memory,
+      resolvedConnection,
+      telemetry,
+      policyEngine,
+    );
 
-    return new BuiltAgent(autonomous, memory, proofEngine, registry, initializedSkills, this.connectionManager, logger, telemetry);
+    return new BuiltAgent(
+      autonomous,
+      memory,
+      proofEngine,
+      registry,
+      initializedSkills,
+      this.connectionManager,
+      logger,
+      telemetry,
+      policyEngine,
+    );
   }
 
   private async buildToolRegistry(
     logger: Logger,
     wallet: Wallet,
     resolvedConnection: Connection,
+    policyEngine?: PolicyEngine,
   ): Promise<{ registry: ToolRegistry | undefined; initializedSkills: Skill[] }> {
     const hasTools = this.customTools.length > 0 || this.skillEntries.length > 0 || this.useAgencTools;
     if (!hasTools) return { registry: undefined, initializedSkills: [] };
 
-    const registry = new ToolRegistry({ logger });
+    const registry = new ToolRegistry({ logger, policyEngine });
     const initializedSkills: Skill[] = [];
 
     for (const entry of this.skillEntries) {
@@ -450,6 +486,7 @@ export class AgentBuilder {
     memory: MemoryBackend | undefined,
     resolvedConnection: Connection,
     metrics?: TelemetryCollector,
+    policyEngine?: PolicyEngine,
   ): AutonomousAgent {
     return new AutonomousAgent({
       connection: resolvedConnection,
@@ -464,6 +501,7 @@ export class AgentBuilder {
       proofEngine,
       memory,
       metrics,
+      policyEngine,
       taskFilter: this.taskFilter,
       claimStrategy: this.claimStrategy,
       discoveryMode: this.discoveryMode,
@@ -480,6 +518,7 @@ export class AgentBuilder {
       onProofGenerated: this.callbacks?.onProofGenerated,
       onVerifierVerdict: this.callbacks?.onVerifierVerdict,
       onTaskEscalated: this.callbacks?.onTaskEscalated,
+      onPolicyViolation: this.callbacks?.onPolicyViolation,
     });
   }
 
@@ -528,6 +567,7 @@ export class BuiltAgent {
   private _disputeOps?: DisputeOperations;
   private readonly logger: Logger;
   readonly telemetry: TelemetryCollector | undefined;
+  readonly policyEngine: PolicyEngine | undefined;
 
   constructor(
     readonly autonomous: AutonomousAgent,
@@ -538,9 +578,11 @@ export class BuiltAgent {
     private readonly connectionManager?: ConnectionManager,
     logger?: Logger,
     telemetry?: TelemetryCollector,
+    policyEngine?: PolicyEngine,
   ) {
     this.logger = logger ?? silentLogger;
     this.telemetry = telemetry;
+    this.policyEngine = policyEngine;
   }
 
   async start(): Promise<void> {
