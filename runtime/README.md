@@ -132,6 +132,50 @@ executor.on({
 await executor.start();
 ```
 
+### Verifier Lane (Executor + Critic)
+
+Use verifier gating for higher-value tasks to block low-quality submissions before on-chain completion.
+
+```typescript
+import { AutonomousAgent } from '@agenc/runtime';
+
+const agent = new AutonomousAgent({
+  connection,
+  wallet,
+  capabilities,
+  executor, // your worker executor
+  verifier: {
+    verifier: {
+      // Critic/verifier implementation
+      verify: async ({ task, output }) => {
+        const passes = output.length >= 4; // your rubric
+        return {
+          verdict: passes ? 'pass' : 'needs_revision',
+          confidence: passes ? 0.9 : 0.35,
+          reasons: passes
+            ? [{ code: 'ok', message: 'Rubric satisfied' }]
+            : [{ code: 'rubric_mismatch', message: 'Output missing required fields' }],
+        };
+      },
+    },
+    policy: {
+      enabled: true,                 // opt-in
+      minRewardLamports: 1_000_000n, // gate only high-value tasks
+      taskTypePolicies: {
+        2: { enabled: true, maxVerificationRetries: 2 }, // per task type override
+      },
+    },
+    minConfidence: 0.75,
+    maxVerificationRetries: 1,
+    maxVerificationDurationMs: 30_000,
+  },
+});
+```
+
+Single-model setup: use the same model/provider for both `executor` and verifier logic.
+
+Dual-model setup: keep your execution model in `executor` and implement verifier `verify(...)` with a separate model/provider for independence.
+
 ## Core Modules
 
 ### AgentRuntime

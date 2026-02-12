@@ -255,6 +255,7 @@ describe('AgentBuilder', () => {
       expect(builder.withScanInterval(3000)).toBe(builder);
       expect(builder.withMaxConcurrentTasks(2)).toBe(builder);
       expect(builder.withSystemPrompt('hello')).toBe(builder);
+      expect(builder.withVerifier({ verifier: { verify: vi.fn() } } as any)).toBe(builder);
       expect(builder.withCallbacks({})).toBe(builder);
     });
   });
@@ -544,9 +545,16 @@ describe('AgentBuilder', () => {
     it('passes all configuration to AutonomousAgent', async () => {
       const filter: TaskFilter = { minReward: 10n };
       const strategy = { shouldClaim: () => true, priority: () => 1 };
+      const verifier = { verify: vi.fn().mockResolvedValue({ verdict: 'pass', confidence: 0.9, reasons: [{ code: 'ok', message: 'ok' }] }) };
+      const verifierConfig = {
+        verifier,
+        maxVerificationRetries: 2,
+      };
       const callbacks = {
         onTaskCompleted: vi.fn(),
         onEarnings: vi.fn(),
+        onVerifierVerdict: vi.fn(),
+        onTaskEscalated: vi.fn(),
       };
 
       await new AgentBuilder(mockConnection, mockKeypair)
@@ -561,6 +569,7 @@ describe('AgentBuilder', () => {
         .withDiscoveryMode('polling')
         .withScanInterval(3000)
         .withMaxConcurrentTasks(2)
+        .withVerifier(verifierConfig as any)
         .withCallbacks(callbacks)
         .build();
 
@@ -575,8 +584,11 @@ describe('AgentBuilder', () => {
       expect(config.discoveryMode).toBe('polling');
       expect(config.scanIntervalMs).toBe(3000);
       expect(config.maxConcurrentTasks).toBe(2);
+      expect(config.verifier).toBe(verifierConfig);
       expect(config.onTaskCompleted).toBe(callbacks.onTaskCompleted);
       expect(config.onEarnings).toBe(callbacks.onEarnings);
+      expect(config.onVerifierVerdict).toBe(callbacks.onVerifierVerdict);
+      expect(config.onTaskEscalated).toBe(callbacks.onTaskEscalated);
     });
 
     it('passes agentId when configured', async () => {
