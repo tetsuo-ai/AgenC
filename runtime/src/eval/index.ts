@@ -63,6 +63,44 @@ export {
 } from './benchmark-runner.js';
 
 export {
+  DEFAULT_MUTATION_OPERATOR_IDS,
+  SeededRandom,
+  MutationEngine,
+  createDefaultMutationOperators,
+  type MutationOperatorCategory,
+  type MutationOperatorContext,
+  type MutationOperatorResult,
+  type MutationOperator,
+  type MutationSelectionOptions,
+  type MutationCandidate,
+  type MutationEngineConfig,
+} from './mutation-engine.js';
+
+export {
+  MUTATION_ARTIFACT_SCHEMA_VERSION,
+  parseMutationArtifact,
+  MutationRunner,
+  serializeMutationArtifact,
+  writeMutationArtifact,
+  type MutationScenarioRunArtifact,
+  type MutationOperatorReportArtifact,
+  type MutationScenarioReportArtifact,
+  type MutationRegressionScenario,
+  type MutationArtifact,
+  type MutationRunnerConfig,
+  type MutationRunOptions,
+} from './mutation-runner.js';
+
+export {
+  DEFAULT_MUTATION_GATE_THRESHOLDS,
+  evaluateMutationRegressionGates,
+  formatMutationGateEvaluation,
+  type MutationGateThresholds,
+  type MutationGateViolation,
+  type MutationGateEvaluation,
+} from './mutation-gates.js';
+
+export {
   computePassAtK,
   computePassCaretK,
   getRewardTier,

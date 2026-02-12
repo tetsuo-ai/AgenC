@@ -22,6 +22,9 @@
     "test:watch": "vitest",
     "benchmark": "npx tsx scripts/run-benchmarks.ts",
     "benchmark:ci": "npx tsx scripts/run-benchmarks.ts --output benchmarks/artifacts/ci.json",
+    "mutation": "npx tsx scripts/run-mutations.ts",
+    "mutation:ci": "npx tsx scripts/run-mutations.ts --output benchmarks/artifacts/mutation.ci.json --trend-output benchmarks/artifacts/mutation-trend.ci.json",
+    "mutation:gates": "npx tsx scripts/check-mutation-gates.ts --artifact benchmarks/artifacts/mutation.ci.json",
     "prepublishOnly": "npm run build"
   },
   "keywords": ["solana", "agents", "runtime", "coordination", "privacy", "zk"],
@@ -51,6 +54,7 @@
     "anchor-litesvm": "^0.2.1",
     "bs58": "^6.0.0",
     "litesvm": "^0.5.0",
+    "tsx": "^4.21.0",
     "tsup": "^8.0.0",
     "typescript": "^5.0.0",
     "vitest": "^2.0.0"
