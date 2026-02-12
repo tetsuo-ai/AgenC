@@ -51,6 +51,7 @@ import type { PolicyEngine } from '../policy/engine.js';
 import { PolicyViolationError } from '../policy/types.js';
 import type { PolicyAction, PolicyDecision, PolicyViolation } from '../policy/types.js';
 import type { TrajectoryEventType, TrajectoryRecorderSink } from '../eval/types.js';
+import type { WorkflowOptimizerRuntimeConfig } from '../workflow/optimizer.js';
 
 /**
  * Create a minimal placeholder OnChainTask for dependency graph registration.
@@ -156,6 +157,7 @@ export class AutonomousAgent extends AgentRuntime {
   private readonly verifierConfig?: AutonomousAgentConfig['verifier'];
   private readonly metricsProvider?: MetricsProvider;
   private readonly policyEngine?: PolicyEngine;
+  private readonly workflowOptimizerConfig?: WorkflowOptimizerRuntimeConfig;
 
   // Components
   private scanner: TaskScanner | null = null;
@@ -237,6 +239,7 @@ export class AutonomousAgent extends AgentRuntime {
     this.verifierConfig = config.verifier;
     this.metricsProvider = config.metrics;
     this.policyEngine = config.policyEngine;
+    this.workflowOptimizerConfig = config.workflowOptimizer;
 
     // Store wallet for later use - convert Keypair to Wallet if needed
     this.agentWallet = ensureWallet(config.wallet);
@@ -295,6 +298,10 @@ export class AutonomousAgent extends AgentRuntime {
     // Start discovery based on mode
     this.startDiscovery();
     this.startTime = Date.now();
+
+    if (this.workflowOptimizerConfig?.enabled) {
+      this.autonomousLogger.debug('Workflow optimizer runtime config is enabled');
+    }
 
     this.autonomousLogger.info(`AutonomousAgent started (discovery: ${this.discoveryMode})`);
     return state;

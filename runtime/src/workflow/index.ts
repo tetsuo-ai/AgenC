@@ -81,6 +81,39 @@ export {
   type WorkflowFeatureExtractionOptions,
 } from './feature-extractor.js';
 
+// Optimizer mutations
+export {
+  generateWorkflowMutationCandidates,
+  type WorkflowMutationOperator,
+  type WorkflowMutationRecord,
+  type WorkflowMutationCandidate,
+  type WorkflowMutationConfig,
+} from './mutations.js';
+
+// Optimizer selection engine
+export {
+  WorkflowOptimizer,
+  type WorkflowOptimizerRuntimeConfig,
+  type WorkflowOptimizerConfig,
+  type WorkflowOptimizationInput,
+  type WorkflowCandidateScore,
+  type WorkflowOptimizationAuditEntry,
+  type WorkflowOptimizationResult,
+} from './optimizer.js';
+
+// Canary rollout controller
+export {
+  WorkflowCanaryRollout,
+  type WorkflowRolloutStopLossThresholds,
+  type WorkflowRolloutConfig,
+  type WorkflowRolloutSample,
+  type WorkflowRolloutVariantStats,
+  type WorkflowRolloutDeltas,
+  type WorkflowRolloutAction,
+  type WorkflowRolloutReason,
+  type WorkflowRolloutDecision,
+} from './rollout.js';
+
 // Submitter
 export { DAGSubmitter } from './submitter.js';
 
