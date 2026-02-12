@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "corpusVersion": "v1.0.0",
+  "baselineScenarioId": "baseline_consistency",
+  "k": 2,
+  "scenarios": [
+    {
+      "id": "baseline_consistency",
+      "title": "Baseline deterministic pass flow",
+      "taskClass": "qa",
+      "riskTier": "medium",
+      "expectedConstraints": [
+        "deterministic_replay",
+        "verifier_gated"
+      ],
+      "seeds": [11, 12],
+      "fixtureTrace": "scenarios/baseline-pass.trace.json",
+      "rewardLamports": "2000000",
+      "verifierGated": true,
+      "costUnits": 1.1,
+      "metadata": {
+        "owner": "runtime",
+        "notes": "Baseline benchmark for release trend tracking"
+      }
+    },
+    {
+      "id": "policy_regression",
+      "title": "Policy violation and failure flow",
+      "taskClass": "qa",
+      "riskTier": "high",
+      "expectedConstraints": [
+        "policy_guardrail",
+        "verifier_gated"
+      ],
+      "seeds": [21, 22],
+      "fixtureTrace": "scenarios/policy-fail.trace.json",
+      "rewardLamports": "200000000",
+      "verifierGated": true,
+      "costUnits": 2.4,
+      "metadata": {
+        "owner": "runtime",
+        "notes": "Regression sentinel with explicit policy failure"
+      }
+    }
+  ]
+}

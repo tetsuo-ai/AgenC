@@ -38,6 +38,31 @@ export {
 } from './replay.js';
 
 export {
+  BENCHMARK_MANIFEST_SCHEMA_VERSION,
+  parseBenchmarkManifest,
+  loadBenchmarkManifest,
+  hashBenchmarkManifest,
+  type BenchmarkManifest,
+  type BenchmarkScenarioManifest,
+} from './benchmark-manifest.js';
+
+export {
+  BENCHMARK_ARTIFACT_SCHEMA_VERSION,
+  BenchmarkRunner,
+  serializeBenchmarkArtifact,
+  writeBenchmarkArtifact,
+  type BenchmarkScenarioRunArtifact,
+  type BenchmarkMetricDelta,
+  type BenchmarkScenarioReportArtifact,
+  type BenchmarkArtifact,
+  type BenchmarkScenarioExecutionContext,
+  type BenchmarkScenarioExecutionOutput,
+  type BenchmarkScenarioRunner,
+  type BenchmarkRunnerConfig,
+  type BenchmarkRunOptions,
+} from './benchmark-runner.js';
+
+export {
   computePassAtK,
   computePassCaretK,
   getRewardTier,
