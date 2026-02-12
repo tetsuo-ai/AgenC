@@ -12,6 +12,7 @@ import type { Program } from '@coral-xyz/anchor';
 import type { AgencCoordination } from '../types/agenc_coordination.js';
 import type { Wallet } from '../types/wallet.js';
 import type { Logger } from '../utils/logger.js';
+import type { PolicyEngine } from '../policy/engine.js';
 
 /**
  * JSON Schema type alias.
@@ -75,6 +76,8 @@ export interface ToolContext {
 export interface ToolRegistryConfig {
   /** Logger for registry operations */
   logger?: Logger;
+  /** Optional policy engine for tool call enforcement. */
+  policyEngine?: PolicyEngine;
 }
 
 /**

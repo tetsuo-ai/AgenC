@@ -47,6 +47,9 @@ import {
 import type { OnChainTask } from '../task/types.js';
 import type { MetricsProvider } from '../task/types.js';
 import { VerifierExecutor, VerifierLaneEscalationError } from './verifier.js';
+import type { PolicyEngine } from '../policy/engine.js';
+import { PolicyViolationError } from '../policy/types.js';
+import type { PolicyAction, PolicyDecision, PolicyViolation } from '../policy/types.js';
 
 /**
  * Create a minimal placeholder OnChainTask for dependency graph registration.
@@ -151,6 +154,7 @@ export class AutonomousAgent extends AgentRuntime {
   private readonly speculationConfig?: SpeculationConfig;
   private readonly verifierConfig?: AutonomousAgentConfig['verifier'];
   private readonly metricsProvider?: MetricsProvider;
+  private readonly policyEngine?: PolicyEngine;
 
   // Components
   private scanner: TaskScanner | null = null;
@@ -209,6 +213,7 @@ export class AutonomousAgent extends AgentRuntime {
   private readonly onProofGenerated?: (task: Task, proofSizeBytes: number, durationMs: number) => void;
   private readonly onVerifierVerdict?: (task: Task, verdict: VerifierVerdictPayload) => void;
   private readonly onTaskEscalated?: (task: Task, metadata: VerifierEscalationMetadata) => void;
+  private readonly onPolicyViolation?: (violation: PolicyViolation) => void;
 
   constructor(config: AutonomousAgentConfig) {
     super(config);
@@ -229,6 +234,7 @@ export class AutonomousAgent extends AgentRuntime {
     this.speculationConfig = config.speculation;
     this.verifierConfig = config.verifier;
     this.metricsProvider = config.metrics;
+    this.policyEngine = config.policyEngine;
 
     // Store wallet for later use - convert Keypair to Wallet if needed
     this.agentWallet = ensureWallet(config.wallet);
@@ -248,6 +254,7 @@ export class AutonomousAgent extends AgentRuntime {
     this.onProofGenerated = config.onProofGenerated;
     this.onVerifierVerdict = config.onVerifierVerdict;
     this.onTaskEscalated = config.onTaskEscalated;
+    this.onPolicyViolation = config.onPolicyViolation;
 
     this.initVerifierLane();
   }
@@ -420,6 +427,49 @@ export class AutonomousAgent extends AgentRuntime {
         }));
       },
     });
+  }
+
+  private evaluatePolicyAction(action: PolicyAction, task?: Task): PolicyDecision | null {
+    if (!this.policyEngine) return null;
+
+    const decision = this.policyEngine.evaluate(action);
+    if (decision.allowed) {
+      return decision;
+    }
+
+    const violation = decision.violations[0];
+    if (violation) {
+      this.onPolicyViolation?.(violation);
+      this.autonomousLogger.warn(
+        `Policy blocked ${action.type}:${action.name} (${violation.code})`,
+      );
+      if (task) {
+        this.trackOperation(this.journalEvent(task, 'policy_violation', {
+          action,
+          violation,
+          mode: decision.mode,
+        }));
+      }
+    }
+
+    return decision;
+  }
+
+  /**
+   * Evaluate policy action and return allow/deny.
+   */
+  private isPolicyAllowed(action: PolicyAction, task?: Task): boolean {
+    const decision = this.evaluatePolicyAction(action, task);
+    return decision ? decision.allowed : true;
+  }
+
+  /**
+   * Evaluate policy and throw on denial.
+   */
+  private requirePolicyAllowed(action: PolicyAction, task?: Task): void {
+    const decision = this.evaluatePolicyAction(action, task);
+    if (!decision || decision.allowed) return;
+    throw new PolicyViolationError(action, decision);
   }
 
   /**
@@ -622,6 +672,15 @@ export class AutonomousAgent extends AgentRuntime {
     if (!this.scanLoopRunning || !this.scanner) return;
 
     try {
+      const canDiscover = this.isPolicyAllowed({
+        type: 'task_discovery',
+        name: 'poll_discovery',
+        access: 'read',
+      });
+      if (!canDiscover) {
+        return;
+      }
+
       // Scan for tasks
       const tasks = await this.scanner.scan();
       this.consecutivePollFailures = 0;
@@ -657,6 +716,14 @@ export class AutonomousAgent extends AgentRuntime {
    * Handle a newly discovered task
    */
   private handleDiscoveredTask(task: Task): void {
+    const allowed = this.isPolicyAllowed({
+      type: 'task_discovery',
+      name: 'event_discovery',
+      access: 'read',
+      metadata: { taskPda: task.pda.toBase58() },
+    }, task);
+    if (!allowed) return;
+
     const taskKey = task.pda.toBase58();
 
     // Skip if already active, pending, or awaiting proof
@@ -737,6 +804,13 @@ export class AutonomousAgent extends AgentRuntime {
       }
 
       // Claim the task with retry
+      this.requirePolicyAllowed({
+        type: 'task_claim',
+        name: 'claim_task',
+        access: 'write',
+        metadata: { taskPda: taskKey },
+      }, task);
+
       this.autonomousLogger.info(`Claiming task ${taskKey.slice(0, 8)}...`);
       const claimTx = await this.claimTaskWithRetry(task);
 
@@ -756,12 +830,13 @@ export class AutonomousAgent extends AgentRuntime {
 
       // Delegate to the appropriate execution path
       const verifierGated = this.verifierExecutor?.shouldVerify(task) ?? false;
-      if (this.specExecutor && !verifierGated) {
+      const policyManaged = this.policyEngine !== undefined;
+      if (this.specExecutor && !verifierGated && !policyManaged) {
         return await this.executeSpeculative(task, taskKey, startTime);
       }
-      if (this.specExecutor && verifierGated) {
-        await this.journalEvent(task, 'verifier_speculation_bypass', {
-          reason: 'verifier_gated_task',
+      if (this.specExecutor && (verifierGated || policyManaged)) {
+        await this.journalEvent(task, 'sequential_enforcement_bypass', {
+          reason: verifierGated ? 'verifier_gated_task' : 'policy_managed_task',
         });
       }
       return await this.executeSequential(task, activeTask, taskKey);
@@ -819,6 +894,13 @@ export class AutonomousAgent extends AgentRuntime {
     activeTask: ActiveTask,
     taskKey: string,
   ): Promise<TaskResult> {
+    this.requirePolicyAllowed({
+      type: 'task_execution',
+      name: 'execute_task',
+      access: 'write',
+      metadata: { taskPda: taskKey },
+    }, task);
+
     this.autonomousLogger.info(`Executing task ${taskKey.slice(0, 8)}...`);
     let output: bigint[];
     let verifierResult: VerifierExecutionResult | null = null;
@@ -842,6 +924,13 @@ export class AutonomousAgent extends AgentRuntime {
     this.autonomousLogger.info(`Executed task ${taskKey.slice(0, 8)}`);
 
     // Complete the task with retry
+    this.requirePolicyAllowed({
+      type: 'tx_submission',
+      name: 'complete_task_submission',
+      access: 'write',
+      spendLamports: task.reward,
+      metadata: { taskPda: taskKey },
+    }, task);
     const completeTx = await this.completeTaskWithRetry(task, output);
 
     const durationMs = Date.now() - activeTask.claimedAt;

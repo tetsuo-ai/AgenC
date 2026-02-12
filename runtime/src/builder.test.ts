@@ -256,6 +256,7 @@ describe('AgentBuilder', () => {
       expect(builder.withMaxConcurrentTasks(2)).toBe(builder);
       expect(builder.withSystemPrompt('hello')).toBe(builder);
       expect(builder.withVerifier({ verifier: { verify: vi.fn() } } as any)).toBe(builder);
+      expect(builder.withPolicy({ enabled: true })).toBe(builder);
       expect(builder.withCallbacks({})).toBe(builder);
     });
   });
@@ -555,6 +556,7 @@ describe('AgentBuilder', () => {
         onEarnings: vi.fn(),
         onVerifierVerdict: vi.fn(),
         onTaskEscalated: vi.fn(),
+        onPolicyViolation: vi.fn(),
       };
 
       await new AgentBuilder(mockConnection, mockKeypair)
@@ -570,6 +572,7 @@ describe('AgentBuilder', () => {
         .withScanInterval(3000)
         .withMaxConcurrentTasks(2)
         .withVerifier(verifierConfig as any)
+        .withPolicy({ enabled: true })
         .withCallbacks(callbacks)
         .build();
 
@@ -585,10 +588,12 @@ describe('AgentBuilder', () => {
       expect(config.scanIntervalMs).toBe(3000);
       expect(config.maxConcurrentTasks).toBe(2);
       expect(config.verifier).toBe(verifierConfig);
+      expect(config.policyEngine).toBeDefined();
       expect(config.onTaskCompleted).toBe(callbacks.onTaskCompleted);
       expect(config.onEarnings).toBe(callbacks.onEarnings);
       expect(config.onVerifierVerdict).toBe(callbacks.onVerifierVerdict);
       expect(config.onTaskEscalated).toBe(callbacks.onTaskEscalated);
+      expect(config.onPolicyViolation).toBe(callbacks.onPolicyViolation);
     });
 
     it('passes agentId when configured', async () => {
