@@ -35,4 +35,11 @@ export const TELEMETRY_METRIC_NAMES = {
   // Policy
   POLICY_VIOLATIONS_TOTAL: 'agenc.policy.violations.total',
   POLICY_DECISIONS_TOTAL: 'agenc.policy.decisions.total',
+  // Eval
+  EVAL_PASS_AT_K: 'agenc.eval.pass_at_k',
+  EVAL_PASS_CARET_K: 'agenc.eval.pass_caret_k',
+  EVAL_RISK_WEIGHTED_SUCCESS: 'agenc.eval.risk_weighted_success',
+  EVAL_CONFORMANCE_SCORE: 'agenc.eval.conformance_score',
+  EVAL_COST_NORMALIZED_UTILITY: 'agenc.eval.cost_normalized_utility',
+  EVAL_CALIBRATION_ERROR: 'agenc.eval.calibration_error',
 } as const;
