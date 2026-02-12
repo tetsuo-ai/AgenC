@@ -50,6 +50,7 @@ import { VerifierExecutor, VerifierLaneEscalationError } from './verifier.js';
 import type { PolicyEngine } from '../policy/engine.js';
 import { PolicyViolationError } from '../policy/types.js';
 import type { PolicyAction, PolicyDecision, PolicyViolation } from '../policy/types.js';
+import type { TrajectoryEventType, TrajectoryRecorderSink } from '../eval/types.js';
 
 /**
  * Create a minimal placeholder OnChainTask for dependency graph registration.
@@ -214,6 +215,7 @@ export class AutonomousAgent extends AgentRuntime {
   private readonly onVerifierVerdict?: (task: Task, verdict: VerifierVerdictPayload) => void;
   private readonly onTaskEscalated?: (task: Task, metadata: VerifierEscalationMetadata) => void;
   private readonly onPolicyViolation?: (violation: PolicyViolation) => void;
+  private readonly trajectoryRecorder?: TrajectoryRecorderSink;
 
   constructor(config: AutonomousAgentConfig) {
     super(config);
@@ -255,6 +257,7 @@ export class AutonomousAgent extends AgentRuntime {
     this.onVerifierVerdict = config.onVerifierVerdict;
     this.onTaskEscalated = config.onTaskEscalated;
     this.onPolicyViolation = config.onPolicyViolation;
+    this.trajectoryRecorder = config.trajectoryRecorder;
 
     this.initVerifierLane();
   }
@@ -378,12 +381,17 @@ export class AutonomousAgent extends AgentRuntime {
     // Wire proof pipeline events for async proof confirmation
     this.specExecutor.on({
       onSpeculativeExecutionStarted: (taskPda, parentPda) => {
+        this.recordTrajectoryByPda(taskPda, 'speculation_started', {
+          parentPda: parentPda.toBase58(),
+        });
         this.speculationConfig?.onSpeculativeStarted?.(taskPda, parentPda);
       },
       onSpeculativeExecutionConfirmed: (taskPda) => {
+        this.recordTrajectoryByPda(taskPda, 'speculation_confirmed', {});
         this.speculationConfig?.onSpeculativeConfirmed?.(taskPda);
       },
       onSpeculativeExecutionAborted: (taskPda, reason) => {
+        this.recordTrajectoryByPda(taskPda, 'speculation_aborted', { reason });
         this.speculationConfig?.onSpeculativeAborted?.(taskPda, reason);
       },
       onParentProofConfirmed: (parentPda) => {
@@ -740,6 +748,12 @@ export class AutonomousAgent extends AgentRuntime {
     this.pendingTasks.set(taskKey, task);
     this.stats.tasksDiscovered++;
     this.onTaskDiscovered?.(task);
+    this.recordTrajectoryEvent('discovered', {
+      rewardLamports: task.reward.toString(),
+      currentClaims: task.currentClaims,
+      maxWorkers: task.maxWorkers,
+      taskType: task.taskType ?? null,
+    }, task.pda);
 
     this.autonomousLogger.debug(`Discovered task: ${taskKey.slice(0, 8)} (reward: ${Number(task.reward) / LAMPORTS_PER_SOL} SOL)`);
 
@@ -1150,6 +1164,10 @@ export class AutonomousAgent extends AgentRuntime {
 
     const proofDuration = Date.now() - proofStartTime;
     this.onProofGenerated?.(task, proofResult.proofSize, proofDuration);
+    this.recordTrajectoryEvent('proof_generated', {
+      proofSizeBytes: proofResult.proofSize,
+      durationMs: proofDuration,
+    }, task.pda);
     this.autonomousLogger.info(`Proof generated in ${proofDuration}ms (${proofResult.proofSize} bytes)`);
 
     const claimPda = findClaimPda(task.pda, agentPda, this.program.programId);
@@ -1191,6 +1209,7 @@ export class AutonomousAgent extends AgentRuntime {
     event: string,
     data: Record<string, unknown>,
   ): Promise<void> {
+    this.recordTrajectoryEvent(event, data, task.pda);
     if (!this.memory) return;
     const sessionId = `lifecycle:${task.pda.toBase58()}`;
     try {
@@ -1204,6 +1223,31 @@ export class AutonomousAgent extends AgentRuntime {
       });
     } catch (err) {
       this.autonomousLogger.warn(`Failed to journal ${event} event:`, err);
+    }
+  }
+
+  private recordTrajectoryByPda(
+    taskPda: PublicKey,
+    event: TrajectoryEventType,
+    payload: Record<string, unknown>,
+  ): void {
+    this.recordTrajectoryEvent(event, payload, taskPda);
+  }
+
+  private recordTrajectoryEvent(
+    event: string,
+    payload: Record<string, unknown>,
+    taskPda?: PublicKey,
+  ): void {
+    if (!this.trajectoryRecorder) return;
+    try {
+      this.trajectoryRecorder.record({
+        type: event as TrajectoryEventType,
+        taskPda: taskPda?.toBase58(),
+        payload,
+      });
+    } catch (err) {
+      this.autonomousLogger.warn(`Failed to record trajectory event ${event}:`, err);
     }
   }
 

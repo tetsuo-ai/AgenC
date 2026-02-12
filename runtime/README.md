@@ -233,6 +233,42 @@ const facts = await graph.query({
 });
 ```
 
+### Deterministic Trajectory Replay
+
+Capture autonomous lifecycle traces and replay them offline for reproducible reliability debugging:
+
+```typescript
+import {
+  AutonomousAgent,
+  TrajectoryRecorder,
+  TrajectoryReplayEngine,
+} from '@agenc/runtime';
+
+const recorder = new TrajectoryRecorder({
+  traceId: 'run-2026-02-12',
+  seed: 42,
+});
+
+const agent = new AutonomousAgent({
+  connection,
+  wallet,
+  capabilities,
+  executor,
+  trajectoryRecorder: recorder, // optional, default disabled
+});
+
+// ... run agent workload ...
+
+const trace = recorder.createTrace();
+const replay = new TrajectoryReplayEngine({ strictMode: true, seed: 42 }).replay(trace);
+console.log(replay.deterministicHash, replay.summary);
+```
+
+Notes:
+- Replay is fully offline and does not perform chain writes.
+- Hash stability is guaranteed for the same trace + seed + replay config.
+- Legacy traces are migrated through `migrateTrajectoryTrace(...)`.
+
 ### Team Contracts (Role-Based Agent Runs)
 
 Coordinate planner/worker/reviewer teams with deterministic role checks, checkpoint gating, and payout splitting:
