@@ -461,6 +461,37 @@ export type AgencCoordination = {
         {
           "name": "systemProgram",
           "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "tokenEscrowAta",
+          "docs": [
+            "Token escrow ATA holding reward tokens (optional)"
+          ],
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "creatorTokenAccount",
+          "docs": [
+            "Creator's token account to receive refund (optional)"
+          ],
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "rewardMint",
+          "docs": [
+            "SPL token mint (optional, must match task.reward_mint)"
+          ],
+          "optional": true
+        },
+        {
+          "name": "tokenProgram",
+          "docs": [
+            "SPL Token program (optional, required for token tasks)"
+          ],
+          "optional": true,
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         }
       ],
       "args": []
@@ -763,6 +794,45 @@ export type AgencCoordination = {
         {
           "name": "systemProgram",
           "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "tokenEscrowAta",
+          "docs": [
+            "Token escrow ATA holding reward tokens (optional)"
+          ],
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "workerTokenAccount",
+          "docs": [
+            "Worker's token account to receive reward (optional)"
+          ],
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "treasuryTokenAccount",
+          "docs": [
+            "Treasury's token account for protocol fees (optional, must pre-exist)"
+          ],
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "rewardMint",
+          "docs": [
+            "SPL token mint (optional, must match task.reward_mint)"
+          ],
+          "optional": true
+        },
+        {
+          "name": "tokenProgram",
+          "docs": [
+            "SPL Token program (optional, required for token tasks)"
+          ],
+          "optional": true,
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         }
       ],
       "args": [
@@ -977,6 +1047,45 @@ export type AgencCoordination = {
         {
           "name": "systemProgram",
           "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "tokenEscrowAta",
+          "docs": [
+            "Token escrow ATA holding reward tokens (optional)"
+          ],
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "workerTokenAccount",
+          "docs": [
+            "Worker's token account to receive reward (optional)"
+          ],
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "treasuryTokenAccount",
+          "docs": [
+            "Treasury's token account for protocol fees (optional, must pre-exist)"
+          ],
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "rewardMint",
+          "docs": [
+            "SPL token mint (optional, must match task.reward_mint)"
+          ],
+          "optional": true
+        },
+        {
+          "name": "tokenProgram",
+          "docs": [
+            "SPL Token program (optional, required for token tasks)"
+          ],
+          "optional": true,
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         }
       ],
       "args": [
@@ -1074,11 +1183,15 @@ export type AgencCoordination = {
         {
           "name": "parentTask",
           "docs": [
-            "The parent task this new task depends on"
+            "The parent task this new task depends on",
+            "Note: Uses Box to reduce stack usage for this large account"
           ]
         },
         {
           "name": "protocolConfig",
+          "docs": [
+            "Note: Uses Box to reduce stack usage for this large account"
+          ],
           "writable": true,
           "pda": {
             "seeds": [
@@ -1146,6 +1259,45 @@ export type AgencCoordination = {
         {
           "name": "systemProgram",
           "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "rewardMint",
+          "docs": [
+            "SPL token mint for reward denomination (optional)"
+          ],
+          "optional": true
+        },
+        {
+          "name": "creatorTokenAccount",
+          "docs": [
+            "Creator's token account holding reward tokens (optional)"
+          ],
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "tokenEscrowAta",
+          "docs": [
+            "Escrow's associated token account for holding reward tokens (optional)."
+          ],
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "tokenProgram",
+          "docs": [
+            "SPL Token program (optional, required for token tasks)"
+          ],
+          "optional": true,
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "associatedTokenProgram",
+          "docs": [
+            "Associated Token Account program (optional, required for token tasks)"
+          ],
+          "optional": true,
+          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
         }
       ],
       "args": [
@@ -1205,6 +1357,12 @@ export type AgencCoordination = {
         {
           "name": "minReputation",
           "type": "u16"
+        },
+        {
+          "name": "rewardMint",
+          "type": {
+            "option": "pubkey"
+          }
         }
       ]
     },
@@ -1353,6 +1511,46 @@ export type AgencCoordination = {
         {
           "name": "systemProgram",
           "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "rewardMint",
+          "docs": [
+            "SPL token mint for reward denomination (optional)"
+          ],
+          "optional": true
+        },
+        {
+          "name": "creatorTokenAccount",
+          "docs": [
+            "Creator's token account holding reward tokens (optional)"
+          ],
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "tokenEscrowAta",
+          "docs": [
+            "Escrow's associated token account for holding reward tokens (optional).",
+            "Created via ATA CPI during handler if token task."
+          ],
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "tokenProgram",
+          "docs": [
+            "SPL Token program (optional, required for token tasks)"
+          ],
+          "optional": true,
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "associatedTokenProgram",
+          "docs": [
+            "Associated Token Account program (optional, required for token tasks)"
+          ],
+          "optional": true,
+          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
         }
       ],
       "args": [
@@ -1408,6 +1606,12 @@ export type AgencCoordination = {
         {
           "name": "minReputation",
           "type": "u16"
+        },
+        {
+          "name": "rewardMint",
+          "type": {
+            "option": "pubkey"
+          }
         }
       ]
     },
@@ -1797,6 +2001,45 @@ export type AgencCoordination = {
           ],
           "writable": true,
           "optional": true
+        },
+        {
+          "name": "tokenEscrowAta",
+          "docs": [
+            "Token escrow ATA holding reward tokens (optional)"
+          ],
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "creatorTokenAccount",
+          "docs": [
+            "Creator's token account for refund (optional)"
+          ],
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "workerTokenAccountAta",
+          "docs": [
+            "Worker's token account for payment (optional)"
+          ],
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "rewardMint",
+          "docs": [
+            "SPL token mint (optional, must match task.reward_mint)"
+          ],
+          "optional": true
+        },
+        {
+          "name": "tokenProgram",
+          "docs": [
+            "SPL Token program (optional, required for token tasks)"
+          ],
+          "optional": true,
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         }
       ],
       "args": []
@@ -2425,6 +2668,53 @@ export type AgencCoordination = {
         {
           "name": "systemProgram",
           "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "tokenEscrowAta",
+          "docs": [
+            "Token escrow ATA holding reward tokens (optional)"
+          ],
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "creatorTokenAccount",
+          "docs": [
+            "Creator's token account for refund (optional)"
+          ],
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "workerTokenAccountAta",
+          "docs": [
+            "Worker's token account for payment (optional)"
+          ],
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "treasuryTokenAccount",
+          "docs": [
+            "Treasury's token account for protocol fees (optional)"
+          ],
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "rewardMint",
+          "docs": [
+            "SPL token mint (optional, must match task.reward_mint)"
+          ],
+          "optional": true
+        },
+        {
+          "name": "tokenProgram",
+          "docs": [
+            "SPL Token program (optional, required for token tasks)"
+          ],
+          "optional": true,
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         }
       ],
       "args": []
@@ -3038,6 +3328,34 @@ export type AgencCoordination = {
                 "kind": "account",
                 "path": "worker_claim.worker",
                 "account": "taskClaim"
+              }
+            ]
+          }
+        },
+        {
+          "name": "defendantAgent",
+          "docs": [
+            "Optional: Defendant's agent registration (for authority-level participant check, fix #824)",
+            "If provided, validates arbiter's authority is not the defendant worker's authority.",
+            "Must match the dispute's defendant field."
+          ],
+          "optional": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  103,
+                  101,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "defendant_agent.agent_id",
+                "account": "agentRegistration"
               }
             ]
           }
@@ -4404,6 +4722,31 @@ export type AgencCoordination = {
       "code": 6141,
       "name": "developmentKeyNotAllowed",
       "msg": "Development verifying key detected (gamma == delta). ZK proofs are forgeable. Run MPC ceremony before use."
+    },
+    {
+      "code": 6142,
+      "name": "selfTaskNotAllowed",
+      "msg": "Cannot claim own task: worker authority matches task creator"
+    },
+    {
+      "code": 6143,
+      "name": "missingTokenAccounts",
+      "msg": "Token accounts not provided for token-denominated task"
+    },
+    {
+      "code": 6144,
+      "name": "invalidTokenEscrow",
+      "msg": "Token escrow ATA does not match expected derivation"
+    },
+    {
+      "code": 6145,
+      "name": "invalidTokenMint",
+      "msg": "Provided mint does not match task's reward_mint"
+    },
+    {
+      "code": 6146,
+      "name": "tokenTransferFailed",
+      "msg": "SPL token transfer CPI failed"
     }
   ],
   "types": [
@@ -5104,6 +5447,15 @@ export type AgencCoordination = {
           {
             "name": "dependencyType",
             "type": "u8"
+          },
+          {
+            "name": "rewardMint",
+            "docs": [
+              "SPL token mint for reward denomination (None = SOL)"
+            ],
+            "type": {
+              "option": "pubkey"
+            }
           },
           {
             "name": "timestamp",
@@ -6505,15 +6857,14 @@ export type AgencCoordination = {
             "type": "u16"
           },
           {
-            "name": "reserved",
+            "name": "rewardMint",
             "docs": [
-              "Reserved"
+              "Optional SPL token mint for reward denomination.",
+              "None = SOL rewards (default, backward compatible).",
+              "Some(mint) = SPL token rewards using the specified mint."
             ],
             "type": {
-              "array": [
-                "u8",
-                30
-              ]
+              "option": "pubkey"
             }
           }
         ]
@@ -6776,6 +7127,15 @@ export type AgencCoordination = {
           {
             "name": "minReputation",
             "type": "u16"
+          },
+          {
+            "name": "rewardMint",
+            "docs": [
+              "SPL token mint for reward denomination (None = SOL)"
+            ],
+            "type": {
+              "option": "pubkey"
+            }
           },
           {
             "name": "timestamp",

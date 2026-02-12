@@ -28,3 +28,13 @@ export { encodeStatusByte, queryWithFallback } from './query.js';
 export { fetchTreasury } from './treasury.js';
 
 export { ensureLazyModule } from './lazy-import.js';
+
+export {
+  isTokenTask,
+  buildCompleteTaskTokenAccounts,
+  buildResolveDisputeTokenAccounts,
+  buildExpireDisputeTokenAccounts,
+  buildCreateTaskTokenAccounts,
+  TOKEN_PROGRAM_ID,
+  ASSOCIATED_TOKEN_PROGRAM_ID,
+} from './token.js';

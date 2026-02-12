@@ -87,6 +87,8 @@ export interface OnChainTask {
   requiredCompletions: number;
   /** PDA bump seed */
   bump: number;
+  /** SPL token mint for reward denomination (null = SOL) */
+  rewardMint: PublicKey | null;
 }
 
 /**
@@ -146,6 +148,7 @@ export interface RawOnChainTask {
   completions: number;
   requiredCompletions: number;
   bump: number;
+  rewardMint: PublicKey | null;
 }
 
 /**
@@ -229,6 +232,11 @@ export function isRawOnChainTask(data: unknown): data is RawOnChainTask {
   // Status and taskType can be object (Anchor enum) or number
   if (typeof obj.status !== 'object' && typeof obj.status !== 'number') return false;
   if (typeof obj.taskType !== 'object' && typeof obj.taskType !== 'number') return false;
+
+  // rewardMint is optional: null (SOL) or PublicKey-like
+  if (obj.rewardMint !== null && obj.rewardMint !== undefined) {
+    if (!(obj.rewardMint instanceof Object) || typeof (obj.rewardMint as Record<string, unknown>).toBuffer !== 'function') return false;
+  }
 
   return true;
 }
@@ -376,6 +384,7 @@ export function parseOnChainTask(data: unknown): OnChainTask {
     completions: data.completions,
     requiredCompletions: data.requiredCompletions,
     bump: data.bump,
+    rewardMint: data.rewardMint ?? null,
   };
 }
 

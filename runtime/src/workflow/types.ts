@@ -56,6 +56,8 @@ export interface TaskTemplate {
   constraintHash?: Uint8Array;
   /** Minimum reputation score (0-10000). Default 0. */
   minReputation?: number;
+  /** SPL token mint for reward denomination (null/undefined = SOL) */
+  rewardMint?: PublicKey | null;
 }
 
 /**

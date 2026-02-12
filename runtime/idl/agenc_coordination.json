@@ -449,6 +449,37 @@
         {
           "name": "system_program",
           "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "token_escrow_ata",
+          "docs": [
+            "Token escrow ATA holding reward tokens (optional)"
+          ],
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "creator_token_account",
+          "docs": [
+            "Creator's token account to receive refund (optional)"
+          ],
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "reward_mint",
+          "docs": [
+            "SPL token mint (optional, must match task.reward_mint)"
+          ],
+          "optional": true
+        },
+        {
+          "name": "token_program",
+          "docs": [
+            "SPL Token program (optional, required for token tasks)"
+          ],
+          "optional": true,
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         }
       ],
       "args": []
@@ -751,6 +782,45 @@
         {
           "name": "system_program",
           "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "token_escrow_ata",
+          "docs": [
+            "Token escrow ATA holding reward tokens (optional)"
+          ],
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "worker_token_account",
+          "docs": [
+            "Worker's token account to receive reward (optional)"
+          ],
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "treasury_token_account",
+          "docs": [
+            "Treasury's token account for protocol fees (optional, must pre-exist)"
+          ],
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "reward_mint",
+          "docs": [
+            "SPL token mint (optional, must match task.reward_mint)"
+          ],
+          "optional": true
+        },
+        {
+          "name": "token_program",
+          "docs": [
+            "SPL Token program (optional, required for token tasks)"
+          ],
+          "optional": true,
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         }
       ],
       "args": [
@@ -965,6 +1035,45 @@
         {
           "name": "system_program",
           "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "token_escrow_ata",
+          "docs": [
+            "Token escrow ATA holding reward tokens (optional)"
+          ],
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "worker_token_account",
+          "docs": [
+            "Worker's token account to receive reward (optional)"
+          ],
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "treasury_token_account",
+          "docs": [
+            "Treasury's token account for protocol fees (optional, must pre-exist)"
+          ],
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "reward_mint",
+          "docs": [
+            "SPL token mint (optional, must match task.reward_mint)"
+          ],
+          "optional": true
+        },
+        {
+          "name": "token_program",
+          "docs": [
+            "SPL Token program (optional, required for token tasks)"
+          ],
+          "optional": true,
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         }
       ],
       "args": [
@@ -1062,11 +1171,15 @@
         {
           "name": "parent_task",
           "docs": [
-            "The parent task this new task depends on"
+            "The parent task this new task depends on",
+            "Note: Uses Box to reduce stack usage for this large account"
           ]
         },
         {
           "name": "protocol_config",
+          "docs": [
+            "Note: Uses Box to reduce stack usage for this large account"
+          ],
           "writable": true,
           "pda": {
             "seeds": [
@@ -1134,6 +1247,45 @@
         {
           "name": "system_program",
           "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "reward_mint",
+          "docs": [
+            "SPL token mint for reward denomination (optional)"
+          ],
+          "optional": true
+        },
+        {
+          "name": "creator_token_account",
+          "docs": [
+            "Creator's token account holding reward tokens (optional)"
+          ],
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "token_escrow_ata",
+          "docs": [
+            "Escrow's associated token account for holding reward tokens (optional)."
+          ],
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "token_program",
+          "docs": [
+            "SPL Token program (optional, required for token tasks)"
+          ],
+          "optional": true,
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "associated_token_program",
+          "docs": [
+            "Associated Token Account program (optional, required for token tasks)"
+          ],
+          "optional": true,
+          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
         }
       ],
       "args": [
@@ -1193,6 +1345,12 @@
         {
           "name": "min_reputation",
           "type": "u16"
+        },
+        {
+          "name": "reward_mint",
+          "type": {
+            "option": "pubkey"
+          }
         }
       ]
     },
@@ -1341,6 +1499,46 @@
         {
           "name": "system_program",
           "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "reward_mint",
+          "docs": [
+            "SPL token mint for reward denomination (optional)"
+          ],
+          "optional": true
+        },
+        {
+          "name": "creator_token_account",
+          "docs": [
+            "Creator's token account holding reward tokens (optional)"
+          ],
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "token_escrow_ata",
+          "docs": [
+            "Escrow's associated token account for holding reward tokens (optional).",
+            "Created via ATA CPI during handler if token task."
+          ],
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "token_program",
+          "docs": [
+            "SPL Token program (optional, required for token tasks)"
+          ],
+          "optional": true,
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "associated_token_program",
+          "docs": [
+            "Associated Token Account program (optional, required for token tasks)"
+          ],
+          "optional": true,
+          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
         }
       ],
       "args": [
@@ -1396,6 +1594,12 @@
         {
           "name": "min_reputation",
           "type": "u16"
+        },
+        {
+          "name": "reward_mint",
+          "type": {
+            "option": "pubkey"
+          }
         }
       ]
     },
@@ -1785,6 +1989,45 @@
           ],
           "writable": true,
           "optional": true
+        },
+        {
+          "name": "token_escrow_ata",
+          "docs": [
+            "Token escrow ATA holding reward tokens (optional)"
+          ],
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "creator_token_account",
+          "docs": [
+            "Creator's token account for refund (optional)"
+          ],
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "worker_token_account_ata",
+          "docs": [
+            "Worker's token account for payment (optional)"
+          ],
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "reward_mint",
+          "docs": [
+            "SPL token mint (optional, must match task.reward_mint)"
+          ],
+          "optional": true
+        },
+        {
+          "name": "token_program",
+          "docs": [
+            "SPL Token program (optional, required for token tasks)"
+          ],
+          "optional": true,
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         }
       ],
       "args": []
@@ -2413,6 +2656,53 @@
         {
           "name": "system_program",
           "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "token_escrow_ata",
+          "docs": [
+            "Token escrow ATA holding reward tokens (optional)"
+          ],
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "creator_token_account",
+          "docs": [
+            "Creator's token account for refund (optional)"
+          ],
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "worker_token_account_ata",
+          "docs": [
+            "Worker's token account for payment (optional)"
+          ],
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "treasury_token_account",
+          "docs": [
+            "Treasury's token account for protocol fees (optional)"
+          ],
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "reward_mint",
+          "docs": [
+            "SPL token mint (optional, must match task.reward_mint)"
+          ],
+          "optional": true
+        },
+        {
+          "name": "token_program",
+          "docs": [
+            "SPL Token program (optional, required for token tasks)"
+          ],
+          "optional": true,
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         }
       ],
       "args": []
@@ -3026,6 +3316,34 @@
                 "kind": "account",
                 "path": "worker_claim.worker",
                 "account": "TaskClaim"
+              }
+            ]
+          }
+        },
+        {
+          "name": "defendant_agent",
+          "docs": [
+            "Optional: Defendant's agent registration (for authority-level participant check, fix #824)",
+            "If provided, validates arbiter's authority is not the defendant worker's authority.",
+            "Must match the dispute's defendant field."
+          ],
+          "optional": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  103,
+                  101,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "defendant_agent.agent_id",
+                "account": "AgentRegistration"
               }
             ]
           }
@@ -4392,6 +4710,31 @@
       "code": 6141,
       "name": "DevelopmentKeyNotAllowed",
       "msg": "Development verifying key detected (gamma == delta). ZK proofs are forgeable. Run MPC ceremony before use."
+    },
+    {
+      "code": 6142,
+      "name": "SelfTaskNotAllowed",
+      "msg": "Cannot claim own task: worker authority matches task creator"
+    },
+    {
+      "code": 6143,
+      "name": "MissingTokenAccounts",
+      "msg": "Token accounts not provided for token-denominated task"
+    },
+    {
+      "code": 6144,
+      "name": "InvalidTokenEscrow",
+      "msg": "Token escrow ATA does not match expected derivation"
+    },
+    {
+      "code": 6145,
+      "name": "InvalidTokenMint",
+      "msg": "Provided mint does not match task's reward_mint"
+    },
+    {
+      "code": 6146,
+      "name": "TokenTransferFailed",
+      "msg": "SPL token transfer CPI failed"
     }
   ],
   "types": [
@@ -5092,6 +5435,15 @@
           {
             "name": "dependency_type",
             "type": "u8"
+          },
+          {
+            "name": "reward_mint",
+            "docs": [
+              "SPL token mint for reward denomination (None = SOL)"
+            ],
+            "type": {
+              "option": "pubkey"
+            }
           },
           {
             "name": "timestamp",
@@ -6493,15 +6845,14 @@
             "type": "u16"
           },
           {
-            "name": "_reserved",
+            "name": "reward_mint",
             "docs": [
-              "Reserved"
+              "Optional SPL token mint for reward denomination.",
+              "None = SOL rewards (default, backward compatible).",
+              "Some(mint) = SPL token rewards using the specified mint."
             ],
             "type": {
-              "array": [
-                "u8",
-                30
-              ]
+              "option": "pubkey"
             }
           }
         ]
@@ -6764,6 +7115,15 @@
           {
             "name": "min_reputation",
             "type": "u16"
+          },
+          {
+            "name": "reward_mint",
+            "docs": [
+              "SPL token mint for reward denomination (None = SOL)"
+            ],
+            "type": {
+              "option": "pubkey"
+            }
           },
           {
             "name": "timestamp",

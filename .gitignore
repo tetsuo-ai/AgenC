@@ -66,6 +66,11 @@ circuits/**/*.gz
 CLAUDE.md
 .mcp.json
 
+# Codex (local AI assistant config)
+.codex/
+CODEX.md
+codex.md
+
 # Cursor IDE
 .cursor/
 .cursorrules

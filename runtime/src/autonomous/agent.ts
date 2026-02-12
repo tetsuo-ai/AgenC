@@ -25,6 +25,7 @@ import { findClaimPda, findEscrowPda } from '../task/pda.js';
 import { findProtocolPda } from '../agent/pda.js';
 import { fetchTreasury } from '../utils/treasury.js';
 import { bigintsToProofHash, toAnchorBytes } from '../utils/encoding.js';
+import { buildCompleteTaskTokenAccounts } from '../utils/token.js';
 import type { AgencCoordination } from '../types/agenc_coordination.js';
 import type { Wallet } from '../types/wallet.js';
 import { ensureWallet } from '../types/wallet.js';
@@ -64,6 +65,7 @@ function createPlaceholderOnChainTask(): OnChainTask {
     completions: 0,
     requiredCompletions: 1,
     bump: 0,
+    rewardMint: null,
   } as OnChainTask;
 }
 
@@ -177,6 +179,7 @@ export class AutonomousAgent extends AgentRuntime {
     tasksCompleted: 0,
     tasksFailed: 0,
     totalEarnings: 0n,
+    earningsByMint: {},
     activeTasks: 0,
     avgCompletionTimeMs: 0,
     uptimeMs: 0,
@@ -753,6 +756,8 @@ export class AutonomousAgent extends AgentRuntime {
     this.activeTasks.delete(taskKey);
     this.stats.tasksCompleted++;
     this.stats.totalEarnings += task.reward;
+    const mintKey = task.rewardMint?.toBase58() ?? 'SOL';
+    this.stats.earningsByMint[mintKey] = (this.stats.earningsByMint[mintKey] ?? 0n) + task.reward;
 
     this.onTaskCompleted?.(task, completeTx);
     this.onEarnings?.(task.reward, task);
@@ -887,6 +892,12 @@ export class AutonomousAgent extends AgentRuntime {
     const escrowPda = findEscrowPda(task.pda, this.program.programId);
     const protocolPda = findProtocolPda(this.program.programId);
     const treasury = await this.getTreasury();
+    const tokenAccounts = buildCompleteTaskTokenAccounts(
+      task.rewardMint,
+      escrowPda,
+      this.agentWallet.publicKey,
+      treasury,
+    );
 
     // Hash the output for public completion
     const resultHash = bigintsToProofHash(output);
@@ -902,6 +913,7 @@ export class AutonomousAgent extends AgentRuntime {
         treasury,
         authority: this.agentWallet.publicKey,
         systemProgram: SystemProgram.programId,
+        ...tokenAccounts,
       })
       .rpc();
 
@@ -951,6 +963,12 @@ export class AutonomousAgent extends AgentRuntime {
     const escrowPda = findEscrowPda(task.pda, this.program.programId);
     const protocolPda = findProtocolPda(this.program.programId);
     const treasury = await this.getTreasury();
+    const tokenAccounts = buildCompleteTaskTokenAccounts(
+      task.rewardMint,
+      escrowPda,
+      this.agentWallet.publicKey,
+      treasury,
+    );
 
     const tx = await this.program.methods
       .completeTaskPrivate(new BN(0), {
@@ -968,6 +986,7 @@ export class AutonomousAgent extends AgentRuntime {
         treasury,
         authority: this.agentWallet.publicKey,
         systemProgram: SystemProgram.programId,
+        ...tokenAccounts,
       })
       .rpc();
 

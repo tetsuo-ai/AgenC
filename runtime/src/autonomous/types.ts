@@ -38,6 +38,8 @@ export interface Task {
   currentClaims: number;
   /** Task status */
   status: TaskStatus;
+  /** SPL token mint for reward denomination (null = SOL) */
+  rewardMint: PublicKey | null;
 }
 
 export enum TaskStatus {
@@ -66,6 +68,11 @@ export interface TaskFilter {
   privateOnly?: boolean;
   /** Only public tasks (zero constraint hash) */
   publicOnly?: boolean;
+  /**
+   * Accepted reward mints. null means SOL, PublicKey means that mint.
+   * Undefined (or omitted) means accept all mints.
+   */
+  acceptedMints?: (PublicKey | null)[];
   /** Custom filter function */
   custom?: (task: Task) => boolean;
 }
@@ -270,8 +277,10 @@ export interface AutonomousAgentStats {
   tasksCompleted: number;
   /** Total tasks failed */
   tasksFailed: number;
-  /** Total earnings in lamports */
+  /** Total earnings in lamports (across all mints) */
   totalEarnings: bigint;
+  /** Earnings broken down by mint (key = mint base58, "SOL" for native) */
+  earningsByMint: Record<string, bigint>;
   /** Currently active tasks */
   activeTasks: number;
   /** Average task completion time (ms) */
