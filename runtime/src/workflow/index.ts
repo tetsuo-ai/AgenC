@@ -51,6 +51,36 @@ export {
   type GoalCompilerConfig,
 } from './compiler.js';
 
+// Optimizer contracts
+export {
+  WORKFLOW_FEATURE_SCHEMA_VERSION,
+  WORKFLOW_OBJECTIVE_SCHEMA_VERSION,
+  createDefaultWorkflowObjectiveSpec,
+  validateWorkflowObjectiveSpec,
+  scoreWorkflowObjective,
+  workflowObjectiveOutcomeFromFeature,
+  parseWorkflowFeatureVector,
+  type WorkflowRunOutcome,
+  type WorkflowTopologyFeatures,
+  type WorkflowCompositionFeatures,
+  type WorkflowNodeFeature,
+  type WorkflowOutcomeLabels,
+  type WorkflowFeatureVector,
+  type LegacyWorkflowFeatureVectorV0,
+  type WorkflowObjectiveMetric,
+  type WorkflowObjectiveWeight,
+  type WorkflowObjectiveSpec,
+  type WorkflowObjectiveOutcome,
+} from './optimizer-types.js';
+
+// Optimizer feature extraction
+export {
+  WORKFLOW_TELEMETRY_KEYS,
+  extractWorkflowFeatureVector,
+  extractWorkflowFeatureVectorFromCollector,
+  type WorkflowFeatureExtractionOptions,
+} from './feature-extractor.js';
+
 // Submitter
 export { DAGSubmitter } from './submitter.js';
 
