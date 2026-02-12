@@ -1,14 +1,24 @@
 /**
- * Unit tests for TaskState enum and task helper functions.
+ * Unit tests for TaskState enum, task helper functions, and PDA derivation.
  *
  * These tests verify:
  * 1. TaskState enum values match on-chain TaskStatus
  * 2. formatTaskState() returns correct human-readable strings
- * 3. Edge cases are handled correctly
+ * 3. PDA derivation functions produce deterministic results
+ * 4. cancelTask and other task function types are exported
  */
 
 import { describe, it, expect } from 'vitest';
-import { TaskState, formatTaskState } from '../tasks';
+import { PublicKey, Keypair } from '@solana/web3.js';
+import {
+  TaskState,
+  formatTaskState,
+  deriveTaskPda,
+  deriveClaimPda,
+  deriveEscrowPda,
+  calculateEscrowFee,
+} from '../tasks';
+import { PROGRAM_ID, SEEDS } from '../constants';
 
 describe('TaskState enum', () => {
   describe('enum values match on-chain TaskStatus', () => {
@@ -40,7 +50,6 @@ describe('TaskState enum', () => {
 
   describe('enum completeness', () => {
     it('has exactly 6 states', () => {
-      // Get numeric enum values (filter out reverse mappings)
       const numericValues = Object.values(TaskState).filter(
         (v): v is number => typeof v === 'number'
       );
@@ -68,31 +77,6 @@ describe('TaskState enum', () => {
         .sort((a, b) => a - b);
 
       expect(numericValues).toEqual([0, 1, 2, 3, 4, 5]);
-    });
-  });
-
-  describe('on-chain compatibility', () => {
-    it('numeric values work with on-chain data (simulated)', () => {
-      // Simulate reading state from on-chain account
-      const onChainState = 1; // InProgress
-      const taskState = onChainState as TaskState;
-
-      expect(taskState).toBe(TaskState.InProgress);
-    });
-
-    it('handles all on-chain values correctly', () => {
-      const onChainToExpected: Array<[number, TaskState]> = [
-        [0, TaskState.Open],
-        [1, TaskState.InProgress],
-        [2, TaskState.PendingValidation],
-        [3, TaskState.Completed],
-        [4, TaskState.Cancelled],
-        [5, TaskState.Disputed],
-      ];
-
-      for (const [onChain, expected] of onChainToExpected) {
-        expect(onChain as TaskState).toBe(expected);
-      }
     });
   });
 });
@@ -137,29 +121,101 @@ describe('formatTaskState', () => {
       expect(formatTaskState(0 as TaskState)).toBe('Open');
     });
   });
+});
 
-  describe('type safety', () => {
-    it('accepts TaskState enum values', () => {
-      // This verifies TypeScript type compatibility at compile time
-      const state: TaskState = TaskState.Completed;
-      const formatted: string = formatTaskState(state);
-      expect(formatted).toBe('Completed');
+describe('PDA derivation', () => {
+  describe('deriveTaskPda', () => {
+    it('uses correct seeds: ["task", creator, taskId]', () => {
+      const creator = Keypair.generate().publicKey;
+      const taskId = new Uint8Array(32).fill(1);
+
+      const result = deriveTaskPda(creator, taskId);
+
+      // Verify by computing manually
+      const [expected] = PublicKey.findProgramAddressSync(
+        [SEEDS.TASK, creator.toBuffer(), taskId],
+        PROGRAM_ID,
+      );
+      expect(result.equals(expected)).toBe(true);
     });
 
-    it('formats all states without throwing', () => {
-      const allStates = [
-        TaskState.Open,
-        TaskState.InProgress,
-        TaskState.PendingValidation,
-        TaskState.Completed,
-        TaskState.Cancelled,
-        TaskState.Disputed,
-      ];
+    it('accepts number[] as taskId', () => {
+      const creator = Keypair.generate().publicKey;
+      const taskId = Array.from(new Uint8Array(32).fill(2));
 
-      for (const state of allStates) {
-        expect(() => formatTaskState(state)).not.toThrow();
-        expect(formatTaskState(state)).not.toBe('Unknown');
-      }
+      // Should not throw
+      const result = deriveTaskPda(creator, taskId);
+      expect(result).toBeInstanceOf(PublicKey);
     });
+
+    it('is deterministic', () => {
+      const creator = Keypair.generate().publicKey;
+      const taskId = new Uint8Array(32).fill(3);
+
+      const result1 = deriveTaskPda(creator, taskId);
+      const result2 = deriveTaskPda(creator, taskId);
+      expect(result1.equals(result2)).toBe(true);
+    });
+
+    it('different creators produce different PDAs', () => {
+      const creator1 = Keypair.generate().publicKey;
+      const creator2 = Keypair.generate().publicKey;
+      const taskId = new Uint8Array(32).fill(4);
+
+      const pda1 = deriveTaskPda(creator1, taskId);
+      const pda2 = deriveTaskPda(creator2, taskId);
+      expect(pda1.equals(pda2)).toBe(false);
+    });
+  });
+
+  describe('deriveClaimPda', () => {
+    it('uses correct seeds: ["claim", taskPda, workerAgentPda]', () => {
+      const taskPda = Keypair.generate().publicKey;
+      const workerAgentPda = Keypair.generate().publicKey;
+
+      const result = deriveClaimPda(taskPda, workerAgentPda);
+
+      const [expected] = PublicKey.findProgramAddressSync(
+        [SEEDS.CLAIM, taskPda.toBuffer(), workerAgentPda.toBuffer()],
+        PROGRAM_ID,
+      );
+      expect(result.equals(expected)).toBe(true);
+    });
+  });
+
+  describe('deriveEscrowPda', () => {
+    it('uses correct seeds: ["escrow", taskPda]', () => {
+      const taskPda = Keypair.generate().publicKey;
+
+      const result = deriveEscrowPda(taskPda);
+
+      const [expected] = PublicKey.findProgramAddressSync(
+        [SEEDS.ESCROW, taskPda.toBuffer()],
+        PROGRAM_ID,
+      );
+      expect(result.equals(expected)).toBe(true);
+    });
+  });
+});
+
+describe('calculateEscrowFee', () => {
+  it('calculates basic fee correctly', () => {
+    expect(calculateEscrowFee(1000, 1)).toBe(10); // 1% of 1000
+  });
+
+  it('returns 0 for zero escrow', () => {
+    expect(calculateEscrowFee(0)).toBe(0);
+  });
+
+  it('throws for negative escrow', () => {
+    expect(() => calculateEscrowFee(-1)).toThrow();
+  });
+
+  it('throws for NaN escrow', () => {
+    expect(() => calculateEscrowFee(NaN)).toThrow();
+  });
+
+  it('throws for overflow escrow', () => {
+    expect(() => calculateEscrowFee(Number.MAX_SAFE_INTEGER)).toThrow();
   });
 });

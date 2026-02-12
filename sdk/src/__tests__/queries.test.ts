@@ -4,7 +4,7 @@
  * These tests verify:
  * 1. TASK_FIELD_OFFSETS match the on-chain Task struct layout
  * 2. Query functions build correct memcmp filters
- * 3. Data parsing handles account data correctly
+ * 3. Data parsing handles account data correctly including new fields
  *
  * @see https://github.com/tetsuo-ai/AgenC/issues/262
  */
@@ -45,25 +45,42 @@ describe('TASK_FIELD_OFFSETS', () => {
       expect(TASK_FIELD_OFFSETS.CREATOR).toBe(40);
     });
 
-    it('DEPENDS_ON offset is 311', () => {
-      // This is the critical offset for memcmp filtering
-      // Calculated from the Task struct layout:
-      // discriminator(8) + task_id(32) + creator(32) + required_capabilities(8) +
-      // description(64) + constraint_hash(32) + reward_amount(8) + max_workers(1) +
-      // current_workers(1) + status(1) + task_type(1) + created_at(8) + deadline(8) +
-      // completed_at(8) + escrow(32) + result(64) + completions(1) +
-      // required_completions(1) + bump(1) = 311
-      expect(TASK_FIELD_OFFSETS.DEPENDS_ON).toBe(311);
+    it('BUMP offset is 310', () => {
+      expect(TASK_FIELD_OFFSETS.BUMP).toBe(310);
     });
 
-    it('DEPENDS_ON_PUBKEY offset is 312 (after Option discriminator)', () => {
+    it('PROTOCOL_FEE_BPS offset is 311 (after bump)', () => {
+      // bump(310) + 1 = 311
+      expect(TASK_FIELD_OFFSETS.PROTOCOL_FEE_BPS).toBe(311);
+    });
+
+    it('DEPENDS_ON offset is 313 (after protocol_fee_bps)', () => {
+      // protocol_fee_bps(311) + 2 = 313
+      expect(TASK_FIELD_OFFSETS.DEPENDS_ON).toBe(313);
+    });
+
+    it('DEPENDS_ON_PUBKEY offset is 314 (after Option discriminator)', () => {
       // The Pubkey value is 1 byte after the Option discriminator
-      expect(TASK_FIELD_OFFSETS.DEPENDS_ON_PUBKEY).toBe(312);
+      expect(TASK_FIELD_OFFSETS.DEPENDS_ON_PUBKEY).toBe(314);
     });
 
-    it('DEPENDENCY_TYPE offset is 344 (after depends_on)', () => {
-      // DEPENDS_ON(311) + Option<Pubkey>(33) = 344
-      expect(TASK_FIELD_OFFSETS.DEPENDENCY_TYPE).toBe(344);
+    it('DEPENDENCY_TYPE offset is 346 (after depends_on)', () => {
+      // DEPENDS_ON(313) + Option<Pubkey>(33) = 346
+      expect(TASK_FIELD_OFFSETS.DEPENDENCY_TYPE).toBe(346);
+    });
+
+    it('MIN_REPUTATION offset is 347 (after dependency_type)', () => {
+      // DEPENDENCY_TYPE(346) + 1 = 347
+      expect(TASK_FIELD_OFFSETS.MIN_REPUTATION).toBe(347);
+    });
+
+    it('REWARD_MINT offset is 349 (after min_reputation)', () => {
+      // MIN_REPUTATION(347) + 2 = 349
+      expect(TASK_FIELD_OFFSETS.REWARD_MINT).toBe(349);
+    });
+
+    it('REWARD_MINT_PUBKEY offset is 350 (after Option discriminator)', () => {
+      expect(TASK_FIELD_OFFSETS.REWARD_MINT_PUBKEY).toBe(350);
     });
   });
 
@@ -89,8 +106,11 @@ describe('TASK_FIELD_OFFSETS', () => {
         TASK_FIELD_OFFSETS.COMPLETIONS,
         TASK_FIELD_OFFSETS.REQUIRED_COMPLETIONS,
         TASK_FIELD_OFFSETS.BUMP,
+        TASK_FIELD_OFFSETS.PROTOCOL_FEE_BPS,
         TASK_FIELD_OFFSETS.DEPENDS_ON,
         TASK_FIELD_OFFSETS.DEPENDENCY_TYPE,
+        TASK_FIELD_OFFSETS.MIN_REPUTATION,
+        TASK_FIELD_OFFSETS.REWARD_MINT,
       ];
 
       for (let i = 1; i < offsets.length; i++) {
@@ -104,6 +124,17 @@ describe('TASK_FIELD_OFFSETS', () => {
       expect(TASK_FIELD_OFFSETS.CREATOR - TASK_FIELD_OFFSETS.TASK_ID).toBe(32); // task_id size
       expect(TASK_FIELD_OFFSETS.REQUIRED_CAPABILITIES - TASK_FIELD_OFFSETS.CREATOR).toBe(32); // creator (pubkey) size
       expect(TASK_FIELD_OFFSETS.DEPENDS_ON_PUBKEY - TASK_FIELD_OFFSETS.DEPENDS_ON).toBe(1); // Option discriminator size
+      expect(TASK_FIELD_OFFSETS.DEPENDS_ON - TASK_FIELD_OFFSETS.PROTOCOL_FEE_BPS).toBe(2); // protocol_fee_bps size
+      expect(TASK_FIELD_OFFSETS.DEPENDENCY_TYPE - TASK_FIELD_OFFSETS.DEPENDS_ON).toBe(33); // Option<Pubkey> size
+      expect(TASK_FIELD_OFFSETS.MIN_REPUTATION - TASK_FIELD_OFFSETS.DEPENDENCY_TYPE).toBe(1); // dependency_type size
+      expect(TASK_FIELD_OFFSETS.REWARD_MINT - TASK_FIELD_OFFSETS.MIN_REPUTATION).toBe(2); // min_reputation size
+      expect(TASK_FIELD_OFFSETS.REWARD_MINT_PUBKEY - TASK_FIELD_OFFSETS.REWARD_MINT).toBe(1); // Option discriminator size
+    });
+
+    it('total struct size matches on-chain SIZE constant', () => {
+      // Task::SIZE on-chain = 8 + 32+32+8+64+32+8+1+1+1+1+8+8+8+32+64+1+1+1+2+33+1+2+33 = 382
+      const endOfRewardMint = TASK_FIELD_OFFSETS.REWARD_MINT + 33; // Option<Pubkey>
+      expect(endOfRewardMint).toBe(382);
     });
   });
 });
@@ -161,10 +192,10 @@ describe('getTasksByDependency', () => {
     expect(result).toEqual([]);
   });
 
-  it('parses task data correctly', async () => {
-    // Create mock task account data
+  it('parses task data correctly including new fields', async () => {
     const taskPda = makeTestPubkey(2);
     const creator = makeTestPubkey(3);
+    const rewardMint = makeTestPubkey(10);
     const taskData = createMockTaskData({
       taskId: Buffer.alloc(32, 0x01),
       creator,
@@ -173,6 +204,9 @@ describe('getTasksByDependency', () => {
       rewardAmount: BigInt(1000000),
       createdAt: BigInt(1700000000),
       deadline: BigInt(1700100000),
+      protocolFeeBps: 100,
+      minReputation: 500,
+      rewardMint,
     });
 
     vi.mocked(mockConnection.getProgramAccounts).mockResolvedValue([
@@ -184,11 +218,34 @@ describe('getTasksByDependency', () => {
     expect(result).toHaveLength(1);
     expect(result[0].publicKey.equals(taskPda)).toBe(true);
     expect(result[0].creator.equals(creator)).toBe(true);
-    expect(result[0].dependsOn.equals(parentTaskPda)).toBe(true);
+    expect(result[0].dependsOn!.equals(parentTaskPda)).toBe(true);
     expect(result[0].status).toBe(TaskState.InProgress);
     expect(result[0].rewardAmount).toBe(BigInt(1000000));
     expect(result[0].createdAt).toBe(1700000000);
     expect(result[0].deadline).toBe(1700100000);
+    expect(result[0].protocolFeeBps).toBe(100);
+    expect(result[0].minReputation).toBe(500);
+    expect(result[0].rewardMint!.equals(rewardMint)).toBe(true);
+  });
+
+  it('parses task with null rewardMint (SOL task)', async () => {
+    const taskPda = makeTestPubkey(2);
+    const creator = makeTestPubkey(3);
+    const taskData = createMockTaskData({
+      taskId: Buffer.alloc(32, 0x01),
+      creator,
+      dependsOn: parentTaskPda,
+    });
+
+    vi.mocked(mockConnection.getProgramAccounts).mockResolvedValue([
+      { pubkey: taskPda, account: { data: taskData, executable: false, lamports: 0, owner: PROGRAM_ID } },
+    ]);
+
+    const result = await getTasksByDependency(mockConnection, PROGRAM_ID, parentTaskPda);
+
+    expect(result[0].rewardMint).toBeNull();
+    expect(result[0].protocolFeeBps).toBe(0);
+    expect(result[0].minReputation).toBe(0);
   });
 
   it('handles multiple dependent tasks', async () => {
@@ -243,7 +300,6 @@ describe('getDependentTaskCount', () => {
   });
 
   it('returns correct count for multiple tasks', async () => {
-    // Mock returns accounts with empty data (due to dataSlice)
     vi.mocked(mockConnection.getProgramAccounts).mockResolvedValue([
       { pubkey: makeTestPubkey(1), account: { data: Buffer.alloc(0), executable: false, lamports: 0, owner: PROGRAM_ID } },
       { pubkey: makeTestPubkey(2), account: { data: Buffer.alloc(0), executable: false, lamports: 0, owner: PROGRAM_ID } },
@@ -297,6 +353,9 @@ function createMockTaskData(params: {
   rewardAmount?: bigint;
   createdAt?: bigint;
   deadline?: bigint;
+  protocolFeeBps?: number;
+  minReputation?: number;
+  rewardMint?: PublicKey;
 }): Buffer {
   const data = Buffer.alloc(400); // Large enough for Task account
 
@@ -333,12 +392,30 @@ function createMockTaskData(params: {
     data.writeBigInt64LE(params.deadline, TASK_FIELD_OFFSETS.DEADLINE);
   }
 
-  // Write depends_on (Option<Pubkey> at offset 311)
+  // Write protocol_fee_bps (2 bytes at offset 311)
+  if (params.protocolFeeBps !== undefined) {
+    data.writeUInt16LE(params.protocolFeeBps, TASK_FIELD_OFFSETS.PROTOCOL_FEE_BPS);
+  }
+
+  // Write depends_on (Option<Pubkey> at offset 313)
   if (params.dependsOn) {
     data.writeUInt8(1, TASK_FIELD_OFFSETS.DEPENDS_ON); // Some discriminator
     params.dependsOn.toBuffer().copy(data, TASK_FIELD_OFFSETS.DEPENDS_ON_PUBKEY);
   } else {
     data.writeUInt8(0, TASK_FIELD_OFFSETS.DEPENDS_ON); // None discriminator
+  }
+
+  // Write min_reputation (2 bytes at offset 347)
+  if (params.minReputation !== undefined) {
+    data.writeUInt16LE(params.minReputation, TASK_FIELD_OFFSETS.MIN_REPUTATION);
+  }
+
+  // Write reward_mint (Option<Pubkey> at offset 349)
+  if (params.rewardMint) {
+    data.writeUInt8(1, TASK_FIELD_OFFSETS.REWARD_MINT); // Some discriminator
+    params.rewardMint.toBuffer().copy(data, TASK_FIELD_OFFSETS.REWARD_MINT_PUBKEY);
+  } else {
+    data.writeUInt8(0, TASK_FIELD_OFFSETS.REWARD_MINT); // None discriminator
   }
 
   return data;
