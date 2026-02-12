@@ -127,7 +127,9 @@ export class DisputeOperations {
     try {
       const raw = await this.program.account.dispute.fetchNullable(disputePda);
       if (!raw) return null;
-      return parseOnChainDispute(raw as Record<string, unknown>);
+      return this.enrichDisputeWithRewardMint(
+        parseOnChainDispute(raw as Record<string, unknown>),
+      );
     } catch (err) {
       this.logger.error(`Failed to fetch dispute ${disputePda.toBase58()}: ${err}`);
       throw err;
@@ -156,10 +158,15 @@ export class DisputeOperations {
    */
   async fetchAllDisputes(): Promise<Array<{ dispute: OnChainDispute; disputePda: PublicKey }>> {
     const accounts = await this.program.account.dispute.all();
-    return accounts.map((acc) => ({
-      dispute: parseOnChainDispute(acc.account as Record<string, unknown>),
-      disputePda: acc.publicKey,
-    }));
+    const parsed = await Promise.all(
+      accounts.map(async (acc) => ({
+        dispute: await this.enrichDisputeWithRewardMint(
+          parseOnChainDispute(acc.account as Record<string, unknown>),
+        ),
+        disputePda: acc.publicKey,
+      })),
+    );
+    return parsed;
   }
 
   /**
@@ -178,10 +185,14 @@ export class DisputeOperations {
             },
           },
         ]);
-        return accounts.map((acc) => ({
-          dispute: parseOnChainDispute(acc.account as Record<string, unknown>),
-          disputePda: acc.publicKey,
-        }));
+        return Promise.all(
+          accounts.map(async (acc) => ({
+            dispute: await this.enrichDisputeWithRewardMint(
+              parseOnChainDispute(acc.account as Record<string, unknown>),
+            ),
+            disputePda: acc.publicKey,
+          })),
+        );
       },
       async () => {
         const all = await this.fetchAllDisputes();
@@ -211,10 +222,14 @@ export class DisputeOperations {
             },
           },
         ]);
-        return accounts.map((acc) => ({
-          dispute: parseOnChainDispute(acc.account as Record<string, unknown>),
-          disputePda: acc.publicKey,
-        }));
+        return Promise.all(
+          accounts.map(async (acc) => ({
+            dispute: await this.enrichDisputeWithRewardMint(
+              parseOnChainDispute(acc.account as Record<string, unknown>),
+            ),
+            disputePda: acc.publicKey,
+          })),
+        );
       },
       async () => {
         const all = await this.fetchAllDisputes();
@@ -647,5 +662,19 @@ export class DisputeOperations {
       accounts.push({ pubkey: workerPda, isSigner: false, isWritable: true });
     }
     return accounts;
+  }
+
+  /**
+   * Attach the disputed task's reward mint to a parsed dispute.
+   * Falls back to null if the task cannot be fetched.
+   */
+  private async enrichDisputeWithRewardMint(dispute: OnChainDispute): Promise<OnChainDispute> {
+    try {
+      const rawTask = await this.program.account.task.fetch(dispute.task) as { rewardMint: PublicKey | null };
+      return { ...dispute, rewardMint: rawTask.rewardMint ?? null };
+    } catch (err) {
+      this.logger.warn(`Failed to fetch reward mint for dispute task ${dispute.task.toBase58()}: ${String(err)}`);
+      return { ...dispute, rewardMint: null };
+    }
   }
 }

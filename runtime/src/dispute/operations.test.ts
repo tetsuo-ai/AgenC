@@ -148,6 +148,7 @@ describe('parseOnChainDispute', () => {
     expect(parsed.expiresAt).toBe(1700172800);
     expect(parsed.workerStakeAtDispute).toBe(1000000000n);
     expect(parsed.bump).toBe(255);
+    expect(parsed.rewardMint).toBeNull();
   });
 
   it('parses enum objects correctly', () => {
@@ -349,6 +350,20 @@ describe('DisputeOperations', () => {
       expect(result).not.toBeNull();
       expect(result!.createdAt).toBe(1700000000);
       expect(result!.votesFor).toBe(100n);
+      expect(result!.rewardMint).toBeNull();
+    });
+
+    it('enriches dispute with task rewardMint', async () => {
+      const disputePda = randomPubkey();
+      const raw = mockRawDispute();
+      const mint = randomPubkey();
+      program.account.dispute.fetchNullable.mockResolvedValue(raw);
+      program.account.task.fetch.mockResolvedValue({ rewardMint: mint });
+
+      const result = await ops.fetchDispute(disputePda);
+
+      expect(result).not.toBeNull();
+      expect(result!.rewardMint?.equals(mint)).toBe(true);
     });
 
     it('returns null when not found', async () => {

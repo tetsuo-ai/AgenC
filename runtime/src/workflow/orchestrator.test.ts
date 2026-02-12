@@ -50,8 +50,9 @@ function makeDefinition(
   tasks: TaskTemplate[],
   edges: WorkflowEdge[] = [],
   id = 'test-workflow',
+  overrides: Partial<WorkflowDefinition> = {},
 ): WorkflowDefinition {
-  return { id, tasks, edges };
+  return { id, tasks, edges, ...overrides };
 }
 
 function makeMockProgram() {
@@ -439,6 +440,42 @@ describe('DAGSubmitter', () => {
     for (const node of state.nodes.values()) {
       expect(node.status).toBe(WorkflowNodeStatus.Created);
     }
+  });
+
+  it('applies workflow defaultRewardMint when node rewardMint is omitted', async () => {
+    const submitter = new DAGSubmitter({ program, agentId });
+    const defaultMint = PublicKey.unique();
+    const def = makeDefinition(
+      [makeTemplate('root')],
+      [],
+      'test-workflow',
+      { defaultRewardMint: defaultMint },
+    );
+    const state = buildTestState(def);
+
+    await submitter.submitAll(state, true);
+
+    expect(program.methods.createTask).toHaveBeenCalledOnce();
+    const args = program.methods.createTask.mock.calls[0];
+    expect(args[9].equals(defaultMint)).toBe(true);
+  });
+
+  it('prefers node rewardMint over workflow defaultRewardMint', async () => {
+    const submitter = new DAGSubmitter({ program, agentId });
+    const defaultMint = PublicKey.unique();
+    const nodeMint = PublicKey.unique();
+    const def = makeDefinition(
+      [makeTemplate('root', { rewardMint: nodeMint })],
+      [],
+      'test-workflow',
+      { defaultRewardMint: defaultMint },
+    );
+    const state = buildTestState(def);
+
+    await submitter.submitAll(state, true);
+
+    const args = program.methods.createTask.mock.calls[0];
+    expect(args[9].equals(nodeMint)).toBe(true);
   });
 });
 
