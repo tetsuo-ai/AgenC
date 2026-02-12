@@ -51,6 +51,9 @@ jobs:
       - name: Runtime typecheck
         run: npm run typecheck --prefix runtime
 
+      - name: Build runtime package
+        run: npm run build --prefix runtime
+
       - name: MCP typecheck
         run: npm run typecheck --prefix mcp
 
