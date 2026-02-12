@@ -17,6 +17,20 @@ export {
   type VerifierExecutorConfig,
 } from './verifier.js';
 export {
+  extractTaskRiskFeatures,
+  scoreTaskRisk,
+  type RiskTier,
+  type RiskFeatureVector,
+  type RiskContribution,
+  type TaskRiskScoringContext,
+  type TaskRiskScoringConfig,
+  type TaskRiskScoreResult,
+} from './risk-scoring.js';
+export {
+  allocateVerificationBudget,
+  type VerificationBudgetDecision,
+} from './verification-budget.js';
+export {
   // Types
   type Task,
   TaskStatus,
@@ -35,6 +49,8 @@ export {
   type RevisionInput,
   type RevisionCapableTaskExecutor,
   type VerifierTaskTypePolicy,
+  type VerifierAdaptiveRiskWeights,
+  type VerifierAdaptiveRiskConfig,
   type VerifierPolicyConfig,
   type VerifierEscalationMetadata,
   type VerifierLaneConfig,
