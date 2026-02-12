@@ -36,3 +36,32 @@ export {
   type TrajectoryReplayResult,
   type TrajectoryReplayConfig,
 } from './replay.js';
+
+export {
+  computePassAtK,
+  computePassCaretK,
+  getRewardTier,
+  evalRunFromReplayResult,
+  computeEvaluationScorecard,
+  recordEvaluationMetrics,
+  serializeEvaluationScorecard,
+  type RewardTier,
+  type EvalRunRecord,
+  type EvalAggregateMetrics,
+  type EvaluationScorecard,
+  type ScorecardSerializeResult,
+} from './metrics.js';
+
+export {
+  buildCalibrationBins,
+  computeExpectedCalibrationError,
+  computeMaxCalibrationError,
+  computeAgreementRate,
+  buildCalibrationReport,
+  recordCalibrationMetrics,
+  type CalibrationSample,
+  type VerdictComparison,
+  type CalibrationBin,
+  type CalibrationAggregate,
+  type CalibrationReport,
+} from './calibration.js';
