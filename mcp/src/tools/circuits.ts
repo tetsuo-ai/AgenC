@@ -44,11 +44,17 @@ function validatePath(inputPath: string | undefined, defaultDir: string): string
     throw new Error('Invalid characters in path');
   }
 
-  // Resolve relative to project root
-  if (path.isAbsolute(inputPath)) {
-    return inputPath;
+  const candidate = path.isAbsolute(inputPath)
+    ? path.resolve(inputPath)
+    : path.resolve(PROJECT_ROOT, inputPath);
+
+  // Enforce project-root confinement for both absolute and relative input.
+  const projectRoot = path.resolve(PROJECT_ROOT);
+  if (candidate !== projectRoot && !candidate.startsWith(projectRoot + path.sep)) {
+    throw new Error('Path must be inside project root');
   }
-  return path.resolve(PROJECT_ROOT, inputPath);
+
+  return candidate;
 }
 
 /**

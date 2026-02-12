@@ -109,15 +109,19 @@ pub fn handler(ctx: Context<ExpireClaim>) -> Result<()> {
     );
 
     // Claims with expires_at = 0 are invalid (shouldn't exist)
-    require!(
-        claim.expires_at > 0,
-        CoordinationError::InvalidExpiration
-    );
+    require!(claim.expires_at > 0, CoordinationError::InvalidExpiration);
 
     // Check claim has expired
     require!(
         clock.unix_timestamp > claim.expires_at,
         CoordinationError::ClaimNotExpired
+    );
+
+    // Claims involved in an active dispute must remain until dispute cleanup.
+    // This prevents claim-state desynchronization with dispute bookkeeping.
+    require!(
+        task.status != TaskStatus::Disputed,
+        CoordinationError::InvalidStatusTransition
     );
 
     // Grace period protection (Issue #421):

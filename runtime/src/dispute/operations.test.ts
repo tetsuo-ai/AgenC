@@ -61,6 +61,7 @@ function mockRawDispute(overrides: Record<string, any> = {}): Record<string, any
     workerStakeAtDispute: { toString: () => '1000000000' },
     initiatedByCreator: false,
     bump: 255,
+    defendant: randomPubkey(),
     ...overrides,
   };
 }
@@ -741,15 +742,23 @@ describe('DisputeOperations', () => {
     it('cancels dispute successfully', async () => {
       const disputePda = randomPubkey();
       const taskPda = randomPubkey();
+      const defendant = randomPubkey();
+      program.account.dispute.fetchNullable.mockResolvedValue(
+        mockRawDispute({ defendant }),
+      );
 
       const result = await ops.cancelDispute(disputePda, taskPda);
 
       expect(result.transactionSignature).toBe('mock-signature');
       expect(result.disputePda.equals(disputePda)).toBe(true);
       expect(program.methods.cancelDispute).toHaveBeenCalled();
+      expect(program._methodBuilder.remainingAccounts).toHaveBeenCalledWith([
+        { pubkey: defendant, isSigner: false, isWritable: true },
+      ]);
     });
 
     it('maps DisputeNotActive error', async () => {
+      program.account.dispute.fetchNullable.mockResolvedValue(mockRawDispute());
       program._rpcMock.mockRejectedValueOnce(anchorError(AnchorErrorCodes.DisputeNotActive));
 
       await expect(
@@ -758,6 +767,7 @@ describe('DisputeOperations', () => {
     });
 
     it('maps UnauthorizedResolver error', async () => {
+      program.account.dispute.fetchNullable.mockResolvedValue(mockRawDispute());
       program._rpcMock.mockRejectedValueOnce(anchorError(AnchorErrorCodes.UnauthorizedResolver));
 
       await expect(
