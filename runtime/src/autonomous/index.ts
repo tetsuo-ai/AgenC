@@ -31,6 +31,19 @@ export {
   type VerificationBudgetDecision,
 } from './verification-budget.js';
 export {
+  planVerifierSchedule,
+  type VerifierRouteStrategy,
+  type VerifierScheduleInput,
+  type VerifierSchedulePlan,
+} from './verifier-scheduler.js';
+export {
+  resolveEscalationTransition,
+  type EscalationTransitionState,
+  type EscalationTransitionReason,
+  type EscalationGraphInput,
+  type EscalationGraphTransition,
+} from './escalation-graph.js';
+export {
   // Types
   type Task,
   TaskStatus,

@@ -42,6 +42,8 @@ export const TELEMETRY_METRIC_NAMES = {
   VERIFIER_ADAPTIVE_MAX_DURATION_MS: 'agenc.verifier.adaptive.max_duration_ms',
   VERIFIER_ADAPTIVE_MAX_COST_LAMPORTS: 'agenc.verifier.adaptive.max_cost_lamports',
   VERIFIER_ADAPTIVE_DISABLED_TOTAL: 'agenc.verifier.adaptive.disabled.total',
+  VERIFIER_ADDED_LATENCY_BY_RISK_TIER_MS: 'agenc.verifier.added_latency_by_risk_tier_ms',
+  VERIFIER_QUALITY_LIFT_BY_RISK_TIER: 'agenc.verifier.quality_lift_by_risk_tier',
   // Eval
   EVAL_PASS_AT_K: 'agenc.eval.pass_at_k',
   EVAL_PASS_CARET_K: 'agenc.eval.pass_caret_k',
