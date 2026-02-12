@@ -251,6 +251,7 @@ describe("dispute-slash-logic (issue #136)", () => {
       const creatorAgentPda = deriveAgentPda(creatorAgentId);
       const workerAgentPda = deriveAgentPda(workerAgentId);
       const taskPda = deriveTaskPda(creator.publicKey, taskId);
+      const escrowPda = deriveEscrowPda(taskPda);
       const claimPda = deriveClaimPda(taskPda, workerAgentPda);
       const disputePda = deriveDisputePda(disputeId);
 
@@ -266,11 +267,21 @@ describe("dispute-slash-logic (issue #136)", () => {
           TASK_TYPE_EXCLUSIVE,
           null,
           0, // min_reputation
+          null, // reward_mint
         )
         .accountsPartial({
+          task: taskPda,
+          escrow: escrowPda,
+          protocolConfig: protocolPda,
           creatorAgent: creatorAgentPda,
           authority: creator.publicKey,
           creator: creator.publicKey,
+          systemProgram: SystemProgram.programId,
+          rewardMint: null,
+          creatorTokenAccount: null,
+          tokenEscrowAta: null,
+          tokenProgram: null,
+          associatedTokenProgram: null,
         })
         .signers([creator])
         .rpc();
@@ -345,6 +356,7 @@ describe("dispute-slash-logic (issue #136)", () => {
       const workerAgentPda = deriveAgentPda(workerAgentId);
       const arbiter1Pda = deriveAgentPda(arbiter1AgentId);
       const taskPda = deriveTaskPda(creator.publicKey, taskId);
+      const escrowPda = deriveEscrowPda(taskPda);
       const claimPda = deriveClaimPda(taskPda, workerAgentPda);
       const disputePda = deriveDisputePda(disputeId);
       const votePda = deriveVotePda(disputePda, arbiter1Pda);
@@ -361,11 +373,21 @@ describe("dispute-slash-logic (issue #136)", () => {
           TASK_TYPE_EXCLUSIVE,
           null,
           0, // min_reputation
+          null, // reward_mint
         )
         .accountsPartial({
+          task: taskPda,
+          escrow: escrowPda,
+          protocolConfig: protocolPda,
           creatorAgent: creatorAgentPda,
           authority: creator.publicKey,
           creator: creator.publicKey,
+          systemProgram: SystemProgram.programId,
+          rewardMint: null,
+          creatorTokenAccount: null,
+          tokenEscrowAta: null,
+          tokenProgram: null,
+          associatedTokenProgram: null,
         })
         .signers([creator])
         .rpc();
@@ -424,6 +446,7 @@ describe("dispute-slash-logic (issue #136)", () => {
           dispute: disputePda,
           task: taskPda,
           workerClaim: claimPda,
+          defendantAgent: null,
           vote: votePda,
           authorityVote: authorityVotePda,
           arbiter: arbiter1Pda,
@@ -539,6 +562,7 @@ describe("dispute-slash-logic (issue #136)", () => {
       const workerAgentPda = deriveAgentPda(workerAgentId);
       const workerBPda = deriveAgentPda(workerBAgentId);
       const taskPda = deriveTaskPda(creator.publicKey, taskId);
+      const escrowPda = deriveEscrowPda(taskPda);
       const claimAPda = deriveClaimPda(taskPda, workerAgentPda);
       const claimBPda = deriveClaimPda(taskPda, workerBPda);
       const disputePda = deriveDisputePda(disputeId);
@@ -555,11 +579,21 @@ describe("dispute-slash-logic (issue #136)", () => {
           TASK_TYPE_COLLABORATIVE,
           null,
           0, // min_reputation
+          null, // reward_mint
         )
         .accountsPartial({
+          task: taskPda,
+          escrow: escrowPda,
+          protocolConfig: protocolPda,
           creatorAgent: creatorAgentPda,
           authority: creator.publicKey,
           creator: creator.publicKey,
+          systemProgram: SystemProgram.programId,
+          rewardMint: null,
+          creatorTokenAccount: null,
+          tokenEscrowAta: null,
+          tokenProgram: null,
+          associatedTokenProgram: null,
         })
         .signers([creator])
         .rpc();

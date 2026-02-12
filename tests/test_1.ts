@@ -379,6 +379,7 @@ describe("test_1", () => {
           TASK_TYPE_EXCLUSIVE,
           null,  // constraint_hash
           0, // min_reputation
+          null, // reward_mint
         )
         .accountsPartial({
           task: taskPda,
@@ -388,6 +389,11 @@ describe("test_1", () => {
           authority: creator.publicKey,
           creator: creator.publicKey,
           systemProgram: SystemProgram.programId,
+          rewardMint: null,
+          creatorTokenAccount: null,
+          tokenEscrowAta: null,
+          tokenProgram: null,
+          associatedTokenProgram: null,
         })
         .signers([creator])
         .rpc();
@@ -414,6 +420,7 @@ describe("test_1", () => {
           TASK_TYPE_COLLABORATIVE,
           null,  // constraint_hash
           0, // min_reputation
+          null, // reward_mint
         )
         .accountsPartial({
           task: taskPda,
@@ -423,6 +430,11 @@ describe("test_1", () => {
           authority: creator.publicKey,
           creator: creator.publicKey,
           systemProgram: SystemProgram.programId,
+          rewardMint: null,
+          creatorTokenAccount: null,
+          tokenEscrowAta: null,
+          tokenProgram: null,
+          associatedTokenProgram: null,
         })
         .signers([creator])
         .rpc();
@@ -449,6 +461,7 @@ describe("test_1", () => {
           TASK_TYPE_COMPETITIVE,
           null,  // constraint_hash
           0, // min_reputation
+          null, // reward_mint
         )
         .accountsPartial({
           task: taskPda,
@@ -458,6 +471,11 @@ describe("test_1", () => {
           authority: creator.publicKey,
           creator: creator.publicKey,
           systemProgram: SystemProgram.programId,
+          rewardMint: null,
+          creatorTokenAccount: null,
+          tokenEscrowAta: null,
+          tokenProgram: null,
+          associatedTokenProgram: null,
         })
         .signers([creator])
         .rpc();
@@ -486,6 +504,7 @@ describe("test_1", () => {
           TASK_TYPE_EXCLUSIVE,
           null,  // constraint_hash
           0, // min_reputation
+          null, // reward_mint
         )
         .accountsPartial({
           task: taskPda,
@@ -495,6 +514,11 @@ describe("test_1", () => {
           authority: creator.publicKey,
           creator: creator.publicKey,
           systemProgram: SystemProgram.programId,
+          rewardMint: null,
+          creatorTokenAccount: null,
+          tokenEscrowAta: null,
+          tokenProgram: null,
+          associatedTokenProgram: null,
         })
         .signers([creator])
         .rpc();
@@ -526,6 +550,7 @@ describe("test_1", () => {
             TASK_TYPE_EXCLUSIVE,
             null,  // constraint_hash
             0, // min_reputation
+            null, // reward_mint
           )
           .accountsPartial({
             task: taskPda,
@@ -535,6 +560,11 @@ describe("test_1", () => {
             authority: creator.publicKey,
             creator: creator.publicKey,
             systemProgram: SystemProgram.programId,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
           })
           .signers([creator])
           .rpc();
@@ -565,6 +595,7 @@ describe("test_1", () => {
             TASK_TYPE_EXCLUSIVE,
             null,
             0, // min_reputation
+            null, // reward_mint
           )
           .accountsPartial({
             task: taskPda,
@@ -574,6 +605,11 @@ describe("test_1", () => {
             authority: creator.publicKey,
             creator: unauthorized.publicKey,
             systemProgram: SystemProgram.programId,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
           })
           .signers([unauthorized, creator])
           .rpc();
@@ -602,6 +638,7 @@ describe("test_1", () => {
             TASK_TYPE_EXCLUSIVE,
             null,
             0, // min_reputation
+            null, // reward_mint
           )
           .accountsPartial({
             task: taskPda,
@@ -611,6 +648,11 @@ describe("test_1", () => {
             authority: creator.publicKey,
             creator: creator.publicKey,
             systemProgram: SystemProgram.programId,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
           })
           .signers([creator])
           .rpc();
@@ -641,6 +683,7 @@ describe("test_1", () => {
             TASK_TYPE_EXCLUSIVE,
             null,
             0, // min_reputation
+            null, // reward_mint
           )
           .accountsPartial({
             task: taskPda,
@@ -650,6 +693,11 @@ describe("test_1", () => {
             authority: creator.publicKey,
             creator: creator.publicKey,
             systemProgram: SystemProgram.programId,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
           })
           .signers([creator])
           .rpc();
@@ -678,6 +726,7 @@ describe("test_1", () => {
             99,
             null,
             0, // min_reputation
+            null, // reward_mint
           )
           .accountsPartial({
             task: taskPda,
@@ -687,6 +736,11 @@ describe("test_1", () => {
             authority: creator.publicKey,
             creator: creator.publicKey,
             systemProgram: SystemProgram.programId,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
           })
           .signers([creator])
           .rpc();
@@ -717,6 +771,7 @@ describe("test_1", () => {
           TASK_TYPE_EXCLUSIVE,
           null,  // constraint_hash
           0, // min_reputation
+          null, // reward_mint
         )
         .accountsPartial({
           task: taskPda,
@@ -726,6 +781,11 @@ describe("test_1", () => {
           authority: creator.publicKey,
           creator: creator.publicKey,
           systemProgram: SystemProgram.programId,
+          rewardMint: null,
+          creatorTokenAccount: null,
+          tokenEscrowAta: null,
+          tokenProgram: null,
+          associatedTokenProgram: null,
         })
         .signers([creator])
         .rpc();
@@ -766,6 +826,7 @@ describe("test_1", () => {
           TASK_TYPE_COLLABORATIVE,
           null,  // constraint_hash
           0, // min_reputation
+          null, // reward_mint
         )
         .accountsPartial({
           task: taskPda,
@@ -775,6 +836,11 @@ describe("test_1", () => {
           authority: creator.publicKey,
           creator: creator.publicKey,
           systemProgram: SystemProgram.programId,
+          rewardMint: null,
+          creatorTokenAccount: null,
+          tokenEscrowAta: null,
+          tokenProgram: null,
+          associatedTokenProgram: null,
         })
         .signers([creator])
         .rpc();
@@ -827,6 +893,7 @@ describe("test_1", () => {
           TASK_TYPE_COLLABORATIVE,
           null,  // constraint_hash
           0, // min_reputation
+          null, // reward_mint
         )
         .accountsPartial({
           task: taskPda,
@@ -836,6 +903,11 @@ describe("test_1", () => {
           authority: creator.publicKey,
           creator: creator.publicKey,
           systemProgram: SystemProgram.programId,
+          rewardMint: null,
+          creatorTokenAccount: null,
+          tokenEscrowAta: null,
+          tokenProgram: null,
+          associatedTokenProgram: null,
         })
         .signers([creator])
         .rpc();
@@ -904,6 +976,7 @@ describe("test_1", () => {
           TASK_TYPE_EXCLUSIVE,
           null,  // constraint_hash
           0, // min_reputation
+          null, // reward_mint
         )
         .accountsPartial({
           task: taskPda,
@@ -913,6 +986,11 @@ describe("test_1", () => {
           authority: creator.publicKey,
           creator: creator.publicKey,
           systemProgram: SystemProgram.programId,
+          rewardMint: null,
+          creatorTokenAccount: null,
+          tokenEscrowAta: null,
+          tokenProgram: null,
+          associatedTokenProgram: null,
         })
         .signers([creator])
         .rpc();
@@ -966,6 +1044,7 @@ describe("test_1", () => {
           TASK_TYPE_EXCLUSIVE,
           null,  // constraint_hash
           0, // min_reputation
+          null, // reward_mint
         )
         .accountsPartial({
           task: taskPda,
@@ -975,6 +1054,11 @@ describe("test_1", () => {
           authority: creator.publicKey,
           creator: creator.publicKey,
           systemProgram: SystemProgram.programId,
+          rewardMint: null,
+          creatorTokenAccount: null,
+          tokenEscrowAta: null,
+          tokenProgram: null,
+          associatedTokenProgram: null,
         })
         .signers([creator])
         .rpc();
@@ -1021,6 +1105,7 @@ describe("test_1", () => {
           TASK_TYPE_EXCLUSIVE,
           null,  // constraint_hash
           0, // min_reputation
+          null, // reward_mint
         )
         .accountsPartial({
           task: taskPda,
@@ -1030,6 +1115,11 @@ describe("test_1", () => {
           authority: creator.publicKey,
           creator: creator.publicKey,
           systemProgram: SystemProgram.programId,
+          rewardMint: null,
+          creatorTokenAccount: null,
+          tokenEscrowAta: null,
+          tokenProgram: null,
+          associatedTokenProgram: null,
         })
         .signers([creator])
         .rpc();
@@ -1074,6 +1164,7 @@ describe("test_1", () => {
           TASK_TYPE_EXCLUSIVE,
           null,  // constraint_hash
           0, // min_reputation
+          null, // reward_mint
         )
         .accountsPartial({
           task: taskPda,
@@ -1083,6 +1174,11 @@ describe("test_1", () => {
           authority: creator.publicKey,
           creator: creator.publicKey,
           systemProgram: SystemProgram.programId,
+          rewardMint: null,
+          creatorTokenAccount: null,
+          tokenEscrowAta: null,
+          tokenProgram: null,
+          associatedTokenProgram: null,
         })
         .signers([creator])
         .rpc();
@@ -1111,6 +1207,11 @@ describe("test_1", () => {
           protocolConfig: protocolPda,
           treasury: treasuryPubkey,
           authority: worker1.wallet.publicKey,
+          tokenEscrowAta: null,
+          workerTokenAccount: null,
+          treasuryTokenAccount: null,
+          rewardMint: null,
+          tokenProgram: null,
         })
         .signers([worker1.wallet])
         .rpc();
@@ -1154,6 +1255,7 @@ describe("test_1", () => {
           TASK_TYPE_EXCLUSIVE,
           null,  // constraint_hash
           0, // min_reputation
+          null, // reward_mint
         )
         .accountsPartial({
           task: taskPda,
@@ -1163,6 +1265,11 @@ describe("test_1", () => {
           authority: creator.publicKey,
           creator: creator.publicKey,
           systemProgram: SystemProgram.programId,
+          rewardMint: null,
+          creatorTokenAccount: null,
+          tokenEscrowAta: null,
+          tokenProgram: null,
+          associatedTokenProgram: null,
         })
         .signers([creator])
         .rpc();
@@ -1175,6 +1282,10 @@ describe("test_1", () => {
           creator: creator.publicKey,
           protocolConfig: protocolPda,
           systemProgram: SystemProgram.programId,
+          tokenEscrowAta: null,
+          creatorTokenAccount: null,
+          rewardMint: null,
+          tokenProgram: null,
         })
         .signers([creator])
         .rpc();
@@ -1220,6 +1331,7 @@ describe("test_1", () => {
             TASK_TYPE_EXCLUSIVE,
             null,
             0, // min_reputation
+            null, // reward_mint
           )
           .accountsPartial({
             task: taskPda,
@@ -1229,6 +1341,11 @@ describe("test_1", () => {
             authority: creator.publicKey,
             creator: creator.publicKey,
             systemProgram: SystemProgram.programId,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
           })
           .signers([creator])
           .rpc();
@@ -1259,6 +1376,7 @@ describe("test_1", () => {
           TASK_TYPE_COLLABORATIVE,
           null,  // constraint_hash
           0, // min_reputation
+          null, // reward_mint
         )
         .accountsPartial({
           task: taskPda,
@@ -1268,6 +1386,11 @@ describe("test_1", () => {
           authority: creator.publicKey,
           creator: creator.publicKey,
           systemProgram: SystemProgram.programId,
+          rewardMint: null,
+          creatorTokenAccount: null,
+          tokenEscrowAta: null,
+          tokenProgram: null,
+          associatedTokenProgram: null,
         })
         .signers([creator])
         .rpc();
@@ -1336,6 +1459,7 @@ describe("test_1", () => {
           TASK_TYPE_EXCLUSIVE,
           null,  // constraint_hash
           0, // min_reputation
+          null, // reward_mint
         )
         .accountsPartial({
           task: taskPda,
@@ -1345,6 +1469,11 @@ describe("test_1", () => {
           authority: creator.publicKey,
           creator: creator.publicKey,
           systemProgram: SystemProgram.programId,
+          rewardMint: null,
+          creatorTokenAccount: null,
+          tokenEscrowAta: null,
+          tokenProgram: null,
+          associatedTokenProgram: null,
         })
         .signers([creator])
         .rpc();
@@ -1394,6 +1523,7 @@ describe("test_1", () => {
           TASK_TYPE_EXCLUSIVE,
           null,  // constraint_hash
           0, // min_reputation
+          null, // reward_mint
         )
         .accountsPartial({
           task: taskPda,
@@ -1403,6 +1533,11 @@ describe("test_1", () => {
           authority: creator.publicKey,
           creator: creator.publicKey,
           systemProgram: SystemProgram.programId,
+          rewardMint: null,
+          creatorTokenAccount: null,
+          tokenEscrowAta: null,
+          tokenProgram: null,
+          associatedTokenProgram: null,
         })
         .signers([creator])
         .rpc();
@@ -1431,6 +1566,11 @@ describe("test_1", () => {
           protocolConfig: protocolPda,
           treasury: treasuryPubkey,
           authority: worker1.wallet.publicKey,
+          tokenEscrowAta: null,
+          workerTokenAccount: null,
+          treasuryTokenAccount: null,
+          rewardMint: null,
+          tokenProgram: null,
         })
         .signers([worker1.wallet])
         .rpc();
@@ -1474,6 +1614,7 @@ describe("test_1", () => {
           TASK_TYPE_EXCLUSIVE,
           null,  // constraint_hash
           0, // min_reputation
+          null, // reward_mint
         )
         .accountsPartial({
           task: taskPda,
@@ -1483,6 +1624,11 @@ describe("test_1", () => {
           authority: creator.publicKey,
           creator: creator.publicKey,
           systemProgram: SystemProgram.programId,
+          rewardMint: null,
+          creatorTokenAccount: null,
+          tokenEscrowAta: null,
+          tokenProgram: null,
+          associatedTokenProgram: null,
         })
         .signers([creator])
         .rpc();
@@ -1495,6 +1641,10 @@ describe("test_1", () => {
           creator: creator.publicKey,
           protocolConfig: protocolPda,
           systemProgram: SystemProgram.programId,
+          tokenEscrowAta: null,
+          creatorTokenAccount: null,
+          rewardMint: null,
+          tokenProgram: null,
         })
         .signers([creator])
         .rpc();
@@ -1538,6 +1688,7 @@ describe("test_1", () => {
           TASK_TYPE_EXCLUSIVE,
           null,  // constraint_hash
           0, // min_reputation
+          null, // reward_mint
         )
         .accountsPartial({
           task: taskPda,
@@ -1547,6 +1698,11 @@ describe("test_1", () => {
           authority: creator.publicKey,
           creator: creator.publicKey,
           systemProgram: SystemProgram.programId,
+          rewardMint: null,
+          creatorTokenAccount: null,
+          tokenEscrowAta: null,
+          tokenProgram: null,
+          associatedTokenProgram: null,
         })
         .signers([creator])
         .rpc();
@@ -1588,6 +1744,7 @@ describe("test_1", () => {
           TASK_TYPE_COLLABORATIVE,
           null,  // constraint_hash
           0, // min_reputation
+          null, // reward_mint
         )
         .accountsPartial({
           task: taskPda,
@@ -1597,6 +1754,11 @@ describe("test_1", () => {
           authority: creator.publicKey,
           creator: creator.publicKey,
           systemProgram: SystemProgram.programId,
+          rewardMint: null,
+          creatorTokenAccount: null,
+          tokenEscrowAta: null,
+          tokenProgram: null,
+          associatedTokenProgram: null,
         })
         .signers([creator])
         .rpc();
@@ -1666,6 +1828,7 @@ describe("test_1", () => {
           TASK_TYPE_COLLABORATIVE,
           null,  // constraint_hash
           0, // min_reputation
+          null, // reward_mint
         )
         .accountsPartial({
           task: taskPda,
@@ -1675,6 +1838,11 @@ describe("test_1", () => {
           authority: creator.publicKey,
           creator: creator.publicKey,
           systemProgram: SystemProgram.programId,
+          rewardMint: null,
+          creatorTokenAccount: null,
+          tokenEscrowAta: null,
+          tokenProgram: null,
+          associatedTokenProgram: null,
         })
         .signers([creator])
         .rpc();
@@ -1731,6 +1899,7 @@ describe("test_1", () => {
           TASK_TYPE_COLLABORATIVE,
           null,  // constraint_hash
           0, // min_reputation
+          null, // reward_mint
         )
         .accountsPartial({
           task: taskPda,
@@ -1740,6 +1909,11 @@ describe("test_1", () => {
           authority: creator.publicKey,
           creator: creator.publicKey,
           systemProgram: SystemProgram.programId,
+          rewardMint: null,
+          creatorTokenAccount: null,
+          tokenEscrowAta: null,
+          tokenProgram: null,
+          associatedTokenProgram: null,
         })
         .signers([creator])
         .rpc();
@@ -1773,6 +1947,7 @@ describe("test_1", () => {
           TASK_TYPE_EXCLUSIVE,
           null,  // constraint_hash
           0, // min_reputation
+          null, // reward_mint
         )
         .accountsPartial({
           task: taskPda,
@@ -1782,6 +1957,11 @@ describe("test_1", () => {
           authority: creator.publicKey,
           creator: creator.publicKey,
           systemProgram: SystemProgram.programId,
+          rewardMint: null,
+          creatorTokenAccount: null,
+          tokenEscrowAta: null,
+          tokenProgram: null,
+          associatedTokenProgram: null,
         })
         .signers([creator])
         .rpc();
@@ -1815,6 +1995,11 @@ describe("test_1", () => {
           treasury: treasuryPubkey,
           authority: worker.wallet.publicKey,
           systemProgram: SystemProgram.programId,
+          tokenEscrowAta: null,
+          workerTokenAccount: null,
+          treasuryTokenAccount: null,
+          rewardMint: null,
+          tokenProgram: null,
         })
         .signers([worker.wallet])
         .rpc();
@@ -1856,6 +2041,7 @@ describe("test_1", () => {
           TASK_TYPE_EXCLUSIVE,
           null,  // constraint_hash
           0, // min_reputation
+          null, // reward_mint
         )
         .accountsPartial({
           task: taskPda,
@@ -1865,6 +2051,11 @@ describe("test_1", () => {
           authority: creator.publicKey,
           creator: creator.publicKey,
           systemProgram: SystemProgram.programId,
+          rewardMint: null,
+          creatorTokenAccount: null,
+          tokenEscrowAta: null,
+          tokenProgram: null,
+          associatedTokenProgram: null,
         })
         .signers([creator])
         .rpc();
@@ -1955,6 +2146,7 @@ describe("test_1", () => {
             TASK_TYPE_EXCLUSIVE,
             null,
             0, // min_reputation
+            null, // reward_mint
           )
           .accountsPartial({
             task: taskPda,
@@ -1964,6 +2156,11 @@ describe("test_1", () => {
             authority: creator.publicKey,
             creator: creator.publicKey,
             systemProgram: SystemProgram.programId,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
           })
           .signers([creator])
           .rpc();
@@ -2008,6 +2205,7 @@ describe("test_1", () => {
             TASK_TYPE_EXCLUSIVE,
             null,
             0, // min_reputation
+            null, // reward_mint
           )
           .accountsPartial({
             task: taskPda,
@@ -2017,6 +2215,11 @@ describe("test_1", () => {
             authority: creator.publicKey,
             creator: creator.publicKey,
             systemProgram: SystemProgram.programId,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
           })
           .signers([creator])
           .rpc();
@@ -2051,6 +2254,11 @@ describe("test_1", () => {
             treasury: treasuryPubkey,
             authority: worker.wallet.publicKey,
             systemProgram: SystemProgram.programId,
+            tokenEscrowAta: null,
+            workerTokenAccount: null,
+            treasuryTokenAccount: null,
+            rewardMint: null,
+            tokenProgram: null,
           })
           .signers([worker.wallet])
           .rpc();
@@ -2076,6 +2284,7 @@ describe("test_1", () => {
             TASK_TYPE_EXCLUSIVE,
             null,
             0, // min_reputation
+            null, // reward_mint
           )
           .accountsPartial({
             task: taskPda,
@@ -2085,6 +2294,11 @@ describe("test_1", () => {
             authority: creator.publicKey,
             creator: creator.publicKey,
             systemProgram: SystemProgram.programId,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
           })
           .signers([creator])
           .rpc();
@@ -2102,6 +2316,10 @@ describe("test_1", () => {
             creator: creator.publicKey,
             protocolConfig: protocolPda,
             systemProgram: SystemProgram.programId,
+            tokenEscrowAta: null,
+            creatorTokenAccount: null,
+            rewardMint: null,
+            tokenProgram: null,
           })
           .signers([creator])
           .rpc();
@@ -2134,6 +2352,7 @@ describe("test_1", () => {
             TASK_TYPE_COLLABORATIVE,
             null,
             0, // min_reputation
+            null, // reward_mint
           )
           .accountsPartial({
             task: taskPda,
@@ -2143,6 +2362,11 @@ describe("test_1", () => {
             authority: creator.publicKey,
             creator: creator.publicKey,
             systemProgram: SystemProgram.programId,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
           })
           .signers([creator])
           .rpc();
@@ -2188,6 +2412,10 @@ describe("test_1", () => {
             creator: creator.publicKey,
             protocolConfig: protocolPda,
             systemProgram: SystemProgram.programId,
+            tokenEscrowAta: null,
+            creatorTokenAccount: null,
+            rewardMint: null,
+            tokenProgram: null,
           })
           .remainingAccounts([
             { pubkey: claimPda, isSigner: false, isWritable: true },
@@ -2221,6 +2449,7 @@ describe("test_1", () => {
             TASK_TYPE_EXCLUSIVE,
             null,
             0, // min_reputation
+            null, // reward_mint
           )
           .accountsPartial({
             task: taskPda,
@@ -2230,6 +2459,11 @@ describe("test_1", () => {
             authority: creator.publicKey,
             creator: creator.publicKey,
             systemProgram: SystemProgram.programId,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
           })
           .signers([creator])
           .rpc();
@@ -2260,6 +2494,11 @@ describe("test_1", () => {
             treasury: treasuryPubkey,
             authority: worker1.wallet.publicKey,
             systemProgram: SystemProgram.programId,
+            tokenEscrowAta: null,
+            workerTokenAccount: null,
+            treasuryTokenAccount: null,
+            rewardMint: null,
+            tokenProgram: null,
           })
           .signers([worker1.wallet])
           .rpc();
@@ -2307,6 +2546,7 @@ describe("test_1", () => {
             TASK_TYPE_EXCLUSIVE,
             null,
             0, // min_reputation
+            null, // reward_mint
           )
           .accountsPartial({
             task: taskPda,
@@ -2316,6 +2556,11 @@ describe("test_1", () => {
             authority: creator.publicKey,
             creator: creator.publicKey,
             systemProgram: SystemProgram.programId,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
           })
           .signers([creator])
           .rpc();
@@ -2345,6 +2590,11 @@ describe("test_1", () => {
             treasury: treasuryPubkey,
             authority: worker.wallet.publicKey,
             systemProgram: SystemProgram.programId,
+            tokenEscrowAta: null,
+            workerTokenAccount: null,
+            treasuryTokenAccount: null,
+            rewardMint: null,
+            tokenProgram: null,
           })
           .signers([worker.wallet])
           .rpc();
@@ -2359,6 +2609,10 @@ describe("test_1", () => {
               creator: creator.publicKey,
               protocolConfig: protocolPda,
               systemProgram: SystemProgram.programId,
+              tokenEscrowAta: null,
+              creatorTokenAccount: null,
+              rewardMint: null,
+              tokenProgram: null,
             })
             .signers([creator])
             .rpc();
@@ -2387,6 +2641,7 @@ describe("test_1", () => {
             TASK_TYPE_EXCLUSIVE,
             null,
             0, // min_reputation
+            null, // reward_mint
           )
           .accountsPartial({
             task: taskPda,
@@ -2396,6 +2651,11 @@ describe("test_1", () => {
             authority: creator.publicKey,
             creator: creator.publicKey,
             systemProgram: SystemProgram.programId,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
           })
           .signers([creator])
           .rpc();
@@ -2409,6 +2669,10 @@ describe("test_1", () => {
             creator: creator.publicKey,
             protocolConfig: protocolPda,
             systemProgram: SystemProgram.programId,
+            tokenEscrowAta: null,
+            creatorTokenAccount: null,
+            rewardMint: null,
+            tokenProgram: null,
           })
           .signers([creator])
           .rpc();
@@ -2456,6 +2720,7 @@ describe("test_1", () => {
             TASK_TYPE_COLLABORATIVE,
             null,
             0, // min_reputation
+            null, // reward_mint
           )
           .accountsPartial({
             task: taskPda,
@@ -2465,6 +2730,11 @@ describe("test_1", () => {
             authority: creator.publicKey,
             creator: creator.publicKey,
             systemProgram: SystemProgram.programId,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
           })
           .signers([creator])
           .rpc();
@@ -2508,6 +2778,7 @@ describe("test_1", () => {
             TASK_TYPE_EXCLUSIVE,
             null,
             0, // min_reputation
+            null, // reward_mint
           )
           .accountsPartial({
             task: taskPda,
@@ -2517,6 +2788,11 @@ describe("test_1", () => {
             authority: creator.publicKey,
             creator: creator.publicKey,
             systemProgram: SystemProgram.programId,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
           })
           .signers([creator])
           .rpc();
@@ -2530,6 +2806,10 @@ describe("test_1", () => {
             creator: creator.publicKey,
             protocolConfig: protocolPda,
             systemProgram: SystemProgram.programId,
+            tokenEscrowAta: null,
+            creatorTokenAccount: null,
+            rewardMint: null,
+            tokenProgram: null,
           })
           .signers([creator])
           .rpc();
@@ -2544,6 +2824,10 @@ describe("test_1", () => {
               creator: creator.publicKey,
               protocolConfig: protocolPda,
               systemProgram: SystemProgram.programId,
+              tokenEscrowAta: null,
+              creatorTokenAccount: null,
+              rewardMint: null,
+              tokenProgram: null,
             })
             .signers([creator])
             .rpc();
@@ -2572,6 +2856,7 @@ describe("test_1", () => {
             TASK_TYPE_COLLABORATIVE,
             null,
             0, // min_reputation
+            null, // reward_mint
           )
           .accountsPartial({
             task: taskPda,
@@ -2581,6 +2866,11 @@ describe("test_1", () => {
             authority: creator.publicKey,
             creator: creator.publicKey,
             systemProgram: SystemProgram.programId,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
           })
           .signers([creator])
           .rpc();
@@ -2626,6 +2916,7 @@ describe("test_1", () => {
             TASK_TYPE_COLLABORATIVE,
             null,
             0, // min_reputation
+            null, // reward_mint
           )
           .accountsPartial({
             task: taskPda,
@@ -2635,6 +2926,11 @@ describe("test_1", () => {
             authority: creator.publicKey,
             creator: creator.publicKey,
             systemProgram: SystemProgram.programId,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
           })
           .signers([creator])
           .rpc();
@@ -2679,6 +2975,11 @@ describe("test_1", () => {
             treasury: treasuryPubkey,
             authority: worker1.wallet.publicKey,
             systemProgram: SystemProgram.programId,
+            tokenEscrowAta: null,
+            workerTokenAccount: null,
+            treasuryTokenAccount: null,
+            rewardMint: null,
+            tokenProgram: null,
           })
           .signers([worker1.wallet])
           .rpc();
@@ -2697,6 +2998,11 @@ describe("test_1", () => {
               treasury: treasuryPubkey,
               authority: worker1.wallet.publicKey,
               systemProgram: SystemProgram.programId,
+              tokenEscrowAta: null,
+              workerTokenAccount: null,
+              treasuryTokenAccount: null,
+              rewardMint: null,
+              tokenProgram: null,
             })
             .signers([worker1.wallet])
             .rpc();
@@ -2727,6 +3033,7 @@ describe("test_1", () => {
             TASK_TYPE_EXCLUSIVE,
             null,
             0, // min_reputation
+            null, // reward_mint
           )
           .accountsPartial({
             task: taskPda,
@@ -2736,6 +3043,11 @@ describe("test_1", () => {
             authority: creator.publicKey,
             creator: creator.publicKey,
             systemProgram: SystemProgram.programId,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
           })
           .signers([creator])
           .rpc();
@@ -2765,6 +3077,11 @@ describe("test_1", () => {
             treasury: treasuryPubkey,
             authority: worker.wallet.publicKey,
             systemProgram: SystemProgram.programId,
+            tokenEscrowAta: null,
+            workerTokenAccount: null,
+            treasuryTokenAccount: null,
+            rewardMint: null,
+            tokenProgram: null,
           })
           .signers([worker.wallet])
           .rpc();
@@ -2793,6 +3110,7 @@ describe("test_1", () => {
             TASK_TYPE_EXCLUSIVE,
             null,
             0, // min_reputation
+            null, // reward_mint
           )
           .accountsPartial({
             task: taskPda,
@@ -2802,6 +3120,11 @@ describe("test_1", () => {
             authority: creator.publicKey,
             creator: creator.publicKey,
             systemProgram: SystemProgram.programId,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
           })
           .signers([creator])
           .rpc();
@@ -2814,6 +3137,10 @@ describe("test_1", () => {
             creator: creator.publicKey,
             protocolConfig: protocolPda,
             systemProgram: SystemProgram.programId,
+            tokenEscrowAta: null,
+            creatorTokenAccount: null,
+            rewardMint: null,
+            tokenProgram: null,
           })
           .signers([creator])
           .rpc();
@@ -2986,6 +3313,7 @@ describe("test_1", () => {
               TASK_TYPE_EXCLUSIVE,
               null,
               0, // min_reputation
+              null, // reward_mint
             )
             .accountsPartial({
               task: taskPda,
@@ -2995,6 +3323,11 @@ describe("test_1", () => {
               authority: creator.publicKey,
               creator: creator.publicKey,
               systemProgram: SystemProgram.programId,
+              rewardMint: null,
+              creatorTokenAccount: null,
+              tokenEscrowAta: null,
+              tokenProgram: null,
+              associatedTokenProgram: null,
             })
             .signers([creator])
             .rpc();
@@ -3024,6 +3357,7 @@ describe("test_1", () => {
             TASK_TYPE_EXCLUSIVE,
             null,
             0, // min_reputation
+            null, // reward_mint
           )
           .accountsPartial({
             task: taskPda,
@@ -3033,6 +3367,11 @@ describe("test_1", () => {
             authority: creator.publicKey,
             creator: creator.publicKey,
             systemProgram: SystemProgram.programId,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
           })
           .signers([creator])
           .rpc();
@@ -3076,6 +3415,7 @@ describe("test_1", () => {
             TASK_TYPE_EXCLUSIVE,
             null,
             0, // min_reputation
+            null, // reward_mint
           )
           .accountsPartial({
             task: taskPda,
@@ -3085,6 +3425,11 @@ describe("test_1", () => {
             authority: creator.publicKey,
             creator: creator.publicKey,
             systemProgram: SystemProgram.programId,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
           })
           .signers([creator])
           .rpc();
@@ -3132,6 +3477,7 @@ describe("test_1", () => {
             TASK_TYPE_EXCLUSIVE,
             null,
             0, // min_reputation
+            null, // reward_mint
           )
           .accountsPartial({
             task: taskPda,
@@ -3141,6 +3487,11 @@ describe("test_1", () => {
             authority: creator.publicKey,
             creator: creator.publicKey,
             systemProgram: SystemProgram.programId,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
           })
           .signers([creator])
           .rpc();
@@ -3172,6 +3523,11 @@ describe("test_1", () => {
               treasury: treasuryPubkey,
               authority: worker2.wallet.publicKey, // But worker2 signing
               systemProgram: SystemProgram.programId,
+              tokenEscrowAta: null,
+              workerTokenAccount: null,
+              treasuryTokenAccount: null,
+              rewardMint: null,
+              tokenProgram: null,
             })
             .signers([worker2.wallet])
             .rpc();
@@ -3201,6 +3557,7 @@ describe("test_1", () => {
             TASK_TYPE_EXCLUSIVE,
             null,
             0, // min_reputation
+            null, // reward_mint
           )
           .accountsPartial({
             task: taskPda,
@@ -3210,6 +3567,11 @@ describe("test_1", () => {
             authority: creator.publicKey,
             creator: creator.publicKey,
             systemProgram: SystemProgram.programId,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
           })
           .signers([creator])
           .rpc();
@@ -3241,6 +3603,11 @@ describe("test_1", () => {
               treasury: wrongTreasury.publicKey, // Wrong treasury
               authority: worker.wallet.publicKey,
               systemProgram: SystemProgram.programId,
+              tokenEscrowAta: null,
+              workerTokenAccount: null,
+              treasuryTokenAccount: null,
+              rewardMint: null,
+              tokenProgram: null,
             })
             .signers([worker.wallet])
             .rpc();
@@ -3270,6 +3637,7 @@ describe("test_1", () => {
             TASK_TYPE_COLLABORATIVE,
             null,
             0, // min_reputation
+            null, // reward_mint
           )
           .accountsPartial({
             task: taskPda,
@@ -3279,6 +3647,11 @@ describe("test_1", () => {
             authority: creator.publicKey,
             creator: creator.publicKey,
             systemProgram: SystemProgram.programId,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
           })
           .signers([creator])
           .rpc();
@@ -3325,6 +3698,11 @@ describe("test_1", () => {
               treasury: treasuryPubkey,
               authority: worker1.wallet.publicKey,
               systemProgram: SystemProgram.programId,
+              tokenEscrowAta: null,
+              workerTokenAccount: null,
+              treasuryTokenAccount: null,
+              rewardMint: null,
+              tokenProgram: null,
             })
             .signers([worker1.wallet])
             .rpc();
@@ -3360,6 +3738,7 @@ describe("test_1", () => {
             TASK_TYPE_EXCLUSIVE,
             null,
             0, // min_reputation
+            null, // reward_mint
           )
           .accountsPartial({
             task: taskPda,
@@ -3369,6 +3748,11 @@ describe("test_1", () => {
             authority: creator.publicKey,
             creator: creator.publicKey,
             systemProgram: SystemProgram.programId,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
           })
           .signers([creator])
           .rpc();
@@ -3383,6 +3767,10 @@ describe("test_1", () => {
               creator: nonCreator.publicKey,
               protocolConfig: protocolPda,
               systemProgram: SystemProgram.programId,
+              tokenEscrowAta: null,
+              creatorTokenAccount: null,
+              rewardMint: null,
+              tokenProgram: null,
             })
             .signers([nonCreator])
             .rpc();
@@ -3421,6 +3809,7 @@ describe("test_1", () => {
             TASK_TYPE_EXCLUSIVE,
             null,
             0, // min_reputation
+            null, // reward_mint
           )
           .accountsPartial({
             task: taskPda,
@@ -3430,6 +3819,11 @@ describe("test_1", () => {
             authority: creator.publicKey,
             creator: creator.publicKey,
             systemProgram: SystemProgram.programId,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
           })
           .signers([creator])
           .rpc();
@@ -3473,6 +3867,10 @@ describe("test_1", () => {
             creator: creator.publicKey,
             protocolConfig: protocolPda,
             systemProgram: SystemProgram.programId,
+            tokenEscrowAta: null,
+            creatorTokenAccount: null,
+            rewardMint: null,
+            tokenProgram: null,
           })
           .remainingAccounts([
             { pubkey: claimPda, isSigner: false, isWritable: true },
@@ -3585,6 +3983,7 @@ describe("test_1", () => {
             TASK_TYPE_EXCLUSIVE,
             null,
             0, // min_reputation
+            null, // reward_mint
           )
           .accountsPartial({
             task: taskPda,
@@ -3594,6 +3993,11 @@ describe("test_1", () => {
             authority: creator.publicKey,
             creator: creator.publicKey,
             systemProgram: SystemProgram.programId,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
           })
           .signers([creator])
           .rpc();
@@ -3629,6 +4033,8 @@ describe("test_1", () => {
               protocolConfig: protocolPda,
               systemProgram: SystemProgram.programId,
               initiatorClaim: claimPda,
+              workerAgent: null,
+              workerClaim: null,
             })
             .signers([wrongSigner])
             .rpc();
@@ -3694,6 +4100,7 @@ describe("test_1", () => {
             TASK_TYPE_EXCLUSIVE,
             null,
             0, // min_reputation
+            null, // reward_mint
           )
           .accountsPartial({
             task: taskPda,
@@ -3703,6 +4110,11 @@ describe("test_1", () => {
             authority: creator.publicKey,
             creator: creator.publicKey,
             systemProgram: SystemProgram.programId,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
           })
           .signers([creator])
           .rpc();
@@ -3765,6 +4177,7 @@ describe("test_1", () => {
               protocolConfig: protocolPda,
               authority: wrongSigner.publicKey, // But wrong signer
               systemProgram: SystemProgram.programId,
+              defendantAgent: null,
             })
             .signers([wrongSigner])
             .rpc();
@@ -3795,6 +4208,7 @@ describe("test_1", () => {
             TASK_TYPE_EXCLUSIVE,
             null,
             0, // min_reputation
+            null, // reward_mint
           )
           .accountsPartial({
             task: taskPda,
@@ -3804,6 +4218,11 @@ describe("test_1", () => {
             authority: creator.publicKey,
             creator: creator.publicKey,
             systemProgram: SystemProgram.programId,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
           })
           .signers([creator])
           .rpc();
@@ -3860,6 +4279,7 @@ describe("test_1", () => {
               protocolConfig: protocolPda,
               authority: worker.wallet.publicKey,
               systemProgram: SystemProgram.programId,
+              defendantAgent: null,
             })
             .signers([worker.wallet])
             .rpc();
@@ -3892,6 +4312,7 @@ describe("test_1", () => {
             TASK_TYPE_EXCLUSIVE,
             null,
             0, // min_reputation
+            null, // reward_mint
           )
           .accountsPartial({
             task: taskPda,
@@ -3901,6 +4322,11 @@ describe("test_1", () => {
             authority: creator.publicKey,
             creator: creator.publicKey,
             systemProgram: SystemProgram.programId,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
           })
           .signers([creator])
           .rpc();
@@ -3955,6 +4381,12 @@ describe("test_1", () => {
               worker: null,
               workerAuthority: null,
               systemProgram: SystemProgram.programId,
+              tokenEscrowAta: null,
+              creatorTokenAccount: null,
+              workerTokenAccountAta: null,
+              treasuryTokenAccount: null,
+              rewardMint: null,
+              tokenProgram: null,
             })
             .rpc();
           expect.fail("Should have failed");
@@ -3987,6 +4419,7 @@ describe("test_1", () => {
             TASK_TYPE_EXCLUSIVE,
             null,
             0, // min_reputation
+            null, // reward_mint
           )
           .accountsPartial({
             task: taskPda,
@@ -3996,6 +4429,11 @@ describe("test_1", () => {
             authority: creator.publicKey,
             creator: creator.publicKey,
             systemProgram: SystemProgram.programId,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
           })
           .signers([creator])
           .rpc();
@@ -4103,6 +4541,7 @@ describe("test_1", () => {
           TASK_TYPE_EXCLUSIVE,
           null,
           0, // min_reputation
+          null, // reward_mint
         )
         .accountsPartial({
           task: taskPda,
@@ -4112,6 +4551,11 @@ describe("test_1", () => {
           authority: creator.publicKey,
           creator: creator.publicKey,
           systemProgram: SystemProgram.programId,
+          rewardMint: null,
+          creatorTokenAccount: null,
+          tokenEscrowAta: null,
+          tokenProgram: null,
+          associatedTokenProgram: null,
         })
         .signers([creator])
         .rpc();
@@ -4124,6 +4568,10 @@ describe("test_1", () => {
             creator: unauthorized.publicKey,
             protocolConfig: protocolPda,
             systemProgram: SystemProgram.programId,
+            tokenEscrowAta: null,
+            creatorTokenAccount: null,
+            rewardMint: null,
+            tokenProgram: null,
           })
           .signers([unauthorized])
           .rpc();
@@ -4158,6 +4606,7 @@ describe("test_1", () => {
           TASK_TYPE_EXCLUSIVE,
           null,
           0, // min_reputation
+          null, // reward_mint
         )
         .accountsPartial({
           task: taskPda,
@@ -4167,6 +4616,11 @@ describe("test_1", () => {
           authority: creator.publicKey,
           creator: creator.publicKey,
           systemProgram: SystemProgram.programId,
+          rewardMint: null,
+          creatorTokenAccount: null,
+          tokenEscrowAta: null,
+          tokenProgram: null,
+          associatedTokenProgram: null,
         })
         .signers([creator])
         .rpc();
@@ -4194,6 +4648,11 @@ describe("test_1", () => {
             treasury: treasuryPubkey,
             authority: wrongSigner.publicKey,
             systemProgram: SystemProgram.programId,
+            tokenEscrowAta: null,
+            workerTokenAccount: null,
+            treasuryTokenAccount: null,
+            rewardMint: null,
+            tokenProgram: null,
           })
           .signers([wrongSigner])
           .rpc();
@@ -4222,6 +4681,7 @@ describe("test_1", () => {
           TASK_TYPE_EXCLUSIVE,
           null,
           0, // min_reputation
+          null, // reward_mint
         )
         .accountsPartial({
           task: taskPda,
@@ -4231,6 +4691,11 @@ describe("test_1", () => {
           authority: creator.publicKey,
           creator: creator.publicKey,
           systemProgram: SystemProgram.programId,
+          rewardMint: null,
+          creatorTokenAccount: null,
+          tokenEscrowAta: null,
+          tokenProgram: null,
+          associatedTokenProgram: null,
         })
         .signers([creator])
         .rpc();
@@ -4257,6 +4722,11 @@ describe("test_1", () => {
           treasury: treasuryPubkey,
           authority: worker.wallet.publicKey,
           systemProgram: SystemProgram.programId,
+          tokenEscrowAta: null,
+          workerTokenAccount: null,
+          treasuryTokenAccount: null,
+          rewardMint: null,
+          tokenProgram: null,
         })
         .signers([worker.wallet])
         .rpc();
@@ -4269,6 +4739,10 @@ describe("test_1", () => {
             creator: creator.publicKey,
             protocolConfig: protocolPda,
             systemProgram: SystemProgram.programId,
+            tokenEscrowAta: null,
+            creatorTokenAccount: null,
+            rewardMint: null,
+            tokenProgram: null,
           })
           .signers([creator])
           .rpc();
@@ -4297,6 +4771,7 @@ describe("test_1", () => {
           TASK_TYPE_EXCLUSIVE,
           null,
           0, // min_reputation
+          null, // reward_mint
         )
         .accountsPartial({
           task: taskPda,
@@ -4306,6 +4781,11 @@ describe("test_1", () => {
           authority: creator.publicKey,
           creator: creator.publicKey,
           systemProgram: SystemProgram.programId,
+          rewardMint: null,
+          creatorTokenAccount: null,
+          tokenEscrowAta: null,
+          tokenProgram: null,
+          associatedTokenProgram: null,
         })
         .signers([creator])
         .rpc();
@@ -4317,6 +4797,10 @@ describe("test_1", () => {
           creator: creator.publicKey,
           protocolConfig: protocolPda,
           systemProgram: SystemProgram.programId,
+          tokenEscrowAta: null,
+          creatorTokenAccount: null,
+          rewardMint: null,
+          tokenProgram: null,
         })
         .signers([creator])
         .rpc();
@@ -4335,6 +4819,11 @@ describe("test_1", () => {
             treasury: treasuryPubkey,
             authority: worker.wallet.publicKey,
             systemProgram: SystemProgram.programId,
+            tokenEscrowAta: null,
+            workerTokenAccount: null,
+            treasuryTokenAccount: null,
+            rewardMint: null,
+            tokenProgram: null,
           })
           .signers([worker.wallet])
           .rpc();
@@ -4385,6 +4874,7 @@ describe("test_1", () => {
             TASK_TYPE_EXCLUSIVE,
             null,
             0, // min_reputation
+            null, // reward_mint
           )
           .accountsPartial({
             task: taskPda,
@@ -4394,6 +4884,11 @@ describe("test_1", () => {
             authority: creator.publicKey,
             creator: creator.publicKey,
             systemProgram: SystemProgram.programId,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
           })
           .signers([creator])
           .rpc();
@@ -4441,6 +4936,7 @@ describe("test_1", () => {
               TASK_TYPE_EXCLUSIVE,
               null,
               0, // min_reputation
+              null, // reward_mint
             )
             .accountsPartial({
               task: taskPda,
@@ -4450,6 +4946,11 @@ describe("test_1", () => {
               authority: creator.publicKey,
               creator: creator.publicKey,
               systemProgram: SystemProgram.programId,
+              rewardMint: null,
+              creatorTokenAccount: null,
+              tokenEscrowAta: null,
+              tokenProgram: null,
+              associatedTokenProgram: null,
             })
             .signers([creator])
             .rpc();
@@ -4481,6 +4982,7 @@ describe("test_1", () => {
             TASK_TYPE_EXCLUSIVE,
             null,
             0, // min_reputation
+            null, // reward_mint
           )
           .accountsPartial({
             task: taskPda,
@@ -4490,6 +4992,11 @@ describe("test_1", () => {
             authority: creator.publicKey,
             creator: creator.publicKey,
             systemProgram: SystemProgram.programId,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
           })
           .signers([creator])
           .rpc();
@@ -4526,6 +5033,11 @@ describe("test_1", () => {
             treasury: treasuryPubkey,
             authority: worker.wallet.publicKey,
             systemProgram: SystemProgram.programId,
+            tokenEscrowAta: null,
+            workerTokenAccount: null,
+            treasuryTokenAccount: null,
+            rewardMint: null,
+            tokenProgram: null,
           })
           .signers([worker.wallet])
           .rpc();
@@ -4579,6 +5091,7 @@ describe("test_1", () => {
             TASK_TYPE_COLLABORATIVE,
             null,
             0, // min_reputation
+            null, // reward_mint
           )
           .accountsPartial({
             task: taskPda,
@@ -4588,6 +5101,11 @@ describe("test_1", () => {
             authority: creator.publicKey,
             creator: creator.publicKey,
             systemProgram: SystemProgram.programId,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
           })
           .signers([creator])
           .rpc();
@@ -4628,6 +5146,11 @@ describe("test_1", () => {
           creator: creator.publicKey,
           protocolConfig: protocolPda, treasury: treasuryPubkey,
           authority: w1.wallet.publicKey, systemProgram: SystemProgram.programId,
+          tokenEscrowAta: null,
+          workerTokenAccount: null,
+          treasuryTokenAccount: null,
+          rewardMint: null,
+          tokenProgram: null,
         }).signers([w1.wallet]).rpc();
         const tx1Details = await provider.connection.getTransaction(tx1, { commitment: "confirmed" });
         const tx1Fee = tx1Details?.meta?.fee || 0;
@@ -4645,6 +5168,11 @@ describe("test_1", () => {
           creator: creator.publicKey,
           protocolConfig: protocolPda, treasury: treasuryPubkey,
           authority: w2.wallet.publicKey, systemProgram: SystemProgram.programId,
+          tokenEscrowAta: null,
+          workerTokenAccount: null,
+          treasuryTokenAccount: null,
+          rewardMint: null,
+          tokenProgram: null,
         }).signers([w2.wallet]).rpc();
 
         // Escrow should still exist after second completion
@@ -4657,6 +5185,11 @@ describe("test_1", () => {
           creator: creator.publicKey,
           protocolConfig: protocolPda, treasury: treasuryPubkey,
           authority: w3.wallet.publicKey, systemProgram: SystemProgram.programId,
+          tokenEscrowAta: null,
+          workerTokenAccount: null,
+          treasuryTokenAccount: null,
+          rewardMint: null,
+          tokenProgram: null,
         }).signers([w3.wallet]).rpc();
 
         // Verify escrow is closed after final completion
@@ -4688,6 +5221,7 @@ describe("test_1", () => {
             TASK_TYPE_EXCLUSIVE,
             null,
             0, // min_reputation
+            null, // reward_mint
           )
           .accountsPartial({
             task: taskPda,
@@ -4697,6 +5231,11 @@ describe("test_1", () => {
             authority: creator.publicKey,
             creator: creator.publicKey,
             systemProgram: SystemProgram.programId,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
           })
           .signers([creator])
           .rpc();
@@ -4715,6 +5254,10 @@ describe("test_1", () => {
             creator: creator.publicKey,
             protocolConfig: protocolPda,
             systemProgram: SystemProgram.programId,
+            tokenEscrowAta: null,
+            creatorTokenAccount: null,
+            rewardMint: null,
+            tokenProgram: null,
           })
           .signers([creator])
           .rpc();
@@ -4761,6 +5304,7 @@ describe("test_1", () => {
             TASK_TYPE_COLLABORATIVE,
             null,
             0, // min_reputation
+            null, // reward_mint
           )
           .accountsPartial({
             task: taskPda,
@@ -4770,6 +5314,11 @@ describe("test_1", () => {
             authority: creator.publicKey,
             creator: creator.publicKey,
             systemProgram: SystemProgram.programId,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
           })
           .signers([creator])
           .rpc();
@@ -4786,6 +5335,11 @@ describe("test_1", () => {
           creator: creator.publicKey,
           protocolConfig: protocolPda, treasury: treasuryPubkey,
           authority: worker.wallet.publicKey, systemProgram: SystemProgram.programId,
+          tokenEscrowAta: null,
+          workerTokenAccount: null,
+          treasuryTokenAccount: null,
+          rewardMint: null,
+          tokenProgram: null,
         }).signers([worker.wallet]).rpc();
 
         // Wait for deadline
@@ -4804,6 +5358,10 @@ describe("test_1", () => {
             task: taskPda, escrow: escrowPda, creator: creator.publicKey,
             protocolConfig: protocolPda,
             systemProgram: SystemProgram.programId,
+            tokenEscrowAta: null,
+            creatorTokenAccount: null,
+            rewardMint: null,
+            tokenProgram: null,
           }).signers([creator]).rpc();
           expect.fail("Expected cancel to fail after completion");
         } catch (e: any) {
@@ -4837,6 +5395,7 @@ describe("test_1", () => {
             TASK_TYPE_COLLABORATIVE,
             null,
             0, // min_reputation
+            null, // reward_mint
           )
           .accountsPartial({
             task: taskPda,
@@ -4846,6 +5405,11 @@ describe("test_1", () => {
             authority: creator.publicKey,
             creator: creator.publicKey,
             systemProgram: SystemProgram.programId,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
           })
           .signers([creator])
           .rpc();
@@ -4871,6 +5435,11 @@ describe("test_1", () => {
           creator: creator.publicKey,
           protocolConfig: protocolPda, treasury: treasuryPubkey,
           authority: w1.wallet.publicKey, systemProgram: SystemProgram.programId,
+          tokenEscrowAta: null,
+          workerTokenAccount: null,
+          treasuryTokenAccount: null,
+          rewardMint: null,
+          tokenProgram: null,
         }).signers([w1.wallet]).rpc();
 
         const escrowAfter = await provider.connection.getBalance(escrowPda);
@@ -4888,6 +5457,11 @@ describe("test_1", () => {
             creator: creator.publicKey,
             protocolConfig: protocolPda, treasury: treasuryPubkey,
             authority: w1.wallet.publicKey,
+            tokenEscrowAta: null,
+            workerTokenAccount: null,
+            treasuryTokenAccount: null,
+            rewardMint: null,
+            tokenProgram: null,
           }).signers([w1.wallet]).rpc();
           expect.fail("Should have failed");
         } catch (e: unknown) {
@@ -4919,6 +5493,7 @@ describe("test_1", () => {
             TASK_TYPE_EXCLUSIVE,
             null,
             0, // min_reputation
+            null, // reward_mint
           )
           .accountsPartial({
             task: taskPda,
@@ -4928,6 +5503,11 @@ describe("test_1", () => {
             authority: creator.publicKey,
             creator: creator.publicKey,
             systemProgram: SystemProgram.programId,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
           })
           .signers([creator])
           .rpc();
@@ -4944,6 +5524,11 @@ describe("test_1", () => {
           creator: creator.publicKey,
           protocolConfig: protocolPda, treasury: treasuryPubkey,
           authority: worker.wallet.publicKey, systemProgram: SystemProgram.programId,
+          tokenEscrowAta: null,
+          workerTokenAccount: null,
+          treasuryTokenAccount: null,
+          rewardMint: null,
+          tokenProgram: null,
         }).signers([worker.wallet]).rpc();
 
         // Snapshot before attempted cancel
@@ -4955,6 +5540,10 @@ describe("test_1", () => {
             task: taskPda, escrow: escrowPda, creator: creator.publicKey,
             protocolConfig: protocolPda,
             systemProgram: SystemProgram.programId,
+            tokenEscrowAta: null,
+            creatorTokenAccount: null,
+            rewardMint: null,
+            tokenProgram: null,
           }).signers([creator]).rpc();
           expect.fail("Should have failed");
         } catch (e: unknown) {
@@ -4989,6 +5578,7 @@ describe("test_1", () => {
             TASK_TYPE_EXCLUSIVE,
             null,
             0, // min_reputation
+            null, // reward_mint
           )
           .accountsPartial({
             task: taskPda,
@@ -4998,6 +5588,11 @@ describe("test_1", () => {
             authority: creator.publicKey,
             creator: creator.publicKey,
             systemProgram: SystemProgram.programId,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
           })
           .signers([creator])
           .rpc();
@@ -5017,6 +5612,11 @@ describe("test_1", () => {
           creator: creator.publicKey,
           protocolConfig: protocolPda, treasury: treasuryPubkey,
           authority: worker.wallet.publicKey, systemProgram: SystemProgram.programId,
+          tokenEscrowAta: null,
+          workerTokenAccount: null,
+          treasuryTokenAccount: null,
+          rewardMint: null,
+          tokenProgram: null,
         }).signers([worker.wallet]).rpc();
 
         // Note: Escrow account is closed (close = creator directive) after completion
@@ -5052,6 +5652,7 @@ describe("test_1", () => {
             TASK_TYPE_EXCLUSIVE,
             null,
             0, // min_reputation
+            null, // reward_mint
           )
           .accountsPartial({
             task: taskPda,
@@ -5061,6 +5662,11 @@ describe("test_1", () => {
             authority: creator.publicKey,
             creator: creator.publicKey,
             systemProgram: SystemProgram.programId,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
           })
           .signers([creator])
           .rpc();
@@ -5072,6 +5678,10 @@ describe("test_1", () => {
           task: taskPda, escrow: escrowPda, creator: creator.publicKey,
           protocolConfig: protocolPda,
           systemProgram: SystemProgram.programId,
+          tokenEscrowAta: null,
+          creatorTokenAccount: null,
+          rewardMint: null,
+          tokenProgram: null,
         }).signers([creator]).rpc();
 
         // Note: Escrow account is closed (close = creator directive) after cancel
@@ -5121,6 +5731,7 @@ describe("test_1", () => {
             TASK_TYPE_EXCLUSIVE,
             null,
             0, // min_reputation
+            null, // reward_mint
           )
           .accountsPartial({
             task: taskPda,
@@ -5130,6 +5741,11 @@ describe("test_1", () => {
             authority: creator.publicKey,
             creator: creator.publicKey,
             systemProgram: SystemProgram.programId,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
           })
           .signers([creator])
           .rpc();
@@ -5151,6 +5767,11 @@ describe("test_1", () => {
           creator: creator.publicKey,
           protocolConfig: protocolPda, treasury: treasuryPubkey,
           authority: worker.wallet.publicKey, systemProgram: SystemProgram.programId,
+          tokenEscrowAta: null,
+          workerTokenAccount: null,
+          treasuryTokenAccount: null,
+          rewardMint: null,
+          tokenProgram: null,
         }).signers([worker.wallet]).rpc();
         const tx3Details = await provider.connection.getTransaction(tx3, { commitment: "confirmed" });
         totalTxFees += tx3Details?.meta?.fee || 0;
@@ -5212,6 +5833,7 @@ describe("test_1", () => {
             TASK_TYPE_EXCLUSIVE,
             null,
             0, // min_reputation
+            null, // reward_mint
           )
           .accountsPartial({
             task: taskPda,
@@ -5221,6 +5843,11 @@ describe("test_1", () => {
             authority: creator.publicKey,
             creator: creator.publicKey,
             systemProgram: SystemProgram.programId,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
           })
           .signers([creator])
           .rpc();
@@ -5287,6 +5914,7 @@ describe("test_1", () => {
             TASK_TYPE_EXCLUSIVE,
             null,
             0, // min_reputation
+            null, // reward_mint
           )
           .accountsPartial({
             task: taskPda,
@@ -5296,6 +5924,11 @@ describe("test_1", () => {
             authority: creator.publicKey,
             creator: creator.publicKey,
             systemProgram: SystemProgram.programId,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
           })
           .signers([creator])
           .rpc();
@@ -5373,6 +6006,7 @@ describe("test_1", () => {
             TASK_TYPE_EXCLUSIVE,
             null,
             0, // min_reputation
+            null, // reward_mint
           )
           .accountsPartial({
             task: taskPda,
@@ -5382,6 +6016,11 @@ describe("test_1", () => {
             authority: creator.publicKey,
             creator: creator.publicKey,
             systemProgram: SystemProgram.programId,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
           })
           .signers([creator])
           .rpc();
@@ -5437,11 +6076,17 @@ describe("test_1", () => {
           Buffer.from("Resolution type 0".padEnd(64, "\0")),
           new BN(LAMPORTS_PER_SOL / 100), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null,
           0, // min_reputation
+          null, // reward_mint
         ).accountsPartial({
           task: taskPda0, escrow: escrowPda0, protocolConfig: protocolPda,
           creatorAgent: creatorAgentPda,
           authority: creator.publicKey,
           creator: creator.publicKey, systemProgram: SystemProgram.programId,
+          rewardMint: null,
+          creatorTokenAccount: null,
+          tokenEscrowAta: null,
+          tokenProgram: null,
+          associatedTokenProgram: null,
         }).signers([creator]).rpc();
 
         const claimPda0 = deriveClaimPda(taskPda0, worker.agentPda);
@@ -5488,6 +6133,7 @@ describe("test_1", () => {
             TASK_TYPE_EXCLUSIVE,
             null,
             0, // min_reputation
+            null, // reward_mint
           )
           .accountsPartial({
             task: taskPda,
@@ -5497,6 +6143,11 @@ describe("test_1", () => {
             authority: creator.publicKey,
             creator: creator.publicKey,
             systemProgram: SystemProgram.programId,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
           })
           .signers([creator])
           .rpc();
@@ -5555,6 +6206,7 @@ describe("test_1", () => {
             TASK_TYPE_EXCLUSIVE,
             null,
             0, // min_reputation
+            null, // reward_mint
           )
           .accountsPartial({
             task: taskPda,
@@ -5564,6 +6216,11 @@ describe("test_1", () => {
             authority: creator.publicKey,
             creator: creator.publicKey,
             systemProgram: SystemProgram.programId,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
           })
           .signers([creator])
           .rpc();
@@ -5579,6 +6236,11 @@ describe("test_1", () => {
           creator: creator.publicKey,
           protocolConfig: protocolPda, treasury: treasuryPubkey,
           authority: worker.wallet.publicKey, systemProgram: SystemProgram.programId,
+          tokenEscrowAta: null,
+          workerTokenAccount: null,
+          treasuryTokenAccount: null,
+          rewardMint: null,
+          tokenProgram: null,
         }).signers([worker.wallet]).rpc();
 
         // Task is Completed
@@ -5635,6 +6297,7 @@ describe("test_1", () => {
             TASK_TYPE_EXCLUSIVE,
             null,
             0, // min_reputation
+            null, // reward_mint
           )
           .accountsPartial({
             task: taskPda,
@@ -5644,6 +6307,11 @@ describe("test_1", () => {
             authority: creator.publicKey,
             creator: creator.publicKey,
             systemProgram: SystemProgram.programId,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
           })
           .signers([creator])
           .rpc();
@@ -5652,6 +6320,10 @@ describe("test_1", () => {
           task: taskPda, escrow: escrowPda, creator: creator.publicKey,
           protocolConfig: protocolPda,
           systemProgram: SystemProgram.programId,
+          tokenEscrowAta: null,
+          creatorTokenAccount: null,
+          rewardMint: null,
+          tokenProgram: null,
         }).signers([creator]).rpc();
 
         // Task is Cancelled
@@ -5711,6 +6383,7 @@ describe("test_1", () => {
             TASK_TYPE_EXCLUSIVE,
             null,
             0, // min_reputation
+            null, // reward_mint
           )
           .accountsPartial({
             task: taskPda,
@@ -5720,6 +6393,11 @@ describe("test_1", () => {
             authority: creator.publicKey,
             creator: creator.publicKey,
             systemProgram: SystemProgram.programId,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
           })
           .signers([creator])
           .rpc();
@@ -5850,6 +6528,7 @@ describe("test_1", () => {
             TASK_TYPE_EXCLUSIVE,
             null,
             0, // min_reputation
+            null, // reward_mint
           )
           .accountsPartial({
             task: taskPda,
@@ -5859,6 +6538,11 @@ describe("test_1", () => {
             authority: creator.publicKey,
             creator: creator.publicKey,
             systemProgram: SystemProgram.programId,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
           })
           .signers([creator])
           .rpc();
@@ -5920,6 +6604,7 @@ describe("test_1", () => {
             TASK_TYPE_EXCLUSIVE,
             null,
             0, // min_reputation
+            null, // reward_mint
           )
           .accountsPartial({
             task: taskPda,
@@ -5929,6 +6614,11 @@ describe("test_1", () => {
             authority: creator.publicKey,
             creator: creator.publicKey,
             systemProgram: SystemProgram.programId,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
           })
           .signers([creator])
           .rpc();
@@ -5994,6 +6684,7 @@ describe("test_1", () => {
             TASK_TYPE_EXCLUSIVE,
             null,
             0, // min_reputation
+            null, // reward_mint
           )
           .accountsPartial({
             task: taskPda,
@@ -6003,6 +6694,11 @@ describe("test_1", () => {
             authority: creator.publicKey,
             creator: creator.publicKey,
             systemProgram: SystemProgram.programId,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
           })
           .signers([creator])
           .rpc();
@@ -6096,6 +6792,7 @@ describe("test_1", () => {
             TASK_TYPE_EXCLUSIVE,
             null,
             0, // min_reputation
+            null, // reward_mint
           )
           .accountsPartial({
             task: taskPda,
@@ -6105,6 +6802,11 @@ describe("test_1", () => {
             authority: creator.publicKey,
             creator: creator.publicKey,
             systemProgram: SystemProgram.programId,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
           })
           .signers([creator])
           .rpc();
@@ -6173,11 +6875,17 @@ describe("test_1", () => {
           Buffer.from("Voting capability test".padEnd(64, "\0")),
           new BN(LAMPORTS_PER_SOL / 100), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null,
           0, // min_reputation
+          null, // reward_mint
         ).accountsPartial({
           task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
           creatorAgent: creatorAgentPda,
           authority: creator.publicKey,
           creator: creator.publicKey, systemProgram: SystemProgram.programId,
+          rewardMint: null,
+          creatorTokenAccount: null,
+          tokenEscrowAta: null,
+          tokenProgram: null,
+          associatedTokenProgram: null,
         }).signers([creator]).rpc();
 
         const claimPda = deriveClaimPda(taskPda, worker.agentPda);
@@ -6233,6 +6941,7 @@ describe("test_1", () => {
             authorityVote: authorityVotePdaNonArbiter,
             arbiter: worker.agentPda, protocolConfig: protocolPda,
             authority: worker.wallet.publicKey, systemProgram: SystemProgram.programId,
+            defendantAgent: null,
           }).signers([worker.wallet]).rpc();
           expect.fail("Should have failed");
         } catch (e: unknown) {
@@ -6256,11 +6965,17 @@ describe("test_1", () => {
           Buffer.from("Stake test".padEnd(64, "\0")),
           new BN(LAMPORTS_PER_SOL / 100), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null,
           0, // min_reputation
+          null, // reward_mint
         ).accountsPartial({
           task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
           creatorAgent: creatorAgentPda,
           authority: creator.publicKey,
           creator: creator.publicKey, systemProgram: SystemProgram.programId,
+          rewardMint: null,
+          creatorTokenAccount: null,
+          tokenEscrowAta: null,
+          tokenProgram: null,
+          associatedTokenProgram: null,
         }).signers([creator]).rpc();
 
         const claimPda = deriveClaimPda(taskPda, worker.agentPda);
@@ -6321,11 +7036,17 @@ describe("test_1", () => {
           Buffer.from("Deadline vote test".padEnd(64, "\0")),
           new BN(LAMPORTS_PER_SOL / 100), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null,
           0, // min_reputation
+          null, // reward_mint
         ).accountsPartial({
           task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
           creatorAgent: creatorAgentPda,
           authority: creator.publicKey,
           creator: creator.publicKey, systemProgram: SystemProgram.programId,
+          rewardMint: null,
+          creatorTokenAccount: null,
+          tokenEscrowAta: null,
+          tokenProgram: null,
+          associatedTokenProgram: null,
         }).signers([creator]).rpc();
 
         const claimPda = deriveClaimPda(taskPda, worker.agentPda);
@@ -6398,11 +7119,17 @@ describe("test_1", () => {
           Buffer.from("Double vote test".padEnd(64, "\0")),
           new BN(LAMPORTS_PER_SOL / 100), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null,
           0, // min_reputation
+          null, // reward_mint
         ).accountsPartial({
           task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
           creatorAgent: creatorAgentPda,
           authority: creator.publicKey,
           creator: creator.publicKey, systemProgram: SystemProgram.programId,
+          rewardMint: null,
+          creatorTokenAccount: null,
+          tokenEscrowAta: null,
+          tokenProgram: null,
+          associatedTokenProgram: null,
         }).signers([creator]).rpc();
 
         const claimPda = deriveClaimPda(taskPda, worker.agentPda);
@@ -6489,11 +7216,17 @@ describe("test_1", () => {
           Buffer.from("Vote count test".padEnd(64, "\0")),
           new BN(LAMPORTS_PER_SOL / 100), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null,
           0, // min_reputation
+          null, // reward_mint
         ).accountsPartial({
           task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
           creatorAgent: creatorAgentPda,
           authority: creator.publicKey,
           creator: creator.publicKey, systemProgram: SystemProgram.programId,
+          rewardMint: null,
+          creatorTokenAccount: null,
+          tokenEscrowAta: null,
+          tokenProgram: null,
+          associatedTokenProgram: null,
         }).signers([creator]).rpc();
 
         const workerCount = await createFreshWorker();
@@ -6533,11 +7266,17 @@ describe("test_1", () => {
           Buffer.from("Inactive voter test".padEnd(64, "\0")),
           new BN(LAMPORTS_PER_SOL / 100), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null,
           0, // min_reputation
+          null, // reward_mint
         ).accountsPartial({
           task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
           creatorAgent: creatorAgentPda,
           authority: creator.publicKey,
           creator: creator.publicKey, systemProgram: SystemProgram.programId,
+          rewardMint: null,
+          creatorTokenAccount: null,
+          tokenEscrowAta: null,
+          tokenProgram: null,
+          associatedTokenProgram: null,
         }).signers([creator]).rpc();
 
         const claimPda = deriveClaimPda(taskPda, worker.agentPda);
@@ -6608,6 +7347,7 @@ describe("test_1", () => {
             authorityVote: authorityVotePda,
             arbiter: inactiveArbiterPda, protocolConfig: protocolPda,
             authority: inactiveArbiterOwner.publicKey,
+            defendantAgent: null,
           }).signers([inactiveArbiterOwner]).rpc();
           expect.fail("Inactive arbiter should not vote");
         } catch (e: any) {
@@ -6633,11 +7373,17 @@ describe("test_1", () => {
           Buffer.from("Early resolve test".padEnd(64, "\0")),
           new BN(LAMPORTS_PER_SOL / 100), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null,
           0, // min_reputation
+          null, // reward_mint
         ).accountsPartial({
           task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
           creatorAgent: creatorAgentPda,
           authority: creator.publicKey,
           creator: creator.publicKey, systemProgram: SystemProgram.programId,
+          rewardMint: null,
+          creatorTokenAccount: null,
+          tokenEscrowAta: null,
+          tokenProgram: null,
+          associatedTokenProgram: null,
         }).signers([creator]).rpc();
 
         const claimPda = deriveClaimPda(taskPda, worker.agentPda);
@@ -6661,6 +7407,12 @@ describe("test_1", () => {
             dispute: disputePda, task: taskPda, escrow: escrowPda,
             protocolConfig: protocolPda, resolver: provider.wallet.publicKey, creator: creator.publicKey,
             workerClaim: null, worker: null, workerAuthority: null, systemProgram: SystemProgram.programId,
+            tokenEscrowAta: null,
+            creatorTokenAccount: null,
+            workerTokenAccountAta: null,
+            treasuryTokenAccount: null,
+            rewardMint: null,
+            tokenProgram: null,
           }).rpc();
           expect.fail("Should have failed");
         } catch (e: unknown) {
@@ -6685,11 +7437,17 @@ describe("test_1", () => {
           Buffer.from("Zero votes test".padEnd(64, "\0")),
           new BN(LAMPORTS_PER_SOL / 100), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null,
           0, // min_reputation
+          null, // reward_mint
         ).accountsPartial({
           task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
           creatorAgent: creatorAgentPda,
           authority: creator.publicKey,
           creator: creator.publicKey, systemProgram: SystemProgram.programId,
+          rewardMint: null,
+          creatorTokenAccount: null,
+          tokenEscrowAta: null,
+          tokenProgram: null,
+          associatedTokenProgram: null,
         }).signers([creator]).rpc();
 
         const claimPda = deriveClaimPda(taskPda, worker.agentPda);
@@ -6729,11 +7487,17 @@ describe("test_1", () => {
           Buffer.from("Status change test".padEnd(64, "\0")),
           new BN(LAMPORTS_PER_SOL / 100), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null,
           0, // min_reputation
+          null, // reward_mint
         ).accountsPartial({
           task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
           creatorAgent: creatorAgentPda,
           authority: creator.publicKey,
           creator: creator.publicKey, systemProgram: SystemProgram.programId,
+          rewardMint: null,
+          creatorTokenAccount: null,
+          tokenEscrowAta: null,
+          tokenProgram: null,
+          associatedTokenProgram: null,
         }).signers([creator]).rpc();
 
         const claimPda = deriveClaimPda(taskPda, worker.agentPda);
@@ -6822,11 +7586,17 @@ describe("test_1", () => {
           Buffer.from("Reputation increment test".padEnd(64, "\0")),
           new BN(LAMPORTS_PER_SOL / 100), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null,
           0, // min_reputation
+          null, // reward_mint
         ).accountsPartial({
           task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
           creatorAgent: creatorAgentPda,
           authority: creator.publicKey,
           creator: creator.publicKey,
+          rewardMint: null,
+          creatorTokenAccount: null,
+          tokenEscrowAta: null,
+          tokenProgram: null,
+          associatedTokenProgram: null,
         }).signers([creator]).rpc();
 
         const claimPda = deriveClaimPda(taskPda, repAgentPda);
@@ -6842,6 +7612,11 @@ describe("test_1", () => {
           creator: creator.publicKey,
           protocolConfig: protocolPda, treasury: treasuryPubkey,
           authority: repAgentOwner.publicKey,
+          tokenEscrowAta: null,
+          workerTokenAccount: null,
+          treasuryTokenAccount: null,
+          rewardMint: null,
+          tokenProgram: null,
         }).signers([repAgentOwner]).rpc();
 
         // Verify reputation increased by 100
@@ -7009,11 +7784,17 @@ describe("test_1", () => {
           Buffer.from("Stats increment test".padEnd(64, "\0")),
           new BN(LAMPORTS_PER_SOL / 100), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null,
           0, // min_reputation
+          null, // reward_mint
         ).accountsPartial({
           task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
           creatorAgent: creatorAgentPda,
           authority: creator.publicKey,
           creator: creator.publicKey,
+          rewardMint: null,
+          creatorTokenAccount: null,
+          tokenEscrowAta: null,
+          tokenProgram: null,
+          associatedTokenProgram: null,
         }).signers([creator]).rpc();
 
         const claimPda = deriveClaimPda(taskPda, statsAgentPda);
@@ -7029,6 +7810,11 @@ describe("test_1", () => {
           creator: creator.publicKey,
           protocolConfig: protocolPda, treasury: treasuryPubkey,
           authority: statsAgentOwner.publicKey,
+          tokenEscrowAta: null,
+          workerTokenAccount: null,
+          treasuryTokenAccount: null,
+          rewardMint: null,
+          tokenProgram: null,
         }).signers([statsAgentOwner]).rpc();
 
         // Verify tasks_completed incremented
@@ -7072,11 +7858,17 @@ describe("test_1", () => {
           Buffer.from("Earnings test".padEnd(64, "\0")),
           new BN(rewardAmount), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null,
           0, // min_reputation
+          null, // reward_mint
         ).accountsPartial({
           task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
           creatorAgent: creatorAgentPda,
           authority: creator.publicKey,
           creator: creator.publicKey,
+          rewardMint: null,
+          creatorTokenAccount: null,
+          tokenEscrowAta: null,
+          tokenProgram: null,
+          associatedTokenProgram: null,
         }).signers([creator]).rpc();
 
         const claimPda = deriveClaimPda(taskPda, earnAgentPda);
@@ -7092,6 +7884,11 @@ describe("test_1", () => {
           creator: creator.publicKey,
           protocolConfig: protocolPda, treasury: treasuryPubkey,
           authority: earnAgentOwner.publicKey,
+          tokenEscrowAta: null,
+          workerTokenAccount: null,
+          treasuryTokenAccount: null,
+          rewardMint: null,
+          tokenProgram: null,
         }).signers([earnAgentOwner]).rpc();
 
         // Verify total_earned (reward minus 1% protocol fee)
@@ -7135,11 +7932,17 @@ describe("test_1", () => {
           Buffer.from("Active tasks test".padEnd(64, "\0")),
           new BN(LAMPORTS_PER_SOL / 100), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null,
           0, // min_reputation
+          null, // reward_mint
         ).accountsPartial({
           task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
           creatorAgent: creatorAgentPda,
           authority: creator.publicKey,
           creator: creator.publicKey,
+          rewardMint: null,
+          creatorTokenAccount: null,
+          tokenEscrowAta: null,
+          tokenProgram: null,
+          associatedTokenProgram: null,
         }).signers([creator]).rpc();
 
         const claimPda = deriveClaimPda(taskPda, activeAgentPda);
@@ -7160,6 +7963,11 @@ describe("test_1", () => {
           creator: creator.publicKey,
           protocolConfig: protocolPda, treasury: treasuryPubkey,
           authority: activeAgentOwner.publicKey,
+          tokenEscrowAta: null,
+          workerTokenAccount: null,
+          treasuryTokenAccount: null,
+          rewardMint: null,
+          tokenProgram: null,
         }).signers([activeAgentOwner]).rpc();
 
         // Verify active_tasks decremented to 0
@@ -7181,11 +7989,17 @@ describe("test_1", () => {
           Buffer.from("Multi-claim test".padEnd(64, "\0")),
           new BN(LAMPORTS_PER_SOL / 33), 3, getDefaultDeadline(), TASK_TYPE_COLLABORATIVE, null,
           0, // min_reputation
+          null, // reward_mint
         ).accountsPartial({
           task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
           creatorAgent: creatorAgentPda,
           authority: creator.publicKey,
           creator: creator.publicKey,
+          rewardMint: null,
+          creatorTokenAccount: null,
+          tokenEscrowAta: null,
+          tokenProgram: null,
+          associatedTokenProgram: null,
         }).signers([creator]).rpc();
 
         // All 3 workers claim using fresh agents
@@ -7227,11 +8041,17 @@ describe("test_1", () => {
           Buffer.from("Overflow claim test".padEnd(64, "\0")),
           new BN(LAMPORTS_PER_SOL / 50), 2, getDefaultDeadline(), TASK_TYPE_COLLABORATIVE, null,
           0, // min_reputation
+          null, // reward_mint
         ).accountsPartial({
           task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
           creatorAgent: creatorAgentPda,
           authority: creator.publicKey,
           creator: creator.publicKey,
+          rewardMint: null,
+          creatorTokenAccount: null,
+          tokenEscrowAta: null,
+          tokenProgram: null,
+          associatedTokenProgram: null,
         }).signers([creator]).rpc();
 
         // First 2 claims succeed using fresh workers
@@ -7277,11 +8097,17 @@ describe("test_1", () => {
           Buffer.from("PDA uniqueness test".padEnd(64, "\0")),
           new BN(LAMPORTS_PER_SOL / 100), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null,
           0, // min_reputation
+          null, // reward_mint
         ).accountsPartial({
           task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
           creatorAgent: creatorAgentPda,
           authority: creator.publicKey,
           creator: creator.publicKey,
+          rewardMint: null,
+          creatorTokenAccount: null,
+          tokenEscrowAta: null,
+          tokenProgram: null,
+          associatedTokenProgram: null,
         }).signers([creator]).rpc();
 
         // First claim succeeds
@@ -7323,11 +8149,17 @@ describe("test_1", () => {
           Buffer.from("First wins test".padEnd(64, "\0")),
           new BN(rewardAmount), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null,
           0, // min_reputation
+          null, // reward_mint
         ).accountsPartial({
           task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
           creatorAgent: creatorAgentPda,
           authority: creator.publicKey,
           creator: creator.publicKey,
+          rewardMint: null,
+          creatorTokenAccount: null,
+          tokenEscrowAta: null,
+          tokenProgram: null,
+          associatedTokenProgram: null,
         }).signers([creator]).rpc();
 
         const worker = await createFreshWorker();
@@ -7346,6 +8178,11 @@ describe("test_1", () => {
           creator: creator.publicKey,
           protocolConfig: protocolPda, treasury: treasuryPubkey,
           authority: worker.wallet.publicKey,
+          tokenEscrowAta: null,
+          workerTokenAccount: null,
+          treasuryTokenAccount: null,
+          rewardMint: null,
+          tokenProgram: null,
         }).signers([worker.wallet]).rpc();
 
         const workerAfter = await provider.connection.getBalance(worker.wallet.publicKey);
@@ -7366,11 +8203,17 @@ describe("test_1", () => {
           Buffer.from("All completions test".padEnd(64, "\0")),
           new BN(LAMPORTS_PER_SOL / 50), 2, getDefaultDeadline(), TASK_TYPE_COLLABORATIVE, null,
           0, // min_reputation
+          null, // reward_mint
         ).accountsPartial({
           task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
           creatorAgent: creatorAgentPda,
           authority: creator.publicKey,
           creator: creator.publicKey,
+          rewardMint: null,
+          creatorTokenAccount: null,
+          tokenEscrowAta: null,
+          tokenProgram: null,
+          associatedTokenProgram: null,
         }).signers([creator]).rpc();
 
         const worker1 = await createFreshWorker();
@@ -7396,6 +8239,11 @@ describe("test_1", () => {
           creator: creator.publicKey,
           protocolConfig: protocolPda, treasury: treasuryPubkey,
           authority: worker1.wallet.publicKey,
+          tokenEscrowAta: null,
+          workerTokenAccount: null,
+          treasuryTokenAccount: null,
+          rewardMint: null,
+          tokenProgram: null,
         }).signers([worker1.wallet]).rpc();
 
         let task = await program.account.task.fetch(taskPda);
@@ -7412,6 +8260,11 @@ describe("test_1", () => {
           creator: creator.publicKey,
           protocolConfig: protocolPda, treasury: treasuryPubkey,
           authority: worker2.wallet.publicKey,
+          tokenEscrowAta: null,
+          workerTokenAccount: null,
+          treasuryTokenAccount: null,
+          rewardMint: null,
+          tokenProgram: null,
         }).signers([worker2.wallet]).rpc();
 
         task = await program.account.task.fetch(taskPda);
@@ -7435,11 +8288,17 @@ describe("test_1", () => {
           Buffer.from("Worker count test".padEnd(64, "\0")),
           new BN(LAMPORTS_PER_SOL / 33), 3, getDefaultDeadline(), TASK_TYPE_COLLABORATIVE, null,
           0, // min_reputation
+          null, // reward_mint
         ).accountsPartial({
           task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
           creatorAgent: creatorAgentPda,
           authority: creator.publicKey,
           creator: creator.publicKey,
+          rewardMint: null,
+          creatorTokenAccount: null,
+          tokenEscrowAta: null,
+          tokenProgram: null,
+          associatedTokenProgram: null,
         }).signers([creator]).rpc();
 
         let task = await program.account.task.fetch(taskPda);
@@ -7491,11 +8350,17 @@ describe("test_1", () => {
           Buffer.from("Completion count test".padEnd(64, "\0")),
           new BN(LAMPORTS_PER_SOL / 33), 3, getDefaultDeadline(), TASK_TYPE_COLLABORATIVE, null,
           0, // min_reputation
+          null, // reward_mint
         ).accountsPartial({
           task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
           creatorAgent: creatorAgentPda,
           authority: creator.publicKey,
           creator: creator.publicKey,
+          rewardMint: null,
+          creatorTokenAccount: null,
+          tokenEscrowAta: null,
+          tokenProgram: null,
+          associatedTokenProgram: null,
         }).signers([creator]).rpc();
 
         const worker1 = await createFreshWorker();
@@ -7531,6 +8396,11 @@ describe("test_1", () => {
           creator: creator.publicKey,
           protocolConfig: protocolPda, treasury: treasuryPubkey,
           authority: worker1.wallet.publicKey,
+          tokenEscrowAta: null,
+          workerTokenAccount: null,
+          treasuryTokenAccount: null,
+          rewardMint: null,
+          tokenProgram: null,
         }).signers([worker1.wallet]).rpc();
 
         task = await program.account.task.fetch(taskPda);
@@ -7544,6 +8414,11 @@ describe("test_1", () => {
           creator: creator.publicKey,
           protocolConfig: protocolPda, treasury: treasuryPubkey,
           authority: worker2.wallet.publicKey,
+          tokenEscrowAta: null,
+          workerTokenAccount: null,
+          treasuryTokenAccount: null,
+          rewardMint: null,
+          tokenProgram: null,
         }).signers([worker2.wallet]).rpc();
 
         task = await program.account.task.fetch(taskPda);
@@ -7557,6 +8432,11 @@ describe("test_1", () => {
           creator: creator.publicKey,
           protocolConfig: protocolPda, treasury: treasuryPubkey,
           authority: worker3.wallet.publicKey,
+          tokenEscrowAta: null,
+          workerTokenAccount: null,
+          treasuryTokenAccount: null,
+          rewardMint: null,
+          tokenProgram: null,
         }).signers([worker3.wallet]).rpc();
 
         task = await program.account.task.fetch(taskPda);
@@ -7599,11 +8479,17 @@ describe("test_1", () => {
           Buffer.from("Track test 1".padEnd(64, "\0")),
           new BN(LAMPORTS_PER_SOL / 100), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null,
           0, // min_reputation
+          null, // reward_mint
         ).accountsPartial({
           task: taskPda1, escrow: escrowPda1, protocolConfig: protocolPda,
           creatorAgent: creatorAgentPda,
           authority: creator.publicKey,
           creator: creator.publicKey,
+          rewardMint: null,
+          creatorTokenAccount: null,
+          tokenEscrowAta: null,
+          tokenProgram: null,
+          associatedTokenProgram: null,
         }).signers([creator]).rpc();
 
         const claimPda1 = deriveClaimPda(taskPda1, deriveAgentPda(trackAgentId));
@@ -7625,11 +8511,17 @@ describe("test_1", () => {
           Buffer.from("Track test 2".padEnd(64, "\0")),
           new BN(LAMPORTS_PER_SOL / 100), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null,
           0, // min_reputation
+          null, // reward_mint
         ).accountsPartial({
           task: taskPda2, escrow: escrowPda2, protocolConfig: protocolPda,
           creatorAgent: creatorAgentPda,
           authority: creator.publicKey,
           creator: creator.publicKey,
+          rewardMint: null,
+          creatorTokenAccount: null,
+          tokenEscrowAta: null,
+          tokenProgram: null,
+          associatedTokenProgram: null,
         }).signers([creator]).rpc();
 
         const claimPda2 = deriveClaimPda(taskPda2, deriveAgentPda(trackAgentId));
@@ -7649,6 +8541,11 @@ describe("test_1", () => {
           creator: creator.publicKey,
           protocolConfig: protocolPda, treasury: treasuryPubkey,
           authority: trackAgentOwner.publicKey,
+          tokenEscrowAta: null,
+          workerTokenAccount: null,
+          treasuryTokenAccount: null,
+          rewardMint: null,
+          tokenProgram: null,
         }).signers([trackAgentOwner]).rpc();
 
         agent = await program.account.agentRegistration.fetch(trackAgentPda);
@@ -7662,6 +8559,11 @@ describe("test_1", () => {
           creator: creator.publicKey,
           protocolConfig: protocolPda, treasury: treasuryPubkey,
           authority: trackAgentOwner.publicKey,
+          tokenEscrowAta: null,
+          workerTokenAccount: null,
+          treasuryTokenAccount: null,
+          rewardMint: null,
+          tokenProgram: null,
         }).signers([trackAgentOwner]).rpc();
 
         agent = await program.account.agentRegistration.fetch(trackAgentPda);
@@ -7682,11 +8584,17 @@ describe("test_1", () => {
           Buffer.from("Max workers test".padEnd(64, "\0")),
           new BN(LAMPORTS_PER_SOL / 100), 100, getDefaultDeadline(), TASK_TYPE_COLLABORATIVE, null,
           0, // min_reputation
+          null, // reward_mint
         ).accountsPartial({
           task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
           creatorAgent: creatorAgentPda,
           authority: creator.publicKey,
           creator: creator.publicKey,
+          rewardMint: null,
+          creatorTokenAccount: null,
+          tokenEscrowAta: null,
+          tokenProgram: null,
+          associatedTokenProgram: null,
         }).signers([creator]).rpc();
 
         const task = await program.account.task.fetch(taskPda);
@@ -7704,11 +8612,17 @@ describe("test_1", () => {
             Buffer.from("Zero workers test".padEnd(64, "\0")),
             new BN(LAMPORTS_PER_SOL / 100), 0, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null,
             0, // min_reputation
+            null, // reward_mint
           ).accountsPartial({
             task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
             creatorAgent: creatorAgentPda,
             authority: creator.publicKey,
             creator: creator.publicKey,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
           }).signers([creator]).rpc();
           expect.fail("Should have failed");
         } catch (e: any) {
@@ -7727,11 +8641,17 @@ describe("test_1", () => {
             Buffer.from("Zero reward test".padEnd(64, "\0")),
             new BN(0), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null,
             0, // min_reputation
+            null, // reward_mint
           ).accountsPartial({
             task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
             creatorAgent: creatorAgentPda,
             authority: creator.publicKey,
             creator: creator.publicKey,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
           }).signers([creator]).rpc();
           expect.fail("Should have rejected zero reward");
         } catch (e: any) {
@@ -7752,11 +8672,17 @@ describe("test_1", () => {
             new BN("18446744073709551615"), // u64::MAX
             1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null,
             0, // min_reputation
+            null, // reward_mint
           ).accountsPartial({
             task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
             creatorAgent: creatorAgentPda,
             authority: creator.publicKey,
             creator: creator.publicKey,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
           }).signers([creator]).rpc();
           expect.fail("Should have failed");
         } catch (e: unknown) {
@@ -7777,11 +8703,17 @@ describe("test_1", () => {
             Buffer.from("No deadline test".padEnd(64, "\0")),
             new BN(LAMPORTS_PER_SOL), 1, new BN(0), TASK_TYPE_EXCLUSIVE, null,
             0, // min_reputation
+            null, // reward_mint
           ).accountsPartial({
             task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
             creatorAgent: creatorAgentPda,
             authority: creator.publicKey,
             creator: creator.publicKey,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
           }).signers([creator]).rpc();
           expect.fail("Should have failed with deadline=0");
         } catch (e: unknown) {
@@ -7804,11 +8736,17 @@ describe("test_1", () => {
             Buffer.from("Past deadline test".padEnd(64, "\0")),
             new BN(0), 1, new BN(pastDeadline), TASK_TYPE_EXCLUSIVE, null,
             0, // min_reputation
+            null, // reward_mint
           ).accountsPartial({
             task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
             creatorAgent: creatorAgentPda,
             authority: creator.publicKey,
             creator: creator.publicKey,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
           }).signers([creator]).rpc();
           expect.fail("Should have failed");
         } catch (e: unknown) {
@@ -7829,11 +8767,17 @@ describe("test_1", () => {
             Buffer.from("Invalid type test".padEnd(64, "\0")),
             new BN(0), 1, new BN(0), 3, null, // Invalid: only 0, 1, 2 are valid
             0, // min_reputation
+            null, // reward_mint
           ).accountsPartial({
             task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
             creatorAgent: creatorAgentPda,
             authority: creator.publicKey,
             creator: creator.publicKey,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
           }).signers([creator]).rpc();
           expect.fail("Should have failed");
         } catch (e: any) {
@@ -7994,11 +8938,17 @@ describe("test_1", () => {
           Buffer.from("Invariant test".padEnd(64, "\0")),
           new BN(LAMPORTS_PER_SOL / 50), 2, getDefaultDeadline(), TASK_TYPE_COLLABORATIVE, null,
           0, // min_reputation
+          null, // reward_mint
         ).accountsPartial({
           task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
           creatorAgent: creatorAgentPda,
           authority: creator.publicKey,
           creator: creator.publicKey,
+          rewardMint: null,
+          creatorTokenAccount: null,
+          tokenEscrowAta: null,
+          tokenProgram: null,
+          associatedTokenProgram: null,
         }).signers([creator]).rpc();
 
         // Claim up to max using fresh workers
@@ -8031,11 +8981,17 @@ describe("test_1", () => {
           Buffer.from("Completion invariant".padEnd(64, "\0")),
           new BN(LAMPORTS_PER_SOL / 50), 2, getDefaultDeadline(), TASK_TYPE_COLLABORATIVE, null,
           0, // min_reputation
+          null, // reward_mint
         ).accountsPartial({
           task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
           creatorAgent: creatorAgentPda,
           authority: creator.publicKey,
           creator: creator.publicKey,
+          rewardMint: null,
+          creatorTokenAccount: null,
+          tokenEscrowAta: null,
+          tokenProgram: null,
+          associatedTokenProgram: null,
         }).signers([creator]).rpc();
 
         const worker1 = await createFreshWorker();
@@ -8061,6 +9017,11 @@ describe("test_1", () => {
           creator: creator.publicKey,
           protocolConfig: protocolPda, treasury: treasuryPubkey,
           authority: worker1.wallet.publicKey,
+          tokenEscrowAta: null,
+          workerTokenAccount: null,
+          treasuryTokenAccount: null,
+          rewardMint: null,
+          tokenProgram: null,
         }).signers([worker1.wallet]).rpc();
 
         // Note: For exclusive tasks (max_workers=1), escrow is closed after single completion
@@ -8080,11 +9041,17 @@ describe("test_1", () => {
           Buffer.from("Escrow invariant".padEnd(64, "\0")),
           new BN(rewardAmount), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null,
           0, // min_reputation
+          null, // reward_mint
         ).accountsPartial({
           task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
           creatorAgent: creatorAgentPda,
           authority: creator.publicKey,
           creator: creator.publicKey,
+          rewardMint: null,
+          creatorTokenAccount: null,
+          tokenEscrowAta: null,
+          tokenProgram: null,
+          associatedTokenProgram: null,
         }).signers([creator]).rpc();
 
         // Check escrow invariant before completion (escrow is closed after completion)
@@ -8106,6 +9073,11 @@ describe("test_1", () => {
           creator: creator.publicKey,
           protocolConfig: protocolPda, treasury: treasuryPubkey,
           authority: worker.wallet.publicKey,
+          tokenEscrowAta: null,
+          workerTokenAccount: null,
+          treasuryTokenAccount: null,
+          rewardMint: null,
+          tokenProgram: null,
         }).signers([worker.wallet]).rpc();
 
         // Escrow is closed after completion - verify task is completed
@@ -8146,11 +9118,17 @@ describe("test_1", () => {
             Buffer.from(`Busy task ${i}`.padEnd(64, "\0")),
             new BN(LAMPORTS_PER_SOL / 100), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null,
             0, // min_reputation
+            null, // reward_mint
           ).accountsPartial({
             task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
             creatorAgent: creatorAgentPda,
             authority: creator.publicKey,
             creator: creator.publicKey,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
           }).signers([creator]).rpc();
 
           const claimPda = deriveClaimPda(taskPda, deriveAgentPda(busyAgentId));
@@ -8174,11 +9152,17 @@ describe("test_1", () => {
           Buffer.from("Busy task 10".padEnd(64, "\0")),
           new BN(LAMPORTS_PER_SOL / 100), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null,
           0, // min_reputation
+          null, // reward_mint
         ).accountsPartial({
           task: taskPda11, escrow: escrowPda11, protocolConfig: protocolPda,
           creatorAgent: creatorAgentPda,
           authority: creator.publicKey,
           creator: creator.publicKey,
+          rewardMint: null,
+          creatorTokenAccount: null,
+          tokenEscrowAta: null,
+          tokenProgram: null,
+          associatedTokenProgram: null,
         }).signers([creator]).rpc();
 
         const claimPda11 = deriveClaimPda(taskPda11, deriveAgentPda(busyAgentId));
@@ -8216,11 +9200,17 @@ describe("test_1", () => {
           Buffer.from("Stats increase test".padEnd(64, "\0")),
           new BN(LAMPORTS_PER_SOL / 100), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null,
           0, // min_reputation
+          null, // reward_mint
         ).accountsPartial({
           task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
           creatorAgent: creatorAgentPda,
           authority: creator.publicKey,
           creator: creator.publicKey,
+          rewardMint: null,
+          creatorTokenAccount: null,
+          tokenEscrowAta: null,
+          tokenProgram: null,
+          associatedTokenProgram: null,
         }).signers([creator]).rpc();
 
         // Verify total_tasks increased
@@ -8266,6 +9256,11 @@ describe("test_1", () => {
           creator: creator.publicKey,
           protocolConfig: protocolPda, treasury: treasuryPubkey,
           authority: newAgentOwner.publicKey,
+          tokenEscrowAta: null,
+          workerTokenAccount: null,
+          treasuryTokenAccount: null,
+          rewardMint: null,
+          tokenProgram: null,
         }).signers([newAgentOwner]).rpc();
 
         // Verify completed_tasks increased
@@ -8287,11 +9282,17 @@ describe("test_1", () => {
           Buffer.from("Shared ID test 1".padEnd(64, "\0")),
           new BN(LAMPORTS_PER_SOL / 100), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null,
           0, // min_reputation
+          null, // reward_mint
         ).accountsPartial({
           task: taskPda1, escrow: escrowPda1, protocolConfig: protocolPda,
           creatorAgent: creatorAgentPda,
           authority: creator.publicKey,
           creator: creator.publicKey,
+          rewardMint: null,
+          creatorTokenAccount: null,
+          tokenEscrowAta: null,
+          tokenProgram: null,
+          associatedTokenProgram: null,
         }).signers([creator]).rpc();
 
         // Creator 2 (using worker1 as different creator)
@@ -8303,11 +9304,17 @@ describe("test_1", () => {
           Buffer.from("Shared ID test 2".padEnd(64, "\0")),
           new BN(LAMPORTS_PER_SOL / 100), 1, getDefaultDeadline(), TASK_TYPE_EXCLUSIVE, null,
           0, // min_reputation
+          null, // reward_mint
         ).accountsPartial({
           task: taskPda2, escrow: escrowPda2, protocolConfig: protocolPda,
           creatorAgent: deriveAgentPda(agentId1),
           authority: worker1.publicKey,
           creator: worker1.publicKey,
+          rewardMint: null,
+          creatorTokenAccount: null,
+          tokenEscrowAta: null,
+          tokenProgram: null,
+          associatedTokenProgram: null,
         }).signers([worker1]).rpc();
 
         // Verify PDAs are different
@@ -8389,6 +9396,7 @@ describe("test_1", () => {
             TASK_TYPE_EXCLUSIVE,
             null,  // constraint_hash
             6000,  // min_reputation (worker has 5000)
+            null, // reward_mint
           )
           .accountsPartial({
             task: taskPda,
@@ -8398,6 +9406,11 @@ describe("test_1", () => {
             authority: creator.publicKey,
             creator: creator.publicKey,
             systemProgram: SystemProgram.programId,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
           })
           .signers([creator])
           .rpc();
@@ -8441,6 +9454,7 @@ describe("test_1", () => {
             TASK_TYPE_EXCLUSIVE,
             null,  // constraint_hash
             5000,  // min_reputation (worker has exactly 5000)
+            null, // reward_mint
           )
           .accountsPartial({
             task: taskPda,
@@ -8450,6 +9464,11 @@ describe("test_1", () => {
             authority: creator.publicKey,
             creator: creator.publicKey,
             systemProgram: SystemProgram.programId,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
           })
           .signers([creator])
           .rpc();
@@ -8491,6 +9510,7 @@ describe("test_1", () => {
             TASK_TYPE_EXCLUSIVE,
             null,  // constraint_hash
             0,  // min_reputation (no gate)
+            null, // reward_mint
           )
           .accountsPartial({
             task: taskPda,
@@ -8500,6 +9520,11 @@ describe("test_1", () => {
             authority: creator.publicKey,
             creator: creator.publicKey,
             systemProgram: SystemProgram.programId,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
           })
           .signers([creator])
           .rpc();
@@ -8541,6 +9566,7 @@ describe("test_1", () => {
               TASK_TYPE_EXCLUSIVE,
               null,  // constraint_hash
               10001,  // min_reputation > MAX_REPUTATION
+              null, // reward_mint
             )
             .accountsPartial({
               task: taskPda,
@@ -8550,6 +9576,11 @@ describe("test_1", () => {
               authority: creator.publicKey,
               creator: creator.publicKey,
               systemProgram: SystemProgram.programId,
+              rewardMint: null,
+              creatorTokenAccount: null,
+              tokenEscrowAta: null,
+              tokenProgram: null,
+              associatedTokenProgram: null,
             })
             .signers([creator])
             .rpc();
@@ -8575,6 +9606,7 @@ describe("test_1", () => {
             TASK_TYPE_EXCLUSIVE,
             null,  // constraint_hash
             7500,  // min_reputation
+            null, // reward_mint
           )
           .accountsPartial({
             task: taskPda,
@@ -8584,6 +9616,11 @@ describe("test_1", () => {
             authority: creator.publicKey,
             creator: creator.publicKey,
             systemProgram: SystemProgram.programId,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
           })
           .signers([creator])
           .rpc();
