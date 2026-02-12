@@ -96,7 +96,7 @@ export interface AgentCallbacks {
   onTaskExecuted?: (task: Task, output: bigint[]) => void;
   onTaskCompleted?: (task: Task, txSignature: string) => void;
   onTaskFailed?: (task: Task, error: Error) => void;
-  onEarnings?: (amount: bigint, task: Task) => void;
+  onEarnings?: (amount: bigint, task: Task, mint?: PublicKey | null) => void;
   onProofGenerated?: (task: Task, proofSizeBytes: number, durationMs: number) => void;
 }
 
@@ -258,6 +258,14 @@ export class AgentBuilder {
     return this;
   }
 
+  withRewardMintFilter(rewardMint: PublicKey | PublicKey[] | null): this {
+    if (!this.taskFilter) {
+      this.taskFilter = {};
+    }
+    this.taskFilter.rewardMint = rewardMint;
+    return this;
+  }
+
   withClaimStrategy(strategy: ClaimStrategy): this {
     this.claimStrategy = strategy;
     return this;
@@ -397,7 +405,12 @@ export class AgentBuilder {
     }
 
     if (this.useAgencTools) {
-      registry.registerAll(createAgencTools({ connection: resolvedConnection, logger }));
+      registry.registerAll(createAgencTools({
+        connection: resolvedConnection,
+        wallet,
+        programId: this.programId,
+        logger,
+      }));
     }
 
     return { registry, initializedSkills };

@@ -28,6 +28,12 @@ export interface SerializedTask {
   requiredCompletions: number;
   description: string;
   rewardMint: string | null;
+  /** Optional symbol for known reward mints (SOL, USDC, USDT, etc.) */
+  rewardSymbol?: string;
+  /** Escrow token ATA (present when task is token-denominated and requested by detail view) */
+  escrowTokenAccount?: string | null;
+  /** Escrow token balance in base units (present when task is token-denominated and requested by detail view) */
+  escrowTokenBalance?: string | null;
 }
 
 /**

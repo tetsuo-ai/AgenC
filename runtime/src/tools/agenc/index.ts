@@ -6,10 +6,13 @@
 
 import type { Tool, ToolContext } from '../types.js';
 import { TaskOperations } from '../../task/operations.js';
-import { createReadOnlyProgram } from '../../idl.js';
+import { createProgram, createReadOnlyProgram } from '../../idl.js';
+import { AnchorProvider } from '@coral-xyz/anchor';
 import {
   createListTasksTool,
   createGetTaskTool,
+  createGetTokenBalanceTool,
+  createCreateTaskTool,
   createGetAgentTool,
   createGetProtocolConfigTool,
 } from './tools.js';
@@ -21,19 +24,21 @@ export type { SerializedTask, SerializedAgent, SerializedProtocolConfig } from '
 export {
   createListTasksTool,
   createGetTaskTool,
+  createGetTokenBalanceTool,
+  createCreateTaskTool,
   createGetAgentTool,
   createGetProtocolConfigTool,
 } from './tools.js';
 
 /**
- * Create all 4 built-in AgenC protocol query tools.
+ * Create all built-in AgenC protocol tools.
  *
  * The factory creates a single `TaskOperations` instance shared by
  * all tools. If no program is provided in the context, a read-only
  * program is created from the connection.
  *
  * @param context - Tool context with connection and optional program
- * @returns Array of 4 Tool instances
+ * @returns Array of Tool instances
  *
  * @example
  * ```typescript
@@ -42,7 +47,15 @@ export {
  * ```
  */
 export function createAgencTools(context: ToolContext): Tool[] {
-  const program = context.program ?? createReadOnlyProgram(context.connection);
+  const program = context.program ?? (() => {
+    if (context.wallet) {
+      const provider = new AnchorProvider(context.connection, context.wallet, { commitment: 'confirmed' });
+      return context.programId ? createProgram(provider, context.programId) : createProgram(provider);
+    }
+    return context.programId
+      ? createReadOnlyProgram(context.connection, context.programId)
+      : createReadOnlyProgram(context.connection);
+  })();
 
   // Dummy agentId — built-in tools only use query methods that don't reference agentId
   const dummyAgentId = new Uint8Array(32);
@@ -56,6 +69,8 @@ export function createAgencTools(context: ToolContext): Tool[] {
   return [
     createListTasksTool(ops, context.logger),
     createGetTaskTool(ops, context.logger),
+    createGetTokenBalanceTool(program, context.logger),
+    createCreateTaskTool(program, context.logger),
     createGetAgentTool(program, context.logger),
     createGetProtocolConfigTool(program, context.logger),
   ];
