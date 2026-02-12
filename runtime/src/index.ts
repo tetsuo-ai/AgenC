@@ -438,6 +438,34 @@ export {
   DefaultClaimStrategy,
 } from './autonomous/index.js';
 
+// Eval and deterministic replay
+export {
+  EVAL_TRACE_SCHEMA_VERSION,
+  parseTrajectoryTrace,
+  migrateTrajectoryTrace,
+  canonicalizeTrajectoryTrace,
+  stableStringifyJson,
+  TrajectoryRecorder,
+  TrajectoryReplayEngine,
+  type JsonPrimitive,
+  type JsonValue,
+  type JsonObject,
+  type KnownTrajectoryEventType,
+  type TrajectoryEventType,
+  type TrajectoryRecordInput,
+  type TrajectoryRecorderSink,
+  type TrajectoryEvent,
+  type TrajectoryTrace,
+  type LegacyTrajectoryEventV0,
+  type LegacyTrajectoryTraceV0,
+  type TrajectoryRecorderConfig,
+  type ReplayTaskStatus,
+  type ReplayTaskState,
+  type ReplaySummary,
+  type TrajectoryReplayResult,
+  type TrajectoryReplayConfig,
+} from './eval/index.js';
+
 // Policy and Safety Engine
 export {
   PolicyEngine,

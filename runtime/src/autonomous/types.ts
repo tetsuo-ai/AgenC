@@ -13,6 +13,7 @@ import type { DependencyType } from '../task/dependency-graph.js';
 import type { ProofPipelineConfig } from '../task/proof-pipeline.js';
 import type { PolicyEngine } from '../policy/engine.js';
 import type { PolicyViolation } from '../policy/types.js';
+import type { TrajectoryRecorderSink } from '../eval/types.js';
 
 /**
  * On-chain task data
@@ -454,6 +455,12 @@ export interface AutonomousAgentConfig extends AgentRuntimeConfig {
    * Optional callback fired on policy violations.
    */
   onPolicyViolation?: (violation: PolicyViolation) => void;
+
+  /**
+   * Optional trajectory recorder for deterministic replay/evaluation.
+   * When omitted, no trace events are recorded.
+   */
+  trajectoryRecorder?: TrajectoryRecorderSink;
 }
 
 /**
