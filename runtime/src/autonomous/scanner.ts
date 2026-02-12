@@ -262,9 +262,10 @@ export class TaskScanner {
     }
 
     // Mint filter
-    if (f.acceptedMints !== undefined) {
+    const acceptedMints = this.resolveAcceptedMints(f);
+    if (acceptedMints !== undefined) {
       const taskMintKey = task.rewardMint?.toBase58() ?? null;
-      const accepted = f.acceptedMints.some((m) => {
+      const accepted = acceptedMints.some((m) => {
         if (m === null) return taskMintKey === null;
         return taskMintKey === m.toBase58();
       });
@@ -318,6 +319,20 @@ export class TaskScanner {
       status: this.parseStatus(data.status),
       rewardMint: data.rewardMint ?? null,
     };
+  }
+
+  /**
+   * Normalize legacy `acceptedMints` and newer `rewardMint` filter shapes.
+   * `rewardMint` takes precedence when both are present.
+   */
+  private resolveAcceptedMints(filter: TaskFilter): (PublicKey | null)[] | undefined {
+    if (filter.rewardMint !== undefined) {
+      if (Array.isArray(filter.rewardMint)) {
+        return [...filter.rewardMint];
+      }
+      return [filter.rewardMint];
+    }
+    return filter.acceptedMints;
   }
 
   private toUint8Array(value: number[] | Uint8Array): Uint8Array {

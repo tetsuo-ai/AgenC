@@ -9,6 +9,7 @@
  */
 
 import { SystemProgram } from '@solana/web3.js';
+import type { PublicKey } from '@solana/web3.js';
 import { BN, type Program } from '@coral-xyz/anchor';
 import type { AgencCoordination } from '../types/agenc_coordination.js';
 import type { Logger } from '../utils/logger.js';
@@ -78,6 +79,7 @@ export class DAGSubmitter {
     const order = topologicalSort(state.definition);
     const edgeMap = this.buildEdgeMap(state.definition.edges);
     const creator = this.program.provider.publicKey!;
+    const defaultRewardMint = state.definition.defaultRewardMint ?? null;
 
     for (const name of order) {
       const node = state.nodes.get(name)!;
@@ -107,7 +109,7 @@ export class DAGSubmitter {
 
       try {
         const txSig = await this.submitWithRetry(
-          node, creator, taskId, taskPda, escrowPda
+          node, creator, taskId, taskPda, escrowPda, defaultRewardMint
         );
         node.status = WorkflowNodeStatus.Created;
         node.transactionSignature = txSig;
@@ -138,6 +140,7 @@ export class DAGSubmitter {
     taskId: Uint8Array,
     taskPda: import('@solana/web3.js').PublicKey,
     escrowPda: import('@solana/web3.js').PublicKey,
+    defaultRewardMint: PublicKey | null,
   ): Promise<string> {
     let lastError: Error | undefined;
 
@@ -145,11 +148,23 @@ export class DAGSubmitter {
       try {
         if (node.parentPda) {
           return await this.createDependentTask(
-            taskId, node.template, taskPda, escrowPda, node.parentPda, node.dependencyType, creator
+            taskId,
+            node.template,
+            taskPda,
+            escrowPda,
+            node.parentPda,
+            node.dependencyType,
+            creator,
+            defaultRewardMint,
           );
         } else {
           return await this.createRootTask(
-            taskId, node.template, taskPda, escrowPda, creator
+            taskId,
+            node.template,
+            taskPda,
+            escrowPda,
+            creator,
+            defaultRewardMint,
           );
         }
       } catch (err) {
@@ -190,11 +205,12 @@ export class DAGSubmitter {
     taskPda: import('@solana/web3.js').PublicKey,
     escrowPda: import('@solana/web3.js').PublicKey,
     creator: import('@solana/web3.js').PublicKey,
+    defaultRewardMint: PublicKey | null,
   ): Promise<string> {
     const constraintHash = template.constraintHash
       ? Array.from(template.constraintHash)
       : null;
-    const mint = template.rewardMint ?? null;
+    const mint = template.rewardMint ?? defaultRewardMint;
     const tokenAccounts = buildCreateTaskTokenAccounts(mint, escrowPda, creator);
 
     return this.program.methods
@@ -234,11 +250,12 @@ export class DAGSubmitter {
     parentTaskPda: import('@solana/web3.js').PublicKey,
     dependencyType: OnChainDependencyType,
     creator: import('@solana/web3.js').PublicKey,
+    defaultRewardMint: PublicKey | null,
   ): Promise<string> {
     const constraintHash = template.constraintHash
       ? Array.from(template.constraintHash)
       : null;
-    const mint = template.rewardMint ?? null;
+    const mint = template.rewardMint ?? defaultRewardMint;
     const tokenAccounts = buildCreateTaskTokenAccounts(mint, escrowPda, creator);
 
     return this.program.methods

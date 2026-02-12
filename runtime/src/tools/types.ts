@@ -7,9 +7,10 @@
  * @module
  */
 
-import type { Connection } from '@solana/web3.js';
+import type { Connection, PublicKey } from '@solana/web3.js';
 import type { Program } from '@coral-xyz/anchor';
 import type { AgencCoordination } from '../types/agenc_coordination.js';
+import type { Wallet } from '../types/wallet.js';
 import type { Logger } from '../utils/logger.js';
 
 /**
@@ -54,13 +55,16 @@ export interface Tool {
 /**
  * Context provided to built-in tool factories.
  *
- * Omits `wallet` because built-in tools are read-only queries.
  */
 export interface ToolContext {
   /** Solana RPC connection */
   readonly connection: Connection;
+  /** Optional wallet for signer-required tools (e.g. agenc.createTask) */
+  readonly wallet?: Wallet;
   /** Optional Anchor program instance (tools can create read-only if absent) */
   readonly program?: Program<AgencCoordination>;
+  /** Optional custom program ID when creating internal program instances */
+  readonly programId?: PublicKey;
   /** Logger instance */
   readonly logger: Logger;
 }

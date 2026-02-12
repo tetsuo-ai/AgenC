@@ -43,6 +43,7 @@ function createMockTaskAccount(
     maxWorkers: number;
     currentClaims: number;
     status: { open: {} };
+    rewardMint: PublicKey | null;
   }> = {}
 ) {
   return {
@@ -56,6 +57,7 @@ function createMockTaskAccount(
     maxWorkers: overrides.maxWorkers ?? 1,
     currentClaims: overrides.currentClaims ?? 0,
     status: overrides.status ?? { open: {} },
+    rewardMint: overrides.rewardMint ?? null,
   };
 }
 
@@ -136,6 +138,7 @@ function createMockTaskObject(overrides: Partial<Task> = {}): Task {
     maxWorkers: 1,
     currentClaims: 0,
     status: TaskStatus.Open,
+    rewardMint: null,
     ...overrides,
   };
 }
@@ -308,6 +311,49 @@ describe('TaskScanner', () => {
 
       expect(scanner.matchesFilter(singleWorker)).toBe(false);
       expect(scanner.matchesFilter(multiWorker)).toBe(true);
+    });
+
+    it('filters by rewardMint (single mint)', () => {
+      const mintA = PublicKey.unique();
+      const mintB = PublicKey.unique();
+      scanner.setFilter({ rewardMint: mintA });
+
+      const tokenTaskA = createMockTaskObject({ rewardMint: mintA });
+      const tokenTaskB = createMockTaskObject({ rewardMint: mintB });
+      const solTask = createMockTaskObject({ rewardMint: null });
+
+      expect(scanner.matchesFilter(tokenTaskA)).toBe(true);
+      expect(scanner.matchesFilter(tokenTaskB)).toBe(false);
+      expect(scanner.matchesFilter(solTask)).toBe(false);
+    });
+
+    it('filters by rewardMint array', () => {
+      const mintA = PublicKey.unique();
+      const mintB = PublicKey.unique();
+      const mintC = PublicKey.unique();
+      scanner.setFilter({ rewardMint: [mintA, mintB] });
+
+      expect(scanner.matchesFilter(createMockTaskObject({ rewardMint: mintA }))).toBe(true);
+      expect(scanner.matchesFilter(createMockTaskObject({ rewardMint: mintB }))).toBe(true);
+      expect(scanner.matchesFilter(createMockTaskObject({ rewardMint: mintC }))).toBe(false);
+      expect(scanner.matchesFilter(createMockTaskObject({ rewardMint: null }))).toBe(false);
+    });
+
+    it('filters SOL-only when rewardMint is null', () => {
+      const mint = PublicKey.unique();
+      scanner.setFilter({ rewardMint: null });
+
+      expect(scanner.matchesFilter(createMockTaskObject({ rewardMint: null }))).toBe(true);
+      expect(scanner.matchesFilter(createMockTaskObject({ rewardMint: mint }))).toBe(false);
+    });
+
+    it('preserves legacy acceptedMints behavior', () => {
+      const mint = PublicKey.unique();
+      scanner.setFilter({ acceptedMints: [mint, null] });
+
+      expect(scanner.matchesFilter(createMockTaskObject({ rewardMint: mint }))).toBe(true);
+      expect(scanner.matchesFilter(createMockTaskObject({ rewardMint: null }))).toBe(true);
+      expect(scanner.matchesFilter(createMockTaskObject({ rewardMint: PublicKey.unique() }))).toBe(false);
     });
   });
 

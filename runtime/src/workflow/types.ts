@@ -78,10 +78,20 @@ export interface WorkflowEdge {
 export interface WorkflowDefinition {
   /** User-supplied workflow identifier */
   id: string;
+  /** Default reward mint for nodes that omit `task.rewardMint` (null/undefined = SOL) */
+  defaultRewardMint?: PublicKey | null;
   /** Task blueprints */
   tasks: ReadonlyArray<TaskTemplate>;
   /** Dependency edges between tasks */
   edges: ReadonlyArray<WorkflowEdge>;
+}
+
+/**
+ * Optional workflow-level configuration.
+ */
+export interface WorkflowConfig {
+  /** Default reward mint for nodes without explicit rewardMint (null/undefined = SOL) */
+  defaultRewardMint?: PublicKey | null;
 }
 
 // ============================================================================
