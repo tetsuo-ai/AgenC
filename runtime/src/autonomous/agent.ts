@@ -37,6 +37,7 @@ import { ensureWallet } from '../types/wallet.js';
 import type { AgentState } from '../agent/types.js';
 import type { ProofEngine } from '../proof/engine.js';
 import type { MemoryBackend } from '../memory/types.js';
+import { MemoryGraph } from '../memory/graph.js';
 import { SpeculativeExecutor } from '../task/speculative-executor.js';
 import { TaskOperations } from '../task/operations.js';
 import { DependencyType } from '../task/dependency-graph.js';
@@ -47,6 +48,12 @@ import {
 import type { OnChainTask } from '../task/types.js';
 import type { MetricsProvider } from '../task/types.js';
 import { VerifierExecutor, VerifierLaneEscalationError } from './verifier.js';
+import {
+  generateExecutionCandidates,
+  type CandidateGenerationResult,
+} from './candidate-generator.js';
+import { detectCandidateInconsistencies } from './inconsistency-detector.js';
+import { arbitrateCandidates } from './arbitration.js';
 import type { PolicyEngine } from '../policy/engine.js';
 import { PolicyViolationError } from '../policy/types.js';
 import type { PolicyAction, PolicyDecision, PolicyViolation } from '../policy/types.js';
@@ -112,6 +119,12 @@ interface TaskResult {
   durationMs: number;
 }
 
+interface MultiCandidateSelectionResult {
+  output: bigint[];
+  generation: CandidateGenerationResult;
+  arbitration: ReturnType<typeof arbitrateCandidates>;
+}
+
 /**
  * AutonomousAgent extends AgentRuntime with autonomous task discovery and execution.
  *
@@ -155,6 +168,7 @@ export class AutonomousAgent extends AgentRuntime {
   private readonly retryDelayMs: number;
   private readonly speculationConfig?: SpeculationConfig;
   private readonly verifierConfig?: AutonomousAgentConfig['verifier'];
+  private readonly multiCandidateConfig?: AutonomousAgentConfig['multiCandidate'];
   private readonly metricsProvider?: MetricsProvider;
   private readonly policyEngine?: PolicyEngine;
   private readonly workflowOptimizerConfig?: WorkflowOptimizerRuntimeConfig;
@@ -237,6 +251,7 @@ export class AutonomousAgent extends AgentRuntime {
 
     this.speculationConfig = config.speculation;
     this.verifierConfig = config.verifier;
+    this.multiCandidateConfig = config.multiCandidate;
     this.metricsProvider = config.metrics;
     this.policyEngine = config.policyEngine;
     this.workflowOptimizerConfig = config.workflowOptimizer;
@@ -923,11 +938,20 @@ export class AutonomousAgent extends AgentRuntime {
     }, task);
 
     this.autonomousLogger.info(`Executing task ${taskKey.slice(0, 8)}...`);
+    const verifierGated = this.verifierExecutor?.shouldVerify(task) ?? false;
     let output: bigint[];
     let verifierResult: VerifierExecutionResult | null = null;
+    let multiCandidateResult: MultiCandidateSelectionResult | null = null;
 
-    if (this.verifierExecutor?.shouldVerify(task)) {
-      verifierResult = await this.verifierExecutor.execute(task);
+    if (this.multiCandidateConfig?.enabled) {
+      multiCandidateResult = await this.selectCandidateOutput(task, taskKey, verifierGated);
+      output = multiCandidateResult.output;
+      if (verifierGated) {
+        verifierResult = await this.verifierExecutor!.executeWithOutput(task, output);
+        output = verifierResult.output;
+      }
+    } else if (verifierGated) {
+      verifierResult = await this.verifierExecutor!.execute(task);
       output = verifierResult.output;
     } else {
       output = await this.executeWithRetry(task);
@@ -948,6 +972,23 @@ export class AutonomousAgent extends AgentRuntime {
             }
           : null,
       } : null,
+      multiCandidate: multiCandidateResult
+        ? {
+            generated: multiCandidateResult.generation.candidates.length,
+            attempts: multiCandidateResult.generation.budget.attempts,
+            consumedCostLamports: multiCandidateResult.generation.budget.consumedCostLamports.toString(),
+            consumedTokenUnits: multiCandidateResult.generation.budget.consumedTokenUnits,
+            arbitrationOutcome: multiCandidateResult.arbitration.outcome,
+            disagreementRate: multiCandidateResult.arbitration.metadata.disagreementRate,
+            disagreementCount: multiCandidateResult.arbitration.metadata.totalDisagreements,
+            reasonCodes: multiCandidateResult.arbitration.metadata.reasonCodes,
+            provenanceLinkIds: multiCandidateResult.arbitration.metadata.provenanceLinkIds,
+            selectedCandidateId:
+              multiCandidateResult.arbitration.outcome === 'selected'
+                ? multiCandidateResult.arbitration.selected.id
+                : null,
+          }
+        : null,
     });
     this.autonomousLogger.info(`Executed task ${taskKey.slice(0, 8)}`);
 
@@ -979,6 +1020,89 @@ export class AutonomousAgent extends AgentRuntime {
     );
 
     return { success: true, task, completionTx: completeTx, durationMs };
+  }
+
+  private async selectCandidateOutput(
+    task: Task,
+    taskKey: string,
+    escalateOnDisagreement: boolean,
+  ): Promise<MultiCandidateSelectionResult> {
+    const startedAt = Date.now();
+    const generation = await generateExecutionCandidates({
+      task,
+      config: this.multiCandidateConfig,
+      executeCandidate: async (candidateTask) => await this.executeWithRetry(candidateTask),
+      onBeforeAttempt: (context) => {
+        this.requirePolicyAllowed({
+          type: 'task_execution',
+          name: 'execute_candidate_variant',
+          access: 'write',
+          spendLamports: task.reward,
+          metadata: {
+            taskPda: taskKey,
+            candidateAttempt: context.attempt,
+            projectedCostLamports: context.projectedCostLamports.toString(),
+            projectedTokenUnits: context.projectedTokenUnits,
+          },
+        }, task);
+      },
+    });
+
+    const memoryGraph = this.memory ? new MemoryGraph(this.memory) : undefined;
+    const inconsistencies = await detectCandidateInconsistencies({
+      task,
+      candidates: generation.candidates,
+      memoryGraph,
+      sessionId: `candidate:${taskKey}`,
+    });
+
+    const arbitration = arbitrateCandidates({
+      candidates: generation.candidates,
+      inconsistencies,
+      config: this.multiCandidateConfig,
+    });
+
+    if (arbitration.outcome === 'escalate') {
+      if (arbitration.reason === 'disagreement_threshold' && escalateOnDisagreement) {
+        throw new VerifierLaneEscalationError(
+          task,
+          {
+            reason: 'verifier_disagreement',
+            attempts: generation.candidates.length,
+            revisions: 0,
+            durationMs: Date.now() - startedAt,
+            lastVerdict: null,
+            details: {
+              reasonCodes: arbitration.metadata.reasonCodes,
+              provenanceLinkIds: arbitration.metadata.provenanceLinkIds,
+              disagreementRate: arbitration.metadata.disagreementRate,
+              disagreementCount: arbitration.metadata.totalDisagreements,
+            },
+          },
+          [],
+        );
+      }
+
+      const fallbackId = arbitration.ranked[0]?.candidateId;
+      const fallback = fallbackId
+        ? generation.candidates.find((candidate) => candidate.id === fallbackId)
+        : generation.candidates[0];
+      if (!fallback) {
+        throw new Error('No execution candidates generated within configured multi-candidate budgets');
+      }
+
+      return {
+        output: fallback.output,
+        generation,
+        arbitration,
+      };
+    }
+
+    return {
+      output: arbitration.selected.output,
+      generation,
+      arbitration,
+    };
   }
 
   /**
