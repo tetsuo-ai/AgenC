@@ -44,6 +44,7 @@ import type {
   Task,
   AutonomousAgentStats,
   SpeculationConfig,
+  MultiCandidateConfig,
   VerifierLaneConfig,
   VerifierEscalationMetadata,
   VerifierVerdictPayload,
@@ -172,6 +173,7 @@ export class AgentBuilder {
 
   // Speculation
   private speculationConfig?: SpeculationConfig;
+  private multiCandidateConfig?: MultiCandidateConfig;
   private verifierConfig?: VerifierLaneConfig;
   private workflowOptimizerConfig?: WorkflowOptimizerRuntimeConfig;
 
@@ -311,6 +313,11 @@ export class AgentBuilder {
 
   withVerifier(config: VerifierLaneConfig): this {
     this.verifierConfig = config;
+    return this;
+  }
+
+  withMultiCandidate(config?: MultiCandidateConfig): this {
+    this.multiCandidateConfig = config ?? { enabled: true };
     return this;
   }
 
@@ -516,6 +523,7 @@ export class AgentBuilder {
       maxConcurrentTasks: this.maxConcurrentTasks,
       speculation: this.speculationConfig,
       verifier: this.verifierConfig,
+      multiCandidate: this.multiCandidateConfig,
       workflowOptimizer: this.workflowOptimizerConfig,
       onTaskDiscovered: this.callbacks?.onTaskDiscovered,
       onTaskClaimed: this.callbacks?.onTaskClaimed,

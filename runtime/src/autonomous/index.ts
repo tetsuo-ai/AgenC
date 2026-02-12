@@ -44,6 +44,28 @@ export {
   type EscalationGraphTransition,
 } from './escalation-graph.js';
 export {
+  generateExecutionCandidates,
+  type GeneratedExecutionCandidate,
+  type CandidateGenerationAttemptContext,
+  type CandidateGenerationInput,
+  type CandidateGenerationResult,
+} from './candidate-generator.js';
+export {
+  detectCandidateInconsistencies,
+  type CandidateDisagreementReasonCode,
+  type CandidateDisagreementReason,
+  type CandidateDisagreement,
+  type CandidateProvenanceLink,
+  type InconsistencyDetectionResult,
+  type InconsistencyDetectorInput,
+} from './inconsistency-detector.js';
+export {
+  arbitrateCandidates,
+  type CandidateArbitrationScore,
+  type CandidateArbitrationDecision,
+  type CandidateArbitrationInput,
+} from './arbitration.js';
+export {
   // Types
   type Task,
   TaskStatus,
@@ -64,6 +86,10 @@ export {
   type VerifierTaskTypePolicy,
   type VerifierAdaptiveRiskWeights,
   type VerifierAdaptiveRiskConfig,
+  type MultiCandidateArbitrationWeights,
+  type MultiCandidateEscalationPolicy,
+  type MultiCandidatePolicyBudget,
+  type MultiCandidateConfig,
   type VerifierPolicyConfig,
   type VerifierEscalationMetadata,
   type VerifierLaneConfig,
