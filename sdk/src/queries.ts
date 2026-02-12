@@ -7,6 +7,7 @@
 import { Connection, PublicKey, GetProgramAccountsFilter } from '@solana/web3.js';
 import type { Program } from '@coral-xyz/anchor';
 import { PROGRAM_ID, DISCRIMINATOR_SIZE } from './constants';
+import { getAccount } from './anchor-utils';
 
 // ============================================================================
 // Task Account Field Offsets
@@ -15,7 +16,7 @@ import { PROGRAM_ID, DISCRIMINATOR_SIZE } from './constants';
 /**
  * Byte offsets for all fields in the Task account.
  *
- * Task account layout:
+ * Task account layout (from programs/agenc-coordination/src/state.rs):
  *   discriminator:          8 bytes  (offset 0)
  *   task_id:               32 bytes  (offset 8)
  *   creator:               32 bytes  (offset 40)
@@ -35,13 +36,15 @@ import { PROGRAM_ID, DISCRIMINATOR_SIZE } from './constants';
  *   completions:            1 byte   (offset 308)
  *   required_completions:   1 byte   (offset 309)
  *   bump:                   1 byte   (offset 310)
- *   depends_on:            33 bytes  (offset 311) - Option<Pubkey>: 1 byte discriminator + 32 bytes
- *   dependency_type:        1 byte   (offset 344)
- *   _reserved:             32 bytes  (offset 345)
+ *   protocol_fee_bps:       2 bytes  (offset 311)
+ *   depends_on:            33 bytes  (offset 313) - Option<Pubkey>: 1 byte discriminator + 32 bytes
+ *   dependency_type:        1 byte   (offset 346)
+ *   min_reputation:         2 bytes  (offset 347)
+ *   reward_mint:           33 bytes  (offset 349) - Option<Pubkey>: 1 byte discriminator + 32 bytes
  *
  * For Option<Pubkey>:
- *   - Byte 0 (offset 311): discriminator (0 = None, 1 = Some)
- *   - Bytes 1-32 (offset 312-343): Pubkey data (when Some)
+ *   - Byte 0: discriminator (0 = None, 1 = Some)
+ *   - Bytes 1-32: Pubkey data (when Some)
  */
 export const TASK_FIELD_OFFSETS = {
   /** Anchor account discriminator (8 bytes) */
@@ -56,7 +59,7 @@ export const TASK_FIELD_OFFSETS = {
   DESCRIPTION: 80,
   /** Constraint hash for private task verification (32 bytes) */
   CONSTRAINT_HASH: 144,
-  /** Reward amount in lamports (8 bytes) */
+  /** Reward amount in lamports or token units (8 bytes) */
   REWARD_AMOUNT: 176,
   /** Maximum workers allowed (1 byte) */
   MAX_WORKERS: 184,
@@ -82,12 +85,20 @@ export const TASK_FIELD_OFFSETS = {
   REQUIRED_COMPLETIONS: 309,
   /** PDA bump seed (1 byte) */
   BUMP: 310,
-  /** Optional parent task dependency - Option<Pubkey> discriminator byte (1 + 32 bytes) */
-  DEPENDS_ON: 311,
+  /** Protocol fee in basis points, locked at task creation (2 bytes) */
+  PROTOCOL_FEE_BPS: 311,
+  /** Optional parent task dependency - Option<Pubkey> (1 + 32 bytes) */
+  DEPENDS_ON: 313,
   /** The actual Pubkey bytes within depends_on (after Option discriminator) */
-  DEPENDS_ON_PUBKEY: 312,
+  DEPENDS_ON_PUBKEY: 314,
   /** Type of dependency relationship (1 byte) */
-  DEPENDENCY_TYPE: 344,
+  DEPENDENCY_TYPE: 346,
+  /** Minimum reputation score required (2 bytes) */
+  MIN_REPUTATION: 347,
+  /** Optional SPL token mint - Option<Pubkey> (1 + 32 bytes) */
+  REWARD_MINT: 349,
+  /** The actual Pubkey bytes within reward_mint (after Option discriminator) */
+  REWARD_MINT_PUBKEY: 350,
 } as const;
 
 // ============================================================================
@@ -136,36 +147,16 @@ export interface DependentTask {
   requiredCompletions: number;
   /** PDA bump seed */
   bump: number;
+  /** Protocol fee in basis points, locked at task creation */
+  protocolFeeBps: number;
   /** Parent task this depends on (null if no dependency) */
   dependsOn: PublicKey | null;
   /** Type of dependency relationship */
   dependencyType: number;
-}
-
-// ============================================================================
-// Helper Types
-// ============================================================================
-
-/**
- * Helper type for dynamic account access on Anchor programs.
- */
-type AccountFetcher = {
-  fetch: (key: PublicKey) => Promise<unknown>;
-  all: (
-    filters?: Array<{ memcmp: { offset: number; bytes: string } }>
-  ) => Promise<Array<{ account: unknown; publicKey: PublicKey }>>;
-};
-
-function getAccount(program: Program, name: string): AccountFetcher {
-  const accounts = program.account as Record<string, AccountFetcher | undefined>;
-  const account = accounts[name];
-  if (!account) {
-    throw new Error(
-      `Account "${name}" not found in program. ` +
-        `Available accounts: ${Object.keys(accounts).join(', ') || 'none'}`
-    );
-  }
-  return account;
+  /** Minimum reputation score required (0 = no gate) */
+  minReputation: number;
+  /** SPL token mint for reward denomination (null = SOL) */
+  rewardMint: PublicKey | null;
 }
 
 // ============================================================================
@@ -422,6 +413,8 @@ function deserializeTaskAccount(publicKey: PublicKey, data: Buffer): DependentTa
   const requiredCompletions = data.readUInt8(TASK_FIELD_OFFSETS.REQUIRED_COMPLETIONS);
   const bump = data.readUInt8(TASK_FIELD_OFFSETS.BUMP);
 
+  const protocolFeeBps = data.readUInt16LE(TASK_FIELD_OFFSETS.PROTOCOL_FEE_BPS);
+
   // Parse Option<Pubkey> for depends_on
   const dependsOnDiscriminator = data.readUInt8(TASK_FIELD_OFFSETS.DEPENDS_ON);
   let dependsOn: PublicKey | null = null;
@@ -435,6 +428,20 @@ function deserializeTaskAccount(publicKey: PublicKey, data: Buffer): DependentTa
   }
 
   const dependencyType = data.readUInt8(TASK_FIELD_OFFSETS.DEPENDENCY_TYPE);
+
+  const minReputation = data.readUInt16LE(TASK_FIELD_OFFSETS.MIN_REPUTATION);
+
+  // Parse Option<Pubkey> for reward_mint
+  const rewardMintDiscriminator = data.readUInt8(TASK_FIELD_OFFSETS.REWARD_MINT);
+  let rewardMint: PublicKey | null = null;
+  if (rewardMintDiscriminator === 1) {
+    rewardMint = new PublicKey(
+      data.subarray(
+        TASK_FIELD_OFFSETS.REWARD_MINT_PUBKEY,
+        TASK_FIELD_OFFSETS.REWARD_MINT_PUBKEY + 32
+      )
+    );
+  }
 
   return {
     publicKey,
@@ -456,7 +463,10 @@ function deserializeTaskAccount(publicKey: PublicKey, data: Buffer): DependentTa
     completions,
     requiredCompletions,
     bump,
+    protocolFeeBps,
     dependsOn,
     dependencyType,
+    minReputation,
+    rewardMint,
   };
 }

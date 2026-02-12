@@ -40,6 +40,7 @@ export {
   claimTask,
   completeTask,
   completeTaskPrivate,
+  cancelTask,
   getTask,
   getTasksByCreator,
   deriveTaskPda,
@@ -52,6 +53,16 @@ export {
   TaskStatus,
   PrivateCompletionProof,
 } from './tasks';
+
+export {
+  deriveTokenEscrowAddress,
+  isTokenTask,
+  getEscrowTokenBalance,
+  formatTokenAmount,
+  getMintDecimals,
+  TOKEN_PROGRAM_ID,
+  ASSOCIATED_TOKEN_PROGRAM_ID,
+} from './tokens';
 
 export {
   PROGRAM_ID,
@@ -86,6 +97,11 @@ export {
   RECOMMENDED_CU_INITIATE_DISPUTE,
   RECOMMENDED_CU_VOTE_DISPUTE,
   RECOMMENDED_CU_RESOLVE_DISPUTE,
+  // Token-path CU constants
+  RECOMMENDED_CU_CREATE_TASK_TOKEN,
+  RECOMMENDED_CU_COMPLETE_TASK_TOKEN,
+  RECOMMENDED_CU_COMPLETE_TASK_PRIVATE_TOKEN,
+  RECOMMENDED_CU_CANCEL_TASK_TOKEN,
   // PDA seeds
   SEEDS,
 } from './constants';
@@ -113,4 +129,4 @@ export {
 } from './logger';
 
 // Version info
-export const VERSION = '1.0.0';
+export const VERSION = '1.3.0';
