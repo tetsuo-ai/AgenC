@@ -227,6 +227,10 @@ export interface AgentState {
   // === State Sync ===
   /** Timestamp of last state update (Unix seconds) */
   lastStateUpdate: number;
+
+  // === Defendant Tracking ===
+  /** Number of disputes where this agent is the defendant */
+  disputesAsDefendant: number;
 }
 
 // ============================================================================
@@ -379,12 +383,13 @@ interface RawAgentRegistrationData {
   bump: number;
   lastTaskCreated: { toNumber: () => number };
   lastDisputeInitiated: { toNumber: () => number };
-  taskCount24h: number;
-  disputeCount24h: number;
+  taskCount24H: number;
+  disputeCount24H: number;
   rateLimitWindowStart: { toNumber: () => number };
   activeDisputeVotes: number;
   lastVoteTimestamp: { toNumber: () => number };
   lastStateUpdate: { toNumber: () => number };
+  disputesAsDefendant: number;
 }
 
 /**
@@ -430,8 +435,9 @@ function isRawAgentRegistrationData(data: unknown): data is RawAgentRegistration
   if (typeof obj.reputation !== 'number') return false;
   if (typeof obj.activeTasks !== 'number') return false;
   if (typeof obj.bump !== 'number') return false;
-  if (typeof obj.taskCount24h !== 'number') return false;
-  if (typeof obj.disputeCount24h !== 'number') return false;
+  if (typeof obj.taskCount24H !== 'number') return false;
+  if (typeof obj.disputeCount24H !== 'number') return false;
+  if (typeof obj.disputesAsDefendant !== 'number') return false;
   if (typeof obj.activeDisputeVotes !== 'number') return false;
 
   // Status can be object (Anchor enum) or number
@@ -515,12 +521,17 @@ export function parseAgentState(data: unknown): AgentState {
   if (data.activeTasks > MAX_U8) {
     throw new Error(`Invalid activeTasks: ${data.activeTasks} (must be 0-${MAX_U8})`);
   }
-  if (data.taskCount24h > MAX_U8) {
-    throw new Error(`Invalid taskCount24h: ${data.taskCount24h} (must be 0-${MAX_U8})`);
+  if (data.taskCount24H > MAX_U8) {
+    throw new Error(`Invalid taskCount24h: ${data.taskCount24H} (must be 0-${MAX_U8})`);
   }
-  if (data.disputeCount24h > MAX_U8) {
+  if (data.disputeCount24H > MAX_U8) {
     throw new Error(
-      `Invalid disputeCount24h: ${data.disputeCount24h} (must be 0-${MAX_U8})`
+      `Invalid disputeCount24h: ${data.disputeCount24H} (must be 0-${MAX_U8})`
+    );
+  }
+  if (data.disputesAsDefendant > MAX_U8) {
+    throw new Error(
+      `Invalid disputesAsDefendant: ${data.disputesAsDefendant} (must be 0-${MAX_U8})`
     );
   }
   if (data.activeDisputeVotes > MAX_U8) {
@@ -574,8 +585,8 @@ export function parseAgentState(data: unknown): AgentState {
     // Rate Limiting
     lastTaskCreated: data.lastTaskCreated.toNumber(),
     lastDisputeInitiated: data.lastDisputeInitiated.toNumber(),
-    taskCount24h: data.taskCount24h,
-    disputeCount24h: data.disputeCount24h,
+    taskCount24h: data.taskCount24H,
+    disputeCount24h: data.disputeCount24H,
     rateLimitWindowStart: data.rateLimitWindowStart.toNumber(),
 
     // Dispute Activity
@@ -584,6 +595,9 @@ export function parseAgentState(data: unknown): AgentState {
 
     // State Sync
     lastStateUpdate: data.lastStateUpdate.toNumber(),
+
+    // Defendant Tracking
+    disputesAsDefendant: data.disputesAsDefendant,
   };
 }
 

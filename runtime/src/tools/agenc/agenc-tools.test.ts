@@ -41,6 +41,7 @@ function makeMockTask(overrides: Record<string, unknown> = {}) {
     completions: 0,
     requiredCompletions: 1,
     bump: 255,
+    rewardMint: null,
     ...overrides,
   };
 }
@@ -62,12 +63,13 @@ function makeMockAgent() {
     stake: { toString: () => '1000000000' },
     lastTaskCreated: { toNumber: () => 0 },
     lastDisputeInitiated: { toNumber: () => 0 },
-    taskCount24h: 0,
-    disputeCount24h: 0,
+    taskCount24H: 0,
+    disputeCount24H: 0,
     rateLimitWindowStart: { toNumber: () => 0 },
     activeDisputeVotes: 0,
     lastVoteTimestamp: { toNumber: () => 0 },
     lastStateUpdate: { toNumber: () => 0 },
+    disputesAsDefendant: 0,
     bump: 254,
   };
 }
@@ -90,11 +92,13 @@ function makeMockProtocolConfig() {
     multisigThreshold: 2,
     multisigOwnersLen: 3,
     taskCreationCooldown: { toNumber: () => 60 },
-    maxTasksPer24h: 10,
+    maxTasksPer24H: 10,
     disputeInitiationCooldown: { toNumber: () => 300 },
-    maxDisputesPer24h: 2,
+    maxDisputesPer24H: 2,
     minStakeForDispute: { toString: () => '2000000000' },
     slashPercentage: 10,
+    stateUpdateCooldown: { toNumber: () => 60 },
+    votingPeriod: { toNumber: () => 86400 },
     protocolVersion: 1,
     minSupportedVersion: 1,
     multisigOwners: [PublicKey.unique(), PublicKey.unique(), PublicKey.unique()],
@@ -227,6 +231,25 @@ describe('agenc.listTasks', () => {
     expect(parsed.tasks[0]).toHaveProperty('rewardSol');
     expect(parsed.tasks[0]).toHaveProperty('requiredCapabilities');
     expect(parsed.tasks[0]).toHaveProperty('isPrivate');
+  });
+
+  it('serializes rewardMint as null for SOL tasks', async () => {
+    const result = await tool.execute({});
+    const parsed = JSON.parse(result.content);
+
+    expect(parsed.tasks[0]).toHaveProperty('rewardMint', null);
+  });
+
+  it('serializes rewardMint as base58 for token tasks', async () => {
+    const TOKEN_MINT = PublicKey.unique();
+    mockOps.fetchClaimableTasks.mockResolvedValueOnce([
+      { task: makeMockTask({ rewardMint: TOKEN_MINT }), taskPda: TASK_PDA },
+    ]);
+
+    const result = await tool.execute({});
+    const parsed = JSON.parse(result.content);
+
+    expect(parsed.tasks[0].rewardMint).toBe(TOKEN_MINT.toBase58());
   });
 });
 

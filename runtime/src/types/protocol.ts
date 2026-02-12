@@ -72,6 +72,12 @@ export interface ProtocolConfig {
   /** Percentage of stake slashed on losing dispute (0-100) */
   slashPercentage: number;
 
+  /** Cooldown between agent state updates (seconds, 0 = disabled) */
+  stateUpdateCooldown: number;
+
+  /** Voting period for disputes (seconds) */
+  votingPeriod: number;
+
   /** Current protocol version (for upgrades) */
   protocolVersion: number;
 
@@ -103,11 +109,13 @@ interface RawProtocolConfigData {
   multisigThreshold: number;
   multisigOwnersLen: number;
   taskCreationCooldown: { toNumber: () => number };
-  maxTasksPer24h: number;
+  maxTasksPer24H: number;
   disputeInitiationCooldown: { toNumber: () => number };
-  maxDisputesPer24h: number;
+  maxDisputesPer24H: number;
   minStakeForDispute: { toNumber?: () => number; toString: () => string };
   slashPercentage: number;
+  stateUpdateCooldown: { toNumber: () => number };
+  votingPeriod: { toNumber: () => number };
   protocolVersion: number;
   minSupportedVersion: number;
   multisigOwners: PublicKey[];
@@ -153,8 +161,8 @@ function isRawProtocolConfigData(data: unknown): data is RawProtocolConfigData {
   if (typeof obj.bump !== 'number') return false;
   if (typeof obj.multisigThreshold !== 'number') return false;
   if (typeof obj.multisigOwnersLen !== 'number') return false;
-  if (typeof obj.maxTasksPer24h !== 'number') return false;
-  if (typeof obj.maxDisputesPer24h !== 'number') return false;
+  if (typeof obj.maxTasksPer24H !== 'number') return false;
+  if (typeof obj.maxDisputesPer24H !== 'number') return false;
   if (typeof obj.slashPercentage !== 'number') return false;
   if (typeof obj.protocolVersion !== 'number') return false;
   if (typeof obj.minSupportedVersion !== 'number') return false;
@@ -173,6 +181,8 @@ function isRawProtocolConfigData(data: unknown): data is RawProtocolConfigData {
   if (!isBNLikeWithToNumber(obj.maxDisputeDuration)) return false;
   if (!isBNLikeWithToNumber(obj.taskCreationCooldown)) return false;
   if (!isBNLikeWithToNumber(obj.disputeInitiationCooldown)) return false;
+  if (!isBNLikeWithToNumber(obj.stateUpdateCooldown)) return false;
+  if (!isBNLikeWithToNumber(obj.votingPeriod)) return false;
 
   // Validate array field and its contents
   if (!Array.isArray(obj.multisigOwners)) return false;
@@ -272,11 +282,15 @@ export function parseProtocolConfig(data: unknown): ProtocolConfig {
 
     // Rate Limiting
     taskCreationCooldown: data.taskCreationCooldown.toNumber(),
-    maxTasksPer24h: data.maxTasksPer24h,
+    maxTasksPer24h: data.maxTasksPer24H,
     disputeInitiationCooldown: data.disputeInitiationCooldown.toNumber(),
-    maxDisputesPer24h: data.maxDisputesPer24h,
+    maxDisputesPer24h: data.maxDisputesPer24H,
     minStakeForDispute: toBigInt(data.minStakeForDispute),
     slashPercentage: data.slashPercentage,
+
+    // State Update & Voting
+    stateUpdateCooldown: data.stateUpdateCooldown.toNumber(),
+    votingPeriod: data.votingPeriod.toNumber(),
 
     // Versioning
     protocolVersion: data.protocolVersion,

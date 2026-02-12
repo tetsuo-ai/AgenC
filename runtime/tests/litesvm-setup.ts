@@ -1,0 +1,397 @@
+/**
+ * LiteSVM test helpers for @agenc/runtime integration tests.
+ *
+ * Adapted from tests/litesvm-helpers.ts for use within the runtime/ directory.
+ * Provides createRuntimeTestContext(), initializeProtocol(), advanceClock(), fundAccount().
+ */
+
+import * as anchor from '@coral-xyz/anchor';
+import { Program, BN } from '@coral-xyz/anchor';
+import { LiteSVM, FailedTransactionMetadata } from 'litesvm';
+import { fromWorkspace, LiteSVMProvider } from 'anchor-litesvm';
+import {
+  Keypair,
+  PublicKey,
+  SystemProgram,
+  Transaction,
+  VersionedTransaction,
+  LAMPORTS_PER_SOL,
+  SendTransactionError,
+} from '@solana/web3.js';
+import * as bs58 from 'bs58';
+import type { AgencCoordination } from '../src/types/agenc_coordination.js';
+
+const BPF_LOADER_UPGRADEABLE_ID = new PublicKey(
+  'BPFLoaderUpgradeab1e11111111111111111111111'
+);
+
+/**
+ * Patch LiteSVMProvider.sendAndConfirm to fix anchor-litesvm's sendWithErr
+ * which crashes on bs58.encode(sigRaw) when sigRaw is null or Uint8Array.
+ *
+ * The underlying transaction error is masked by the bs58 crash in the error
+ * handler. This patch handles signature encoding defensively so the real
+ * transaction error is surfaced.
+ */
+function patchSendAndConfirm(): void {
+  const origSendAndConfirm = LiteSVMProvider.prototype.sendAndConfirm;
+
+  (LiteSVMProvider.prototype as any).sendAndConfirm = async function (
+    tx: Transaction | VersionedTransaction,
+    signers?: any[],
+    opts?: any,
+  ): Promise<string> {
+    // Prepare the transaction exactly as the original does
+    if ('version' in tx) {
+      signers?.forEach((s: any) => (tx as VersionedTransaction).sign([s]));
+    } else {
+      (tx as Transaction).feePayer =
+        (tx as Transaction).feePayer ?? this.wallet.publicKey;
+      (tx as Transaction).recentBlockhash = this.client.latestBlockhash();
+      signers?.forEach((s: any) => (tx as Transaction).partialSign(s));
+    }
+    this.wallet.signTransaction(tx);
+
+    // Encode signature defensively (the original crashes here on error path)
+    let signature: string;
+    try {
+      if ('version' in tx) {
+        signature = bs58.encode(Buffer.from(tx.signatures[0]));
+      } else {
+        if (!(tx as Transaction).signature) throw new Error('no sig');
+        signature = bs58.encode(Buffer.from((tx as Transaction).signature!));
+      }
+    } catch {
+      signature = 'unknown';
+    }
+
+    // Send and check for failure
+    const res = this.client.sendTransaction(tx);
+
+    // instanceof can fail across module boundaries, so also check duck-typing
+    const isFailed = res instanceof FailedTransactionMetadata
+      || (res && typeof res === 'object' && typeof (res as any).err === 'function' && typeof (res as any).meta === 'function'
+          && !(typeof (res as any).confirmations === 'function'));
+    if (isFailed) {
+      const failedRes = res as FailedTransactionMetadata;
+      throw new SendTransactionError({
+        action: 'send',
+        signature,
+        transactionMessage: failedRes.err().toString(),
+        logs: failedRes.meta().logs(),
+      });
+    }
+
+    return signature;
+  };
+}
+
+export interface RuntimeTestContext {
+  svm: LiteSVM;
+  program: Program<AgencCoordination>;
+  connection: any; // LiteSVM's proxied Connection
+  payer: Keypair;
+}
+
+/**
+ * Inject the BPF Loader Upgradeable ProgramData PDA.
+ * Required because `initialize_protocol` validates the upgrade authority
+ * via a remaining_accounts check on the ProgramData account.
+ */
+function setupProgramDataAccount(
+  svm: LiteSVM,
+  programId: PublicKey,
+  authority: PublicKey
+): void {
+  const [programDataPda] = PublicKey.findProgramAddressSync(
+    [programId.toBuffer()],
+    BPF_LOADER_UPGRADEABLE_ID
+  );
+
+  // ProgramData layout:
+  //   4 bytes: AccountType (3 = ProgramData, little-endian u32)
+  //   8 bytes: slot (u64 LE)
+  //   1 byte:  Option<Pubkey> tag (1 = Some)
+  //   32 bytes: upgrade_authority pubkey
+  const data = new Uint8Array(45);
+  const view = new DataView(data.buffer);
+  view.setUint32(0, 3, true); // AccountType::ProgramData
+  view.setBigUint64(4, 0n, true); // slot = 0
+  data[12] = 1; // Option::Some
+  data.set(authority.toBytes(), 13); // upgrade_authority
+
+  svm.setAccount(programDataPda, {
+    lamports: 1_000_000_000,
+    data,
+    owner: BPF_LOADER_UPGRADEABLE_ID,
+    executable: false,
+  });
+}
+
+/**
+ * Extend the LiteSVM connection proxy with methods needed by Anchor's
+ * AnchorProvider (via AgentManager) and static query methods.
+ */
+function extendConnectionProxy(
+  svm: LiteSVM,
+  connection: any,
+  walletRef: { publicKey: PublicKey }
+): void {
+  // Override getAccountInfo to return null instead of throwing for non-existent accounts
+  connection.getAccountInfo = async (
+    publicKey: PublicKey,
+    _commitmentOrConfig?: any
+  ) => {
+    const account = svm.getAccount(publicKey);
+    if (!account) return null;
+    return {
+      ...account,
+      data: Buffer.from(account.data),
+    };
+  };
+
+  connection.getAccountInfoAndContext = async (
+    publicKey: PublicKey,
+    _commitmentOrConfig?: any
+  ) => {
+    const account = svm.getAccount(publicKey);
+    if (!account) {
+      return {
+        context: { slot: Number(svm.getClock().slot) },
+        value: null,
+      };
+    }
+    return {
+      context: { slot: Number(svm.getClock().slot) },
+      value: {
+        ...account,
+        data: Buffer.from(account.data),
+      },
+    };
+  };
+
+  connection.getBalance = async (
+    address: PublicKey,
+    _commitment?: any
+  ): Promise<number> => {
+    const balance = svm.getBalance(address);
+    return balance !== null ? Number(balance) : 0;
+  };
+
+  connection.getLatestBlockhash = async (_commitment?: any) => ({
+    blockhash: svm.latestBlockhash(),
+    lastValidBlockHeight: 0,
+  });
+
+  connection.sendTransaction = async (
+    transaction: Transaction | VersionedTransaction,
+    signersOrOptions?: any,
+    _options?: any
+  ): Promise<string> => {
+    if ('version' in transaction) {
+      const signers = Array.isArray(signersOrOptions) ? signersOrOptions : [];
+      signers.forEach((s: any) => transaction.sign([s]));
+      const res = svm.sendTransaction(transaction);
+      if (res instanceof FailedTransactionMetadata) {
+        throw new SendTransactionError({
+          action: 'send',
+          signature: 'unknown',
+          transactionMessage: res.err().toString(),
+          logs: res.meta().logs(),
+        });
+      }
+      return bs58.encode(transaction.signatures[0]);
+    }
+
+    // Legacy Transaction
+    const signers = Array.isArray(signersOrOptions) ? signersOrOptions : [];
+    transaction.feePayer = transaction.feePayer || walletRef.publicKey;
+    transaction.recentBlockhash = svm.latestBlockhash();
+    if (signers.length > 0) {
+      transaction.sign(...signers);
+    }
+
+    const res = svm.sendTransaction(transaction);
+    if (res instanceof FailedTransactionMetadata) {
+      const sigRaw = transaction.signature;
+      const signature = sigRaw ? bs58.encode(sigRaw) : 'unknown';
+      throw new SendTransactionError({
+        action: 'send',
+        signature,
+        transactionMessage: res.err().toString(),
+        logs: res.meta().logs(),
+      });
+    }
+
+    return bs58.encode(transaction.signature!);
+  };
+
+  connection.confirmTransaction = async (
+    _strategyOrSignature?: any,
+    _commitment?: any
+  ): Promise<any> => ({
+    context: { slot: Number(svm.getClock().slot) },
+    value: { err: null },
+  });
+
+  connection.requestAirdrop = async (
+    address: PublicKey,
+    lamports: number
+  ): Promise<string> => {
+    svm.airdrop(address, BigInt(lamports));
+    return 'litesvm-airdrop-' + address.toBase58().slice(0, 8);
+  };
+
+  connection.getSlot = async (_commitment?: any): Promise<number> => {
+    return Number(svm.getClock().slot);
+  };
+
+  connection.getSignatureStatuses = async (
+    _signatures: string[],
+    _config?: any
+  ) => ({
+    context: { slot: Number(svm.getClock().slot) },
+    value: _signatures.map(() => ({
+      slot: Number(svm.getClock().slot),
+      confirmations: 1,
+      err: null,
+      confirmationStatus: 'confirmed' as const,
+    })),
+  });
+}
+
+/**
+ * Create a fully configured LiteSVM test context for runtime integration tests.
+ *
+ * Loads the program from the Anchor workspace (one directory up from runtime/),
+ * sets up the ProgramData PDA, creates a funded payer, and returns everything
+ * needed for AgentManager/AgentRuntime tests.
+ */
+export function createRuntimeTestContext(): RuntimeTestContext {
+  // Fix anchor-litesvm's sendWithErr bs58 crash that masks real errors
+  patchSendAndConfirm();
+
+  // CWD is runtime/, Anchor.toml is in parent directory
+  const svm = fromWorkspace('..');
+
+  // Set initial clock to a realistic timestamp
+  const clock = svm.getClock();
+  clock.unixTimestamp = BigInt(Math.floor(Date.now() / 1000));
+  clock.slot = 1000n;
+  svm.setClock(clock);
+
+  // Create and fund the payer
+  const payer = Keypair.generate();
+  svm.airdrop(payer.publicKey, BigInt(1000 * LAMPORTS_PER_SOL));
+
+  // Create Anchor-compatible provider
+  const wallet = new anchor.Wallet(payer);
+  const provider = new LiteSVMProvider(svm, wallet) as unknown as anchor.AnchorProvider;
+
+  // Extend the connection proxy with methods needed by Anchor + AgentManager
+  extendConnectionProxy(svm, (provider as any).connection, wallet);
+
+  // Load IDL and create typed Program instance
+  const idl = require('../idl/agenc_coordination.json');
+  const program = new Program<AgencCoordination>(idl as any, provider);
+
+  // Inject BPF Loader Upgradeable ProgramData PDA
+  setupProgramDataAccount(svm, program.programId, payer.publicKey);
+
+  // Set global provider for Anchor
+  anchor.setProvider(provider);
+
+  const connection = (provider as any).connection;
+
+  return { svm, program, connection, payer };
+}
+
+/**
+ * Initialize the protocol for testing.
+ * Sets min_agent_stake=0 so tests can register without needing SOL stakes,
+ * and disables rate limits for simpler test flow.
+ */
+export async function initializeProtocol(ctx: RuntimeTestContext): Promise<void> {
+  const { program, payer, svm } = ctx;
+
+  const [protocolPda] = PublicKey.findProgramAddressSync(
+    [Buffer.from('protocol')],
+    program.programId
+  );
+
+  const treasury = Keypair.generate();
+  svm.airdrop(treasury.publicKey, BigInt(LAMPORTS_PER_SOL));
+
+  const secondSigner = Keypair.generate();
+  svm.airdrop(secondSigner.publicKey, BigInt(LAMPORTS_PER_SOL));
+
+  const [programDataPda] = PublicKey.findProgramAddressSync(
+    [program.programId.toBuffer()],
+    BPF_LOADER_UPGRADEABLE_ID
+  );
+
+  const minStake = new BN(LAMPORTS_PER_SOL / 100); // 0.01 SOL
+  const minStakeForDispute = new BN(LAMPORTS_PER_SOL / 100); // 0.01 SOL
+
+  await program.methods
+    .initializeProtocol(
+      51, // dispute_threshold
+      100, // protocol_fee_bps
+      minStake, // min_stake (must be >= 0.001 SOL per on-chain check)
+      minStakeForDispute, // min_stake_for_dispute (must be > 0)
+      1, // multisig_threshold
+      [payer.publicKey, secondSigner.publicKey] // multisig_owners
+    )
+    .accountsPartial({
+      protocolConfig: protocolPda,
+      treasury: treasury.publicKey,
+      authority: payer.publicKey,
+      secondSigner: secondSigner.publicKey,
+      systemProgram: SystemProgram.programId,
+    })
+    .remainingAccounts([
+      { pubkey: programDataPda, isSigner: false, isWritable: false },
+    ])
+    .signers([secondSigner])
+    .rpc();
+
+  // Disable rate limits for tests
+  await program.methods
+    .updateRateLimits(
+      new BN(0), // task_creation_cooldown = 0
+      0, // max_tasks_per_24h = 0 (unlimited)
+      new BN(0), // dispute_initiation_cooldown = 0
+      0, // max_disputes_per_24h = 0 (unlimited)
+      new BN(0) // min_stake_for_dispute = 0
+    )
+    .accountsPartial({
+      protocolConfig: protocolPda,
+    })
+    .remainingAccounts([
+      { pubkey: payer.publicKey, isSigner: true, isWritable: false },
+    ])
+    .rpc();
+}
+
+/**
+ * Fund an account instantly via LiteSVM airdrop.
+ */
+export function fundAccount(
+  svm: LiteSVM,
+  pubkey: PublicKey,
+  lamports: number | bigint
+): void {
+  svm.airdrop(pubkey, BigInt(lamports));
+}
+
+/**
+ * Advance the LiteSVM clock by the specified number of seconds.
+ */
+export function advanceClock(svm: LiteSVM, seconds: number): void {
+  const clock = svm.getClock();
+  const newTimestamp = clock.unixTimestamp + BigInt(seconds);
+  const newSlot = clock.slot + BigInt(seconds * 2);
+  clock.unixTimestamp = newTimestamp;
+  clock.slot = newSlot;
+  svm.setClock(clock);
+}

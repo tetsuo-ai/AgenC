@@ -8,7 +8,9 @@
  */
 
 import { Connection, PublicKey } from '@solana/web3.js';
+import type { Program } from '@coral-xyz/anchor';
 import { PROGRAM_ID } from '@agenc/sdk';
+import type { AgencCoordination } from './types/agenc_coordination.js';
 import { AgentManager } from './agent/manager.js';
 import { AgentState, AgentStatus, AgentRegistrationParams, AGENT_ID_LENGTH } from './agent/types.js';
 import { findAgentPda } from './agent/pda.js';
@@ -122,6 +124,7 @@ export class AgentRuntime {
       wallet: this.wallet,
       programId: this.programId,
       logger: this.logger,
+      program: config.program as Program<AgencCoordination> | undefined,
     });
 
     this.logger.debug('AgentRuntime created');
