@@ -35,3 +35,19 @@ export { SqliteBackend, type SqliteBackendConfig } from './sqlite/index.js';
 
 // Redis backend (optional ioredis)
 export { RedisBackend, type RedisBackendConfig } from './redis/index.js';
+
+// Provenance-aware graph layer
+export {
+  MemoryGraph,
+  type ProvenanceSourceType,
+  type ProvenanceSource,
+  type MemoryEdgeType,
+  type MemoryGraphNode,
+  type MemoryGraphEdge,
+  type UpsertMemoryNodeInput,
+  type AddMemoryEdgeInput,
+  type MemoryGraphQuery,
+  type MemoryGraphResult,
+  type MemoryGraphConfig,
+  type CompactOptions,
+} from './graph.js';
