@@ -256,6 +256,7 @@ describe('AgentBuilder', () => {
       expect(builder.withMaxConcurrentTasks(2)).toBe(builder);
       expect(builder.withSystemPrompt('hello')).toBe(builder);
       expect(builder.withVerifier({ verifier: { verify: vi.fn() } } as any)).toBe(builder);
+      expect(builder.withMultiCandidate({ enabled: true, maxCandidates: 3 })).toBe(builder);
       expect(builder.withWorkflowOptimizer({ enabled: true, seed: 7 })).toBe(builder);
       expect(builder.withPolicy({ enabled: true })).toBe(builder);
       expect(builder.withCallbacks({})).toBe(builder);
@@ -308,6 +309,42 @@ describe('AgentBuilder', () => {
         seed: 21,
         maxCandidates: 4,
         canaryPercent: 0.3,
+      });
+    });
+  });
+
+  describe('multi-candidate wiring', () => {
+    it('passes feature-flagged multi-candidate config to AutonomousAgent', async () => {
+      await new AgentBuilder(mockConnection, mockKeypair)
+        .withCapabilities(COMPUTE)
+        .withExecutor(createMockExecutor())
+        .withMultiCandidate({
+          enabled: true,
+          seed: 13,
+          maxCandidates: 3,
+          policyBudget: {
+            maxCandidates: 2,
+            maxExecutionCostLamports: 200n,
+          },
+          escalation: {
+            maxPairwiseDisagreements: 1,
+          },
+        })
+        .build();
+
+      expect(AutonomousAgent).toHaveBeenCalledTimes(1);
+      const config = (AutonomousAgent as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0];
+      expect(config.multiCandidate).toMatchObject({
+        enabled: true,
+        seed: 13,
+        maxCandidates: 3,
+        policyBudget: {
+          maxCandidates: 2,
+          maxExecutionCostLamports: 200n,
+        },
+        escalation: {
+          maxPairwiseDisagreements: 1,
+        },
       });
     });
   });
