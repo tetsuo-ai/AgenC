@@ -101,6 +101,7 @@ export function autonomousTaskToOnChainTask(task: Task): OnChainTask {
     completions: 0,
     requiredCompletions: 1,
     bump: 0,
+    rewardMint: task.rewardMint ?? null,
   };
 }
 
@@ -126,6 +127,7 @@ export function onChainTaskToAutonomousTask(task: OnChainTask, pda: PublicKey): 
     maxWorkers: task.maxWorkers,
     currentClaims: task.currentWorkers,
     status: mapOnChainTaskStatus(task.status),
+    rewardMint: task.rewardMint ?? null,
   };
 }
 

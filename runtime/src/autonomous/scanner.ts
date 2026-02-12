@@ -261,6 +261,16 @@ export class TaskScanner {
       return false;
     }
 
+    // Mint filter
+    if (f.acceptedMints !== undefined) {
+      const taskMintKey = task.rewardMint?.toBase58() ?? null;
+      const accepted = f.acceptedMints.some((m) => {
+        if (m === null) return taskMintKey === null;
+        return taskMintKey === m.toBase58();
+      });
+      if (!accepted) return false;
+    }
+
     // Deadline filter - skip expired tasks
     if (task.deadline > 0 && task.deadline < Math.floor(Date.now() / 1000)) {
       return false;
@@ -291,6 +301,7 @@ export class TaskScanner {
       status:
         | { open?: unknown; inProgress?: unknown; completed?: unknown; cancelled?: unknown; disputed?: unknown }
         | number;
+      rewardMint: PublicKey | null;
     };
 
     return {
@@ -305,6 +316,7 @@ export class TaskScanner {
       maxWorkers: data.maxWorkers,
       currentClaims: data.currentClaims,
       status: this.parseStatus(data.status),
+      rewardMint: data.rewardMint ?? null,
     };
   }
 
