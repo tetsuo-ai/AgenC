@@ -35,6 +35,13 @@ export const TELEMETRY_METRIC_NAMES = {
   // Policy
   POLICY_VIOLATIONS_TOTAL: 'agenc.policy.violations.total',
   POLICY_DECISIONS_TOTAL: 'agenc.policy.decisions.total',
+  // Adaptive verifier
+  VERIFIER_ADAPTIVE_RISK_SCORE: 'agenc.verifier.adaptive.risk_score',
+  VERIFIER_ADAPTIVE_RISK_TIER_TOTAL: 'agenc.verifier.adaptive.risk_tier.total',
+  VERIFIER_ADAPTIVE_MAX_RETRIES: 'agenc.verifier.adaptive.max_retries',
+  VERIFIER_ADAPTIVE_MAX_DURATION_MS: 'agenc.verifier.adaptive.max_duration_ms',
+  VERIFIER_ADAPTIVE_MAX_COST_LAMPORTS: 'agenc.verifier.adaptive.max_cost_lamports',
+  VERIFIER_ADAPTIVE_DISABLED_TOTAL: 'agenc.verifier.adaptive.disabled.total',
   // Eval
   EVAL_PASS_AT_K: 'agenc.eval.pass_at_k',
   EVAL_PASS_CARET_K: 'agenc.eval.pass_caret_k',
