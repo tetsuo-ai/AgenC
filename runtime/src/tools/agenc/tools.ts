@@ -80,6 +80,7 @@ function serializeTask(task: OnChainTask, taskPda: PublicKey): SerializedTask {
     completions: task.completions,
     requiredCompletions: task.requiredCompletions,
     description: bytesToHex(task.description),
+    rewardMint: task.rewardMint?.toBase58() ?? null,
   };
 }
 
@@ -119,6 +120,8 @@ function serializeProtocolConfig(config: ProtocolConfig): SerializedProtocolConf
     maxDisputesPer24h: config.maxDisputesPer24h,
     minStakeForDispute: config.minStakeForDispute.toString(),
     slashPercentage: config.slashPercentage,
+    stateUpdateCooldown: config.stateUpdateCooldown,
+    votingPeriod: config.votingPeriod,
     protocolVersion: config.protocolVersion,
     minSupportedVersion: config.minSupportedVersion,
   };

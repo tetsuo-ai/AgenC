@@ -119,6 +119,8 @@ export interface AgentManagerConfig {
    * If not provided, uses default TTL of 5 minutes with no stale fallback.
    */
   protocolConfigCache?: ProtocolConfigCacheOptions;
+  /** Pre-built Program instance (for testing with LiteSVM). If provided, skips internal provider creation. */
+  program?: Program<AgencCoordination>;
 }
 
 /**
@@ -225,13 +227,17 @@ export class AgentManager {
       );
     }
 
-    // Create Anchor provider and program
-    const provider = new AnchorProvider(
-      this.connection,
-      this.wallet,
-      { commitment: 'confirmed' }
-    );
-    this.program = createProgram(provider, this.programId);
+    // Use injected program or create Anchor provider and program
+    if (config.program) {
+      this.program = config.program;
+    } else {
+      const provider = new AnchorProvider(
+        this.connection,
+        this.wallet,
+        { commitment: 'confirmed' }
+      );
+      this.program = createProgram(provider, this.programId);
+    }
   }
 
   // ==========================================================================

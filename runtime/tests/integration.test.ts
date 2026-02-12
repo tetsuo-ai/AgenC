@@ -1,36 +1,36 @@
 /**
  * Integration tests for @agenc/runtime
  *
- * Validates AgentManager and AgentRuntime lifecycle against a localnet validator.
- * Requires a running Solana test validator with the AgenC program deployed.
- *
- * Run: RUN_INTEGRATION=true npx vitest run tests/integration.test.ts
- * Requires a running local validator (solana-test-validator).
+ * Validates AgentManager and AgentRuntime lifecycle against a LiteSVM instance.
+ * No external validator required — runs in-process via LiteSVM.
  *
  * @see https://github.com/tetsuo-ai/AgenC/issues/124
  */
 
 import { describe, it, expect, beforeAll } from 'vitest';
-import { Connection, Keypair, LAMPORTS_PER_SOL } from '@solana/web3.js';
+import { LAMPORTS_PER_SOL } from '@solana/web3.js';
 import { AgentRuntime } from '../src/runtime.js';
 import { AgentManager } from '../src/agent/manager.js';
 import { Capability, combineCapabilities } from '../src/agent/capabilities.js';
 import { generateAgentId } from '../src/utils/encoding.js';
 import { AgentStatus } from '../src/agent/types.js';
 import { keypairToWallet } from '../src/types/wallet.js';
+import {
+  createRuntimeTestContext,
+  initializeProtocol,
+  advanceClock,
+  type RuntimeTestContext,
+} from './litesvm-setup.js';
 
-// Only run integration tests when explicitly opted in (requires local validator)
-const RUN_INTEGRATION = process.env.RUN_INTEGRATION === 'true';
+/** Minimum stake required by on-chain protocol (0.01 SOL) */
+const MIN_STAKE = BigInt(LAMPORTS_PER_SOL / 100);
 
-describe.skipIf(!RUN_INTEGRATION)('Integration Tests', () => {
-  let connection: Connection;
-  let payer: Keypair;
+describe('Integration Tests', () => {
+  let ctx: RuntimeTestContext;
 
   beforeAll(async () => {
-    connection = new Connection('http://localhost:8899', 'confirmed');
-    payer = Keypair.generate();
-    const signature = await connection.requestAirdrop(payer.publicKey, 10 * LAMPORTS_PER_SOL);
-    await connection.confirmTransaction(signature);
+    ctx = createRuntimeTestContext();
+    await initializeProtocol(ctx);
   });
 
   // ==========================================================================
@@ -41,8 +41,9 @@ describe.skipIf(!RUN_INTEGRATION)('Integration Tests', () => {
     it('registers, updates, and deregisters an agent', async () => {
       const agentId = generateAgentId();
       const manager = new AgentManager({
-        connection,
-        wallet: keypairToWallet(payer),
+        connection: ctx.connection,
+        wallet: keypairToWallet(ctx.payer),
+        program: ctx.program,
       });
 
       // Register
@@ -50,7 +51,7 @@ describe.skipIf(!RUN_INTEGRATION)('Integration Tests', () => {
         agentId,
         capabilities: combineCapabilities(Capability.COMPUTE, Capability.INFERENCE),
         endpoint: 'https://my-agent.example.com',
-        stakeAmount: 0n,
+        stakeAmount: MIN_STAKE,
       });
 
       expect(state.status).toBe(AgentStatus.Active);
@@ -59,10 +60,14 @@ describe.skipIf(!RUN_INTEGRATION)('Integration Tests', () => {
       expect(state.reputation).toBe(5000); // 50%
 
       // Update capabilities (add STORAGE → COMPUTE | INFERENCE | STORAGE = 7n)
+      // register sets last_state_update = 0, so first update won't need clock advance
       const updated = await manager.updateCapabilities(
         combineCapabilities(Capability.COMPUTE, Capability.INFERENCE, Capability.STORAGE),
       );
       expect(updated.capabilities).toBe(7n);
+
+      // Advance clock for the next updateAgent call (60s cooldown)
+      advanceClock(ctx.svm, 61);
 
       // Update status to Inactive
       await manager.updateStatus(AgentStatus.Inactive);
@@ -74,7 +79,11 @@ describe.skipIf(!RUN_INTEGRATION)('Integration Tests', () => {
       expect(tx).toBeTruthy();
 
       // Verify agent no longer exists
-      const exists = await AgentManager.agentExists(connection, agentId);
+      const exists = await AgentManager.agentExists(
+        ctx.connection,
+        agentId,
+        ctx.program.programId,
+      );
       expect(exists).toBe(false);
     });
   });
@@ -86,16 +95,24 @@ describe.skipIf(!RUN_INTEGRATION)('Integration Tests', () => {
   describe('AgentRuntime Lifecycle', () => {
     it('starts and stops runtime', async () => {
       const runtime = new AgentRuntime({
-        connection,
-        wallet: payer,
+        connection: ctx.connection,
+        wallet: ctx.payer,
         capabilities: combineCapabilities(Capability.COMPUTE),
-        logLevel: 'debug',
+        program: ctx.program,
+        programId: ctx.program.programId,
+        initialStake: MIN_STAKE,
+        endpoint: 'https://test.agent.example.com',
       });
 
-      // Start
+      // Start (registers + sets Active)
       const state = await runtime.start();
       expect(state.status).toBe(AgentStatus.Active);
       expect(runtime.isStarted()).toBe(true);
+
+      // Advance clock before stop (updateStatus needs 60s cooldown since register set last_state_update=0,
+      // but the first update is free. stop() calls updateStatus(Inactive) — register doesn't call updateAgent,
+      // it sets last_state_update=0, so clock >= 0+60 is satisfied. But to be safe, advance.)
+      advanceClock(ctx.svm, 61);
 
       // Stop
       await runtime.stop();
@@ -105,7 +122,8 @@ describe.skipIf(!RUN_INTEGRATION)('Integration Tests', () => {
       const finalState = await runtime.getAgentState();
       expect(finalState.status).toBe(AgentStatus.Inactive);
 
-      // Cleanup: deregister
+      // Cleanup: advance clock for deregister's preceding update
+      advanceClock(ctx.svm, 61);
       await runtime.getAgentManager().deregister();
     });
 
@@ -114,26 +132,42 @@ describe.skipIf(!RUN_INTEGRATION)('Integration Tests', () => {
 
       // First runtime — register
       const runtime1 = new AgentRuntime({
-        connection,
-        wallet: payer,
+        connection: ctx.connection,
+        wallet: ctx.payer,
         agentId,
         capabilities: combineCapabilities(Capability.COMPUTE),
+        program: ctx.program,
+        programId: ctx.program.programId,
+        initialStake: MIN_STAKE,
+        endpoint: 'https://test.agent.example.com',
       });
       await runtime1.start();
+
+      // Advance clock before stop (so updateStatus(Inactive) can proceed)
+      advanceClock(ctx.svm, 61);
       await runtime1.stop();
+
+      // Advance clock before second start (so updateStatus(Active) can proceed)
+      advanceClock(ctx.svm, 61);
 
       // Second runtime — should load existing agent
       const runtime2 = new AgentRuntime({
-        connection,
-        wallet: payer,
+        connection: ctx.connection,
+        wallet: ctx.payer,
         agentId,
         capabilities: combineCapabilities(Capability.COMPUTE),
+        program: ctx.program,
+        programId: ctx.program.programId,
+        initialStake: MIN_STAKE,
+        endpoint: 'https://test.agent.example.com',
       });
       const state = await runtime2.start();
       expect(state.status).toBe(AgentStatus.Active);
-      await runtime2.stop();
 
       // Cleanup
+      advanceClock(ctx.svm, 61);
+      await runtime2.stop();
+      advanceClock(ctx.svm, 61);
       await runtime2.getAgentManager().deregister();
     });
   });
@@ -146,15 +180,16 @@ describe.skipIf(!RUN_INTEGRATION)('Integration Tests', () => {
     it('returns correct rate limit state for new agent', async () => {
       const agentId = generateAgentId();
       const manager = new AgentManager({
-        connection,
-        wallet: keypairToWallet(payer),
+        connection: ctx.connection,
+        wallet: keypairToWallet(ctx.payer),
+        program: ctx.program,
       });
 
       await manager.register({
         agentId,
         capabilities: combineCapabilities(Capability.COMPUTE),
         endpoint: 'https://test.example.com',
-        stakeAmount: 0n,
+        stakeAmount: MIN_STAKE,
       });
 
       // New agent should not be rate limited
@@ -168,18 +203,19 @@ describe.skipIf(!RUN_INTEGRATION)('Integration Tests', () => {
       await manager.deregister();
     });
 
-    it('checkRateLimit does not throw for new agent', async () => {
+    it('getRateLimitState does not throw for new agent', async () => {
       const agentId = generateAgentId();
       const manager = new AgentManager({
-        connection,
-        wallet: keypairToWallet(payer),
+        connection: ctx.connection,
+        wallet: keypairToWallet(ctx.payer),
+        program: ctx.program,
       });
 
       await manager.register({
         agentId,
         capabilities: combineCapabilities(Capability.COMPUTE),
         endpoint: 'https://test.example.com',
-        stakeAmount: 0n,
+        stakeAmount: MIN_STAKE,
       });
 
       // getRateLimitState should succeed and indicate no limits hit
@@ -194,15 +230,16 @@ describe.skipIf(!RUN_INTEGRATION)('Integration Tests', () => {
     it('correctly reads rate limit window fields', async () => {
       const agentId = generateAgentId();
       const manager = new AgentManager({
-        connection,
-        wallet: keypairToWallet(payer),
+        connection: ctx.connection,
+        wallet: keypairToWallet(ctx.payer),
+        program: ctx.program,
       });
 
       await manager.register({
         agentId,
         capabilities: combineCapabilities(Capability.COMPUTE),
         endpoint: 'https://test.example.com',
-        stakeAmount: 0n,
+        stakeAmount: MIN_STAKE,
       });
 
       const state = await manager.getState();
@@ -227,25 +264,34 @@ describe.skipIf(!RUN_INTEGRATION)('Integration Tests', () => {
     it('fetches agent by ID', async () => {
       const agentId = generateAgentId();
       const manager = new AgentManager({
-        connection,
-        wallet: keypairToWallet(payer),
+        connection: ctx.connection,
+        wallet: keypairToWallet(ctx.payer),
+        program: ctx.program,
       });
 
       await manager.register({
         agentId,
         capabilities: combineCapabilities(Capability.COMPUTE),
         endpoint: 'https://test.example.com',
-        stakeAmount: 0n,
+        stakeAmount: MIN_STAKE,
       });
 
       // Fetch using static method
-      const fetchedState = await AgentManager.fetchAgent(connection, agentId);
+      const fetchedState = await AgentManager.fetchAgent(
+        ctx.connection,
+        agentId,
+        ctx.program.programId,
+      );
       expect(fetchedState).not.toBeNull();
       expect(fetchedState!.endpoint).toBe('https://test.example.com');
 
       // Fetch by PDA
       const pda = manager.getAgentPda()!;
-      const fetchedByPda = await AgentManager.fetchAgentByPda(connection, pda);
+      const fetchedByPda = await AgentManager.fetchAgentByPda(
+        ctx.connection,
+        pda,
+        ctx.program.programId,
+      );
       expect(fetchedByPda).not.toBeNull();
       expect(fetchedByPda!.endpoint).toBe('https://test.example.com');
 
@@ -255,7 +301,11 @@ describe.skipIf(!RUN_INTEGRATION)('Integration Tests', () => {
 
     it('returns null for non-existent agent', async () => {
       const nonExistentId = generateAgentId();
-      const state = await AgentManager.fetchAgent(connection, nonExistentId);
+      const state = await AgentManager.fetchAgent(
+        ctx.connection,
+        nonExistentId,
+        ctx.program.programId,
+      );
       expect(state).toBeNull();
     });
   });

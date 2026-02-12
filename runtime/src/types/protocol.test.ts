@@ -43,11 +43,13 @@ function createValidMockData() {
     multisigThreshold: 2,
     multisigOwnersLen: 3,
     taskCreationCooldown: mockBN(60),
-    maxTasksPer24h: 10,
+    maxTasksPer24H: 10,
     disputeInitiationCooldown: mockBN(300),
-    maxDisputesPer24h: 5,
+    maxDisputesPer24H: 5,
     minStakeForDispute: mockBN(500_000_000n),
     slashPercentage: 10,
+    stateUpdateCooldown: mockBN(60),
+    votingPeriod: mockBN(86400),
     protocolVersion: 1,
     minSupportedVersion: 1,
     multisigOwners: [
@@ -91,6 +93,8 @@ describe('ProtocolConfig interface', () => {
       maxDisputesPer24h: 5,
       minStakeForDispute: 500_000_000n,
       slashPercentage: 10,
+      stateUpdateCooldown: 60,
+      votingPeriod: 86400,
       protocolVersion: 1,
       minSupportedVersion: 1,
       multisigOwners: [new PublicKey(TEST_PUBKEY_3)],
@@ -129,6 +133,8 @@ describe('parseProtocolConfig', () => {
       expect(config.maxDisputesPer24h).toBe(5);
       expect(config.minStakeForDispute).toBe(500_000_000n);
       expect(config.slashPercentage).toBe(10);
+      expect(config.stateUpdateCooldown).toBe(60);
+      expect(config.votingPeriod).toBe(86400);
       expect(config.protocolVersion).toBe(1);
       expect(config.minSupportedVersion).toBe(1);
     });
@@ -356,9 +362,9 @@ describe('parseProtocolConfig', () => {
     it('handles zero values for optional fields', () => {
       const mockData = createValidMockData();
       mockData.taskCreationCooldown = mockBN(0);
-      mockData.maxTasksPer24h = 0;
+      mockData.maxTasksPer24H = 0;
       mockData.disputeInitiationCooldown = mockBN(0);
-      mockData.maxDisputesPer24h = 0;
+      mockData.maxDisputesPer24H = 0;
 
       const config = parseProtocolConfig(mockData);
 
@@ -371,8 +377,8 @@ describe('parseProtocolConfig', () => {
     it('handles maximum u8 values', () => {
       const mockData = createValidMockData();
       mockData.bump = 255;
-      mockData.maxTasksPer24h = 255;
-      mockData.maxDisputesPer24h = 255;
+      mockData.maxTasksPer24H = 255;
+      mockData.maxDisputesPer24H = 255;
       mockData.disputeThreshold = 100; // max valid
 
       const config = parseProtocolConfig(mockData);

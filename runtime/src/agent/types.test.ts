@@ -68,12 +68,13 @@ function createValidMockData() {
     bump: 255,
     lastTaskCreated: mockBN(1700000500),
     lastDisputeInitiated: mockBN(1699990000),
-    taskCount24h: 5,
-    disputeCount24h: 1,
+    taskCount24H: 5,
+    disputeCount24H: 1,
     rateLimitWindowStart: mockBN(1699920000),
     activeDisputeVotes: 0,
     lastVoteTimestamp: mockBN(0),
     lastStateUpdate: mockBN(1700001000),
+    disputesAsDefendant: 0,
   };
 }
 
@@ -371,6 +372,7 @@ describe('parseAgentState', () => {
       expect(agent.activeDisputeVotes).toBe(0);
       expect(agent.lastVoteTimestamp).toBe(0);
       expect(agent.lastStateUpdate).toBe(1700001000);
+      expect(agent.disputesAsDefendant).toBe(0);
     });
 
     it('correctly converts u64 fields to bigint', () => {
@@ -545,14 +547,14 @@ describe('parseAgentState', () => {
 
     it('throws when taskCount24h exceeds MAX_U8', () => {
       const mockData = createValidMockData();
-      mockData.taskCount24h = 256;
+      mockData.taskCount24H = 256;
 
       expect(() => parseAgentState(mockData)).toThrow('Invalid taskCount24h: 256');
     });
 
     it('throws when disputeCount24h exceeds MAX_U8', () => {
       const mockData = createValidMockData();
-      mockData.disputeCount24h = 256;
+      mockData.disputeCount24H = 256;
 
       expect(() => parseAgentState(mockData)).toThrow('Invalid disputeCount24h: 256');
     });
@@ -629,8 +631,8 @@ describe('parseAgentState', () => {
       const mockData = createValidMockData();
       mockData.lastTaskCreated = mockBN(0);
       mockData.lastDisputeInitiated = mockBN(0);
-      mockData.taskCount24h = 0;
-      mockData.disputeCount24h = 0;
+      mockData.taskCount24H = 0;
+      mockData.disputeCount24H = 0;
       mockData.rateLimitWindowStart = mockBN(0);
       mockData.activeDisputeVotes = 0;
       mockData.lastVoteTimestamp = mockBN(0);
@@ -649,8 +651,8 @@ describe('parseAgentState', () => {
     it('handles maximum u8 values', () => {
       const mockData = createValidMockData();
       mockData.activeTasks = 255;
-      mockData.taskCount24h = 255;
-      mockData.disputeCount24h = 255;
+      mockData.taskCount24H = 255;
+      mockData.disputeCount24H = 255;
       mockData.activeDisputeVotes = 255;
       mockData.bump = 255;
 
@@ -715,6 +717,7 @@ describe('AgentState interface', () => {
       activeDisputeVotes: 0,
       lastVoteTimestamp: 0,
       lastStateUpdate: 1700001000,
+      disputesAsDefendant: 0,
     };
 
     expect(agent.authority).toBeInstanceOf(PublicKey);

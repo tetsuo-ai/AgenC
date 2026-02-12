@@ -4,6 +4,7 @@
  */
 
 import type { Connection, PublicKey, Keypair } from '@solana/web3.js';
+import type { Program } from '@coral-xyz/anchor';
 import type { Wallet } from './wallet.js';
 import type { LogLevel } from '../utils/logger.js';
 
@@ -48,6 +49,9 @@ export interface AgentRuntimeConfig {
 
   /** Log level (default: no logging) */
   logLevel?: LogLevel;
+
+  /** Pre-built Program instance (for testing with LiteSVM). Passed through to AgentManager. */
+  program?: Program;
 }
 
 /**
