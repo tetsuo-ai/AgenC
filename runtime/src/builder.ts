@@ -57,6 +57,7 @@ import type { TelemetryCollector, TelemetryConfig, TelemetrySnapshot } from './t
 import { UnifiedTelemetryCollector } from './telemetry/collector.js';
 import { PolicyEngine } from './policy/engine.js';
 import type { RuntimePolicyConfig, PolicyViolation } from './policy/types.js';
+import type { WorkflowOptimizerRuntimeConfig } from './workflow/optimizer.js';
 
 // ============================================================================
 // LLM provider type discriminator
@@ -172,6 +173,7 @@ export class AgentBuilder {
   // Speculation
   private speculationConfig?: SpeculationConfig;
   private verifierConfig?: VerifierLaneConfig;
+  private workflowOptimizerConfig?: WorkflowOptimizerRuntimeConfig;
 
   // Callbacks
   private callbacks?: AgentCallbacks;
@@ -309,6 +311,11 @@ export class AgentBuilder {
 
   withVerifier(config: VerifierLaneConfig): this {
     this.verifierConfig = config;
+    return this;
+  }
+
+  withWorkflowOptimizer(config?: WorkflowOptimizerRuntimeConfig): this {
+    this.workflowOptimizerConfig = config ?? { enabled: true };
     return this;
   }
 
@@ -509,6 +516,7 @@ export class AgentBuilder {
       maxConcurrentTasks: this.maxConcurrentTasks,
       speculation: this.speculationConfig,
       verifier: this.verifierConfig,
+      workflowOptimizer: this.workflowOptimizerConfig,
       onTaskDiscovered: this.callbacks?.onTaskDiscovered,
       onTaskClaimed: this.callbacks?.onTaskClaimed,
       onTaskExecuted: this.callbacks?.onTaskExecuted,

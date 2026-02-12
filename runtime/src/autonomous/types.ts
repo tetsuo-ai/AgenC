@@ -14,6 +14,7 @@ import type { ProofPipelineConfig } from '../task/proof-pipeline.js';
 import type { PolicyEngine } from '../policy/engine.js';
 import type { PolicyViolation } from '../policy/types.js';
 import type { TrajectoryRecorderSink } from '../eval/types.js';
+import type { WorkflowOptimizerRuntimeConfig } from '../workflow/optimizer.js';
 
 /**
  * On-chain task data
@@ -461,6 +462,12 @@ export interface AutonomousAgentConfig extends AgentRuntimeConfig {
    * When omitted, no trace events are recorded.
    */
   trajectoryRecorder?: TrajectoryRecorderSink;
+
+  /**
+   * Optional workflow optimizer runtime controls (feature-flagged).
+   * When disabled or omitted, workflow optimization stays inactive.
+   */
+  workflowOptimizer?: WorkflowOptimizerRuntimeConfig;
 }
 
 /**
