@@ -280,6 +280,51 @@ Lifecycle invariants:
 - `finalizePayout(...)` is idempotent and returns an immutable snapshot.
 - Audit logging is best-effort by default; `onAuditError` is called when a custom audit store fails.
 
+### Marketplace Bidding And Matching
+
+Run deterministic bid matching policies (price, ETA, weighted score) without changing existing claim flow:
+
+```typescript
+import { TaskBidMarketplace } from '@agenc/runtime';
+
+const marketplace = new TaskBidMarketplace({
+  defaultPolicy: { policy: 'weighted_score' },
+  authorizedSelectorIds: ['ops-matcher'],
+  antiSpam: {
+    maxActiveBidsPerBidderPerTask: 3,
+    createRateLimit: { maxCreates: 5, windowMs: 60_000 },
+    minBondLamports: 100_000n,
+  },
+});
+
+marketplace.setTaskOwner({ taskId: 'task-42', ownerId: 'creator-a' });
+
+marketplace.createBid({
+  actorId: 'agent-1',
+  taskOwnerId: 'creator-a',
+  bid: {
+    taskId: 'task-42',
+    bidderId: 'agent-1',
+    rewardLamports: 900_000n,
+    etaSeconds: 300,
+    confidenceBps: 8500,
+    expiresAtMs: Date.now() + 120_000,
+  },
+});
+
+const result = marketplace.autoMatch({
+  actorId: 'creator-a',
+  taskId: 'task-42',
+  expectedVersion: marketplace.getTaskState('task-42')?.taskVersion,
+});
+```
+
+Determinism and safety notes:
+- Weighted matching uses fixed-point integer scoring and stable tie-breaks: score, `createdAtMs`, then `bidId`.
+- Expiry is evaluated lazily on all paths; use `sweepExpiredBids()` for maintenance.
+- This engine is intentionally single-process, in-memory authority for a task bid book.
+- Bidding is standalone in this release; it does not alter the existing on-chain claim flow.
+
 ## Core Modules
 
 ### AgentRuntime
