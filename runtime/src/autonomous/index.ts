@@ -10,6 +10,13 @@
 export { AutonomousAgent } from './agent.js';
 export { TaskScanner, type TaskScannerConfig, type TaskEventSubscription, type TaskCreatedCallback } from './scanner.js';
 export {
+  VerifierExecutor,
+  VerifierLaneEscalationError,
+  VERIFIER_METRIC_NAMES,
+  type VerifierLaneMetrics,
+  type VerifierExecutorConfig,
+} from './verifier.js';
+export {
   // Types
   type Task,
   TaskStatus,
@@ -20,6 +27,18 @@ export {
   type AutonomousAgentStats,
   type DiscoveryMode,
   type SpeculationConfig,
+  type VerifierReason,
+  type VerifierVerdict,
+  type VerifierVerdictPayload,
+  type VerifierInput,
+  type TaskVerifier,
+  type RevisionInput,
+  type RevisionCapableTaskExecutor,
+  type VerifierTaskTypePolicy,
+  type VerifierPolicyConfig,
+  type VerifierEscalationMetadata,
+  type VerifierLaneConfig,
+  type VerifierExecutionResult,
   // Default strategy
   DefaultClaimStrategy,
 } from './types.js';

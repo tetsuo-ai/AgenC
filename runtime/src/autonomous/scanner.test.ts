@@ -43,6 +43,7 @@ function createMockTaskAccount(
     maxWorkers: number;
     currentClaims: number;
     status: { open: {} };
+    taskType: number;
     rewardMint: PublicKey | null;
   }> = {}
 ) {
@@ -57,6 +58,7 @@ function createMockTaskAccount(
     maxWorkers: overrides.maxWorkers ?? 1,
     currentClaims: overrides.currentClaims ?? 0,
     status: overrides.status ?? { open: {} },
+    taskType: overrides.taskType ?? 0,
     rewardMint: overrides.rewardMint ?? null,
   };
 }
@@ -221,6 +223,21 @@ describe('TaskScanner', () => {
       expect(task.deadline).toBe(futureDeadline);
       expect(task.maxWorkers).toBe(5);
       expect(task.currentClaims).toBe(0);
+    });
+
+    it('parses task type when available', async () => {
+      const freshTaskPda = Keypair.generate().publicKey;
+      mockProgram._addTask(
+        freshTaskPda,
+        createMockTaskAccount({
+          taskType: 2,
+        })
+      );
+
+      const tasks = await scanner.scan();
+
+      expect(tasks).toHaveLength(1);
+      expect(tasks[0].taskType).toBe(2);
     });
   });
 

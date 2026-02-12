@@ -302,6 +302,9 @@ export class TaskScanner {
       status:
         | { open?: unknown; inProgress?: unknown; completed?: unknown; cancelled?: unknown; disputed?: unknown }
         | number;
+      taskType?:
+        | { exclusive?: unknown; collaborative?: unknown; competitive?: unknown }
+        | number;
       rewardMint: PublicKey | null;
     };
 
@@ -317,6 +320,7 @@ export class TaskScanner {
       maxWorkers: data.maxWorkers,
       currentClaims: data.currentClaims,
       status: this.parseStatus(data.status),
+      taskType: data.taskType === undefined ? undefined : this.parseTaskType(data.taskType),
       rewardMint: data.rewardMint ?? null,
     };
   }
@@ -366,6 +370,16 @@ export class TaskScanner {
       if ('disputed' in status) return TaskStatus.Disputed;
     }
     return TaskStatus.Open;
+  }
+
+  private parseTaskType(taskType: unknown): number | undefined {
+    if (typeof taskType === 'number') return taskType;
+    if (taskType && typeof taskType === 'object') {
+      if ('exclusive' in taskType) return 0;
+      if ('collaborative' in taskType) return 1;
+      if ('competitive' in taskType) return 2;
+    }
+    return undefined;
   }
 
   private isZeroHash(hash: Uint8Array): boolean {
