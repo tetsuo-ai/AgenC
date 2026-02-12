@@ -1,0 +1,65 @@
+{
+  "schemaVersion": 1,
+  "traceId": "fixture-policy-fail",
+  "seed": 0,
+  "createdAtMs": 1700000001000,
+  "metadata": {
+    "source": "benchmark-fixture"
+  },
+  "events": [
+    {
+      "seq": 1,
+      "type": "discovered",
+      "taskPda": "task-policy",
+      "timestampMs": 1700000001001,
+      "payload": {}
+    },
+    {
+      "seq": 2,
+      "type": "claimed",
+      "taskPda": "task-policy",
+      "timestampMs": 1700000001002,
+      "payload": {
+        "claimTx": "claim-policy"
+      }
+    },
+    {
+      "seq": 3,
+      "type": "policy_violation",
+      "taskPda": "task-policy",
+      "timestampMs": 1700000001003,
+      "payload": {
+        "code": "risk_threshold_exceeded"
+      }
+    },
+    {
+      "seq": 4,
+      "type": "verifier_verdict",
+      "taskPda": "task-policy",
+      "timestampMs": 1700000001004,
+      "payload": {
+        "attempt": 1,
+        "verdict": "fail",
+        "confidence": 0.31
+      }
+    },
+    {
+      "seq": 5,
+      "type": "executed",
+      "taskPda": "task-policy",
+      "timestampMs": 1700000001005,
+      "payload": {
+        "outputLength": 1
+      }
+    },
+    {
+      "seq": 6,
+      "type": "failed",
+      "taskPda": "task-policy",
+      "timestampMs": 1700000001060,
+      "payload": {
+        "error": "policy_guardrail_triggered"
+      }
+    }
+  ]
+}
