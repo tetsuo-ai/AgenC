@@ -1,0 +1,60 @@
+{
+  "workflowId": "fixture-legacy-workflow",
+  "capturedAtMs": 1700000000000,
+  "topology": {
+    "nodeCount": 2,
+    "edgeCount": 1,
+    "rootCount": 1,
+    "maxDepth": 1,
+    "averageBranchingFactor": 1
+  },
+  "composition": {
+    "taskTypeHistogram": {
+      "0": 2
+    },
+    "dependencyTypeHistogram": {
+      "0": 1,
+      "2": 1
+    },
+    "privateTaskCount": 0,
+    "totalRewardLamports": "150",
+    "averageRewardLamports": 75
+  },
+  "outcomes": {
+    "outcome": "completed",
+    "success": true,
+    "elapsedMs": 120,
+    "completionRate": 1,
+    "failureRate": 0,
+    "cancelledRate": 0,
+    "costUnits": 2,
+    "rollbackRate": 0,
+    "verifierDisagreementRate": 0,
+    "conformanceScore": 1
+  },
+  "nodeFeatures": [
+    {
+      "name": "root",
+      "taskType": 0,
+      "dependencyType": 0,
+      "rewardLamports": "100",
+      "maxWorkers": 1,
+      "minReputation": 0,
+      "hasConstraintHash": false,
+      "status": "completed"
+    },
+    {
+      "name": "child",
+      "taskType": 0,
+      "dependencyType": 2,
+      "rewardLamports": "50",
+      "maxWorkers": 1,
+      "minReputation": 0,
+      "hasConstraintHash": false,
+      "status": "completed"
+    }
+  ],
+  "metadata": {
+    "workflow_source": "single_agent"
+  }
+}
