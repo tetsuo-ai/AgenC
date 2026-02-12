@@ -27,6 +27,7 @@ export interface SerializedTask {
   completions: number;
   requiredCompletions: number;
   description: string;
+  rewardMint: string | null;
 }
 
 /**
@@ -68,6 +69,8 @@ export interface SerializedProtocolConfig {
   maxDisputesPer24h: number;
   minStakeForDispute: string;
   slashPercentage: number;
+  stateUpdateCooldown: number;
+  votingPeriod: number;
   protocolVersion: number;
   minSupportedVersion: number;
 }
