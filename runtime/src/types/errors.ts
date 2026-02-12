@@ -94,6 +94,14 @@ export const RuntimeErrorCodes = {
   TEAM_PAYOUT_ERROR: 'TEAM_PAYOUT_ERROR',
   /** Team workflow topology is not launch-compatible */
   TEAM_WORKFLOW_TOPOLOGY_ERROR: 'TEAM_WORKFLOW_TOPOLOGY_ERROR',
+  /** Marketplace bid input validation failed */
+  MARKETPLACE_VALIDATION_ERROR: 'MARKETPLACE_VALIDATION_ERROR',
+  /** Marketplace lifecycle state transition failed */
+  MARKETPLACE_STATE_ERROR: 'MARKETPLACE_STATE_ERROR',
+  /** Marketplace authorization failed */
+  MARKETPLACE_AUTHORIZATION_ERROR: 'MARKETPLACE_AUTHORIZATION_ERROR',
+  /** Marketplace matching/scoring operation failed */
+  MARKETPLACE_MATCHING_ERROR: 'MARKETPLACE_MATCHING_ERROR',
   /** RPC connection error (timeout, server error, etc.) */
   CONNECTION_ERROR: 'CONNECTION_ERROR',
   /** All configured RPC endpoints are unhealthy */
