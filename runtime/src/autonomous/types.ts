@@ -218,6 +218,50 @@ export interface VerifierTaskTypePolicy {
   minConfidence?: number;
   maxVerificationRetries?: number;
   maxVerificationDurationMs?: number;
+  /** Task-class risk multiplier for adaptive scoring (default: 1). */
+  riskMultiplier?: number;
+  /** Disable verifier lane when risk score is below this threshold (0-1). */
+  minRiskScoreToVerify?: number;
+  /** Hard spend ceiling for this task class. */
+  maxVerificationCostLamports?: bigint;
+  /** Optional adaptive override for retry count. */
+  adaptiveMaxVerificationRetries?: number;
+  /** Optional adaptive override for verification duration budget (ms). */
+  adaptiveMaxVerificationDurationMs?: number;
+  /** Optional adaptive override for confidence floor. */
+  adaptiveMinConfidence?: number;
+}
+
+export interface VerifierAdaptiveRiskWeights {
+  rewardWeight?: number;
+  deadlineWeight?: number;
+  claimPressureWeight?: number;
+  taskTypeWeight?: number;
+  verifierDisagreementWeight?: number;
+  rollbackWeight?: number;
+}
+
+export interface VerifierAdaptiveRiskConfig {
+  /** Feature flag for adaptive risk-based verification budgeting. */
+  enabled?: boolean;
+  /** Disable verifier lane below this risk score. */
+  minRiskScoreToVerify?: number;
+  /** Threshold between low and medium tiers. */
+  mediumRiskThreshold?: number;
+  /** Threshold between medium and high tiers. */
+  highRiskThreshold?: number;
+  /** Optional risk feature weights override. */
+  weights?: VerifierAdaptiveRiskWeights;
+  /** Retry ceilings by risk tier. */
+  maxVerificationRetriesByRisk?: Partial<Record<'low' | 'medium' | 'high', number>>;
+  /** Duration ceilings by risk tier in ms. */
+  maxVerificationDurationMsByRisk?: Partial<Record<'low' | 'medium' | 'high', number>>;
+  /** Confidence floors by risk tier. */
+  minConfidenceByRisk?: Partial<Record<'low' | 'medium' | 'high', number>>;
+  /** Hard ceilings for retries, duration, and spend. */
+  hardMaxVerificationRetries?: number;
+  hardMaxVerificationDurationMs?: number;
+  hardMaxVerificationCostLamports?: bigint;
 }
 
 /**
@@ -235,13 +279,20 @@ export interface VerifierPolicyConfig {
   taskTypePolicies?: Record<number, VerifierTaskTypePolicy>;
   /** Optional custom gate hook for app-specific policy. */
   taskSelector?: (task: Task) => boolean;
+  /** Optional adaptive risk policy for dynamic verifier budgets. */
+  adaptiveRisk?: VerifierAdaptiveRiskConfig;
 }
 
 /**
  * Escalation metadata for verifier-gated failures.
  */
 export interface VerifierEscalationMetadata {
-  reason: 'verifier_failed' | 'verifier_timeout' | 'verifier_error' | 'revision_unavailable';
+  reason:
+    | 'verifier_failed'
+    | 'verifier_timeout'
+    | 'verifier_error'
+    | 'revision_unavailable'
+    | 'verifier_budget_exhausted';
   attempts: number;
   revisions: number;
   durationMs: number;
@@ -287,6 +338,22 @@ export interface VerifierExecutionResult {
   escalated: boolean;
   history: VerifierVerdictPayload[];
   lastVerdict: VerifierVerdictPayload | null;
+  adaptiveRisk?: {
+    score: number;
+    tier: 'low' | 'medium' | 'high';
+    contributions: Array<{
+      feature: string;
+      value: number;
+      weight: number;
+      contribution: number;
+    }>;
+    budget: {
+      maxVerificationRetries: number;
+      maxVerificationDurationMs: number;
+      minConfidence: number;
+      maxAllowedSpendLamports: string;
+    };
+  };
 }
 
 /**

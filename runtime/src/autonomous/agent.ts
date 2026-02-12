@@ -940,6 +940,13 @@ export class AutonomousAgent extends AgentRuntime {
         attempts: verifierResult.attempts,
         revisions: verifierResult.revisions,
         addedLatencyMs: verifierResult.durationMs,
+        adaptiveRisk: verifierResult.adaptiveRisk
+          ? {
+              score: verifierResult.adaptiveRisk.score,
+              tier: verifierResult.adaptiveRisk.tier,
+              budget: verifierResult.adaptiveRisk.budget,
+            }
+          : null,
       } : null,
     });
     this.autonomousLogger.info(`Executed task ${taskKey.slice(0, 8)}`);
