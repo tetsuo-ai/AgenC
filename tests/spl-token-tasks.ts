@@ -44,13 +44,10 @@ import {
   getDefaultDeadline,
   deriveProgramDataPda,
 } from "./test-utils";
+import { createLiteSVMContext, fundAccount } from "./litesvm-helpers";
 
 describe("spl-token-tasks (issue #860)", () => {
-  const provider = anchor.AnchorProvider.env();
-  anchor.setProvider(provider);
-
-  const program = anchor.workspace
-    .AgencCoordination as Program<AgencCoordination>;
+  const { svm, provider, program, payer: payerKp } = createLiteSVMContext({ splTokens: true });
 
   const [protocolPda] = PublicKey.findProgramAddressSync(
     [Buffer.from("protocol")],
@@ -166,19 +163,16 @@ describe("spl-token-tasks (issue #860)", () => {
     return acct.amount;
   }
 
-  const airdrop = async (
+  const airdrop = (
     wallets: Keypair[],
     amount: number = 20 * LAMPORTS_PER_SOL
   ) => {
     for (const wallet of wallets) {
-      await provider.connection.confirmTransaction(
-        await provider.connection.requestAirdrop(wallet.publicKey, amount),
-        "confirmed"
-      );
+      fundAccount(svm, wallet.publicKey, amount);
     }
   };
 
-  const payer = (): Keypair => (provider.wallet as any).payer;
+  const payer = (): Keypair => payerKp;
 
   const ensureProtocol = async () => {
     try {
