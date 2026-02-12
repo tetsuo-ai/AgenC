@@ -12,11 +12,16 @@ import { TaskScanner, TaskEventSubscription } from './scanner.js';
 import {
   Task,
   AutonomousTaskExecutor,
+  RevisionCapableTaskExecutor,
+  RevisionInput,
   ClaimStrategy,
   AutonomousAgentConfig,
   AutonomousAgentStats,
   DefaultClaimStrategy,
   DiscoveryMode,
+  VerifierEscalationMetadata,
+  VerifierExecutionResult,
+  VerifierVerdictPayload,
   type SpeculationConfig,
 } from './types.js';
 import { Logger, createLogger, silentLogger } from '../utils/logger.js';
@@ -40,6 +45,8 @@ import {
   executorToTaskHandler,
 } from './speculation-adapter.js';
 import type { OnChainTask } from '../task/types.js';
+import type { MetricsProvider } from '../task/types.js';
+import { VerifierExecutor, VerifierLaneEscalationError } from './verifier.js';
 
 /**
  * Create a minimal placeholder OnChainTask for dependency graph registration.
@@ -142,6 +149,8 @@ export class AutonomousAgent extends AgentRuntime {
   private readonly maxRetries: number;
   private readonly retryDelayMs: number;
   private readonly speculationConfig?: SpeculationConfig;
+  private readonly verifierConfig?: AutonomousAgentConfig['verifier'];
+  private readonly metricsProvider?: MetricsProvider;
 
   // Components
   private scanner: TaskScanner | null = null;
@@ -153,6 +162,7 @@ export class AutonomousAgent extends AgentRuntime {
   private specExecutor: SpeculativeExecutor | null = null;
   private taskOps: TaskOperations | null = null;
   private awaitingProof: Map<string, Task> = new Map();
+  private verifierExecutor: VerifierExecutor | null = null;
 
   // Cached protocol data
   private cachedTreasury: PublicKey | null = null;
@@ -197,6 +207,8 @@ export class AutonomousAgent extends AgentRuntime {
   private readonly onTaskFailed?: (task: Task, error: Error) => void;
   private readonly onEarnings?: (amount: bigint, task: Task, mint?: PublicKey | null) => void;
   private readonly onProofGenerated?: (task: Task, proofSizeBytes: number, durationMs: number) => void;
+  private readonly onVerifierVerdict?: (task: Task, verdict: VerifierVerdictPayload) => void;
+  private readonly onTaskEscalated?: (task: Task, metadata: VerifierEscalationMetadata) => void;
 
   constructor(config: AutonomousAgentConfig) {
     super(config);
@@ -215,6 +227,8 @@ export class AutonomousAgent extends AgentRuntime {
     this.retryDelayMs = config.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS;
 
     this.speculationConfig = config.speculation;
+    this.verifierConfig = config.verifier;
+    this.metricsProvider = config.metrics;
 
     // Store wallet for later use - convert Keypair to Wallet if needed
     this.agentWallet = ensureWallet(config.wallet);
@@ -232,6 +246,10 @@ export class AutonomousAgent extends AgentRuntime {
     this.onTaskFailed = config.onTaskFailed;
     this.onEarnings = config.onEarnings;
     this.onProofGenerated = config.onProofGenerated;
+    this.onVerifierVerdict = config.onVerifierVerdict;
+    this.onTaskEscalated = config.onTaskEscalated;
+
+    this.initVerifierLane();
   }
 
   /**
@@ -347,6 +365,7 @@ export class AutonomousAgent extends AgentRuntime {
       speculatableDependencyTypes: this.speculationConfig.speculatableDependencyTypes,
       abortOnParentFailure: this.speculationConfig.abortOnParentFailure,
       proofPipelineConfig: this.speculationConfig.proofPipelineConfig,
+      metrics: this.metricsProvider,
     });
 
     // Wire proof pipeline events for async proof confirmation
@@ -372,6 +391,38 @@ export class AutonomousAgent extends AgentRuntime {
   }
 
   /**
+   * Initialize verifier lane (Executor + Critic), if configured.
+   */
+  private initVerifierLane(): void {
+    if (!this.verifierConfig) return;
+
+    const revisionExecutor = this.executor as Partial<RevisionCapableTaskExecutor>;
+    const reviseTask = typeof revisionExecutor.revise === 'function'
+      ? (input: RevisionInput) => this.executeRevisionWithRetry(
+        revisionExecutor as RevisionCapableTaskExecutor,
+        input,
+      )
+      : undefined;
+
+    this.verifierExecutor = new VerifierExecutor({
+      verifierConfig: this.verifierConfig,
+      executeTask: (task) => this.executeWithRetry(task),
+      reviseTask,
+      metrics: this.metricsProvider,
+      onVerdict: (task, verdict, attempt) => {
+        this.onVerifierVerdict?.(task, verdict);
+        this.trackOperation(this.journalEvent(task, 'verifier_verdict', {
+          attempt,
+          verdict: verdict.verdict,
+          confidence: verdict.confidence,
+          reasons: verdict.reasons,
+          metadata: verdict.metadata,
+        }));
+      },
+    });
+  }
+
+  /**
    * Get current agent stats
    */
   getStats(): AutonomousAgentStats {
@@ -388,6 +439,20 @@ export class AutonomousAgent extends AgentRuntime {
       stats.speculativeExecutionsConfirmed = m.speculativeExecutionsConfirmed;
       stats.speculativeExecutionsAborted = m.speculativeExecutionsAborted;
       stats.estimatedTimeSavedMs = m.estimatedTimeSavedMs;
+    }
+
+    if (this.verifierExecutor) {
+      const m = this.verifierExecutor.getMetrics();
+      stats.verifierChecks = m.checks;
+      stats.verifierPasses = m.passes;
+      stats.verifierFailures = m.fails;
+      stats.verifierNeedsRevision = m.needsRevision;
+      stats.verifierDisagreements = m.disagreements;
+      stats.verifierRevisions = m.revisions;
+      stats.verifierEscalations = m.escalations;
+      stats.verifierAddedLatencyMs = m.addedLatencyMs;
+      stats.verifierPassRate = m.checks > 0 ? m.passes / m.checks : 0;
+      stats.verifierDisagreementRate = m.checks > 0 ? m.disagreements / m.checks : 0;
     }
 
     return stats;
@@ -690,8 +755,14 @@ export class AutonomousAgent extends AgentRuntime {
       this.autonomousLogger.info(`Claimed task ${taskKey.slice(0, 8)}: ${claimTx}`);
 
       // Delegate to the appropriate execution path
-      if (this.specExecutor) {
+      const verifierGated = this.verifierExecutor?.shouldVerify(task) ?? false;
+      if (this.specExecutor && !verifierGated) {
         return await this.executeSpeculative(task, taskKey, startTime);
+      }
+      if (this.specExecutor && verifierGated) {
+        await this.journalEvent(task, 'verifier_speculation_bypass', {
+          reason: 'verifier_gated_task',
+        });
       }
       return await this.executeSequential(task, activeTask, taskKey);
     } catch (error) {
@@ -699,6 +770,13 @@ export class AutonomousAgent extends AgentRuntime {
       this.stats.tasksFailed++;
 
       const err = error instanceof Error ? error : new Error(String(error));
+      if (err instanceof VerifierLaneEscalationError) {
+        this.onTaskEscalated?.(task, err.metadata);
+        await this.journalEvent(task, 'escalated', {
+          escalation: err.metadata,
+          verifierHistory: err.history,
+        });
+      }
       this.onTaskFailed?.(task, err);
       await this.journalEvent(task, 'failed', { error: err.message });
       this.autonomousLogger.error(`Task ${taskKey.slice(0, 8)} failed:`, err.message);
@@ -742,9 +820,25 @@ export class AutonomousAgent extends AgentRuntime {
     taskKey: string,
   ): Promise<TaskResult> {
     this.autonomousLogger.info(`Executing task ${taskKey.slice(0, 8)}...`);
-    const output = await this.executeWithRetry(task);
+    let output: bigint[];
+    let verifierResult: VerifierExecutionResult | null = null;
+
+    if (this.verifierExecutor?.shouldVerify(task)) {
+      verifierResult = await this.verifierExecutor.execute(task);
+      output = verifierResult.output;
+    } else {
+      output = await this.executeWithRetry(task);
+    }
+
     this.onTaskExecuted?.(task, output);
-    await this.journalEvent(task, 'executed', { outputLength: output.length });
+    await this.journalEvent(task, 'executed', {
+      outputLength: output.length,
+      verifier: verifierResult ? {
+        attempts: verifierResult.attempts,
+        revisions: verifierResult.revisions,
+        addedLatencyMs: verifierResult.durationMs,
+      } : null,
+    });
     this.autonomousLogger.info(`Executed task ${taskKey.slice(0, 8)}`);
 
     // Complete the task with retry
@@ -782,6 +876,16 @@ export class AutonomousAgent extends AgentRuntime {
    */
   private async executeWithRetry(task: Task): Promise<bigint[]> {
     return this.withRetry(() => this.executor.execute(task), 'execute task');
+  }
+
+  /**
+   * Execute a targeted revision with retry logic.
+   */
+  private async executeRevisionWithRetry(
+    executor: RevisionCapableTaskExecutor,
+    input: RevisionInput,
+  ): Promise<bigint[]> {
+    return this.withRetry(() => executor.revise(input), 'revise task');
   }
 
   /**
