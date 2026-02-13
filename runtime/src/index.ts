@@ -621,6 +621,25 @@ export {
   type CalibrationReport,
 } from './eval/index.js';
 
+export {
+  InMemoryReplayTimelineStore,
+  FileReplayTimelineStore,
+  ReplayBackfillService,
+  ReplayHealth,
+  ReplayTimelineQuery,
+  ReplayTimelineStore,
+  ReplayTimelineRecord,
+  ReplayEventCursor,
+  ReplayStorageWriteResult,
+  BackfillFetcher,
+  BackfillResult,
+  ProjectedTimelineInput,
+  BackfillFetcherPage,
+  buildReplayKey,
+  computeProjectionHash,
+  stableReplayCursorString,
+} from './replay/index.js';
+
 // Policy and Safety Engine
 export {
   PolicyEngine,
