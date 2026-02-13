@@ -38,6 +38,15 @@ export {
 } from './replay.js';
 
 export {
+  projectOnChainEvents,
+  type OnChainProjectionInput,
+  type ProjectionOptions,
+  type ProjectionResult,
+  type ProjectionTelemetry,
+  type ProjectedTimelineEvent,
+} from './projector.js';
+
+export {
   BENCHMARK_MANIFEST_SCHEMA_VERSION,
   parseBenchmarkManifest,
   loadBenchmarkManifest,
