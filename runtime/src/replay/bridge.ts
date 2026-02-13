@@ -26,6 +26,9 @@ import { computeProjectionHash } from './types.js';
 import {
   buildReplayTraceContext,
   DEFAULT_TRACE_SAMPLE_RATE,
+  buildReplaySpanEvent,
+  buildReplaySpanName,
+  startReplaySpan,
   type ReplayTracingPolicy,
 } from './trace.js';
 import type { OnChainProjectionInput } from '../eval/projector.js';
@@ -295,6 +298,7 @@ export class ReplayEventBridge {
         tracePolicy: {
           traceId: options.traceId ?? this.tracing.traceId ?? this.traceId,
           sampleRate: this.traceSampleRate,
+          emitOtel: this.tracing.emitOtel,
         },
       },
     );
@@ -360,26 +364,111 @@ export class ReplayEventBridge {
         signature: input.signature,
         slot: input.slot,
         sourceEventSequence: input.sourceEventSequence,
-        traceId: this.traceId,
+        traceId: input.traceContext?.traceId ?? this.traceId,
       });
     }
     this.sourceEventLastSlot.set(input.eventName, input.slot);
 
-    const projection = projectOnChainEvents([input], { traceId: this.traceId, seed: this.projectionSeed });
-    await this.emitProjectionTelemetry(input, projection);
+    const traceContext = input.traceContext
+      ?? buildReplayTraceContext({
+        traceId: this.tracing.traceId ?? this.traceId,
+        eventName: input.eventName,
+        slot: input.slot,
+        signature: input.signature,
+        eventSequence: input.sourceEventSequence ?? 0,
+        sampleRate: this.traceSampleRate,
+      });
 
-    const issues = strictTelemetryErrors(projection.telemetry);
-    if (this.strictProjection && issues.length > 0) {
-      this.logger.error(`Replay projection strict mode blocked event projection (${input.eventName})`);
-      throw new Error(`Replay projection strict mode failed: ${issues.join('; ')}`);
+    const eventForProjection = {
+      ...input,
+      traceContext,
+      sourceEventSequence: input.sourceEventSequence,
+    };
+
+    const intakeSpan = startReplaySpan({
+      name: buildReplaySpanName('replay.intake', {
+        slot: input.slot,
+        signature: input.signature,
+      }),
+      trace: traceContext,
+      emitOtel: this.tracing.emitOtel,
+      attributes: buildReplaySpanEvent('replay.intake', {
+        slot: input.slot,
+        signature: input.signature,
+        sourceEventSequence: input.sourceEventSequence,
+      }),
+    });
+
+    const projectionSpan = startReplaySpan({
+      name: buildReplaySpanName('replay.projector', {
+        slot: input.slot,
+        signature: input.signature,
+      }),
+      trace: traceContext,
+      emitOtel: this.tracing.emitOtel,
+      attributes: buildReplaySpanEvent('replay.projector', {
+        slot: input.slot,
+        signature: input.signature,
+        sourceEventSequence: input.sourceEventSequence,
+      }),
+    });
+
+    const saveSpan = startReplaySpan({
+      name: buildReplaySpanName('replay.store.save', {
+        slot: input.slot,
+        signature: input.signature,
+      }),
+      trace: traceContext,
+      emitOtel: this.tracing.emitOtel,
+      attributes: buildReplaySpanEvent('replay.store.save', {
+        slot: input.slot,
+        signature: input.signature,
+        sourceEventSequence: input.sourceEventSequence,
+      }),
+    });
+
+    let projection: ReturnType<typeof projectOnChainEvents>;
+    try {
+      projection = projectOnChainEvents([eventForProjection], {
+        traceId: this.traceId,
+        seed: this.projectionSeed,
+      });
+    } catch (error) {
+      projectionSpan.end(error);
+      saveSpan.end(error);
+      intakeSpan.end(error);
+      throw error;
     }
+
+    projectionSpan.end();
 
     const records = projection.events.map((entry) => toReplayStoreRecord(entry));
     if (records.length === 0) {
+      saveSpan.end();
+      intakeSpan.end();
       return;
     }
 
-    await this.store.save(records);
+    try {
+      await this.store.save(records);
+      saveSpan.end();
+      await this.emitProjectionTelemetry({
+        ...input,
+        traceContext,
+      }, projection);
+
+      const issues = strictTelemetryErrors(projection.telemetry);
+      if (this.strictProjection && issues.length > 0) {
+        this.logger.error(`Replay projection strict mode blocked event projection (${input.eventName})`);
+        throw new Error(`Replay projection strict mode failed: ${issues.join('; ')}`);
+      }
+
+      intakeSpan.end();
+    } catch (error) {
+      saveSpan.end(error);
+      intakeSpan.end(error);
+      throw error;
+    }
   }
 
   private async emitProjectionTelemetry(
@@ -401,7 +490,7 @@ export class ReplayEventBridge {
         signature: input.signature,
         slot: input.slot,
         sourceEventSequence: input.sourceEventSequence,
-        traceId: this.traceId,
+        traceId: input.traceContext?.traceId ?? this.traceId,
         metadata: {
           issueCount: malformedIssueCount,
           issues: projection.telemetry.malformedInputs.join('|'),
@@ -421,7 +510,7 @@ export class ReplayEventBridge {
         signature: input.signature,
         slot: input.slot,
         sourceEventSequence: input.sourceEventSequence,
-        traceId: this.traceId,
+        traceId: input.traceContext?.traceId ?? this.traceId,
         metadata: {
           unknownEventCount: unknownIssueCount,
           events: projection.telemetry.unknownEvents.join('|'),
@@ -441,7 +530,7 @@ export class ReplayEventBridge {
         signature: violation.signature,
         slot: violation.slot,
         sourceEventSequence: violation.sourceEventSequence,
-        traceId: this.traceId,
+        traceId: input.traceContext?.traceId ?? this.traceId,
         metadata: {
           scope: violation.scope,
           fromState: violation.fromState,
