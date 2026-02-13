@@ -25,6 +25,16 @@ export interface ReplayChaosFixture {
       transitionViolations: number;
     };
     strictThrowMessage: string;
+    droppedClaimedEventFingerprint: string;
+    droppedClaimedEventTypes: ReadonlyArray<string>;
+    droppedClaimedTelemetry: {
+      projectedEvents: number;
+      duplicatesDropped: number;
+      malformedInputs: number;
+      unknownEvents: number;
+      transitionConflicts: number;
+      transitionViolations: number;
+    };
     speculationLifecycleEventTypes: ReadonlyArray<string>;
   };
 }
@@ -194,6 +204,24 @@ export const REPLAY_CHAOS_FIXTURE: ReplayChaosFixture = {
       transitionViolations: 2,
     },
     strictThrowMessage: 'Replay projection strict mode failed: task:taskCreated@SIG_MALFORMED: missing_task_id',
+    droppedClaimedEventFingerprint: '0602282e4fe843558bd45c5e02b1de6c9cb08febf93994a7290a47db8f252153',
+    droppedClaimedEventTypes: [
+      'discovered',
+      'discovered',
+      'completed',
+      'dispute:initiated',
+      'speculation_started',
+      'speculation_confirmed',
+      'speculation_aborted',
+    ],
+    droppedClaimedTelemetry: {
+      projectedEvents: 7,
+      duplicatesDropped: 0,
+      malformedInputs: 0,
+      unknownEvents: 1,
+      transitionConflicts: 4,
+      transitionViolations: 3,
+    },
     speculationLifecycleEventTypes: [
       'speculation_started',
       'speculation_confirmed',
