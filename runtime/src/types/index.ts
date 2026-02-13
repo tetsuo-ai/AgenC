@@ -119,7 +119,12 @@ export {
 } from './wallet.js';
 
 // Runtime configuration types
-export { type AgentRuntimeConfig, isKeypair } from './config.js';
+export {
+  type AgentRuntimeConfig,
+  type ReplayBackfillConfig,
+  type RuntimeReplayConfig,
+  isKeypair,
+} from './config.js';
 
 // Task types and utilities (Phase 3)
 export {

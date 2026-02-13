@@ -8,6 +8,37 @@ import type { Program } from '@coral-xyz/anchor';
 import type { Wallet } from './wallet.js';
 import type { LogLevel } from '../utils/logger.js';
 
+export type ReplayBridgeStoreType = 'memory' | 'sqlite';
+
+export interface ReplayBridgeStoreConfig {
+  type: ReplayBridgeStoreType;
+  sqlitePath?: string;
+}
+
+export interface ReplayBackfillConfig {
+  /** Target slot to stop backfill; defaults to the program's current tip */
+  toSlot?: number;
+  /** Page size for historical replay pagination */
+  pageSize?: number;
+}
+
+export interface RuntimeReplayConfig {
+  /** Enable replay bridge startup + persistence capture */
+  enabled?: boolean;
+  /** Optional store configuration for replay timeline persistence */
+  store?: ReplayBridgeStoreConfig;
+  /** Projection seed used to generate deterministic trace hashes */
+  projectionSeed?: number;
+  /** Propagate projection errors in strict mode */
+  strictProjection?: boolean;
+  /** Optional backfill defaults for operator-triggered reruns */
+  backfill?: ReplayBackfillConfig;
+  /** Optional replay bridge logger level override */
+  traceLevel?: LogLevel;
+  /** Trace ID for replay projection correlation */
+  traceId?: string;
+}
+
 /**
  * Configuration for AgentRuntime.
  *
@@ -52,6 +83,9 @@ export interface AgentRuntimeConfig {
 
   /** Pre-built Program instance (for testing with LiteSVM). Passed through to AgentManager. */
   program?: Program;
+
+  /** Optional runtime replay capture configuration */
+  replay?: RuntimeReplayConfig;
 }
 
 /**
