@@ -43,6 +43,8 @@ Anchor Events
 - Stable output IDs: `traceId`/`recordId` derived from canonical JSON input only.
 - Deterministic duplicate handling: duplicate `(slot, signature, eventName)` entries are ignored with explicit telemetry.
 - Unknown event variants never crash the pipeline; they are recorded in telemetry and continue.
+- Incident runbook and schema examples are tracked in
+  `runtime/docs/observability-incident-runbook.md`.
 
 ## Trace propagation behavior (#932)
 
