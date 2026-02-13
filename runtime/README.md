@@ -438,6 +438,11 @@ Incident smoke run:
 Example canonical fixture:
 - `runtime/tests/fixtures/replay-quality-fixture.v1.ts`
 
+For a deterministic incident reconstruction playbook (backfill windows, compare workflow,
+cursor semantics, anomaly schemas, and triage steps), use:
+
+- `runtime/docs/observability-incident-runbook.md`
+
 ### Workflow Optimizer Feature Store
 
 Extract deterministic optimizer-ready workflow features from runtime state:
