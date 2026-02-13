@@ -17,6 +17,7 @@
     "prebuild": "npm run build --prefix ../sdk && node scripts/copy-idl.js",
     "build": "tsup src/index.ts --format cjs,esm --dts --clean --external openai --external @anthropic-ai/sdk --external ollama --external better-sqlite3 --external ioredis --external @solana/spl-token",
     "typecheck": "tsc --noEmit",
+    "check-idl-drift": "tsx scripts/check-idl-drift.ts",
     "pretest": "npm run build --prefix ../sdk",
     "test": "vitest run",
     "test:watch": "vitest",
