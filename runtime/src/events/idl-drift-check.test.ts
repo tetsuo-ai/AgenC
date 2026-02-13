@@ -28,6 +28,29 @@ function expectFailure(result: IdlDriftCheckResult, expectedSnippet: string): vo
 }
 
 describe('idl drift checker', () => {
+  it('skips mismatched family checks for override fields', async () => {
+    const contract: readonly EventContract[] = [
+      {
+        eventName: 'taskCreated',
+        fields: [{ name: 'taskId', family: 'bytes<32>' }],
+      },
+    ];
+
+    const result = await checkIdlDrift({
+      contract,
+      idl: {
+        events: [{ name: 'TaskCreated' }],
+        types: [
+          buildIdlType('TaskCreated', [{ name: 'task_id', type: { array: ['u8', 16] } }]),
+        ],
+      },
+      overrides: [{ eventName: 'taskCreated', fieldName: 'taskId', reason: 'legacy v2 migration hash' }],
+    });
+
+    expect(result.passed).toBe(true);
+    expect(result.mismatches).toHaveLength(0);
+  });
+
   it('passes when runtime contract matches fixture IDL schema', async () => {
     const contract: readonly EventContract[] = [
       {
@@ -144,5 +167,29 @@ describe('idl drift checker', () => {
     });
 
     expectFailure(result, 'missing non-agent event "TaskCreated"');
+  });
+
+  it('reports deterministic local path and first mismatch line', async () => {
+    const result = await checkIdlDrift({
+      contract: [
+        {
+          eventName: 'taskCreated',
+          fields: [{ name: 'taskPda', family: 'bytes<32>' }],
+        },
+      ],
+      idl: {
+        events: [{ name: 'TaskCreated' }],
+        types: [
+          buildIdlType('TaskCreated', [{ name: 'task_id', type: { array: ['u8', 32] } }]),
+        ],
+      },
+    });
+
+    expect(result.passed).toBe(false);
+    expect(result.mismatches).toHaveLength(1);
+    const firstMismatch = result.mismatches[0];
+    expect(firstMismatch.path).not.toContain('/home/');
+    expect(firstMismatch.path).toBe('src/events/idl-contract.ts');
+    expect(firstMismatch.line).toBeGreaterThan(0);
   });
 });
