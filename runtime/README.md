@@ -328,6 +328,69 @@ console.log(backfillResult.processed, backfillResult.duplicates, cursor);
 await runtime.stop();
 ```
 
+Replay alerting (optional) is configured in `replay.alerting` and uses scoped de-duplication:
+
+```typescript
+import { AgentRuntime } from '@agenc/runtime';
+
+const runtime = new AgentRuntime({
+  connection,
+  wallet,
+  capabilities: 0n,
+  programId,
+  logLevel: 'info',
+  replay: {
+    enabled: true,
+    alerting: {
+      enabled: true,
+      dedupeWindowMs: 60_000,
+      dedupeScope: ['taskPda', 'disputePda', 'signature', 'sourceEventName'],
+      logger: { enabled: true },
+      webhook: {
+        url: 'https://incidents.example/api/replay-alerts',
+        timeoutMs: 5_000,
+        headers: {
+          'authorization': 'Bearer ...',
+        },
+      },
+    },
+  },
+});
+```
+
+Schema notes:
+- `code` and `kind` are normalized keys (for example `replay.compare.hash_mismatch`,
+  `replay.projection.transition_invalid`, `replay.projection.malformed`).
+- `severity` is one of `info`, `warning`, `error`.
+- `id` is a stable hash over deterministic payload fields and excludes `repeatCount`.
+- `repeatCount` is incremented per dedup key and resets when the anomaly window elapses.
+- Alerts are emitted only through configured adapters; with no adapters `replay` stays silent.
+
+Output payload example:
+
+```json
+{
+  "id": "d0a1f4...",
+  "code": "replay.compare.hash_mismatch",
+  "kind": "replay_hash_mismatch",
+  "severity": "error",
+  "message": "deterministic replay hash mismatch",
+  "taskPda": "TaskPda...",
+  "disputePda": "DisputePda...",
+  "sourceEventName": "completed",
+  "signature": "SIG_...",
+  "slot": 123,
+  "traceId": "incident-2026-02-13",
+  "repeatCount": 1,
+  "emittedAtMs": 1707820000000,
+  "metadata": {
+    "strictness": "lenient",
+    "localReplayHash": "...",
+    "projectedReplayHash": "..."
+  }
+}
+```
+
 Project a local comparison and inspect hash anomalies:
 
 ```typescript

@@ -449,6 +449,7 @@ export class AgentRuntime {
       strictProjection: replayConfig.strictProjection,
       store: replayConfig.store,
       logger,
+      alerting: replayConfig.alerting,
     };
 
     return ReplayEventBridge.create(
