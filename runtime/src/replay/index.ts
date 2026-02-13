@@ -13,6 +13,10 @@ export {
 } from './file-store.js';
 
 export {
+  SqliteReplayTimelineStore,
+} from './sqlite-store.js';
+
+export {
   ReplayBackfillService,
 } from './backfill.js';
 
@@ -31,6 +35,9 @@ export {
   ReplayTimelineRecord,
   ReplayEventCursor,
   ReplayStorageWriteResult,
+  ReplayTimelineRetentionPolicy,
+  ReplayTimelineCompactionPolicy,
+  ReplayTimelineStoreConfig,
   BackfillFetcher,
   BackfillResult,
   ProjectedTimelineInput,
