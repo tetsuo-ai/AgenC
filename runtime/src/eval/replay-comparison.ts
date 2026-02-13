@@ -17,6 +17,10 @@ import {
   type ReplayTimelineStore,
 } from '../replay/types.js';
 import {
+  type ReplayAlertContext,
+  type ReplayAlertDispatcher,
+} from '../replay/alerting.js';
+import {
   TrajectoryReplayEngine,
   type ReplaySummary,
   type TrajectoryReplayResult,
@@ -92,6 +96,7 @@ export interface ReplayComparisonOptions {
   disputePda?: string;
   traceId?: string;
   metrics?: ReplayComparisonMetrics;
+  alertDispatcher?: ReplayAlertDispatcher;
 }
 
 export interface ReplayCompareInput {
@@ -302,6 +307,12 @@ export class ReplayComparisonService {
       },
     };
 
+    await this.emitReplayAlerts(result.anomalies, {
+      strictness,
+      localReplayHash: localReplay.deterministicHash,
+      projectedReplayHash: projectedReplay.deterministicHash,
+    }, options);
+
     if (options.metrics) {
       const labels = { strictness };
       options.metrics.counter(METRIC_NAMES.TOTAL_COMPARISONS, 1, labels);
@@ -333,6 +344,85 @@ export class ReplayComparisonService {
     }
 
     return result;
+  }
+
+  private async emitReplayAlerts(
+    anomalies: ReplayAnomaly[],
+    context: {
+      strictness: ReplayComparisonStrictness;
+      localReplayHash: string;
+      projectedReplayHash: string;
+    },
+    options: ReplayComparisonOptions,
+  ): Promise<void> {
+    if (!options.alertDispatcher) {
+      return;
+    }
+
+    for (const anomaly of anomalies) {
+      await options.alertDispatcher.emit(this.toReplayAlert(anomaly, context));
+    }
+  }
+
+  private toReplayAlert(
+    anomaly: ReplayAnomaly,
+    context: {
+      strictness: ReplayComparisonStrictness;
+      localReplayHash: string;
+      projectedReplayHash: string;
+    },
+  ): ReplayAlertContext {
+    if (anomaly.code === 'hash_mismatch') {
+      return {
+        code: 'replay.compare.hash_mismatch',
+        severity: anomaly.severity,
+        kind: 'replay_hash_mismatch',
+        message: anomaly.message,
+        sourceEventName: anomaly.context.eventType,
+        signature: anomaly.context.signature,
+        taskPda: anomaly.context.taskPda,
+        disputePda: anomaly.context.disputePda,
+        traceId: anomaly.context.traceId,
+        sourceEventSequence: anomaly.context.sourceEventSequence,
+        slot: anomaly.context.seq,
+        metadata: {
+          contextSource: anomaly.context.eventType,
+          expectedSignature: anomaly.expected?.signature,
+          observedSignature: anomaly.observed?.signature,
+          expectedTaskPda: anomaly.expected?.taskPda,
+          observedTaskPda: anomaly.observed?.taskPda,
+          localReplayHash: context.localReplayHash,
+          projectedReplayHash: context.projectedReplayHash,
+          strictness: context.strictness,
+        },
+      };
+    }
+
+    return {
+      code: `replay.compare.${anomaly.code}`,
+      severity: anomaly.severity,
+      kind: anomaly.code === 'transition_invalid'
+        ? 'transition_validation'
+        : 'replay_anomaly_repeat',
+      message: anomaly.message,
+      sourceEventName: anomaly.context.eventType,
+      signature: anomaly.context.signature,
+      sourceEventSequence: anomaly.context.sourceEventSequence,
+      slot: anomaly.context.seq,
+      taskPda: anomaly.context.taskPda,
+      disputePda: anomaly.context.disputePda,
+      traceId: anomaly.context.traceId,
+      metadata: {
+        strictness: context.strictness,
+        expectedTaskPda: anomaly.expected?.taskPda,
+        observedTaskPda: anomaly.observed?.taskPda,
+        expectedEventType: anomaly.expected?.eventType,
+        observedEventType: anomaly.observed?.eventType,
+        expectedSignature: anomaly.expected?.signature,
+        observedSignature: anomaly.observed?.signature,
+        contextTaskPda: anomaly.context.taskPda,
+      },
+    };
   }
 
   private async loadProjectedEvents(

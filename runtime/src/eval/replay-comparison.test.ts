@@ -4,9 +4,11 @@ import {
   ReplayComparisonError,
   ReplayComparisonService,
   type ReplayComparisonMetrics,
+  type ReplayComparisonOptions,
 } from './replay-comparison.js';
 import { projectOnChainEvents } from './projector.js';
 import { buildReplayTraceContext } from '../replay/index.js';
+import type { ReplayAnomalyAlert, ReplayAlertDispatcher } from '../replay/alerting.js';
 import { REPLAY_QUALITY_FIXTURE_V1 } from '../../tests/fixtures/replay-quality-fixture.v1.ts';
 
 function bytes(value: number, length = 32): Uint8Array {
@@ -83,6 +85,27 @@ function taskCreatedEvents() {
       },
     },
   ] as const;
+}
+
+function makeCollectingDispatcher(): { alerts: ReplayAnomalyAlert[]; dispatcher: ReplayAlertDispatcher } {
+  const alerts: ReplayAnomalyAlert[] = [];
+
+  return {
+    alerts,
+    dispatcher: {
+      async emit(context) {
+        const alert: ReplayAnomalyAlert = {
+          ...context,
+          id: `fixed-${context.code}`,
+          emittedAtMs: alerts.length + 1,
+          repeatCount: 1,
+        };
+
+        alerts.push(alert);
+        return alert;
+      },
+    } as unknown as ReplayAlertDispatcher,
+  };
 }
 
 describe('ReplayComparisonService', () => {
@@ -296,6 +319,38 @@ describe('ReplayComparisonService', () => {
     expect(report.anomalies.map((entry) => entry.code)).toContain('hash_mismatch');
     expect(report.mismatchCount).toBe(report.anomalies.length);
     expect(report.anomalies.map((entry) => entry.code)).toContain('transition_invalid');
+  });
+
+  it('emits comparison alerts through configured dispatcher for mismatch paths', async () => {
+    const onChain = taskCreatedEvents();
+    const projection = projectOnChainEvents(onChain, { traceId: 'cmp-alerts' });
+    const records = makeRecordsWithHash(projection.events);
+    const perturbed = records.map((record, index) => index === 1
+      ? {
+        ...record,
+        taskPda: 'bad-task',
+        projectionHash: record.projectionHash,
+      }
+      : record);
+
+    const service = new ReplayComparisonService();
+    const { alerts, dispatcher } = makeCollectingDispatcher();
+    const options: ReplayComparisonOptions = {
+      strictness: 'lenient',
+      alertDispatcher: dispatcher,
+    };
+
+    const report = await service.compare({
+      projected: perturbed,
+      localTrace: projection.trace,
+      options,
+    });
+
+    expect(report.status).toBe('mismatched');
+    expect(alerts).toHaveLength(report.anomalies.length);
+    expect(alerts.map((entry) => entry.code)).toContain('replay.compare.task_id_mismatch');
+    expect(alerts.some((entry) => entry.kind === 'replay_hash_mismatch')).toBe(true);
+    expect(alerts.every((entry) => typeof entry.id === 'string')).toBe(true);
   });
 
   it('emits comparison metrics with mismatch and latency labels', async () => {

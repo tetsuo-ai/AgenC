@@ -15,6 +15,7 @@ import {
   type ReplayTimelineStore,
   type ProjectedTimelineInput,
 } from './types.js';
+import type { ReplayAlertDispatcher } from './alerting.js';
 
 const DEFAULT_BACKFILL_PAGE_SIZE = 100;
 
@@ -25,6 +26,7 @@ export class ReplayBackfillService {
       toSlot: number;
       pageSize?: number;
       fetcher: BackfillFetcher;
+      alertDispatcher?: ReplayAlertDispatcher;
       tracePolicy?: {
         traceId?: string;
         sampleRate?: number;
@@ -74,6 +76,19 @@ export class ReplayBackfillService {
       if (page.events.length === 0) {
         const nextCursor = stableReplayCursorString(cursor);
         if (nextCursor === previousCursor) {
+          void this.options.alertDispatcher?.emit({
+            code: 'replay.backfill.stalled',
+            severity: 'warning',
+            kind: 'replay_ingestion_lag',
+            message: 'backfill cursor stalled while fetching next page',
+            slot: cursor?.slot,
+            sourceEventName: cursor?.eventName,
+            signature: cursor?.signature,
+            traceId: this.options.tracePolicy?.traceId,
+            metadata: {
+              toSlot: this.options.toSlot,
+            },
+          });
           throw new Error('replay backfill stalled: cursor did not advance');
         }
       }

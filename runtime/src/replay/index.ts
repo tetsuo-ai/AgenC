@@ -55,3 +55,14 @@ export {
   type ReplayTracingPolicy,
   DEFAULT_TRACE_SAMPLE_RATE,
 } from './trace.js';
+
+export {
+  createReplayAlertDispatcher,
+  type ReplayAlertAdapter,
+  type ReplayAlertContext,
+  type ReplayAnomalyAlert,
+  type ReplayAlertingPolicyOptions,
+  type ReplayAlertSeverity,
+  type ReplayAlertKind,
+  ReplayAlertDispatcher,
+} from './alerting.js';
