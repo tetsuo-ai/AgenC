@@ -47,6 +47,8 @@ function createRawTaskCreated() {
     rewardAmount: mockBN(1_000_000_000n),
     taskType: 0,
     deadline: mockBN(9999999),
+    minReputation: 10,
+    rewardMint: null,
     timestamp: mockBN(1234567890),
   };
 }
@@ -66,6 +68,7 @@ function createRawDisputeInitiated() {
     disputeId: new Uint8Array(32).fill(2),
     taskId: new Uint8Array(32).fill(1),
     initiator: TEST_PUBKEY,
+    defendant: TEST_PUBKEY,
     resolutionType: 0,
     votingDeadline: mockBN(9999999),
     timestamp: mockBN(1234567890),

@@ -64,6 +64,8 @@ function createRawTaskCreated(taskId?: Uint8Array) {
     rewardAmount: mockBN(1_000_000_000n),
     taskType: 0,
     deadline: mockBN(9999999),
+    minReputation: 10,
+    rewardMint: null,
     timestamp: mockBN(1234567890),
   };
 }
@@ -83,6 +85,7 @@ function createRawTaskCompleted(taskId?: Uint8Array) {
     taskId: Array.from(taskId ?? createId(1)),
     worker: TEST_PUBKEY,
     proofHash: Array.from(createId(99)),
+    resultData: Array.from({ length: 64 }, (_, index) => index),
     rewardPaid: mockBN(500_000_000n),
     timestamp: mockBN(1234567890),
   };
