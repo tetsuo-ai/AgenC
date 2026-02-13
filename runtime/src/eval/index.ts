@@ -47,6 +47,19 @@ export {
 } from './projector.js';
 
 export {
+  ReplayComparisonService,
+  ReplayComparisonError,
+  type ReplayAnomaly,
+  type ReplayAnomalyCode,
+  type ReplayComparisonContext,
+  type ReplayComparisonMetrics,
+  type ReplayComparisonOptions,
+  type ReplayComparisonResult,
+  type ReplayComparisonStrictness,
+  type ReplayCompareInput,
+} from './replay-comparison.js';
+
+export {
   BENCHMARK_MANIFEST_SCHEMA_VERSION,
   parseBenchmarkManifest,
   loadBenchmarkManifest,
