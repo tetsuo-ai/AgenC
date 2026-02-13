@@ -70,6 +70,14 @@ Add to `~/.codeium/windsurf/mcp_config.json`:
 | `SOLANA_RPC_URL` | `http://localhost:8899` | Solana RPC endpoint |
 | `SOLANA_KEYPAIR_PATH` | `~/.config/solana/id.json` | Path to signing keypair |
 | `AGENC_PROGRAM_ID` | SDK default | Override program ID |
+| `MCP_REPLAY_MAX_SLOT_WINDOW` | `2000000` | Max allowed slot window for replay tools |
+| `MCP_REPLAY_MAX_EVENT_COUNT` | `250000` | Max events included in replay tool responses |
+| `MCP_REPLAY_MAX_CONCURRENT_JOBS` | `2` | Max parallel replay requests |
+| `MCP_REPLAY_TOOL_TIMEOUT_MS` | `180000` | Per-call tool timeout in milliseconds |
+| `MCP_REPLAY_ALLOWLIST` | `""` | Comma-separated allowlisted MCP actor IDs |
+| `MCP_REPLAY_DENYLIST` | `""` | Comma-separated denied MCP actor IDs |
+| `MCP_REPLAY_DEFAULT_REDACTIONS` | `signature` | Comma-separated field names to redact from output |
+| `MCP_REPLAY_AUDIT_ENABLED` | `false` | Emit replay audit logs to stdout |
 
 ## Tools
 
@@ -120,6 +128,15 @@ Add to `~/.codeium/windsurf/mcp_config.json`:
 | `agenc_get_dispute` | Get dispute state by ID or PDA |
 | `agenc_list_disputes` | List disputes with optional status filter |
 
+### Replay
+
+| Tool | Description |
+|------|-------------|
+| `agenc_replay_backfill` | Backfill on-chain events into replay store |
+| `agenc_replay_compare` | Compare local trajectory trace vs replay projection |
+| `agenc_replay_incident` | Reconstruct incident summary, validation, and narrative |
+| `agenc_replay_status` | Inspect replay store status summary |
+
 ## Resources
 
 | URI | Description |
@@ -144,6 +161,50 @@ npm run build      # Build with tsup
 npm run typecheck  # Type check with tsc
 ```
 
+## Replay forensics
+
+Use this flow for incident reconstruction:
+
+1. Backfill replay events for the incident window:
+
+```bash
+agenc_replay_backfill { "rpc": "https://mainnet.rpc", "to_slot": 12345678, "store_type": "memory", "strict_mode": true }
+```
+
+2. Compare replay projection against a saved trajectory trace:
+
+```bash
+agenc_replay_compare { "local_trace_path": "/var/tmp/incident-trace.json", "strict_mode": false, "max_payload_bytes": 120000 }
+```
+
+3. Reconstruct task or dispute timeline:
+
+```bash
+agenc_replay_incident { "task_pda": "Ag...task", "strict_mode": true }
+```
+
+4. Inspect store cursor and counts:
+
+```bash
+agenc_replay_status { "store_type": "memory", "max_payload_bytes": 120000 }
+```
+
+Recommended production controls:
+
+```bash
+MCP_REPLAY_MAX_SLOT_WINDOW=200000
+MCP_REPLAY_MAX_EVENT_COUNT=2000
+MCP_REPLAY_MAX_CONCURRENT_JOBS=2
+MCP_REPLAY_TOOL_TIMEOUT_MS=180000
+MCP_REPLAY_ALLOWLIST=incident-bot,security-operator
+MCP_REPLAY_AUDIT_ENABLED=true
+```
+
+See also:
+
+- `runtime/docs/observability-incident-runbook.md`
+- `runtime/docs/replay-cli.md`
+
 ## Architecture
 
 ```
@@ -156,7 +217,8 @@ mcp/
 │   │   ├── agents.ts         # Agent CRUD and capability decoding
 │   │   ├── tasks.ts          # Task queries and escrow inspection
 │   │   ├── protocol.ts       # Protocol config, PDA derivation, error decoder
-│   │   └── disputes.ts       # Dispute queries
+│   │   ├── disputes.ts       # Dispute queries
+│   │   └── replay.ts         # Replay and incident forensics tools
 │   └── utils/
 │       ├── connection.ts     # RPC connection state management
 │       └── formatting.ts     # Output formatting helpers
