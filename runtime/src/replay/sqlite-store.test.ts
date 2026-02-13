@@ -243,7 +243,7 @@ sqliteStoreDescribe('SqliteReplayTimelineStore', () => {
     await expect(service.runBackfill()).rejects.toThrow('simulated rpc failure');
 
     const cursor = await store.getCursor();
-    expect(stableReplayCursorString(cursor)).toBe('1:A:taskCreated');
+    expect(stableReplayCursorString(cursor)).toMatch(/^1:A:taskCreated:replay-backfill:/);
 
     const completed = await service.runBackfill();
     const fullTimeline = await store.query();

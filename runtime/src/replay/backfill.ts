@@ -15,6 +15,12 @@ import {
   type ReplayTimelineStore,
   type ProjectedTimelineInput,
 } from './types.js';
+import {
+  buildReplaySpanEvent,
+  buildReplaySpanName,
+  buildReplayTraceContext,
+  startReplaySpan,
+} from './trace.js';
 import type { ReplayAlertDispatcher } from './alerting.js';
 
 const DEFAULT_BACKFILL_PAGE_SIZE = 100;
@@ -30,6 +36,7 @@ export class ReplayBackfillService {
       tracePolicy?: {
         traceId?: string;
         sampleRate?: number;
+        emitOtel?: boolean;
       };
     },
   ) {}
@@ -40,28 +47,81 @@ export class ReplayBackfillService {
     let processed = 0;
     let duplicates = 0;
     let previousCursor = stableReplayCursorString(cursor);
+    const traceId = this.options.tracePolicy?.traceId ?? cursor?.traceId ?? 'replay-backfill';
+    const sampleRate = this.options.tracePolicy?.sampleRate ?? 1;
+    const emitOtel = this.options.tracePolicy?.emitOtel ?? false;
 
     while (true) {
       const page = await this.options.fetcher.fetchPage(cursor, this.options.toSlot, pageSize);
-      if (page.events.length > 0) {
-        const pageEvents: OnChainProjectionInput[] = page.events.map((event, index) => ({
-          ...(event as ProjectedTimelineInput),
-          sourceEventSequence: event.sourceEventSequence ?? index,
-          traceContext: (event as ProjectedTimelineInput).traceContext,
-        }));
+      const pageEvents: OnChainProjectionInput[] = page.events.map((event, index) => {
+        const sourceEventSequence = event.sourceEventSequence ?? index;
+        const eventTraceContext = (event as ProjectedTimelineInput).traceContext
+          ?? buildReplayTraceContext({
+            traceId,
+            eventName: event.eventName,
+            slot: event.slot,
+            signature: event.signature,
+            eventSequence: sourceEventSequence,
+            sampleRate,
+          });
 
-        const projection = projectOnChainEvents(pageEvents, {
-          traceId: this.options.tracePolicy?.traceId ?? 'replay-backfill',
-          seed: 0,
+        return {
+          ...(event as ProjectedTimelineInput),
+          sourceEventSequence,
+          traceContext: eventTraceContext,
+        };
+      });
+
+      if (pageEvents.length > 0) {
+        const lastEvent = pageEvents.at(-1);
+        const spanAnchorSlot = page.nextCursor?.slot ?? lastEvent!.slot;
+        const spanAnchorSignature = page.nextCursor?.signature ?? lastEvent!.signature;
+        const pageSpan = startReplaySpan({
+          name: buildReplaySpanName('replay.backfill.page', {
+            slot: spanAnchorSlot,
+            signature: spanAnchorSignature,
+          }),
+          trace: pageEvents[0]?.traceContext ?? buildReplayTraceContext({
+            traceId,
+            eventName: 'replay-backfill',
+            slot: spanAnchorSlot,
+            signature: spanAnchorSignature,
+            eventSequence: 0,
+            sampleRate,
+          }),
+          emitOtel,
+          attributes: buildReplaySpanEvent('replay.backfill.page', {
+            slot: spanAnchorSlot,
+            signature: spanAnchorSignature,
+          }),
         });
-        const records = projection.events.map(toReplayStoreRecord);
-        const writeResult = await this.store.save(records);
-        processed += writeResult.inserted;
-        duplicates += writeResult.duplicates;
+
+        try {
+          const projection = projectOnChainEvents(pageEvents, {
+            traceId,
+            seed: 0,
+          });
+          const records = projection.events.map(toReplayStoreRecord);
+          const writeResult = await this.store.save(records);
+
+          processed += writeResult.inserted;
+          duplicates += writeResult.duplicates;
+          pageSpan.end();
+        } catch (error) {
+          pageSpan.end(error);
+          throw error;
+        }
       }
 
+      const lastTraceSpanId = pageEvents.length > 0
+        ? pageEvents[pageEvents.length - 1]?.traceContext?.spanId
+        : cursor?.traceSpanId;
       await this.store.saveCursor(page.nextCursor
-        ? { ...page.nextCursor, traceId: this.options.tracePolicy?.traceId }
+        ? {
+          ...page.nextCursor,
+          traceId,
+          traceSpanId: page.nextCursor.traceSpanId ?? lastTraceSpanId,
+        }
         : null);
       cursor = page.nextCursor;
 

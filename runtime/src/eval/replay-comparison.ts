@@ -17,6 +17,12 @@ import {
   type ReplayTimelineStore,
 } from '../replay/types.js';
 import {
+  buildReplaySpanEvent,
+  buildReplaySpanName,
+  buildReplayTraceContext,
+  startReplaySpan,
+} from '../replay/trace.js';
+import {
   type ReplayAlertContext,
   type ReplayAlertDispatcher,
 } from '../replay/alerting.js';
@@ -95,6 +101,7 @@ export interface ReplayComparisonOptions {
   taskPda?: string;
   disputePda?: string;
   traceId?: string;
+  emitOtel?: boolean;
   metrics?: ReplayComparisonMetrics;
   alertDispatcher?: ReplayAlertDispatcher;
 }
@@ -204,6 +211,18 @@ function extractSignatureFromPayload(payload: Readonly<Record<string, unknown>>)
   return undefined;
 }
 
+function extractSlotFromPayload(payload: Readonly<Record<string, unknown>>): number | undefined {
+  const onchain = payload.onchain;
+  if (typeof onchain === 'object' && onchain !== null) {
+    const raw = (onchain as Record<string, unknown>).slot;
+    if (typeof raw === 'number' && Number.isInteger(raw)) {
+      return raw;
+    }
+  }
+
+  return undefined;
+}
+
 function mergeAnomaly(
   anomalies: ReplayAnomaly[],
   anomaly: ReplayAnomaly,
@@ -249,6 +268,35 @@ export class ReplayComparisonService {
     const localTrace = canonicalizeTrajectoryTrace({
       ...input.localTrace,
       events: localEvents,
+    });
+    const firstLocalPayloadSlot = localEvents[0]
+      ? extractSlotFromPayload(localEvents[0].payload)
+      : undefined;
+    const firstLocalSignature = localEvents[0]
+      ? extractSignatureFromPayload(localEvents[0].payload) ?? localTrace.traceId
+      : localTrace.traceId;
+    const compareTrace = buildReplayTraceContext({
+      traceId: options.traceId ?? localTrace.traceId,
+      eventName: 'replay.compare',
+      slot: firstLocalPayloadSlot ?? 0,
+      signature: firstLocalSignature,
+      eventSequence: 0,
+      sampleRate: 1,
+    });
+
+    const compareSpan = startReplaySpan({
+      name: buildReplaySpanName('replay.compare', {
+        slot: firstLocalPayloadSlot ?? 0,
+        signature: firstLocalSignature,
+      }),
+      trace: compareTrace,
+      emitOtel: options.emitOtel,
+      attributes: buildReplaySpanEvent('replay.compare', {
+        slot: firstLocalPayloadSlot,
+        signature: firstLocalSignature,
+        taskPda: options.taskPda,
+        disputePda: options.disputePda,
+      }),
     });
 
     const projectedTrace = makeReplayTraceFromRecords(
@@ -307,34 +355,40 @@ export class ReplayComparisonService {
       },
     };
 
-    await this.emitReplayAlerts(result.anomalies, {
-      strictness,
-      localReplayHash: localReplay.deterministicHash,
-      projectedReplayHash: projectedReplay.deterministicHash,
-    }, options);
+    try {
+      await this.emitReplayAlerts(result.anomalies, {
+        strictness,
+        localReplayHash: localReplay.deterministicHash,
+        projectedReplayHash: projectedReplay.deterministicHash,
+      }, options);
 
-    if (options.metrics) {
-      const labels = { strictness };
-      options.metrics.counter(METRIC_NAMES.TOTAL_COMPARISONS, 1, labels);
-      options.metrics.histogram(METRIC_NAMES.RESOLUTION_LATENCY_MS, result.durationMs, labels);
+      if (options.metrics) {
+        const labels = { strictness };
+        options.metrics.counter(METRIC_NAMES.TOTAL_COMPARISONS, 1, labels);
+        options.metrics.histogram(METRIC_NAMES.RESOLUTION_LATENCY_MS, result.durationMs, labels);
 
-      if (result.status === 'mismatched') {
-        options.metrics.counter(METRIC_NAMES.MISMATCH_COUNT, 1, labels);
-        options.metrics.counter(METRIC_NAMES.MISMATCH_RATE, 1, {
-          strictness,
-          outcome: 'mismatch',
-        });
-      } else {
-        options.metrics.counter(METRIC_NAMES.CLEAN_COUNT, 1, labels);
+        if (result.status === 'mismatched') {
+          options.metrics.counter(METRIC_NAMES.MISMATCH_COUNT, 1, labels);
+          options.metrics.counter(METRIC_NAMES.MISMATCH_RATE, 1, {
+            strictness,
+            outcome: 'mismatch',
+          });
+        } else {
+          options.metrics.counter(METRIC_NAMES.CLEAN_COUNT, 1, labels);
+        }
+
+        for (const anomaly of result.anomalies) {
+          options.metrics.counter(metricNameForAnomaly(anomaly.code), 1, {
+            strictness,
+            code: anomaly.code,
+          });
+        }
       }
-
-      for (const anomaly of result.anomalies) {
-        options.metrics.counter(metricNameForAnomaly(anomaly.code), 1, {
-          strictness,
-          code: anomaly.code,
-        });
-      }
+    } catch (error) {
+      compareSpan.end(error);
+      throw error;
     }
+    compareSpan.end();
 
     if (strictness === 'strict' && result.status === 'mismatched') {
       const detail = sortedAnomalies

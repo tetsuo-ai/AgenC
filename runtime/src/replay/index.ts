@@ -49,6 +49,9 @@ export {
 
 export {
   buildReplayTraceContext,
+  buildReplaySpanEvent,
+  buildReplaySpanName,
+  startReplaySpan,
   toReplayTraceEnvelope,
   type ReplayTraceContext,
   type ReplayTraceEnvelope,
