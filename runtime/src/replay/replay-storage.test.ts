@@ -154,6 +154,61 @@ describe('replay storage', () => {
     expect(stableReplayCursorString(cursor)).toContain('10:SIG_A:taskCreated:trace-932');
   });
 
+  it('derives deterministic trace context for backfill events without explicit context', async () => {
+    const store = new InMemoryReplayTimelineStore();
+    const expected = buildReplayTraceContext({
+      traceId: 'replay-backfill',
+      eventName: 'taskCreated',
+      slot: 10,
+      signature: 'SIG_B',
+      eventSequence: 0,
+      sampleRate: 1,
+    });
+
+    const fetcher: BackfillFetcher = {
+      async fetchPage() {
+        return {
+          events: [
+            {
+              eventName: 'taskCreated',
+              slot: 10,
+              signature: 'SIG_B',
+              event: {
+                taskId: new Uint8Array(32).fill(3),
+                creator: new Uint8Array(32).fill(3),
+                requiredCapabilities: 1n,
+                rewardAmount: 1n,
+                taskType: 0,
+                deadline: 1,
+                minReputation: 0,
+                rewardMint: null,
+                timestamp: 1,
+              },
+            },
+          ],
+          nextCursor: { slot: 10, signature: 'SIG_B', eventName: 'taskCreated' },
+          done: true,
+        };
+      },
+    };
+
+    const service = new ReplayBackfillService(store, {
+      toSlot: 10,
+      fetcher,
+    });
+
+    await service.runBackfill();
+    const timeline = await store.query();
+    const cursor = await store.getCursor();
+
+    expect(timeline).toHaveLength(1);
+    expect(timeline[0]?.traceId).toBe(expected.traceId);
+    expect(timeline[0]?.traceSpanId).toBe(expected.spanId);
+    expect(cursor?.traceId).toBe('replay-backfill');
+    expect(cursor?.traceSpanId).toBe(expected.spanId);
+    expect(stableReplayCursorString(cursor)).toContain('10:SIG_B:taskCreated:replay-backfill:');
+  });
+
   it('resumes backfill using persisted cursor after a fetch failure', async () => {
     const store = new InMemoryReplayTimelineStore();
     const pageOne = [
@@ -209,7 +264,7 @@ describe('replay storage', () => {
     const partiallyIngested = await store.query();
     const savedCursor = await store.getCursor();
     expect(partiallyIngested).toHaveLength(1);
-    expect(stableReplayCursorString(savedCursor)).toBe('1:A:taskCreated');
+    expect(stableReplayCursorString(savedCursor)).toMatch(/^1:A:taskCreated:replay-backfill:/);
 
     const completed = await service.runBackfill();
     const fullTimeline = await store.query();

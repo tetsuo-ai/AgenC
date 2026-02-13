@@ -44,6 +44,20 @@ Anchor Events
 - Deterministic duplicate handling: duplicate `(slot, signature, eventName)` entries are ignored with explicit telemetry.
 - Unknown event variants never crash the pipeline; they are recorded in telemetry and continue.
 
+## Trace propagation behavior (#932)
+
+- Replay bridge events now ensure each ingested input has a deterministic `traceContext` for projection and persistence.
+- Missing trace context is synthesized from `(slot, signature, eventName, sourceEventSequence)` using `buildReplayTraceContext`.
+- Backfill writes trace identifiers into both `ReplayTimelineRecord` rows and cursor checkpoints to preserve resume continuity.
+- `ReplayComparisonService` emits an optional internal span around comparison and can attach anomaly reporting/metrics under `replay.compare`.
+- Optional OpenTelemetry output is controlled by `replay.tracing.emitOtel` and uses best-effort loading of `@opentelemetry/api`; when unavailable, operations remain no-op without changing runtime behavior.
+- Span names follow deterministic patterns:
+  - `replay.intake[slot=...,signature=...]`
+  - `replay.projector[slot=...,signature=...]`
+  - `replay.store.save[slot=...,signature=...]`
+  - `replay.backfill.page[slot=...,signature=...]`
+  - `replay.compare[slot=...,signature=...]`
+
 ## Issue execution chain
 
 - Baseline:
