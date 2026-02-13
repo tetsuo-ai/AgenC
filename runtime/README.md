@@ -278,6 +278,12 @@ The replay pipeline is deterministic and replayable for incident reconstruction.
 3. `Backfill / store` persists projected records plus cursor checkpoints.
 4. `ReplayComparisonService` compares projected records against local traces.
 
+Operational workflows for replay are documented in `runtime/docs/replay-cli.md`:
+
+- Run `agenc-runtime replay backfill` to load and persist event windows from chain history.
+- Run `agenc-runtime replay compare` to validate deterministic replay against a local trace.
+- Run `agenc-runtime replay incident` to produce a validated anomaly narrative for incident windows.
+
 The `runReplayBackfill` API is available on runtime when replay capture is enabled:
 
 ```typescript
