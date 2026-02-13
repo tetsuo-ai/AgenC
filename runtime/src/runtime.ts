@@ -81,6 +81,7 @@ export class AgentRuntime {
   private shutdownHandlersRegistered = false;
   private readonly replayBridge: ReplayBridgeHandle | null;
   private readonly replayBackfillDefaults?: ReplayBackfillConfig;
+  private readonly replayTraceId?: string;
 
   /**
    * Create a new AgentRuntime instance.
@@ -132,8 +133,14 @@ export class AgentRuntime {
     });
 
     const replayConfig = config.replay;
+    const tracing = replayConfig?.tracing;
     this.replayBackfillDefaults = replayConfig?.backfill;
-    this.replayBridge = this.createReplayBridge(replayConfig);
+    this.replayTraceId = tracing?.traceId ?? replayConfig?.traceId;
+    this.replayBridge = this.createReplayBridge(replayConfig ? {
+      ...replayConfig,
+      tracing,
+      traceId: replayConfig?.traceId,
+    } : undefined);
 
     this.logger.debug('AgentRuntime created');
   }
@@ -420,6 +427,7 @@ export class AgentRuntime {
       fetcher: options.fetcher,
       toSlot,
       pageSize: options.pageSize ?? this.replayBackfillDefaults?.pageSize,
+      traceId: this.replayTraceId,
     });
   }
 
@@ -436,6 +444,7 @@ export class AgentRuntime {
 
     const options: ReplayBridgeConfig = {
       traceId: replayConfig.traceId,
+      tracing: replayConfig.tracing,
       projectionSeed: replayConfig.projectionSeed,
       strictProjection: replayConfig.strictProjection,
       store: replayConfig.store,

@@ -48,6 +48,7 @@ import {
   type TrajectoryTrace,
   EVAL_TRACE_SCHEMA_VERSION,
 } from './types.js';
+import type { ReplayTraceContext } from '../replay/trace.js';
 
 export interface OnChainProjectionInput {
   eventName: string;
@@ -55,6 +56,8 @@ export interface OnChainProjectionInput {
   slot: number;
   signature: string;
   timestampMs?: number;
+  traceContext?: ReplayTraceContext;
+  sourceEventSequence?: number;
 }
 
 export interface ProjectedTimelineEvent extends TrajectoryEvent {
@@ -395,7 +398,8 @@ export function projectOnChainEvents(
   events: ReadonlyArray<OnChainProjectionInput>,
   options: ProjectionOptions = {},
 ): ProjectionResult {
-  const sortedInputs = [...events].map((input, sourceEventSequence) => {
+  const sortedInputs = [...events].map((input, fallbackSequence) => {
+    const sourceEventSequence = input.sourceEventSequence ?? fallbackSequence;
     const normalizedEventName = typeof input.eventName === 'string'
       ? KNOWN_EVENT_NAMES.get(input.eventName) ?? input.eventName
       : input.eventName;
@@ -530,16 +534,26 @@ export function projectOnChainEvents(
       type: trajectoryType,
       taskPda: context.taskPda ?? (SPECULATION_EVENT_TYPES.has(trajectoryType) ? context.speculationPda : undefined),
       timestampMs,
-        payload: {
-          ...payload,
-          onchain: {
-            eventName: input.eventName,
-            eventType: trajectoryType,
-            signature: input.signature,
-            slot: input.slot,
-            sourceEventSequence: orderedSequence,
-          },
+      payload: {
+        ...payload,
+        onchain: {
+          eventName: input.eventName,
+          eventType: trajectoryType,
+          signature: input.signature,
+          slot: input.slot,
+          sourceEventSequence: orderedSequence,
+          ...(input.traceContext
+            ? {
+                trace: {
+                  traceId: input.traceContext.traceId,
+                  spanId: input.traceContext.spanId,
+                  ...(input.traceContext.parentSpanId === undefined ? {} : { parentSpanId: input.traceContext.parentSpanId }),
+                  sampled: input.traceContext.sampled,
+                },
+              }
+            : {}),
         },
+      },
         slot: input.slot,
         signature: input.signature,
         sourceEventName: input.eventName,
@@ -558,7 +572,7 @@ export function projectOnChainEvents(
 
   return {
     telemetry,
-    events: projected,
+    events: traceEvents,
     trace: {
       schemaVersion: EVAL_TRACE_SCHEMA_VERSION,
       traceId: options.traceId ?? 'onchain-projection',

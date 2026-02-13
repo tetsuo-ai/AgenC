@@ -6,16 +6,30 @@ import {
   type ReplayComparisonMetrics,
 } from './replay-comparison.js';
 import { projectOnChainEvents } from './projector.js';
+import { buildReplayTraceContext } from '../replay/index.js';
 
 function bytes(value: number, length = 32): Uint8Array {
   return Uint8Array.from({ length }, () => value);
 }
 
 function makeRecordsWithHash(events: ReturnType<typeof projectOnChainEvents>["events"]): ReplayTimelineRecord[] {
-  return events.map((event) => ({
-    ...event,
-    projectionHash: computeProjectionHash(event),
-  }));
+  return events.map((event) => {
+    const onchain = event.payload.onchain;
+    const trace = onchain !== null && typeof onchain === 'object'
+      ? (onchain as { trace?: { traceId?: string; spanId?: string; parentSpanId?: string; sampled?: boolean } }).trace
+      : undefined;
+
+    const record: ReplayTimelineRecord = {
+      ...event,
+      traceId: trace?.traceId,
+      traceSpanId: trace?.spanId,
+      traceParentSpanId: trace?.parentSpanId,
+      traceSampled: trace?.sampled === true,
+      projectionHash: computeProjectionHash(event),
+    };
+
+    return record;
+  });
 }
 
 function extractDisputeIdFromRecord(record: ReplayTimelineRecord): string | undefined {
@@ -112,6 +126,38 @@ describe('ReplayComparisonService', () => {
     expect(report.anomalies.map((entry) => entry.code)).toContain('type_mismatch');
     expect(report.anomalies.map((entry) => entry.code)).toContain('hash_mismatch');
     expect(report.anomalies.some((entry) => entry.context.taskPda)).toBe(true);
+  });
+
+  it('preserves trace identifiers in mismatch context', async () => {
+    const onChain = taskCreatedEvents();
+    const projection = projectOnChainEvents(onChain.map((event, index) => ({
+      ...event,
+      traceContext: buildReplayTraceContext({
+        traceId: 'cmp-trace',
+        eventName: event.eventName,
+        slot: event.slot,
+        signature: event.signature,
+        eventSequence: index,
+        sampleRate: 1,
+      }),
+    })), { traceId: 'cmp-trace' });
+    const records = makeRecordsWithHash(projection.events);
+
+    const localWithoutDispute = {
+      ...projection.trace,
+      events: projection.trace.events.filter((entry) => entry.seq !== 2),
+    };
+
+    const report = await new ReplayComparisonService().compare({
+      projected: records,
+      localTrace: localWithoutDispute,
+      options: {
+        strictness: 'lenient',
+      },
+    });
+
+    const missingTrace = report.anomalies.find((entry) => entry.code === 'missing_event');
+    expect(missingTrace?.context.traceId).toBe('cmp-trace');
   });
 
   it('throws in strict mode and exposes machine-readable report', async () => {

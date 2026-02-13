@@ -37,6 +37,10 @@ export interface ReplayComparisonContext {
   signature?: string;
   seq?: number;
   eventType?: string;
+  traceId?: string;
+  traceSpanId?: string;
+  traceParentSpanId?: string;
+  traceSampled?: boolean;
 }
 
 export type ReplayAnomalyCode =
@@ -132,16 +136,27 @@ function replayReplayContextFromProjected(event: ReplayTimelineRecord): ReplayCo
     sourceEventSequence: event.sourceEventSequence,
     signature: event.signature,
     eventType: event.type,
+    traceId: event.traceId,
+    traceSpanId: event.traceSpanId,
+    traceParentSpanId: event.traceParentSpanId,
+    traceSampled: event.traceSampled,
   };
 }
 
 function replayContextFromLocal(event: TrajectoryEvent): ReplayComparisonContext {
+  const onchainTrace = event.payload.onchain as Record<string, unknown> | undefined;
+  const trace = onchainTrace && typeof onchainTrace === 'object' ? (onchainTrace.trace as Record<string, unknown> | undefined) : undefined;
+
   return {
     seq: event.seq,
     taskPda: event.taskPda,
     disputePda: extractDisputeIdFromPayload(event.payload),
     eventType: event.type,
     signature: extractSignatureFromPayload(event.payload),
+    traceId: typeof trace?.traceId === 'string' ? trace.traceId : undefined,
+    traceSpanId: typeof trace?.spanId === 'string' ? trace.spanId : undefined,
+    traceParentSpanId: typeof trace?.parentSpanId === 'string' ? trace.parentSpanId : undefined,
+    traceSampled: trace?.sampled === true,
   };
 }
 
