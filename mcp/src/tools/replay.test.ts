@@ -123,6 +123,11 @@ const allowlistedReplayExtra = {
   requestId: 'policy-allow-test',
 };
 
+const sessionReplayExtra = {
+  sessionId: 'policy-session-001',
+  requestId: 'policy-session-test',
+};
+
 function createReplayRuntime(runtime: TestRuntime): ReplayToolRuntime {
   return {
     createStore: () => runtime.store,
@@ -458,6 +463,81 @@ test('replay policy enforces allowlist', async () => {
       allowlist: new Set(['approved-actor']),
     },
     allowlistedReplayExtra,
+  );
+
+  const failure = ReplayToolErrorSchema.parse(output.structuredContent);
+  assert.equal(failure.status, 'error');
+  assert.equal(failure.code, 'replay.access_denied');
+});
+
+test('replay policy denies anonymous actor when allowlist is enabled', async () => {
+  const output = await runReplayBackfillTool(
+    {
+      rpc: 'http://localhost:8899',
+      to_slot: 100,
+      store_type: 'memory',
+    },
+    createReplayRuntime({
+      store: createInMemoryReplayStore(),
+    }),
+    {
+      ...buildReplayPolicy(),
+      allowlist: new Set(['known-actor']),
+    },
+  );
+
+  const failure = ReplayToolErrorSchema.parse(output.structuredContent);
+  assert.equal(failure.status, 'error');
+  assert.equal(failure.code, 'replay.access_denied');
+  assert.equal(failure.retriable, false);
+});
+
+test('replay policy allows matching session actor via sessionId', async () => {
+  const output = await runReplayBackfillTool(
+    {
+      rpc: 'http://localhost:8899',
+      to_slot: 100,
+      store_type: 'memory',
+    },
+    createReplayRuntime({
+      store: createInMemoryReplayStore(),
+      fetcher: {
+        async fetchPage() {
+          return {
+            events: [],
+            nextCursor: null,
+            done: true,
+          };
+        },
+      },
+    }),
+    {
+      ...buildReplayPolicy(),
+      allowlist: new Set(['session:policy-session-001']),
+    },
+    sessionReplayExtra,
+  );
+
+  const success = ReplayBackfillOutputSchema.parse(output.structuredContent);
+  assert.equal(success.status, 'ok');
+});
+
+test('replay policy honors denylist precedence over allowlist', async () => {
+  const output = await runReplayBackfillTool(
+    {
+      rpc: 'http://localhost:8899',
+      to_slot: 100,
+      store_type: 'memory',
+    },
+    createReplayRuntime({
+      store: createInMemoryReplayStore(),
+    }),
+    {
+      ...buildReplayPolicy(),
+      allowlist: new Set(['policy-override-actor']),
+      denylist: new Set(['policy-override-actor']),
+    },
+    { ...allowlistedReplayExtra, authInfo: { clientId: 'policy-override-actor' }, requestId: 'policy-deny-overrides-allow' },
   );
 
   const failure = ReplayToolErrorSchema.parse(output.structuredContent);

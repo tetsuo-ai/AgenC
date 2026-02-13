@@ -200,6 +200,17 @@ MCP_REPLAY_ALLOWLIST=incident-bot,security-operator
 MCP_REPLAY_AUDIT_ENABLED=true
 ```
 
+Policy behavior:
+
+- `MCP_REPLAY_DENYLIST` blocks matching actors first.
+- If `MCP_REPLAY_ALLOWLIST` is set, only matching actors can run replay tools.
+- Actor identity is resolved from MCP auth context in this order:
+  1. `authInfo.clientId`
+  2. `session:<sessionId>`
+  3. `anonymous`
+
+Any actor that is denied gets a `replay.access_denied` response with `retriable: false`.
+
 See also:
 
 - `runtime/docs/observability-incident-runbook.md`
