@@ -8,6 +8,7 @@ import {
   computeProjectionHash,
   FileReplayTimelineStore,
   InMemoryReplayTimelineStore,
+  buildReplayTraceContext,
   ReplayBackfillService,
   type ReplayTimelineRecord,
   stableReplayCursorString,
@@ -82,6 +83,73 @@ describe('replay storage', () => {
     expect(restored).toHaveLength(2);
     expect(restored.map((entry) => entry.seq)).toEqual([1, 2]);
     expect(restored.map((entry) => entry.slot)).toEqual([3, 3]);
+  });
+
+  it('persists trace identifiers in cursor and projected records through backfill', async () => {
+    const store = new InMemoryReplayTimelineStore();
+
+    const fetcher: BackfillFetcher = {
+      async fetchPage(cursor, toSlot, pageSize) {
+        expect(toSlot).toBe(50);
+        expect(pageSize).toBeGreaterThan(0);
+        if (!cursor) {
+          return {
+            events: [
+              {
+                eventName: 'taskCreated',
+                slot: 10,
+                signature: 'SIG_A',
+                event: {
+                  taskId: new Uint8Array(32).fill(1),
+                  creator: new Uint8Array(32).fill(1),
+                  requiredCapabilities: 1n,
+                  rewardAmount: 1n,
+                  taskType: 0,
+                  deadline: 1,
+                  minReputation: 0,
+                  rewardMint: null,
+                  timestamp: 1,
+                },
+                traceContext: buildReplayTraceContext({
+                  traceId: 'trace-932',
+                  eventName: 'taskCreated',
+                  slot: 10,
+                  signature: 'SIG_A',
+                  eventSequence: 0,
+                  sampleRate: 1,
+                }),
+            },
+            ],
+            nextCursor: { slot: 10, signature: 'SIG_A', eventName: 'taskCreated' },
+            done: true,
+          };
+        }
+
+        return {
+          events: [],
+          nextCursor: null,
+          done: true,
+        };
+      },
+    };
+
+    const service = new ReplayBackfillService(store, {
+      toSlot: 50,
+      fetcher,
+      tracePolicy: { traceId: 'trace-932', sampleRate: 1 },
+    });
+
+    const result = await service.runBackfill();
+    const timeline = await store.query();
+    const cursor = await store.getCursor();
+
+    expect(result.processed).toBe(1);
+    expect(timeline).toHaveLength(1);
+    expect(timeline[0]?.traceId).toBe('trace-932');
+    expect(timeline[0]?.payload.onchain).toMatchObject({ trace: { traceId: 'trace-932' } });
+    expect(cursor).not.toBeNull();
+    expect(cursor?.traceId).toBe('trace-932');
+    expect(stableReplayCursorString(cursor)).toContain('10:SIG_A:taskCreated:trace-932');
   });
 
   it('resumes backfill using persisted cursor after a fetch failure', async () => {

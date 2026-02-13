@@ -16,6 +16,11 @@ import {
   ReplayBackfillService,
 } from './index.js';
 import { computeProjectionHash } from './types.js';
+import {
+  buildReplayTraceContext,
+  DEFAULT_TRACE_SAMPLE_RATE,
+  type ReplayTracingPolicy,
+} from './trace.js';
 import type { OnChainProjectionInput } from '../eval/projector.js';
 import { projectOnChainEvents, type ProjectedTimelineEvent } from '../eval/projector.js';
 
@@ -29,6 +34,7 @@ export interface ReplayBridgeStoreConfig {
 export interface ReplayBridgeConfig {
   enabled?: boolean;
   traceId?: string;
+  tracing?: ReplayTracingPolicy;
   projectionSeed?: number;
   store?: ReplayBridgeStoreConfig;
   strictProjection?: boolean;
@@ -119,6 +125,9 @@ function buildStore(
 
 function toReplayStoreRecord(event: ProjectedTimelineEvent): ReplayTimelineRecord {
   const base = event.type;
+  const trace = (event.payload.onchain as Record<string, unknown> | undefined)?.trace as
+    | undefined
+    | { traceId?: string; spanId?: string; parentSpanId?: string; sampled?: boolean };
   const recordEvent: Omit<ReplayTimelineRecord, 'projectionHash'> = {
     seq: event.seq,
     type: event.type,
@@ -130,6 +139,10 @@ function toReplayStoreRecord(event: ProjectedTimelineEvent): ReplayTimelineRecor
     sourceEventName: event.sourceEventName,
     sourceEventType: base,
     sourceEventSequence: event.sourceEventSequence,
+    traceId: trace?.traceId,
+    traceSpanId: trace?.spanId,
+    traceParentSpanId: trace?.parentSpanId,
+    traceSampled: trace?.sampled === true,
   };
 
   return {
@@ -157,6 +170,9 @@ export class ReplayEventBridge {
   private readonly traceId: string;
   private readonly projectionSeed: number;
   private readonly strictProjection: boolean;
+  private readonly tracing: ReplayTracingPolicy;
+  private readonly traceSampleRate: number;
+  private intakeSequence = 0;
   private running = false;
 
   private constructor(program: Program<AgencCoordination>, store: ReplayTimelineStore, options: ReplayBridgeConfig) {
@@ -166,6 +182,8 @@ export class ReplayEventBridge {
     this.traceId = options.traceId ?? 'runtime-replay-bridge';
     this.projectionSeed = options.projectionSeed ?? 0;
     this.strictProjection = options.strictProjection ?? false;
+    this.tracing = options.tracing ?? {};
+    this.traceSampleRate = this.tracing.sampleRate ?? DEFAULT_TRACE_SAMPLE_RATE;
   }
 
   static create(
@@ -257,6 +275,10 @@ export class ReplayEventBridge {
         toSlot: options.toSlot,
         fetcher: options.fetcher,
         pageSize: options.pageSize,
+        tracePolicy: {
+          traceId: options.traceId ?? this.tracing.traceId ?? this.traceId,
+          sampleRate: this.traceSampleRate,
+        },
       },
     );
     return service.runBackfill();
@@ -284,11 +306,23 @@ export class ReplayEventBridge {
 
   private capture(eventName: (typeof EVENT_MONITOR_EVENT_NAMES)[number]) {
     return (event: unknown, slot: number, signature: string): void => {
+      const sequence = this.intakeSequence++;
+      const traceContext = buildReplayTraceContext({
+        traceId: this.tracing.traceId ?? this.traceId,
+        eventName,
+        slot,
+        signature,
+        eventSequence: sequence,
+        sampleRate: this.traceSampleRate,
+      });
+
       void this.ingest({
         eventName,
         event,
         slot,
         signature,
+        sourceEventSequence: sequence,
+        traceContext,
       }).catch((error) => {
         this.logger.warn(`Replay projection failed for ${eventName} event in slot ${slot}: ${error}`);
       });
