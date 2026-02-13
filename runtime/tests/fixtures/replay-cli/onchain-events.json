@@ -1,0 +1,134 @@
+[
+  {
+    "eventName": "taskCreated",
+    "slot": 10,
+    "signature": "SIGCLITASKCREATED",
+    "timestampMs": 1000000000000,
+    "event": {
+      "taskId": [
+        1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
+        1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1
+      ],
+      "creator": [
+        2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,
+        2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2
+      ],
+      "requiredCapabilities": 0,
+      "rewardAmount": 1000,
+      "taskType": 0,
+      "deadline": 5000,
+      "minReputation": 0,
+      "rewardMint": null,
+      "timestamp": 1000
+    }
+  },
+  {
+    "eventName": "taskClaimed",
+    "slot": 11,
+    "signature": "SIGCLITASKCLAIMED",
+    "timestampMs": 1000000000001,
+    "event": {
+      "taskId": [
+        1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
+        1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1
+      ],
+      "worker": [
+        3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,
+        3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3
+      ],
+      "currentWorkers": 1,
+      "maxWorkers": 1,
+      "timestamp": 1001
+    }
+  },
+  {
+    "eventName": "taskCompleted",
+    "slot": 12,
+    "signature": "SIGCLITASKCOMPLETED",
+    "timestampMs": 1000000000002,
+    "event": {
+      "taskId": [
+        1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
+        1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1
+      ],
+      "worker": [
+        3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,
+        3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3
+      ],
+      "proofHash": [
+        4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,
+        4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4
+      ],
+      "resultData": [
+        5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,
+        5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5
+      ],
+      "rewardPaid": 1000,
+      "timestamp": 1002
+    }
+  },
+  {
+    "eventName": "disputeInitiated",
+    "slot": 13,
+    "signature": "SIGCLIDISPUTEINIT",
+    "timestampMs": 1000000000003,
+    "event": {
+      "disputeId": [
+        7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,
+        7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7
+      ],
+      "taskId": [
+        1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
+        1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1
+      ],
+      "initiator": [
+        8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,
+        8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8,8
+      ],
+      "defendant": [
+        9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,
+        9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9
+      ],
+      "resolutionType": 0,
+      "votingDeadline": 16000,
+      "timestamp": 1003
+    }
+  },
+  {
+    "eventName": "disputeVoteCast",
+    "slot": 14,
+    "signature": "SIGCLIDISPUTEVOTE",
+    "timestampMs": 1000000000004,
+    "event": {
+      "disputeId": [
+        7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,
+        7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7
+      ],
+      "voter": [
+        10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,
+        10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10
+      ],
+      "approved": true,
+      "votesFor": 2,
+      "votesAgainst": 1,
+      "timestamp": 1004
+    }
+  },
+  {
+    "eventName": "disputeResolved",
+    "slot": 15,
+    "signature": "SIGCLIDISPUTERESOLVE",
+    "timestampMs": 1000000000005,
+    "event": {
+      "disputeId": [
+        7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,
+        7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7
+      ],
+      "outcome": 1,
+      "resolutionType": 0,
+      "votesFor": 5,
+      "votesAgainst": 1,
+      "timestamp": 1005
+    }
+  }
+]
