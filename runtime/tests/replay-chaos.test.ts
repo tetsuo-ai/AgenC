@@ -52,6 +52,46 @@ describe('chaotic replay projection pipeline', () => {
     ).toThrowError(new RegExp(REPLAY_CHAOS_FIXTURE.expected.strictThrowMessage));
   });
 
+  it('handles dropped middle events without breaking deterministic output shape', () => {
+    const droppedClaimInput = REPLAY_CHAOS_FIXTURE.onChainEvents.filter((entry) => entry.eventName !== 'taskClaimed');
+    const first = projectOnChainEvents(droppedClaimInput, {
+      traceId: 'replay-dropped-claim',
+      seed: REPLAY_CHAOS_FIXTURE.seed,
+    });
+    const second = projectOnChainEvents(droppedClaimInput, {
+      traceId: 'replay-dropped-claim',
+      seed: REPLAY_CHAOS_FIXTURE.seed,
+    });
+
+    expect(first.events.map((entry) => entry.type)).toEqual([
+      ...REPLAY_CHAOS_FIXTURE.expected.droppedClaimedEventTypes,
+    ]);
+    expect(first.telemetry.projectedEvents)
+      .toBe(REPLAY_CHAOS_FIXTURE.expected.droppedClaimedTelemetry.projectedEvents);
+    expect(first.telemetry.duplicatesDropped)
+      .toBe(REPLAY_CHAOS_FIXTURE.expected.droppedClaimedTelemetry.duplicatesDropped);
+    expect(first.telemetry.transitionConflicts).toHaveLength(
+      REPLAY_CHAOS_FIXTURE.expected.droppedClaimedTelemetry.transitionConflicts
+    );
+    expect(first.telemetry.transitionViolations).toHaveLength(
+      REPLAY_CHAOS_FIXTURE.expected.droppedClaimedTelemetry.transitionViolations
+    );
+    expect(first.telemetry.unknownEvents).toHaveLength(
+      REPLAY_CHAOS_FIXTURE.expected.droppedClaimedTelemetry.unknownEvents
+    );
+    expect(new TrajectoryReplayEngine().replay(first.trace).deterministicHash).toBe(
+      REPLAY_CHAOS_FIXTURE.expected.droppedClaimedEventFingerprint,
+    );
+    expect(second.telemetry).toEqual(first.telemetry);
+    expect(eventSignature(first)).toMatchSnapshot();
+
+    expect(() => projectOnChainEvents(droppedClaimInput, {
+      traceId: 'replay-dropped-claim',
+      seed: REPLAY_CHAOS_FIXTURE.seed,
+      strictProjection: true,
+    })).toThrowError(/Replay projection strict mode failed/);
+  });
+
   it('flags speculative lifecycle bursts consistently across repeated runs', () => {
     const burstInput = [
       {
