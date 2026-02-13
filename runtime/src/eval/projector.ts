@@ -49,6 +49,11 @@ import {
   EVAL_TRACE_SCHEMA_VERSION,
 } from './types.js';
 import type { ReplayTraceContext } from '../replay/trace.js';
+import {
+  transitionViolationMessage,
+  type TransitionValidationViolation,
+  validateTransition,
+} from './transition-validator.js';
 
 export interface OnChainProjectionInput {
   eventName: string;
@@ -73,6 +78,7 @@ export interface ProjectionTelemetry {
   duplicatesDropped: number;
   unknownEvents: string[];
   transitionConflicts: string[];
+  transitionViolations: TransitionValidationViolation[];
   malformedInputs: string[];
 }
 
@@ -85,6 +91,7 @@ export interface ProjectionResult {
 export interface ProjectionOptions {
   traceId?: string;
   seed?: number;
+  strictProjection?: boolean;
 }
 
 type TaskLifecycleState = 'discovered' | 'claimed' | 'completed' | 'failed';
@@ -229,6 +236,7 @@ const TASK_EVENT_TYPES = new Set<string>([
   'completed',
   'failed',
 ]);
+const TASK_START_EVENTS = new Set<string>(['discovered']);
 const DISPUTE_LIFECYCLE_EVENT_TYPES = new Set<string>([
   'dispute:initiated',
   'dispute:vote_cast',
@@ -236,11 +244,13 @@ const DISPUTE_LIFECYCLE_EVENT_TYPES = new Set<string>([
   'dispute:cancelled',
   'dispute:expired',
 ]);
+const DISPUTE_START_EVENTS = new Set<string>(['dispute:initiated']);
 const SPECULATION_EVENT_TYPES = new Set<string>([
   'speculation_started',
   'speculation_confirmed',
   'speculation_aborted',
 ]);
+const SPECULATION_START_EVENTS = new Set<string>(['speculation_started']);
 
 const EVENT_SORT_ORDER: Readonly<Record<string, number>> = {
   discovered: 10,
@@ -347,19 +357,6 @@ function getContext(eventName: keyof OnChainEventMap, event: Record<string, unkn
   };
 }
 
-function isTransitionAllowed(
-  transitions: Record<string, ReadonlySet<string>>,
-  previous: string | undefined,
-  next: string,
-): boolean {
-  if (!previous) return false;
-  return transitions[previous]?.has(next) ?? false;
-}
-
-function transitionConflictMessage(parts: string[], context: string, fromState: string, toState: string): string {
-  return `${context}: ${fromState} -> ${toState} ${parts.join('/')}`;
-}
-
 function buildFingerprint(slot: number, signature: string, eventName: string, event: unknown): string {
   return stableStringifyJson({
     slot,
@@ -438,6 +435,7 @@ export function projectOnChainEvents(
     duplicatesDropped: 0,
     unknownEvents: [],
     transitionConflicts: [],
+    transitionViolations: [],
     malformedInputs: [],
   };
 
@@ -492,9 +490,22 @@ export function projectOnChainEvents(
         telemetry.transitionConflicts.push(`task:${input.eventName}@${input.signature}: missing_task_id`);
       } else {
         const previous = taskStates.get(context.taskPda);
-        const allowed = previous === undefined ? trajectoryType === 'discovered' : isTransitionAllowed(TASK_TRANSITIONS, previous, trajectoryType);
-        if (!allowed) {
-          telemetry.transitionConflicts.push(transitionConflictMessage([`signature=${input.signature}`], context.taskPda, previous ?? 'none', trajectoryType));
+        const violation = validateTransition({
+          scope: 'task',
+          entityId: context.taskPda,
+          eventName: input.eventName,
+          eventType: trajectoryType,
+          previousState: previous,
+          nextState: trajectoryType,
+          transitions: TASK_TRANSITIONS,
+          allowedStarts: TASK_START_EVENTS,
+          signature: input.signature,
+          slot: input.slot,
+          sourceEventSequence: item.sourceEventSequence,
+        });
+        if (violation) {
+          telemetry.transitionViolations.push(violation);
+          telemetry.transitionConflicts.push(transitionViolationMessage(violation));
         }
         taskStates.set(context.taskPda, trajectoryType as TaskLifecycleState);
       }
@@ -505,11 +516,22 @@ export function projectOnChainEvents(
         telemetry.transitionConflicts.push(`dispute:${input.eventName}@${input.signature}: missing_dispute_id`);
       } else {
         const previous = disputeStates.get(context.disputePda);
-        const allowed = previous === undefined
-          ? trajectoryType === 'dispute:initiated'
-          : isTransitionAllowed(DISPUTE_TRANSITIONS, previous, trajectoryType);
-        if (!allowed) {
-          telemetry.transitionConflicts.push(transitionConflictMessage([`signature=${input.signature}`], `dispute:${context.disputePda}`, previous ?? 'none', trajectoryType));
+        const violation = validateTransition({
+          scope: 'dispute',
+          entityId: context.disputePda,
+          eventName: input.eventName,
+          eventType: trajectoryType,
+          previousState: previous,
+          nextState: trajectoryType,
+          transitions: DISPUTE_TRANSITIONS,
+          allowedStarts: DISPUTE_START_EVENTS,
+          signature: input.signature,
+          slot: input.slot,
+          sourceEventSequence: item.sourceEventSequence,
+        });
+        if (violation) {
+          telemetry.transitionViolations.push(violation);
+          telemetry.transitionConflicts.push(transitionViolationMessage(violation));
         }
         disputeStates.set(context.disputePda, trajectoryType as DisputeLifecycleState);
       }
@@ -519,11 +541,22 @@ export function projectOnChainEvents(
       const speculationKey = context.speculationPda ?? context.taskPda;
       if (speculationKey) {
         const previous = speculationStates.get(speculationKey);
-        const allowed = previous === undefined
-          ? trajectoryType === 'speculation_started'
-          : isTransitionAllowed(SPECULATION_TRANSITIONS, previous, trajectoryType);
-        if (!allowed) {
-          telemetry.transitionConflicts.push(transitionConflictMessage([`signature=${input.signature}`], `speculation:${speculationKey}`, previous ?? 'none', trajectoryType));
+        const violation = validateTransition({
+          scope: 'speculation',
+          entityId: speculationKey,
+          eventName: input.eventName,
+          eventType: trajectoryType,
+          previousState: previous,
+          nextState: trajectoryType,
+          transitions: SPECULATION_TRANSITIONS,
+          allowedStarts: SPECULATION_START_EVENTS,
+          signature: input.signature,
+          slot: input.slot,
+          sourceEventSequence: item.sourceEventSequence,
+        });
+        if (violation) {
+          telemetry.transitionViolations.push(violation);
+          telemetry.transitionConflicts.push(transitionViolationMessage(violation));
         }
         speculationStates.set(speculationKey, trajectoryType as SpeculationLifecycleState);
       }
@@ -542,7 +575,7 @@ export function projectOnChainEvents(
           signature: input.signature,
           slot: input.slot,
           sourceEventSequence: orderedSequence,
-          ...(input.traceContext
+                ...(input.traceContext
             ? {
                 trace: {
                   traceId: input.traceContext.traceId,
@@ -554,11 +587,11 @@ export function projectOnChainEvents(
             : {}),
         },
       },
-        slot: input.slot,
-        signature: input.signature,
-        sourceEventName: input.eventName,
-        sourceEventSequence: orderedSequence,
-      };
+      slot: input.slot,
+      signature: input.signature,
+      sourceEventName: input.eventName,
+      sourceEventSequence: orderedSequence,
+    };
 
     projected.push(projectedEvent);
     telemetry.projectedEvents += 1;
@@ -569,6 +602,11 @@ export function projectOnChainEvents(
     seq: index + 1,
     payload: sanitizePayload(entry.payload),
   }));
+
+  if (options.strictProjection && telemetry.transitionViolations.length > 0) {
+    const violations = telemetry.transitionConflicts.join('; ');
+    throw new Error(`Replay projection strict mode failed: ${violations}`);
+  }
 
   return {
     telemetry,

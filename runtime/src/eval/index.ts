@@ -47,6 +47,14 @@ export {
 } from './projector.js';
 
 export {
+  validateTransition,
+  transitionViolationMessage,
+  type ReplayLifecycleType,
+  type TransitionValidationViolation,
+  type TransitionValidationOptions,
+} from './transition-validator.js';
+
+export {
   ReplayComparisonService,
   ReplayComparisonError,
   type ReplayAnomaly,
