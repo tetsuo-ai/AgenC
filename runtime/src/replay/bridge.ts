@@ -17,6 +17,11 @@ import {
   ReplayBackfillService,
   SqliteReplayTimelineStore,
 } from './index.js';
+import {
+  createReplayAlertDispatcher,
+  type ReplayAlertDispatcher,
+  type ReplayAlertingPolicyOptions,
+} from './alerting.js';
 import { computeProjectionHash } from './types.js';
 import {
   buildReplayTraceContext,
@@ -42,6 +47,7 @@ export interface ReplayBridgeConfig {
   projectionSeed?: number;
   store?: ReplayBridgeStoreConfig;
   strictProjection?: boolean;
+  alerting?: ReplayAlertingPolicyOptions;
   logger?: Logger;
   traceLevel?: LogLevel;
 }
@@ -179,6 +185,8 @@ export class ReplayEventBridge {
   private readonly strictProjection: boolean;
   private readonly tracing: ReplayTracingPolicy;
   private readonly traceSampleRate: number;
+  private readonly alertDispatcher: ReplayAlertDispatcher;
+  private readonly sourceEventLastSlot = new Map<string, number>();
   private intakeSequence = 0;
   private running = false;
 
@@ -191,6 +199,7 @@ export class ReplayEventBridge {
     this.strictProjection = options.strictProjection ?? false;
     this.tracing = options.tracing ?? {};
     this.traceSampleRate = this.tracing.sampleRate ?? DEFAULT_TRACE_SAMPLE_RATE;
+    this.alertDispatcher = createReplayAlertDispatcher(options.alerting, this.logger);
   }
 
   static create(
@@ -282,6 +291,7 @@ export class ReplayEventBridge {
         toSlot: options.toSlot,
         fetcher: options.fetcher,
         pageSize: options.pageSize,
+        alertDispatcher: this.alertDispatcher,
         tracePolicy: {
           traceId: options.traceId ?? this.tracing.traceId ?? this.traceId,
           sampleRate: this.traceSampleRate,
@@ -337,7 +347,27 @@ export class ReplayEventBridge {
   }
 
   private async ingest(input: OnChainProjectionInput): Promise<void> {
+    const previousSlot = this.sourceEventLastSlot.get(input.eventName);
+    if (typeof previousSlot === 'number' && input.slot < previousSlot) {
+      await this.emitReplayAlert({
+        code: 'replay.ingestion.lag',
+        severity: 'warning',
+        kind: 'replay_ingestion_lag',
+        message: `event slot regression detected for ${input.eventName}`,
+        taskPda: extractTaskFromEvent(input),
+        disputePda: extractDisputeFromEvent(input),
+        sourceEventName: input.eventName,
+        signature: input.signature,
+        slot: input.slot,
+        sourceEventSequence: input.sourceEventSequence,
+        traceId: this.traceId,
+      });
+    }
+    this.sourceEventLastSlot.set(input.eventName, input.slot);
+
     const projection = projectOnChainEvents([input], { traceId: this.traceId, seed: this.projectionSeed });
+    await this.emitProjectionTelemetry(input, projection);
+
     const issues = strictTelemetryErrors(projection.telemetry);
     if (this.strictProjection && issues.length > 0) {
       this.logger.error(`Replay projection strict mode blocked event projection (${input.eventName})`);
@@ -351,4 +381,115 @@ export class ReplayEventBridge {
 
     await this.store.save(records);
   }
+
+  private async emitProjectionTelemetry(
+    input: OnChainProjectionInput,
+    projection: ReturnType<typeof projectOnChainEvents>,
+  ): Promise<void> {
+    const malformedIssueCount = projection.telemetry.malformedInputs.length;
+    const unknownIssueCount = projection.telemetry.unknownEvents.length;
+
+    if (malformedIssueCount > 0) {
+      await this.emitReplayAlert({
+        code: 'replay.projection.malformed',
+        severity: malformedIssueCount > 3 ? 'error' : 'warning',
+        kind: 'transition_validation',
+        message: `malformed projection input for ${input.eventName}`,
+        taskPda: extractTaskFromEvent(input),
+        disputePda: extractDisputeFromEvent(input),
+        sourceEventName: input.eventName,
+        signature: input.signature,
+        slot: input.slot,
+        sourceEventSequence: input.sourceEventSequence,
+        traceId: this.traceId,
+        metadata: {
+          issueCount: malformedIssueCount,
+          issues: projection.telemetry.malformedInputs.join('|'),
+        },
+      });
+    }
+
+    if (unknownIssueCount > 0) {
+      await this.emitReplayAlert({
+        code: 'replay.projection.unknown',
+        severity: 'warning',
+        kind: 'transition_validation',
+        message: `unknown event variant for ${input.eventName}`,
+        taskPda: extractTaskFromEvent(input),
+        disputePda: extractDisputeFromEvent(input),
+        sourceEventName: input.eventName,
+        signature: input.signature,
+        slot: input.slot,
+        sourceEventSequence: input.sourceEventSequence,
+        traceId: this.traceId,
+        metadata: {
+          unknownEventCount: unknownIssueCount,
+          events: projection.telemetry.unknownEvents.join('|'),
+        },
+      });
+    }
+
+    for (const violation of projection.telemetry.transitionViolations) {
+      await this.emitReplayAlert({
+        code: 'replay.projection.transition_invalid',
+        severity: violation.scope === 'dispute' || violation.scope === 'speculation' ? 'error' : 'warning',
+        kind: 'transition_validation',
+        message: `transition violation ${violation.scope}: ${violation.reason}`,
+        taskPda: violation.scope === 'task' ? violation.entityId : extractTaskFromEvent(input),
+        disputePda: violation.scope === 'dispute' ? violation.entityId : extractDisputeFromEvent(input),
+        sourceEventName: violation.eventName,
+        signature: violation.signature,
+        slot: violation.slot,
+        sourceEventSequence: violation.sourceEventSequence,
+        traceId: this.traceId,
+        metadata: {
+          scope: violation.scope,
+          fromState: violation.fromState,
+          toState: violation.toState,
+          reason: violation.reason,
+        },
+      });
+    }
+  }
+
+  private async emitReplayAlert(context: {
+    code: string;
+    severity: 'info' | 'warning' | 'error';
+    kind: 'transition_validation' | 'replay_hash_mismatch' | 'replay_anomaly_repeat' | 'replay_ingestion_lag';
+    message: string;
+    taskPda?: string;
+    disputePda?: string;
+    sourceEventName?: string;
+    signature?: string;
+    slot?: number;
+    sourceEventSequence?: number;
+    traceId?: string;
+    metadata?: Record<string, string | number | boolean | null | undefined>;
+  }): Promise<void> {
+    try {
+      await this.alertDispatcher.emit(context);
+    } catch (error) {
+      this.logger.warn('replay alert dispatch failed', error);
+    }
+  }
+}
+
+function extractTaskFromEvent(input: OnChainProjectionInput): string | undefined {
+  if (typeof input.event !== 'object' || input.event === null) {
+    return undefined;
+  }
+
+  const event = input.event as Record<string, unknown>;
+  const candidate = event.taskId ?? event.task;
+  return typeof candidate === 'string' ? candidate : undefined;
+}
+
+function extractDisputeFromEvent(input: OnChainProjectionInput): string | undefined {
+  if (typeof input.event !== 'object' || input.event === null) {
+    return undefined;
+  }
+
+  const event = input.event as Record<string, unknown>;
+  const candidate = event.disputeId;
+  return typeof candidate === 'string' ? candidate : undefined;
 }

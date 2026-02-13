@@ -13,6 +13,7 @@ import {
   type ReplayTimelineRecord,
   stableReplayCursorString,
 } from './index.js';
+import type { ReplayAnomalyAlert, ReplayAlertContext, ReplayAlertDispatcher } from './alerting.js';
 import { REPLAY_QUALITY_FIXTURE_V1 } from '../../tests/fixtures/replay-quality-fixture.v1.ts';
 
 function makeRecord(
@@ -292,5 +293,46 @@ describe('replay storage', () => {
     expect(recovered.duplicates).toBe(0);
     expect(stableReplayCursorString(recovered.cursor)).toBe('');
     expect(timeline).toHaveLength(fixtureEvents.length);
+  });
+
+  it('emits a replay backfill stall alert when cursor does not advance', async () => {
+    const store = new InMemoryReplayTimelineStore();
+    const alerts: ReplayAnomalyAlert[] = [];
+
+    const fetcher: BackfillFetcher = {
+      async fetchPage() {
+        return {
+          events: [],
+          nextCursor: { slot: 9, signature: 'STALL', eventName: 'taskCreated' },
+          done: false,
+        };
+      },
+    };
+
+    const alertDispatcher: ReplayAlertDispatcher = {
+      async emit(context: ReplayAlertContext) {
+        alerts.push({
+          ...context,
+          id: `replay-backfill-stall-${alerts.length + 1}`,
+          emittedAtMs: alerts.length + 1,
+          repeatCount: 1,
+        });
+      },
+    };
+
+    const service = new ReplayBackfillService(store, {
+      toSlot: 9,
+      fetcher,
+      alertDispatcher,
+    });
+
+    await expect(service.runBackfill()).rejects.toThrow('replay backfill stalled: cursor did not advance');
+
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0]?.code).toBe('replay.backfill.stalled');
+    expect(alerts[0]?.kind).toBe('replay_ingestion_lag');
+    expect(alerts[0]?.metadata).toMatchObject({
+      toSlot: 9,
+    });
   });
 });

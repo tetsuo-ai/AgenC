@@ -62,6 +62,21 @@ export interface RuntimeReplayConfig {
   traceLevel?: LogLevel;
   /** Trace ID for replay projection correlation */
   traceId?: string;
+  /** Optional anomaly alerting policy for replay lifecycle failures */
+  alerting?: {
+    enabled?: boolean;
+    dedupeWindowMs?: number;
+    dedupeScope?: ReadonlyArray<'taskPda' | 'disputePda' | 'signature' | 'sourceEventName'>;
+    logger?: {
+      enabled?: boolean;
+    } | boolean;
+    webhook?: {
+      url: string;
+      timeoutMs?: number;
+      headers?: Record<string, string>;
+      enabled?: boolean;
+    };
+  };
 }
 
 /**

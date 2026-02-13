@@ -653,6 +653,14 @@ export {
   buildReplayKey,
   computeProjectionHash,
   stableReplayCursorString,
+  createReplayAlertDispatcher,
+  type ReplayAlertAdapter,
+  type ReplayAlertContext,
+  type ReplayAnomalyAlert,
+  type ReplayAlertingPolicyOptions,
+  type ReplayAlertKind,
+  type ReplayAlertSeverity,
+  ReplayAlertDispatcher,
 } from './replay/index.js';
 
 // Policy and Safety Engine
