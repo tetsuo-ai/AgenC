@@ -14,6 +14,14 @@ import type {
   RateLimitHitEvent,
   MigrationCompletedEvent,
   ProtocolVersionUpdatedEvent,
+  RateLimitsUpdatedEvent,
+  ProtocolFeeUpdatedEvent,
+  ReputationChangedEvent,
+  BondDepositedEvent,
+  BondLockedEvent,
+  BondReleasedEvent,
+  BondSlashedEvent,
+  SpeculativeCommitmentCreatedEvent,
   ProtocolEventCallbacks,
   ProtocolEventFilterOptions,
   RawStateUpdatedEvent,
@@ -22,6 +30,14 @@ import type {
   RawRateLimitHitEvent,
   RawMigrationCompletedEvent,
   RawProtocolVersionUpdatedEvent,
+  RawRateLimitsUpdatedEvent,
+  RawProtocolFeeUpdatedEvent,
+  RawReputationChangedEvent,
+  RawBondDepositedEvent,
+  RawBondLockedEvent,
+  RawBondReleasedEvent,
+  RawBondSlashedEvent,
+  RawSpeculativeCommitmentCreatedEvent,
 } from './types.js';
 import {
   parseStateUpdatedEvent,
@@ -30,6 +46,14 @@ import {
   parseRateLimitHitEvent,
   parseMigrationCompletedEvent,
   parseProtocolVersionUpdatedEvent,
+  parseRateLimitsUpdatedEvent,
+  parseProtocolFeeUpdatedEvent,
+  parseReputationChangedEvent,
+  parseBondDepositedEvent,
+  parseBondLockedEvent,
+  parseBondReleasedEvent,
+  parseBondSlashedEvent,
+  parseSpeculativeCommitmentCreatedEvent,
 } from './parse.js';
 import { createEventSubscription } from './factory.js';
 
@@ -158,6 +182,174 @@ export function subscribeToProtocolVersionUpdated(
 }
 
 /**
+ * Subscribes to RateLimitsUpdated events.
+ *
+ * @param program - The Anchor program instance
+ * @param callback - Function called when rate limits are updated
+ * @returns Subscription handle for unsubscribing
+ */
+export function subscribeToRateLimitsUpdated(
+  program: Program<AgencCoordination>,
+  callback: EventCallback<RateLimitsUpdatedEvent>,
+): EventSubscription {
+  return createEventSubscription<RawRateLimitsUpdatedEvent, RateLimitsUpdatedEvent, never>(
+    program,
+    {
+      eventName: 'rateLimitsUpdated',
+      parse: parseRateLimitsUpdatedEvent,
+    },
+    callback,
+  );
+}
+
+/**
+ * Subscribes to ProtocolFeeUpdated events.
+ *
+ * @param program - The Anchor program instance
+ * @param callback - Function called when protocol fee is updated
+ * @returns Subscription handle for unsubscribing
+ */
+export function subscribeToProtocolFeeUpdated(
+  program: Program<AgencCoordination>,
+  callback: EventCallback<ProtocolFeeUpdatedEvent>,
+): EventSubscription {
+  return createEventSubscription<RawProtocolFeeUpdatedEvent, ProtocolFeeUpdatedEvent, never>(
+    program,
+    {
+      eventName: 'protocolFeeUpdated',
+      parse: parseProtocolFeeUpdatedEvent,
+    },
+    callback,
+  );
+}
+
+/**
+ * Subscribes to ReputationChanged events.
+ *
+ * @param program - The Anchor program instance
+ * @param callback - Function called when an agent reputation changes
+ * @returns Subscription handle for unsubscribing
+ */
+export function subscribeToReputationChanged(
+  program: Program<AgencCoordination>,
+  callback: EventCallback<ReputationChangedEvent>,
+): EventSubscription {
+  return createEventSubscription<RawReputationChangedEvent, ReputationChangedEvent, never>(
+    program,
+    {
+      eventName: 'reputationChanged',
+      parse: parseReputationChangedEvent,
+    },
+    callback,
+  );
+}
+
+/**
+ * Subscribes to BondDeposited events.
+ *
+ * @param program - The Anchor program instance
+ * @param callback - Function called when a bond is deposited
+ * @returns Subscription handle for unsubscribing
+ */
+export function subscribeToBondDeposited(
+  program: Program<AgencCoordination>,
+  callback: EventCallback<BondDepositedEvent>,
+): EventSubscription {
+  return createEventSubscription<RawBondDepositedEvent, BondDepositedEvent, never>(
+    program,
+    {
+      eventName: 'bondDeposited',
+      parse: parseBondDepositedEvent,
+    },
+    callback,
+  );
+}
+
+/**
+ * Subscribes to BondLocked events.
+ *
+ * @param program - The Anchor program instance
+ * @param callback - Function called when a commitment is bond-locked
+ * @returns Subscription handle for unsubscribing
+ */
+export function subscribeToBondLocked(
+  program: Program<AgencCoordination>,
+  callback: EventCallback<BondLockedEvent>,
+): EventSubscription {
+  return createEventSubscription<RawBondLockedEvent, BondLockedEvent, never>(
+    program,
+    {
+      eventName: 'bondLocked',
+      parse: parseBondLockedEvent,
+    },
+    callback,
+  );
+}
+
+/**
+ * Subscribes to BondReleased events.
+ *
+ * @param program - The Anchor program instance
+ * @param callback - Function called when a commitment lock is released
+ * @returns Subscription handle for unsubscribing
+ */
+export function subscribeToBondReleased(
+  program: Program<AgencCoordination>,
+  callback: EventCallback<BondReleasedEvent>,
+): EventSubscription {
+  return createEventSubscription<RawBondReleasedEvent, BondReleasedEvent, never>(
+    program,
+    {
+      eventName: 'bondReleased',
+      parse: parseBondReleasedEvent,
+    },
+    callback,
+  );
+}
+
+/**
+ * Subscribes to BondSlashed events.
+ *
+ * @param program - The Anchor program instance
+ * @param callback - Function called when a bond is slashed
+ * @returns Subscription handle for unsubscribing
+ */
+export function subscribeToBondSlashed(
+  program: Program<AgencCoordination>,
+  callback: EventCallback<BondSlashedEvent>,
+): EventSubscription {
+  return createEventSubscription<RawBondSlashedEvent, BondSlashedEvent, never>(
+    program,
+    {
+      eventName: 'bondSlashed',
+      parse: parseBondSlashedEvent,
+    },
+    callback,
+  );
+}
+
+/**
+ * Subscribes to SpeculativeCommitmentCreated events.
+ *
+ * @param program - The Anchor program instance
+ * @param callback - Function called when a speculative commitment is created
+ * @returns Subscription handle for unsubscribing
+ */
+export function subscribeToSpeculativeCommitmentCreated(
+  program: Program<AgencCoordination>,
+  callback: EventCallback<SpeculativeCommitmentCreatedEvent>,
+): EventSubscription {
+  return createEventSubscription<RawSpeculativeCommitmentCreatedEvent, SpeculativeCommitmentCreatedEvent, never>(
+    program,
+    {
+      eventName: 'speculativeCommitmentCreated',
+      parse: parseSpeculativeCommitmentCreatedEvent,
+    },
+    callback,
+  );
+}
+
+/**
  * Subscribes to all protocol-related events with a single subscription object.
  *
  * @param program - The Anchor program instance
@@ -189,6 +381,33 @@ export function subscribeToAllProtocolEvents(
   }
   if (callbacks.onProtocolVersionUpdated) {
     subscriptions.push(subscribeToProtocolVersionUpdated(program, callbacks.onProtocolVersionUpdated));
+  }
+  if (callbacks.onRateLimitsUpdated) {
+    subscriptions.push(subscribeToRateLimitsUpdated(program, callbacks.onRateLimitsUpdated));
+  }
+  if (callbacks.onProtocolFeeUpdated) {
+    subscriptions.push(subscribeToProtocolFeeUpdated(program, callbacks.onProtocolFeeUpdated));
+  }
+  if (callbacks.onReputationChanged) {
+    subscriptions.push(subscribeToReputationChanged(program, callbacks.onReputationChanged));
+  }
+  if (callbacks.onBondDeposited) {
+    subscriptions.push(subscribeToBondDeposited(program, callbacks.onBondDeposited));
+  }
+  if (callbacks.onBondLocked) {
+    subscriptions.push(subscribeToBondLocked(program, callbacks.onBondLocked));
+  }
+  if (callbacks.onBondReleased) {
+    subscriptions.push(subscribeToBondReleased(program, callbacks.onBondReleased));
+  }
+  if (callbacks.onBondSlashed) {
+    subscriptions.push(subscribeToBondSlashed(program, callbacks.onBondSlashed));
+  }
+  if (callbacks.onSpeculativeCommitmentCreated) {
+    subscriptions.push(subscribeToSpeculativeCommitmentCreated(
+      program,
+      callbacks.onSpeculativeCommitmentCreated
+    ));
   }
 
   return {

@@ -12,18 +12,24 @@ import type {
   DisputeVoteCastEvent,
   DisputeResolvedEvent,
   DisputeExpiredEvent,
+  DisputeCancelledEvent,
+  ArbiterVotesCleanedUpEvent,
   DisputeEventCallbacks,
   DisputeEventFilterOptions,
   RawDisputeInitiatedEvent,
   RawDisputeVoteCastEvent,
   RawDisputeResolvedEvent,
   RawDisputeExpiredEvent,
+  RawDisputeCancelledEvent,
+  RawArbiterVotesCleanedUpEvent,
 } from './types.js';
 import {
   parseDisputeInitiatedEvent,
   parseDisputeVoteCastEvent,
   parseDisputeResolvedEvent,
   parseDisputeExpiredEvent,
+  parseDisputeCancelledEvent,
+  parseArbiterVotesCleanedUpEvent,
 } from './parse.js';
 import { createEventSubscription } from './factory.js';
 
@@ -132,6 +138,48 @@ export function subscribeToDisputeExpired(
 }
 
 /**
+ * Subscribes to DisputeCancelled events.
+ *
+ * @param program - The Anchor program instance
+ * @param callback - Function called when a dispute is cancelled
+ * @returns Subscription handle for unsubscribing
+ */
+export function subscribeToDisputeCancelled(
+  program: Program<AgencCoordination>,
+  callback: EventCallback<DisputeCancelledEvent>
+): EventSubscription {
+  return createEventSubscription<RawDisputeCancelledEvent, DisputeCancelledEvent, never>(
+    program,
+    {
+      eventName: 'disputeCancelled',
+      parse: parseDisputeCancelledEvent,
+    },
+    callback,
+  );
+}
+
+/**
+ * Subscribes to ArbiterVotesCleanedUp events.
+ *
+ * @param program - The Anchor program instance
+ * @param callback - Function called when arbiter votes are cleaned up
+ * @returns Subscription handle for unsubscribing
+ */
+export function subscribeToArbiterVotesCleanedUp(
+  program: Program<AgencCoordination>,
+  callback: EventCallback<ArbiterVotesCleanedUpEvent>
+): EventSubscription {
+  return createEventSubscription<RawArbiterVotesCleanedUpEvent, ArbiterVotesCleanedUpEvent, never>(
+    program,
+    {
+      eventName: 'arbiterVotesCleanedUp',
+      parse: parseArbiterVotesCleanedUpEvent,
+    },
+    callback,
+  );
+}
+
+/**
  * Subscribes to all dispute-related events with a single subscription object.
  *
  * @param program - The Anchor program instance
@@ -157,6 +205,12 @@ export function subscribeToAllDisputeEvents(
   }
   if (callbacks.onDisputeExpired) {
     subscriptions.push(subscribeToDisputeExpired(program, callbacks.onDisputeExpired, options));
+  }
+  if (callbacks.onDisputeCancelled) {
+    subscriptions.push(subscribeToDisputeCancelled(program, callbacks.onDisputeCancelled));
+  }
+  if (callbacks.onArbiterVotesCleanedUp) {
+    subscriptions.push(subscribeToArbiterVotesCleanedUp(program, callbacks.onArbiterVotesCleanedUp));
   }
 
   return {

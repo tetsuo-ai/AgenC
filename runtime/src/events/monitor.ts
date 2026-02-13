@@ -197,6 +197,8 @@ export class EventMonitor {
         ? this.wrapCallback('taskCompleted', callbacks.onTaskCompleted) : undefined,
       onTaskCancelled: callbacks.onTaskCancelled
         ? this.wrapCallback('taskCancelled', callbacks.onTaskCancelled) : undefined,
+      onDependentTaskCreated: callbacks.onDependentTaskCreated
+        ? this.wrapCallback('dependentTaskCreated', callbacks.onDependentTaskCreated) : undefined,
     };
   }
 
@@ -210,6 +212,13 @@ export class EventMonitor {
         ? this.wrapCallback('disputeResolved', callbacks.onDisputeResolved) : undefined,
       onDisputeExpired: callbacks.onDisputeExpired
         ? this.wrapCallback('disputeExpired', callbacks.onDisputeExpired) : undefined,
+      onDisputeCancelled: callbacks.onDisputeCancelled
+        ? this.wrapCallback('disputeCancelled', callbacks.onDisputeCancelled) : undefined,
+      onArbiterVotesCleanedUp: callbacks.onArbiterVotesCleanedUp
+        ? this.wrapCallback(
+          'arbiterVotesCleanedUp',
+          callbacks.onArbiterVotesCleanedUp
+        ) : undefined,
     };
   }
 
@@ -227,6 +236,23 @@ export class EventMonitor {
         ? this.wrapCallback('migrationCompleted', callbacks.onMigrationCompleted) : undefined,
       onProtocolVersionUpdated: callbacks.onProtocolVersionUpdated
         ? this.wrapCallback('protocolVersionUpdated', callbacks.onProtocolVersionUpdated) : undefined,
+      onRateLimitsUpdated: callbacks.onRateLimitsUpdated
+        ? this.wrapCallback('rateLimitsUpdated', callbacks.onRateLimitsUpdated) : undefined,
+      onProtocolFeeUpdated: callbacks.onProtocolFeeUpdated
+        ? this.wrapCallback('protocolFeeUpdated', callbacks.onProtocolFeeUpdated) : undefined,
+      onReputationChanged: callbacks.onReputationChanged
+        ? this.wrapCallback('reputationChanged', callbacks.onReputationChanged) : undefined,
+      onBondDeposited: callbacks.onBondDeposited
+        ? this.wrapCallback('bondDeposited', callbacks.onBondDeposited) : undefined,
+      onBondLocked: callbacks.onBondLocked
+        ? this.wrapCallback('bondLocked', callbacks.onBondLocked) : undefined,
+      onBondReleased: callbacks.onBondReleased
+        ? this.wrapCallback('bondReleased', callbacks.onBondReleased) : undefined,
+      onBondSlashed: callbacks.onBondSlashed
+        ? this.wrapCallback('bondSlashed', callbacks.onBondSlashed) : undefined,
+      onSpeculativeCommitmentCreated: callbacks.onSpeculativeCommitmentCreated
+        ? this.wrapCallback('speculativeCommitmentCreated', callbacks.onSpeculativeCommitmentCreated)
+        : undefined,
     };
   }
 
@@ -238,6 +264,10 @@ export class EventMonitor {
         ? this.wrapCallback('agentUpdated', callbacks.onUpdated) : undefined,
       onDeregistered: callbacks.onDeregistered
         ? this.wrapCallback('agentDeregistered', callbacks.onDeregistered) : undefined,
+      onSuspended: callbacks.onSuspended
+        ? this.wrapCallback('agentSuspended', callbacks.onSuspended) : undefined,
+      onUnsuspended: callbacks.onUnsuspended
+        ? this.wrapCallback('agentUnsuspended', callbacks.onUnsuspended) : undefined,
     };
   }
 }
