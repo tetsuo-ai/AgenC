@@ -9,12 +9,23 @@ import {
   parseDisputeVoteCastEvent,
   parseDisputeResolvedEvent,
   parseDisputeExpiredEvent,
+  parseDisputeCancelledEvent,
+  parseArbiterVotesCleanedUpEvent,
   parseStateUpdatedEvent,
   parseProtocolInitializedEvent,
   parseRewardDistributedEvent,
   parseRateLimitHitEvent,
   parseMigrationCompletedEvent,
   parseProtocolVersionUpdatedEvent,
+  parseRateLimitsUpdatedEvent,
+  parseProtocolFeeUpdatedEvent,
+  parseReputationChangedEvent,
+  parseBondDepositedEvent,
+  parseBondLockedEvent,
+  parseBondReleasedEvent,
+  parseBondSlashedEvent,
+  parseSpeculativeCommitmentCreatedEvent,
+  parseDependentTaskCreatedEvent,
 } from './parse.js';
 
 function mockBN(value: bigint | number): { toNumber: () => number; toString: () => string } {
@@ -23,6 +34,16 @@ function mockBN(value: bigint | number): { toNumber: () => number; toString: () 
     toNumber: () => Number(bigValue),
     toString: () => bigValue.toString(),
   };
+}
+
+const TEST_KEY = new PublicKey('11111111111111111111111111111111');
+
+function createId(seed = 0): Uint8Array {
+  const bytes = new Uint8Array(32);
+  for (let i = 0; i < 32; i++) {
+    bytes[i] = (seed + i) % 256;
+  }
+  return bytes;
 }
 
 describe('Event Parse Functions', () => {
@@ -111,6 +132,26 @@ describe('Event Parse Functions', () => {
     });
   });
 
+  describe('parseDependentTaskCreatedEvent', () => {
+    it('should convert task and timestamp fields correctly', () => {
+      const raw = {
+        taskId: Array.from({ length: 32 }, (_, i) => i),
+        creator: new PublicKey('11111111111111111111111111111111'),
+        dependsOn: new PublicKey('11111111111111111111111111111112'),
+        dependencyType: 2,
+        rewardMint: null,
+        timestamp: mockBN(987654321),
+      };
+      const parsed = parseDependentTaskCreatedEvent(raw);
+      expect(parsed.taskId).toBeInstanceOf(Uint8Array);
+      expect(parsed.taskId[0]).toBe(0);
+      expect(parsed.dependsOn.toBase58()).toBe(raw.dependsOn.toBase58());
+      expect(parsed.dependencyType).toBe(2);
+      expect(parsed.rewardMint).toBeNull();
+      expect(parsed.timestamp).toBe(987654321);
+    });
+  });
+
   describe('parseDisputeInitiatedEvent', () => {
     it('should convert both disputeId and taskId to Uint8Array', () => {
       const raw = {
@@ -175,6 +216,34 @@ describe('Event Parse Functions', () => {
       };
       const parsed = parseDisputeExpiredEvent(raw);
       expect(parsed.refundAmount).toBe(800_000_000n);
+    });
+  });
+
+  describe('parseDisputeCancelledEvent', () => {
+    it('should parse raw dispute cancellation event', () => {
+      const raw = {
+        disputeId: new Uint8Array(32),
+        task: new PublicKey('11111111111111111111111111111111'),
+        initiator: new PublicKey('11111111111111111111111111111112'),
+        cancelledAt: mockBN(5555555),
+      };
+      const parsed = parseDisputeCancelledEvent(raw);
+      expect(parsed.disputeId).toBeInstanceOf(Uint8Array);
+      expect(parsed.task.toBase58()).toBe(raw.task.toBase58());
+      expect(parsed.initiator.toBase58()).toBe(raw.initiator.toBase58());
+      expect(parsed.cancelledAt).toBe(5555555);
+    });
+  });
+
+  describe('parseArbiterVotesCleanedUpEvent', () => {
+    it('should parse arbiter cleanup count', () => {
+      const raw = {
+        disputeId: new Uint8Array(32),
+        arbiterCount: 3,
+      };
+      const parsed = parseArbiterVotesCleanedUpEvent(raw);
+      expect(parsed.disputeId).toBeInstanceOf(Uint8Array);
+      expect(parsed.arbiterCount).toBe(3);
     });
   });
 
@@ -272,6 +341,147 @@ describe('Event Parse Functions', () => {
       expect(parsed.oldVersion).toBe(1);
       expect(parsed.newVersion).toBe(2);
       expect(parsed.minSupportedVersion).toBe(1);
+    });
+  });
+
+  describe('parseRateLimitsUpdatedEvent', () => {
+    it('should convert cooldowns and stake field', () => {
+      const raw = {
+        taskCreationCooldown: mockBN(600),
+        maxTasksPer24h: 25,
+        disputeInitiationCooldown: mockBN(900),
+        maxDisputesPer24h: 7,
+        minStakeForDispute: mockBN(777777),
+        updatedBy: TEST_KEY,
+        timestamp: mockBN(123456),
+      };
+      const parsed = parseRateLimitsUpdatedEvent(raw);
+      expect(parsed.taskCreationCooldown).toBe(600);
+      expect(parsed.disputeInitiationCooldown).toBe(900);
+      expect(parsed.maxTasksPer24h).toBe(25);
+      expect(parsed.maxDisputesPer24h).toBe(7);
+      expect(parsed.minStakeForDispute).toBe(777777n);
+      expect(parsed.updatedBy).toBe(raw.updatedBy);
+      expect(parsed.timestamp).toBe(123456);
+    });
+  });
+
+  describe('parseProtocolFeeUpdatedEvent', () => {
+    it('should normalize protocol fee deltas', () => {
+      const raw = {
+        oldFeeBps: 250,
+        newFeeBps: 300,
+        updatedBy: TEST_KEY,
+        timestamp: mockBN(123456),
+      };
+      const parsed = parseProtocolFeeUpdatedEvent(raw);
+      expect(parsed.oldFeeBps).toBe(250);
+      expect(parsed.newFeeBps).toBe(300);
+      expect(parsed.updatedBy).toBe(raw.updatedBy);
+      expect(parsed.timestamp).toBe(123456);
+    });
+  });
+
+  describe('parseReputationChangedEvent', () => {
+    it('should convert agent and reputation values', () => {
+      const raw = {
+        agentId: createId(1),
+        oldReputation: 50,
+        newReputation: 55,
+        reason: 2,
+        timestamp: mockBN(123456),
+      };
+      const parsed = parseReputationChangedEvent(raw);
+      expect(parsed.agentId).toBeInstanceOf(Uint8Array);
+      expect(parsed.agentId[0]).toBe(1);
+      expect(parsed.oldReputation).toBe(50);
+      expect(parsed.newReputation).toBe(55);
+      expect(parsed.reason).toBe(2);
+      expect(parsed.timestamp).toBe(123456);
+    });
+  });
+
+  describe('parseBondDepositedEvent', () => {
+    it('should parse and normalize deposit totals', () => {
+      const raw = {
+        agent: TEST_KEY,
+        amount: mockBN(1_000_000_000),
+        newTotal: mockBN(2_000_000_000),
+        timestamp: mockBN(123456),
+      };
+      const parsed = parseBondDepositedEvent(raw);
+      expect(parsed.agent).toBe(TEST_KEY);
+      expect(parsed.amount).toBe(1_000_000_000n);
+      expect(parsed.newTotal).toBe(2_000_000_000n);
+      expect(parsed.timestamp).toBe(123456);
+    });
+  });
+
+  describe('parseBondLockedEvent', () => {
+    it('should parse locked commitment payload', () => {
+      const raw = {
+        agent: TEST_KEY,
+        commitment: new PublicKey('11111111111111111111111111111113'),
+        amount: mockBN(600_000_000),
+        timestamp: mockBN(123456),
+      };
+      const parsed = parseBondLockedEvent(raw);
+      expect(parsed.agent).toBe(TEST_KEY);
+      expect(parsed.commitment.toBase58()).toBe(raw.commitment.toBase58());
+      expect(parsed.amount).toBe(600_000_000n);
+      expect(parsed.timestamp).toBe(123456);
+    });
+  });
+
+  describe('parseBondReleasedEvent', () => {
+    it('should parse released commitment payload', () => {
+      const raw = {
+        agent: TEST_KEY,
+        commitment: new PublicKey('11111111111111111111111111111114'),
+        amount: mockBN(600_000_000),
+        timestamp: mockBN(123456),
+      };
+      const parsed = parseBondReleasedEvent(raw);
+      expect(parsed.commitment.toBase58()).toBe(raw.commitment.toBase58());
+      expect(parsed.amount).toBe(600_000_000n);
+      expect(parsed.timestamp).toBe(123456);
+    });
+  });
+
+  describe('parseBondSlashedEvent', () => {
+    it('should parse slash payload including reason', () => {
+      const raw = {
+        agent: TEST_KEY,
+        commitment: new PublicKey('11111111111111111111111111111115'),
+        amount: mockBN(600_000_000),
+        reason: 1,
+        timestamp: mockBN(123456),
+      };
+      const parsed = parseBondSlashedEvent(raw);
+      expect(parsed.reason).toBe(1);
+      expect(parsed.amount).toBe(600_000_000n);
+      expect(parsed.timestamp).toBe(123456);
+    });
+  });
+
+  describe('parseSpeculativeCommitmentCreatedEvent', () => {
+    it('should parse commitment hash and expiry', () => {
+      const raw = {
+        task: TEST_KEY,
+        producer: new PublicKey('11111111111111111111111111111116'),
+        resultHash: Array.from(new Uint8Array(32)),
+        bondedStake: mockBN(500_000_000),
+        expiresAt: mockBN(7777777),
+        timestamp: mockBN(123456),
+      };
+      const parsed = parseSpeculativeCommitmentCreatedEvent(raw);
+      expect(parsed.task).toBe(TEST_KEY);
+      expect(parsed.producer.toBase58()).toBe(raw.producer.toBase58());
+      expect(parsed.resultHash).toBeInstanceOf(Uint8Array);
+      expect(parsed.resultHash.length).toBe(32);
+      expect(parsed.bondedStake).toBe(500_000_000n);
+      expect(parsed.expiresAt).toBe(7777777);
+      expect(parsed.timestamp).toBe(123456);
     });
   });
 });

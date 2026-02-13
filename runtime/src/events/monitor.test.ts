@@ -82,6 +82,70 @@ function createRawProtocolInitialized() {
   };
 }
 
+function createRawDependentTaskCreated() {
+  return {
+    taskId: new Uint8Array(32).fill(1),
+    creator: TEST_PUBKEY,
+    dependsOn: TEST_PUBKEY,
+    dependencyType: 1,
+    rewardMint: null,
+    timestamp: mockBN(1234567890),
+  };
+}
+
+function createRawDisputeCancelled() {
+  return {
+    disputeId: new Uint8Array(32).fill(2),
+    task: TEST_PUBKEY,
+    initiator: TEST_PUBKEY,
+    cancelledAt: mockBN(1234567890),
+  };
+}
+
+function createRawArbiterVotesCleanedUp() {
+  return {
+    disputeId: new Uint8Array(32).fill(2),
+    arbiterCount: 4,
+  };
+}
+
+function createRawRateLimitsUpdated() {
+  return {
+    taskCreationCooldown: mockBN(100),
+    maxTasksPer24h: 5,
+    disputeInitiationCooldown: mockBN(100),
+    maxDisputesPer24h: 2,
+    minStakeForDispute: mockBN(2_000_000),
+    updatedBy: TEST_PUBKEY,
+    timestamp: mockBN(1234567890),
+  };
+}
+
+function createRawProtocolFeeUpdated() {
+  return {
+    oldFeeBps: 100,
+    newFeeBps: 200,
+    updatedBy: TEST_PUBKEY,
+    timestamp: mockBN(1234567890),
+  };
+}
+
+function createRawAgentSuspended() {
+  return {
+    agentId: new Uint8Array(32).fill(7),
+    authority: TEST_PUBKEY,
+    timestamp: mockBN(1700001234),
+  };
+}
+
+function createRawAgentUnsuspended() {
+  return {
+    agentId: new Uint8Array(32).fill(8),
+    authority: TEST_PUBKEY,
+    timestamp: mockBN(1700001235),
+  };
+}
+
 describe('EventMonitor', () => {
   let mockProgram: ReturnType<typeof createMockProgram>;
 
@@ -159,12 +223,41 @@ describe('EventMonitor', () => {
       expect(monitor.getSubscriptionCount()).toBe(1);
     });
 
+    it('should register dependentTaskCreated task callback listener', () => {
+      const monitor = new EventMonitor({ program: mockProgram });
+      monitor.subscribeToTaskEvents({
+        onDependentTaskCreated: vi.fn(),
+      });
+      expect(mockProgram.addEventListener).toHaveBeenCalledWith(
+        'dependentTaskCreated',
+        expect.any(Function)
+      );
+      expect(monitor.getSubscriptionCount()).toBe(1);
+    });
+
     it('should register dispute event listeners immediately', () => {
       const monitor = new EventMonitor({ program: mockProgram });
       monitor.subscribeToDisputeEvents({
         onDisputeInitiated: vi.fn(),
       });
       expect(mockProgram.addEventListener).toHaveBeenCalledWith('disputeInitiated', expect.any(Function));
+      expect(monitor.getSubscriptionCount()).toBe(1);
+    });
+
+    it('should register additional dispute callback listeners', () => {
+      const monitor = new EventMonitor({ program: mockProgram });
+      monitor.subscribeToDisputeEvents({
+        onDisputeCancelled: vi.fn(),
+        onArbiterVotesCleanedUp: vi.fn(),
+      });
+      expect(mockProgram.addEventListener).toHaveBeenCalledWith(
+        'disputeCancelled',
+        expect.any(Function)
+      );
+      expect(mockProgram.addEventListener).toHaveBeenCalledWith(
+        'arbiterVotesCleanedUp',
+        expect.any(Function)
+      );
       expect(monitor.getSubscriptionCount()).toBe(1);
     });
 
@@ -177,12 +270,46 @@ describe('EventMonitor', () => {
       expect(monitor.getSubscriptionCount()).toBe(1);
     });
 
+    it('should register additional protocol callback listeners', () => {
+      const monitor = new EventMonitor({ program: mockProgram });
+      monitor.subscribeToProtocolEvents({
+        onRateLimitsUpdated: vi.fn(),
+        onProtocolFeeUpdated: vi.fn(),
+      });
+      expect(mockProgram.addEventListener).toHaveBeenCalledWith(
+        'rateLimitsUpdated',
+        expect.any(Function)
+      );
+      expect(mockProgram.addEventListener).toHaveBeenCalledWith(
+        'protocolFeeUpdated',
+        expect.any(Function)
+      );
+      expect(monitor.getSubscriptionCount()).toBe(1);
+    });
+
     it('should register agent event listeners immediately', () => {
       const monitor = new EventMonitor({ program: mockProgram });
       monitor.subscribeToAgentEvents({
         onRegistered: vi.fn(),
       });
       expect(mockProgram.addEventListener).toHaveBeenCalledWith('agentRegistered', expect.any(Function));
+      expect(monitor.getSubscriptionCount()).toBe(1);
+    });
+
+    it('should register missing-agent callback listeners', () => {
+      const monitor = new EventMonitor({ program: mockProgram });
+      monitor.subscribeToAgentEvents({
+        onSuspended: vi.fn(),
+        onUnsuspended: vi.fn(),
+      });
+      expect(mockProgram.addEventListener).toHaveBeenCalledWith(
+        'agentSuspended',
+        expect.any(Function)
+      );
+      expect(mockProgram.addEventListener).toHaveBeenCalledWith(
+        'agentUnsuspended',
+        expect.any(Function)
+      );
       expect(monitor.getSubscriptionCount()).toBe(1);
     });
 
@@ -309,6 +436,26 @@ describe('EventMonitor', () => {
       expect(metrics.eventCounts['protocolInitialized']).toBe(1);
     });
 
+    it('should track new callback event counts', () => {
+      const monitor = new EventMonitor({ program: mockProgram });
+      monitor.subscribeToTaskEvents({ onDependentTaskCreated: vi.fn() });
+      monitor.subscribeToDisputeEvents({ onDisputeCancelled: vi.fn() });
+      monitor.subscribeToProtocolEvents({ onRateLimitsUpdated: vi.fn() });
+      monitor.subscribeToAgentEvents({ onSuspended: vi.fn() });
+
+      mockProgram._emit('dependentTaskCreated', createRawDependentTaskCreated(), 100, 'sig1');
+      mockProgram._emit('disputeCancelled', createRawDisputeCancelled(), 101, 'sig2');
+      mockProgram._emit('rateLimitsUpdated', createRawRateLimitsUpdated(), 102, 'sig3');
+      mockProgram._emit('agentSuspended', createRawAgentSuspended(), 103, 'sig4');
+
+      const metrics = monitor.getMetrics();
+      expect(metrics.totalEventsReceived).toBe(4);
+      expect(metrics.eventCounts['dependentTaskCreated']).toBe(1);
+      expect(metrics.eventCounts['disputeCancelled']).toBe(1);
+      expect(metrics.eventCounts['rateLimitsUpdated']).toBe(1);
+      expect(metrics.eventCounts['agentSuspended']).toBe(1);
+    });
+
     it('should compute uptimeMs correctly', () => {
       const monitor = new EventMonitor({ program: mockProgram });
       expect(monitor.getMetrics().uptimeMs).toBe(0);
@@ -385,6 +532,17 @@ describe('EventMonitor', () => {
       expect(monitor.getMetrics().eventCounts['protocolInitialized']).toBe(1);
     });
 
+    it('should wrap protocol event callbacks for newly added protocol events', () => {
+      const userCallback = vi.fn();
+      const monitor = new EventMonitor({ program: mockProgram });
+      monitor.subscribeToProtocolEvents({ onProtocolFeeUpdated: userCallback });
+
+      mockProgram._emit('protocolFeeUpdated', createRawProtocolFeeUpdated(), 100, 'sig1');
+
+      expect(userCallback).toHaveBeenCalledOnce();
+      expect(monitor.getMetrics().eventCounts['protocolFeeUpdated']).toBe(1);
+    });
+
     it('should wrap agent event callbacks for metrics', () => {
       const userCallback = vi.fn();
       const monitor = new EventMonitor({ program: mockProgram });
@@ -400,6 +558,39 @@ describe('EventMonitor', () => {
 
       expect(userCallback).toHaveBeenCalledOnce();
       expect(monitor.getMetrics().eventCounts['agentRegistered']).toBe(1);
+    });
+
+    it('should wrap new agent lifecycle callbacks for metrics', () => {
+      const userCallback = vi.fn();
+      const monitor = new EventMonitor({ program: mockProgram });
+      monitor.subscribeToAgentEvents({ onUnsuspended: userCallback });
+
+      mockProgram._emit('agentUnsuspended', createRawAgentUnsuspended(), 100, 'sig1');
+
+      expect(userCallback).toHaveBeenCalledOnce();
+      expect(monitor.getMetrics().eventCounts['agentUnsuspended']).toBe(1);
+    });
+
+    it('should wrap new dispute callbacks for metrics', () => {
+      const userCallback = vi.fn();
+      const monitor = new EventMonitor({ program: mockProgram });
+      monitor.subscribeToDisputeEvents({ onArbiterVotesCleanedUp: userCallback });
+
+      mockProgram._emit('arbiterVotesCleanedUp', createRawArbiterVotesCleanedUp(), 100, 'sig1');
+
+      expect(userCallback).toHaveBeenCalledOnce();
+      expect(monitor.getMetrics().eventCounts['arbiterVotesCleanedUp']).toBe(1);
+    });
+
+    it('should wrap dependentTaskCreated for metrics', () => {
+      const userCallback = vi.fn();
+      const monitor = new EventMonitor({ program: mockProgram });
+      monitor.subscribeToTaskEvents({ onDependentTaskCreated: userCallback });
+
+      mockProgram._emit('dependentTaskCreated', createRawDependentTaskCreated(), 100, 'sig1');
+
+      expect(userCallback).toHaveBeenCalledOnce();
+      expect(monitor.getMetrics().eventCounts['dependentTaskCreated']).toBe(1);
     });
   });
 });

@@ -9,6 +9,14 @@ import {
   subscribeToRateLimitHit,
   subscribeToMigrationCompleted,
   subscribeToProtocolVersionUpdated,
+  subscribeToRateLimitsUpdated,
+  subscribeToProtocolFeeUpdated,
+  subscribeToReputationChanged,
+  subscribeToBondDeposited,
+  subscribeToBondLocked,
+  subscribeToBondReleased,
+  subscribeToBondSlashed,
+  subscribeToSpeculativeCommitmentCreated,
   subscribeToAllProtocolEvents,
 } from './protocol';
 
@@ -112,6 +120,85 @@ function createRawProtocolVersionUpdated() {
     oldVersion: 1,
     newVersion: 2,
     minSupportedVersion: 1,
+    timestamp: mockBN(1234567890),
+  };
+}
+
+function createRawRateLimitsUpdated() {
+  return {
+    taskCreationCooldown: mockBN(300),
+    maxTasksPer24h: 5,
+    disputeInitiationCooldown: mockBN(120),
+    maxDisputesPer24h: 2,
+    minStakeForDispute: mockBN(777_777),
+    updatedBy: TEST_PUBKEY,
+    timestamp: mockBN(1234567890),
+  };
+}
+
+function createRawProtocolFeeUpdated() {
+  return {
+    oldFeeBps: 250,
+    newFeeBps: 300,
+    updatedBy: TEST_PUBKEY,
+    timestamp: mockBN(1234567890),
+  };
+}
+
+function createRawReputationChanged() {
+  return {
+    agentId: new Uint8Array(32).fill(7),
+    oldReputation: 50,
+    newReputation: 55,
+    reason: 1,
+    timestamp: mockBN(1234567890),
+  };
+}
+
+function createRawBondDeposited() {
+  return {
+    agent: TEST_PUBKEY,
+    amount: mockBN(1_000_000_000),
+    newTotal: mockBN(2_000_000_000),
+    timestamp: mockBN(1234567890),
+  };
+}
+
+function createRawBondLocked() {
+  return {
+    agent: TEST_PUBKEY,
+    commitment: TEST_PUBKEY,
+    amount: mockBN(500_000_000),
+    timestamp: mockBN(1234567890),
+  };
+}
+
+function createRawBondReleased() {
+  return {
+    agent: TEST_PUBKEY,
+    commitment: TEST_PUBKEY,
+    amount: mockBN(500_000_000),
+    timestamp: mockBN(1234567890),
+  };
+}
+
+function createRawBondSlashed() {
+  return {
+    agent: TEST_PUBKEY,
+    commitment: TEST_PUBKEY,
+    amount: mockBN(250_000_000),
+    reason: 2,
+    timestamp: mockBN(1234567890),
+  };
+}
+
+function createRawSpeculativeCommitmentCreated() {
+  return {
+    task: TEST_PUBKEY,
+    producer: TEST_PUBKEY,
+    resultHash: Array.from(new Uint8Array(32)),
+    bondedStake: mockBN(900_000_000),
+    expiresAt: mockBN(999_999),
     timestamp: mockBN(1234567890),
   };
 }
@@ -347,6 +434,221 @@ describe('Protocol Event Subscriptions', () => {
     });
   });
 
+  describe('subscribeToRateLimitsUpdated', () => {
+    it('registers with correct camelCase event name', () => {
+      const callback = vi.fn();
+      subscribeToRateLimitsUpdated(mockProgram, callback);
+
+      expect(mockProgram.addEventListener).toHaveBeenCalledWith(
+        'rateLimitsUpdated',
+        expect.any(Function)
+      );
+    });
+
+    it('parses raw events and forwards to callback', () => {
+      const callback = vi.fn();
+      subscribeToRateLimitsUpdated(mockProgram, callback);
+
+      mockProgram._emit('rateLimitsUpdated', createRawRateLimitsUpdated(), 700, 'sig7');
+
+      expect(callback).toHaveBeenCalledTimes(1);
+      const [event] = callback.mock.calls[0];
+      expect(event.taskCreationCooldown).toBe(300);
+      expect(event.maxTasksPer24h).toBe(5);
+      expect(event.disputeInitiationCooldown).toBe(120);
+      expect(event.maxDisputesPer24h).toBe(2);
+      expect(event.minStakeForDispute).toBe(777777n);
+      expect(event.updatedBy).toBe(TEST_PUBKEY);
+      expect(event.timestamp).toBe(1234567890);
+    });
+  });
+
+  describe('subscribeToProtocolFeeUpdated', () => {
+    it('registers with correct camelCase event name', () => {
+      const callback = vi.fn();
+      subscribeToProtocolFeeUpdated(mockProgram, callback);
+
+      expect(mockProgram.addEventListener).toHaveBeenCalledWith(
+        'protocolFeeUpdated',
+        expect.any(Function)
+      );
+    });
+
+    it('parses raw events and forwards to callback', () => {
+      const callback = vi.fn();
+      subscribeToProtocolFeeUpdated(mockProgram, callback);
+
+      mockProgram._emit('protocolFeeUpdated', createRawProtocolFeeUpdated(), 701, 'sig8');
+
+      expect(callback).toHaveBeenCalledTimes(1);
+      const [event] = callback.mock.calls[0];
+      expect(event.oldFeeBps).toBe(250);
+      expect(event.newFeeBps).toBe(300);
+      expect(event.updatedBy).toBe(TEST_PUBKEY);
+      expect(event.timestamp).toBe(1234567890);
+    });
+  });
+
+  describe('subscribeToReputationChanged', () => {
+    it('registers with correct camelCase event name', () => {
+      const callback = vi.fn();
+      subscribeToReputationChanged(mockProgram, callback);
+
+      expect(mockProgram.addEventListener).toHaveBeenCalledWith(
+        'reputationChanged',
+        expect.any(Function)
+      );
+    });
+
+    it('parses raw events and forwards to callback', () => {
+      const callback = vi.fn();
+      subscribeToReputationChanged(mockProgram, callback);
+
+      mockProgram._emit('reputationChanged', createRawReputationChanged(), 702, 'sig9');
+
+      expect(callback).toHaveBeenCalledTimes(1);
+      const [event] = callback.mock.calls[0];
+      expect(event.agentId).toBeInstanceOf(Uint8Array);
+      expect(event.oldReputation).toBe(50);
+      expect(event.newReputation).toBe(55);
+      expect(event.reason).toBe(1);
+      expect(event.timestamp).toBe(1234567890);
+    });
+  });
+
+  describe('subscribeToBondDeposited', () => {
+    it('registers with correct camelCase event name', () => {
+      const callback = vi.fn();
+      subscribeToBondDeposited(mockProgram, callback);
+
+      expect(mockProgram.addEventListener).toHaveBeenCalledWith(
+        'bondDeposited',
+        expect.any(Function)
+      );
+    });
+
+    it('parses raw events and forwards to callback', () => {
+      const callback = vi.fn();
+      subscribeToBondDeposited(mockProgram, callback);
+
+      mockProgram._emit('bondDeposited', createRawBondDeposited(), 703, 'sig10');
+
+      expect(callback).toHaveBeenCalledTimes(1);
+      const [event] = callback.mock.calls[0];
+      expect(event.agent).toBe(TEST_PUBKEY);
+      expect(event.amount).toBe(1_000_000_000n);
+      expect(event.newTotal).toBe(2_000_000_000n);
+      expect(event.timestamp).toBe(1234567890);
+    });
+  });
+
+  describe('subscribeToBondLocked', () => {
+    it('registers with correct camelCase event name', () => {
+      const callback = vi.fn();
+      subscribeToBondLocked(mockProgram, callback);
+
+      expect(mockProgram.addEventListener).toHaveBeenCalledWith(
+        'bondLocked',
+        expect.any(Function)
+      );
+    });
+
+    it('parses raw events and forwards to callback', () => {
+      const callback = vi.fn();
+      subscribeToBondLocked(mockProgram, callback);
+
+      mockProgram._emit('bondLocked', createRawBondLocked(), 704, 'sig11');
+
+      expect(callback).toHaveBeenCalledTimes(1);
+      const [event] = callback.mock.calls[0];
+      expect(event.agent).toBe(TEST_PUBKEY);
+      expect(event.commitment).toBe(TEST_PUBKEY);
+      expect(event.amount).toBe(500_000_000n);
+      expect(event.timestamp).toBe(1234567890);
+    });
+  });
+
+  describe('subscribeToBondReleased', () => {
+    it('registers with correct camelCase event name', () => {
+      const callback = vi.fn();
+      subscribeToBondReleased(mockProgram, callback);
+
+      expect(mockProgram.addEventListener).toHaveBeenCalledWith(
+        'bondReleased',
+        expect.any(Function)
+      );
+    });
+
+    it('parses raw events and forwards to callback', () => {
+      const callback = vi.fn();
+      subscribeToBondReleased(mockProgram, callback);
+
+      mockProgram._emit('bondReleased', createRawBondReleased(), 705, 'sig12');
+
+      expect(callback).toHaveBeenCalledTimes(1);
+      const [event] = callback.mock.calls[0];
+      expect(event.agent).toBe(TEST_PUBKEY);
+      expect(event.commitment).toBe(TEST_PUBKEY);
+      expect(event.amount).toBe(500_000_000n);
+      expect(event.timestamp).toBe(1234567890);
+    });
+  });
+
+  describe('subscribeToBondSlashed', () => {
+    it('registers with correct camelCase event name', () => {
+      const callback = vi.fn();
+      subscribeToBondSlashed(mockProgram, callback);
+
+      expect(mockProgram.addEventListener).toHaveBeenCalledWith(
+        'bondSlashed',
+        expect.any(Function)
+      );
+    });
+
+    it('parses raw events and forwards to callback', () => {
+      const callback = vi.fn();
+      subscribeToBondSlashed(mockProgram, callback);
+
+      mockProgram._emit('bondSlashed', createRawBondSlashed(), 706, 'sig13');
+
+      expect(callback).toHaveBeenCalledTimes(1);
+      const [event] = callback.mock.calls[0];
+      expect(event.agent).toBe(TEST_PUBKEY);
+      expect(event.commitment).toBe(TEST_PUBKEY);
+      expect(event.amount).toBe(250_000_000n);
+      expect(event.reason).toBe(2);
+      expect(event.timestamp).toBe(1234567890);
+    });
+  });
+
+  describe('subscribeToSpeculativeCommitmentCreated', () => {
+    it('registers with correct camelCase event name', () => {
+      const callback = vi.fn();
+      subscribeToSpeculativeCommitmentCreated(mockProgram, callback);
+
+      expect(mockProgram.addEventListener).toHaveBeenCalledWith(
+        'speculativeCommitmentCreated',
+        expect.any(Function)
+      );
+    });
+
+    it('parses raw events and forwards to callback', () => {
+      const callback = vi.fn();
+      subscribeToSpeculativeCommitmentCreated(mockProgram, callback);
+
+      mockProgram._emit('speculativeCommitmentCreated', createRawSpeculativeCommitmentCreated(), 707, 'sig14');
+
+      expect(callback).toHaveBeenCalledTimes(1);
+      const [event] = callback.mock.calls[0];
+      expect(event.task).toBe(TEST_PUBKEY);
+      expect(event.producer).toBe(TEST_PUBKEY);
+      expect(event.resultHash).toBeInstanceOf(Uint8Array);
+      expect(event.bondedStake).toBe(900_000_000n);
+      expect(event.expiresAt).toBe(999999);
+      expect(event.timestamp).toBe(1234567890);
+    });
+  });
+
   describe('subscribeToAllProtocolEvents', () => {
     it('routes events to correct callbacks', () => {
       const callbacks = {
@@ -356,11 +658,19 @@ describe('Protocol Event Subscriptions', () => {
         onRateLimitHit: vi.fn(),
         onMigrationCompleted: vi.fn(),
         onProtocolVersionUpdated: vi.fn(),
+        onRateLimitsUpdated: vi.fn(),
+        onProtocolFeeUpdated: vi.fn(),
+        onReputationChanged: vi.fn(),
+        onBondDeposited: vi.fn(),
+        onBondLocked: vi.fn(),
+        onBondReleased: vi.fn(),
+        onBondSlashed: vi.fn(),
+        onSpeculativeCommitmentCreated: vi.fn(),
       };
 
       subscribeToAllProtocolEvents(mockProgram, callbacks);
 
-      expect(mockProgram.addEventListener).toHaveBeenCalledTimes(6);
+      expect(mockProgram.addEventListener).toHaveBeenCalledTimes(14);
 
       mockProgram._emit('stateUpdated', createRawStateUpdated(), 1, 'sig1');
       mockProgram._emit('protocolInitialized', createRawProtocolInitialized(), 2, 'sig2');
@@ -368,6 +678,14 @@ describe('Protocol Event Subscriptions', () => {
       mockProgram._emit('rateLimitHit', createRawRateLimitHit(), 4, 'sig4');
       mockProgram._emit('migrationCompleted', createRawMigrationCompleted(), 5, 'sig5');
       mockProgram._emit('protocolVersionUpdated', createRawProtocolVersionUpdated(), 6, 'sig6');
+      mockProgram._emit('rateLimitsUpdated', createRawRateLimitsUpdated(), 7, 'sig7');
+      mockProgram._emit('protocolFeeUpdated', createRawProtocolFeeUpdated(), 8, 'sig8');
+      mockProgram._emit('reputationChanged', createRawReputationChanged(), 9, 'sig9');
+      mockProgram._emit('bondDeposited', createRawBondDeposited(), 10, 'sig10');
+      mockProgram._emit('bondLocked', createRawBondLocked(), 11, 'sig11');
+      mockProgram._emit('bondReleased', createRawBondReleased(), 12, 'sig12');
+      mockProgram._emit('bondSlashed', createRawBondSlashed(), 13, 'sig13');
+      mockProgram._emit('speculativeCommitmentCreated', createRawSpeculativeCommitmentCreated(), 14, 'sig14');
 
       expect(callbacks.onStateUpdated).toHaveBeenCalledTimes(1);
       expect(callbacks.onProtocolInitialized).toHaveBeenCalledTimes(1);
@@ -375,6 +693,14 @@ describe('Protocol Event Subscriptions', () => {
       expect(callbacks.onRateLimitHit).toHaveBeenCalledTimes(1);
       expect(callbacks.onMigrationCompleted).toHaveBeenCalledTimes(1);
       expect(callbacks.onProtocolVersionUpdated).toHaveBeenCalledTimes(1);
+      expect(callbacks.onRateLimitsUpdated).toHaveBeenCalledTimes(1);
+      expect(callbacks.onProtocolFeeUpdated).toHaveBeenCalledTimes(1);
+      expect(callbacks.onReputationChanged).toHaveBeenCalledTimes(1);
+      expect(callbacks.onBondDeposited).toHaveBeenCalledTimes(1);
+      expect(callbacks.onBondLocked).toHaveBeenCalledTimes(1);
+      expect(callbacks.onBondReleased).toHaveBeenCalledTimes(1);
+      expect(callbacks.onBondSlashed).toHaveBeenCalledTimes(1);
+      expect(callbacks.onSpeculativeCommitmentCreated).toHaveBeenCalledTimes(1);
     });
 
     it('only subscribes to provided callbacks', () => {
@@ -396,12 +722,20 @@ describe('Protocol Event Subscriptions', () => {
         onRateLimitHit: vi.fn(),
         onMigrationCompleted: vi.fn(),
         onProtocolVersionUpdated: vi.fn(),
+        onRateLimitsUpdated: vi.fn(),
+        onProtocolFeeUpdated: vi.fn(),
+        onReputationChanged: vi.fn(),
+        onBondDeposited: vi.fn(),
+        onBondLocked: vi.fn(),
+        onBondReleased: vi.fn(),
+        onBondSlashed: vi.fn(),
+        onSpeculativeCommitmentCreated: vi.fn(),
       };
 
       const subscription = subscribeToAllProtocolEvents(mockProgram, callbacks);
       await subscription.unsubscribe();
 
-      expect(mockProgram.removeEventListener).toHaveBeenCalledTimes(6);
+      expect(mockProgram.removeEventListener).toHaveBeenCalledTimes(14);
     });
 
     it('applies filters to filterable events', () => {

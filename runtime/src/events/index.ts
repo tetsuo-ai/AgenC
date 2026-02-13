@@ -26,12 +26,15 @@ export {
   type TaskClaimedEvent,
   type TaskCompletedEvent,
   type TaskCancelledEvent,
+  type DependentTaskCreatedEvent,
 
   // Dispute event types (parsed)
   type DisputeInitiatedEvent,
   type DisputeVoteCastEvent,
   type DisputeResolvedEvent,
   type DisputeExpiredEvent,
+  type DisputeCancelledEvent,
+  type ArbiterVotesCleanedUpEvent,
 
   // Protocol event types (parsed)
   type StateUpdatedEvent,
@@ -40,6 +43,14 @@ export {
   type RateLimitHitEvent,
   type MigrationCompletedEvent,
   type ProtocolVersionUpdatedEvent,
+  type RateLimitsUpdatedEvent,
+  type ProtocolFeeUpdatedEvent,
+  type ReputationChangedEvent,
+  type BondDepositedEvent,
+  type BondLockedEvent,
+  type BondReleasedEvent,
+  type BondSlashedEvent,
+  type SpeculativeCommitmentCreatedEvent,
 
   // Callback interfaces
   type TaskEventCallbacks,
@@ -60,16 +71,27 @@ export {
   parseTaskClaimedEvent,
   parseTaskCompletedEvent,
   parseTaskCancelledEvent,
+  parseDependentTaskCreatedEvent,
   parseDisputeInitiatedEvent,
   parseDisputeVoteCastEvent,
   parseDisputeResolvedEvent,
   parseDisputeExpiredEvent,
+  parseDisputeCancelledEvent,
+  parseArbiterVotesCleanedUpEvent,
   parseStateUpdatedEvent,
   parseProtocolInitializedEvent,
   parseRewardDistributedEvent,
   parseRateLimitHitEvent,
   parseMigrationCompletedEvent,
   parseProtocolVersionUpdatedEvent,
+  parseRateLimitsUpdatedEvent,
+  parseProtocolFeeUpdatedEvent,
+  parseReputationChangedEvent,
+  parseBondDepositedEvent,
+  parseBondLockedEvent,
+  parseBondReleasedEvent,
+  parseBondSlashedEvent,
+  parseSpeculativeCommitmentCreatedEvent,
 } from './parse.js';
 
 // Task subscriptions
@@ -78,6 +100,7 @@ export {
   subscribeToTaskClaimed,
   subscribeToTaskCompleted,
   subscribeToTaskCancelled,
+  subscribeToDependentTaskCreated,
   subscribeToAllTaskEvents,
 } from './task.js';
 
@@ -87,6 +110,8 @@ export {
   subscribeToDisputeVoteCast,
   subscribeToDisputeResolved,
   subscribeToDisputeExpired,
+  subscribeToDisputeCancelled,
+  subscribeToArbiterVotesCleanedUp,
   subscribeToAllDisputeEvents,
 } from './dispute.js';
 
@@ -98,6 +123,14 @@ export {
   subscribeToRateLimitHit,
   subscribeToMigrationCompleted,
   subscribeToProtocolVersionUpdated,
+  subscribeToRateLimitsUpdated,
+  subscribeToProtocolFeeUpdated,
+  subscribeToReputationChanged,
+  subscribeToBondDeposited,
+  subscribeToBondLocked,
+  subscribeToBondReleased,
+  subscribeToBondSlashed,
+  subscribeToSpeculativeCommitmentCreated,
   subscribeToAllProtocolEvents,
 } from './protocol.js';
 

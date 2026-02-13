@@ -10,6 +10,8 @@ import type {
   AgentRegisteredEvent,
   AgentUpdatedEvent,
   AgentDeregisteredEvent,
+  AgentSuspendedEvent,
+  AgentUnsuspendedEvent,
 } from './types.js';
 import type { EventSubscription } from '../events/types.js';
 import { toUint8Array } from '../utils/encoding.js';
@@ -32,6 +34,10 @@ export interface AgentEventCallbacks {
   onUpdated?: AgentEventCallback<AgentUpdatedEvent>;
   /** Called when an agent is deregistered */
   onDeregistered?: AgentEventCallback<AgentDeregisteredEvent>;
+  /** Called when an agent is suspended */
+  onSuspended?: AgentEventCallback<AgentSuspendedEvent>;
+  /** Called when an agent is unsuspended */
+  onUnsuspended?: AgentEventCallback<AgentUnsuspendedEvent>;
 }
 
 /**
@@ -66,9 +72,18 @@ interface RawAgentDeregisteredEvent {
   timestamp: { toNumber: () => number };
 }
 
-/**
- * Parses a raw AgentRegistered event into typed form
- */
+interface RawAgentSuspendedEvent {
+  agentId: number[] | Uint8Array;
+  authority: PublicKey;
+  timestamp: { toNumber: () => number };
+}
+
+interface RawAgentUnsuspendedEvent {
+  agentId: number[] | Uint8Array;
+  authority: PublicKey;
+  timestamp: { toNumber: () => number };
+}
+
 function parseAgentRegisteredEvent(raw: RawAgentRegisteredEvent): AgentRegisteredEvent {
   return {
     agentId: toUint8Array(raw.agentId),
@@ -79,9 +94,6 @@ function parseAgentRegisteredEvent(raw: RawAgentRegisteredEvent): AgentRegistere
   };
 }
 
-/**
- * Parses a raw AgentUpdated event into typed form
- */
 function parseAgentUpdatedEvent(raw: RawAgentUpdatedEvent): AgentUpdatedEvent {
   return {
     agentId: toUint8Array(raw.agentId),
@@ -91,10 +103,23 @@ function parseAgentUpdatedEvent(raw: RawAgentUpdatedEvent): AgentUpdatedEvent {
   };
 }
 
-/**
- * Parses a raw AgentDeregistered event into typed form
- */
 function parseAgentDeregisteredEvent(raw: RawAgentDeregisteredEvent): AgentDeregisteredEvent {
+  return {
+    agentId: toUint8Array(raw.agentId),
+    authority: raw.authority,
+    timestamp: raw.timestamp.toNumber(),
+  };
+}
+
+function parseAgentSuspendedEvent(raw: RawAgentSuspendedEvent): AgentSuspendedEvent {
+  return {
+    agentId: toUint8Array(raw.agentId),
+    authority: raw.authority,
+    timestamp: raw.timestamp.toNumber(),
+  };
+}
+
+function parseAgentUnsuspendedEvent(raw: RawAgentUnsuspendedEvent): AgentUnsuspendedEvent {
   return {
     agentId: toUint8Array(raw.agentId),
     authority: raw.authority,
@@ -205,6 +230,58 @@ export function subscribeToAgentDeregistered(
 }
 
 /**
+ * Subscribes to AgentSuspended events.
+ *
+ * @param program - The Anchor program instance
+ * @param callback - Function called when an agent is suspended
+ * @param options - Optional filtering options
+ * @returns Subscription handle for unsubscribing
+ */
+export function subscribeToAgentSuspended(
+  program: Program<AgencCoordination>,
+  callback: AgentEventCallback<AgentSuspendedEvent>,
+  options?: EventSubscriptionOptions
+): EventSubscription {
+  return createEventSubscription<RawAgentSuspendedEvent, AgentSuspendedEvent, EventSubscriptionOptions>(
+    program,
+    {
+      eventName: 'agentSuspended',
+      parse: parseAgentSuspendedEvent,
+      getFilterId: (event) => event.agentId,
+      getFilterValue: (opts) => opts.agentId,
+    },
+    callback,
+    options,
+  );
+}
+
+/**
+ * Subscribes to AgentUnsuspended events.
+ *
+ * @param program - The Anchor program instance
+ * @param callback - Function called when an agent is unsuspended
+ * @param options - Optional filtering options
+ * @returns Subscription handle for unsubscribing
+ */
+export function subscribeToAgentUnsuspended(
+  program: Program<AgencCoordination>,
+  callback: AgentEventCallback<AgentUnsuspendedEvent>,
+  options?: EventSubscriptionOptions
+): EventSubscription {
+  return createEventSubscription<RawAgentUnsuspendedEvent, AgentUnsuspendedEvent, EventSubscriptionOptions>(
+    program,
+    {
+      eventName: 'agentUnsuspended',
+      parse: parseAgentUnsuspendedEvent,
+      getFilterId: (event) => event.agentId,
+      getFilterValue: (opts) => opts.agentId,
+    },
+    callback,
+    options,
+  );
+}
+
+/**
  * Subscribes to all agent-related events with a single subscription object.
  *
  * @param program - The Anchor program instance
@@ -247,6 +324,16 @@ export function subscribeToAllAgentEvents(
   if (callbacks.onDeregistered) {
     subscriptions.push(
       subscribeToAgentDeregistered(program, callbacks.onDeregistered, options)
+    );
+  }
+  if (callbacks.onSuspended) {
+    subscriptions.push(
+      subscribeToAgentSuspended(program, callbacks.onSuspended, options)
+    );
+  }
+  if (callbacks.onUnsuspended) {
+    subscriptions.push(
+      subscribeToAgentUnsuspended(program, callbacks.onUnsuspended, options)
     );
   }
 

@@ -49,6 +49,8 @@ export {
   type AgentRegisteredEvent,
   type AgentUpdatedEvent,
   type AgentDeregisteredEvent,
+  type AgentSuspendedEvent,
+  type AgentUnsuspendedEvent,
 } from './types.js';
 
 // PDA derivation helpers
@@ -67,6 +69,8 @@ export {
   subscribeToAgentRegistered,
   subscribeToAgentUpdated,
   subscribeToAgentDeregistered,
+  subscribeToAgentSuspended,
+  subscribeToAgentUnsuspended,
   subscribeToAllAgentEvents,
   type AgentEventCallback,
   type EventSubscription,

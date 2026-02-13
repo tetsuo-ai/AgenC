@@ -8,6 +8,7 @@ import {
   subscribeToTaskCompleted,
   subscribeToTaskCancelled,
   subscribeToAllTaskEvents,
+  subscribeToDependentTaskCreated,
 } from './task';
 
 function mockBN(value: bigint | number): { toNumber: () => number; toString: () => string } {
@@ -92,6 +93,17 @@ function createRawTaskCancelled(taskId?: Uint8Array) {
     taskId: Array.from(taskId ?? createId(1)),
     creator: TEST_PUBKEY,
     refundAmount: mockBN(1_000_000_000n),
+    timestamp: mockBN(1234567890),
+  };
+}
+
+function createRawDependentTaskCreated(taskId?: Uint8Array) {
+  return {
+    taskId: Array.from(taskId ?? createId(1)),
+    creator: TEST_PUBKEY,
+    dependsOn: TEST_PUBKEY,
+    dependencyType: 2,
+    rewardMint: null,
     timestamp: mockBN(1234567890),
   };
 }
@@ -285,6 +297,36 @@ describe('Task Event Subscriptions', () => {
     });
   });
 
+  describe('subscribeToDependentTaskCreated', () => {
+    it('registers with correct camelCase event name', () => {
+      const callback = vi.fn();
+      subscribeToDependentTaskCreated(mockProgram, callback);
+
+      expect(mockProgram.addEventListener).toHaveBeenCalledWith(
+        'dependentTaskCreated',
+        expect.any(Function)
+      );
+    });
+
+    it('parses raw events and forwards to callback', () => {
+      const callback = vi.fn();
+      subscribeToDependentTaskCreated(mockProgram, callback);
+
+      mockProgram._emit('dependentTaskCreated', createRawDependentTaskCreated(), 500, 'sig5');
+
+      expect(callback).toHaveBeenCalledTimes(1);
+      const [event, slot, sig] = callback.mock.calls[0];
+      expect(event.taskId).toBeInstanceOf(Uint8Array);
+      expect(event.creator).toBe(TEST_PUBKEY);
+      expect(event.dependsOn).toBe(TEST_PUBKEY);
+      expect(event.dependencyType).toBe(2);
+      expect(event.rewardMint).toBeNull();
+      expect(event.timestamp).toBe(1234567890);
+      expect(slot).toBe(500);
+      expect(sig).toBe('sig5');
+    });
+  });
+
   describe('subscribeToAllTaskEvents', () => {
     it('routes events to correct callbacks', () => {
       const callbacks = {
@@ -292,21 +334,24 @@ describe('Task Event Subscriptions', () => {
         onTaskClaimed: vi.fn(),
         onTaskCompleted: vi.fn(),
         onTaskCancelled: vi.fn(),
+        onDependentTaskCreated: vi.fn(),
       };
 
       subscribeToAllTaskEvents(mockProgram, callbacks);
 
-      expect(mockProgram.addEventListener).toHaveBeenCalledTimes(4);
+      expect(mockProgram.addEventListener).toHaveBeenCalledTimes(5);
 
       mockProgram._emit('taskCreated', createRawTaskCreated(), 1, 'sig1');
       mockProgram._emit('taskClaimed', createRawTaskClaimed(), 2, 'sig2');
       mockProgram._emit('taskCompleted', createRawTaskCompleted(), 3, 'sig3');
       mockProgram._emit('taskCancelled', createRawTaskCancelled(), 4, 'sig4');
+      mockProgram._emit('dependentTaskCreated', createRawDependentTaskCreated(), 5, 'sig5');
 
       expect(callbacks.onTaskCreated).toHaveBeenCalledTimes(1);
       expect(callbacks.onTaskClaimed).toHaveBeenCalledTimes(1);
       expect(callbacks.onTaskCompleted).toHaveBeenCalledTimes(1);
       expect(callbacks.onTaskCancelled).toHaveBeenCalledTimes(1);
+      expect(callbacks.onDependentTaskCreated).toHaveBeenCalledTimes(1);
     });
 
     it('only subscribes to provided callbacks', () => {
@@ -329,12 +374,13 @@ describe('Task Event Subscriptions', () => {
         onTaskClaimed: vi.fn(),
         onTaskCompleted: vi.fn(),
         onTaskCancelled: vi.fn(),
+        onDependentTaskCreated: vi.fn(),
       };
 
       const subscription = subscribeToAllTaskEvents(mockProgram, callbacks);
       await subscription.unsubscribe();
 
-      expect(mockProgram.removeEventListener).toHaveBeenCalledTimes(4);
+      expect(mockProgram.removeEventListener).toHaveBeenCalledTimes(5);
     });
 
     it('applies taskId filter to all subscriptions', () => {

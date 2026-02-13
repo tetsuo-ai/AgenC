@@ -14,6 +14,8 @@ import type {
   TaskCancelledEvent,
   TaskEventCallbacks,
   TaskEventFilterOptions,
+  DependentTaskCreatedEvent,
+  RawDependentTaskCreatedEvent,
   RawTaskCreatedEvent,
   RawTaskClaimedEvent,
   RawTaskCompletedEvent,
@@ -24,6 +26,7 @@ import {
   parseTaskClaimedEvent,
   parseTaskCompletedEvent,
   parseTaskCancelledEvent,
+  parseDependentTaskCreatedEvent,
 } from './parse.js';
 import { createEventSubscription } from './factory.js';
 
@@ -132,6 +135,28 @@ export function subscribeToTaskCancelled(
 }
 
 /**
+ * Subscribes to DependentTaskCreated events.
+ *
+ * @param program - The Anchor program instance
+ * @param callback - Function called when a dependent task is created
+ * @param options - Optional filtering options (not currently supported for this event)
+ * @returns Subscription handle for unsubscribing
+ */
+export function subscribeToDependentTaskCreated(
+  program: Program<AgencCoordination>,
+  callback: EventCallback<DependentTaskCreatedEvent>,
+): EventSubscription {
+  return createEventSubscription<RawDependentTaskCreatedEvent, DependentTaskCreatedEvent, never>(
+    program,
+    {
+      eventName: 'dependentTaskCreated',
+      parse: parseDependentTaskCreatedEvent,
+    },
+    callback,
+  );
+}
+
+/**
  * Subscribes to all task-related events with a single subscription object.
  *
  * @param program - The Anchor program instance
@@ -157,6 +182,9 @@ export function subscribeToAllTaskEvents(
   }
   if (callbacks.onTaskCancelled) {
     subscriptions.push(subscribeToTaskCancelled(program, callbacks.onTaskCancelled, options));
+  }
+  if (callbacks.onDependentTaskCreated) {
+    subscriptions.push(subscribeToDependentTaskCreated(program, callbacks.onDependentTaskCreated));
   }
 
   return {
