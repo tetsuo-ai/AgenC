@@ -3,9 +3,10 @@ import { rmSync, writeFileSync } from 'node:fs';
 import { mkdtempSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { parseArgv } from '../src/cli/index.js';
 import { runCli } from '../src/cli/index.js';
+import * as cliReplay from '../src/cli/replay.js';
 
 interface CliCapture {
   stream: Writable;
@@ -88,6 +89,22 @@ async function runCliCapture(argv: string[]): Promise<{
 }
 
 describe('runtime cli foundation', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  const stubReplayBackfill = (): void => {
+    const store = cliReplay.createReplayStore({ storeType: 'memory' });
+    vi.spyOn(cliReplay, 'createReplayStore').mockReturnValue(store);
+    vi.spyOn(cliReplay, 'createOnChainReplayBackfillFetcher').mockReturnValue({
+      fetchPage: async () => ({
+        events: [],
+        nextCursor: null,
+        done: true,
+      }),
+    });
+  };
+
   it('parses short and long options in a deterministic record', () => {
     const parsed = parseArgv([
       'replay',
@@ -184,6 +201,7 @@ describe('runtime cli foundation', () => {
 
   it('loads cli defaults from config file', async () => {
     const workspace = createTempWorkspace();
+    stubReplayBackfill();
     writeJsonConfig(workspace, {
       rpcUrl: 'https://config.rpc',
       storeType: 'memory',
@@ -191,7 +209,14 @@ describe('runtime cli foundation', () => {
       idempotencyWindow: 123,
     });
 
-    const result = await withCwd(workspace, () => runCliCapture(['replay', 'backfill', '--to-slot', '123']));
+    const result = await withCwd(workspace, () => runCliCapture([
+      'replay',
+      'backfill',
+      '--to-slot',
+      '123',
+      '--rpc',
+      'https://config.rpc',
+    ]));
 
     const parsed = JSON.parse(result.stdout.trim()) as {
       status: string;
@@ -226,6 +251,8 @@ describe('runtime cli foundation', () => {
     process.env.AGENC_RUNTIME_IDEMPOTENCY_WINDOW = '321';
     delete process.env.AGENC_RUNTIME_RPC_URL;
 
+    stubReplayBackfill();
+
     try {
       const result = await withCwd(workspace, () => runCliCapture([
         'replay',
@@ -234,6 +261,8 @@ describe('runtime cli foundation', () => {
         '321',
         '--store-type',
         'memory',
+        '--rpc',
+        'https://cli.rpc',
       ]));
 
       const parsed = JSON.parse(result.stdout.trim()) as {
