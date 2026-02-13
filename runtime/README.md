@@ -913,13 +913,15 @@ yarn build
 - [x] **Phase 1**: Core Runtime + Agent Manager
 - [x] **Phase 2**: Event Monitoring (17 protocol events)
 - [x] **Phase 3**: Task Executor (Discovery → Claim → Execute → Submit)
-- [ ] **Phase 4**: LLM Adapters (Grok, Anthropic, Ollama)
-- [ ] **Phase 5**: Tool System (MCP-compatible)
-- [ ] **Phase 6**: Memory Backends (SQLite, Redis)
-- [ ] **Phase 7**: ZK Proof Integration
-- [ ] **Phase 8**: Dispute Handling
-- [ ] **Phase 9**: Examples and Documentation ✅
-- [ ] **Phase 10**: Production Hardening
+- [ ] **Phase 4**: Deterministic Observability & Replay Pipeline (Epic #920)
+- [ ] See [observability epic plan](./docs/observability-epic-920.md) for implementation details.
+- [ ] **Phase 5**: LLM Adapters (Grok, Anthropic, Ollama)
+- [ ] **Phase 6**: Tool System (MCP-compatible)
+- [ ] **Phase 7**: Memory Backends (SQLite, Redis)
+- [ ] **Phase 8**: ZK Proof Integration
+- [ ] **Phase 9**: Dispute Handling
+- [ ] **Phase 10**: Examples and Documentation ✅
+- [ ] **Phase 11**: Production Hardening
 
 ## License
 
