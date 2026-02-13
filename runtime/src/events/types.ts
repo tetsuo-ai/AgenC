@@ -111,6 +111,15 @@ export interface RawTaskCancelledEvent {
   timestamp: { toNumber: () => number };
 }
 
+export interface RawDependentTaskCreatedEvent {
+  taskId: number[] | Uint8Array;
+  creator: PublicKey;
+  dependsOn: PublicKey;
+  dependencyType: number;                              // u8
+  rewardMint: PublicKey | null;
+  timestamp: { toNumber: () => number };
+}
+
 // --- Dispute Raw Events ---
 
 export interface RawDisputeInitiatedEvent {
@@ -143,6 +152,32 @@ export interface RawDisputeExpiredEvent {
   disputeId: number[] | Uint8Array;
   taskId: number[] | Uint8Array;
   refundAmount: { toString: () => string };           // u64 -> BN
+  timestamp: { toNumber: () => number };
+}
+
+export interface RawDisputeCancelledEvent {
+  disputeId: number[] | Uint8Array;
+  task: PublicKey;
+  initiator: PublicKey;
+  cancelledAt: { toNumber: () => number };
+}
+
+export interface RawArbiterVotesCleanedUpEvent {
+  disputeId: number[] | Uint8Array;
+  arbiterCount: number;
+}
+
+// --- Agent Raw Events ---
+
+export interface RawAgentSuspendedEvent {
+  agentId: number[] | Uint8Array;
+  authority: PublicKey;
+  timestamp: { toNumber: () => number };
+}
+
+export interface RawAgentUnsuspendedEvent {
+  agentId: number[] | Uint8Array;
+  authority: PublicKey;
   timestamp: { toNumber: () => number };
 }
 
@@ -195,6 +230,69 @@ export interface RawProtocolVersionUpdatedEvent {
   timestamp: { toNumber: () => number };
 }
 
+export interface RawRateLimitsUpdatedEvent {
+  taskCreationCooldown: { toNumber: () => number };   // i64 -> BN
+  maxTasksPer24h: number;                            // u8
+  disputeInitiationCooldown: { toNumber: () => number }; // i64 -> BN
+  maxDisputesPer24h: number;                         // u8
+  minStakeForDispute: { toString: () => string };     // u64 -> BN
+  updatedBy: PublicKey;
+  timestamp: { toNumber: () => number };
+}
+
+export interface RawProtocolFeeUpdatedEvent {
+  oldFeeBps: number;                                 // u16
+  newFeeBps: number;                                 // u16
+  updatedBy: PublicKey;
+  timestamp: { toNumber: () => number };
+}
+
+export interface RawReputationChangedEvent {
+  agentId: number[] | Uint8Array;
+  oldReputation: number;                             // u16
+  newReputation: number;                             // u16
+  reason: number;                                    // u8
+  timestamp: { toNumber: () => number };
+}
+
+export interface RawBondDepositedEvent {
+  agent: PublicKey;
+  amount: { toString: () => string };                // u64 -> BN
+  newTotal: { toString: () => string };              // u64 -> BN
+  timestamp: { toNumber: () => number };
+}
+
+export interface RawBondLockedEvent {
+  agent: PublicKey;
+  commitment: PublicKey;
+  amount: { toString: () => string };                // u64 -> BN
+  timestamp: { toNumber: () => number };
+}
+
+export interface RawBondReleasedEvent {
+  agent: PublicKey;
+  commitment: PublicKey;
+  amount: { toString: () => string };                // u64 -> BN
+  timestamp: { toNumber: () => number };
+}
+
+export interface RawBondSlashedEvent {
+  agent: PublicKey;
+  commitment: PublicKey;
+  amount: { toString: () => string };                // u64 -> BN
+  reason: number;                                    // u8
+  timestamp: { toNumber: () => number };
+}
+
+export interface RawSpeculativeCommitmentCreatedEvent {
+  task: PublicKey;
+  producer: PublicKey;
+  resultHash: number[] | Uint8Array;                 // [u8; 32]
+  bondedStake: { toString: () => string };            // u64 -> BN
+  expiresAt: { toNumber: () => number };             // i64 -> BN
+  timestamp: { toNumber: () => number };
+}
+
 // ============================================================================
 // Parsed Event Interfaces (developer-friendly types)
 // ============================================================================
@@ -234,6 +332,15 @@ export interface TaskCancelledEvent {
   timestamp: number;
 }
 
+export interface DependentTaskCreatedEvent {
+  taskId: Uint8Array;
+  creator: PublicKey;
+  dependsOn: PublicKey;
+  dependencyType: number;
+  rewardMint: PublicKey | null;
+  timestamp: number;
+}
+
 // --- Dispute Parsed Events ---
 
 export interface DisputeInitiatedEvent {
@@ -266,6 +373,30 @@ export interface DisputeExpiredEvent {
   disputeId: Uint8Array;
   taskId: Uint8Array;
   refundAmount: bigint;
+  timestamp: number;
+}
+
+export interface DisputeCancelledEvent {
+  disputeId: Uint8Array;
+  task: PublicKey;
+  initiator: PublicKey;
+  cancelledAt: number;
+}
+
+export interface ArbiterVotesCleanedUpEvent {
+  disputeId: Uint8Array;
+  arbiterCount: number;
+}
+
+export interface AgentSuspendedEvent {
+  agentId: Uint8Array;
+  authority: PublicKey;
+  timestamp: number;
+}
+
+export interface AgentUnsuspendedEvent {
+  agentId: Uint8Array;
+  authority: PublicKey;
   timestamp: number;
 }
 
@@ -318,6 +449,69 @@ export interface ProtocolVersionUpdatedEvent {
   timestamp: number;
 }
 
+export interface RateLimitsUpdatedEvent {
+  taskCreationCooldown: number;
+  maxTasksPer24h: number;
+  disputeInitiationCooldown: number;
+  maxDisputesPer24h: number;
+  minStakeForDispute: bigint;
+  updatedBy: PublicKey;
+  timestamp: number;
+}
+
+export interface ProtocolFeeUpdatedEvent {
+  oldFeeBps: number;
+  newFeeBps: number;
+  updatedBy: PublicKey;
+  timestamp: number;
+}
+
+export interface ReputationChangedEvent {
+  agentId: Uint8Array;
+  oldReputation: number;
+  newReputation: number;
+  reason: number;
+  timestamp: number;
+}
+
+export interface BondDepositedEvent {
+  agent: PublicKey;
+  amount: bigint;
+  newTotal: bigint;
+  timestamp: number;
+}
+
+export interface BondLockedEvent {
+  agent: PublicKey;
+  commitment: PublicKey;
+  amount: bigint;
+  timestamp: number;
+}
+
+export interface BondReleasedEvent {
+  agent: PublicKey;
+  commitment: PublicKey;
+  amount: bigint;
+  timestamp: number;
+}
+
+export interface BondSlashedEvent {
+  agent: PublicKey;
+  commitment: PublicKey;
+  amount: bigint;
+  reason: number;
+  timestamp: number;
+}
+
+export interface SpeculativeCommitmentCreatedEvent {
+  task: PublicKey;
+  producer: PublicKey;
+  resultHash: Uint8Array;
+  bondedStake: bigint;
+  expiresAt: number;
+  timestamp: number;
+}
+
 // ============================================================================
 // Callback Interfaces
 // ============================================================================
@@ -329,6 +523,7 @@ export interface TaskEventCallbacks {
   onTaskClaimed?: EventCallback<TaskClaimedEvent>;
   onTaskCompleted?: EventCallback<TaskCompletedEvent>;
   onTaskCancelled?: EventCallback<TaskCancelledEvent>;
+  onDependentTaskCreated?: EventCallback<DependentTaskCreatedEvent>;
 }
 
 export interface TaskEventFilterOptions {
@@ -343,6 +538,8 @@ export interface DisputeEventCallbacks {
   onDisputeVoteCast?: EventCallback<DisputeVoteCastEvent>;
   onDisputeResolved?: EventCallback<DisputeResolvedEvent>;
   onDisputeExpired?: EventCallback<DisputeExpiredEvent>;
+  onDisputeCancelled?: EventCallback<DisputeCancelledEvent>;
+  onArbiterVotesCleanedUp?: EventCallback<ArbiterVotesCleanedUpEvent>;
 }
 
 export interface DisputeEventFilterOptions {
@@ -359,6 +556,14 @@ export interface ProtocolEventCallbacks {
   onRateLimitHit?: EventCallback<RateLimitHitEvent>;
   onMigrationCompleted?: EventCallback<MigrationCompletedEvent>;
   onProtocolVersionUpdated?: EventCallback<ProtocolVersionUpdatedEvent>;
+  onRateLimitsUpdated?: EventCallback<RateLimitsUpdatedEvent>;
+  onProtocolFeeUpdated?: EventCallback<ProtocolFeeUpdatedEvent>;
+  onReputationChanged?: EventCallback<ReputationChangedEvent>;
+  onBondDeposited?: EventCallback<BondDepositedEvent>;
+  onBondLocked?: EventCallback<BondLockedEvent>;
+  onBondReleased?: EventCallback<BondReleasedEvent>;
+  onBondSlashed?: EventCallback<BondSlashedEvent>;
+  onSpeculativeCommitmentCreated?: EventCallback<SpeculativeCommitmentCreatedEvent>;
 }
 
 export interface ProtocolEventFilterOptions {
