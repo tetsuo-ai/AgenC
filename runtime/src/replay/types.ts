@@ -61,6 +61,29 @@ export interface ReplayTimelineStore {
   clear(): Promise<void>;
 }
 
+export interface ReplayTimelineRetentionPolicy {
+  /** Retain events newer than this TTL in milliseconds. */
+  ttlMs?: number;
+  /** Keep only the most recent N events for a task. */
+  maxEventsPerTask?: number;
+  /** Keep only the most recent N events for a dispute timeline. */
+  maxEventsPerDispute?: number;
+  /** Keep only the most recent N events overall in the store. */
+  maxEventsTotal?: number;
+}
+
+export interface ReplayTimelineCompactionPolicy {
+  /** Run compacting operations when enabled. Defaults to `false`. */
+  enabled?: boolean;
+  /** Number of save operations between SQLite VACUUM calls. */
+  compactAfterWrites?: number;
+}
+
+export interface ReplayTimelineStoreConfig {
+  retention?: ReplayTimelineRetentionPolicy;
+  compaction?: ReplayTimelineCompactionPolicy;
+}
+
 export interface BackfillFetcher {
   fetchPage(
     cursor: ReplayEventCursor | null,

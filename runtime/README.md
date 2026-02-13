@@ -296,6 +296,19 @@ const runtime = new AgentRuntime({
       sampleRate: 1,
     },
     store: { type: 'sqlite', sqlitePath: '.agenc/replay-events.sqlite' },
+    // Optional retention and compaction for replay state.
+    // TTL and per-scope caps prevent unbounded growth.
+    // SQLite VACUUM compaction runs on a configurable save cadence.
+    retention: {
+      ttlMs: 86_400_000,
+      maxEventsPerTask: 10_000,
+      maxEventsPerDispute: 1_000,
+      maxEventsTotal: 100_000,
+    },
+    compaction: {
+      enabled: true,
+      compactAfterWrites: 250,
+    },
     backfill: {
       toSlot: 9_000_000,
       pageSize: 200,

@@ -6,14 +6,16 @@ import type {
   BackfillFetcher,
   BackfillResult,
   ReplayEventCursor,
+  ReplayTimelineCompactionPolicy,
+  ReplayTimelineRetentionPolicy,
   ReplayTimelineQuery,
   ReplayTimelineRecord,
   ReplayTimelineStore,
 } from './types.js';
 import {
-  FileReplayTimelineStore,
   InMemoryReplayTimelineStore,
   ReplayBackfillService,
+  SqliteReplayTimelineStore,
 } from './index.js';
 import { computeProjectionHash } from './types.js';
 import {
@@ -29,6 +31,8 @@ export type ReplayBridgeStoreType = 'memory' | 'sqlite';
 export interface ReplayBridgeStoreConfig {
   type: ReplayBridgeStoreType;
   sqlitePath?: string;
+  retention?: ReplayTimelineRetentionPolicy;
+  compaction?: ReplayTimelineCompactionPolicy;
 }
 
 export interface ReplayBridgeConfig {
@@ -114,7 +118,10 @@ function buildStore(
   const storeConfig = options.store ?? { type: 'memory' as const };
   if (storeConfig.type === 'sqlite' && storeConfig.sqlitePath) {
     fallbackLogger.debug(`ReplayBridge using sqlite store at ${storeConfig.sqlitePath}`);
-    return new FileReplayTimelineStore(storeConfig.sqlitePath);
+    return new SqliteReplayTimelineStore(storeConfig.sqlitePath, {
+      retention: storeConfig.retention,
+      compaction: storeConfig.compaction,
+    });
   }
 
   if (storeConfig.type === 'sqlite') {
