@@ -15,9 +15,11 @@ import { AgentManager } from './agent/manager.js';
 import { AgentState, AgentStatus, AgentRegistrationParams, AGENT_ID_LENGTH } from './agent/types.js';
 import { findAgentPda } from './agent/pda.js';
 import { EventMonitor } from './events/index.js';
+import { ReplayEventBridge, type ReplayBridgeConfig, type ReplayBridgeHandle } from './replay/bridge.js';
+import type { BackfillResult } from './replay/types.js';
 import { TaskExecutor } from './task/index.js';
 import type { TaskExecutorConfig } from './task/types.js';
-import type { AgentRuntimeConfig } from './types/config.js';
+import type { AgentRuntimeConfig, RuntimeReplayConfig, ReplayBackfillConfig } from './types/config.js';
 import type { Wallet } from './types/wallet.js';
 import { ensureWallet } from './types/wallet.js';
 import { Logger, createLogger, silentLogger } from './utils/logger.js';
@@ -77,6 +79,8 @@ export class AgentRuntime {
   // Runtime state
   private started = false;
   private shutdownHandlersRegistered = false;
+  private readonly replayBridge: ReplayBridgeHandle | null;
+  private readonly replayBackfillDefaults?: ReplayBackfillConfig;
 
   /**
    * Create a new AgentRuntime instance.
@@ -126,6 +130,10 @@ export class AgentRuntime {
       logger: this.logger,
       program: config.program as Program<AgencCoordination> | undefined,
     });
+
+    const replayConfig = config.replay;
+    this.replayBackfillDefaults = replayConfig?.backfill;
+    this.replayBridge = this.createReplayBridge(replayConfig);
 
     this.logger.debug('AgentRuntime created');
   }
@@ -200,6 +208,8 @@ export class AgentRuntime {
       state = await this.agentManager.updateStatus(AgentStatus.Active);
     }
 
+    await this.replayBridge?.start();
+
     this.started = true;
     this.logger.info(`AgentRuntime started successfully for ${shortId}`);
 
@@ -246,6 +256,9 @@ export class AgentRuntime {
         err instanceof Error ? err.message : String(err)
       );
     }
+
+    // Stop replay bridge before tearing down runtime subscriptions
+    await this.replayBridge?.stop();
 
     // Unsubscribe from all events
     await this.agentManager.unsubscribeAll();
@@ -375,6 +388,64 @@ export class AgentRuntime {
    */
   getAgentManager(): AgentManager {
     return this.agentManager;
+  }
+
+  /**
+   * Get the replay bridge handle for manual operations (query/backfill/debug tooling).
+   */
+  getReplayBridge(): ReplayBridgeHandle | null {
+    return this.replayBridge;
+  }
+
+  /**
+   * Run a manual replay backfill using configured defaults and provided overrides.
+   */
+  async runReplayBackfill(
+    options: {
+      fetcher: Parameters<ReplayBridgeHandle['runBackfill']>[0]['fetcher'];
+      toSlot?: number;
+      pageSize?: number;
+    },
+  ): Promise<BackfillResult> {
+    if (!this.replayBridge) {
+      throw new Error('Replay bridge is not enabled');
+    }
+
+    const toSlot = options.toSlot ?? this.replayBackfillDefaults?.toSlot;
+    if (typeof toSlot !== 'number' || !Number.isInteger(toSlot) || toSlot < 0) {
+      throw new Error('runReplayBackfill requires a valid toSlot');
+    }
+
+    return this.replayBridge.runBackfill({
+      fetcher: options.fetcher,
+      toSlot,
+      pageSize: options.pageSize ?? this.replayBackfillDefaults?.pageSize,
+    });
+  }
+
+  private createReplayBridge(
+    replayConfig?: RuntimeReplayConfig,
+  ): ReplayBridgeHandle | null {
+    if (!replayConfig?.enabled) {
+      return null;
+    }
+
+    const logger = replayConfig.traceLevel
+      ? createLogger(replayConfig.traceLevel, '[ReplayBridge]')
+      : this.logger;
+
+    const options: ReplayBridgeConfig = {
+      traceId: replayConfig.traceId,
+      projectionSeed: replayConfig.projectionSeed,
+      strictProjection: replayConfig.strictProjection,
+      store: replayConfig.store,
+      logger,
+    };
+
+    return ReplayEventBridge.create(
+      this.agentManager.getProgram(),
+      options,
+    );
   }
 
   /**

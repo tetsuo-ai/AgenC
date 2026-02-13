@@ -9,8 +9,11 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Connection, Keypair, Transaction, VersionedTransaction } from '@solana/web3.js';
 import { AgentRuntime } from './runtime.js';
 import { EventMonitor } from './events/index.js';
+import { AgentManager } from './agent/manager.js';
 import { TaskExecutor } from './task/index.js';
+import { AgentStatus } from './agent/types.js';
 import { ValidationError } from './types/errors.js';
+import { ReplayEventBridge, type ReplayBridgeHandle } from './replay/bridge.js';
 import type { Wallet } from './types/wallet.js';
 import { AGENT_ID_LENGTH } from './agent/types.js';
 import type { TaskOperations } from './task/operations.js';
@@ -22,6 +25,27 @@ const mockConnection = {
   getAccountInfo: vi.fn(),
   rpcEndpoint: 'https://api.devnet.solana.com',
 } as unknown as Connection;
+
+function createReplayBridgeHandle(): ReplayBridgeHandle {
+  const store = {
+    query: vi.fn(async () => []),
+    getCursor: vi.fn(async () => null),
+    saveCursor: vi.fn(async () => {}),
+    save: vi.fn(async () => ({ inserted: 0, duplicates: 0 })),
+    clear: vi.fn(async () => {}),
+  };
+
+  return {
+    start: vi.fn(async () => {}),
+    runBackfill: vi.fn(async () => ({ processed: 0, duplicates: 0, cursor: null })),
+    getStore: vi.fn(async () => store),
+    query: vi.fn(async () => []),
+    getCursor: vi.fn(async () => null),
+    clear: vi.fn(async () => {}),
+    saveCursor: vi.fn(async () => {}),
+    stop: vi.fn(async () => {}),
+  };
+}
 
 describe('AgentRuntime', () => {
   describe('constructor', () => {
@@ -490,6 +514,87 @@ describe('AgentRuntime', () => {
 
       const status = executor.getStatus();
       expect(status.mode).toBe('batch');
+    });
+  });
+
+  describe('replay integration', () => {
+    let createSpy: ReturnType<typeof vi.spyOn>;
+    let bridge: ReplayBridgeHandle;
+
+    beforeEach(() => {
+      bridge = createReplayBridgeHandle();
+      createSpy = vi.spyOn(ReplayEventBridge, 'create').mockReturnValue(bridge);
+    });
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it('creates replay bridge when enabled via runtime config', () => {
+      const keypair = Keypair.generate();
+      const runtime = new AgentRuntime({
+        connection: mockConnection,
+        wallet: keypair,
+        capabilities: 1n,
+        replay: {
+          enabled: true,
+        },
+        program: {} as any,
+      });
+
+      expect(createSpy).toHaveBeenCalledTimes(1);
+      expect(runtime.getReplayBridge()).toBe(bridge);
+    });
+
+    it('starts and stops replay bridge in runtime lifecycle', async () => {
+      const keypair = Keypair.generate();
+      const runtime = new AgentRuntime({
+        connection: mockConnection,
+        wallet: keypair,
+        capabilities: 1n,
+        replay: {
+          enabled: true,
+        },
+        program: {} as any,
+      });
+
+      const manager = runtime.getAgentManager();
+
+      vi.spyOn(AgentManager, 'agentExists').mockResolvedValue(true);
+      vi.spyOn(manager, 'load').mockResolvedValue({ status: AgentStatus.Active } as any);
+
+      await runtime.start();
+      expect(bridge.start).toHaveBeenCalledTimes(1);
+
+      vi.spyOn(manager, 'unsubscribeAll').mockResolvedValue(undefined);
+      await runtime.stop();
+      expect(bridge.stop).toHaveBeenCalledTimes(1);
+    });
+
+    it('uses backfill defaults when toSlot is omitted', async () => {
+      const keypair = Keypair.generate();
+      const runtime = new AgentRuntime({
+        connection: mockConnection,
+        wallet: keypair,
+        capabilities: 1n,
+        replay: {
+          enabled: true,
+          backfill: {
+            toSlot: 987,
+            pageSize: 4,
+          },
+        },
+        program: {} as any,
+      });
+
+      const runBackfill = vi.mocked(bridge.runBackfill);
+      const fetcher = { fetchPage: vi.fn(async () => ({ events: [], nextCursor: null, done: true })) };
+      await runtime.runReplayBackfill({ fetcher });
+      expect(runBackfill).toHaveBeenCalledWith({
+        fetcher,
+        toSlot: 987,
+        pageSize: 4,
+      });
     });
   });
 });
