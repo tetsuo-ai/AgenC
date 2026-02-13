@@ -27,6 +27,15 @@ export interface RuntimeReplayConfig {
   enabled?: boolean;
   /** Optional store configuration for replay timeline persistence */
   store?: ReplayBridgeStoreConfig;
+  /** Optional tracing and sampling policy for replay pipeline observability */
+  tracing?: {
+    /** Optional override trace identifier for replay activities */
+    traceId?: string;
+    /** Deterministic sample ratio in [0, 1], defaults to 1 */
+    sampleRate?: number;
+    /** Emit OpenTelemetry span names/fields (best-effort when deps are available) */
+    emitOtel?: boolean;
+  };
   /** Projection seed used to generate deterministic trace hashes */
   projectionSeed?: number;
   /** Propagate projection errors in strict mode */

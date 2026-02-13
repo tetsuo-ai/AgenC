@@ -7,11 +7,14 @@
 import { createHash } from 'node:crypto';
 import { stableStringifyJson, type JsonValue } from '../eval/types.js';
 import type { ProjectedTimelineEvent } from '../eval/projector.js';
+import type { ReplayTraceContext } from './trace.js';
 
 export interface ReplayEventCursor {
   slot: number;
   signature: string;
   eventName?: string;
+  traceId?: string;
+  traceSpanId?: string;
 }
 
 export interface ReplayTimelineRecord extends Omit<ProjectedTimelineEvent, 'payload'> {
@@ -19,6 +22,10 @@ export interface ReplayTimelineRecord extends Omit<ProjectedTimelineEvent, 'payl
   sourceEventType: string;
   disputePda?: string;
   projectionHash: string;
+  traceId?: string;
+  traceSpanId?: string;
+  traceParentSpanId?: string;
+  traceSampled?: boolean;
   payload: ProjectedTimelineEvent['payload'];
 }
 
@@ -74,6 +81,8 @@ export interface ProjectedTimelineInput {
   slot: number;
   signature: string;
   timestampMs?: number;
+  sourceEventSequence?: number;
+  traceContext?: ReplayTraceContext;
 }
 
 export interface BackfillResult {
@@ -98,7 +107,11 @@ export function stableReplayCursorString(cursor: ReplayEventCursor | null): stri
   if (!cursor) {
     return '';
   }
-  return `${cursor.slot}:${cursor.signature}:${cursor.eventName ?? ''}`;
+  const base = `${cursor.slot}:${cursor.signature}:${cursor.eventName ?? ''}`;
+  if (!cursor.traceId && !cursor.traceSpanId) {
+    return base;
+  }
+  return `${base}:${cursor.traceId ?? ''}:${cursor.traceSpanId ?? ''}`;
 }
 
 export function computeProjectionHash(event: ProjectedTimelineEvent): string {

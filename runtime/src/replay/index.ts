@@ -39,3 +39,12 @@ export {
   computeProjectionHash,
   stableReplayCursorString,
 } from './types.js';
+
+export {
+  buildReplayTraceContext,
+  toReplayTraceEnvelope,
+  type ReplayTraceContext,
+  type ReplayTraceEnvelope,
+  type ReplayTracingPolicy,
+  DEFAULT_TRACE_SAMPLE_RATE,
+} from './trace.js';
