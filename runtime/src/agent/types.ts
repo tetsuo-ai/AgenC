@@ -338,6 +338,32 @@ export interface AgentDeregisteredEvent {
   timestamp: number;
 }
 
+/**
+ * Event emitted when an agent is suspended.
+ * On-chain event name: AgentSuspended
+ */
+export interface AgentSuspendedEvent {
+  /** Agent identifier (32 bytes) */
+  agentId: Uint8Array;
+  /** Agent's signing authority */
+  authority: PublicKey;
+  /** Event timestamp (Unix seconds) */
+  timestamp: number;
+}
+
+/**
+ * Event emitted when an agent is unsuspended.
+ * On-chain event name: AgentUnsuspended
+ */
+export interface AgentUnsuspendedEvent {
+  /** Agent identifier (32 bytes) */
+  agentId: Uint8Array;
+  /** Agent's signing authority */
+  authority: PublicKey;
+  /** Event timestamp (Unix seconds) */
+  timestamp: number;
+}
+
 // ============================================================================
 // Raw Data Type Guards (for parsing Anchor account data)
 // ============================================================================
