@@ -13,6 +13,22 @@ export type ReplayBridgeStoreType = 'memory' | 'sqlite';
 export interface ReplayBridgeStoreConfig {
   type: ReplayBridgeStoreType;
   sqlitePath?: string;
+  retention?: {
+    /** Retain events newer than this TTL in milliseconds. */
+    ttlMs?: number;
+    /** Keep only the most recent N events for a task. */
+    maxEventsPerTask?: number;
+    /** Keep only the most recent N events for a dispute timeline. */
+    maxEventsPerDispute?: number;
+    /** Keep only the most recent N events in the store. */
+    maxEventsTotal?: number;
+  };
+  compaction?: {
+    /** Run compacting operations when enabled. */
+    enabled?: boolean;
+    /** Number of save operations between SQLite VACUUM calls. */
+    compactAfterWrites?: number;
+  };
 }
 
 export interface ReplayBackfillConfig {
