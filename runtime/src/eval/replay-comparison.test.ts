@@ -7,6 +7,7 @@ import {
 } from './replay-comparison.js';
 import { projectOnChainEvents } from './projector.js';
 import { buildReplayTraceContext } from '../replay/index.js';
+import { REPLAY_QUALITY_FIXTURE_V1 } from '../../tests/fixtures/replay-quality-fixture.v1.ts';
 
 function bytes(value: number, length = 32): Uint8Array {
   return Uint8Array.from({ length }, () => value);
@@ -240,6 +241,61 @@ describe('ReplayComparisonService', () => {
     const recordDisputeId = extractDisputeIdFromRecord(disputeRecord!);
     expect(missing?.context.disputePda).toBe(recordDisputeId);
     expect(report.disputeIds).toContain(recordDisputeId);
+  });
+
+  it('remains deterministic for a quality fixture trace across repeated comparisons', async () => {
+    const projection = projectOnChainEvents(REPLAY_QUALITY_FIXTURE_V1.onChainEvents, {
+      traceId: REPLAY_QUALITY_FIXTURE_V1.traceId,
+      seed: REPLAY_QUALITY_FIXTURE_V1.seed,
+    });
+    const records = makeRecordsWithHash(projection.events);
+
+    const first = await new ReplayComparisonService().compare({
+      projected: records,
+      localTrace: projection.trace,
+      options: {
+        strictness: 'lenient',
+      },
+    });
+    const second = await new ReplayComparisonService().compare({
+      projected: records,
+      localTrace: projection.trace,
+      options: {
+        strictness: 'lenient',
+      },
+    });
+
+    expect(first.status).toBe('mismatched');
+    expect(second.status).toBe('mismatched');
+    expect(first.localReplay.deterministicHash).toBe(second.localReplay.deterministicHash);
+    expect(first.projectedReplay.deterministicHash).toBe(second.projectedReplay.deterministicHash);
+    expect(first.anomalies.length).toBe(second.anomalies.length);
+  });
+
+  it('produces stable mismatch summaries for perturbations against fixture traces', async () => {
+    const projection = projectOnChainEvents(REPLAY_QUALITY_FIXTURE_V1.onChainEvents, {
+      traceId: REPLAY_QUALITY_FIXTURE_V1.traceId,
+      seed: REPLAY_QUALITY_FIXTURE_V1.seed,
+    });
+    const records = makeRecordsWithHash(projection.events);
+
+    const perturbed = records.map((record, index) => index === 12
+      ? { ...record, type: 'failed' as const }
+      : record);
+
+    const report = await new ReplayComparisonService().compare({
+      projected: perturbed,
+      localTrace: projection.trace,
+      options: {
+        strictness: 'lenient',
+      },
+    });
+
+    expect(report.status).toBe('mismatched');
+    expect(report.anomalies.map((entry) => entry.code)).toContain('type_mismatch');
+    expect(report.anomalies.map((entry) => entry.code)).toContain('hash_mismatch');
+    expect(report.mismatchCount).toBe(report.anomalies.length);
+    expect(report.anomalies.map((entry) => entry.code)).toContain('transition_invalid');
   });
 
   it('emits comparison metrics with mismatch and latency labels', async () => {

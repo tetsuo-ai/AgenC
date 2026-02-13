@@ -13,6 +13,7 @@ import {
   type ReplayTimelineRecord,
   stableReplayCursorString,
 } from './index.js';
+import { REPLAY_QUALITY_FIXTURE_V1 } from '../../tests/fixtures/replay-quality-fixture.v1.ts';
 
 function makeRecord(
   seq: number,
@@ -215,5 +216,81 @@ describe('replay storage', () => {
     expect(completed.duplicates).toBe(0);
     expect(stableReplayCursorString(completed.cursor)).toBe('');
     expect(fullTimeline).toHaveLength(2);
+  });
+
+  it('resumes checkpointed backfill using persisted cursor for canonical fixture window', async () => {
+    const fixtureEvents = REPLAY_QUALITY_FIXTURE_V1.onChainEvents.slice(0, 9);
+    const file = join(tmpdir(), `replay-store-quality-${randomUUID()}.json`);
+    const store = new FileReplayTimelineStore(file);
+
+    let callCount = 0;
+    let failAfterFirstPage = true;
+    const fetcher: BackfillFetcher = {
+      async fetchPage(cursor, toSlot, pageSize): Promise<{
+        events: readonly {
+          eventName: string;
+          event: unknown;
+          slot: number;
+          signature: string;
+          timestampMs?: number;
+        }[];
+        nextCursor: { slot: number; signature: string; eventName?: string } | null;
+        done: boolean;
+      }> {
+        callCount += 1;
+        if (toSlot !== 111) {
+          throw new Error(`unexpected toSlot: ${String(toSlot)}`);
+        }
+
+        const start = cursor
+          ? fixtureEvents.findIndex((entry) => entry.slot === cursor.slot && entry.signature === cursor.signature) + 1
+          : 0;
+
+        if (cursor && failAfterFirstPage) {
+          failAfterFirstPage = false;
+          throw new Error('simulated retryable source error');
+        }
+
+        if (start >= fixtureEvents.length) {
+          return { events: [], nextCursor: null, done: true };
+        }
+
+        const events = fixtureEvents.slice(start, start + pageSize);
+        const next = fixtureEvents[start + pageSize - 1];
+        return {
+          events: events.map((entry) => ({
+            eventName: entry.eventName,
+            event: entry.event,
+            slot: entry.slot,
+            signature: entry.signature,
+            timestampMs: entry.timestampMs,
+          })),
+          nextCursor: next
+            ? { slot: next.slot, signature: next.signature, eventName: next.eventName }
+            : null,
+          done: start + pageSize >= fixtureEvents.length,
+        };
+      },
+    };
+
+    const service = new ReplayBackfillService(store, {
+      toSlot: 111,
+      fetcher,
+      pageSize: 4,
+      tracePolicy: { traceId: REPLAY_QUALITY_FIXTURE_V1.traceId, sampleRate: 1 },
+    });
+
+    await expect(service.runBackfill()).rejects.toThrow('simulated retryable source error');
+
+    const persistedCursor = await store.getCursor();
+    expect(stableReplayCursorString(persistedCursor)).toContain('4:SIG_TASK_CLAIMED_A');
+
+    const recovered = await service.runBackfill();
+    const timeline = await store.query();
+
+    expect(recovered.processed).toBe(fixtureEvents.length - 4);
+    expect(recovered.duplicates).toBe(0);
+    expect(stableReplayCursorString(recovered.cursor)).toBe('');
+    expect(timeline).toHaveLength(fixtureEvents.length);
   });
 });

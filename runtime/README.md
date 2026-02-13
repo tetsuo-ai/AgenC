@@ -269,6 +269,99 @@ Notes:
 - Hash stability is guaranteed for the same trace + seed + replay config.
 - Legacy traces are migrated through `migrateTrajectoryTrace(...)`.
 
+### Deterministic Replay Operations
+
+The replay pipeline is deterministic and replayable for incident reconstruction. The canonical flow is:
+
+1. `on-chain events` from `ReplayEventBridge` (runtime) or fixture/replayer.
+2. `projectOnChainEvents` normalizes and orders events into a deterministic trajectory.
+3. `Backfill / store` persists projected records plus cursor checkpoints.
+4. `ReplayComparisonService` compares projected records against local traces.
+
+The `runReplayBackfill` API is available on runtime when replay capture is enabled:
+
+```typescript
+import { AgentRuntime } from '@agenc/runtime';
+
+const runtime = new AgentRuntime({
+  connection,
+  wallet,
+  capabilities: 0n,
+  programId,
+  logLevel: 'info',
+  replay: {
+    enabled: true,
+    traceId: 'incident-2026-02-13',
+    tracing: {
+      sampleRate: 1,
+    },
+    store: { type: 'sqlite', sqlitePath: '.agenc/replay-events.sqlite' },
+    backfill: {
+      toSlot: 9_000_000,
+      pageSize: 200,
+    },
+  },
+});
+await runtime.start();
+
+const fetcher = /* implement BackfillFetcher for your chain source */;
+const backfillResult = await runtime.runReplayBackfill({
+  toSlot: 9_000_000,
+  fetcher,
+});
+
+const cursor = await runtime.getReplayBridge()?.getCursor();
+console.log(backfillResult.processed, backfillResult.duplicates, cursor);
+await runtime.stop();
+```
+
+Project a local comparison and inspect hash anomalies:
+
+```typescript
+import { ReplayComparisonService } from '@agenc/runtime';
+
+const bridge = runtime.getReplayBridge();
+if (!bridge) throw new Error('replay not enabled');
+
+const projectedRecords = await bridge.query();
+const localTrace = /* trajectory trace from recorder */;
+
+const report = await new ReplayComparisonService().compare({
+  projected: projectedRecords,
+  localTrace,
+  options: {
+    strictness: 'lenient',
+    traceId: 'incident-2026-02-13',
+  },
+});
+
+console.log({
+  status: report.status,
+  mismatches: report.mismatchCount,
+  rate: report.matchRate,
+  localHash: report.localReplay.deterministicHash,
+  projectedHash: report.projectedReplay.deterministicHash,
+});
+```
+
+Mismatch interpretation:
+
+- `hash_mismatch`: hash-level replay drift, replayed event stream changed.
+- `type_mismatch`: same slot/signature context but different event type/state.
+- `task_id_mismatch` / `missing_event` / `unexpected_event`: task/dispute scope divergence.
+- `transition_invalid`: lifecycle sequence violation from transition validator.
+
+Incident smoke run:
+
+1. Enable replay with a deterministic `traceId`.
+2. Capture backfill window with `runReplayBackfill(...)`.
+3. Re-run backfill after failure; checkpoint cursor should continue from last saved state.
+4. Compare against target local trajectory with `ReplayComparisonService`.
+5. Export report JSON for incident writeup and rerun until clean or bounded by investigation window.
+
+Example canonical fixture:
+- `runtime/tests/fixtures/replay-quality-fixture.v1.ts`
+
 ### Workflow Optimizer Feature Store
 
 Extract deterministic optimizer-ready workflow features from runtime state:
