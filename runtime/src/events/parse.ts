@@ -50,6 +50,8 @@ export function parseTaskCreatedEvent(raw: RawTaskCreatedEvent): TaskCreatedEven
     rewardAmount: BigInt(raw.rewardAmount.toString()),
     taskType: raw.taskType,
     deadline: raw.deadline.toNumber(),
+    minReputation: raw.minReputation,
+    rewardMint: raw.rewardMint,
     timestamp: raw.timestamp.toNumber(),
   };
 }
@@ -75,6 +77,7 @@ export function parseTaskCompletedEvent(raw: RawTaskCompletedEvent): TaskComplet
     taskId: toUint8Array(raw.taskId),
     worker: raw.worker,
     proofHash: toUint8Array(raw.proofHash),
+    resultData: toUint8Array(raw.resultData),
     rewardPaid: BigInt(raw.rewardPaid.toString()),
     timestamp: raw.timestamp.toNumber(),
   };
@@ -116,6 +119,7 @@ export function parseDisputeInitiatedEvent(raw: RawDisputeInitiatedEvent): Dispu
     disputeId: toUint8Array(raw.disputeId),
     taskId: toUint8Array(raw.taskId),
     initiator: raw.initiator,
+    defendant: raw.defendant,
     resolutionType: raw.resolutionType,
     votingDeadline: raw.votingDeadline.toNumber(),
     timestamp: raw.timestamp.toNumber(),
@@ -143,6 +147,7 @@ export function parseDisputeResolvedEvent(raw: RawDisputeResolvedEvent): Dispute
   return {
     disputeId: toUint8Array(raw.disputeId),
     resolutionType: raw.resolutionType,
+    outcome: raw.outcome,
     votesFor: BigInt(raw.votesFor.toString()),
     votesAgainst: BigInt(raw.votesAgainst.toString()),
     timestamp: raw.timestamp.toNumber(),
@@ -157,6 +162,8 @@ export function parseDisputeExpiredEvent(raw: RawDisputeExpiredEvent): DisputeEx
     disputeId: toUint8Array(raw.disputeId),
     taskId: toUint8Array(raw.taskId),
     refundAmount: BigInt(raw.refundAmount.toString()),
+    creatorAmount: BigInt(raw.creatorAmount.toString()),
+    workerAmount: BigInt(raw.workerAmount.toString()),
     timestamp: raw.timestamp.toNumber(),
   };
 }
@@ -191,6 +198,7 @@ export function parseArbiterVotesCleanedUpEvent(raw: RawArbiterVotesCleanedUpEve
 export function parseStateUpdatedEvent(raw: RawStateUpdatedEvent): StateUpdatedEvent {
   return {
     stateKey: toUint8Array(raw.stateKey),
+    stateValue: toUint8Array(raw.stateValue),
     updater: raw.updater,
     version: BigInt(raw.version.toString()),
     timestamp: raw.timestamp.toNumber(),
