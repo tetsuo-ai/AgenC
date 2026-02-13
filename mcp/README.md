@@ -216,6 +216,14 @@ See also:
 - `runtime/docs/observability-incident-runbook.md`
 - `runtime/docs/replay-cli.md`
 
+## Schema Contracts
+
+- `agenc_replay_backfill` returns `replay.backfill.output.v1` and validates `status: "ok"` on success.
+- `agenc_replay_compare` returns `replay.compare.output.v1`.
+- `agenc_replay_incident` returns `replay.incident.output.v1`.
+- `agenc_replay_status` returns `replay.status.output.v1`.
+- Failure payloads across replay tools use `status: "error"` with `schema: "replay.*.output.v1"` and the specific error `code`.
+
 ## Architecture
 
 ```
