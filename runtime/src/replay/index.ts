@@ -17,6 +17,14 @@ export {
 } from './backfill.js';
 
 export {
+  ReplayEventBridge,
+  type ReplayBridgeConfig,
+  type ReplayBridgeBackfillOptions,
+  type ReplayBridgeHandle,
+  type ReplayBridgeStoreConfig,
+} from './bridge.js';
+
+export {
   ReplayHealth,
   ReplayTimelineQuery,
   ReplayTimelineStore,
