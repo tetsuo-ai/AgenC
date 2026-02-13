@@ -26,6 +26,9 @@ const FIXTURE_EVENTS = JSON.parse(
   readFileSync(new URL('./fixtures/replay-cli/onchain-events.json', import.meta.url), 'utf8'),
 ) as OnChainFixtureEvent[];
 const TASK_FIXTURE_EVENTS = FIXTURE_EVENTS.filter((entry) => entry.eventName.startsWith('task'));
+const SCHEMA_FIXTURE = JSON.parse(
+  readFileSync(new URL('./fixtures/replay-cli/replay-cli-output-schemas.json', import.meta.url), 'utf8'),
+);
 
 function createCapture(): CliCapture {
   const chunks: string[] = [];
@@ -111,6 +114,42 @@ function writeTraceFixture(
   return localTracePath;
 }
 
+function toTopLevelKeys(payload: Record<string, unknown>): string[] {
+  return Object.keys(payload).sort();
+}
+
+function assertOutputSchema(payload: Record<string, unknown>, expectedSchema: string, expectedCommand: string, schemaDef: { requiredTopLevel: string[]; optionalTopLevel?: string[] }): void {
+  expect(payload.status).toBe('ok');
+  expect(payload.schema).toBe(expectedSchema);
+  expect(payload.command).toBe(expectedCommand);
+
+  const requiredKeys = new Set(schemaDef.requiredTopLevel);
+  const optionalKeys = new Set(schemaDef.optionalTopLevel ?? []);
+  const allowedKeys = new Set([...requiredKeys, ...optionalKeys]);
+
+  for (const key of requiredKeys) {
+    expect(key in payload).toBe(true);
+  }
+
+  const actualKeys = toTopLevelKeys(payload);
+  for (const key of actualKeys) {
+    if (requiredKeys.has(key) || optionalKeys.has(key)) {
+      continue;
+    }
+    if (schemaDef.optionalTopLevel === undefined) {
+      continue;
+    }
+    throw new Error(`unexpected replay cli payload key: ${key}`);
+  }
+}
+
+function assertResultKeys(result: Record<string, unknown>, required: string[]): void {
+  const keys = new Set(Object.keys(result));
+  for (const key of required) {
+    expect(keys.has(key)).toBe(true);
+  }
+}
+
 describe('runtime replay cli commands', () => {
   let workspace = '';
 
@@ -148,30 +187,21 @@ describe('runtime replay cli commands', () => {
     ]);
 
     expect(result.code).toBe(0);
-    const payload = JSON.parse(result.stdout.trim()) as {
-      schema: string;
-      strictMode: boolean;
-      command: string;
-      result: {
-        status: string;
-        strictness: string;
-        anomalyIds: string[];
-        topAnomalies: Array<{
-          anomalyId: string;
-          code: string;
-          severity: string;
-          message: string;
-        }>;
-      };
-    };
+    const payload = JSON.parse(result.stdout.trim()) as Record<string, unknown>;
 
-    expect(payload.schema).toBe('replay.compare.output.v1');
-    expect(payload.command).toBe('replay.compare');
-    expect(payload.result.status).toBe('clean');
-    expect(payload.result.anomalyIds).toHaveLength(0);
-    expect(payload.result.topAnomalies).toHaveLength(0);
+    assertOutputSchema(
+      payload,
+      SCHEMA_FIXTURE.compare.schemaValue,
+      SCHEMA_FIXTURE.compare.commandValue,
+      SCHEMA_FIXTURE.compare,
+    );
+    assertResultKeys(payload.result as Record<string, unknown>, SCHEMA_FIXTURE.compare.resultRequired);
+
+    expect((payload.result as Record<string, unknown>).status).toBe('clean');
+    expect((payload.result as Record<string, unknown>).anomalyIds).toHaveLength(0);
+    expect((payload.result as Record<string, unknown>).topAnomalies).toHaveLength(0);
     expect(payload.strictMode).toBe(false);
-    expect(payload.result.strictness).toBe('lenient');
+    expect((payload.result as Record<string, unknown>).strictness).toBe('lenient');
   });
 
   it('emits replay compare mismatches when local traces diverge', async () => {
@@ -206,12 +236,17 @@ describe('runtime replay cli commands', () => {
     ]);
 
     expect(result.code).toBe(0);
-    const payload = JSON.parse(result.stdout.trim()) as {
-      result: { status: string; mismatchCount: number; anomalyIds: string[]; topAnomalies: Array<{ anomalyId: string }> };
-    };
-    expect(payload.result.status).toBe('mismatched');
-    expect(payload.result.mismatchCount).toBeGreaterThan(0);
-    expect(payload.result.anomalyIds).toHaveLength(payload.result.topAnomalies.length);
+    const payload = JSON.parse(result.stdout.trim()) as Record<string, unknown>;
+    assertOutputSchema(
+      payload,
+      SCHEMA_FIXTURE.compare.schemaValue,
+      SCHEMA_FIXTURE.compare.commandValue,
+      SCHEMA_FIXTURE.compare,
+    );
+    assertResultKeys(payload.result as Record<string, unknown>, SCHEMA_FIXTURE.compare.resultRequired);
+
+    expect((payload.result as Record<string, unknown>).status).toBe('mismatched');
+    expect((payload.result as Record<string, unknown>).mismatchCount).toBeGreaterThan(0);
   });
 
   it('returns a stable incident reconstruction summary with validation', async () => {
@@ -234,18 +269,16 @@ describe('runtime replay cli commands', () => {
     ]);
 
     expect(result.code).toBe(0);
-    const payload = JSON.parse(result.stdout.trim()) as {
-      schema: string;
-      summary: {
-        totalEvents: number;
-        taskPdaFilters: Array<string | undefined>;
-      };
-      validation: {
-        strictMode: boolean;
-        anomalyIds: string[];
-      };
-      commandParams: { taskPda?: string };
-    };
+    const payload = JSON.parse(result.stdout.trim()) as Record<string, unknown>;
+    assertOutputSchema(
+      payload,
+      SCHEMA_FIXTURE.incident.schemaValue,
+      SCHEMA_FIXTURE.incident.commandValue,
+      SCHEMA_FIXTURE.incident,
+    );
+    assertResultKeys(payload.summary as Record<string, unknown>, SCHEMA_FIXTURE.incident.summaryRequired);
+    assertResultKeys(payload.validation as Record<string, unknown>, SCHEMA_FIXTURE.incident.validationRequired);
+    assertResultKeys(payload.narrative as Record<string, unknown>, SCHEMA_FIXTURE.incident.narrativeRequired);
 
     expect(payload.schema).toBe('replay.incident.output.v1');
     expect(payload.summary.totalEvents).toBeGreaterThan(0);
@@ -296,6 +329,14 @@ describe('runtime replay cli commands', () => {
       result: { processed: number; duplicates: number; cursor: object | null };
     };
     expect(payload.schema).toBe('replay.backfill.output.v1');
+    assertOutputSchema(
+      payload,
+      SCHEMA_FIXTURE.backfill.schemaValue,
+      SCHEMA_FIXTURE.backfill.commandValue,
+      SCHEMA_FIXTURE.backfill,
+    );
+    assertResultKeys(payload.result as Record<string, unknown>, SCHEMA_FIXTURE.backfill.resultRequired);
+
     expect(payload.result.processed).toBeGreaterThan(0);
     expect(payload.result.duplicates).toBe(0);
   });
