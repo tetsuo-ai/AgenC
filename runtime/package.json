@@ -5,6 +5,9 @@
   "main": "dist/index.js",
   "module": "dist/index.mjs",
   "types": "dist/index.d.ts",
+  "bin": {
+    "agenc-runtime": "dist/bin/agenc-runtime.js"
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -15,7 +18,7 @@
   "files": ["dist", "idl", "README.md"],
   "scripts": {
     "prebuild": "npm run build --prefix ../sdk && node scripts/copy-idl.js",
-    "build": "tsup src/index.ts --format cjs,esm --dts --clean --external openai --external @anthropic-ai/sdk --external ollama --external better-sqlite3 --external ioredis --external @solana/spl-token",
+    "build": "tsup src/index.ts src/bin/agenc-runtime.ts --format cjs,esm --dts --clean --external openai --external @anthropic-ai/sdk --external ollama --external better-sqlite3 --external ioredis --external @solana/spl-token",
     "typecheck": "tsc --noEmit",
     "check-idl-drift": "tsx scripts/check-idl-drift.ts",
     "pretest": "npm run build --prefix ../sdk",
