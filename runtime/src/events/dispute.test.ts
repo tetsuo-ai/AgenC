@@ -62,6 +62,7 @@ function createRawDisputeInitiated(disputeId?: Uint8Array) {
     disputeId: Array.from(disputeId ?? createId(1)),
     taskId: Array.from(createId(2)),
     initiator: TEST_PUBKEY,
+    defendant: TEST_PUBKEY,
     resolutionType: 0,
     votingDeadline: mockBN(9999999),
     timestamp: mockBN(1234567890),
@@ -83,6 +84,7 @@ function createRawDisputeResolved(disputeId?: Uint8Array) {
   return {
     disputeId: Array.from(disputeId ?? createId(1)),
     resolutionType: 1,
+    outcome: 0,
     votesFor: mockBN(5n),
     votesAgainst: mockBN(2n),
     timestamp: mockBN(1234567890),
@@ -94,6 +96,8 @@ function createRawDisputeExpired(disputeId?: Uint8Array) {
     disputeId: Array.from(disputeId ?? createId(1)),
     taskId: Array.from(createId(2)),
     refundAmount: mockBN(1_000_000_000n),
+    creatorAmount: mockBN(400_000_000n),
+    workerAmount: mockBN(600_000_000n),
     timestamp: mockBN(1234567890),
   };
 }

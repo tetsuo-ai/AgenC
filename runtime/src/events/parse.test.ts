@@ -56,6 +56,8 @@ describe('Event Parse Functions', () => {
         rewardAmount: mockBN(1_000_000_000n),
         taskType: 0,
         deadline: mockBN(1234567890),
+        minReputation: 10,
+        rewardMint: TEST_KEY,
         timestamp: mockBN(789012),
       };
       const parsed = parseTaskCreatedEvent(raw);
@@ -65,6 +67,8 @@ describe('Event Parse Functions', () => {
       expect(parsed.rewardAmount).toBe(1_000_000_000n);
       expect(parsed.taskType).toBe(0);
       expect(parsed.deadline).toBe(1234567890);
+      expect(parsed.minReputation).toBe(10);
+      expect(parsed.rewardMint).toBe(TEST_KEY);
       expect(parsed.timestamp).toBe(789012);
     });
 
@@ -108,6 +112,7 @@ describe('Event Parse Functions', () => {
         taskId: Array.from({ length: 32 }, (_, i) => i),
         worker: new PublicKey('11111111111111111111111111111111'),
         proofHash: Array.from({ length: 32 }, (_, i) => 255 - i),
+        resultData: Array.from({ length: 64 }, (_, i) => i % 256),
         rewardPaid: mockBN(2_500_000_000n),
         timestamp: mockBN(789012),
       };
@@ -116,6 +121,9 @@ describe('Event Parse Functions', () => {
       expect(parsed.proofHash.length).toBe(32);
       expect(parsed.proofHash[0]).toBe(255);
       expect(parsed.rewardPaid).toBe(2_500_000_000n);
+      expect(parsed.resultData).toBeInstanceOf(Uint8Array);
+      expect(parsed.resultData.length).toBe(64);
+      expect(parsed.resultData[0]).toBe(0);
     });
   });
 
@@ -158,6 +166,7 @@ describe('Event Parse Functions', () => {
         disputeId: Array.from({ length: 32 }, (_, i) => i),
         taskId: Array.from({ length: 32 }, (_, i) => 32 + i),
         initiator: new PublicKey('11111111111111111111111111111111'),
+        defendant: new PublicKey('11111111111111111111111111111112'),
         resolutionType: 0,
         votingDeadline: mockBN(999999),
         timestamp: mockBN(123456),
@@ -167,6 +176,7 @@ describe('Event Parse Functions', () => {
       expect(parsed.taskId).toBeInstanceOf(Uint8Array);
       expect(parsed.disputeId[0]).toBe(0);
       expect(parsed.taskId[0]).toBe(32);
+      expect(parsed.defendant.toBase58()).toBe(raw.defendant.toBase58());
       expect(parsed.votingDeadline).toBe(999999);
     });
   });
@@ -195,12 +205,14 @@ describe('Event Parse Functions', () => {
       const raw = {
         disputeId: new Uint8Array(32),
         resolutionType: 2,
+        outcome: 1,
         votesFor: mockBN(6n),
         votesAgainst: mockBN(1n),
         timestamp: mockBN(123456),
       };
       const parsed = parseDisputeResolvedEvent(raw);
       expect(parsed.resolutionType).toBe(2);
+      expect(parsed.outcome).toBe(1);
       expect(parsed.votesFor).toBe(6n);
       expect(parsed.votesAgainst).toBe(1n);
     });
@@ -212,10 +224,14 @@ describe('Event Parse Functions', () => {
         disputeId: new Uint8Array(32),
         taskId: new Uint8Array(32),
         refundAmount: mockBN(800_000_000n),
+        creatorAmount: mockBN(500_000_000n),
+        workerAmount: mockBN(300_000_000n),
         timestamp: mockBN(123456),
       };
       const parsed = parseDisputeExpiredEvent(raw);
       expect(parsed.refundAmount).toBe(800_000_000n);
+      expect(parsed.creatorAmount).toBe(500_000_000n);
+      expect(parsed.workerAmount).toBe(300_000_000n);
     });
   });
 
@@ -251,6 +267,7 @@ describe('Event Parse Functions', () => {
     it('should convert stateKey to Uint8Array and version to bigint', () => {
       const raw = {
         stateKey: Array.from({ length: 32 }, (_, i) => i),
+        stateValue: Array.from({ length: 64 }, (_, i) => i % 256),
         updater: new PublicKey('11111111111111111111111111111111'),
         version: mockBN(42n),
         timestamp: mockBN(123456),
@@ -258,6 +275,8 @@ describe('Event Parse Functions', () => {
       const parsed = parseStateUpdatedEvent(raw);
       expect(parsed.stateKey).toBeInstanceOf(Uint8Array);
       expect(parsed.stateKey.length).toBe(32);
+      expect(parsed.stateValue).toBeInstanceOf(Uint8Array);
+      expect(parsed.stateValue.length).toBe(64);
       expect(parsed.version).toBe(42n);
     });
   });

@@ -43,6 +43,7 @@ jobs:
 
       - name: Runtime tests
         run: |
+          npm run check-idl-drift --prefix runtime
           npm run test --prefix runtime -- \
             --exclude tests/integration.test.ts \
             --exclude tests/eval-replay.integration.test.ts \

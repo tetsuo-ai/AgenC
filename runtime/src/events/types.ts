@@ -85,6 +85,8 @@ export interface RawTaskCreatedEvent {
   rewardAmount: { toString: () => string };          // u64 -> BN
   taskType: number;                                   // u8
   deadline: { toNumber: () => number };               // i64 -> BN
+  minReputation: number;                              // u16
+  rewardMint: PublicKey | null;                       // Option<Pubkey>
   timestamp: { toNumber: () => number };              // i64 -> BN
 }
 
@@ -100,6 +102,7 @@ export interface RawTaskCompletedEvent {
   taskId: number[] | Uint8Array;
   worker: PublicKey;
   proofHash: number[] | Uint8Array;                   // [u8;32]
+  resultData: number[] | Uint8Array;                  // [u8;64]
   rewardPaid: { toString: () => string };             // u64 -> BN
   timestamp: { toNumber: () => number };
 }
@@ -126,6 +129,7 @@ export interface RawDisputeInitiatedEvent {
   disputeId: number[] | Uint8Array;
   taskId: number[] | Uint8Array;
   initiator: PublicKey;
+  defendant: PublicKey;
   resolutionType: number;                             // u8 enum
   votingDeadline: { toNumber: () => number };         // i64 -> BN
   timestamp: { toNumber: () => number };
@@ -143,6 +147,7 @@ export interface RawDisputeVoteCastEvent {
 export interface RawDisputeResolvedEvent {
   disputeId: number[] | Uint8Array;
   resolutionType: number;                             // u8 enum
+  outcome: number;                                    // u8
   votesFor: { toString: () => string };               // u64 -> BN
   votesAgainst: { toString: () => string };           // u64 -> BN
   timestamp: { toNumber: () => number };
@@ -152,6 +157,8 @@ export interface RawDisputeExpiredEvent {
   disputeId: number[] | Uint8Array;
   taskId: number[] | Uint8Array;
   refundAmount: { toString: () => string };           // u64 -> BN
+  creatorAmount: { toString: () => string };          // u64 -> BN
+  workerAmount: { toString: () => string };           // u64 -> BN
   timestamp: { toNumber: () => number };
 }
 
@@ -185,6 +192,7 @@ export interface RawAgentUnsuspendedEvent {
 
 export interface RawStateUpdatedEvent {
   stateKey: number[] | Uint8Array;                    // [u8;32]
+  stateValue: number[] | Uint8Array;                  // [u8;64]
   updater: PublicKey;
   version: { toString: () => string };                // u64 -> BN
   timestamp: { toNumber: () => number };
@@ -306,6 +314,8 @@ export interface TaskCreatedEvent {
   rewardAmount: bigint;
   taskType: number;
   deadline: number;
+  minReputation: number;
+  rewardMint: PublicKey | null;
   timestamp: number;
 }
 
@@ -321,6 +331,7 @@ export interface TaskCompletedEvent {
   taskId: Uint8Array;
   worker: PublicKey;
   proofHash: Uint8Array;
+  resultData: Uint8Array;
   rewardPaid: bigint;
   timestamp: number;
 }
@@ -347,6 +358,7 @@ export interface DisputeInitiatedEvent {
   disputeId: Uint8Array;
   taskId: Uint8Array;
   initiator: PublicKey;
+  defendant: PublicKey;
   resolutionType: number;
   votingDeadline: number;
   timestamp: number;
@@ -364,6 +376,7 @@ export interface DisputeVoteCastEvent {
 export interface DisputeResolvedEvent {
   disputeId: Uint8Array;
   resolutionType: number;
+  outcome: number;
   votesFor: bigint;
   votesAgainst: bigint;
   timestamp: number;
@@ -373,6 +386,8 @@ export interface DisputeExpiredEvent {
   disputeId: Uint8Array;
   taskId: Uint8Array;
   refundAmount: bigint;
+  creatorAmount: bigint;
+  workerAmount: bigint;
   timestamp: number;
 }
 
@@ -404,6 +419,7 @@ export interface AgentUnsuspendedEvent {
 
 export interface StateUpdatedEvent {
   stateKey: Uint8Array;
+  stateValue: Uint8Array;
   updater: PublicKey;
   version: bigint;
   timestamp: number;
