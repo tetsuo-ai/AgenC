@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { resolve } from 'node:path';
 import { inspect } from 'node:util';
 import {
@@ -14,11 +15,48 @@ import {
   ReplayCompareOptions,
   ReplayIncidentOptions,
 } from './types.js';
+import {
+  createOnChainReplayBackfillFetcher,
+  createReplayStore,
+  parseLocalTrajectoryFile,
+  summarizeReplayIncidentRecords,
+} from './replay.js';
+import {
+  ReplayBackfillService,
+  type ReplayTimelineRecord,
+  type ReplayTimelineStore,
+} from '../replay/index.js';
+import {
+  type ReplayComparisonResult,
+  type ReplayComparisonStrictness,
+  ReplayComparisonService,
+} from '../eval/replay-comparison.js';
+import {
+  TrajectoryReplayEngine,
+} from '../eval/replay.js';
+import { type TrajectoryTrace } from '../eval/types.js';
 
 interface CliRunOptions {
   argv?: string[];
   stdout?: NodeJS.WritableStream;
   stderr?: NodeJS.WritableStream;
+}
+
+interface ReplayIncidentEventSummary {
+  anomalyId: string;
+  seq: number;
+  slot: number;
+  signature: string;
+  sourceEventName: string;
+  sourceEventType: string;
+  taskPda?: string;
+  disputePda?: string;
+  timestampMs: number;
+}
+
+interface ReplayIncidentNarrative {
+  lines: string[];
+  anomalyIds: string[];
 }
 
 interface CliCommandDescriptor {
@@ -217,7 +255,9 @@ function parseStringValue(raw: string): string | number | boolean {
   const lowered = raw.toLowerCase();
   if (lowered === 'true') return true;
   if (lowered === 'false') return false;
-  if (/^-?\d+$/.test(raw)) return Number.parseInt(raw, 10);
+  if (/^-?\d+$/.test(raw) && raw.length <= 15) {
+    return Number.parseInt(raw, 10);
+  }
   return raw;
 }
 
@@ -697,13 +737,50 @@ async function runReplayBackfillCommand(
   args: CliCommandOptions,
 ): Promise<CliStatusCode> {
   const options = args as ReplayBackfillOptions;
+  if (!options.rpcUrl) {
+    throw createCliError('--rpc is required for replay backfill', ERROR_CODES.MISSING_REQUIRED_OPTION);
+  }
+
+  const store = createReplayStore({
+    storeType: options.storeType,
+    sqlitePath: options.sqlitePath,
+  });
+
+  const fetcher = createOnChainReplayBackfillFetcher({
+    rpcUrl: options.rpcUrl,
+    programId: options.programId,
+  });
+
+  const service = new ReplayBackfillService(store, {
+    toSlot: options.toSlot,
+    pageSize: options.pageSize,
+    fetcher,
+    tracePolicy: {
+      traceId: options.traceId ?? DEFAULT_REPLAY_TRACE_ID,
+      emitOtel: false,
+      sampleRate: 1,
+    },
+  });
+
+  const result = await service.runBackfill();
+  const cursor = await store.getCursor();
+
   context.output({
     status: 'ok',
     command: 'replay.backfill',
+    schema: 'replay.backfill.output.v1',
+    mode: 'backfill',
+    strictMode: options.strictMode,
     toSlot: options.toSlot,
     pageSize: options.pageSize,
-    strictMode: options.strictMode,
     storeType: options.storeType,
+    traceId: options.traceId,
+    idempotencyWindow: options.idempotencyWindow,
+    result: {
+      processed: result.processed,
+      duplicates: result.duplicates,
+      cursor,
+    },
   });
 
   return 0;
@@ -714,14 +791,34 @@ async function runReplayCompareCommand(
   args: CliCommandOptions,
 ): Promise<CliStatusCode> {
   const options = args as ReplayCompareOptions;
+  const store = createReplayStore({
+    storeType: options.storeType,
+    sqlitePath: options.sqlitePath,
+  });
+  const localTrace = await parseLocalTrajectoryFile(options.localTracePath ?? '');
+
+  const projected = await store.query({
+    taskPda: options.taskPda,
+    disputePda: options.disputePda,
+  });
+  const strictness = options.strictMode ? 'strict' : 'lenient';
+  const comparison = await runReplayComparison({
+    projected,
+    localTrace,
+    strictness,
+  });
+
   context.output({
     status: 'ok',
     command: 'replay.compare',
+    schema: 'replay.compare.output.v1',
     localTracePath: options.localTracePath,
     taskPda: options.taskPda,
     disputePda: options.disputePda,
+    strictness,
     strictMode: options.strictMode,
     storeType: options.storeType,
+    result: buildReplayCompareResult(comparison),
   });
 
   return 0;
@@ -732,18 +829,250 @@ async function runReplayIncidentCommand(
   args: CliCommandOptions,
 ): Promise<CliStatusCode> {
   const options = args as ReplayIncidentOptions;
-  context.output({
-    status: 'ok',
-    command: 'replay.incident',
+
+  const store = createReplayStore({
+    storeType: options.storeType,
+    sqlitePath: options.sqlitePath,
+  });
+  const records = await queryIncidentRecords(store, {
     taskPda: options.taskPda,
     disputePda: options.disputePda,
     fromSlot: options.fromSlot,
     toSlot: options.toSlot,
-    strictMode: options.strictMode,
-    storeType: options.storeType,
+  });
+  const summary = summarizeReplayIncidentRecords(records, {
+    taskPda: options.taskPda,
+    disputePda: options.disputePda,
+    fromSlot: options.fromSlot,
+    toSlot: options.toSlot,
+  });
+
+  const validation = summarizeIncidentValidation(records, options.strictMode);
+  const narrative = buildIncidentNarrative(
+    summary.events.map((entry) => ({
+      anomalyId: buildIncidentEventAnomalyId(entry),
+      seq: entry.seq,
+      slot: entry.slot,
+      signature: entry.signature,
+      sourceEventName: entry.sourceEventName,
+      sourceEventType: entry.sourceEventType,
+      taskPda: entry.taskPda,
+      disputePda: entry.disputePda,
+      timestampMs: entry.timestampMs,
+    })),
+    validation,
+  );
+
+  context.output({
+    status: 'ok',
+    command: 'replay.incident',
+    schema: 'replay.incident.output.v1',
+    commandParams: {
+      taskPda: options.taskPda,
+      disputePda: options.disputePda,
+      fromSlot: options.fromSlot,
+      toSlot: options.toSlot,
+      strictMode: options.strictMode,
+      storeType: options.storeType,
+      sqlitePath: options.sqlitePath,
+    },
+    summary: {
+      ...summary,
+      eventType: 'replay-incidents',
+    },
+    validation,
+    narrative,
   });
 
   return 0;
 }
+
+function buildIncidentEventAnomalyId(entry: {
+  seq: number;
+  slot: number;
+  signature: string;
+  sourceEventName: string;
+  sourceEventType: string;
+  taskPda?: string;
+  disputePda?: string;
+  timestampMs: number;
+}): string {
+  const seed = `${entry.seq}|${entry.slot}|${entry.signature}|${entry.sourceEventName}|${entry.sourceEventType}|${entry.taskPda ?? ''}|${entry.disputePda ?? ''}|${entry.timestampMs}`;
+  return createHash('sha1').update(seed).digest('hex').slice(0, 16);
+}
+
+async function queryIncidentRecords(
+  store: ReplayTimelineStore,
+  filters: {
+    taskPda?: string;
+    disputePda?: string;
+    fromSlot?: number;
+    toSlot?: number;
+  },
+): Promise<ReadonlyArray<ReplayTimelineRecord>> {
+  return store.query({
+    taskPda: filters.taskPda,
+    disputePda: filters.disputePda,
+    fromSlot: filters.fromSlot,
+    toSlot: filters.toSlot,
+  });
+}
+
+function buildReplayCompareResult(comparison: ReplayComparisonResult): {
+  status: ReplayComparisonResult['status'];
+  strictness: ReplayComparisonStrictness;
+  localEventCount: number;
+  projectedEventCount: number;
+  mismatchCount: number;
+  matchRate: number;
+  anomalyIds: string[];
+  topAnomalies: Array<{
+    anomalyId: string;
+    code: string;
+    severity: string;
+    message: string;
+    sourceEventName?: string;
+    signature?: string;
+    seq?: number;
+  }>;
+  hashes: {
+    local: string;
+    projected: string;
+  };
+  localSummary: ReplayComparisonResult['localReplay'];
+  projectedSummary: ReplayComparisonResult['projectedReplay'];
+} {
+  return {
+    status: comparison.status,
+    strictness: comparison.strictness,
+    localEventCount: comparison.localEventCount,
+    projectedEventCount: comparison.projectedEventCount,
+    mismatchCount: comparison.mismatchCount,
+    matchRate: comparison.matchRate,
+    anomalyIds: comparison.anomalies.map((anomaly, index) => {
+      const sourceContext = anomaly.context;
+      const seed = `${anomaly.code}|${sourceContext.sourceEventName ?? ''}|${sourceContext.seq ?? index}|${sourceContext.sourceEventSequence ?? ''}`;
+      return createHash('sha1').update(seed).digest('hex').slice(0, 16);
+    }),
+    topAnomalies: comparison.anomalies.slice(0, 50).map((anomaly, index) => {
+      const sourceContext = anomaly.context;
+      const anomalySeed = `${anomaly.code}|${sourceContext.taskPda ?? ''}|${sourceContext.seq ?? index}`;
+      return {
+        anomalyId: createHash('sha1').update(anomalySeed).digest('hex').slice(0, 16),
+        code: anomaly.code,
+        severity: anomaly.severity,
+        message: anomaly.message,
+        sourceEventName: sourceContext.sourceEventName,
+        signature: sourceContext.signature,
+        seq: sourceContext.seq,
+      };
+    }),
+    hashes: {
+      local: comparison.localReplay.deterministicHash,
+      projected: comparison.projectedReplay.deterministicHash,
+    },
+    localSummary: comparison.localReplay,
+    projectedSummary: comparison.projectedReplay,
+  };
+}
+
+async function runReplayComparison(input: {
+  projected: ReadonlyArray<ReplayTimelineRecord>;
+  localTrace: TrajectoryTrace;
+  strictness: ReplayComparisonStrictness;
+}): Promise<ReplayComparisonResult> {
+  const comparison = new ReplayComparisonService();
+  return comparison.compare({
+    projected: input.projected,
+    localTrace: input.localTrace,
+    options: { strictness: input.strictness },
+  });
+}
+
+function buildProjectedIncidentTrace(
+  records: readonly ReplayTimelineRecord[],
+  seed: string,
+): TrajectoryTrace {
+  const events = records
+    .map((record) => ({
+      seq: record.seq,
+      type: record.type,
+      taskPda: record.taskPda,
+      timestampMs: record.timestampMs,
+      payload: record.payload,
+    }))
+    .sort((left, right) => {
+      if (left.seq !== right.seq) {
+        return left.seq - right.seq;
+      }
+      if (left.timestampMs !== right.timestampMs) {
+        return left.timestampMs - right.timestampMs;
+      }
+      return left.taskPda?.localeCompare(right.taskPda ?? '') ?? 0;
+    });
+
+  return {
+    schemaVersion: 1,
+    traceId: seed,
+    seed: 0,
+    createdAtMs: Date.now(),
+    events,
+  };
+}
+
+function summarizeIncidentValidation(
+  records: readonly ReplayTimelineRecord[],
+  strictMode: boolean,
+): {
+  strictMode: boolean;
+  eventValidation: {
+    errors: string[];
+    warnings: string[];
+    replayTaskCount: number;
+  };
+  anomalyIds: string[];
+} {
+  const projectedTrace = buildProjectedIncidentTrace(records, `incident-${records.length}-${strictMode ? 'strict' : 'lenient'}`);
+  const replayResult = new TrajectoryReplayEngine({
+    strictMode,
+  }).replay(projectedTrace);
+
+  const anomalyIds = [
+    ...replayResult.errors,
+    ...replayResult.warnings,
+  ].map((entry, index) => createHash('sha1').update(entry).update(String(index)).digest('hex').slice(0, 16));
+
+  return {
+    strictMode,
+    eventValidation: {
+      errors: replayResult.errors,
+      warnings: replayResult.warnings,
+      replayTaskCount: Object.keys(replayResult.tasks).length,
+    },
+    anomalyIds,
+  };
+}
+
+function buildIncidentNarrative(
+  events: ReplayIncidentEventSummary[],
+  validation: { anomalyIds: string[]; eventValidation: { errors: string[]; warnings: string[] } },
+): ReplayIncidentNarrative {
+  const eventsLines = events.slice(0, 40).map((event, index) => {
+    const anomaly = validation.anomalyIds[index];
+    const marker = anomaly === undefined ? '' : ` | anomaly:${anomaly}`;
+    return `${event.seq}/${event.slot}/${event.signature}: ${event.sourceEventName} (${event.sourceEventType})${marker}`;
+  });
+
+  const messages = [...validation.eventValidation.errors, ...validation.eventValidation.warnings]
+    .slice(0, 20)
+    .map((entry) => `validation:${entry}`);
+
+  return {
+    lines: [...eventsLines, ...messages],
+    anomalyIds: validation.anomalyIds.slice(0, 40),
+  };
+}
+
+const DEFAULT_REPLAY_TRACE_ID = 'replay-cli-command';
 
 export type { ParsedArgv };
