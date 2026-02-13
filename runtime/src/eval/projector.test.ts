@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { PublicKey } from '@solana/web3.js';
 import { projectOnChainEvents } from './projector.js';
 import { TrajectoryReplayEngine } from './replay.js';
+import { REPLAY_QUALITY_FIXTURE_V1 } from '../../tests/fixtures/replay-quality-fixture.v1.ts';
 
 function pubkey(seed: number): PublicKey {
   const bytes = new Uint8Array(32);
@@ -240,3 +241,88 @@ describe('on-chain event projection', () => {
 function stableForward(result: ReturnType<typeof projectOnChainEvents>): string {
   return JSON.stringify(result.trace.events);
 }
+
+it('projects a full-quality fixture deterministically with full event-surface coverage', () => {
+  const fixtureInputs = REPLAY_QUALITY_FIXTURE_V1.onChainEvents;
+  const resultA = projectOnChainEvents(fixtureInputs, {
+    traceId: REPLAY_QUALITY_FIXTURE_V1.traceId,
+    seed: REPLAY_QUALITY_FIXTURE_V1.seed,
+  });
+  const resultB = projectOnChainEvents([...fixtureInputs].reverse(), {
+    traceId: REPLAY_QUALITY_FIXTURE_V1.traceId,
+    seed: REPLAY_QUALITY_FIXTURE_V1.seed,
+  });
+
+  const observedSourceNames = [...new Set(resultA.events.map((entry) => entry.sourceEventName))].sort();
+  const expectedSourceNames = [...new Set(fixtureInputs.map((entry) => entry.eventName))].sort();
+  const observedTypes = [...new Set(resultA.events.map((entry) => entry.type))].sort();
+  const expectedTypes = [
+    'agent:registered',
+    'agent:updated',
+    'agent:deregistered',
+    'agent:suspended',
+    'agent:unsuspended',
+    'protocol:protocol_initialized',
+    'protocol:reward_distributed',
+    'protocol:rate_limit_hit',
+    'protocol:migration_completed',
+    'protocol:state_updated',
+    'protocol:protocol_version_updated',
+    'protocol:rate_limits_updated',
+    'protocol:protocol_fee_updated',
+    'protocol:reputation_changed',
+    'dispute:initiated',
+    'dispute:vote_cast',
+    'dispute:resolved',
+    'dispute:cancelled',
+    'dispute:expired',
+    'dispute:arbiter_votes_cleaned_up',
+    'discovered',
+    'claimed',
+    'completed',
+    'failed',
+    'bond:deposited',
+    'bond:locked',
+    'speculation_started',
+    'speculation_confirmed',
+    'speculation_aborted',
+  ].sort();
+
+  expect(resultA.telemetry.unknownEvents).toHaveLength(0);
+  expect(resultA.telemetry.malformedInputs).toHaveLength(0);
+  expect(resultA.telemetry.transitionConflicts).toHaveLength(0);
+  expect(resultA.trace.events).toHaveLength(fixtureInputs.length);
+  expect(resultA.telemetry.projectedEvents).toBe(fixtureInputs.length);
+  expect(stableForward(resultA)).toBe(stableForward(resultB));
+  expect(observedSourceNames).toEqual(expectedSourceNames);
+  expect(observedTypes).toEqual(expectedTypes);
+  expect(resultA.events).toHaveLength(fixtureInputs.length);
+  expect(resultA.events.every((event, index) => event.seq === index + 1)).toBe(true);
+});
+
+it('deduplicates repeated fixture snapshots while preserving deterministic ordering', () => {
+  const events = REPLAY_QUALITY_FIXTURE_V1.onChainEvents.slice(0, 8);
+  const noisy = [
+    events[2],
+    events[5],
+    events[2],
+    events[7],
+    events[1],
+    events[5],
+  ];
+
+  const shuffled = [...noisy].sort((left, right) => {
+    if (left.slot !== right.slot) {
+      return right.slot - left.slot;
+    }
+    return right.signature.localeCompare(left.signature);
+  });
+
+  const result = projectOnChainEvents(noisy, { traceId: 'replay-quality-v1-noise' });
+  const replayed = projectOnChainEvents(shuffled, { traceId: 'replay-quality-v1-noise' });
+
+  expect(result.telemetry.duplicatesDropped).toBe(2);
+  expect(result.trace.events).toHaveLength(4);
+  expect(stableForward(result)).toBe(stableForward(replayed));
+  expect(result.events.map((entry) => entry.sourceEventName)).toEqual(replayed.events.map((entry) => entry.sourceEventName));
+});

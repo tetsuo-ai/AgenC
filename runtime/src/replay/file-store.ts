@@ -45,6 +45,7 @@ export class FileReplayTimelineStore implements ReplayTimelineStore {
     const state = await this.getState();
     state.cursor = cursor;
     await this.persist(state);
+    await this.fallback.saveCursor(cursor);
   }
 
   async clear(): Promise<void> {
