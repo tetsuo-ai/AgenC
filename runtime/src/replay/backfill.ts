@@ -7,6 +7,7 @@
 import { projectOnChainEvents } from '../eval/projector.js';
 import type { OnChainProjectionInput, ProjectedTimelineEvent } from '../eval/projector.js';
 import {
+  buildReplayKey,
   computeProjectionHash,
   stableReplayCursorString,
   type BackfillFetcher,
@@ -42,15 +43,55 @@ export class ReplayBackfillService {
     },
   ) {}
 
+  /**
+   * Cursor persistence contract:
+   *
+   * 1. Events are saved to the store FIRST via store.save()
+   * 2. Cursor is persisted AFTER store.save() completes
+   * 3. If crash occurs between save() and saveCursor():
+   *    - Resume will re-fetch the same page
+   *    - store.save() uses INSERT OR IGNORE / Set dedup
+   *    - Result: exactly-once semantics for stored events
+   * 4. saveCursor(null) is called when backfill completes (done=true)
+   *    to signal completion
+   */
   async runBackfill(): Promise<BackfillResult> {
     const pageSize = this.options.pageSize ?? DEFAULT_BACKFILL_PAGE_SIZE;
     let cursor = await this.store.getCursor();
     let processed = 0;
     let duplicates = 0;
+    const duplicateKeys: string[] = [];
     let previousCursor = stableReplayCursorString(cursor);
     const traceId = this.options.tracePolicy?.traceId ?? cursor?.traceId ?? 'replay-backfill';
     const sampleRate = this.options.tracePolicy?.sampleRate ?? 1;
     const emitOtel = this.options.tracePolicy?.emitOtel ?? false;
+
+    // Validate cursor integrity on resume
+    if (cursor !== null) {
+      if (typeof cursor.slot !== 'number' || !Number.isInteger(cursor.slot) || cursor.slot < 0) {
+        void this.options.alertDispatcher?.emit({
+          code: 'replay.backfill.invalid_cursor',
+          severity: 'warning',
+          kind: 'replay_ingestion_lag',
+          message: 'backfill cursor has invalid slot, resetting to null',
+          traceId,
+          metadata: { cursorSlot: cursor.slot },
+        });
+        cursor = null;
+        await this.store.saveCursor(null);
+      } else if (typeof cursor.signature !== 'string' || cursor.signature.length === 0) {
+        void this.options.alertDispatcher?.emit({
+          code: 'replay.backfill.invalid_cursor',
+          severity: 'warning',
+          kind: 'replay_ingestion_lag',
+          message: 'backfill cursor has invalid signature, resetting to null',
+          traceId,
+          metadata: { cursorSignature: String(cursor.signature) },
+        });
+        cursor = null;
+        await this.store.saveCursor(null);
+      }
+    }
 
     while (true) {
       const page = await this.options.fetcher.fetchPage(cursor, this.options.toSlot, pageSize);
@@ -107,6 +148,28 @@ export class ReplayBackfillService {
 
           processed += writeResult.inserted;
           duplicates += writeResult.duplicates;
+
+          // Track duplicate keys deterministically
+          if (writeResult.duplicates > 0) {
+            for (const record of records) {
+              const key = buildReplayKey(record.slot, record.signature, record.sourceEventType);
+              duplicateKeys.push(key);
+            }
+
+            void this.options.alertDispatcher?.emit({
+              code: 'replay.backfill.duplicates',
+              severity: 'info',
+              kind: 'replay_ingestion_lag',
+              message: `backfill page contained ${writeResult.duplicates} duplicate events`,
+              slot: cursor?.slot,
+              traceId,
+              metadata: {
+                duplicateCount: writeResult.duplicates,
+                pageInserted: writeResult.inserted,
+              },
+            });
+          }
+
           pageSpan.end();
         } catch (error) {
           pageSpan.end(error);
@@ -131,6 +194,9 @@ export class ReplayBackfillService {
           processed,
           duplicates,
           cursor,
+          duplicateReport: duplicateKeys.length > 0
+            ? { count: duplicates, keys: [...duplicateKeys].sort() }
+            : undefined,
         };
       }
 
