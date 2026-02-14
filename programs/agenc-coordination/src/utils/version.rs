@@ -97,3 +97,94 @@ pub fn log_version_info(config: &ProtocolConfig) {
     msg!("  Min supported: {}", MIN_SUPPORTED_VERSION);
     msg!("  Account min supported: {}", config.min_supported_version);
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_config(protocol_version: u8, min_supported_version: u8) -> ProtocolConfig {
+        ProtocolConfig {
+            protocol_version,
+            min_supported_version,
+            ..ProtocolConfig::default()
+        }
+    }
+
+    #[test]
+    fn test_current_version_is_compatible() {
+        let config = make_config(1, 1);
+        assert!(is_version_compatible(&config));
+    }
+
+    #[test]
+    fn test_version_0_is_too_old() {
+        // min_supported_version (0) < MIN_SUPPORTED_VERSION (1) -> incompatible
+        let config = make_config(0, 0);
+        assert!(!is_version_compatible(&config));
+    }
+
+    #[test]
+    fn test_version_2_is_too_new() {
+        // protocol_version 2 > CURRENT_PROTOCOL_VERSION 1
+        let config = make_config(2, 1);
+        assert!(!is_version_compatible(&config));
+    }
+
+    #[test]
+    fn test_version_255_is_too_new() {
+        let config = make_config(255, 1);
+        assert!(!is_version_compatible(&config));
+    }
+
+    #[test]
+    fn test_min_supported_exceeds_current() {
+        // min_supported_version 5 > CURRENT_PROTOCOL_VERSION 1
+        let config = make_config(1, 5);
+        assert!(!is_version_compatible(&config));
+    }
+
+    #[test]
+    fn test_protocol_version_below_own_min() {
+        // protocol_version 1 but min_supported 2 -> min_supported > CURRENT
+        let config = make_config(1, 2);
+        assert!(!is_version_compatible(&config));
+    }
+
+    #[test]
+    fn test_version_status_current() {
+        let config = make_config(1, 1);
+        assert_eq!(get_version_status(&config), VersionStatus::Current);
+    }
+
+    #[test]
+    fn test_version_status_too_new() {
+        let config = make_config(5, 1);
+        assert_eq!(get_version_status(&config), VersionStatus::TooNew);
+    }
+
+    #[test]
+    fn test_version_status_too_old() {
+        // protocol_version < min_supported_version
+        let config = make_config(0, 1);
+        assert_eq!(get_version_status(&config), VersionStatus::TooOld);
+    }
+
+    #[test]
+    fn test_check_version_compatible_ok() {
+        let config = make_config(1, 1);
+        assert!(check_version_compatible(&config).is_ok());
+    }
+
+    #[test]
+    fn test_check_version_compatible_too_new() {
+        let config = make_config(2, 1);
+        assert!(check_version_compatible(&config).is_err());
+    }
+
+    #[test]
+    fn test_check_version_compatible_too_old() {
+        // protocol_version < min_supported_version
+        let config = make_config(0, 1);
+        assert!(check_version_compatible(&config).is_err());
+    }
+}
