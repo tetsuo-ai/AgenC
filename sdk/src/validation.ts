@@ -16,6 +16,16 @@ import * as path from 'path';
  * @throws Error if the path is invalid
  */
 export function validateCircuitPath(circuitPath: string): void {
+  // Disallow empty paths
+  if (!circuitPath || circuitPath.trim().length === 0) {
+    throw new Error('Security: Circuit path cannot be empty');
+  }
+
+  // Length limit to prevent abuse
+  if (circuitPath.length > 512) {
+    throw new Error('Security: Circuit path exceeds maximum length (512 characters)');
+  }
+
   // Disallow absolute paths
   if (path.isAbsolute(circuitPath)) {
     throw new Error('Security: Absolute circuit paths are not allowed');

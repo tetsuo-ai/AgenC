@@ -36,6 +36,8 @@ import {
   TaskNotClaimableError,
   TaskSubmissionError,
   AnchorErrorCodes,
+  validateByteLength,
+  validateNonZeroBytes,
 } from '../types/errors.js';
 import { encodeStatusByte, queryWithFallback } from '../utils/query.js';
 
@@ -342,6 +344,21 @@ export class TaskOperations {
         if (isAnchorError(err, AnchorErrorCodes.AlreadyClaimed)) {
           throw new TaskNotClaimableError(taskPda, 'Agent has already claimed this task');
         }
+        if (isAnchorError(err, AnchorErrorCodes.AgentNotActive)) {
+          throw new TaskNotClaimableError(taskPda, 'Agent is not active');
+        }
+        if (isAnchorError(err, AnchorErrorCodes.MaxActiveTasksReached)) {
+          throw new TaskNotClaimableError(taskPda, 'Agent has reached maximum active tasks');
+        }
+        if (isAnchorError(err, AnchorErrorCodes.InsufficientReputation)) {
+          throw new TaskNotClaimableError(taskPda, 'Agent reputation below task minimum');
+        }
+        if (isAnchorError(err, AnchorErrorCodes.InvalidStatusTransition)) {
+          throw new TaskNotClaimableError(taskPda, 'Invalid task status transition');
+        }
+        if (isAnchorError(err, AnchorErrorCodes.SelfTaskNotAllowed)) {
+          throw new TaskNotClaimableError(taskPda, 'Cannot claim own task');
+        }
       }
       this.logger.error(`Failed to claim task ${taskPda.toBase58()}: ${err}`);
       throw err;
@@ -362,6 +379,13 @@ export class TaskOperations {
     proofHash: Uint8Array,
     resultData: Uint8Array | null,
   ): Promise<CompleteResult> {
+    // Input validation (#963)
+    validateByteLength(proofHash, 32, 'proofHash');
+    validateNonZeroBytes(proofHash, 'proofHash');
+    if (resultData !== null) {
+      validateByteLength(resultData, 64, 'resultData');
+    }
+
     const workerPda = this.getAgentPda();
     const { address: claimPda } = deriveClaimPda(taskPda, workerPda, this.program.programId);
     const { address: escrowPda } = deriveEscrowPda(taskPda, this.program.programId);
@@ -428,6 +452,14 @@ export class TaskOperations {
     outputCommitment: Uint8Array,
     expectedBinding: Uint8Array,
   ): Promise<CompleteResult> {
+    // Input validation (#963)
+    validateByteLength(proofData, 256, 'proofData');
+    validateByteLength(constraintHash, 32, 'constraintHash');
+    validateByteLength(outputCommitment, 32, 'outputCommitment');
+    validateByteLength(expectedBinding, 32, 'expectedBinding');
+    validateNonZeroBytes(outputCommitment, 'outputCommitment');
+    validateNonZeroBytes(expectedBinding, 'expectedBinding');
+
     const workerPda = this.getAgentPda();
     const { address: claimPda } = deriveClaimPda(taskPda, workerPda, this.program.programId);
     const { address: escrowPda } = deriveEscrowPda(taskPda, this.program.programId);

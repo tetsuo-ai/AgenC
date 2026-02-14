@@ -44,6 +44,9 @@ export {
   getAnchorErrorName,
   getAnchorErrorMessage,
   isRuntimeError,
+  // Validation helpers
+  validateByteLength,
+  validateNonZeroBytes,
 } from './errors.js';
 
 // Agent types and utilities

@@ -114,15 +114,16 @@ export const RuntimeErrorCodes = {
 export type RuntimeErrorCode = (typeof RuntimeErrorCodes)[keyof typeof RuntimeErrorCodes];
 
 // ============================================================================
-// Anchor Error Codes (78 codes: 6000-6077)
+// Anchor Error Codes (147 codes: 6000-6146)
 // ============================================================================
 
 /**
  * Numeric error codes matching the Anchor program's CoordinationError enum.
- * Codes are organized by category as defined in programs/agenc-coordination/src/errors.rs
+ * Codes are assigned sequentially starting from 6000 based on enum variant order
+ * in programs/agenc-coordination/src/errors.rs
  */
 export const AnchorErrorCodes = {
-  // Agent errors (6000-6007)
+  // Agent errors (6000-6012)
   /** Agent is already registered */
   AgentAlreadyRegistered: 6000,
   /** Agent not found */
@@ -131,170 +132,330 @@ export const AnchorErrorCodes = {
   AgentNotActive: 6002,
   /** Agent has insufficient capabilities */
   InsufficientCapabilities: 6003,
+  /** Agent capabilities bitmask cannot be zero */
+  InvalidCapabilities: 6004,
   /** Agent has reached maximum active tasks */
-  MaxActiveTasksReached: 6004,
+  MaxActiveTasksReached: 6005,
   /** Agent has active tasks and cannot be deregistered */
-  AgentHasActiveTasks: 6005,
+  AgentHasActiveTasks: 6006,
   /** Only the agent authority can perform this action */
-  UnauthorizedAgent: 6006,
+  UnauthorizedAgent: 6007,
+  /** Creator must match authority to prevent social engineering */
+  CreatorAuthorityMismatch: 6008,
+  /** Invalid agent ID: agent_id cannot be all zeros */
+  InvalidAgentId: 6009,
   /** Agent registration required to create tasks */
-  AgentRegistrationRequired: 6007,
+  AgentRegistrationRequired: 6010,
+  /** Agent is suspended and cannot change status */
+  AgentSuspended: 6011,
+  /** Agent cannot set status to Active while having active tasks */
+  AgentBusyWithTasks: 6012,
 
-  // Task errors (6008-6023)
+  // Task errors (6013-6034)
   /** Task not found */
-  TaskNotFound: 6008,
+  TaskNotFound: 6013,
   /** Task is not open for claims */
-  TaskNotOpen: 6009,
+  TaskNotOpen: 6014,
   /** Task has reached maximum workers */
-  TaskFullyClaimed: 6010,
+  TaskFullyClaimed: 6015,
   /** Task has expired */
-  TaskExpired: 6011,
+  TaskExpired: 6016,
   /** Task deadline has not passed */
-  TaskNotExpired: 6012,
+  TaskNotExpired: 6017,
   /** Task deadline has passed */
-  DeadlinePassed: 6013,
+  DeadlinePassed: 6018,
   /** Task is not in progress */
-  TaskNotInProgress: 6014,
+  TaskNotInProgress: 6019,
   /** Task is already completed */
-  TaskAlreadyCompleted: 6015,
+  TaskAlreadyCompleted: 6020,
   /** Task cannot be cancelled */
-  TaskCannotBeCancelled: 6016,
+  TaskCannotBeCancelled: 6021,
   /** Only the task creator can perform this action */
-  UnauthorizedTaskAction: 6017,
+  UnauthorizedTaskAction: 6022,
   /** Invalid creator */
-  InvalidCreator: 6018,
+  InvalidCreator: 6023,
+  /** Invalid task ID: cannot be zero */
+  InvalidTaskId: 6024,
+  /** Invalid description: cannot be empty */
+  InvalidDescription: 6025,
+  /** Invalid max workers: must be between 1 and 100 */
+  InvalidMaxWorkers: 6026,
   /** Invalid task type */
-  InvalidTaskType: 6019,
+  InvalidTaskType: 6027,
+  /** Invalid deadline: deadline must be greater than zero */
+  InvalidDeadline: 6028,
+  /** Invalid reward: reward must be greater than zero */
+  InvalidReward: 6029,
+  /** Invalid required capabilities: required_capabilities cannot be zero */
+  InvalidRequiredCapabilities: 6030,
   /** Competitive task already completed by another worker */
-  CompetitiveTaskAlreadyWon: 6020,
+  CompetitiveTaskAlreadyWon: 6031,
   /** Task has no workers */
-  NoWorkers: 6021,
+  NoWorkers: 6032,
   /** Proof constraint hash does not match task's stored constraint hash */
-  ConstraintHashMismatch: 6022,
+  ConstraintHashMismatch: 6033,
   /** Task is not a private task (no constraint hash set) */
-  NotPrivateTask: 6023,
+  NotPrivateTask: 6034,
 
-  // Claim errors (6024-6032)
+  // Claim errors (6035-6049)
   /** Worker has already claimed this task */
-  AlreadyClaimed: 6024,
+  AlreadyClaimed: 6035,
   /** Worker has not claimed this task */
-  NotClaimed: 6025,
+  NotClaimed: 6036,
   /** Claim has already been completed */
-  ClaimAlreadyCompleted: 6026,
+  ClaimAlreadyCompleted: 6037,
   /** Claim has not expired yet */
-  ClaimNotExpired: 6027,
+  ClaimNotExpired: 6038,
+  /** Claim has expired */
+  ClaimExpired: 6039,
+  /** Invalid expiration: expires_at cannot be zero */
+  InvalidExpiration: 6040,
   /** Invalid proof of work */
-  InvalidProof: 6028,
+  InvalidProof: 6041,
   /** ZK proof verification failed */
-  ZkVerificationFailed: 6029,
-  /** Invalid proof size - expected 388 bytes for Groth16 */
-  InvalidProofSize: 6030,
+  ZkVerificationFailed: 6042,
+  /** Invalid proof size - expected 256 bytes for Groth16 */
+  InvalidProofSize: 6043,
   /** Invalid proof binding: expected_binding cannot be all zeros */
-  InvalidProofBinding: 6031,
+  InvalidProofBinding: 6044,
   /** Invalid output commitment: output_commitment cannot be all zeros */
-  InvalidOutputCommitment: 6032,
+  InvalidOutputCommitment: 6045,
+  /** Invalid rent recipient: must be worker authority */
+  InvalidRentRecipient: 6046,
+  /** Grace period not passed: only worker authority can expire claim within 60 seconds of expiry */
+  GracePeriodNotPassed: 6047,
+  /** Invalid proof hash: proof_hash cannot be all zeros */
+  InvalidProofHash: 6048,
+  /** Invalid result data: result_data cannot be all zeros when provided */
+  InvalidResultData: 6049,
 
-  // Dispute errors (6033-6047)
+  // Dispute errors (6050-6075)
   /** Dispute is not active */
-  DisputeNotActive: 6033,
+  DisputeNotActive: 6050,
   /** Voting period has ended */
-  VotingEnded: 6034,
+  VotingEnded: 6051,
   /** Voting period has not ended */
-  VotingNotEnded: 6035,
+  VotingNotEnded: 6052,
   /** Already voted on this dispute */
-  AlreadyVoted: 6036,
+  AlreadyVoted: 6053,
   /** Not authorized to vote (not an arbiter) */
-  NotArbiter: 6037,
+  NotArbiter: 6054,
   /** Insufficient votes to resolve */
-  InsufficientVotes: 6038,
+  InsufficientVotes: 6055,
   /** Dispute has already been resolved */
-  DisputeAlreadyResolved: 6039,
+  DisputeAlreadyResolved: 6056,
   /** Only protocol authority or dispute initiator can resolve disputes */
-  UnauthorizedResolver: 6040,
+  UnauthorizedResolver: 6057,
   /** Agent has active dispute votes pending resolution */
-  ActiveDisputeVotes: 6041,
+  ActiveDisputeVotes: 6058,
   /** Agent must wait 24 hours after voting before deregistering */
-  RecentVoteActivity: 6042,
+  RecentVoteActivity: 6059,
+  /** Authority has already voted on this dispute */
+  AuthorityAlreadyVoted: 6060,
   /** Insufficient dispute evidence provided */
-  InsufficientEvidence: 6043,
+  InsufficientEvidence: 6061,
   /** Dispute evidence exceeds maximum allowed length */
-  EvidenceTooLong: 6044,
+  EvidenceTooLong: 6062,
   /** Dispute has not expired */
-  DisputeNotExpired: 6045,
+  DisputeNotExpired: 6063,
   /** Dispute slashing already applied */
-  SlashAlreadyApplied: 6046,
+  SlashAlreadyApplied: 6064,
+  /** Slash window expired: must apply slashing within 7 days of resolution */
+  SlashWindowExpired: 6065,
   /** Dispute has not been resolved */
-  DisputeNotResolved: 6047,
+  DisputeNotResolved: 6066,
+  /** Only task creator or workers can initiate disputes */
+  NotTaskParticipant: 6067,
+  /** Invalid evidence hash: cannot be all zeros */
+  InvalidEvidenceHash: 6068,
+  /** Arbiter cannot vote on disputes they are a participant in */
+  ArbiterIsDisputeParticipant: 6069,
+  /** Insufficient quorum: minimum number of voters not reached */
+  InsufficientQuorum: 6070,
+  /** Agent has active disputes as defendant and cannot deregister */
+  ActiveDisputesExist: 6071,
+  /** Worker agent account required when creator initiates dispute */
+  WorkerAgentRequired: 6072,
+  /** Worker claim account required when creator initiates dispute */
+  WorkerClaimRequired: 6073,
+  /** Worker was not involved in this dispute */
+  WorkerNotInDispute: 6074,
+  /** Dispute initiator cannot resolve their own dispute */
+  InitiatorCannotResolve: 6075,
 
-  // State errors (6048-6050)
+  // State errors (6076-6081)
   /** State version mismatch (concurrent modification) */
-  VersionMismatch: 6048,
+  VersionMismatch: 6076,
   /** State key already exists */
-  StateKeyExists: 6049,
+  StateKeyExists: 6077,
   /** State not found */
-  StateNotFound: 6050,
+  StateNotFound: 6078,
+  /** Invalid state value: state_value cannot be all zeros */
+  InvalidStateValue: 6079,
+  /** State ownership violation: only the creator agent can update this state */
+  StateOwnershipViolation: 6080,
+  /** Invalid state key: state_key cannot be all zeros */
+  InvalidStateKey: 6081,
 
-  // Protocol errors (6051-6061)
+  // Protocol errors (6082-6093)
   /** Protocol is already initialized */
-  ProtocolAlreadyInitialized: 6051,
+  ProtocolAlreadyInitialized: 6082,
   /** Protocol is not initialized */
-  ProtocolNotInitialized: 6052,
+  ProtocolNotInitialized: 6083,
   /** Invalid protocol fee (must be <= 1000 bps) */
-  InvalidProtocolFee: 6053,
-  /** Invalid dispute threshold */
-  InvalidDisputeThreshold: 6054,
+  InvalidProtocolFee: 6084,
+  /** Invalid treasury: treasury account cannot be default pubkey */
+  InvalidTreasury: 6085,
+  /** Invalid dispute threshold: must be 1-100 (percentage of votes required) */
+  InvalidDisputeThreshold: 6086,
   /** Insufficient stake for arbiter registration */
-  InsufficientStake: 6055,
+  InsufficientStake: 6087,
   /** Invalid multisig threshold */
-  MultisigInvalidThreshold: 6056,
+  MultisigInvalidThreshold: 6088,
   /** Invalid multisig signer configuration */
-  MultisigInvalidSigners: 6057,
+  MultisigInvalidSigners: 6089,
   /** Not enough multisig signers */
-  MultisigNotEnoughSigners: 6058,
+  MultisigNotEnoughSigners: 6090,
   /** Duplicate multisig signer provided */
-  MultisigDuplicateSigner: 6059,
+  MultisigDuplicateSigner: 6091,
   /** Multisig signer cannot be default pubkey */
-  MultisigDefaultSigner: 6060,
+  MultisigDefaultSigner: 6092,
   /** Multisig signer account not owned by System Program */
-  MultisigSignerNotSystemOwned: 6061,
+  MultisigSignerNotSystemOwned: 6093,
 
-  // General errors (6062-6068)
+  // General errors (6094-6101)
   /** Invalid input parameter */
-  InvalidInput: 6062,
+  InvalidInput: 6094,
   /** Arithmetic overflow */
-  ArithmeticOverflow: 6063,
+  ArithmeticOverflow: 6095,
   /** Vote count overflow */
-  VoteOverflow: 6064,
+  VoteOverflow: 6096,
   /** Insufficient funds */
-  InsufficientFunds: 6065,
+  InsufficientFunds: 6097,
+  /** Reward too small: worker must receive at least 1 lamport */
+  RewardTooSmall: 6098,
   /** Account data is corrupted */
-  CorruptedData: 6066,
+  CorruptedData: 6099,
   /** String too long */
-  StringTooLong: 6067,
+  StringTooLong: 6100,
   /** Account owner validation failed: account not owned by this program */
-  InvalidAccountOwner: 6068,
+  InvalidAccountOwner: 6101,
 
-  // Rate limiting errors (6069-6071)
+  // Rate limiting errors (6102-6110)
   /** Rate limit exceeded: maximum actions per 24h window reached */
-  RateLimitExceeded: 6069,
+  RateLimitExceeded: 6102,
   /** Cooldown period has not elapsed since last action */
-  CooldownNotElapsed: 6070,
+  CooldownNotElapsed: 6103,
+  /** Agent update too frequent: must wait cooldown period */
+  UpdateTooFrequent: 6104,
+  /** Cooldown value cannot be negative */
+  InvalidCooldown: 6105,
+  /** Cooldown value exceeds maximum (24 hours) */
+  CooldownTooLarge: 6106,
+  /** Rate limit value exceeds maximum allowed (1000) */
+  RateLimitTooHigh: 6107,
+  /** Cooldown value exceeds maximum allowed (1 week) */
+  CooldownTooLong: 6108,
   /** Insufficient stake to initiate dispute */
-  InsufficientStakeForDispute: 6071,
+  InsufficientStakeForDispute: 6109,
+  /** Creator-initiated disputes require 2x the minimum stake */
+  InsufficientStakeForCreatorDispute: 6110,
 
-  // Version/upgrade errors (6072-6077)
+  // Version/upgrade errors (6111-6118)
   /** Protocol version mismatch: account version incompatible with current program */
-  VersionMismatchProtocol: 6072,
+  VersionMismatchProtocol: 6111,
   /** Account version too old: migration required */
-  AccountVersionTooOld: 6073,
+  AccountVersionTooOld: 6112,
   /** Account version too new: program upgrade required */
-  AccountVersionTooNew: 6074,
+  AccountVersionTooNew: 6113,
   /** Migration not allowed: invalid source version */
-  InvalidMigrationSource: 6075,
+  InvalidMigrationSource: 6114,
   /** Migration not allowed: invalid target version */
-  InvalidMigrationTarget: 6076,
+  InvalidMigrationTarget: 6115,
   /** Only upgrade authority can perform this action */
-  UnauthorizedUpgrade: 6077,
+  UnauthorizedUpgrade: 6116,
+  /** Minimum version cannot exceed current protocol version */
+  InvalidMinVersion: 6117,
+  /** Protocol config account required: suspending an agent requires the protocol config PDA in remaining_accounts */
+  ProtocolConfigRequired: 6118,
+
+  // Dependency errors (6119-6124)
+  /** Parent task has been cancelled */
+  ParentTaskCancelled: 6119,
+  /** Parent task is in disputed state */
+  ParentTaskDisputed: 6120,
+  /** Invalid dependency type */
+  InvalidDependencyType: 6121,
+  /** Parent task must be completed before completing a proof-dependent task */
+  ParentTaskNotCompleted: 6122,
+  /** Parent task account required for proof-dependent task completion */
+  ParentTaskAccountRequired: 6123,
+  /** Parent task does not belong to the same creator */
+  UnauthorizedCreator: 6124,
+
+  // Nullifier errors (6125-6126)
+  /** Nullifier has already been spent - proof/knowledge reuse detected */
+  NullifierAlreadySpent: 6125,
+  /** Invalid nullifier: nullifier value cannot be all zeros */
+  InvalidNullifier: 6126,
+
+  // Cancel task errors (6127-6128)
+  /** All worker accounts must be provided when cancelling a task with active claims */
+  IncompleteWorkerAccounts: 6127,
+  /** Worker accounts required when task has active workers */
+  WorkerAccountsRequired: 6128,
+
+  // Duplicate account errors (6129)
+  /** Duplicate arbiter provided in remaining_accounts */
+  DuplicateArbiter: 6129,
+
+  // Escrow errors (6130)
+  /** Escrow has insufficient balance for reward transfer */
+  InsufficientEscrowBalance: 6130,
+
+  // Status transition errors (6131)
+  /** Invalid task status transition */
+  InvalidStatusTransition: 6131,
+
+  // Stake validation errors (6132-6134)
+  /** Stake value is below minimum required (0.001 SOL) */
+  StakeTooLow: 6132,
+  /** min_stake_for_dispute must be greater than zero */
+  InvalidMinStake: 6133,
+  /** Slash amount must be greater than zero */
+  InvalidSlashAmount: 6134,
+
+  // Speculation Bond errors (6135-6138)
+  /** Bond amount too low */
+  BondAmountTooLow: 6135,
+  /** Bond already exists */
+  BondAlreadyExists: 6136,
+  /** Bond not found */
+  BondNotFound: 6137,
+  /** Bond not yet matured */
+  BondNotMatured: 6138,
+
+  // Reputation errors (6139-6140)
+  /** Agent reputation below task minimum requirement */
+  InsufficientReputation: 6139,
+  /** Invalid minimum reputation: must be <= 10000 */
+  InvalidMinReputation: 6140,
+
+  // Security errors (6141-6142)
+  /** Development verifying key detected (gamma == delta). ZK proofs are forgeable. */
+  DevelopmentKeyNotAllowed: 6141,
+  /** Cannot claim own task: worker authority matches task creator */
+  SelfTaskNotAllowed: 6142,
+
+  // SPL Token errors (6143-6146)
+  /** Token accounts not provided for token-denominated task */
+  MissingTokenAccounts: 6143,
+  /** Token escrow ATA does not match expected derivation */
+  InvalidTokenEscrow: 6144,
+  /** Provided mint does not match task's reward_mint */
+  InvalidTokenMint: 6145,
+  /** SPL token transfer CPI failed */
+  TokenTransferFailed: 6146,
 } as const;
 
 /** Union type of all Anchor error code values */
@@ -309,85 +470,206 @@ export type AnchorErrorName = keyof typeof AnchorErrorCodes;
 
 /** Human-readable messages for each Anchor error code */
 const AnchorErrorMessages: Record<AnchorErrorCode, string> = {
+  // Agent errors (6000-6012)
   6000: 'Agent is already registered',
   6001: 'Agent not found',
   6002: 'Agent is not active',
   6003: 'Agent has insufficient capabilities',
-  6004: 'Agent has reached maximum active tasks',
-  6005: 'Agent has active tasks and cannot be deregistered',
-  6006: 'Only the agent authority can perform this action',
-  6007: 'Agent registration required to create tasks',
-  6008: 'Task not found',
-  6009: 'Task is not open for claims',
-  6010: 'Task has reached maximum workers',
-  6011: 'Task has expired',
-  6012: 'Task deadline has not passed',
-  6013: 'Task deadline has passed',
-  6014: 'Task is not in progress',
-  6015: 'Task is already completed',
-  6016: 'Task cannot be cancelled',
-  6017: 'Only the task creator can perform this action',
-  6018: 'Invalid creator',
-  6019: 'Invalid task type',
-  6020: 'Competitive task already completed by another worker',
-  6021: 'Task has no workers',
-  6022: "Proof constraint hash does not match task's stored constraint hash",
-  6023: 'Task is not a private task (no constraint hash set)',
-  6024: 'Worker has already claimed this task',
-  6025: 'Worker has not claimed this task',
-  6026: 'Claim has already been completed',
-  6027: 'Claim has not expired yet',
-  6028: 'Invalid proof of work',
-  6029: 'ZK proof verification failed',
-  6030: 'Invalid proof size - expected 388 bytes for Groth16',
-  6031: 'Invalid proof binding: expected_binding cannot be all zeros',
-  6032: 'Invalid output commitment: output_commitment cannot be all zeros',
-  6033: 'Dispute is not active',
-  6034: 'Voting period has ended',
-  6035: 'Voting period has not ended',
-  6036: 'Already voted on this dispute',
-  6037: 'Not authorized to vote (not an arbiter)',
-  6038: 'Insufficient votes to resolve',
-  6039: 'Dispute has already been resolved',
-  6040: 'Only protocol authority or dispute initiator can resolve disputes',
-  6041: 'Agent has active dispute votes pending resolution',
-  6042: 'Agent must wait 24 hours after voting before deregistering',
-  6043: 'Insufficient dispute evidence provided',
-  6044: 'Dispute evidence exceeds maximum allowed length',
-  6045: 'Dispute has not expired',
-  6046: 'Dispute slashing already applied',
-  6047: 'Dispute has not been resolved',
-  6048: 'State version mismatch (concurrent modification)',
-  6049: 'State key already exists',
-  6050: 'State not found',
-  6051: 'Protocol is already initialized',
-  6052: 'Protocol is not initialized',
-  6053: 'Invalid protocol fee (must be <= 1000 bps)',
-  6054: 'Invalid dispute threshold',
-  6055: 'Insufficient stake for arbiter registration',
-  6056: 'Invalid multisig threshold',
-  6057: 'Invalid multisig signer configuration',
-  6058: 'Not enough multisig signers',
-  6059: 'Duplicate multisig signer provided',
-  6060: 'Multisig signer cannot be default pubkey',
-  6061: 'Multisig signer account not owned by System Program',
-  6062: 'Invalid input parameter',
-  6063: 'Arithmetic overflow',
-  6064: 'Vote count overflow',
-  6065: 'Insufficient funds',
-  6066: 'Account data is corrupted',
-  6067: 'String too long',
-  6068: 'Account owner validation failed: account not owned by this program',
-  6069: 'Rate limit exceeded: maximum actions per 24h window reached',
-  6070: 'Cooldown period has not elapsed since last action',
-  6071: 'Insufficient stake to initiate dispute',
-  6072: 'Protocol version mismatch: account version incompatible with current program',
-  6073: 'Account version too old: migration required',
-  6074: 'Account version too new: program upgrade required',
-  6075: 'Migration not allowed: invalid source version',
-  6076: 'Migration not allowed: invalid target version',
-  6077: 'Only upgrade authority can perform this action',
+  6004: 'Agent capabilities bitmask cannot be zero',
+  6005: 'Agent has reached maximum active tasks',
+  6006: 'Agent has active tasks and cannot be deregistered',
+  6007: 'Only the agent authority can perform this action',
+  6008: 'Creator must match authority to prevent social engineering',
+  6009: 'Invalid agent ID: agent_id cannot be all zeros',
+  6010: 'Agent registration required to create tasks',
+  6011: 'Agent is suspended and cannot change status',
+  6012: 'Agent cannot set status to Active while having active tasks',
+  // Task errors (6013-6034)
+  6013: 'Task not found',
+  6014: 'Task is not open for claims',
+  6015: 'Task has reached maximum workers',
+  6016: 'Task has expired',
+  6017: 'Task deadline has not passed',
+  6018: 'Task deadline has passed',
+  6019: 'Task is not in progress',
+  6020: 'Task is already completed',
+  6021: 'Task cannot be cancelled',
+  6022: 'Only the task creator can perform this action',
+  6023: 'Invalid creator',
+  6024: 'Invalid task ID: cannot be zero',
+  6025: 'Invalid description: cannot be empty',
+  6026: 'Invalid max workers: must be between 1 and 100',
+  6027: 'Invalid task type',
+  6028: 'Invalid deadline: deadline must be greater than zero',
+  6029: 'Invalid reward: reward must be greater than zero',
+  6030: 'Invalid required capabilities: required_capabilities cannot be zero',
+  6031: 'Competitive task already completed by another worker',
+  6032: 'Task has no workers',
+  6033: "Proof constraint hash does not match task's stored constraint hash",
+  6034: 'Task is not a private task (no constraint hash set)',
+  // Claim errors (6035-6049)
+  6035: 'Worker has already claimed this task',
+  6036: 'Worker has not claimed this task',
+  6037: 'Claim has already been completed',
+  6038: 'Claim has not expired yet',
+  6039: 'Claim has expired',
+  6040: 'Invalid expiration: expires_at cannot be zero',
+  6041: 'Invalid proof of work',
+  6042: 'ZK proof verification failed',
+  6043: 'Invalid proof size - expected 256 bytes for Groth16',
+  6044: 'Invalid proof binding: expected_binding cannot be all zeros',
+  6045: 'Invalid output commitment: output_commitment cannot be all zeros',
+  6046: 'Invalid rent recipient: must be worker authority',
+  6047: 'Grace period not passed: only worker authority can expire claim within 60 seconds of expiry',
+  6048: 'Invalid proof hash: proof_hash cannot be all zeros',
+  6049: 'Invalid result data: result_data cannot be all zeros when provided',
+  // Dispute errors (6050-6075)
+  6050: 'Dispute is not active',
+  6051: 'Voting period has ended',
+  6052: 'Voting period has not ended',
+  6053: 'Already voted on this dispute',
+  6054: 'Not authorized to vote (not an arbiter)',
+  6055: 'Insufficient votes to resolve',
+  6056: 'Dispute has already been resolved',
+  6057: 'Only protocol authority or dispute initiator can resolve disputes',
+  6058: 'Agent has active dispute votes pending resolution',
+  6059: 'Agent must wait 24 hours after voting before deregistering',
+  6060: 'Authority has already voted on this dispute',
+  6061: 'Insufficient dispute evidence provided',
+  6062: 'Dispute evidence exceeds maximum allowed length',
+  6063: 'Dispute has not expired',
+  6064: 'Dispute slashing already applied',
+  6065: 'Slash window expired: must apply slashing within 7 days of resolution',
+  6066: 'Dispute has not been resolved',
+  6067: 'Only task creator or workers can initiate disputes',
+  6068: 'Invalid evidence hash: cannot be all zeros',
+  6069: 'Arbiter cannot vote on disputes they are a participant in',
+  6070: 'Insufficient quorum: minimum number of voters not reached',
+  6071: 'Agent has active disputes as defendant and cannot deregister',
+  6072: 'Worker agent account required when creator initiates dispute',
+  6073: 'Worker claim account required when creator initiates dispute',
+  6074: 'Worker was not involved in this dispute',
+  6075: 'Dispute initiator cannot resolve their own dispute',
+  // State errors (6076-6081)
+  6076: 'State version mismatch (concurrent modification)',
+  6077: 'State key already exists',
+  6078: 'State not found',
+  6079: 'Invalid state value: state_value cannot be all zeros',
+  6080: 'State ownership violation: only the creator agent can update this state',
+  6081: 'Invalid state key: state_key cannot be all zeros',
+  // Protocol errors (6082-6093)
+  6082: 'Protocol is already initialized',
+  6083: 'Protocol is not initialized',
+  6084: 'Invalid protocol fee (must be <= 1000 bps)',
+  6085: 'Invalid treasury: treasury account cannot be default pubkey',
+  6086: 'Invalid dispute threshold: must be 1-100 (percentage of votes required)',
+  6087: 'Insufficient stake for arbiter registration',
+  6088: 'Invalid multisig threshold',
+  6089: 'Invalid multisig signer configuration',
+  6090: 'Not enough multisig signers',
+  6091: 'Duplicate multisig signer provided',
+  6092: 'Multisig signer cannot be default pubkey',
+  6093: 'Multisig signer account not owned by System Program',
+  // General errors (6094-6101)
+  6094: 'Invalid input parameter',
+  6095: 'Arithmetic overflow',
+  6096: 'Vote count overflow',
+  6097: 'Insufficient funds',
+  6098: 'Reward too small: worker must receive at least 1 lamport',
+  6099: 'Account data is corrupted',
+  6100: 'String too long',
+  6101: 'Account owner validation failed: account not owned by this program',
+  // Rate limiting errors (6102-6110)
+  6102: 'Rate limit exceeded: maximum actions per 24h window reached',
+  6103: 'Cooldown period has not elapsed since last action',
+  6104: 'Agent update too frequent: must wait cooldown period',
+  6105: 'Cooldown value cannot be negative',
+  6106: 'Cooldown value exceeds maximum (24 hours)',
+  6107: 'Rate limit value exceeds maximum allowed (1000)',
+  6108: 'Cooldown value exceeds maximum allowed (1 week)',
+  6109: 'Insufficient stake to initiate dispute',
+  6110: 'Creator-initiated disputes require 2x the minimum stake',
+  // Version/upgrade errors (6111-6118)
+  6111: 'Protocol version mismatch: account version incompatible with current program',
+  6112: 'Account version too old: migration required',
+  6113: 'Account version too new: program upgrade required',
+  6114: 'Migration not allowed: invalid source version',
+  6115: 'Migration not allowed: invalid target version',
+  6116: 'Only upgrade authority can perform this action',
+  6117: 'Minimum version cannot exceed current protocol version',
+  6118: 'Protocol config account required: suspending an agent requires the protocol config PDA in remaining_accounts',
+  // Dependency errors (6119-6124)
+  6119: 'Parent task has been cancelled',
+  6120: 'Parent task is in disputed state',
+  6121: 'Invalid dependency type',
+  6122: 'Parent task must be completed before completing a proof-dependent task',
+  6123: 'Parent task account required for proof-dependent task completion',
+  6124: 'Parent task does not belong to the same creator',
+  // Nullifier errors (6125-6126)
+  6125: 'Nullifier has already been spent - proof/knowledge reuse detected',
+  6126: 'Invalid nullifier: nullifier value cannot be all zeros',
+  // Cancel task errors (6127-6128)
+  6127: 'All worker accounts must be provided when cancelling a task with active claims',
+  6128: 'Worker accounts required when task has active workers',
+  // Duplicate account errors (6129)
+  6129: 'Duplicate arbiter provided in remaining_accounts',
+  // Escrow errors (6130)
+  6130: 'Escrow has insufficient balance for reward transfer',
+  // Status transition errors (6131)
+  6131: 'Invalid task status transition',
+  // Stake validation errors (6132-6134)
+  6132: 'Stake value is below minimum required (0.001 SOL)',
+  6133: 'min_stake_for_dispute must be greater than zero',
+  6134: 'Slash amount must be greater than zero',
+  // Speculation Bond errors (6135-6138)
+  6135: 'Bond amount too low',
+  6136: 'Bond already exists',
+  6137: 'Bond not found',
+  6138: 'Bond not yet matured',
+  // Reputation errors (6139-6140)
+  6139: 'Agent reputation below task minimum requirement',
+  6140: 'Invalid minimum reputation: must be <= 10000',
+  // Security errors (6141-6142)
+  6141: 'Development verifying key detected (gamma == delta). ZK proofs are forgeable.',
+  6142: 'Cannot claim own task: worker authority matches task creator',
+  // SPL Token errors (6143-6146)
+  6143: 'Token accounts not provided for token-denominated task',
+  6144: 'Token escrow ATA does not match expected derivation',
+  6145: 'Provided mint does not match task\'s reward_mint',
+  6146: 'SPL token transfer CPI failed',
 };
+
+// ============================================================================
+// Validation Helpers
+// ============================================================================
+
+/**
+ * Validates that a byte array has the expected length.
+ * @throws ValidationError if length doesn't match
+ */
+export function validateByteLength(
+  value: Uint8Array | number[],
+  expectedLength: number,
+  paramName: string,
+): Uint8Array {
+  const bytes = value instanceof Uint8Array ? value : new Uint8Array(value);
+  if (bytes.length !== expectedLength) {
+    throw new ValidationError(
+      `Invalid ${paramName}: expected ${expectedLength} bytes, got ${bytes.length}`
+    );
+  }
+  return bytes;
+}
+
+/**
+ * Validates that a byte array is not all zeros.
+ * @throws ValidationError if all bytes are zero
+ */
+export function validateNonZeroBytes(value: Uint8Array, paramName: string): void {
+  if (value.every(b => b === 0)) {
+    throw new ValidationError(`Invalid ${paramName}: cannot be all zeros`);
+  }
+}
 
 // ============================================================================
 // Base Runtime Error Class
@@ -1002,7 +1284,7 @@ export function parseAnchorError(error: unknown): ParsedAnchorError | null {
   }
 
   // Validate code is in our known range
-  if (code === undefined || code < 6000 || code > 6077) {
+  if (code === undefined || code < 6000 || code > 6146) {
     return null;
   }
 
