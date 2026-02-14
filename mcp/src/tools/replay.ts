@@ -40,6 +40,8 @@ import {
   ReplayIncidentValidationSchema,
   ReplayIncidentSummarySchema,
   ReplayIncidentNarrativeSchema,
+  REPLAY_SCHEMA_HASHES,
+  REPLAY_TOOL_ERROR_SCHEMA_HASH,
   REPLAY_BACKFILL_OUTPUT_SCHEMA,
   REPLAY_COMPARE_OUTPUT_SCHEMA,
   REPLAY_INCIDENT_OUTPUT_SCHEMA,
@@ -397,6 +399,7 @@ function createToolError(
     status: 'error',
     command,
     schema,
+    schema_hash: REPLAY_TOOL_ERROR_SCHEMA_HASH,
     code,
     message,
     details,
@@ -425,10 +428,16 @@ function createToolOutput<T extends z.ZodTypeAny>(
     );
   }
 
+  const data = parsed.data as Record<string, unknown>;
+  const schemaName = typeof data.schema === 'string' ? data.schema : null;
+  if (schemaName && schemaName in REPLAY_SCHEMA_HASHES) {
+    data.schema_hash = REPLAY_SCHEMA_HASHES[schemaName as keyof typeof REPLAY_SCHEMA_HASHES];
+  }
+
   return {
     isError: false,
-    content: [{ type: 'text', text: safeStringify(parsed.data) }],
-    structuredContent: parsed.data as JsonObject,
+    content: [{ type: 'text', text: safeStringify(data) }],
+    structuredContent: data as JsonObject,
   };
 }
 

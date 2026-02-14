@@ -256,14 +256,16 @@ See also:
 - `agenc_replay_incident` returns `replay.incident.output.v1`.
 - `agenc_replay_status` returns `replay.status.output.v1`.
 - Failure payloads across replay tools use `status: "error"` with `schema: "replay.*.output.v1"` and the specific error `code`.
+- Replay tool payloads may include `schema_hash` for schema drift detection.
 
 ### `replay.*.output.v1` formal shapes
 
+- All `replay.*.output.v1` payloads include optional `schema_hash`.
 - `replay.backfill.output.v1` includes: `status`, `command`, `schema`, `mode`, `to_slot`, `store_type`, optional `page_size`, `result`, `sections`, `redactions`, `command_params`, `truncated`, and optional `truncation_reason`.
 - `replay.compare.output.v1` includes: `status`, `command`, `schema`, `strictness`, `local_trace_path`, `result`, optional `task_pda`, optional `dispute_pda`, `sections`, `redactions`, `command_params`, `truncated`, and optional `truncation_reason`.
 - `replay.incident.output.v1` includes: `status`, `command`, `schema`, `command_params`, `sections`, `redactions`, nullable `summary`, nullable `validation`, nullable `narrative`, `truncated`, and optional `truncation_reason`.
 - `replay.status.output.v1` includes: `status`, `command`, `schema`, `store_type`, `event_count`, `unique_task_count`, `unique_dispute_count`, nullable `active_cursor`, `sections`, and `redactions`.
-- `replay tool errors` include: `status: "error"`, `command`, `schema`, `code`, `message`, optional `details`, and `retriable`.
+- `replay tool errors` include: `status: "error"`, `command`, `schema`, optional `schema_hash`, `code`, `message`, optional `details`, and `retriable`.
 
 ## Architecture
 
