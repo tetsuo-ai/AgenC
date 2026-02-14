@@ -40,6 +40,10 @@ yarn add @agenc/runtime
 pnpm add @agenc/runtime
 ```
 
+## Changelog
+
+See [CHANGELOG.md](./CHANGELOG.md) for release history and migration notes.
+
 ### Peer Dependencies
 
 ```json

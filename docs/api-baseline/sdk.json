@@ -1,0 +1,853 @@
+{
+  "package": "@agenc/sdk",
+  "version": "1.3.0",
+  "generatedAt": "2026-02-14T05:31:52.137Z",
+  "entryPoint": "sdk/src/index.ts",
+  "exports": [
+    {
+      "name": "ActorDisputeSummary",
+      "kind": "interface"
+    },
+    {
+      "name": "AgentState",
+      "kind": "interface"
+    },
+    {
+      "name": "AgentStatus",
+      "kind": "enum"
+    },
+    {
+      "name": "applyDisputeSlash",
+      "kind": "function",
+      "signature": "(connection: Connection, program: Program, payer: Keypair, params: ApplyDisputeSlashParams): Promise<{ txSignature: string; }>"
+    },
+    {
+      "name": "ApplyDisputeSlashParams",
+      "kind": "interface"
+    },
+    {
+      "name": "applyInitiatorSlash",
+      "kind": "function",
+      "signature": "(connection: Connection, program: Program, payer: Keypair, params: ApplyInitiatorSlashParams): Promise<{ txSignature: string; }>"
+    },
+    {
+      "name": "ApplyInitiatorSlashParams",
+      "kind": "interface"
+    },
+    {
+      "name": "ASSOCIATED_TOKEN_PROGRAM_ID",
+      "kind": "const"
+    },
+    {
+      "name": "BASIS_POINTS_DIVISOR",
+      "kind": "const"
+    },
+    {
+      "name": "BID_ID_MAX_LENGTH",
+      "kind": "const"
+    },
+    {
+      "name": "BidAntiSpamConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "BidRateLimitConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "BidStatus",
+      "kind": "type"
+    },
+    {
+      "name": "BPS_BASE",
+      "kind": "const"
+    },
+    {
+      "name": "calculateEscrowFee",
+      "kind": "function",
+      "signature": "(escrowLamports: number, feePercentage?: number): number"
+    },
+    {
+      "name": "cancelDispute",
+      "kind": "function",
+      "signature": "(connection: Connection, program: Program, authority: Keypair, disputePda: PublicKey, taskPda: PublicKey, defendantAgentPda?: PublicKey): Promise<{ txSignature: string; }>"
+    },
+    {
+      "name": "cancelTask",
+      "kind": "function",
+      "signature": "(connection: Connection, program: Program, creator: Keypair, taskPda: PublicKey, workerPairs?: Array<{ claimPda: PublicKey; workerAgentPda: PublicKey; }>): Promise<{ txSignature: string; }>"
+    },
+    {
+      "name": "canonicalizeMarketplaceId",
+      "kind": "function",
+      "signature": "(value: string): string"
+    },
+    {
+      "name": "checkToolsAvailable",
+      "kind": "function",
+      "signature": "(): ToolsStatus"
+    },
+    {
+      "name": "checkVersionCompatibility",
+      "kind": "function",
+      "signature": "(program: Program, options?: VersionCompatibilityOptions): Promise<ProtocolVersionInfo>"
+    },
+    {
+      "name": "claimTask",
+      "kind": "function",
+      "signature": "(connection: Connection, program: Program, worker: Keypair, workerAgentId: Uint8Array | number[], taskPda: PublicKey): Promise<{ txSignature: string; }>"
+    },
+    {
+      "name": "completeTask",
+      "kind": "function",
+      "signature": "(connection: Connection, program: Program, worker: Keypair, workerAgentId: Uint8Array | number[], taskPda: PublicKey, proofHash: Uint8Array | number[], resultData?: Uint8Array | number[] | null): Promise<{ txSignature: string; }>"
+    },
+    {
+      "name": "completeTaskPrivate",
+      "kind": "function",
+      "signature": "(connection: Connection, program: Program, worker: Keypair, workerAgentId: Uint8Array | number[], taskPda: PublicKey, proof: PrivateCompletionProof): Promise<{ txSignature: string; }>"
+    },
+    {
+      "name": "completeTaskPrivateSafe",
+      "kind": "function",
+      "signature": "(connection: Connection, program: Program, worker: Keypair, workerAgentId: Uint8Array | number[], taskPda: PublicKey, proof: PrivateCompletionProof, options?: CompleteTaskPrivateSafeOptions): Promise<{ txSignature: string; validationResult?: ProofPreconditionResult; }>"
+    },
+    {
+      "name": "CompleteTaskPrivateSafeOptions",
+      "kind": "interface"
+    },
+    {
+      "name": "computeCommitment",
+      "kind": "function",
+      "signature": "(constraintHash: bigint, salt: bigint): bigint"
+    },
+    {
+      "name": "computeConstraintHash",
+      "kind": "function",
+      "signature": "(output: bigint[]): bigint"
+    },
+    {
+      "name": "computeExpectedBinding",
+      "kind": "function",
+      "signature": "(taskPda: PublicKey, agentPubkey: PublicKey, outputCommitment: bigint): bigint"
+    },
+    {
+      "name": "computeHashes",
+      "kind": "function",
+      "signature": "(taskPda: PublicKey, agentPubkey: PublicKey, output: bigint[], salt: bigint): HashResult"
+    },
+    {
+      "name": "COORDINATION_ERROR_MAP",
+      "kind": "const"
+    },
+    {
+      "name": "CoordinationErrorEntry",
+      "kind": "interface"
+    },
+    {
+      "name": "CoordinationState",
+      "kind": "interface"
+    },
+    {
+      "name": "createDependentTask",
+      "kind": "function",
+      "signature": "(connection: Connection, program: Program, creator: Keypair, creatorAgentId: Uint8Array | number[], parentTaskPda: PublicKey, params: DependentTaskParams): Promise<{ taskPda: PublicKey; txSignature: string; }>"
+    },
+    {
+      "name": "createLogger",
+      "kind": "function",
+      "signature": "(minLevel?: LogLevel, prefix?: string): Logger"
+    },
+    {
+      "name": "createTask",
+      "kind": "function",
+      "signature": "(connection: Connection, program: Program, creator: Keypair, creatorAgentId: Uint8Array | number[], params: TaskParams): Promise<{ taskPda: PublicKey; txSignature: string; }>"
+    },
+    {
+      "name": "decodeAnchorError",
+      "kind": "function",
+      "signature": "(error: unknown): DecodedError | null"
+    },
+    {
+      "name": "DecodedError",
+      "kind": "interface"
+    },
+    {
+      "name": "decodeError",
+      "kind": "function",
+      "signature": "(code: number): DecodedError | null"
+    },
+    {
+      "name": "DEFAULT_FEE_PERCENT",
+      "kind": "const"
+    },
+    {
+      "name": "DEFAULT_MAX_PROOF_AGE_MS",
+      "kind": "const"
+    },
+    {
+      "name": "DEFAULT_WEIGHTED_SCORE_WEIGHTS",
+      "kind": "const"
+    },
+    {
+      "name": "DependentTask",
+      "kind": "interface"
+    },
+    {
+      "name": "DependentTaskParams",
+      "kind": "interface"
+    },
+    {
+      "name": "deregisterAgent",
+      "kind": "function",
+      "signature": "(connection: Connection, program: Program, authority: Keypair, agentId: Uint8Array | number[]): Promise<{ txSignature: string; }>"
+    },
+    {
+      "name": "deriveAgentPda",
+      "kind": "function",
+      "signature": "(agentId: Uint8Array | number[], programId?: PublicKey): PublicKey"
+    },
+    {
+      "name": "deriveClaimPda",
+      "kind": "function",
+      "signature": "(taskPda: PublicKey, workerAgentPda: PublicKey, programId?: PublicKey): PublicKey"
+    },
+    {
+      "name": "deriveDisputePda",
+      "kind": "function",
+      "signature": "(disputeId: Uint8Array | number[], programId?: PublicKey): PublicKey"
+    },
+    {
+      "name": "deriveEscrowPda",
+      "kind": "function",
+      "signature": "(taskPda: PublicKey, programId?: PublicKey): PublicKey"
+    },
+    {
+      "name": "deriveProtocolPda",
+      "kind": "function",
+      "signature": "(programId?: PublicKey): PublicKey"
+    },
+    {
+      "name": "deriveStatePda",
+      "kind": "function",
+      "signature": "(authority: PublicKey, stateKey: Uint8Array | number[], programId?: PublicKey): PublicKey"
+    },
+    {
+      "name": "deriveTaskPda",
+      "kind": "function",
+      "signature": "(creator: PublicKey, taskId: Uint8Array | number[], programId?: PublicKey): PublicKey"
+    },
+    {
+      "name": "deriveTokenEscrowAddress",
+      "kind": "function",
+      "signature": "(mint: PublicKey, escrowPda: PublicKey): PublicKey"
+    },
+    {
+      "name": "deriveVotePda",
+      "kind": "function",
+      "signature": "(disputePda: PublicKey, voterAgentPda: PublicKey, programId?: PublicKey): PublicKey"
+    },
+    {
+      "name": "DEVNET_RPC",
+      "kind": "const"
+    },
+    {
+      "name": "DISCRIMINATOR_SIZE",
+      "kind": "const"
+    },
+    {
+      "name": "DISPUTE_FIELD_OFFSETS",
+      "kind": "const"
+    },
+    {
+      "name": "DisputeState",
+      "kind": "interface"
+    },
+    {
+      "name": "DisputeStatus",
+      "kind": "enum"
+    },
+    {
+      "name": "ErrorCategory",
+      "kind": "type"
+    },
+    {
+      "name": "expireClaim",
+      "kind": "function",
+      "signature": "(connection: Connection, program: Program, caller: Keypair, taskPda: PublicKey, workerAgentId: Uint8Array | number[], rentRecipient?: PublicKey): Promise<{ txSignature: string; }>"
+    },
+    {
+      "name": "expireDispute",
+      "kind": "function",
+      "signature": "(connection: Connection, program: Program, caller: Keypair, params: ExpireDisputeParams): Promise<{ txSignature: string; }>"
+    },
+    {
+      "name": "ExpireDisputeParams",
+      "kind": "interface"
+    },
+    {
+      "name": "FeatureFlags",
+      "kind": "interface"
+    },
+    {
+      "name": "FEE_TIERS",
+      "kind": "const"
+    },
+    {
+      "name": "FIELD_MODULUS",
+      "kind": "const"
+    },
+    {
+      "name": "formatTaskState",
+      "kind": "function",
+      "signature": "(state: TaskState): string"
+    },
+    {
+      "name": "formatTokenAmount",
+      "kind": "function",
+      "signature": "(amount: bigint, decimals?: number, connection?: Connection, mint?: PublicKey): Promise<string>"
+    },
+    {
+      "name": "generateProof",
+      "kind": "function",
+      "signature": "(params: ProofGenerationParams): Promise<ProofResult>"
+    },
+    {
+      "name": "generateSalt",
+      "kind": "function",
+      "signature": "(): bigint"
+    },
+    {
+      "name": "getAgent",
+      "kind": "function",
+      "signature": "(program: Program, agentPda: PublicKey): Promise<AgentState | null>"
+    },
+    {
+      "name": "getDependentTaskCount",
+      "kind": "function",
+      "signature": "(connection: Connection, programId: PublicKey, parentTaskPda: PublicKey): Promise<number>"
+    },
+    {
+      "name": "getDispute",
+      "kind": "function",
+      "signature": "(program: Program, disputePda: PublicKey): Promise<DisputeState | null>"
+    },
+    {
+      "name": "getDisputesByActor",
+      "kind": "function",
+      "signature": "(connection: Connection, actorPubkey: PublicKey, programId?: PublicKey): Promise<ActorDisputeSummary[]>"
+    },
+    {
+      "name": "getEscrowTokenBalance",
+      "kind": "function",
+      "signature": "(connection: Connection, taskPda: PublicKey, mint: PublicKey, programId?: PublicKey): Promise<bigint>"
+    },
+    {
+      "name": "getFeaturesForVersion",
+      "kind": "function",
+      "signature": "(version: number): FeatureFlags"
+    },
+    {
+      "name": "getMintDecimals",
+      "kind": "function",
+      "signature": "(connection: Connection, mint: PublicKey): Promise<number>"
+    },
+    {
+      "name": "getProtocolConfig",
+      "kind": "function",
+      "signature": "(program: Program): Promise<ProtocolConfigState | null>"
+    },
+    {
+      "name": "getReplayHealthCheck",
+      "kind": "function",
+      "signature": "(store: ReplayTimelineStoreLike, stalenessThresholdMs?: number): Promise<ReplayHealthCheck>"
+    },
+    {
+      "name": "getRootTasks",
+      "kind": "function",
+      "signature": "(connection: Connection, programId: PublicKey): Promise<DependentTask[]>"
+    },
+    {
+      "name": "getSdkLogger",
+      "kind": "function",
+      "signature": "(): Logger"
+    },
+    {
+      "name": "getState",
+      "kind": "function",
+      "signature": "(program: Program, statePda: PublicKey): Promise<CoordinationState | null>"
+    },
+    {
+      "name": "getTask",
+      "kind": "function",
+      "signature": "(program: Program, taskPda: PublicKey): Promise<TaskStatus | null>"
+    },
+    {
+      "name": "getTaskLifecycleSummary",
+      "kind": "function",
+      "signature": "(program: Program, taskPda: PublicKey): Promise<TaskLifecycleSummary | null>"
+    },
+    {
+      "name": "getTasksByCreator",
+      "kind": "function",
+      "signature": "(program: Program, creator: PublicKey): Promise<TaskStatus[]>"
+    },
+    {
+      "name": "getTasksByDependency",
+      "kind": "function",
+      "signature": "(connection: Connection, programId: PublicKey, parentTaskPda: PublicKey): Promise<DependentTask[]>"
+    },
+    {
+      "name": "getTasksByDependencyWithProgram",
+      "kind": "function",
+      "signature": "(program: Program, parentTaskPda: PublicKey): Promise<Array<{ publicKey: PublicKey; account: unknown; }>>"
+    },
+    {
+      "name": "hasDependents",
+      "kind": "function",
+      "signature": "(connection: Connection, programId: PublicKey, taskPda: PublicKey): Promise<boolean>"
+    },
+    {
+      "name": "HASH_SIZE",
+      "kind": "const"
+    },
+    {
+      "name": "HashResult",
+      "kind": "interface"
+    },
+    {
+      "name": "initializeProtocol",
+      "kind": "function",
+      "signature": "(connection: Connection, program: Program, authority: Keypair, secondSigner: Keypair, treasury: PublicKey, params: InitializeProtocolParams): Promise<{ protocolPda: PublicKey; txSignature: string; }>"
+    },
+    {
+      "name": "InitializeProtocolParams",
+      "kind": "interface"
+    },
+    {
+      "name": "initiateDispute",
+      "kind": "function",
+      "signature": "(connection: Connection, program: Program, initiator: Keypair, initiatorAgentId: Uint8Array | number[], params: InitiateDisputeParams): Promise<{ disputePda: PublicKey; txSignature: string; }>"
+    },
+    {
+      "name": "InitiateDisputeParams",
+      "kind": "interface"
+    },
+    {
+      "name": "isTokenTask",
+      "kind": "function",
+      "signature": "(task: { rewardMint?: PublicKey | null; }): boolean"
+    },
+    {
+      "name": "isValidBps",
+      "kind": "function",
+      "signature": "(value: number): boolean"
+    },
+    {
+      "name": "Logger",
+      "kind": "interface"
+    },
+    {
+      "name": "LogLevel",
+      "kind": "type"
+    },
+    {
+      "name": "MAINNET_RPC",
+      "kind": "const"
+    },
+    {
+      "name": "MARKETPLACE_ID_PATTERN",
+      "kind": "const"
+    },
+    {
+      "name": "MatchingPolicy",
+      "kind": "type"
+    },
+    {
+      "name": "MatchingPolicyConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "MAX_PROTOCOL_FEE_BPS",
+      "kind": "const"
+    },
+    {
+      "name": "migrateProtocol",
+      "kind": "function",
+      "signature": "(connection: Connection, program: Program, multisigSigners: Keypair[], targetVersion: number): Promise<{ txSignature: string; }>"
+    },
+    {
+      "name": "NullifierCache",
+      "kind": "class"
+    },
+    {
+      "name": "OUTPUT_FIELD_COUNT",
+      "kind": "const"
+    },
+    {
+      "name": "PERCENT_BASE",
+      "kind": "const"
+    },
+    {
+      "name": "PRIVACY_CASH_PROGRAM_ID",
+      "kind": "const"
+    },
+    {
+      "name": "PrivacyClient",
+      "kind": "class"
+    },
+    {
+      "name": "PrivacyClientConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "PrivateCompletionProof",
+      "kind": "interface"
+    },
+    {
+      "name": "PROGRAM_ID",
+      "kind": "const"
+    },
+    {
+      "name": "PROOF_SIZE_BYTES",
+      "kind": "const"
+    },
+    {
+      "name": "ProofGenerationParams",
+      "kind": "interface"
+    },
+    {
+      "name": "ProofPreconditionError",
+      "kind": "class"
+    },
+    {
+      "name": "ProofPreconditionFailure",
+      "kind": "interface"
+    },
+    {
+      "name": "ProofPreconditionResult",
+      "kind": "interface"
+    },
+    {
+      "name": "ProofPreconditionWarning",
+      "kind": "interface"
+    },
+    {
+      "name": "ProofResult",
+      "kind": "interface"
+    },
+    {
+      "name": "ProtocolConfigState",
+      "kind": "interface"
+    },
+    {
+      "name": "ProtocolVersionInfo",
+      "kind": "interface"
+    },
+    {
+      "name": "pubkeyToField",
+      "kind": "function",
+      "signature": "(pubkey: PublicKey): bigint"
+    },
+    {
+      "name": "PUBLIC_INPUTS_COUNT",
+      "kind": "const"
+    },
+    {
+      "name": "RECOMMENDED_CU_CANCEL_TASK",
+      "kind": "const"
+    },
+    {
+      "name": "RECOMMENDED_CU_CANCEL_TASK_TOKEN",
+      "kind": "const"
+    },
+    {
+      "name": "RECOMMENDED_CU_CLAIM_TASK",
+      "kind": "const"
+    },
+    {
+      "name": "RECOMMENDED_CU_COMPLETE_TASK",
+      "kind": "const"
+    },
+    {
+      "name": "RECOMMENDED_CU_COMPLETE_TASK_PRIVATE",
+      "kind": "const"
+    },
+    {
+      "name": "RECOMMENDED_CU_COMPLETE_TASK_PRIVATE_TOKEN",
+      "kind": "const"
+    },
+    {
+      "name": "RECOMMENDED_CU_COMPLETE_TASK_TOKEN",
+      "kind": "const"
+    },
+    {
+      "name": "RECOMMENDED_CU_CREATE_DEPENDENT_TASK",
+      "kind": "const"
+    },
+    {
+      "name": "RECOMMENDED_CU_CREATE_TASK",
+      "kind": "const"
+    },
+    {
+      "name": "RECOMMENDED_CU_CREATE_TASK_TOKEN",
+      "kind": "const"
+    },
+    {
+      "name": "RECOMMENDED_CU_INITIATE_DISPUTE",
+      "kind": "const"
+    },
+    {
+      "name": "RECOMMENDED_CU_REGISTER_AGENT",
+      "kind": "const"
+    },
+    {
+      "name": "RECOMMENDED_CU_RESOLVE_DISPUTE",
+      "kind": "const"
+    },
+    {
+      "name": "RECOMMENDED_CU_UPDATE_AGENT",
+      "kind": "const"
+    },
+    {
+      "name": "RECOMMENDED_CU_VOTE_DISPUTE",
+      "kind": "const"
+    },
+    {
+      "name": "registerAgent",
+      "kind": "function",
+      "signature": "(connection: Connection, program: Program, authority: Keypair, params: RegisterAgentParams): Promise<{ agentPda: PublicKey; txSignature: string; }>"
+    },
+    {
+      "name": "RegisterAgentParams",
+      "kind": "interface"
+    },
+    {
+      "name": "ReplayCursor",
+      "kind": "interface"
+    },
+    {
+      "name": "ReplayHealthCheck",
+      "kind": "interface"
+    },
+    {
+      "name": "ReplayTimelineRecord",
+      "kind": "interface"
+    },
+    {
+      "name": "ReplayTimelineStoreLike",
+      "kind": "interface"
+    },
+    {
+      "name": "requireTools",
+      "kind": "function",
+      "signature": "(): void"
+    },
+    {
+      "name": "requireVersionCompatibility",
+      "kind": "function",
+      "signature": "(program: Program, options?: VersionCompatibilityOptions): Promise<ProtocolVersionInfo>"
+    },
+    {
+      "name": "ResolutionType",
+      "kind": "enum"
+    },
+    {
+      "name": "resolveDispute",
+      "kind": "function",
+      "signature": "(connection: Connection, program: Program, resolver: Keypair, params: ResolveDisputeParams): Promise<{ txSignature: string; }>"
+    },
+    {
+      "name": "ResolveDisputeParams",
+      "kind": "interface"
+    },
+    {
+      "name": "RESULT_DATA_SIZE",
+      "kind": "const"
+    },
+    {
+      "name": "SDK_MIN_PROTOCOL_VERSION",
+      "kind": "const"
+    },
+    {
+      "name": "SDK_PACKAGE_VERSION",
+      "kind": "const"
+    },
+    {
+      "name": "SDK_PROTOCOL_VERSION",
+      "kind": "const"
+    },
+    {
+      "name": "SEEDS",
+      "kind": "const"
+    },
+    {
+      "name": "setSdkLogLevel",
+      "kind": "function",
+      "signature": "(level: LogLevel): void"
+    },
+    {
+      "name": "silentLogger",
+      "kind": "const"
+    },
+    {
+      "name": "suspendAgent",
+      "kind": "function",
+      "signature": "(connection: Connection, program: Program, protocolAuthority: Keypair, agentId: Uint8Array | number[]): Promise<{ txSignature: string; }>"
+    },
+    {
+      "name": "TASK_FIELD_OFFSETS",
+      "kind": "const"
+    },
+    {
+      "name": "TaskBid",
+      "kind": "interface"
+    },
+    {
+      "name": "TaskBidBookState",
+      "kind": "interface"
+    },
+    {
+      "name": "TaskBidInput",
+      "kind": "interface"
+    },
+    {
+      "name": "TaskBidSelection",
+      "kind": "interface"
+    },
+    {
+      "name": "TaskBidUpdateInput",
+      "kind": "interface"
+    },
+    {
+      "name": "TaskLifecycleEvent",
+      "kind": "interface"
+    },
+    {
+      "name": "TaskLifecycleSummary",
+      "kind": "interface"
+    },
+    {
+      "name": "TaskParams",
+      "kind": "interface"
+    },
+    {
+      "name": "TaskState",
+      "kind": "enum"
+    },
+    {
+      "name": "TaskStatus",
+      "kind": "interface"
+    },
+    {
+      "name": "TOKEN_PROGRAM_ID",
+      "kind": "const"
+    },
+    {
+      "name": "ToolsStatus",
+      "kind": "interface"
+    },
+    {
+      "name": "U64_SIZE",
+      "kind": "const"
+    },
+    {
+      "name": "unsuspendAgent",
+      "kind": "function",
+      "signature": "(connection: Connection, program: Program, protocolAuthority: Keypair, agentId: Uint8Array | number[]): Promise<{ txSignature: string; }>"
+    },
+    {
+      "name": "updateAgent",
+      "kind": "function",
+      "signature": "(connection: Connection, program: Program, authority: Keypair, agentId: Uint8Array | number[], params: UpdateAgentParams): Promise<{ txSignature: string; }>"
+    },
+    {
+      "name": "UpdateAgentParams",
+      "kind": "interface"
+    },
+    {
+      "name": "updateMinVersion",
+      "kind": "function",
+      "signature": "(connection: Connection, program: Program, multisigSigners: Keypair[], newMinVersion: number): Promise<{ txSignature: string; }>"
+    },
+    {
+      "name": "updateProtocolFee",
+      "kind": "function",
+      "signature": "(connection: Connection, program: Program, multisigSigners: Keypair[], newFeeBps: number): Promise<{ txSignature: string; }>"
+    },
+    {
+      "name": "updateRateLimits",
+      "kind": "function",
+      "signature": "(connection: Connection, program: Program, multisigSigners: Keypair[], params: UpdateRateLimitsParams): Promise<{ txSignature: string; }>"
+    },
+    {
+      "name": "UpdateRateLimitsParams",
+      "kind": "interface"
+    },
+    {
+      "name": "updateState",
+      "kind": "function",
+      "signature": "(connection: Connection, program: Program, authority: Keypair, params: UpdateStateParams): Promise<{ statePda: PublicKey; txSignature: string; }>"
+    },
+    {
+      "name": "UpdateStateParams",
+      "kind": "interface"
+    },
+    {
+      "name": "validateMarketplaceId",
+      "kind": "function",
+      "signature": "(value: string, maxLength?: number): string | null"
+    },
+    {
+      "name": "ValidateProofParams",
+      "kind": "interface"
+    },
+    {
+      "name": "validateProofPreconditions",
+      "kind": "function",
+      "signature": "(connection: Connection, program: Program, params: ValidateProofParams): Promise<ProofPreconditionResult>"
+    },
+    {
+      "name": "VERIFICATION_COMPUTE_UNITS",
+      "kind": "const"
+    },
+    {
+      "name": "VERIFIER_PROGRAM_ID",
+      "kind": "const"
+    },
+    {
+      "name": "verifyProofLocally",
+      "kind": "function",
+      "signature": "(proof: Buffer, publicSignals: bigint[], circuitPath?: string): Promise<boolean>"
+    },
+    {
+      "name": "VERSION",
+      "kind": "const"
+    },
+    {
+      "name": "VersionCompatibilityOptions",
+      "kind": "interface"
+    },
+    {
+      "name": "VersionStatus",
+      "kind": "enum"
+    },
+    {
+      "name": "voteDispute",
+      "kind": "function",
+      "signature": "(connection: Connection, program: Program, voter: Keypair, voterAgentId: Uint8Array | number[], params: VoteDisputeParams): Promise<{ votePda: PublicKey; txSignature: string; }>"
+    },
+    {
+      "name": "VoteDisputeParams",
+      "kind": "interface"
+    },
+    {
+      "name": "WeightedScoreWeights",
+      "kind": "interface"
+    },
+    {
+      "name": "WeightedScoringBreakdown",
+      "kind": "interface"
+    }
+  ]
+}
