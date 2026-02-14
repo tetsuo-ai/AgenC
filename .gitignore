@@ -33,6 +33,7 @@ obj/
 !package.json
 !tsconfig.json
 !runtime/idl/*.json
+!runtime/src/replay/alert-schema-lockfile.json
 id.json
 deploy/
 keys/
