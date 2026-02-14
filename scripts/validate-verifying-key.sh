@@ -1,19 +1,22 @@
 #!/usr/bin/env bash
-# Validate verifying key security before deployment (issues #356, #358)
+# Validate verifying key security before deployment (issues #356, #358, #962)
 #
 # Checks:
 # 1. VK_GAMMA_G2 != VK_DELTA_G2 (gamma and delta must differ)
-# 2. Key must come from an MPC ceremony with multiple contributors
+# 2. VK_VERSION is non-zero for mainnet
+# 3. VK_FINGERPRINT is not a placeholder for mainnet
+# 4. allow-dev-key not in default features
 #
 # Usage:
 #   ./scripts/validate-verifying-key.sh [--mainnet]
 #
-# The --mainnet flag makes gamma==delta a hard error (exit 1).
-# Without it, gamma==delta produces a warning (for devnet/localnet).
+# The --mainnet flag makes all warnings hard errors (exit 1).
+# Without it, dev-key issues produce warnings (for devnet/localnet).
 
 set -euo pipefail
 
 VK_FILE="programs/agenc-coordination/src/verifying_key.rs"
+CARGO_FILE="programs/agenc-coordination/Cargo.toml"
 MAINNET_MODE=false
 
 for arg in "$@"; do
@@ -29,10 +32,10 @@ if [ ! -f "$VK_FILE" ]; then
     exit 1
 fi
 
-echo "=== Verifying Key Security Check (issues #356, #358) ==="
+echo "=== Verifying Key Security Check (issues #356, #358, #962) ==="
 echo ""
 
-# Extract gamma and delta hex values from the Rust file
+# Check 1: gamma != delta
 GAMMA_HEX=$(grep -A 8 "pub const VK_GAMMA_G2" "$VK_FILE" | grep -oP '0x[0-9a-f]{2}' | tr -d '\n' | sed 's/0x//g')
 DELTA_HEX=$(grep -A 8 "pub const VK_DELTA_G2" "$VK_FILE" | grep -oP '0x[0-9a-f]{2}' | tr -d '\n' | sed 's/0x//g')
 
@@ -52,12 +55,46 @@ if [ "$GAMMA_HEX" = "$DELTA_HEX" ]; then
         exit 1
     else
         echo "  (Pass --mainnet to make this a hard error)"
-        exit 0
     fi
 else
     echo "OK: VK_GAMMA_G2 != VK_DELTA_G2"
     echo "  Gamma and delta are distinct. Key appears to be from a proper ceremony."
     echo ""
+fi
+
+# Check 2: VK_VERSION
+VK_VERSION=$(grep 'pub const VK_VERSION' "$VK_FILE" | grep -oP '= \K\d+' | head -1)
+echo "VK_VERSION: $VK_VERSION"
+if [ "$VK_VERSION" = "0" ]; then
+    if [ "$MAINNET_MODE" = true ]; then
+        echo "ERROR: VK_VERSION is 0 (development). Must be >= 1 for mainnet."
+        exit 1
+    else
+        echo "WARNING: VK_VERSION is 0 (development key)"
+    fi
+else
+    echo "OK: VK_VERSION is $VK_VERSION (production key)"
+fi
+
+# Check 3: VK_FINGERPRINT is not all zeros
+FINGERPRINT_ZEROS=$(grep -A 4 "pub const VK_FINGERPRINT" "$VK_FILE" | grep -c "0u8" || true)
+if [ "$FINGERPRINT_ZEROS" -ge 1 ]; then
+    if [ "$MAINNET_MODE" = true ]; then
+        echo "ERROR: VK_FINGERPRINT is placeholder (all zeros). Must be set for mainnet."
+        exit 1
+    else
+        echo "WARNING: VK_FINGERPRINT is placeholder (all zeros)"
+    fi
+else
+    echo "OK: VK_FINGERPRINT is set"
+fi
+
+# Check 4: allow-dev-key not in default features
+if grep -q 'default.*allow-dev-key' "$CARGO_FILE" 2>/dev/null; then
+    echo "ERROR: 'allow-dev-key' is in default features. Remove before deployment."
+    exit 1
+else
+    echo "OK: 'allow-dev-key' not in default features"
 fi
 
 # Check IC point count
