@@ -1,0 +1,27 @@
+{
+  "id": "cli.replay.backfill.failure.missing-rpc",
+  "version": 1,
+  "command": "replay.backfill",
+  "input": {
+    "argv": [
+      "replay",
+      "backfill",
+      "--to-slot",
+      "999",
+      "--store-type",
+      "memory"
+    ]
+  },
+  "output": {
+    "schema": "replay-error",
+    "shape": {
+      "status": "error",
+      "code": "MISSING_REQUIRED_OPTION",
+      "message": "--rpc is required for replay backfill"
+    }
+  },
+  "metadata": {
+    "generatedAt": "2026-02-14T20:17:05.678Z",
+    "generatedBy": "contract-validator"
+  }
+}

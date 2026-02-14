@@ -1,0 +1,25 @@
+{
+  "id": "mcp.replay.compare.failure.invalid_trace",
+  "version": 1,
+  "command": "agenc_replay_compare",
+  "input": {
+    "local_trace_path": "/tmp/does-not-exist.json",
+    "store_type": "memory"
+  },
+  "output": {
+    "schema": "replay.compare.output.v1",
+    "shape": {
+      "status": "error",
+      "command": "agenc_replay_compare",
+      "schema": "replay.compare.output.v1",
+      "schema_hash": "73a7a33b91d3436f",
+      "code": "replay.compare_failed",
+      "message": "ENOENT: no such file or directory, open '/tmp/trace-not-found.json'",
+      "retriable": true
+    }
+  },
+  "metadata": {
+    "generatedAt": "2026-02-14T20:20:55.076Z",
+    "generatedBy": "contract-validator"
+  }
+}

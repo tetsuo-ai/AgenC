@@ -1,0 +1,32 @@
+{
+  "id": "mcp.replay.status.success",
+  "version": 1,
+  "command": "agenc_replay_status",
+  "input": {
+    "store_type": "memory"
+  },
+  "output": {
+    "schema": "replay.status.output.v1",
+    "shape": {
+      "status": "ok",
+      "command": "agenc_replay_status",
+      "schema": "replay.status.output.v1",
+      "schema_hash": "7fbe5363088b59e7",
+      "store_type": "memory",
+      "event_count": 3,
+      "unique_task_count": 1,
+      "unique_dispute_count": 1,
+      "active_cursor": null,
+      "sections": [
+        "status"
+      ],
+      "redactions": [
+        "signature"
+      ]
+    }
+  },
+  "metadata": {
+    "generatedAt": "2026-02-14T20:13:59.204Z",
+    "generatedBy": "contract-validator"
+  }
+}

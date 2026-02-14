@@ -1,0 +1,31 @@
+{
+  "id": "mcp.replay.backfill.error.slot_window",
+  "version": 1,
+  "command": "agenc_replay_backfill",
+  "input": {
+    "rpc": "http://localhost:8899",
+    "to_slot": 1,
+    "store_type": "memory"
+  },
+  "output": {
+    "schema": "replay.backfill.output.v1",
+    "shape": {
+      "status": "error",
+      "command": "agenc_replay_backfill",
+      "schema": "replay.backfill.output.v1",
+      "schema_hash": "73a7a33b91d3436f",
+      "code": "replay.slot_window_exceeded",
+      "message": "to_slot is more than 10 slots behind current slot",
+      "details": {
+        "currentSlot": 1000,
+        "toSlot": 1,
+        "maxSlotWindow": 10
+      },
+      "retriable": false
+    }
+  },
+  "metadata": {
+    "generatedAt": "2026-02-14T20:13:59.196Z",
+    "generatedBy": "contract-validator"
+  }
+}

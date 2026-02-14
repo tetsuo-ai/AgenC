@@ -1,0 +1,120 @@
+{
+  "id": "cli.replay.incident.success",
+  "version": 1,
+  "command": "replay.incident",
+  "input": {
+    "argv": [
+      "replay",
+      "incident",
+      "--store-type",
+      "memory",
+      "--task-pda",
+      "task-main"
+    ]
+  },
+  "output": {
+    "schema": "replay.incident.output.v1",
+    "shape": {
+      "status": "ok",
+      "command": "replay.incident",
+      "schema": "replay.incident.output.v1",
+      "commandParams": {
+        "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+        "strictMode": false,
+        "storeType": "memory"
+      },
+      "summary": {
+        "totalEvents": 4,
+        "taskPdaFilters": [
+          "01010101010101010101010101010101010101010101010101010101010101010101"
+        ],
+        "disputePdaFilters": [
+          null
+        ],
+        "firstSlot": 10,
+        "lastSlot": 13,
+        "firstSeq": 1,
+        "lastSeq": 4,
+        "uniqueTaskIds": [
+          "01010101010101010101010101010101010101010101010101010101010101010101"
+        ],
+        "uniqueDisputeIds": [],
+        "sourceEventTypeCounts": {
+          "claimed": 1,
+          "completed": 1,
+          "discovered": 1,
+          "dispute:initiated": 1
+        },
+        "sourceEventNameCounts": {
+          "disputeInitiated": 1,
+          "taskClaimed": 1,
+          "taskCompleted": 1,
+          "taskCreated": 1
+        },
+        "traceIdCounts": {},
+        "events": [
+          {
+            "seq": 1,
+            "slot": 10,
+            "signature": "SIGCLITASKCREATED",
+            "sourceEventType": "discovered",
+            "sourceEventName": "taskCreated",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000000000
+          },
+          {
+            "seq": 2,
+            "slot": 11,
+            "signature": "SIGCLITASKCLAIMED",
+            "sourceEventType": "claimed",
+            "sourceEventName": "taskClaimed",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000000001
+          },
+          {
+            "seq": 3,
+            "slot": 12,
+            "signature": "SIGCLITASKCOMPLETED",
+            "sourceEventType": "completed",
+            "sourceEventName": "taskCompleted",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000000002
+          },
+          {
+            "seq": 4,
+            "slot": 13,
+            "signature": "SIGCLIDISPUTEINIT",
+            "sourceEventType": "dispute:initiated",
+            "sourceEventName": "disputeInitiated",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000000003
+          }
+        ],
+        "deterministicHash": "bf9bee0a752fd84f8a00efbc552001230c89d81c51ccd54455883e0beb335195",
+        "eventType": "replay-incidents"
+      },
+      "validation": {
+        "strictMode": false,
+        "eventValidation": {
+          "errors": [],
+          "warnings": [],
+          "replayTaskCount": 1
+        },
+        "anomalyIds": []
+      },
+      "narrative": {
+        "lines": [
+          "1/10/SIGCLITASKCREATED: taskCreated (discovered)",
+          "2/11/SIGCLITASKCLAIMED: taskClaimed (claimed)",
+          "3/12/SIGCLITASKCOMPLETED: taskCompleted (completed)",
+          "4/13/SIGCLIDISPUTEINIT: disputeInitiated (dispute:initiated)"
+        ],
+        "anomalyIds": []
+      }
+    }
+  },
+  "metadata": {
+    "generatedAt": "2026-02-14T20:17:05.683Z",
+    "generatedBy": "contract-validator"
+  }
+}
