@@ -11,7 +11,7 @@
 import { PublicKey, SystemProgram } from '@solana/web3.js';
 import { getAssociatedTokenAddressSync } from '@solana/spl-token';
 import { toAnchorBytes } from '../utils/encoding.js';
-import { BN, type Program } from '@coral-xyz/anchor';
+import anchor, { type Program } from '@coral-xyz/anchor';
 import type { AgencCoordination } from '../types/agenc_coordination.js';
 import type { Logger } from '../utils/logger.js';
 import { silentLogger } from '../utils/logger.js';
@@ -477,7 +477,7 @@ export class TaskOperations {
     try {
       // task_id argument is a u64 on-chain, convert taskId bytes to number
       // The on-chain instruction uses task_id: u64 as a proof binding input
-      const taskIdBN = new BN(task.taskId.slice(0, 8), 'le');
+      const taskIdBN = new anchor.BN(task.taskId.slice(0, 8), 'le');
 
       const proof = {
         proofData: Buffer.from(proofData),

@@ -5,7 +5,7 @@
  */
 
 import { PublicKey, SystemProgram, LAMPORTS_PER_SOL } from '@solana/web3.js';
-import { Program, AnchorProvider, BN } from '@coral-xyz/anchor';
+import anchor, { Program, AnchorProvider } from '@coral-xyz/anchor';
 import { generateProof, generateSalt } from '@agenc/sdk';
 import { AgentRuntime } from '../runtime.js';
 import { TaskScanner, TaskEventSubscription } from './scanner.js';
@@ -1320,7 +1320,7 @@ export class AutonomousAgent extends AgentRuntime {
     );
 
     const tx = await this.program.methods
-      .completeTaskPrivate(new BN(0), {
+      .completeTaskPrivate(new anchor.BN(0), {
         proofData: toAnchorBytes(proofResult.proof),
         constraintHash: toAnchorBytes(proofResult.constraintHash),
         outputCommitment: toAnchorBytes(proofResult.outputCommitment),
