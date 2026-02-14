@@ -153,6 +153,8 @@ pub fn check_task_state_transition(from: u8, to: u8) -> TaskInvariantResult {
         (task_status::IN_PROGRESS, task_status::CANCELLED) => true,
         // InProgress -> Disputed (initiate_dispute)
         (task_status::IN_PROGRESS, task_status::DISPUTED) => true,
+        // Completed -> Disputed (initiate_dispute after completion)
+        (task_status::COMPLETED, task_status::DISPUTED) => true,
         // Disputed -> Completed (resolve_dispute)
         (task_status::DISPUTED, task_status::COMPLETED) => true,
         // Disputed -> Cancelled (resolve_dispute)

@@ -40,3 +40,19 @@ mod vote_dispute_tests;
 #[cfg(test)]
 #[path = "../fuzz_targets/resolve_dispute.rs"]
 mod resolve_dispute_tests;
+
+#[cfg(test)]
+#[path = "../fuzz_targets/task_lifecycle.rs"]
+mod task_lifecycle_tests;
+
+#[cfg(test)]
+#[path = "../fuzz_targets/dispute_lifecycle.rs"]
+mod dispute_lifecycle_tests;
+
+#[cfg(test)]
+#[path = "../fuzz_targets/dependency_graph.rs"]
+mod dependency_graph_tests;
+
+#[cfg(test)]
+#[path = "../fuzz_targets/dispute_timing.rs"]
+mod dispute_timing_tests;
