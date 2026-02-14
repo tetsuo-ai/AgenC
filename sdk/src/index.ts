@@ -45,6 +45,7 @@ export {
   cancelTask,
   getTask,
   getTasksByCreator,
+  getTaskLifecycleSummary,
   deriveTaskPda,
   deriveClaimPda,
   deriveEscrowPda,
@@ -54,6 +55,8 @@ export {
   DependentTaskParams,
   TaskState,
   TaskStatus,
+  TaskLifecycleEvent,
+  TaskLifecycleSummary,
   PrivateCompletionProof,
 } from './tasks';
 
@@ -206,10 +209,18 @@ export {
   getTasksByDependencyWithProgram,
   getRootTasks,
   hasDependents,
+  getDisputesByActor,
+  getReplayHealthCheck,
   // Field offsets for memcmp filtering (for custom queries)
   TASK_FIELD_OFFSETS,
+  DISPUTE_FIELD_OFFSETS,
   // Types
   DependentTask,
+  ActorDisputeSummary,
+  ReplayCursor,
+  ReplayTimelineRecord,
+  ReplayTimelineStoreLike,
+  ReplayHealthCheck,
 } from './queries';
 
 export {
