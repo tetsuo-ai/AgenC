@@ -15,6 +15,7 @@ export interface TransitionValidationViolation {
   signature: string;
   slot: number;
   sourceEventSequence: number;
+  anomalyCode: string;
 }
 
 export interface TransitionValidationOptions {
@@ -31,7 +32,41 @@ export interface TransitionValidationOptions {
   allowedStarts: ReadonlySet<string>;
 }
 
+export const ANOMALY_CODES = {
+  TASK_DOUBLE_COMPLETE: 'TASK_DOUBLE_COMPLETE',
+  TASK_INVALID_START: 'TASK_INVALID_START',
+  TASK_TERMINAL_TRANSITION: 'TASK_TERMINAL_TRANSITION',
+  DISPUTE_INVALID_START: 'DISPUTE_INVALID_START',
+  DISPUTE_TERMINAL_TRANSITION: 'DISPUTE_TERMINAL_TRANSITION',
+  SPECULATION_INVALID_START: 'SPECULATION_INVALID_START',
+  SPECULATION_TERMINAL_TRANSITION: 'SPECULATION_TERMINAL_TRANSITION',
+  UNKNOWN_TRANSITION: 'UNKNOWN_TRANSITION',
+} as const;
+
 const SEPARATOR = ' -> ';
+
+function deriveAnomalyCode(
+  scope: ReplayLifecycleType,
+  previousState: string | undefined,
+  nextState: string,
+  transitions: Record<string, ReadonlySet<string>>,
+): string {
+  if (previousState === undefined) {
+    return `${scope.toUpperCase()}_INVALID_START`;
+  }
+
+  if (previousState === nextState && nextState === 'completed') {
+    return ANOMALY_CODES.TASK_DOUBLE_COMPLETE;
+  }
+
+  const allowed = transitions[previousState];
+  const isTerminal = allowed !== undefined && allowed.size === 0;
+  if (isTerminal) {
+    return `${scope.toUpperCase()}_TERMINAL_TRANSITION`;
+  }
+
+  return ANOMALY_CODES.UNKNOWN_TRANSITION;
+}
 
 export function validateTransition(options: TransitionValidationOptions): TransitionValidationViolation | undefined {
   const { previousState, nextState, allowedStarts, transitions, ...details } = options;
@@ -42,6 +77,7 @@ export function validateTransition(options: TransitionValidationOptions): Transi
         fromState: undefined,
         toState: nextState,
         reason: `none${SEPARATOR}${nextState}`,
+        anomalyCode: deriveAnomalyCode(details.scope, previousState, nextState, transitions),
       };
     }
     return undefined;
@@ -57,6 +93,7 @@ export function validateTransition(options: TransitionValidationOptions): Transi
     fromState: previousState,
     toState: nextState,
     reason: `${previousState}${SEPARATOR}${nextState}`,
+    anomalyCode: deriveAnomalyCode(details.scope, previousState, nextState, transitions),
   };
 }
 

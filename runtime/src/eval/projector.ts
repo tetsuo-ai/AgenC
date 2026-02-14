@@ -94,7 +94,7 @@ export interface ProjectionOptions {
   strictProjection?: boolean;
 }
 
-type TaskLifecycleState = 'discovered' | 'claimed' | 'completed' | 'failed';
+type TaskLifecycleState = 'discovered' | 'claimed' | 'completed' | 'failed' | 'disputed';
 type DisputeLifecycleState = 'dispute:initiated' | 'dispute:vote_cast' | 'dispute:resolved' | 'dispute:cancelled' | 'dispute:expired';
 type SpeculationLifecycleState = 'speculation_started' | 'speculation_confirmed' | 'speculation_aborted';
 
@@ -199,7 +199,8 @@ const TRAJECTORY_EVENT_BY_SOURCE: Record<keyof OnChainEventMap, string> = {
 
 const TASK_TRANSITIONS: Record<Extract<TaskLifecycleState, string>, Set<string>> = {
   discovered: new Set(['claimed', 'failed']),
-  claimed: new Set(['completed', 'failed']),
+  claimed: new Set(['completed', 'failed', 'disputed']),
+  disputed: new Set(['completed', 'failed']),
   completed: new Set(),
   failed: new Set(),
 };
@@ -235,6 +236,7 @@ const TASK_EVENT_TYPES = new Set<string>([
   'claimed',
   'completed',
   'failed',
+  'disputed',
 ]);
 const TASK_START_EVENTS = new Set<string>(['discovered']);
 const DISPUTE_LIFECYCLE_EVENT_TYPES = new Set<string>([
@@ -257,6 +259,7 @@ const EVENT_SORT_ORDER: Readonly<Record<string, number>> = {
   claimed: 20,
   completed: 30,
   failed: 40,
+  disputed: 45,
   'speculation_started': 50,
   'speculation_confirmed': 60,
   'speculation_aborted': 70,
@@ -508,6 +511,33 @@ export function projectOnChainEvents(
           telemetry.transitionConflicts.push(transitionViolationMessage(violation));
         }
         taskStates.set(context.taskPda, trajectoryType as TaskLifecycleState);
+      }
+    }
+
+    // Secondary projection: disputeInitiated also transitions the task to 'disputed'.
+    // On-chain, initiate_dispute requires InProgress status, so only apply when the
+    // task is in a state that allows the 'disputed' transition (i.e., 'claimed').
+    if (eventName === 'disputeInitiated' && context.taskPda) {
+      const previous = taskStates.get(context.taskPda);
+      if (previous !== undefined && TASK_TRANSITIONS[previous]?.has('disputed')) {
+        const violation = validateTransition({
+          scope: 'task',
+          entityId: context.taskPda,
+          eventName: input.eventName,
+          eventType: 'disputed',
+          previousState: previous,
+          nextState: 'disputed',
+          transitions: TASK_TRANSITIONS,
+          allowedStarts: TASK_START_EVENTS,
+          signature: input.signature,
+          slot: input.slot,
+          sourceEventSequence: item.sourceEventSequence,
+        });
+        if (violation) {
+          telemetry.transitionViolations.push(violation);
+          telemetry.transitionConflicts.push(transitionViolationMessage(violation));
+        }
+        taskStates.set(context.taskPda, 'disputed');
       }
     }
 

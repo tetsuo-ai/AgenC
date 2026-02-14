@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { projectOnChainEvents } from './projector.js';
-import { validateTransition } from './transition-validator.js';
+import { ANOMALY_CODES, validateTransition } from './transition-validator.js';
 
 function bytes(seed: number, length = 32): Uint8Array {
   return Uint8Array.from({ length }, () => seed);
@@ -105,8 +105,20 @@ describe('transition validator', () => {
         event: task,
       },
       {
-        eventName: 'disputeInitiated',
+        eventName: 'taskClaimed',
         slot: 2,
+        signature: 'SIG_CLAIM',
+        event: {
+          taskId,
+          worker: bytes(6),
+          currentWorkers: 1,
+          maxWorkers: 1,
+          timestamp: 10,
+        },
+      },
+      {
+        eventName: 'disputeInitiated',
+        slot: 3,
         signature: 'SIG_DISPUTE',
         event: {
           disputeId,
@@ -120,7 +132,7 @@ describe('transition validator', () => {
       },
       {
         eventName: 'disputeVoteCast',
-        slot: 3,
+        slot: 4,
         signature: 'SIG_VOTE',
         event: {
           disputeId,
@@ -133,7 +145,7 @@ describe('transition validator', () => {
       },
       {
         eventName: 'disputeResolved',
-        slot: 4,
+        slot: 5,
         signature: 'SIG_RESOLVE',
         event: {
           disputeId,
@@ -217,6 +229,118 @@ describe('validateTransition', () => {
       slot: 9,
       sourceEventSequence: 7,
       reason: 'completed -> claimed',
+      anomalyCode: ANOMALY_CODES.TASK_TERMINAL_TRANSITION,
     });
+  });
+});
+
+describe('anomaly codes (#959)', () => {
+  it('assigns TASK_DOUBLE_COMPLETE when completed task receives completion event', () => {
+    const taskId = bytes(20);
+    const result = projectOnChainEvents([
+      {
+        eventName: 'taskCreated',
+        slot: 1,
+        signature: 'SIG_DC1',
+        event: { taskId, creator: bytes(2), requiredCapabilities: 1n, rewardAmount: 1n, taskType: 0, deadline: 0, minReputation: 0, rewardMint: null, timestamp: 10 },
+      },
+      {
+        eventName: 'taskClaimed',
+        slot: 2,
+        signature: 'SIG_DC2',
+        event: { taskId, worker: bytes(3), currentWorkers: 1, maxWorkers: 1, timestamp: 11 },
+      },
+      {
+        eventName: 'taskCompleted',
+        slot: 3,
+        signature: 'SIG_DC3',
+        event: { taskId, worker: bytes(3), proofHash: bytes(4, 32), resultData: bytes(5, 64), rewardPaid: 1n, timestamp: 12 },
+      },
+      {
+        eventName: 'taskCompleted',
+        slot: 4,
+        signature: 'SIG_DC4',
+        event: { taskId, worker: bytes(3), proofHash: bytes(4, 32), resultData: bytes(5, 64), rewardPaid: 1n, timestamp: 13 },
+      },
+    ], { traceId: 'double-complete' });
+
+    expect(result.telemetry.transitionViolations).toHaveLength(1);
+    expect(result.telemetry.transitionViolations[0]?.anomalyCode).toBe(ANOMALY_CODES.TASK_DOUBLE_COMPLETE);
+  });
+
+  it('assigns TASK_TERMINAL_TRANSITION for any edge leaving completed state', () => {
+    const taskId = bytes(21);
+    const result = projectOnChainEvents([
+      {
+        eventName: 'taskCreated',
+        slot: 1,
+        signature: 'SIG_TT1',
+        event: { taskId, creator: bytes(2), requiredCapabilities: 1n, rewardAmount: 1n, taskType: 0, deadline: 0, minReputation: 0, rewardMint: null, timestamp: 10 },
+      },
+      {
+        eventName: 'taskClaimed',
+        slot: 2,
+        signature: 'SIG_TT2',
+        event: { taskId, worker: bytes(3), currentWorkers: 1, maxWorkers: 1, timestamp: 11 },
+      },
+      {
+        eventName: 'taskCompleted',
+        slot: 3,
+        signature: 'SIG_TT3',
+        event: { taskId, worker: bytes(3), proofHash: bytes(4, 32), resultData: bytes(5, 64), rewardPaid: 1n, timestamp: 12 },
+      },
+      {
+        eventName: 'taskClaimed',
+        slot: 4,
+        signature: 'SIG_TT4',
+        event: { taskId, worker: bytes(6), currentWorkers: 2, maxWorkers: 2, timestamp: 13 },
+      },
+    ], { traceId: 'terminal-transition' });
+
+    expect(result.telemetry.transitionViolations).toHaveLength(1);
+    expect(result.telemetry.transitionViolations[0]?.anomalyCode).toBe(ANOMALY_CODES.TASK_TERMINAL_TRANSITION);
+  });
+
+  it('assigns DISPUTE_INVALID_START for vote without initiation', () => {
+    const disputeId = bytes(22);
+    const result = projectOnChainEvents([
+      {
+        eventName: 'disputeVoteCast',
+        slot: 1,
+        signature: 'SIG_DIS1',
+        event: { disputeId, voter: bytes(8), approved: true, votesFor: 1n, votesAgainst: 0n, timestamp: 10 },
+      },
+    ], { traceId: 'dispute-invalid-start' });
+
+    expect(result.telemetry.transitionViolations).toHaveLength(1);
+    expect(result.telemetry.transitionViolations[0]?.anomalyCode).toBe(ANOMALY_CODES.DISPUTE_INVALID_START);
+  });
+
+  it('tracks task disputed state from disputeInitiated event', () => {
+    const taskId = bytes(23);
+    const disputeId = bytes(24);
+    const result = projectOnChainEvents([
+      {
+        eventName: 'taskCreated',
+        slot: 1,
+        signature: 'SIG_TD1',
+        event: { taskId, creator: bytes(2), requiredCapabilities: 1n, rewardAmount: 1n, taskType: 0, deadline: 0, minReputation: 0, rewardMint: null, timestamp: 10 },
+      },
+      {
+        eventName: 'taskClaimed',
+        slot: 2,
+        signature: 'SIG_TD2',
+        event: { taskId, worker: bytes(3), currentWorkers: 1, maxWorkers: 1, timestamp: 11 },
+      },
+      {
+        eventName: 'disputeInitiated',
+        slot: 3,
+        signature: 'SIG_TD3',
+        event: { disputeId, taskId, initiator: bytes(6), defendant: bytes(7), resolutionType: 0, votingDeadline: 100, timestamp: 12 },
+      },
+    ], { traceId: 'task-disputed' });
+
+    // No violations: claimed -> disputed is valid
+    expect(result.telemetry.transitionViolations).toHaveLength(0);
   });
 });
