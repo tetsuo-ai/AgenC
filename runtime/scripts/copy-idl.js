@@ -36,17 +36,32 @@ const TYPES_HEADER = `/* eslint-disable */
 function main() {
   console.log('Copying IDL and types from Anchor build output...');
 
-  // Check that source files exist
-  if (!fs.existsSync(IDL_SOURCE)) {
-    console.error(`Error: IDL not found at ${IDL_SOURCE}`);
-    console.error('Run "anchor build" first to generate the IDL.');
-    process.exit(1);
-  }
+  const hasIdlSource = fs.existsSync(IDL_SOURCE);
+  const hasTypesSource = fs.existsSync(TYPES_SOURCE);
 
-  if (!fs.existsSync(TYPES_SOURCE)) {
-    console.error(`Error: Types file not found at ${TYPES_SOURCE}`);
-    console.error('Run "anchor build" first to generate the types.');
-    process.exit(1);
+  if (!hasIdlSource || !hasTypesSource) {
+    const missing = [];
+    if (!hasIdlSource) missing.push('IDL');
+    if (!hasTypesSource) missing.push('types');
+
+    console.warn(
+      `Warning: Anchor build artifacts missing (${missing.join(', ')}). Skipping copy.`
+    );
+
+    if (!fs.existsSync(IDL_DEST)) {
+      console.error(`Error: Expected checked-in IDL not found at ${IDL_DEST}`);
+      console.error('Run "anchor build" to generate the IDL or restore the file.');
+      process.exit(1);
+    }
+
+    if (!fs.existsSync(TYPES_DEST)) {
+      console.error(`Error: Expected checked-in types not found at ${TYPES_DEST}`);
+      console.error('Run "anchor build" to generate the types or restore the file.');
+      process.exit(1);
+    }
+
+    console.log('Done.');
+    return;
   }
 
   // Create destination directories
