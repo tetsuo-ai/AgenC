@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { resolve as resolvePath } from 'node:path';
 import { EventParser } from '@coral-xyz/anchor';
@@ -9,7 +10,7 @@ import {
   PublicKey,
 } from '@solana/web3.js';
 import { PROGRAM_ID } from '@agenc/sdk';
-import { parseTrajectoryTrace, type TrajectoryTrace } from '../eval/types.js';
+import { parseTrajectoryTrace, stableStringifyJson, type JsonValue, type TrajectoryTrace } from '../eval/types.js';
 import { createReadOnlyProgram } from '../idl.js';
 import {
   type ReplayEventCursor,
@@ -67,6 +68,7 @@ export interface CliReplayIncidentSummary {
   sourceEventNameCounts: Record<string, number>;
   traceIdCounts: Record<string, number>;
   events: CliReplayIncidentEvent[];
+  deterministicHash: string;
 }
 
 interface SignedEvent {
@@ -266,6 +268,33 @@ export function createOnChainReplayBackfillFetcher(config: CliReplayBackfillConf
   };
 }
 
+function sortRecordByKey(record: Record<string, number>): Record<string, number> {
+  const sorted: Record<string, number> = {};
+  for (const key of Object.keys(record).sort()) {
+    sorted[key] = record[key]!;
+  }
+  return sorted;
+}
+
+/**
+ * Derive a deterministic trace ID from incident query filters.
+ * Same inputs always produce the same trace ID.
+ */
+export function deriveIncidentTraceId(filters: {
+  taskPda?: string;
+  disputePda?: string;
+  fromSlot?: number;
+  toSlot?: number;
+}): string {
+  const key = stableStringifyJson({
+    taskPda: filters.taskPda ?? null,
+    disputePda: filters.disputePda ?? null,
+    fromSlot: filters.fromSlot ?? null,
+    toSlot: filters.toSlot ?? null,
+  } as JsonValue);
+  return createHash('sha256').update(`incident:${key}`).digest('hex').slice(0, 32);
+}
+
 export function summarizeReplayIncidentRecords(
   records: readonly ReplayTimelineRecord[],
   filters: { taskPda?: string; disputePda?: string; fromSlot?: number; toSlot?: number },
@@ -314,7 +343,13 @@ export function summarizeReplayIncidentRecords(
     };
   });
 
-  return {
+  const uniqueTaskIds = [...taskIds].sort();
+  const uniqueDisputeIds = [...disputeIds].sort();
+  const sortedEventTypeCounts = sortRecordByKey(sourceEventTypeCounts);
+  const sortedEventNameCounts = sortRecordByKey(sourceEventNameCounts);
+  const sortedTraceIdCounts = sortRecordByKey(traceIdCounts);
+
+  const summary = {
     totalEvents: events.length,
     taskPdaFilters: [filters.taskPda],
     disputePdaFilters: [filters.disputePda],
@@ -324,11 +359,20 @@ export function summarizeReplayIncidentRecords(
     lastSlot: events[events.length - 1]?.slot,
     firstSeq: events[0]?.seq,
     lastSeq: events[events.length - 1]?.seq,
-    uniqueTaskIds: [...taskIds].sort(),
-    uniqueDisputeIds: [...disputeIds].sort(),
-    sourceEventTypeCounts,
-    sourceEventNameCounts,
-    traceIdCounts,
+    uniqueTaskIds,
+    uniqueDisputeIds,
+    sourceEventTypeCounts: sortedEventTypeCounts,
+    sourceEventNameCounts: sortedEventNameCounts,
+    traceIdCounts: sortedTraceIdCounts,
     events,
+  };
+
+  const deterministicHash = createHash('sha256')
+    .update(stableStringifyJson(summary as unknown as JsonValue))
+    .digest('hex');
+
+  return {
+    ...summary,
+    deterministicHash,
   };
 }
