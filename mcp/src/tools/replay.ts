@@ -3,8 +3,6 @@ import { readFileSync } from 'node:fs';
 import { setTimeout as nodeSetTimeout } from 'node:timers/promises';
 import { EventParser } from '@coral-xyz/anchor';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { type ServerNotification, type ServerRequest } from '@modelcontextprotocol/sdk/types.js';
-import type { RequestHandlerExtra } from '@modelcontextprotocol/sdk/shared/protocol.js';
 import { z } from 'zod';
 import {
   createReadOnlyProgram,
@@ -48,6 +46,10 @@ import {
   REPLAY_STATUS_OUTPUT_SCHEMA,
 } from './replay-types.js';
 import { truncateOutput } from '../utils/truncation.js';
+import type { ReplayToolRequestExtra } from './replay-internal-types.js';
+import { checkActorPermission, resolveActor } from './replay-actor.js';
+import { emitAuditEntry } from './replay-audit.js';
+import { getToolRiskProfile, loadToolCapsFromEnv, resolveToolCaps, type ToolRiskCaps } from './replay-risk.js';
 import type { ReplayComparisonResult } from '@agenc/runtime';
 import { parseTrajectoryTrace, type TrajectoryTrace } from '@agenc/runtime';
 
@@ -56,16 +58,6 @@ type ReplayToolOutput = {
   isError: boolean;
   content: Array<{ type: 'text'; text: string }>;
   structuredContent: JsonObject;
-};
-
-type ReplayAuditEvent = {
-  timestamp: string;
-  tool: string;
-  actor: string;
-  requestId: string;
-  status: 'start' | 'success' | 'failure';
-  durationMs: number;
-  reason?: string;
 };
 
 type ParsedAnchorEvent = {
@@ -91,8 +83,6 @@ export type ReplayPolicy = {
   defaultRedactions: string[];
   auditEnabled: boolean;
 };
-
-type ReplayToolRequestExtra = RequestHandlerExtra<ServerRequest, ServerNotification> | undefined;
 
 const DEFAULT_REPLAY_POLICY: ReplayPolicy = {
   maxSlotWindow: 2_000_000,
@@ -309,30 +299,12 @@ function enforceQueryWindow(
   return null;
 }
 
-function getActor(extra: ReplayToolRequestExtra): string {
-  const authInfo = extra?.authInfo;
-  if (authInfo?.clientId) {
-    return authInfo.clientId;
-  }
-  if (extra?.sessionId) {
-    return `session:${extra.sessionId}`;
-  }
-  return 'anonymous';
-}
-
 function getRequestId(extra: ReplayToolRequestExtra): string {
   const id = extra?.requestId;
   if (id === undefined) {
     return 'unknown';
   }
   return String(id);
-}
-
-function emitReplayAudit(event: ReplayAuditEvent): void {
-  if (!event.reason) {
-    delete (event as { reason?: string }).reason;
-  }
-  console.info(`mcp.replay.audit ${JSON.stringify(event)}`);
 }
 
 function parseAnchorLogs(parser: EventParser, logs: string[]): ParsedAnchorEvent[] {
@@ -844,59 +816,91 @@ async function withReplayPolicyControl(
   outputSchema: string,
   extra: ReplayToolRequestExtra,
   policy: ReplayPolicy,
-  callback: () => ReplayToolResult,
+  callback: (caps: ToolRiskCaps) => ReplayToolResult,
 ): ReplayToolResult {
-  const actor = getActor(extra);
+  const actor = resolveActor(extra);
   const requestId = getRequestId(extra);
+  const profile = getToolRiskProfile(toolName);
+  const effectiveCaps = resolveToolCaps(toolName, {
+    globalPolicy: policy,
+    toolOverrides: loadToolCapsFromEnv(),
+  });
   const start = Date.now();
 
-  const audit: ReplayAuditEvent = {
-    timestamp: new Date().toISOString(),
-    tool: toolName,
-    actor,
-    requestId,
-    status: 'start',
-    durationMs: 0,
-  };
-
   if (policy.auditEnabled) {
-    emitReplayAudit(audit);
+    emitAuditEntry({
+      timestamp: new Date().toISOString(),
+      tool: toolName,
+      actor,
+      requestId,
+      status: 'start',
+      durationMs: 0,
+      riskLevel: profile.riskLevel,
+      mutatedState: profile.mutatesState,
+      effectiveCaps,
+    });
   }
 
-  if (policy.denylist.size > 0 && policy.denylist.has(actor)) {
+  const permissionError = checkActorPermission(actor, policy, toolName);
+  if (permissionError) {
+    const durationMs = Date.now() - start;
+    if (policy.auditEnabled) {
+      emitAuditEntry({
+        timestamp: new Date().toISOString(),
+        tool: toolName,
+        actor,
+        requestId,
+        status: 'denied',
+        durationMs,
+        reason: permissionError,
+        violationCode: 'replay.access_denied',
+        riskLevel: profile.riskLevel,
+        mutatedState: profile.mutatesState,
+        effectiveCaps,
+      });
+    }
+
     return createToolError(
       toolName,
       outputSchema,
       'replay.access_denied',
-      `actor ${actor} is denylisted for replay tools`,
+      permissionError,
       false,
-      { actor, requestId, tool: toolName, command: toolName },
-    );
-  }
-  if (policy.allowlist.size > 0 && !policy.allowlist.has(actor)) {
-    return createToolError(
-      toolName,
-      outputSchema,
-      'replay.access_denied',
-      `actor ${actor} is not allowlisted for replay tools`,
-      false,
-      { actor, requestId, tool: toolName, command: toolName },
+      { actor: actor.id, requestId, tool: toolName, command: toolName },
     );
   }
 
   if (activeReplayJobs >= policy.maxConcurrentJobs) {
+    const durationMs = Date.now() - start;
+    const message = `max concurrent replay jobs reached (${policy.maxConcurrentJobs})`;
+
+    if (policy.auditEnabled) {
+      emitAuditEntry({
+        timestamp: new Date().toISOString(),
+        tool: toolName,
+        actor,
+        requestId,
+        status: 'failure',
+        durationMs,
+        reason: message,
+        riskLevel: profile.riskLevel,
+        mutatedState: profile.mutatesState,
+        effectiveCaps,
+      });
+    }
+
     return createToolError(
       toolName,
       outputSchema,
       'replay.concurrency_limit',
-      `max concurrent replay jobs reached (${policy.maxConcurrentJobs})`,
+      message,
       true,
-      { actor, tool: toolName },
+      { actor: actor.id, tool: toolName },
     );
   }
 
   activeReplayJobs += 1;
-  const timeout = policy.maxToolRuntimeMs > 0 ? policy.maxToolRuntimeMs : null;
+  const timeout = effectiveCaps.timeoutMs > 0 ? effectiveCaps.timeoutMs : null;
   const timeoutPromise = timeout === null
     ? Promise.resolve<ReplayToolOutput | never>(undefined as never)
     : nodeSetTimeout(timeout).then(() => {
@@ -920,34 +924,57 @@ async function withReplayPolicyControl(
     removeAbortListener = cleanup;
   });
 
+  let auditStatus: 'success' | 'failure' = 'failure';
+  let auditReason: string | undefined;
   try {
-    const outcome = await Promise.race([callback(), timeoutPromise, abortPromise]);
+    const outcome = await Promise.race([callback(effectiveCaps), timeoutPromise, abortPromise]);
     const parsed = outcome ?? {
       isError: true,
       content: [{ type: 'text', text: safeStringify({ message: 'tool returned no output' }) }],
       structuredContent: { status: 'error' },
     } as ReplayToolOutput;
-    audit.status = parsed.isError ? 'failure' : 'success';
+    auditStatus = parsed.isError ? 'failure' : 'success';
+
+    if (parsed.isError) {
+      const record = parsed.structuredContent as { code?: unknown; message?: unknown };
+      const code = typeof record.code === 'string' ? record.code : undefined;
+      const message = typeof record.message === 'string' ? record.message : undefined;
+      if (code && message) {
+        auditReason = `${code}: ${message}`;
+      } else if (message) {
+        auditReason = message;
+      }
+    }
+
     return parsed;
   } catch (error) {
     const classified = classifyControlError(error, toolName);
+    auditStatus = 'failure';
+    auditReason = classified.message;
     return createToolError(
       toolName,
       outputSchema,
       classified.code,
       classified.message,
       true,
-      { actor, tool: toolName, requestId },
+      { actor: actor.id, tool: toolName, requestId },
     );
   } finally {
     activeReplayJobs = Math.max(0, activeReplayJobs - 1);
     removeAbortListener();
-    if (audit.status === 'start') {
-      audit.status = 'failure';
-    }
-    audit.durationMs = Date.now() - start;
     if (policy.auditEnabled) {
-      emitReplayAudit(audit);
+      emitAuditEntry({
+        timestamp: new Date().toISOString(),
+        tool: toolName,
+        actor,
+        requestId,
+        status: auditStatus,
+        durationMs: Date.now() - start,
+        reason: auditReason,
+        riskLevel: profile.riskLevel,
+        mutatedState: profile.mutatesState,
+        effectiveCaps,
+      });
     }
   }
 }
@@ -1047,10 +1074,10 @@ export async function runReplayBackfillTool(
     REPLAY_BACKFILL_OUTPUT_SCHEMA,
     extra,
     policy,
-    async () => {
+    async (caps) => {
       try {
         const currentSlot = parsed.rpc === '' ? null : await runtime.getCurrentSlot?.(parsed.rpc) ?? null;
-        const windowError = enforcePolicyWindow('agenc_replay_backfill', parsed, currentSlot, policy.maxSlotWindow);
+        const windowError = enforcePolicyWindow('agenc_replay_backfill', parsed, currentSlot, caps.maxWindowSlots);
         if (windowError) {
           return windowError;
         }
@@ -1074,9 +1101,9 @@ export async function runReplayBackfillTool(
         const capError = enforceEventCap(
           'agenc_replay_backfill',
           result.processed,
-          policy.maxEventCount,
+          caps.maxEventCount,
           REPLAY_BACKFILL_OUTPUT_SCHEMA,
-          { processed: result.processed, maxEventCount: policy.maxEventCount },
+          { processed: result.processed, maxEventCount: caps.maxEventCount },
         );
         if (capError) {
           return capError;
@@ -1107,7 +1134,7 @@ export async function runReplayBackfillTool(
             page_size: parsed.page_size,
             trace_id: parsed.trace_id,
             sqlite_path: parsed.sqlite_path,
-            max_slot_window: policy.maxSlotWindow,
+            max_slot_window: caps.maxWindowSlots,
           },
           sections,
           redactions,
@@ -1117,7 +1144,8 @@ export async function runReplayBackfillTool(
 
         const processedSections = applySectionSelection(rawPayload, ['result'], sections);
         const redacted = applyRedaction(processedSections, redactions);
-        const truncated = truncateOutput(redacted, parsed.max_payload_bytes, trimBackfillPayload);
+        const payloadBudget = Math.min(parsed.max_payload_bytes, caps.maxPayloadBytes);
+        const truncated = truncateOutput(redacted, payloadBudget, trimBackfillPayload);
 
         return createToolOutput(
           ReplayBackfillOutputSchema,
@@ -1165,7 +1193,7 @@ export async function runReplayCompareTool(
     REPLAY_COMPARE_OUTPUT_SCHEMA,
     extra,
     policy,
-    async () => {
+    async (caps) => {
       try {
         const store = runtime.createStore(parsed.store_type, parsed.sqlite_path);
         const localTrace = runtime.readLocalTrace(parsed.local_trace_path);
@@ -1174,7 +1202,7 @@ export async function runReplayCompareTool(
           REPLAY_COMPARE_OUTPUT_SCHEMA,
           parsed.from_slot,
           parsed.to_slot,
-          policy.maxSlotWindow,
+          caps.maxWindowSlots,
         );
         if (windowError) {
           return windowError;
@@ -1183,9 +1211,9 @@ export async function runReplayCompareTool(
         const capError = enforceEventCap(
           'agenc_replay_compare',
           records.length,
-          policy.maxEventCount,
+          caps.maxEventCount,
           REPLAY_COMPARE_OUTPUT_SCHEMA,
-          { maxEventCount: policy.maxEventCount },
+          { maxEventCount: caps.maxEventCount },
         );
         if (capError) {
           return capError;
@@ -1227,7 +1255,8 @@ export async function runReplayCompareTool(
 
         const output = applySectionSelection(rawPayload, ['result'], sections);
         const redacted = applyRedaction(output, redactions);
-        const truncated = truncateOutput(redacted, parsed.max_payload_bytes, trimComparePayload);
+        const payloadBudget = Math.min(parsed.max_payload_bytes, caps.maxPayloadBytes);
+        const truncated = truncateOutput(redacted, payloadBudget, trimComparePayload);
 
         return createToolOutput(
           ReplayCompareOutputSchema,
@@ -1285,7 +1314,7 @@ export async function runReplayIncidentTool(
     REPLAY_INCIDENT_OUTPUT_SCHEMA,
     extra,
     policy,
-    async () => {
+    async (caps) => {
       try {
         const store = runtime.createStore(parsed.store_type, parsed.sqlite_path);
         const windowError = enforceQueryWindow(
@@ -1293,7 +1322,7 @@ export async function runReplayIncidentTool(
           REPLAY_INCIDENT_OUTPUT_SCHEMA,
           parsed.from_slot,
           parsed.to_slot,
-          policy.maxSlotWindow,
+          caps.maxWindowSlots,
         );
         if (windowError) {
           return windowError;
@@ -1302,9 +1331,9 @@ export async function runReplayIncidentTool(
         const capError = enforceEventCap(
           'agenc_replay_incident',
           records.length,
-          policy.maxEventCount,
+          caps.maxEventCount,
           REPLAY_INCIDENT_OUTPUT_SCHEMA,
-          { maxEventCount: policy.maxEventCount },
+          { maxEventCount: caps.maxEventCount },
         );
         if (capError) {
           return capError;
@@ -1371,7 +1400,8 @@ export async function runReplayIncidentTool(
 
         const filtered = applySectionSelection(rawPayload, ['summary', 'validation', 'narrative'], sections);
         const redacted = applyRedaction(filtered, redactions);
-        const truncated = truncateOutput(redacted, parsed.max_payload_bytes, trimIncidentPayload);
+        const payloadBudget = Math.min(parsed.max_payload_bytes, caps.maxPayloadBytes);
+        const truncated = truncateOutput(redacted, payloadBudget, trimIncidentPayload);
 
         return createToolOutput(
           ReplayIncidentOutputSchema,
@@ -1419,7 +1449,7 @@ export async function runReplayStatusTool(
     REPLAY_STATUS_OUTPUT_SCHEMA,
     extra,
     policy,
-    async () => {
+    async (caps) => {
       try {
         const sections = parseSections(parsed.sections, ['status']);
         const redactions = mergeRedactions(policy.defaultRedactions, parsed.redact_fields);
@@ -1428,9 +1458,9 @@ export async function runReplayStatusTool(
         const capError = enforceEventCap(
           'agenc_replay_status',
           records.length,
-          policy.maxEventCount,
+          caps.maxEventCount,
           REPLAY_STATUS_OUTPUT_SCHEMA,
-          { maxEventCount: policy.maxEventCount },
+          { maxEventCount: caps.maxEventCount },
         );
         if (capError) {
           return capError;
