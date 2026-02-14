@@ -28,6 +28,18 @@ export {
 } from './risk-scoring.js';
 export {
   allocateVerificationBudget,
+  BudgetAdjustmentInput,
+  BudgetAdjustmentResult,
+  BudgetAuditEntry,
+  BudgetAuditTrail,
+  BudgetGuardrail,
+  clampBudget,
+  calculateNextBudget,
+  countConsecutiveFromEnd,
+  DEFAULT_BUDGET_GUARDRAIL,
+  DEFAULT_INITIAL_BUDGET_LAMPORTS,
+  resolveBudgetGuardrail,
+  validateBudgetGuardrail,
   type VerificationBudgetDecision,
 } from './verification-budget.js';
 export {

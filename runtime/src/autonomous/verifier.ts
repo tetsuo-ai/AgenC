@@ -11,6 +11,7 @@ import type {
   VerifierExecutionResult,
   VerifierInput,
   VerifierLaneConfig,
+  VerifierAdaptiveRiskConfig,
   VerifierPolicyConfig,
   VerifierTaskTypePolicy,
   VerifierVerdictPayload,
@@ -18,10 +19,20 @@ import type {
 } from './types.js';
 import {
   scoreTaskRisk,
+  type RiskTier,
   type TaskRiskScoreResult,
 } from './risk-scoring.js';
 import {
   allocateVerificationBudget,
+  BudgetAuditTrail,
+  clampBudget,
+  calculateNextBudget,
+  countConsecutiveFromEnd,
+  DEFAULT_BUDGET_GUARDRAIL,
+  DEFAULT_INITIAL_BUDGET_LAMPORTS,
+  resolveBudgetGuardrail,
+  type BudgetAuditEntry,
+  type BudgetGuardrail,
   type VerificationBudgetDecision,
 } from './verification-budget.js';
 import { resolveEscalationTransition } from './escalation-graph.js';
@@ -108,6 +119,11 @@ export class VerifierExecutor {
   private readonly onVerdict?: (task: Task, verdict: VerifierVerdictPayload, attempt: number) => void;
   private readonly now: () => number;
   private readonly sleep: (ms: number) => Promise<void>;
+  private readonly budgetAuditTrail?: BudgetAuditTrail;
+  private budgetHistory: boolean[] = [];
+  private currentBudgetLamports = DEFAULT_INITIAL_BUDGET_LAMPORTS;
+  private lastBudgetAdjustmentMs = 0;
+  private activeBudgetGuardrail: BudgetGuardrail = DEFAULT_BUDGET_GUARDRAIL;
 
   private laneMetrics: VerifierLaneMetrics = {
     checks: 0,
@@ -128,6 +144,8 @@ export class VerifierExecutor {
     this.onVerdict = config.onVerdict;
     this.now = config.now ?? Date.now;
     this.sleep = config.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
+    this.budgetAuditTrail = this.createBudgetAuditTrail(config.verifierConfig.policy?.adaptiveRisk);
+    this.initializeBudgetState(config.verifierConfig.policy?.adaptiveRisk);
   }
 
   /**
@@ -161,6 +179,7 @@ export class VerifierExecutor {
   ): Promise<VerifierExecutionResult> {
     const policy = this.resolvePolicy(task);
     const history: VerifierVerdictPayload[] = [];
+    this.initializeBudgetState(this.config.policy?.adaptiveRisk);
 
     if (!policy.enabled) {
       return {
@@ -219,6 +238,7 @@ export class VerifierExecutor {
       lastVerdict = normalized;
       this.recordVerdictMetrics(normalized, attempt);
       this.onVerdict?.(task, normalized, attempt);
+      this.recordBudgetOutcome(normalized.verdict === 'pass', schedule.riskTier, this.now());
       if (attempt === 1 && normalized.verdict !== 'pass') {
         disagreements++;
       }
@@ -309,6 +329,81 @@ export class VerifierExecutor {
 
   getMetrics(): VerifierLaneMetrics {
     return { ...this.laneMetrics };
+  }
+
+  getBudgetAuditTrail(): readonly BudgetAuditEntry[] {
+    return this.budgetAuditTrail?.getEntries() ?? [];
+  }
+
+  private createBudgetAuditTrail(
+    adaptiveRisk: VerifierAdaptiveRiskConfig | undefined,
+  ): BudgetAuditTrail | undefined {
+    if (adaptiveRisk?.enabled !== true) {
+      return undefined;
+    }
+    return new BudgetAuditTrail(adaptiveRisk.auditTrailMaxEntries);
+  }
+
+  private resolveBudgetGuardrail(adaptiveRisk: VerifierAdaptiveRiskConfig | undefined): BudgetGuardrail {
+    return resolveBudgetGuardrail(adaptiveRisk?.budgetGuardrail);
+  }
+
+  private initializeBudgetState(adaptiveRisk: VerifierAdaptiveRiskConfig | undefined): void {
+    this.budgetHistory = [];
+    this.lastBudgetAdjustmentMs = 0;
+    this.budgetAuditTrail?.clear();
+
+    if (adaptiveRisk?.enabled !== true) {
+      this.activeBudgetGuardrail = DEFAULT_BUDGET_GUARDRAIL;
+      this.currentBudgetLamports = DEFAULT_INITIAL_BUDGET_LAMPORTS;
+      return;
+    }
+
+    this.activeBudgetGuardrail = this.resolveBudgetGuardrail(adaptiveRisk);
+    this.currentBudgetLamports = clampBudget(
+      adaptiveRisk.initialBudgetLamports ?? DEFAULT_INITIAL_BUDGET_LAMPORTS,
+      this.activeBudgetGuardrail,
+    );
+  }
+
+  private recordBudgetOutcome(success: boolean, riskTier: RiskTier, nowMs: number): void {
+    if (
+      this.budgetAuditTrail === undefined
+      || this.config.policy?.adaptiveRisk?.enabled !== true
+    ) {
+      return;
+    }
+
+    const nextHistory = this.budgetHistory.length >= 100
+      ? this.budgetHistory.slice(-99).concat(success)
+      : this.budgetHistory.concat(success);
+    const consecutiveStreak = countConsecutiveFromEnd(this.budgetHistory, success) + 1;
+
+    const result = calculateNextBudget({
+      currentBudgetLamports: this.currentBudgetLamports,
+      success,
+      history: this.budgetHistory,
+      guardrail: this.activeBudgetGuardrail,
+      lastAdjustmentTimestampMs: this.lastBudgetAdjustmentMs,
+      nowMs,
+    });
+
+    if (result.adjusted) {
+      this.budgetAuditTrail.record({
+        timestampMs: result.adjustedAtMs,
+        previousBudgetLamports: this.currentBudgetLamports,
+        nextBudgetLamports: result.nextBudgetLamports,
+        adjustmentFraction: result.adjustmentFraction,
+        reason: result.reason,
+        riskTier,
+        success,
+        consecutiveStreak,
+      });
+      this.currentBudgetLamports = result.nextBudgetLamports;
+      this.lastBudgetAdjustmentMs = result.adjustedAtMs;
+    }
+
+    this.budgetHistory = nextHistory;
   }
 
   private resolvePolicy(task: Task): VerifierExecutionPolicy {
@@ -576,7 +671,12 @@ export class VerifierExecutor {
     history: VerifierVerdictPayload[],
     lastVerdict: VerifierVerdictPayload | null,
   ): void {
-    const projected = task.reward * BigInt(Math.max(1, attempt));
+    if (maxAllowedSpendLamports <= 0n) {
+      return;
+    }
+
+    const safeAttempt = Math.max(1, attempt);
+    const projected = task.reward * BigInt(safeAttempt);
     if (projected > maxAllowedSpendLamports) {
       this.escalate(task, 'verifier_budget_exhausted', startedAt, revisions, history, lastVerdict);
     }

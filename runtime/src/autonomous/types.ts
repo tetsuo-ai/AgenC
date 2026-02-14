@@ -15,6 +15,7 @@ import type { PolicyEngine } from '../policy/engine.js';
 import type { PolicyViolation } from '../policy/types.js';
 import type { TrajectoryRecorderSink } from '../eval/types.js';
 import type { WorkflowOptimizerRuntimeConfig } from '../workflow/optimizer.js';
+import type { BudgetGuardrail } from './verification-budget.js';
 
 /**
  * On-chain task data
@@ -268,6 +269,12 @@ export interface VerifierAdaptiveRiskConfig {
   hardMaxVerificationRetries?: number;
   hardMaxVerificationDurationMs?: number;
   hardMaxVerificationCostLamports?: bigint;
+  /** Guardrail bounds for adaptive budget changes. */
+  budgetGuardrail?: Partial<BudgetGuardrail>;
+  /** Maximum number of budget adjustment audit entries kept in memory. */
+  auditTrailMaxEntries?: number;
+  /** Initial verification budget in lamports before adjustments. */
+  initialBudgetLamports?: bigint;
 }
 
 export interface MultiCandidateArbitrationWeights {
