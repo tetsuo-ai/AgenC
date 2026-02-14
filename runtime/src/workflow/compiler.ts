@@ -7,8 +7,10 @@
  * @module
  */
 
+import { createHash } from 'node:crypto';
 import { Capability } from '../agent/capabilities.js';
-import { hexToBytes } from '../utils/encoding.js';
+import { stableStringifyJson, type JsonValue } from '../eval/types.js';
+import { bytesToHex, hexToBytes } from '../utils/encoding.js';
 import type { Logger } from '../utils/logger.js';
 import { silentLogger } from '../utils/logger.js';
 import { WorkflowValidationError } from './errors.js';
@@ -138,6 +140,7 @@ export interface GoalCompileResult {
   plannerConfidence: number | null;
   plannerRationale?: string;
   warnings: GoalCompileWarning[];
+  planHash: string;
 }
 
 /**
@@ -242,6 +245,7 @@ export class GoalCompiler {
 
     validateWorkflow(definition);
     const dryRun = estimateWorkflow(definition);
+    const planHash = computeWorkflowPlanHash(definition);
 
     if (
       options.budgetLamports !== undefined &&
@@ -264,6 +268,7 @@ export class GoalCompiler {
       plannerConfidence,
       plannerRationale: planned.rationale,
       warnings,
+      planHash,
     };
   }
 
@@ -463,6 +468,54 @@ export function estimateWorkflow(definition: WorkflowDefinition): WorkflowDryRun
     maxDependencyDepth: maxDepth,
     topologicalOrder: topologicalSort(definition),
   };
+}
+
+/**
+ * Compute a deterministic hash of a compiled workflow plan.
+ */
+export function computeWorkflowPlanHash(definition: WorkflowDefinition): string {
+  const sortedTasks = [...definition.tasks]
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map((task) => ({
+      name: task.name,
+      requiredCapabilities: task.requiredCapabilities.toString(),
+      rewardAmount: task.rewardAmount.toString(),
+      maxWorkers: task.maxWorkers,
+      deadline: task.deadline,
+      taskType: task.taskType,
+      minReputation: task.minReputation ?? 0,
+      description: bytesToHex(task.description),
+      constraintHash: task.constraintHash ? bytesToHex(task.constraintHash) : null,
+      rewardMint: task.rewardMint ? task.rewardMint.toBase58() : null,
+    }));
+
+  const sortedEdges = [...definition.edges]
+    .sort((a, b) => {
+      const byFrom = a.from.localeCompare(b.from);
+      if (byFrom !== 0) {
+        return byFrom;
+      }
+      return a.to.localeCompare(b.to);
+    })
+    .map((edge) => ({
+      from: edge.from,
+      to: edge.to,
+      dependencyType: edge.dependencyType,
+    }));
+
+  const payload = {
+    id: definition.id,
+    defaultRewardMint: definition.defaultRewardMint
+      ? definition.defaultRewardMint.toBase58()
+      : null,
+    tasks: sortedTasks,
+    edges: sortedEdges,
+    topologicalOrder: topologicalSort(definition),
+  };
+
+  return createHash('sha256')
+    .update(stableStringifyJson(payload as unknown as JsonValue))
+    .digest('hex');
 }
 
 function normalizeTaskNames(

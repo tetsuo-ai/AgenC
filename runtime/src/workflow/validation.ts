@@ -134,7 +134,7 @@ export function validateWorkflow(definition: WorkflowDefinition): void {
  */
 export function topologicalSort(definition: WorkflowDefinition): string[] {
   const { tasks, edges } = definition;
-  const names = tasks.map((t) => t.name);
+  const names = tasks.map((t) => t.name).sort((a, b) => a.localeCompare(b));
 
   // Build in-degree map and adjacency list
   const inDegree = new Map<string, number>();
@@ -148,6 +148,11 @@ export function topologicalSort(definition: WorkflowDefinition): string[] {
     inDegree.set(edge.to, inDegree.get(edge.to)! + 1);
   }
 
+  // Deterministic child visitation order.
+  for (const children of adj.values()) {
+    children.sort((a, b) => a.localeCompare(b));
+  }
+
   // Seed queue with roots (in-degree 0)
   const queue: string[] = [];
   for (const name of names) {
@@ -155,9 +160,11 @@ export function topologicalSort(definition: WorkflowDefinition): string[] {
       queue.push(name);
     }
   }
+  queue.sort((a, b) => a.localeCompare(b));
 
   const sorted: string[] = [];
   while (queue.length > 0) {
+    queue.sort((a, b) => a.localeCompare(b));
     const node = queue.shift()!;
     sorted.push(node);
     for (const child of adj.get(node)!) {

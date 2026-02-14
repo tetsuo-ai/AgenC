@@ -1,8 +1,17 @@
 import { describe, it, expect } from 'vitest';
 import { Capability } from '../agent/capabilities.js';
 import { WorkflowValidationError } from './errors.js';
-import { GoalCompiler, type GoalPlanner, type PlannerWorkflowDraft } from './compiler.js';
-import { OnChainDependencyType } from './types.js';
+import {
+  GoalCompiler,
+  computeWorkflowPlanHash,
+  type GoalPlanner,
+  type PlannerWorkflowDraft,
+} from './compiler.js';
+import {
+  OnChainDependencyType,
+  type WorkflowDefinition,
+  type TaskTemplate,
+} from './types.js';
 
 function staticPlanner(draft: PlannerWorkflowDraft): GoalPlanner {
   return {
@@ -52,6 +61,7 @@ describe('GoalCompiler', () => {
     expect(result.dryRun.taskCount).toBe(2);
     expect(result.dryRun.edgeCount).toBe(1);
     expect(result.dryRun.maxDependencyDepth).toBe(1);
+    expect(result.planHash).toMatch(/^[a-f0-9]{64}$/);
   });
 
   it('parses required capabilities from symbolic names', async () => {
@@ -201,5 +211,58 @@ describe('GoalCompiler', () => {
       true
     );
     expect(result.warnings.some((warning) => warning.code === 'task_name_deduped')).toBe(true);
+  });
+
+  it('computes stable workflow plan hashes for equivalent definitions', () => {
+    const template = (name: string): TaskTemplate => ({
+      name,
+      description: new Uint8Array(64),
+      requiredCapabilities: Capability.COMPUTE,
+      rewardAmount: 100n,
+      maxWorkers: 1,
+      deadline: 1000,
+      taskType: 0,
+      minReputation: 0,
+    });
+
+    const definitionA: WorkflowDefinition = {
+      id: 'plan-hash',
+      tasks: [template('z_root'), template('m_child'), template('a_child')],
+      edges: [
+        {
+          from: 'z_root',
+          to: 'm_child',
+          dependencyType: OnChainDependencyType.Ordering,
+        },
+        {
+          from: 'z_root',
+          to: 'a_child',
+          dependencyType: OnChainDependencyType.Data,
+        },
+      ],
+    };
+
+    const definitionB: WorkflowDefinition = {
+      id: 'plan-hash',
+      tasks: [template('a_child'), template('z_root'), template('m_child')],
+      edges: [
+        {
+          from: 'z_root',
+          to: 'a_child',
+          dependencyType: OnChainDependencyType.Data,
+        },
+        {
+          from: 'z_root',
+          to: 'm_child',
+          dependencyType: OnChainDependencyType.Ordering,
+        },
+      ],
+    };
+
+    const hashA = computeWorkflowPlanHash(definitionA);
+    const hashB = computeWorkflowPlanHash(definitionB);
+
+    expect(hashA).toBe(hashB);
+    expect(hashA).toMatch(/^[a-f0-9]{64}$/);
   });
 });
