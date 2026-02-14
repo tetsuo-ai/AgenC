@@ -24,9 +24,45 @@ import { poseidon2, poseidon4 } from 'poseidon-lite';
 import { HASH_SIZE, OUTPUT_FIELD_COUNT, PROOF_SIZE_BYTES } from './constants';
 import { validateCircuitPath } from './validation';
 
-// snarkjs is a CommonJS module
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const snarkjs = require('snarkjs');
+type SnarkjsModule = {
+  groth16: {
+    fullProve: (
+      input: Record<string, string | string[]>,
+      wasmFile: string,
+      zkeyFile: string
+    ) => Promise<{ proof: { pi_a: string[]; pi_b: string[][]; pi_c: string[] } }>;
+    verify: (vkey: unknown, publicSignals: string[], proof: unknown) => Promise<boolean>;
+  };
+};
+
+let snarkjsLoader: Promise<SnarkjsModule> | null = null;
+
+async function loadSnarkjs(): Promise<SnarkjsModule> {
+  if (snarkjsLoader) {
+    return snarkjsLoader;
+  }
+
+  // @ts-expect-error snarkjs is an optional dependency and has no bundled typings
+  snarkjsLoader = import('snarkjs')
+    .then((module) => {
+      const candidate = ((module as { default?: unknown }).default ?? module) as unknown;
+      if (
+        typeof candidate !== 'object'
+        || candidate === null
+        || !('groth16' in candidate)
+        || typeof (candidate as { groth16?: unknown }).groth16 !== 'object'
+      ) {
+        throw new Error('snarkjs module loaded but groth16 API not found');
+      }
+      return candidate as SnarkjsModule;
+    })
+    .catch((error) => {
+      snarkjsLoader = null;
+      throw error;
+    });
+
+  return snarkjsLoader;
+}
 
 /** BN254 scalar field modulus */
 export const FIELD_MODULUS = 21888242871839275222246405745257275088548364400416034343698204186575808495617n;
@@ -286,6 +322,8 @@ export async function generateProof(params: ProofGenerationParams): Promise<Proo
     throw new Error(`Circuit zkey not found at ${zkeyPath}. Run 'npm run build' in circuits-circom/task_completion first.`);
   }
 
+  const snarkjs = await loadSnarkjs();
+
   // Step 4: Generate proof using snarkjs
   const { proof } = await snarkjs.groth16.fullProve(witnessInput, wasmPath, zkeyPath);
 
@@ -349,6 +387,7 @@ export async function verifyProofLocally(
   };
 
   const signals = publicSignals.map((s) => s.toString());
+  const snarkjs = await loadSnarkjs();
 
   try {
     return await snarkjs.groth16.verify(vkey, signals, snarkjsProof);
@@ -372,9 +411,15 @@ export function checkToolsAvailable(): ToolsStatus {
 
   // snarkjs is a node module, check if it's importable
   try {
-    const snarkjsPkg = require('snarkjs/package.json');
-    result.snarkjs = true;
-    result.snarkjsVersion = snarkjsPkg.version;
+    const requireFactory = Function('return typeof require !== "undefined" ? require : null') as () => ((id: string) => unknown) | null;
+    const localRequire = requireFactory();
+    if (localRequire) {
+      const snarkjsPkg = localRequire('snarkjs/package.json') as { version?: string };
+      result.snarkjs = true;
+      if (typeof snarkjsPkg.version === 'string') {
+        result.snarkjsVersion = snarkjsPkg.version;
+      }
+    }
   } catch {
     // snarkjs not available
   }

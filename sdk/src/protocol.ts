@@ -5,7 +5,7 @@ import {
   SystemProgram,
   type AccountMeta,
 } from '@solana/web3.js';
-import { BN, type Program } from '@coral-xyz/anchor';
+import anchor, { type Program } from '@coral-xyz/anchor';
 import { PROGRAM_ID, SEEDS } from './constants';
 import { getAccount } from './anchor-utils';
 
@@ -116,8 +116,8 @@ export async function initializeProtocol(
     .initializeProtocol(
       params.disputeThreshold,
       params.protocolFeeBps,
-      new BN(params.minStake.toString()),
-      new BN(params.minStakeForDispute.toString()),
+      new anchor.BN(params.minStake.toString()),
+      new anchor.BN(params.minStakeForDispute.toString()),
       params.multisigThreshold,
       params.multisigOwners,
     )
@@ -177,11 +177,11 @@ export async function updateRateLimits(
 
   const builder = program.methods
     .updateRateLimits(
-      new BN(params.taskCreationCooldown.toString()),
+      new anchor.BN(params.taskCreationCooldown.toString()),
       params.maxTasksPer24h,
-      new BN(params.disputeInitiationCooldown.toString()),
+      new anchor.BN(params.disputeInitiationCooldown.toString()),
       params.maxDisputesPer24h,
-      new BN(params.minStakeForDispute.toString()),
+      new anchor.BN(params.minStakeForDispute.toString()),
     )
     .accountsPartial({
       protocolConfig: deriveProtocolPda(program.programId),

@@ -33,7 +33,7 @@ export {
   validateMarketplaceId,
   isValidBps,
   TaskState,
-  TaskStatus,
+  type TaskStatus,
 } from '@agenc/sdk';
 
 // IDL and program creation

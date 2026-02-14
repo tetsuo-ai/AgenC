@@ -137,6 +137,19 @@ Add to `~/.codeium/windsurf/mcp_config.json`:
 | `agenc_replay_incident` | Reconstruct incident summary, validation, and narrative |
 | `agenc_replay_status` | Inspect replay store status summary |
 
+### Replay parity matrix
+
+| Capability | Runtime (`eval/replay.ts`) | MCP (`tools/replay.ts`) | Status |
+|---|---|---|---|
+| Backfill on-chain events to store | `ReplayBackfillService.runBackfill()` | `agenc_replay_backfill` | Implemented |
+| Compare projection vs local trace | `ReplayComparisonService.compare()` | `agenc_replay_compare` | Implemented |
+| Reconstruct incident timeline | `TrajectoryReplayEngine.replay()` | `agenc_replay_incident` | Implemented |
+| Query store status/cursor | `store.query()` + `store.getCursor()` | `agenc_replay_status` | Implemented |
+| Payload truncation | N/A | `truncateOutput()` + trim functions | Implemented |
+| Section selection | N/A | `applySectionSelection()` | Implemented |
+| Field redaction | N/A | `applyRedaction()` | Implemented |
+| Policy enforcement | N/A | `withReplayPolicyControl()` | Implemented |
+
 ## Resources
 
 | URI | Description |
@@ -224,6 +237,14 @@ See also:
 - `agenc_replay_status` returns `replay.status.output.v1`.
 - Failure payloads across replay tools use `status: "error"` with `schema: "replay.*.output.v1"` and the specific error `code`.
 
+### `replay.*.output.v1` formal shapes
+
+- `replay.backfill.output.v1` includes: `status`, `command`, `schema`, `mode`, `to_slot`, `store_type`, optional `page_size`, `result`, `sections`, `redactions`, `command_params`, `truncated`, and optional `truncation_reason`.
+- `replay.compare.output.v1` includes: `status`, `command`, `schema`, `strictness`, `local_trace_path`, `result`, optional `task_pda`, optional `dispute_pda`, `sections`, `redactions`, `command_params`, `truncated`, and optional `truncation_reason`.
+- `replay.incident.output.v1` includes: `status`, `command`, `schema`, `command_params`, `sections`, `redactions`, nullable `summary`, nullable `validation`, nullable `narrative`, `truncated`, and optional `truncation_reason`.
+- `replay.status.output.v1` includes: `status`, `command`, `schema`, `store_type`, `event_count`, `unique_task_count`, `unique_dispute_count`, nullable `active_cursor`, `sections`, and `redactions`.
+- `replay tool errors` include: `status: "error"`, `command`, `schema`, `code`, `message`, optional `details`, and `retriable`.
+
 ## Architecture
 
 ```
@@ -240,7 +261,8 @@ mcp/
 │   │   └── replay.ts         # Replay and incident forensics tools
 │   └── utils/
 │       ├── connection.ts     # RPC connection state management
-│       └── formatting.ts     # Output formatting helpers
+│       ├── formatting.ts     # Output formatting helpers
+│       └── truncation.ts     # Shared payload truncation helper
 ├── package.json
 ├── tsconfig.json
 └── README.md

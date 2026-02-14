@@ -4,7 +4,7 @@ import {
   PublicKey,
   SystemProgram,
 } from '@solana/web3.js';
-import { BN, type Program } from '@coral-xyz/anchor';
+import anchor, { type Program } from '@coral-xyz/anchor';
 import { PROGRAM_ID, SEEDS } from './constants';
 import { getAccount } from './anchor-utils';
 
@@ -113,10 +113,10 @@ export async function registerAgent(
   const tx = await program.methods
     .registerAgent(
       Array.from(agentId),
-      new BN(params.capabilities.toString()),
+      new anchor.BN(params.capabilities.toString()),
       params.endpoint,
       params.metadataUri ?? null,
-      new BN(params.stakeAmount.toString()),
+      new anchor.BN(params.stakeAmount.toString()),
     )
     .accountsPartial({
       agent: agentPda,
@@ -144,7 +144,7 @@ export async function updateAgent(
   const capabilities =
     params.capabilities === undefined || params.capabilities === null
       ? null
-      : new BN(params.capabilities.toString());
+      : new anchor.BN(params.capabilities.toString());
 
   const builder = program.methods
     .updateAgent(

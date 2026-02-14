@@ -11,7 +11,7 @@ import {
   Keypair,
   SystemProgram,
 } from '@solana/web3.js';
-import { type Program, BN } from '@coral-xyz/anchor';
+import anchor, { type Program } from '@coral-xyz/anchor';
 import {
   getAssociatedTokenAddressSync,
   TOKEN_PROGRAM_ID,
@@ -269,11 +269,11 @@ export async function createTask(
   const tx = await program.methods
     .createTask(
       Array.from(idBytes),
-      new BN(params.requiredCapabilities.toString()),
+      new anchor.BN(params.requiredCapabilities.toString()),
       Buffer.from(params.description),
-      new BN(params.rewardAmount.toString()),
+      new anchor.BN(params.rewardAmount.toString()),
       params.maxWorkers,
-      new BN(params.deadline),
+      new anchor.BN(params.deadline),
       params.taskType,
       params.constraintHash ?? null,
       params.minReputation ?? 0,
@@ -344,11 +344,11 @@ export async function createDependentTask(
   const tx = await program.methods
     .createDependentTask(
       Array.from(idBytes),
-      new BN(params.requiredCapabilities.toString()),
+      new anchor.BN(params.requiredCapabilities.toString()),
       Buffer.from(params.description),
-      new BN(params.rewardAmount.toString()),
+      new anchor.BN(params.rewardAmount.toString()),
       params.maxWorkers,
-      new BN(params.deadline),
+      new anchor.BN(params.deadline),
       params.taskType,
       params.constraintHash ?? null,
       params.dependencyType,
@@ -561,7 +561,7 @@ export async function completeTaskPrivate(
 
   // Extract task_id as u64 (first 8 bytes LE)
   const taskIdBuf = Buffer.from(task.taskId);
-  const taskIdU64 = new BN(taskIdBuf.subarray(0, 8), 'le');
+  const taskIdU64 = new anchor.BN(taskIdBuf.subarray(0, 8), 'le');
 
   // Fetch protocol config to get treasury
   const protocolConfig = await getAccount(program, 'protocolConfig').fetch(protocolPda) as {

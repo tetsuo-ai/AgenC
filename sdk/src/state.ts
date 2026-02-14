@@ -4,7 +4,7 @@ import {
   PublicKey,
   SystemProgram,
 } from '@solana/web3.js';
-import { BN, type Program } from '@coral-xyz/anchor';
+import anchor, { type Program } from '@coral-xyz/anchor';
 import { PROGRAM_ID, SEEDS } from './constants';
 import { getAccount } from './anchor-utils';
 
@@ -93,7 +93,7 @@ export async function updateState(
     .updateState(
       Array.from(stateKey),
       Array.from(stateValue),
-      new BN(params.version.toString()),
+      new anchor.BN(params.version.toString()),
     )
     .accountsPartial({
       state: statePda,
