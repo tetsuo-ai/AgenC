@@ -16,9 +16,11 @@ import type {
   LLMTool,
   StreamProgressCallback,
 } from '../types.js';
+import { validateToolCall } from '../types.js';
 import type { OllamaProviderConfig } from './types.js';
 import { LLMProviderError, mapLLMError } from '../errors.js';
 import { ensureLazyImport } from '../lazy-import.js';
+import { withTimeout } from '../timeout.js';
 
 const DEFAULT_HOST = 'http://localhost:11434';
 const DEFAULT_MODEL = 'llama3';
@@ -44,7 +46,11 @@ export class OllamaProvider implements LLMProvider {
     const params = this.buildParams(messages);
 
     try {
-      const response = await (client as any).chat(params);
+      const response = await withTimeout(
+        async (signal) => (client as any).chat(params, { signal }),
+        this.config.timeoutMs,
+        this.name,
+      );
       return this.parseResponse(response);
     } catch (err: unknown) {
       throw this.mapError(err);
@@ -54,15 +60,18 @@ export class OllamaProvider implements LLMProvider {
   async chatStream(messages: LLMMessage[], onChunk: StreamProgressCallback): Promise<LLMResponse> {
     const client = await this.ensureClient();
     const params = { ...this.buildParams(messages), stream: true };
+    let content = '';
+    let model = this.config.model;
+    let toolCalls: LLMToolCall[] = [];
+    let promptTokens = 0;
+    let completionTokens = 0;
 
     try {
-      const stream = await (client as any).chat(params);
-
-      let content = '';
-      let model = this.config.model;
-      let toolCalls: LLMToolCall[] = [];
-      let promptTokens = 0;
-      let completionTokens = 0;
+      const stream = await withTimeout(
+        async (signal) => (client as any).chat(params, { signal }),
+        this.config.timeoutMs,
+        this.name,
+      );
 
       for await (const chunk of stream as AsyncIterable<any>) {
         if (chunk.message?.content) {
@@ -73,11 +82,14 @@ export class OllamaProvider implements LLMProvider {
         // Accumulate tool calls
         if (chunk.message?.tool_calls) {
           for (const tc of chunk.message.tool_calls) {
-            toolCalls.push({
+            const validated = validateToolCall({
               id: tc.function?.name ?? `call_${toolCalls.length}`,
               name: tc.function?.name ?? '',
               arguments: JSON.stringify(tc.function?.arguments ?? {}),
             });
+            if (validated) {
+              toolCalls.push(validated);
+            }
           }
         }
 
@@ -97,6 +109,23 @@ export class OllamaProvider implements LLMProvider {
         finishReason,
       };
     } catch (err: unknown) {
+      if (content.length > 0) {
+        const mappedError = this.mapError(err);
+        onChunk({ content: '', done: true, toolCalls });
+        return {
+          content,
+          toolCalls,
+          usage: {
+            promptTokens,
+            completionTokens,
+            totalTokens: promptTokens + completionTokens,
+          },
+          model,
+          finishReason: 'error',
+          error: mappedError,
+          partial: true,
+        };
+      }
       throw this.mapError(err);
     }
   }
@@ -156,11 +185,15 @@ export class OllamaProvider implements LLMProvider {
     const message = response.message ?? {};
     const content = message.content ?? '';
 
-    const toolCalls: LLMToolCall[] = (message.tool_calls ?? []).map((tc: any, i: number) => ({
-      id: tc.function?.name ?? `call_${i}`,
-      name: tc.function?.name ?? '',
-      arguments: JSON.stringify(tc.function?.arguments ?? {}),
-    }));
+    const toolCalls: LLMToolCall[] = (message.tool_calls ?? [])
+      .map((tc: any, i: number) =>
+        validateToolCall({
+          id: tc.function?.name ?? `call_${i}`,
+          name: tc.function?.name ?? '',
+          arguments: JSON.stringify(tc.function?.arguments ?? {}),
+        })
+      )
+      .filter((toolCall: LLMToolCall | null): toolCall is LLMToolCall => toolCall !== null);
 
     const usage: LLMUsage = {
       promptTokens: response.prompt_eval_count ?? 0,

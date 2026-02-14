@@ -1,6 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { LLMMessage } from '../types.js';
-import { LLMProviderError, LLMRateLimitError } from '../errors.js';
+import {
+  LLMAuthenticationError,
+  LLMProviderError,
+  LLMRateLimitError,
+  LLMServerError,
+  LLMTimeoutError,
+} from '../errors.js';
 
 // Mock the @anthropic-ai/sdk module
 const mockMessagesCreate = vi.fn();
@@ -202,12 +208,59 @@ describe('AnthropicProvider', () => {
       .rejects.toThrow(LLMRateLimitError);
   });
 
-  it('maps general errors to LLMProviderError', async () => {
+  it('maps 500 errors to LLMServerError', async () => {
     mockMessagesCreate.mockRejectedValueOnce({ status: 500, message: 'Internal server error' });
 
     const provider = new AnthropicProvider({ apiKey: 'test-key' });
     await expect(provider.chat([{ role: 'user', content: 'test' }]))
-      .rejects.toThrow(LLMProviderError);
+      .rejects.toThrow(LLMServerError);
+  });
+
+  it('maps 403 to LLMAuthenticationError', async () => {
+    mockMessagesCreate.mockRejectedValueOnce({ status: 403, message: 'Forbidden' });
+
+    const provider = new AnthropicProvider({ apiKey: 'test-key' });
+    await expect(provider.chat([{ role: 'user', content: 'test' }]))
+      .rejects.toThrow(LLMAuthenticationError);
+  });
+
+  it('maps AbortError to LLMTimeoutError', async () => {
+    mockMessagesCreate.mockRejectedValueOnce({ name: 'AbortError', message: 'signal aborted' });
+
+    const provider = new AnthropicProvider({ apiKey: 'test-key', timeoutMs: 1000 });
+    await expect(provider.chat([{ role: 'user', content: 'test' }]))
+      .rejects.toThrow(LLMTimeoutError);
+  });
+
+  it('returns partial streamed content on mid-stream failure', async () => {
+    mockMessagesCreate.mockResolvedValueOnce((async function* () {
+      yield { type: 'message_start', message: { model: 'claude-sonnet-4-5-20250929', usage: { input_tokens: 10 } } };
+      yield { type: 'content_block_delta', delta: { type: 'text_delta', text: 'partial ' } };
+      yield { type: 'content_block_delta', delta: { type: 'text_delta', text: 'response' } };
+      throw { name: 'AbortError', message: 'stream interrupted' };
+    })());
+
+    const provider = new AnthropicProvider({ apiKey: 'test-key', timeoutMs: 1000 });
+    const response = await provider.chatStream(
+      [{ role: 'user', content: 'test' }],
+      () => undefined,
+    );
+
+    expect(response.finishReason).toBe('error');
+    expect(response.partial).toBe(true);
+    expect(response.content).toBe('partial response');
+    expect(response.error).toBeInstanceOf(LLMTimeoutError);
+  });
+
+  it('throws when stream fails before any content is received', async () => {
+    mockMessagesCreate.mockResolvedValueOnce((async function* () {
+      throw new Error('stream failed');
+    })());
+
+    const provider = new AnthropicProvider({ apiKey: 'test-key' });
+    await expect(
+      provider.chatStream([{ role: 'user', content: 'test' }], () => undefined),
+    ).rejects.toThrow(LLMProviderError);
   });
 
   it('returns usage information', async () => {

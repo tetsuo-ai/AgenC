@@ -21,12 +21,15 @@ export type {
   StreamProgressCallback,
   ToolHandler,
 } from './types.js';
+export { validateToolCall } from './types.js';
 
 // Error classes
 export {
+  LLMAuthenticationError,
   LLMProviderError,
   LLMRateLimitError,
   LLMResponseConversionError,
+  LLMServerError,
   LLMToolCallError,
   LLMTimeoutError,
   mapLLMError,
@@ -37,6 +40,7 @@ export { responseToOutput } from './response-converter.js';
 
 // LLM Task Executor
 export { LLMTaskExecutor, type LLMTaskExecutorConfig } from './executor.js';
+export { FallbackLLMProvider, type FallbackChainConfig } from './fallback.js';
 
 // Provider adapters
 export { GrokProvider, type GrokProviderConfig } from './grok/index.js';
