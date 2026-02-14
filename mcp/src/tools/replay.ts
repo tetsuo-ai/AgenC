@@ -13,7 +13,9 @@ import {
   PROGRAM_ID,
   ReplayBackfillService,
   ReplayComparisonService,
+  stableStringifyJson,
   type BackfillFetcher,
+  type JsonValue,
   type ProjectedTimelineInput,
   type ReplayAnomaly,
   type ReplayComparisonStrictness,
@@ -651,6 +653,21 @@ function buildReplayAnomalyId(anomaly: ReplayAnomaly, seed = 0): string {
   return createHash('sha1').update(key).digest('hex').slice(0, 16);
 }
 
+function deriveIncidentTraceId(filters: {
+  taskPda?: string;
+  disputePda?: string;
+  fromSlot?: number;
+  toSlot?: number;
+}): string {
+  const key = stableStringifyJson({
+    taskPda: filters.taskPda ?? null,
+    disputePda: filters.disputePda ?? null,
+    fromSlot: filters.fromSlot ?? null,
+    toSlot: filters.toSlot ?? null,
+  } as JsonValue);
+  return createHash('sha256').update(`incident:${key}`).digest('hex').slice(0, 32);
+}
+
 function summarizeReplayIncident(
   records: readonly ReplayTimelineRecord[],
   filters: { taskPda?: string; disputePda?: string; fromSlot?: number; toSlot?: number },
@@ -739,6 +756,7 @@ function summarizeReplayIncident(
 function validateReplayIncident(
   records: readonly ReplayTimelineRecord[],
   strictMode: boolean,
+  filters?: { taskPda?: string; disputePda?: string; fromSlot?: number; toSlot?: number },
 ): {
   strict_mode: boolean;
   event_validation: {
@@ -747,12 +765,17 @@ function validateReplayIncident(
     replay_task_count: number;
   };
   anomaly_ids: string[];
+  deterministic_hash: string;
 } {
+  const traceId = filters
+    ? `incident-${deriveIncidentTraceId(filters)}`
+    : `incident-${records.length}`;
+
   const replay = new TrajectoryReplayEngine({ strictMode }).replay({
     schemaVersion: 1,
-    traceId: `incident-${records.length}`,
+    traceId,
     seed: 0,
-    createdAtMs: Date.now(),
+    createdAtMs: 0,
     events: records.map((record) => ({
       seq: record.seq,
       type: record.type,
@@ -762,24 +785,32 @@ function validateReplayIncident(
     })),
   });
 
-  const anomalyIds = [...replay.errors, ...replay.warnings].map((message, index) => {
+  const anomalyIds = [...replay.errors, ...replay.warnings].map((message) => {
     return createHash('sha1')
       .update(message)
-      .update(String(index))
       .digest('hex')
       .slice(0, 16);
   });
 
   const replayTaskCount = Object.keys(replay.tasks).length;
 
-  return {
+  const result = {
     strict_mode: strictMode,
     event_validation: {
-      errors: replay.errors,
-      warnings: replay.warnings,
+      errors: [...replay.errors].sort(),
+      warnings: [...replay.warnings].sort(),
       replay_task_count: replayTaskCount,
     },
-    anomaly_ids: anomalyIds,
+    anomaly_ids: [...anomalyIds].sort(),
+  };
+
+  const deterministicHash = createHash('sha256')
+    .update(stableStringifyJson(result as unknown as JsonValue))
+    .digest('hex');
+
+  return {
+    ...result,
+    deterministic_hash: deterministicHash,
   };
 }
 
@@ -793,17 +824,30 @@ function buildIncidentNarrative(
     anomaly_id: string;
   }[],
   validation: { event_validation: { errors: string[]; warnings: string[] } },
-): { lines: string[]; anomaly_ids: string[] } {
-  const anomalyLines = events.slice(0, 100).map((event) => {
+): { lines: string[]; anomaly_ids: string[]; deterministic_hash: string } {
+  const sortedEvents = [...events].sort((a, b) => a.seq - b.seq);
+
+  const anomalyLines = sortedEvents.slice(0, 100).map((event) => {
     const marker = event.anomaly_id.length > 0 ? ` | anomaly:${event.anomaly_id}` : '';
     return `${event.seq}/${event.slot}/${event.signature}: ${event.source_event_name} (${event.source_event_type})${marker}`;
   });
-  const validationLines = [...validation.event_validation.errors, ...validation.event_validation.warnings].map((line) => `validation:${line}`);
 
-  return {
-    lines: [...anomalyLines, ...validationLines],
-    anomaly_ids: events.map((entry) => entry.anomaly_id).filter((entry) => entry.length > 0),
-  };
+  const validationLines = [
+    ...validation.event_validation.errors.sort(),
+    ...validation.event_validation.warnings.sort(),
+  ].map((line) => `validation:${line}`);
+
+  const lines = [...anomalyLines, ...validationLines];
+  const anomaly_ids = sortedEvents
+    .map((entry) => entry.anomaly_id)
+    .filter((entry) => entry.length > 0)
+    .sort();
+
+  const deterministicHash = createHash('sha256')
+    .update(stableStringifyJson(lines as unknown as JsonValue))
+    .digest('hex');
+
+  return { lines, anomaly_ids, deterministic_hash: deterministicHash };
 }
 
 function mergeRedactions(...sections: string[][]): string[] {
@@ -1295,7 +1339,12 @@ export async function runReplayIncidentTool(
           fromSlot: parsed.from_slot,
           toSlot: parsed.to_slot,
         });
-        const validation = validateReplayIncident(records, parsed.strict_mode);
+        const validation = validateReplayIncident(records, parsed.strict_mode, {
+          taskPda: parsed.task_pda,
+          disputePda: parsed.dispute_pda,
+          fromSlot: parsed.from_slot,
+          toSlot: parsed.to_slot,
+        });
         const narrative = buildIncidentNarrative(summary.events.map((entry, index) => ({
           seq: entry.seq,
           slot: entry.slot,
@@ -1309,12 +1358,14 @@ export async function runReplayIncidentTool(
           strict_mode: validation.strict_mode,
           event_validation: validation.event_validation,
           anomaly_ids: validation.anomaly_ids,
+          deterministic_hash: validation.deterministic_hash,
         }) as z.infer<typeof ReplayIncidentValidationSchema>;
 
         const summaryPayload = ReplayIncidentSummarySchema.parse(summary) as z.infer<typeof ReplayIncidentSummarySchema>;
         const narrativePayload = ReplayIncidentNarrativeSchema.parse({
           lines: narrative.lines,
           anomaly_ids: narrative.anomaly_ids,
+          deterministic_hash: narrative.deterministic_hash,
         }) as z.infer<typeof ReplayIncidentNarrativeSchema>;
 
         const rawPayload = {
