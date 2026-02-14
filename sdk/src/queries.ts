@@ -159,6 +159,71 @@ export interface DependentTask {
   rewardMint: PublicKey | null;
 }
 
+export const DISPUTE_FIELD_OFFSETS = {
+  DISPUTE_ID: 8,
+  TASK: 40,
+  INITIATOR: 72,
+  STATUS: 169,
+  RESOLUTION_TYPE: 168,
+  CREATED_AT: 170,
+  RESOLVED_AT: 178,
+  VOTES_FOR: 186,
+  VOTES_AGAINST: 194,
+  VOTING_DEADLINE: 203,
+  DEFENDANT: 231,
+} as const;
+
+const DISPUTE_ACCOUNT_SIZE = 263;
+const DISPUTE_VOTE_ACCOUNT_SIZE = 90;
+
+const DISPUTE_VOTE_FIELD_OFFSETS = {
+  DISPUTE: 8,
+  VOTER: 40,
+} as const;
+
+export interface ActorDisputeSummary {
+  disputePda: PublicKey;
+  disputeId: Uint8Array;
+  taskPda: PublicKey;
+  status: number;
+  resolutionType: number;
+  actorRole: 'initiator' | 'defendant' | 'arbiter';
+  votingDeadline: number;
+  votesFor: number;
+  votesAgainst: number;
+  hasVoted?: boolean;
+  initiatedAt: number;
+}
+
+export interface ReplayCursor {
+  slot: number;
+  signature: string;
+  eventName?: string;
+}
+
+export interface ReplayTimelineRecord {
+  taskPda?: string;
+  disputePda?: string;
+  timestampMs: number;
+}
+
+export interface ReplayTimelineStoreLike {
+  query(filter?: Record<string, unknown>): Promise<ReplayTimelineRecord[]>;
+  getCursor(): Promise<ReplayCursor | null>;
+}
+
+export interface ReplayHealthCheck {
+  storeReachable: boolean;
+  eventCount: number;
+  uniqueTaskCount: number;
+  uniqueDisputeCount: number;
+  activeCursor: ReplayCursor | null;
+  hasRecentEvents: boolean;
+  latestEventTimestampMs: number | null;
+  stalenessSeconds: number | null;
+  status: 'healthy' | 'stale' | 'empty' | 'unreachable';
+}
+
 // ============================================================================
 // Dependency Query Functions
 // ============================================================================
@@ -358,6 +423,166 @@ export async function getRootTasks(
   );
 }
 
+/**
+ * Query disputes where an actor participates as initiator, defendant, or arbiter.
+ *
+ * @example
+ * ```typescript
+ * const actorDisputes = await getDisputesByActor(connection, wallet.publicKey);
+ * const active = actorDisputes.filter((d) => d.status === 0);
+ * ```
+ */
+export async function getDisputesByActor(
+  connection: Connection,
+  actorPubkey: PublicKey,
+  programId: PublicKey = PROGRAM_ID,
+): Promise<ActorDisputeSummary[]> {
+  const summaries = new Map<string, ActorDisputeSummary>();
+
+  const asInitiator = await connection.getProgramAccounts(programId, {
+    filters: [
+      { dataSize: DISPUTE_ACCOUNT_SIZE },
+      {
+        memcmp: {
+          offset: DISPUTE_FIELD_OFFSETS.INITIATOR,
+          bytes: actorPubkey.toBase58(),
+        },
+      },
+    ],
+  });
+
+  for (const { pubkey, account } of asInitiator) {
+    const summary = deserializeDispute(pubkey, account.data as Buffer, 'initiator');
+    summaries.set(pubkey.toBase58(), summary);
+  }
+
+  const asDefendant = await connection.getProgramAccounts(programId, {
+    filters: [
+      { dataSize: DISPUTE_ACCOUNT_SIZE },
+      {
+        memcmp: {
+          offset: DISPUTE_FIELD_OFFSETS.DEFENDANT,
+          bytes: actorPubkey.toBase58(),
+        },
+      },
+    ],
+  });
+
+  for (const { pubkey, account } of asDefendant) {
+    const key = pubkey.toBase58();
+    if (summaries.has(key)) continue;
+    const summary = deserializeDispute(pubkey, account.data as Buffer, 'defendant');
+    summaries.set(key, summary);
+  }
+
+  const asArbiterVotes = await connection.getProgramAccounts(programId, {
+    filters: [
+      { dataSize: DISPUTE_VOTE_ACCOUNT_SIZE },
+      {
+        memcmp: {
+          offset: DISPUTE_VOTE_FIELD_OFFSETS.VOTER,
+          bytes: actorPubkey.toBase58(),
+        },
+      },
+    ],
+    dataSlice: {
+      offset: DISPUTE_VOTE_FIELD_OFFSETS.DISPUTE,
+      length: 32,
+    },
+  });
+
+  for (const voteAccount of asArbiterVotes) {
+    const disputePda = new PublicKey(voteAccount.account.data as Buffer);
+    const key = disputePda.toBase58();
+
+    if (summaries.has(key)) {
+      continue;
+    }
+
+    const disputeInfo = await connection.getAccountInfo(disputePda);
+    if (!disputeInfo?.data) {
+      continue;
+    }
+
+    const summary = deserializeDispute(disputePda, disputeInfo.data as Buffer, 'arbiter');
+    summary.hasVoted = true;
+    summaries.set(key, summary);
+  }
+
+  return [...summaries.values()];
+}
+
+/**
+ * Get aggregate replay-store health status without throwing.
+ *
+ * @example
+ * ```typescript
+ * const health = await getReplayHealthCheck(store);
+ * if (health.status === 'stale') {
+ *   console.warn(`Replay is stale by ${health.stalenessSeconds}s`);
+ * }
+ * ```
+ */
+export async function getReplayHealthCheck(
+  store: ReplayTimelineStoreLike,
+  stalenessThresholdMs: number = 3_600_000,
+): Promise<ReplayHealthCheck> {
+  try {
+    const allRecords = await store.query({});
+    const activeCursor = await store.getCursor();
+
+    const taskSet = new Set<string>();
+    const disputeSet = new Set<string>();
+    let latestEventTimestampMs: number | null = null;
+
+    for (const record of allRecords) {
+      if (record.taskPda) taskSet.add(record.taskPda);
+      if (record.disputePda) disputeSet.add(record.disputePda);
+
+      if (latestEventTimestampMs === null || record.timestampMs > latestEventTimestampMs) {
+        latestEventTimestampMs = record.timestampMs;
+      }
+    }
+
+    const now = Date.now();
+    const stalenessMs = latestEventTimestampMs === null ? null : now - latestEventTimestampMs;
+    const hasRecentEvents = stalenessMs !== null && stalenessMs < stalenessThresholdMs;
+
+    let status: ReplayHealthCheck['status'];
+    if (allRecords.length === 0) {
+      status = 'empty';
+    } else if (!hasRecentEvents) {
+      status = 'stale';
+    } else {
+      status = 'healthy';
+    }
+
+    return {
+      storeReachable: true,
+      eventCount: allRecords.length,
+      uniqueTaskCount: taskSet.size,
+      uniqueDisputeCount: disputeSet.size,
+      activeCursor,
+      hasRecentEvents,
+      latestEventTimestampMs,
+      stalenessSeconds: stalenessMs === null ? null : Math.floor(stalenessMs / 1000),
+      status,
+    };
+  } catch {
+    return {
+      storeReachable: false,
+      eventCount: 0,
+      uniqueTaskCount: 0,
+      uniqueDisputeCount: 0,
+      activeCursor: null,
+      hasRecentEvents: false,
+      latestEventTimestampMs: null,
+      stalenessSeconds: null,
+      status: 'unreachable',
+    };
+  }
+}
+
 // ============================================================================
 // Task Deserialization
 // ============================================================================
@@ -468,5 +693,39 @@ function deserializeTaskAccount(publicKey: PublicKey, data: Buffer): DependentTa
     dependencyType,
     minReputation,
     rewardMint,
+  };
+}
+
+function deserializeDispute(
+  disputePda: PublicKey,
+  data: Buffer,
+  role: ActorDisputeSummary['actorRole'],
+): ActorDisputeSummary {
+  const disputeId = new Uint8Array(
+    data.subarray(DISPUTE_FIELD_OFFSETS.DISPUTE_ID, DISPUTE_FIELD_OFFSETS.DISPUTE_ID + 32),
+  );
+
+  const taskPda = new PublicKey(
+    data.subarray(DISPUTE_FIELD_OFFSETS.TASK, DISPUTE_FIELD_OFFSETS.TASK + 32),
+  );
+
+  const resolutionType = data.readUInt8(DISPUTE_FIELD_OFFSETS.RESOLUTION_TYPE);
+  const status = data.readUInt8(DISPUTE_FIELD_OFFSETS.STATUS);
+  const initiatedAt = Number(data.readBigInt64LE(DISPUTE_FIELD_OFFSETS.CREATED_AT));
+  const votingDeadline = Number(data.readBigInt64LE(DISPUTE_FIELD_OFFSETS.VOTING_DEADLINE));
+  const votesFor = Number(data.readBigUInt64LE(DISPUTE_FIELD_OFFSETS.VOTES_FOR));
+  const votesAgainst = Number(data.readBigUInt64LE(DISPUTE_FIELD_OFFSETS.VOTES_AGAINST));
+
+  return {
+    disputePda,
+    disputeId,
+    taskPda,
+    status,
+    resolutionType,
+    actorRole: role,
+    votingDeadline,
+    votesFor,
+    votesAgainst,
+    initiatedAt,
   };
 }
