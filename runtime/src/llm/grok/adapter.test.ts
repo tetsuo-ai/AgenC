@@ -1,6 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { LLMMessage } from '../types.js';
-import { LLMProviderError, LLMRateLimitError } from '../errors.js';
+import {
+  LLMAuthenticationError,
+  LLMProviderError,
+  LLMRateLimitError,
+  LLMServerError,
+  LLMTimeoutError,
+} from '../errors.js';
 
 // Mock the openai module
 const mockCreate = vi.fn();
@@ -139,12 +145,56 @@ describe('GrokProvider', () => {
       .rejects.toThrow(LLMRateLimitError);
   });
 
-  it('maps general errors to LLMProviderError', async () => {
+  it('maps 500 errors to LLMServerError', async () => {
     mockCreate.mockRejectedValueOnce({ status: 500, message: 'Internal server error' });
 
     const provider = new GrokProvider({ apiKey: 'test-key' });
     await expect(provider.chat([{ role: 'user', content: 'test' }]))
-      .rejects.toThrow(LLMProviderError);
+      .rejects.toThrow(LLMServerError);
+  });
+
+  it('maps 401 to LLMAuthenticationError', async () => {
+    mockCreate.mockRejectedValueOnce({ status: 401, message: 'Invalid API key' });
+
+    const provider = new GrokProvider({ apiKey: 'test-key' });
+    await expect(provider.chat([{ role: 'user', content: 'test' }]))
+      .rejects.toThrow(LLMAuthenticationError);
+  });
+
+  it('maps AbortError to LLMTimeoutError', async () => {
+    mockCreate.mockRejectedValueOnce({ name: 'AbortError', message: 'signal aborted' });
+
+    const provider = new GrokProvider({ apiKey: 'test-key', timeoutMs: 1000 });
+    await expect(provider.chat([{ role: 'user', content: 'test' }]))
+      .rejects.toThrow(LLMTimeoutError);
+  });
+
+  it('returns partial streamed content on mid-stream failure', async () => {
+    mockCreate.mockResolvedValueOnce((async function* () {
+      yield { choices: [{ delta: { content: 'partial ' }, finish_reason: null }] };
+      yield { choices: [{ delta: { content: 'response' }, finish_reason: null }] };
+      throw { name: 'AbortError', message: 'stream interrupted' };
+    })());
+
+    const provider = new GrokProvider({ apiKey: 'test-key', timeoutMs: 1000 });
+    const onChunk = vi.fn();
+    const response = await provider.chatStream([{ role: 'user', content: 'test' }], onChunk);
+
+    expect(response.finishReason).toBe('error');
+    expect(response.partial).toBe(true);
+    expect(response.content).toBe('partial response');
+    expect(response.error).toBeInstanceOf(LLMTimeoutError);
+  });
+
+  it('throws when stream fails before any content is received', async () => {
+    mockCreate.mockResolvedValueOnce((async function* () {
+      throw new Error('stream failed');
+    })());
+
+    const provider = new GrokProvider({ apiKey: 'test-key' });
+    await expect(
+      provider.chatStream([{ role: 'user', content: 'test' }], () => undefined),
+    ).rejects.toThrow(LLMProviderError);
   });
 
   it('healthCheck returns true on success', async () => {

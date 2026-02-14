@@ -16,9 +16,11 @@ import type {
   LLMTool,
   StreamProgressCallback,
 } from '../types.js';
+import { validateToolCall } from '../types.js';
 import type { GrokProviderConfig } from './types.js';
 import { mapLLMError } from '../errors.js';
 import { ensureLazyImport } from '../lazy-import.js';
+import { withTimeout } from '../timeout.js';
 
 const DEFAULT_BASE_URL = 'https://api.x.ai/v1';
 const DEFAULT_MODEL = 'grok-3';
@@ -49,7 +51,11 @@ export class GrokProvider implements LLMProvider {
     const params = this.buildParams(messages);
 
     try {
-      const completion = await (client as any).chat.completions.create(params);
+      const completion = await withTimeout(
+        async (signal) => (client as any).chat.completions.create(params, { signal }),
+        this.config.timeoutMs,
+        this.name,
+      );
       return this.parseResponse(completion);
     } catch (err: unknown) {
       throw this.mapError(err);
@@ -59,15 +65,17 @@ export class GrokProvider implements LLMProvider {
   async chatStream(messages: LLMMessage[], onChunk: StreamProgressCallback): Promise<LLMResponse> {
     const client = await this.ensureClient();
     const params = { ...this.buildParams(messages), stream: true };
+    let content = '';
+    let model = this.config.model;
+    let finishReason: LLMResponse['finishReason'] = 'stop';
+    const toolCallAccum = new Map<number, { id: string; name: string; arguments: string }>();
 
     try {
-      const stream = await (client as any).chat.completions.create(params);
-
-      let content = '';
-      let toolCalls: LLMToolCall[] = [];
-      let model = this.config.model;
-      let finishReason: LLMResponse['finishReason'] = 'stop';
-      const toolCallAccum = new Map<number, { id: string; name: string; arguments: string }>();
+      const stream = await withTimeout(
+        async (signal) => (client as any).chat.completions.create(params, { signal }),
+        this.config.timeoutMs,
+        this.name,
+      );
 
       for await (const chunk of stream as AsyncIterable<any>) {
         const delta = chunk.choices?.[0]?.delta;
@@ -101,7 +109,15 @@ export class GrokProvider implements LLMProvider {
         if (chunk.model) model = chunk.model;
       }
 
-      toolCalls = Array.from(toolCallAccum.values());
+      const toolCalls: LLMToolCall[] = Array.from(toolCallAccum.values())
+        .map((candidate) =>
+          validateToolCall({
+            id: candidate.id,
+            name: candidate.name,
+            arguments: candidate.arguments,
+          })
+        )
+        .filter((toolCall): toolCall is LLMToolCall => toolCall !== null);
       if (toolCalls.length > 0 && finishReason === 'stop') {
         finishReason = 'tool_calls';
       }
@@ -116,6 +132,29 @@ export class GrokProvider implements LLMProvider {
         finishReason,
       };
     } catch (err: unknown) {
+      if (content.length > 0) {
+        const mappedError = this.mapError(err);
+        const partialToolCalls: LLMToolCall[] = Array.from(toolCallAccum.values())
+          .map((candidate) =>
+            validateToolCall({
+              id: candidate.id,
+              name: candidate.name,
+              arguments: candidate.arguments,
+            })
+          )
+          .filter((toolCall): toolCall is LLMToolCall => toolCall !== null);
+
+        onChunk({ content: '', done: true, toolCalls: partialToolCalls });
+        return {
+          content,
+          toolCalls: partialToolCalls,
+          usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
+          model,
+          finishReason: 'error',
+          error: mappedError,
+          partial: true,
+        };
+      }
       throw this.mapError(err);
     }
   }
@@ -171,11 +210,15 @@ export class GrokProvider implements LLMProvider {
     const choice = completion.choices?.[0];
     const message = choice?.message ?? {};
 
-    const toolCalls: LLMToolCall[] = (message.tool_calls ?? []).map((tc: any) => ({
-      id: tc.id,
-      name: tc.function?.name ?? '',
-      arguments: tc.function?.arguments ?? '',
-    }));
+    const toolCalls: LLMToolCall[] = (message.tool_calls ?? [])
+      .map((tc: any) =>
+        validateToolCall({
+          id: tc.id,
+          name: tc.function?.name ?? '',
+          arguments: tc.function?.arguments ?? '',
+        })
+      )
+      .filter((toolCall: LLMToolCall | null): toolCall is LLMToolCall => toolCall !== null);
 
     const usage: LLMUsage = {
       promptTokens: completion.usage?.prompt_tokens ?? 0,

@@ -1,6 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { LLMMessage } from '../types.js';
-import { LLMProviderError } from '../errors.js';
+import {
+  LLMAuthenticationError,
+  LLMProviderError,
+  LLMServerError,
+  LLMTimeoutError,
+} from '../errors.js';
 
 // Mock the ollama module
 const mockChat = vi.fn();
@@ -168,6 +173,60 @@ describe('OllamaProvider', () => {
     const provider = new OllamaProvider({});
     await expect(provider.chat([{ role: 'user', content: 'test' }]))
       .rejects.toThrow(LLMProviderError);
+  });
+
+  it('maps 500 errors to LLMServerError', async () => {
+    mockChat.mockRejectedValueOnce({ status: 500, message: 'Internal server error' });
+
+    const provider = new OllamaProvider({});
+    await expect(provider.chat([{ role: 'user', content: 'test' }]))
+      .rejects.toThrow(LLMServerError);
+  });
+
+  it('maps 401 to LLMAuthenticationError', async () => {
+    mockChat.mockRejectedValueOnce({ status: 401, message: 'Unauthorized' });
+
+    const provider = new OllamaProvider({});
+    await expect(provider.chat([{ role: 'user', content: 'test' }]))
+      .rejects.toThrow(LLMAuthenticationError);
+  });
+
+  it('maps AbortError to LLMTimeoutError', async () => {
+    mockChat.mockRejectedValueOnce({ name: 'AbortError', message: 'aborted' });
+
+    const provider = new OllamaProvider({ timeoutMs: 1000 });
+    await expect(provider.chat([{ role: 'user', content: 'test' }]))
+      .rejects.toThrow(LLMTimeoutError);
+  });
+
+  it('returns partial streamed content on mid-stream failure', async () => {
+    mockChat.mockResolvedValueOnce((async function* () {
+      yield { message: { content: 'partial ' }, model: 'llama3' };
+      yield { message: { content: 'response' }, model: 'llama3' };
+      throw { name: 'AbortError', message: 'stream interrupted' };
+    })());
+
+    const provider = new OllamaProvider({ timeoutMs: 1000 });
+    const response = await provider.chatStream(
+      [{ role: 'user', content: 'test' }],
+      () => undefined,
+    );
+
+    expect(response.finishReason).toBe('error');
+    expect(response.partial).toBe(true);
+    expect(response.content).toBe('partial response');
+    expect(response.error).toBeInstanceOf(LLMTimeoutError);
+  });
+
+  it('throws when stream fails before any content is received', async () => {
+    mockChat.mockResolvedValueOnce((async function* () {
+      throw new Error('stream failed');
+    })());
+
+    const provider = new OllamaProvider({});
+    await expect(
+      provider.chatStream([{ role: 'user', content: 'test' }], () => undefined),
+    ).rejects.toThrow(LLMProviderError);
   });
 
   it('passes keepAlive configuration', async () => {
