@@ -5,5 +5,9 @@
 
 pub mod claim_task;
 pub mod complete_task;
+pub mod dependency_graph;
+pub mod dispute_lifecycle;
+pub mod dispute_timing;
 pub mod resolve_dispute;
+pub mod task_lifecycle;
 pub mod vote_dispute;
