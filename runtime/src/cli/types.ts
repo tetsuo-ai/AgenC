@@ -90,6 +90,12 @@ export interface CliFileConfig {
   logLevel?: CliLogLevel;
 }
 
+export interface SecurityOptions extends BaseCliOptions {
+  deep?: boolean;
+  json?: boolean;
+  fix?: boolean;
+}
+
 export interface CliValidationError extends Error {
   code: string;
 }
