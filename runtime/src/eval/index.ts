@@ -47,6 +47,7 @@ export {
 } from './projector.js';
 
 export {
+  ANOMALY_CODES,
   validateTransition,
   transitionViolationMessage,
   type ReplayLifecycleType,

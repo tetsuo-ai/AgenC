@@ -263,6 +263,16 @@ pub fn validate_completion_prereqs(
     claim: &TaskClaim,
     clock: &Clock,
 ) -> Result<()> {
+    // Defense-in-depth: reject terminal states with specific error codes (#959)
+    require!(
+        task.status != TaskStatus::Completed,
+        CoordinationError::TaskAlreadyCompleted
+    );
+    require!(
+        task.status != TaskStatus::Cancelled,
+        CoordinationError::TaskCannotBeCancelled
+    );
+
     require!(
         task.status == TaskStatus::InProgress,
         CoordinationError::TaskNotInProgress
