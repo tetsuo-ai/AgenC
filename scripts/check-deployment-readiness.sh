@@ -57,6 +57,28 @@ else
             pass "VK_GAMMA_G2 != VK_DELTA_G2: MPC ceremony key detected"
         fi
     fi
+
+    # Check VK_VERSION (fix #962)
+    VK_VERSION=$(grep 'pub const VK_VERSION' "$VK_FILE" | grep -oP '= \K\d+' | head -1 || echo "")
+    if [ -n "$VK_VERSION" ]; then
+        if [ "$VK_VERSION" = "0" ]; then
+            if [ "$NETWORK" = "mainnet" ]; then
+                fail "VK_VERSION is 0 (development key)"
+            else
+                warn "VK_VERSION is 0 (development key, acceptable for $NETWORK)"
+            fi
+        else
+            pass "VK_VERSION is $VK_VERSION"
+        fi
+    fi
+
+    # Check allow-dev-key not in default features (fix #962)
+    CARGO_FILE="programs/agenc-coordination/Cargo.toml"
+    if grep -q 'default.*allow-dev-key' "$CARGO_FILE" 2>/dev/null; then
+        fail "'allow-dev-key' is in default Cargo features"
+    else
+        pass "'allow-dev-key' not in default features"
+    fi
 fi
 echo ""
 
