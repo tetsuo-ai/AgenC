@@ -208,7 +208,9 @@ pub fn handler(ctx: Context<CancelTask>) -> Result<()> {
         let mut worker = AgentRegistration::try_deserialize(&mut &worker_data[..])?;
         // Using saturating_sub intentionally - underflow returns 0 (safe counter decrement)
         worker.active_tasks = worker.active_tasks.saturating_sub(1);
-        worker.try_serialize(&mut &mut worker_data[8..])?;
+        // Use AnchorSerialize::serialize (Borsh only) — see dispute_helpers.rs comment (fix #960).
+        AnchorSerialize::serialize(&worker, &mut &mut worker_data[8..])
+            .map_err(|_| anchor_lang::error::ErrorCode::AccountDidNotSerialize)?;
 
         // Close claim account and return rent to creator (fix #396)
         let claim_lamports = claim_info.lamports();

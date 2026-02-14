@@ -109,7 +109,10 @@ pub(crate) fn process_arbiter_vote_pair(
     let mut arbiter = AgentRegistration::try_deserialize(&mut &**arbiter_data)?;
     // Using saturating_sub intentionally - underflow returns 0 (safe counter decrement)
     arbiter.active_dispute_votes = arbiter.active_dispute_votes.saturating_sub(1);
-    arbiter.try_serialize(&mut &mut arbiter_data[8..])?;
+    // Use AnchorSerialize::serialize (Borsh only) instead of AccountSerialize::try_serialize
+    // which would double-write the discriminator and corrupt the account data (fix #960).
+    AnchorSerialize::serialize(&arbiter, &mut &mut arbiter_data[8..])
+        .map_err(|_| anchor_lang::error::ErrorCode::AccountDidNotSerialize)?;
 
     Ok(())
 }
@@ -141,7 +144,9 @@ pub(crate) fn process_worker_claim_pair(
     let mut worker_reg = AgentRegistration::try_deserialize(&mut &**worker_data)?;
     // Using saturating_sub intentionally - underflow returns 0 (safe counter decrement)
     worker_reg.active_tasks = worker_reg.active_tasks.saturating_sub(1);
-    worker_reg.try_serialize(&mut &mut worker_data[8..])?;
+    // Use AnchorSerialize::serialize (Borsh only) — see process_arbiter_vote_pair comment (fix #960).
+    AnchorSerialize::serialize(&worker_reg, &mut &mut worker_data[8..])
+        .map_err(|_| anchor_lang::error::ErrorCode::AccountDidNotSerialize)?;
 
     Ok(())
 }

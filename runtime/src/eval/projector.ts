@@ -82,10 +82,25 @@ export interface ProjectionTelemetry {
   malformedInputs: string[];
 }
 
+export interface DisputeReplayState {
+  disputeId: string;
+  taskId: string;
+  status: DisputeLifecycleState;
+  votesFor: bigint;
+  votesAgainst: bigint;
+  totalVoters: number;
+  voterSignatures: string[];
+  resolutionOutcome?: number;
+  slashApplied: boolean;
+  initiatorSlashApplied: boolean;
+  resolvedAtSlot?: number;
+}
+
 export interface ProjectionResult {
   trace: TrajectoryTrace;
   events: ProjectedTimelineEvent[];
   telemetry: ProjectionTelemetry;
+  disputes: Map<string, DisputeReplayState>;
 }
 
 export interface ProjectionOptions {
@@ -446,6 +461,7 @@ export function projectOnChainEvents(
   const taskStates = new Map<string, TaskLifecycleState>();
   const disputeStates = new Map<string, DisputeLifecycleState>();
   const speculationStates = new Map<string, SpeculationLifecycleState>();
+  const disputeReplayStates = new Map<string, DisputeReplayState>();
   const projected: ProjectedTimelineEvent[] = [];
 
   for (const [orderedSequence, item] of sortedInputs.entries()) {
@@ -564,6 +580,50 @@ export function projectOnChainEvents(
           telemetry.transitionConflicts.push(transitionViolationMessage(violation));
         }
         disputeStates.set(context.disputePda, trajectoryType as DisputeLifecycleState);
+
+        // Accumulate dispute replay state for deterministic reconstruction (#960)
+        if (eventName === 'disputeInitiated' && context.disputePda) {
+          disputeReplayStates.set(context.disputePda, {
+            disputeId: context.disputePda,
+            taskId: context.taskPda ?? '',
+            status: 'dispute:initiated',
+            votesFor: 0n,
+            votesAgainst: 0n,
+            totalVoters: 0,
+            voterSignatures: [],
+            slashApplied: false,
+            initiatorSlashApplied: false,
+          });
+        } else if (eventName === 'disputeVoteCast' && context.disputePda) {
+          const drs = disputeReplayStates.get(context.disputePda);
+          if (drs) {
+            const vf = eventRecord.votesFor;
+            const va = eventRecord.votesAgainst;
+            drs.votesFor = typeof vf === 'bigint' ? vf : BigInt(String(vf ?? 0));
+            drs.votesAgainst = typeof va === 'bigint' ? va : BigInt(String(va ?? 0));
+            drs.totalVoters += 1;
+            drs.voterSignatures.push(input.signature);
+            drs.status = 'dispute:vote_cast';
+          }
+        } else if (eventName === 'disputeResolved' && context.disputePda) {
+          const drs = disputeReplayStates.get(context.disputePda);
+          if (drs) {
+            drs.status = 'dispute:resolved';
+            const outcome = eventRecord.outcome;
+            drs.resolutionOutcome = typeof outcome === 'number' ? outcome : undefined;
+            drs.resolvedAtSlot = input.slot;
+          }
+        } else if (eventName === 'disputeCancelled' && context.disputePda) {
+          const drs = disputeReplayStates.get(context.disputePda);
+          if (drs) {
+            drs.status = 'dispute:cancelled';
+          }
+        } else if (eventName === 'disputeExpired' && context.disputePda) {
+          const drs = disputeReplayStates.get(context.disputePda);
+          if (drs) {
+            drs.status = 'dispute:expired';
+          }
+        }
       }
     }
 
@@ -641,6 +701,7 @@ export function projectOnChainEvents(
   return {
     telemetry,
     events: traceEvents,
+    disputes: disputeReplayStates,
     trace: {
       schemaVersion: EVAL_TRACE_SCHEMA_VERSION,
       traceId: options.traceId ?? 'onchain-projection',

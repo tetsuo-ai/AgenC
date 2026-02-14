@@ -227,6 +227,7 @@ pub fn handler(
     config.max_disputes_per_24h = 10; // 10 disputes per 24h window
     config.min_stake_for_dispute = min_stake_for_dispute;
     config.slash_percentage = ProtocolConfig::DEFAULT_SLASH_PERCENTAGE;
+    config.voting_period = ProtocolConfig::DEFAULT_VOTING_PERIOD;
     // Versioning
     config.protocol_version = CURRENT_PROTOCOL_VERSION;
     config.min_supported_version = MIN_SUPPORTED_VERSION;
