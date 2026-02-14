@@ -647,6 +647,7 @@ export {
   ReplayStorageWriteResult,
   BackfillFetcher,
   BackfillResult,
+  type BackfillDuplicateReport,
   type ReplayBridgeConfig,
   type ReplayBridgeBackfillOptions,
   type ReplayBridgeHandle,

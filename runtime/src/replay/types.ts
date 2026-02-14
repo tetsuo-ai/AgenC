@@ -108,10 +108,19 @@ export interface ProjectedTimelineInput {
   traceContext?: ReplayTraceContext;
 }
 
+export interface BackfillDuplicateReport {
+  /** Total duplicate events detected across all pages */
+  count: number;
+  /** Deterministic list of duplicate event keys (slot|signature|sourceEventType) */
+  keys: string[];
+}
+
 export interface BackfillResult {
   processed: number;
   duplicates: number;
   cursor: ReplayEventCursor | null;
+  /** Deterministic duplicate report for auditing */
+  duplicateReport?: BackfillDuplicateReport;
 }
 
 export interface ReplayHealth {

@@ -221,6 +221,15 @@ export class SqliteReplayTimelineStore implements ReplayTimelineStore {
     };
   }
 
+  /**
+   * Cursor persistence is atomic within a single SQLite statement.
+   * If the process crashes during saveCursor(), the cursor row either
+   * has the old value or the new value -- never a partial write.
+   *
+   * Combined with INSERT OR IGNORE for events, this guarantees:
+   * - Events from a partially-processed page can be safely re-inserted
+   * - The cursor always points to the last fully-processed page boundary
+   */
   async saveCursor(cursor: ReplayEventCursor | null): Promise<void> {
     const db = await this.getDb();
     const statement = db.prepare(`
