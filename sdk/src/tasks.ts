@@ -20,6 +20,7 @@ import {
 import { PROGRAM_ID, SEEDS, TaskState, DISCRIMINATOR_SIZE, PERCENT_BASE, DEFAULT_FEE_PERCENT } from './constants';
 import { getAccount } from './anchor-utils';
 import { getSdkLogger } from './logger';
+import { getDependentTaskCount } from './queries';
 
 export { TaskState };
 
@@ -91,6 +92,33 @@ export interface PrivateCompletionProof {
   expectedBinding: Buffer | Uint8Array;
   /** Nullifier to prevent proof reuse (32 bytes) */
   nullifier: Buffer | Uint8Array;
+}
+
+export interface TaskLifecycleEvent {
+  eventName: string;
+  timestamp: number;
+  txSignature?: string;
+  actor?: PublicKey;
+  data?: Record<string, unknown>;
+}
+
+export interface TaskLifecycleSummary {
+  taskPda: PublicKey;
+  currentState: TaskState;
+  creator: PublicKey;
+  rewardAmount: bigint;
+  rewardMint: PublicKey | null;
+  timeline: TaskLifecycleEvent[];
+  currentWorkers: number;
+  maxWorkers: number;
+  createdAt: number;
+  deadline: number;
+  completedAt: number | null;
+  hasActiveDispute: boolean;
+  dependsOn: PublicKey | null;
+  dependentCount: number;
+  durationSeconds: number | null;
+  isExpired: boolean;
 }
 
 // ============================================================================
@@ -776,6 +804,206 @@ export async function getTasksByCreator(
   }
 
   return result;
+}
+
+/**
+ * Build a timeline summary for a task from task/claim/dispute accounts.
+ *
+ * @example
+ * ```typescript
+ * const summary = await getTaskLifecycleSummary(program, taskPda);
+ * if (summary?.currentState === TaskState.Completed) {
+ *   console.log(`Task completed in ${summary.durationSeconds}s`);
+ * }
+ * ```
+ */
+export async function getTaskLifecycleSummary(
+  program: Program,
+  taskPda: PublicKey,
+): Promise<TaskLifecycleSummary | null> {
+  const task = await getTask(program, taskPda);
+  if (!task) {
+    return null;
+  }
+
+  const rawTask = await getAccount(program, 'task').fetch(taskPda) as {
+    creator: PublicKey;
+    createdAt?: { toNumber: () => number };
+    created_at?: { toNumber: () => number };
+    dependsOn?: PublicKey | null;
+    depends_on?: PublicKey | null;
+    completedAt?: { toNumber: () => number } | null;
+    completed_at?: { toNumber: () => number } | null;
+  };
+
+  const createdAt = rawTask.createdAt?.toNumber() ?? rawTask.created_at?.toNumber() ?? 0;
+  const dependsOn = rawTask.dependsOn ?? rawTask.depends_on ?? null;
+  const completedAt = rawTask.completedAt?.toNumber()
+    ?? rawTask.completed_at?.toNumber()
+    ?? task.completedAt;
+
+  const timeline: TaskLifecycleEvent[] = [
+    {
+      eventName: 'taskCreated',
+      timestamp: createdAt,
+      actor: task.creator,
+    },
+  ];
+
+  const claims = await getAccount(program, 'taskClaim').all([
+    {
+      memcmp: {
+        offset: DISCRIMINATOR_SIZE, // discriminator + task pubkey at offset 8
+        bytes: taskPda.toBase58(),
+      },
+    },
+  ]);
+
+  for (const claim of claims) {
+    const claimAccount = claim.account as {
+      worker?: PublicKey;
+      claimedAt?: { toNumber: () => number };
+      claimed_at?: { toNumber: () => number };
+      completedAt?: { toNumber: () => number };
+      completed_at?: { toNumber: () => number };
+    };
+
+    const claimedAt = claimAccount.claimedAt?.toNumber() ?? claimAccount.claimed_at?.toNumber() ?? 0;
+    if (claimedAt > 0) {
+      timeline.push({
+        eventName: 'taskClaimed',
+        timestamp: claimedAt,
+        actor: claimAccount.worker,
+        data: { claimPda: claim.publicKey.toBase58() },
+      });
+    }
+
+    const claimCompletedAt = claimAccount.completedAt?.toNumber() ?? claimAccount.completed_at?.toNumber() ?? 0;
+    if (claimCompletedAt > 0) {
+      timeline.push({
+        eventName: 'taskClaimCompleted',
+        timestamp: claimCompletedAt,
+        actor: claimAccount.worker,
+        data: { claimPda: claim.publicKey.toBase58() },
+      });
+    }
+  }
+
+  if (task.state === TaskState.Completed && completedAt && completedAt > 0) {
+    timeline.push({
+      eventName: 'taskCompleted',
+      timestamp: completedAt,
+    });
+  }
+
+  if (task.state === TaskState.Cancelled) {
+    timeline.push({
+      eventName: 'taskCancelled',
+      timestamp: completedAt && completedAt > 0 ? completedAt : createdAt,
+      actor: rawTask.creator,
+    });
+  }
+
+  const disputes = await getAccount(program, 'dispute').all([
+    {
+      memcmp: {
+        offset: DISCRIMINATOR_SIZE + 32, // discriminator + dispute_id
+        bytes: taskPda.toBase58(),
+      },
+    },
+  ]);
+
+  const parseDisputeStatus = (status: unknown): number => {
+    if (typeof status === 'number') return status;
+    if (!status || typeof status !== 'object') return 0;
+    const key = Object.keys(status as Record<string, unknown>)[0];
+    const map: Record<string, number> = {
+      active: 0,
+      resolved: 1,
+      expired: 2,
+      cancelled: 3,
+    };
+    return map[key] ?? 0;
+  };
+
+  let hasActiveDispute = false;
+  for (const dispute of disputes) {
+    const d = dispute.account as {
+      initiator?: PublicKey;
+      createdAt?: { toNumber: () => number };
+      created_at?: { toNumber: () => number };
+      resolvedAt?: { toNumber: () => number };
+      resolved_at?: { toNumber: () => number };
+      status?: unknown;
+    };
+
+    const created = d.createdAt?.toNumber() ?? d.created_at?.toNumber() ?? 0;
+    const resolved = d.resolvedAt?.toNumber() ?? d.resolved_at?.toNumber() ?? 0;
+    const status = parseDisputeStatus(d.status);
+
+    if (status === 0) {
+      hasActiveDispute = true;
+    }
+
+    if (created > 0) {
+      timeline.push({
+        eventName: 'disputeInitiated',
+        timestamp: created,
+        actor: d.initiator,
+        data: { disputePda: dispute.publicKey.toBase58() },
+      });
+    }
+
+    if (resolved > 0 && status === 1) {
+      timeline.push({
+        eventName: 'disputeResolved',
+        timestamp: resolved,
+        data: { disputePda: dispute.publicKey.toBase58() },
+      });
+    }
+  }
+
+  timeline.sort((a, b) => a.timestamp - b.timestamp);
+
+  const providerConnection = (program.provider as { connection?: Connection }).connection;
+  if (!providerConnection) {
+    throw new Error('Program provider does not expose a connection');
+  }
+
+  const dependentCount = await getDependentTaskCount(
+    providerConnection,
+    program.programId,
+    taskPda,
+  );
+
+  const now = Math.floor(Date.now() / 1000);
+  const isExpired = task.deadline > 0
+    && now > task.deadline
+    && task.state !== TaskState.Completed
+    && task.state !== TaskState.Cancelled;
+
+  const durationSeconds = completedAt && createdAt > 0
+    ? completedAt - createdAt
+    : null;
+
+  return {
+    taskPda,
+    currentState: task.state,
+    creator: task.creator,
+    rewardAmount: task.rewardAmount,
+    rewardMint: task.rewardMint,
+    timeline,
+    currentWorkers: task.currentWorkers,
+    maxWorkers: task.maxWorkers,
+    createdAt,
+    deadline: task.deadline,
+    completedAt,
+    hasActiveDispute,
+    dependsOn,
+    dependentCount,
+    durationSeconds,
+    isExpired,
+  };
 }
 
 // ============================================================================
