@@ -42,10 +42,12 @@ import {
   TASK_TYPE_EXCLUSIVE,
   TASK_TYPE_COLLABORATIVE,
   RESOLUTION_TYPE_REFUND,
+  RESOLUTION_TYPE_COMPLETE,
+  RESOLUTION_TYPE_SPLIT,
   getDefaultDeadline,
   deriveProgramDataPda,
 } from "./test-utils";
-import { createLiteSVMContext, fundAccount } from "./litesvm-helpers";
+import { createLiteSVMContext, fundAccount, getClockTimestamp, advanceClock } from "./litesvm-helpers";
 
 describe("dispute-slash-logic (issue #136)", () => {
   const { svm, provider, program, payer } = createLiteSVMContext();
@@ -66,12 +68,14 @@ describe("dispute-slash-logic (issue #136)", () => {
   let worker: Keypair;
   let arbiter1: Keypair;
   let arbiter2: Keypair;
+  let arbiter3: Keypair;
 
   // Agent IDs
   let creatorAgentId: Buffer;
   let workerAgentId: Buffer;
   let arbiter1AgentId: Buffer;
   let arbiter2AgentId: Buffer;
+  let arbiter3AgentId: Buffer;
 
   // Evidence must be at least 50 characters per initiate_dispute.rs requirements
   const VALID_EVIDENCE = "This is valid dispute evidence that exceeds the minimum 50 character requirement for the dispute system.";
@@ -218,15 +222,17 @@ describe("dispute-slash-logic (issue #136)", () => {
     worker = Keypair.generate();
     arbiter1 = Keypair.generate();
     arbiter2 = Keypair.generate();
+    arbiter3 = Keypair.generate();
 
     // Initialize unique IDs per test run
     creatorAgentId = makeId("cre");
     workerAgentId = makeId("wrk");
     arbiter1AgentId = makeId("ar1");
     arbiter2AgentId = makeId("ar2");
+    arbiter3AgentId = makeId("ar3");
 
     // Airdrop SOL to all participants (including secondSigner for initialization)
-    await airdrop([treasury, secondSigner, creator, worker, arbiter1, arbiter2]);
+    await airdrop([treasury, secondSigner, creator, worker, arbiter1, arbiter2, arbiter3]);
     await ensureProtocol();
 
     // Register agents
@@ -235,6 +241,7 @@ describe("dispute-slash-logic (issue #136)", () => {
     await registerAgent(workerAgentId, worker, CAPABILITY_COMPUTE, actualWorkerStake);
     await registerAgent(arbiter1AgentId, arbiter1, CAPABILITY_ARBITER, minArbiterStake);
     await registerAgent(arbiter2AgentId, arbiter2, CAPABILITY_ARBITER, minArbiterStake);
+    await registerAgent(arbiter3AgentId, arbiter3, CAPABILITY_ARBITER, minArbiterStake);
   });
 
   describe("applyDisputeSlash preconditions", () => {
@@ -668,6 +675,432 @@ describe("dispute-slash-logic (issue #136)", () => {
         }
       }
       expect(rejected).to.equal(true, "slash should be rejected for non-defendant worker");
+    });
+  });
+
+  // =========================================================================
+  // Helpers for #960 tests
+  // =========================================================================
+
+  /** Create task → claim → initiate dispute. Returns all PDAs. */
+  async function setupDispute(
+    prefix: string,
+    resolutionType: number = RESOLUTION_TYPE_REFUND,
+    rewardLamports: number = LAMPORTS_PER_SOL,
+    wrkKp: Keypair = worker,
+    wrkAgentId: Buffer = workerAgentId,
+  ) {
+    const taskId = makeId(`t-${prefix}`);
+    const disputeId = makeId(`d-${prefix}`);
+    const crePda = deriveAgentPda(creatorAgentId);
+    const wrkPda = deriveAgentPda(wrkAgentId);
+    const taskPda = deriveTaskPda(creator.publicKey, taskId);
+    const escrowPda = deriveEscrowPda(taskPda);
+    const claimPda = deriveClaimPda(taskPda, wrkPda);
+    const disputePda = deriveDisputePda(disputeId);
+    const deadline = new BN(getClockTimestamp(svm) + 2_000_000);
+
+    await program.methods
+      .createTask(
+        Array.from(taskId), new BN(CAPABILITY_COMPUTE),
+        Buffer.from("Dispute test task".padEnd(64, "\0")),
+        new BN(rewardLamports), 1, deadline, TASK_TYPE_EXCLUSIVE, null, 0, null,
+      )
+      .accountsPartial({
+        task: taskPda, escrow: escrowPda, protocolConfig: protocolPda,
+        creatorAgent: crePda, authority: creator.publicKey,
+        creator: creator.publicKey, systemProgram: SystemProgram.programId,
+        rewardMint: null, creatorTokenAccount: null,
+        tokenEscrowAta: null, tokenProgram: null, associatedTokenProgram: null,
+      })
+      .signers([creator]).rpc();
+
+    await program.methods.claimTask()
+      .accountsPartial({
+        task: taskPda, claim: claimPda, protocolConfig: protocolPda,
+        worker: wrkPda, authority: wrkKp.publicKey,
+      })
+      .signers([wrkKp]).rpc();
+
+    await program.methods.initiateDispute(
+      Array.from(disputeId), Array.from(taskId),
+      Array.from(Buffer.from("evidence-hash".padEnd(32, "\0"))),
+      resolutionType, VALID_EVIDENCE,
+    )
+      .accountsPartial({
+        dispute: disputePda, task: taskPda, agent: crePda,
+        protocolConfig: protocolPda, initiatorClaim: null,
+        workerAgent: wrkPda, workerClaim: claimPda, authority: creator.publicKey,
+      })
+      .signers([creator]).rpc();
+
+    return { taskId, disputeId, taskPda, escrowPda, claimPda, disputePda, creatorPda: crePda, workerPda: wrkPda };
+  }
+
+  /** Cast a single arbiter vote. */
+  async function vote(
+    disputePda: PublicKey, taskPda: PublicKey, claimPda: PublicKey,
+    wrkPda: PublicKey, kp: Keypair, agentId: Buffer, approve: boolean,
+  ) {
+    const arbPda = deriveAgentPda(agentId);
+    const votePda = deriveVotePda(disputePda, arbPda);
+    const authVotePda = deriveAuthorityVotePda(disputePda, kp.publicKey);
+    await program.methods.voteDispute(approve)
+      .accountsPartial({
+        dispute: disputePda, task: taskPda, workerClaim: claimPda,
+        defendantAgent: wrkPda, vote: votePda, authorityVote: authVotePda,
+        arbiter: arbPda, protocolConfig: protocolPda, authority: kp.publicKey,
+      })
+      .signers([kp]).rpc();
+    return { votePda, arbPda };
+  }
+
+  /** Cast votes from all 3 arbiters. Returns (votePda, arbiterPda) triples. */
+  async function voteAll(
+    disputePda: PublicKey, taskPda: PublicKey, claimPda: PublicKey,
+    wrkPda: PublicKey, votes: [boolean, boolean, boolean],
+  ) {
+    const arbs = [
+      { kp: arbiter1, id: arbiter1AgentId },
+      { kp: arbiter2, id: arbiter2AgentId },
+      { kp: arbiter3, id: arbiter3AgentId },
+    ];
+    const out: Array<{ votePda: PublicKey; arbPda: PublicKey }> = [];
+    for (let i = 0; i < 3; i++) {
+      out.push(await vote(disputePda, taskPda, claimPda, wrkPda, arbs[i].kp, arbs[i].id, votes[i]));
+    }
+    return out;
+  }
+
+  /** Build remaining_accounts array for resolve_dispute. */
+  function resolveRemaining(voters: Array<{ votePda: PublicKey; arbPda: PublicKey }>) {
+    return voters.flatMap(({ votePda, arbPda }) => [
+      { pubkey: votePda, isSigner: false, isWritable: true },
+      { pubkey: arbPda, isSigner: false, isWritable: true },
+    ]);
+  }
+
+  /** Advance clock to voting deadline and resolve dispute. */
+  async function advanceAndResolve(
+    disputePda: PublicKey, taskPda: PublicKey, escrowPda: PublicKey,
+    claimPda: PublicKey, wrkPda: PublicKey,
+    voters: Array<{ votePda: PublicKey; arbPda: PublicKey }>,
+    wrkAuthority: Keypair = worker,
+  ) {
+    const d = await program.account.dispute.fetch(disputePda);
+    const dl = d.votingDeadline.toNumber();
+    const now = getClockTimestamp(svm);
+    if (now < dl) advanceClock(svm, dl - now);
+
+    await program.methods.resolveDispute()
+      .accountsPartial({
+        dispute: disputePda, task: taskPda, escrow: escrowPda,
+        protocolConfig: protocolPda, resolver: provider.wallet.publicKey,
+        creator: creator.publicKey, workerClaim: claimPda,
+        worker: wrkPda, workerAuthority: wrkAuthority.publicKey,
+        systemProgram: SystemProgram.programId,
+        tokenEscrowAta: null, creatorTokenAccount: null,
+        workerTokenAccountAta: null, treasuryTokenAccount: null,
+        rewardMint: null, tokenProgram: null,
+      })
+      .remainingAccounts(resolveRemaining(voters)).rpc();
+  }
+
+  // =========================================================================
+  // #960 — Vote window boundary math
+  // =========================================================================
+  describe("Vote window boundary math (#960)", () => {
+    it("accepts vote 1 second before voting_deadline", async () => {
+      const { disputePda, taskPda, claimPda, workerPda } = await setupDispute("vw1");
+      const d = await program.account.dispute.fetch(disputePda);
+      advanceClock(svm, d.votingDeadline.toNumber() - getClockTimestamp(svm) - 1);
+      await vote(disputePda, taskPda, claimPda, workerPda, arbiter1, arbiter1AgentId, true);
+    });
+
+    it("rejects vote exactly at voting_deadline (VotingEnded)", async () => {
+      const { disputePda, taskPda, claimPda, workerPda } = await setupDispute("vw2");
+      const d = await program.account.dispute.fetch(disputePda);
+      advanceClock(svm, d.votingDeadline.toNumber() - getClockTimestamp(svm));
+      try {
+        await vote(disputePda, taskPda, claimPda, workerPda, arbiter1, arbiter1AgentId, true);
+        expect.fail("Should have failed with VotingEnded");
+      } catch (e: unknown) {
+        expect((e as any).error?.errorCode?.code).to.equal("VotingEnded");
+      }
+    });
+
+    it("accepts resolve exactly at voting_deadline", async () => {
+      const s = await setupDispute("vw3");
+      const voters = await voteAll(s.disputePda, s.taskPda, s.claimPda, s.workerPda, [true, true, true]);
+      const d = await program.account.dispute.fetch(s.disputePda);
+      advanceClock(svm, d.votingDeadline.toNumber() - getClockTimestamp(svm));
+      await program.methods.resolveDispute()
+        .accountsPartial({
+          dispute: s.disputePda, task: s.taskPda, escrow: s.escrowPda,
+          protocolConfig: protocolPda, resolver: provider.wallet.publicKey,
+          creator: creator.publicKey, workerClaim: s.claimPda,
+          worker: s.workerPda, workerAuthority: worker.publicKey,
+          systemProgram: SystemProgram.programId,
+          tokenEscrowAta: null, creatorTokenAccount: null,
+          workerTokenAccountAta: null, treasuryTokenAccount: null,
+          rewardMint: null, tokenProgram: null,
+        })
+        .remainingAccounts(resolveRemaining(voters)).rpc();
+    });
+
+    it("rejects resolve 1 second before voting_deadline (VotingNotEnded)", async () => {
+      const s = await setupDispute("vw4");
+      const voters = await voteAll(s.disputePda, s.taskPda, s.claimPda, s.workerPda, [true, true, true]);
+      const d = await program.account.dispute.fetch(s.disputePda);
+      advanceClock(svm, d.votingDeadline.toNumber() - getClockTimestamp(svm) - 1);
+      try {
+        await program.methods.resolveDispute()
+          .accountsPartial({
+            dispute: s.disputePda, task: s.taskPda, escrow: s.escrowPda,
+            protocolConfig: protocolPda, resolver: provider.wallet.publicKey,
+            creator: creator.publicKey, workerClaim: s.claimPda,
+            worker: s.workerPda, workerAuthority: worker.publicKey,
+            systemProgram: SystemProgram.programId,
+            tokenEscrowAta: null, creatorTokenAccount: null,
+            workerTokenAccountAta: null, treasuryTokenAccount: null,
+            rewardMint: null, tokenProgram: null,
+          })
+          .remainingAccounts(resolveRemaining(voters)).rpc();
+        expect.fail("Should have failed with VotingNotEnded");
+      } catch (e: unknown) {
+        expect((e as any).error?.errorCode?.code).to.equal("VotingNotEnded");
+      }
+    });
+  });
+
+  // =========================================================================
+  // Helpers: account sets for slash instructions
+  // =========================================================================
+
+  /** Accounts for applyDisputeSlash (SOL tasks — optional token accounts null). */
+  function disputeSlashAccounts(s: Awaited<ReturnType<typeof setupDispute>>) {
+    return {
+      dispute: s.disputePda, task: s.taskPda, workerClaim: s.claimPda,
+      workerAgent: s.workerPda, protocolConfig: protocolPda, treasury: treasuryPubkey,
+      escrow: null, tokenEscrowAta: null, treasuryTokenAccount: null,
+      rewardMint: null, tokenProgram: null,
+    };
+  }
+
+  /** Extract Anchor error code robustly (LiteSVM may format errors differently). */
+  function anchorErrorCode(e: unknown): string | undefined {
+    const err = e as any;
+    return err.error?.errorCode?.code ?? err.errorCode?.code;
+  }
+
+  /** Assert an Anchor error code was thrown (falls back to message check). */
+  function expectErrorCode(e: unknown, code: string) {
+    const got = anchorErrorCode(e);
+    if (got) {
+      expect(got).to.equal(code);
+    } else {
+      const msg = (e as any).message ?? String(e);
+      expect(msg).to.include(code, `Expected error ${code}, got: ${msg.slice(0, 200)}`);
+    }
+  }
+
+  // =========================================================================
+  // #960 — Slash idempotency and window
+  // =========================================================================
+  describe("Slash idempotency and window (#960)", () => {
+    let slashWorker: Keypair;
+    let slashWorkerAgentId: Buffer;
+
+    before(async () => {
+      slashWorker = Keypair.generate();
+      slashWorkerAgentId = makeId("swk");
+      airdrop([slashWorker]);
+      await registerAgent(slashWorkerAgentId, slashWorker, CAPABILITY_COMPUTE, Math.max(WORKER_STAKE, minAgentStake));
+    });
+
+    it("applies worker slash exactly once (SlashAlreadyApplied on retry)", async () => {
+      const s = await setupDispute("si1", RESOLUTION_TYPE_REFUND, LAMPORTS_PER_SOL, slashWorker, slashWorkerAgentId);
+      const voters = await voteAll(s.disputePda, s.taskPda, s.claimPda, s.workerPda, [true, true, true]);
+      await advanceAndResolve(s.disputePda, s.taskPda, s.escrowPda, s.claimPda, s.workerPda, voters, slashWorker);
+
+      // First slash succeeds and sets the flag
+      await program.methods.applyDisputeSlash()
+        .accountsPartial(disputeSlashAccounts(s)).rpc();
+      const d = await program.account.dispute.fetch(s.disputePda);
+      expect(d.slashApplied).to.equal(true, "slash_applied should be set after first slash");
+
+      // Second slash is rejected (idempotent guard)
+      let rejected = false;
+      try {
+        await program.methods.applyDisputeSlash()
+          .accountsPartial(disputeSlashAccounts(s)).rpc();
+      } catch {
+        rejected = true;
+      }
+      expect(rejected).to.equal(true, "Second applyDisputeSlash must be rejected");
+    });
+
+    it("applies initiator slash exactly once (SlashAlreadyApplied on retry)", async () => {
+      const s = await setupDispute("si2", RESOLUTION_TYPE_REFUND, LAMPORTS_PER_SOL, slashWorker, slashWorkerAgentId);
+      const voters = await voteAll(s.disputePda, s.taskPda, s.claimPda, s.workerPda, [false, false, false]);
+      await advanceAndResolve(s.disputePda, s.taskPda, s.escrowPda, s.claimPda, s.workerPda, voters, slashWorker);
+
+      // First initiator slash succeeds and sets the flag
+      await program.methods.applyInitiatorSlash()
+        .accountsPartial({
+          dispute: s.disputePda, task: s.taskPda,
+          initiatorAgent: s.creatorPda, protocolConfig: protocolPda, treasury: treasuryPubkey,
+        }).rpc();
+      const d = await program.account.dispute.fetch(s.disputePda);
+      expect(d.initiatorSlashApplied).to.equal(true, "initiator_slash_applied should be set");
+
+      // Second is rejected (idempotent guard)
+      let rejected = false;
+      try {
+        await program.methods.applyInitiatorSlash()
+          .accountsPartial({
+            dispute: s.disputePda, task: s.taskPda,
+            initiatorAgent: s.creatorPda, protocolConfig: protocolPda, treasury: treasuryPubkey,
+          }).rpc();
+      } catch {
+        rejected = true;
+      }
+      expect(rejected).to.equal(true, "Second applyInitiatorSlash must be rejected");
+    });
+
+    it("rejects slash after 7-day window (SlashWindowExpired)", async () => {
+      const SLASH_WINDOW = 7 * 24 * 60 * 60; // 604800
+      const s = await setupDispute("si3", RESOLUTION_TYPE_REFUND, LAMPORTS_PER_SOL, slashWorker, slashWorkerAgentId);
+      const voters = await voteAll(s.disputePda, s.taskPda, s.claimPda, s.workerPda, [true, true, true]);
+      await advanceAndResolve(s.disputePda, s.taskPda, s.escrowPda, s.claimPda, s.workerPda, voters, slashWorker);
+
+      advanceClock(svm, SLASH_WINDOW + 1);
+
+      try {
+        await program.methods.applyDisputeSlash()
+          .accountsPartial(disputeSlashAccounts(s)).rpc();
+        expect.fail("Should have failed with SlashWindowExpired");
+      } catch (e: unknown) {
+        expectErrorCode(e, "SlashWindowExpired");
+      }
+    });
+
+    it("accepts slash at exactly SLASH_WINDOW boundary", async () => {
+      const SLASH_WINDOW = 7 * 24 * 60 * 60;
+      const s = await setupDispute("si4", RESOLUTION_TYPE_REFUND, LAMPORTS_PER_SOL, slashWorker, slashWorkerAgentId);
+      const voters = await voteAll(s.disputePda, s.taskPda, s.claimPda, s.workerPda, [true, true, true]);
+      await advanceAndResolve(s.disputePda, s.taskPda, s.escrowPda, s.claimPda, s.workerPda, voters, slashWorker);
+
+      advanceClock(svm, SLASH_WINDOW);
+
+      await program.methods.applyDisputeSlash()
+        .accountsPartial(disputeSlashAccounts(s)).rpc();
+    });
+  });
+
+  // =========================================================================
+  // #960 — Deterministic outcome calculation
+  // =========================================================================
+  describe("Deterministic outcome calculation (#960)", () => {
+    let outcomeWorker: Keypair;
+    let outcomeWorkerAgentId: Buffer;
+
+    before(async () => {
+      outcomeWorker = Keypair.generate();
+      outcomeWorkerAgentId = makeId("owk");
+      airdrop([outcomeWorker]);
+      await registerAgent(outcomeWorkerAgentId, outcomeWorker, CAPABILITY_COMPUTE, Math.max(WORKER_STAKE, minAgentStake));
+    });
+
+    it("3 FOR / 0 AGAINST → APPROVED (worker slash succeeds)", async () => {
+      const s = await setupDispute("oc1", RESOLUTION_TYPE_REFUND, LAMPORTS_PER_SOL, outcomeWorker, outcomeWorkerAgentId);
+      const voters = await voteAll(s.disputePda, s.taskPda, s.claimPda, s.workerPda, [true, true, true]);
+      await advanceAndResolve(s.disputePda, s.taskPda, s.escrowPda, s.claimPda, s.workerPda, voters, outcomeWorker);
+
+      const d = await program.account.dispute.fetch(s.disputePda);
+      expect(d.status).to.deep.equal({ resolved: {} });
+
+      // Worker slash succeeds — dispute was approved
+      await program.methods.applyDisputeSlash()
+        .accountsPartial(disputeSlashAccounts(s)).rpc();
+    });
+
+    it("0 FOR / 3 AGAINST → REJECTED (initiator slash succeeds)", async () => {
+      const s = await setupDispute("oc2", RESOLUTION_TYPE_REFUND, LAMPORTS_PER_SOL, outcomeWorker, outcomeWorkerAgentId);
+      const voters = await voteAll(s.disputePda, s.taskPda, s.claimPda, s.workerPda, [false, false, false]);
+      await advanceAndResolve(s.disputePda, s.taskPda, s.escrowPda, s.claimPda, s.workerPda, voters, outcomeWorker);
+
+      const d = await program.account.dispute.fetch(s.disputePda);
+      expect(d.status).to.deep.equal({ resolved: {} });
+
+      // Initiator slash succeeds — dispute was rejected
+      await program.methods.applyInitiatorSlash()
+        .accountsPartial({
+          dispute: s.disputePda, task: s.taskPda,
+          initiatorAgent: s.creatorPda, protocolConfig: protocolPda, treasury: treasuryPubkey,
+        }).rpc();
+    });
+
+    it("2 FOR / 1 AGAINST → APPROVED (66% ≥ 51%)", async () => {
+      const s = await setupDispute("oc3", RESOLUTION_TYPE_REFUND, LAMPORTS_PER_SOL, outcomeWorker, outcomeWorkerAgentId);
+      const voters = await voteAll(s.disputePda, s.taskPda, s.claimPda, s.workerPda, [true, true, false]);
+      await advanceAndResolve(s.disputePda, s.taskPda, s.escrowPda, s.claimPda, s.workerPda, voters, outcomeWorker);
+
+      // Worker slash succeeds — dispute approved
+      await program.methods.applyDisputeSlash()
+        .accountsPartial(disputeSlashAccounts(s)).rpc();
+    });
+
+    it("1 FOR / 2 AGAINST → REJECTED (33% < 51%)", async () => {
+      const s = await setupDispute("oc4", RESOLUTION_TYPE_REFUND, LAMPORTS_PER_SOL, outcomeWorker, outcomeWorkerAgentId);
+      const voters = await voteAll(s.disputePda, s.taskPda, s.claimPda, s.workerPda, [true, false, false]);
+      await advanceAndResolve(s.disputePda, s.taskPda, s.escrowPda, s.claimPda, s.workerPda, voters, outcomeWorker);
+
+      // Initiator slash succeeds — dispute rejected
+      await program.methods.applyInitiatorSlash()
+        .accountsPartial({
+          dispute: s.disputePda, task: s.taskPda,
+          initiatorAgent: s.creatorPda, protocolConfig: protocolPda, treasury: treasuryPubkey,
+        }).rpc();
+    });
+  });
+
+  // =========================================================================
+  // #960 — Split payout correctness
+  // =========================================================================
+  describe("Split payout correctness (#960)", () => {
+    let splitWorker: Keypair;
+    let splitWorkerAgentId: Buffer;
+
+    before(async () => {
+      splitWorker = Keypair.generate();
+      splitWorkerAgentId = makeId("spw");
+      airdrop([splitWorker]);
+      await registerAgent(splitWorkerAgentId, splitWorker, CAPABILITY_COMPUTE, Math.max(WORKER_STAKE, minAgentStake));
+    });
+
+    it("split resolution gives creator the odd-lamport remainder", async () => {
+      const oddReward = LAMPORTS_PER_SOL + 1; // 1_000_000_001 → worker 500_000_000, creator 500_000_001
+      const s = await setupDispute("sp1", RESOLUTION_TYPE_SPLIT, oddReward, splitWorker, splitWorkerAgentId);
+      const voters = await voteAll(s.disputePda, s.taskPda, s.claimPda, s.workerPda, [true, true, true]);
+
+      // Fetch escrow state to compute expected split values
+      const escrow = await program.account.taskEscrow.fetch(s.escrowPda);
+      const distributable = escrow.amount.toNumber() - escrow.distributed.toNumber();
+      const expectedWorkerShare = Math.floor(distributable / 2);
+      const expectedCreatorShare = distributable - expectedWorkerShare;
+
+      // The odd lamport remainder goes to the creator
+      expect(expectedCreatorShare - expectedWorkerShare).to.equal(1);
+
+      // Capture worker balance before resolution (isolate the split payment)
+      const workerBalBefore = await provider.connection.getBalance(splitWorker.publicKey);
+
+      await advanceAndResolve(s.disputePda, s.taskPda, s.escrowPda, s.claimPda, s.workerPda, voters, splitWorker);
+
+      const workerBalAfter = await provider.connection.getBalance(splitWorker.publicKey);
+      // Worker gets exactly floor(distributable / 2)
+      expect(workerBalAfter - workerBalBefore).to.equal(expectedWorkerShare);
     });
   });
 

@@ -76,7 +76,9 @@ pub fn handler(ctx: Context<CancelDispute>) -> Result<()> {
     let mut defendant = AgentRegistration::try_deserialize(&mut &**defendant_data)?;
     // Saturating decrement preserves recoverability for legacy stale counters.
     defendant.disputes_as_defendant = defendant.disputes_as_defendant.saturating_sub(1);
-    defendant.try_serialize(&mut &mut defendant_data[8..])?;
+    // Use AnchorSerialize::serialize (Borsh only) — see dispute_helpers.rs comment (fix #960).
+    AnchorSerialize::serialize(&defendant, &mut &mut defendant_data[8..])
+        .map_err(|_| anchor_lang::error::ErrorCode::AccountDidNotSerialize)?;
 
     emit!(DisputeCancelled {
         dispute_id: dispute.dispute_id,

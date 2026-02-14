@@ -326,3 +326,180 @@ it('deduplicates repeated fixture snapshots while preserving deterministic order
   expect(stableForward(result)).toBe(stableForward(replayed));
   expect(result.events.map((entry) => entry.sourceEventName)).toEqual(replayed.events.map((entry) => entry.sourceEventName));
 });
+
+describe('Dispute replay determinism (#960)', () => {
+  const disputeId = bytes(40);
+  const taskId = bytes(41);
+
+  it('reproduces identical dispute state from same event sequence', () => {
+    const events = [
+      {
+        eventName: 'taskCreated',
+        slot: 1,
+        signature: 'SIG_DR_TASK',
+        event: { taskId, creator: pubkey(10), requiredCapabilities: 1n, rewardAmount: 1n, taskType: 0, deadline: 0, minReputation: 0, rewardMint: null, timestamp: 10 },
+      },
+      {
+        eventName: 'taskClaimed',
+        slot: 2,
+        signature: 'SIG_DR_CLAIM',
+        event: { taskId, worker: pubkey(11), currentWorkers: 1, maxWorkers: 1, timestamp: 11 },
+      },
+      {
+        eventName: 'disputeInitiated',
+        slot: 3,
+        signature: 'SIG_DR_INIT',
+        event: { disputeId, taskId, initiator: pubkey(20), defendant: pubkey(21), resolutionType: 0, votingDeadline: 100, timestamp: 12 },
+      },
+      {
+        eventName: 'disputeVoteCast',
+        slot: 4,
+        signature: 'SIG_DR_VOTE1',
+        event: { disputeId, voter: pubkey(22), approved: true, votesFor: 5n, votesAgainst: 0n, timestamp: 13 },
+      },
+      {
+        eventName: 'disputeVoteCast',
+        slot: 5,
+        signature: 'SIG_DR_VOTE2',
+        event: { disputeId, voter: pubkey(23), approved: false, votesFor: 5n, votesAgainst: 3n, timestamp: 14 },
+      },
+      {
+        eventName: 'disputeResolved',
+        slot: 6,
+        signature: 'SIG_DR_RESOLVE',
+        event: { disputeId, taskId, resolutionType: 0, outcome: 1, votesFor: 5n, votesAgainst: 3n, timestamp: 15 },
+      },
+    ];
+
+    const result1 = projectOnChainEvents(events, { traceId: 'run-1' });
+    const result2 = projectOnChainEvents(events, { traceId: 'run-2' });
+
+    const disputeKey = [...result1.disputes.keys()][0]!;
+    const d1 = result1.disputes.get(disputeKey)!;
+    const d2 = result2.disputes.get(disputeKey)!;
+
+    expect(d1.votesFor).toBe(d2.votesFor);
+    expect(d1.votesAgainst).toBe(d2.votesAgainst);
+    expect(d1.totalVoters).toBe(d2.totalVoters);
+    expect(d1.resolutionOutcome).toBe(d2.resolutionOutcome);
+    expect(d1.status).toBe(d2.status);
+
+    expect(d1.votesFor).toBe(5n);
+    expect(d1.votesAgainst).toBe(3n);
+    expect(d1.totalVoters).toBe(2);
+    expect(d1.resolutionOutcome).toBe(1);
+    expect(d1.status).toBe('dispute:resolved');
+    expect(d1.voterSignatures).toEqual(['SIG_DR_VOTE1', 'SIG_DR_VOTE2']);
+    expect(d1.resolvedAtSlot).toBe(6);
+  });
+
+  it('detects stale vote replay (vote after resolution)', () => {
+    const staleDisputeId = bytes(42);
+    const events = [
+      {
+        eventName: 'taskCreated',
+        slot: 1,
+        signature: 'SIG_SV_TASK',
+        event: { taskId, creator: pubkey(10), requiredCapabilities: 1n, rewardAmount: 1n, taskType: 0, deadline: 0, minReputation: 0, rewardMint: null, timestamp: 10 },
+      },
+      {
+        eventName: 'taskClaimed',
+        slot: 2,
+        signature: 'SIG_SV_CLAIM',
+        event: { taskId, worker: pubkey(11), currentWorkers: 1, maxWorkers: 1, timestamp: 11 },
+      },
+      {
+        eventName: 'disputeInitiated',
+        slot: 3,
+        signature: 'SIG_SV_INIT',
+        event: { disputeId: staleDisputeId, taskId, initiator: pubkey(20), defendant: pubkey(21), resolutionType: 0, votingDeadline: 100, timestamp: 12 },
+      },
+      {
+        eventName: 'disputeResolved',
+        slot: 4,
+        signature: 'SIG_SV_RESOLVE',
+        event: { disputeId: staleDisputeId, taskId, resolutionType: 0, outcome: 2, votesFor: 0n, votesAgainst: 0n, timestamp: 13 },
+      },
+      {
+        eventName: 'disputeVoteCast',
+        slot: 5,
+        signature: 'SIG_SV_STALE',
+        event: { disputeId: staleDisputeId, voter: pubkey(22), approved: true, votesFor: 1n, votesAgainst: 0n, timestamp: 14 },
+      },
+    ];
+
+    const result = projectOnChainEvents(events, { traceId: 'stale-vote' });
+    expect(result.telemetry.transitionViolations).toHaveLength(1);
+    expect(result.telemetry.transitionViolations[0]?.fromState).toBe('dispute:resolved');
+    expect(result.telemetry.transitionViolations[0]?.toState).toBe('dispute:vote_cast');
+  });
+
+  it('tracks cancelled and expired dispute states', () => {
+    const cancelledId = bytes(43);
+    const expiredId = bytes(44);
+    const taskId2 = bytes(45);
+
+    const events = [
+      {
+        eventName: 'taskCreated',
+        slot: 1,
+        signature: 'SIG_CE_TASK1',
+        event: { taskId, creator: pubkey(10), requiredCapabilities: 1n, rewardAmount: 1n, taskType: 0, deadline: 0, minReputation: 0, rewardMint: null, timestamp: 10 },
+      },
+      {
+        eventName: 'taskClaimed',
+        slot: 2,
+        signature: 'SIG_CE_CLAIM1',
+        event: { taskId, worker: pubkey(11), currentWorkers: 1, maxWorkers: 1, timestamp: 11 },
+      },
+      {
+        eventName: 'disputeInitiated',
+        slot: 3,
+        signature: 'SIG_CE_INIT1',
+        event: { disputeId: cancelledId, taskId, initiator: pubkey(20), defendant: pubkey(21), resolutionType: 0, votingDeadline: 100, timestamp: 12 },
+      },
+      {
+        eventName: 'disputeCancelled',
+        slot: 4,
+        signature: 'SIG_CE_CANCEL',
+        event: { disputeId: cancelledId, task: pubkey(1), initiator: pubkey(20), cancelledAt: 13 },
+      },
+      {
+        eventName: 'taskCreated',
+        slot: 5,
+        signature: 'SIG_CE_TASK2',
+        event: { taskId: taskId2, creator: pubkey(12), requiredCapabilities: 1n, rewardAmount: 1n, taskType: 0, deadline: 0, minReputation: 0, rewardMint: null, timestamp: 14 },
+      },
+      {
+        eventName: 'taskClaimed',
+        slot: 6,
+        signature: 'SIG_CE_CLAIM2',
+        event: { taskId: taskId2, worker: pubkey(13), currentWorkers: 1, maxWorkers: 1, timestamp: 15 },
+      },
+      {
+        eventName: 'disputeInitiated',
+        slot: 7,
+        signature: 'SIG_CE_INIT2',
+        event: { disputeId: expiredId, taskId: taskId2, initiator: pubkey(25), defendant: pubkey(26), resolutionType: 1, votingDeadline: 200, timestamp: 16 },
+      },
+      {
+        eventName: 'disputeExpired',
+        slot: 8,
+        signature: 'SIG_CE_EXPIRE',
+        event: { disputeId: expiredId, taskId: taskId2, refundAmount: 100n, creatorAmount: 50n, workerAmount: 50n, timestamp: 17 },
+      },
+    ];
+
+    const result = projectOnChainEvents(events, { traceId: 'cancel-expire' });
+
+    expect(result.telemetry.transitionViolations).toHaveLength(0);
+    expect(result.disputes.size).toBe(2);
+
+    const keys = [...result.disputes.keys()];
+    const cancelled = result.disputes.get(keys[0]!)!;
+    const expired = result.disputes.get(keys[1]!)!;
+
+    expect(cancelled.status).toBe('dispute:cancelled');
+    expect(expired.status).toBe('dispute:expired');
+  });
+});
