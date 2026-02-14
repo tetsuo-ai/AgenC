@@ -15,17 +15,24 @@ export type {
   MemoryRole,
   MemoryQuery,
   AddEntryOptions,
+  DurabilityLevel,
+  DurabilityInfo,
 } from './types.js';
 
-// LLM interop helpers
-export { entryToMessage, messageToEntryOptions } from './types.js';
+// LLM interop helpers + operational limits
+export { entryToMessage, messageToEntryOptions, MEMORY_OPERATIONAL_LIMITS } from './types.js';
 
 // Error classes
 export {
   MemoryBackendError,
   MemoryConnectionError,
   MemorySerializationError,
+  MemoryEncryptionError,
 } from './errors.js';
+
+// Encryption
+export type { EncryptionConfig, EncryptionProvider } from './encryption.js';
+export { createAES256GCMProvider } from './encryption.js';
 
 // In-memory backend (zero deps)
 export { InMemoryBackend, type InMemoryBackendConfig } from './in-memory/index.js';

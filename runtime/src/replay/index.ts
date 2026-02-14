@@ -46,6 +46,7 @@ export {
   buildReplayKey,
   computeProjectionHash,
   stableReplayCursorString,
+  REPLAY_OPERATIONAL_LIMITS,
 } from './types.js';
 
 export {

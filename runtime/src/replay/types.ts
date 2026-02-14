@@ -59,7 +59,21 @@ export interface ReplayTimelineStore {
   getCursor(): Promise<ReplayEventCursor | null>;
   saveCursor(cursor: ReplayEventCursor | null): Promise<void>;
   clear(): Promise<void>;
+  getDurability?(): import('../memory/types.js').DurabilityInfo;
+  flush?(): Promise<void>;
 }
+
+/**
+ * Operational limits and constraints for replay stores.
+ */
+export const REPLAY_OPERATIONAL_LIMITS = {
+  /** SQLite: max recommended database size (bytes) */
+  SQLITE_MAX_DB_SIZE_BYTES: 10 * 1024 * 1024 * 1024, // 10 GiB
+  /** File store: max recommended file size (bytes) before performance degrades */
+  FILE_MAX_SIZE_BYTES: 512 * 1024 * 1024, // 512 MiB
+  /** InMemory: max recommended events before memory pressure */
+  IN_MEMORY_MAX_EVENTS: 1_000_000,
+} as const;
 
 export interface ReplayTimelineRetentionPolicy {
   /** Retain events newer than this TTL in milliseconds. */

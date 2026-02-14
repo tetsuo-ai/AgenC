@@ -264,6 +264,18 @@ export class InMemoryBackend implements MemoryBackend {
     return !this.closed;
   }
 
+  getDurability(): import('../types.js').DurabilityInfo {
+    return {
+      level: 'none',
+      supportsFlush: false,
+      description: 'Data lives only in process memory and is lost on restart.',
+    };
+  }
+
+  async flush(): Promise<void> {
+    // No-op: in-memory backend has no durable storage to flush.
+  }
+
   // ---------- Internals ----------
 
   private ensureOpen(): void {

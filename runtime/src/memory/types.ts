@@ -61,6 +61,46 @@ export interface AddEntryOptions {
 }
 
 /**
+ * Durability level of a memory backend.
+ *
+ * - `'none'`  — data lives only in process memory (InMemory)
+ * - `'async'` — data is persisted asynchronously (Redis with default AOF)
+ * - `'sync'`  — data is persisted synchronously per write (SQLite WAL)
+ */
+export type DurabilityLevel = 'none' | 'async' | 'sync';
+
+/**
+ * Describes the durability guarantees of a memory backend.
+ */
+export interface DurabilityInfo {
+  readonly level: DurabilityLevel;
+  readonly supportsFlush: boolean;
+  readonly description: string;
+}
+
+/**
+ * Operational limits and constraints for memory backends.
+ */
+export const MEMORY_OPERATIONAL_LIMITS = {
+  /** InMemory: default max entries per session */
+  IN_MEMORY_MAX_ENTRIES_PER_SESSION: 1_000,
+  /** InMemory: default max total entries across all sessions */
+  IN_MEMORY_MAX_TOTAL_ENTRIES: 100_000,
+  /** SQLite: max recommended database size (bytes) before performance degrades */
+  SQLITE_MAX_DB_SIZE_BYTES: 10 * 1024 * 1024 * 1024, // 10 GiB
+  /** Redis: max recommended entries per sorted set (thread) */
+  REDIS_MAX_ENTRIES_PER_THREAD: 1_000_000,
+  /** Default TTL for entries (0 = no expiry) */
+  DEFAULT_TTL_MS: 0,
+  /** AES-256-GCM key size in bytes */
+  ENCRYPTION_KEY_SIZE_BYTES: 32,
+  /** AES-256-GCM IV size in bytes */
+  ENCRYPTION_IV_SIZE_BYTES: 12,
+  /** AES-256-GCM auth tag size in bytes */
+  ENCRYPTION_AUTH_TAG_SIZE_BYTES: 16,
+} as const;
+
+/**
  * Core memory backend interface that all storage implementations provide
  */
 export interface MemoryBackend {
@@ -80,6 +120,10 @@ export interface MemoryBackend {
   delete(key: string): Promise<boolean>;
   has(key: string): Promise<boolean>;
   listKeys(prefix?: string): Promise<string[]>;
+
+  // Durability
+  getDurability(): DurabilityInfo;
+  flush(): Promise<void>;
 
   // Lifecycle
   clear(): Promise<void>;

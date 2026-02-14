@@ -53,6 +53,19 @@ export class FileReplayTimelineStore implements ReplayTimelineStore {
     await this.fallback.clear();
   }
 
+  getDurability(): import('../memory/types.js').DurabilityInfo {
+    return {
+      level: 'async',
+      supportsFlush: true,
+      description: 'Data is persisted via atomic file rename. flush() forces a persist of current state.',
+    };
+  }
+
+  async flush(): Promise<void> {
+    const state = await this.getState();
+    await this.persist(state);
+  }
+
   private async getState(): Promise<StoredTimelineState> {
     if (this.loaded) {
       return {

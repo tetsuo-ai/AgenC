@@ -17,10 +17,12 @@ import type {
   AddEntryOptions,
 } from '../types.js';
 import type { SqliteBackendConfig } from './types.js';
-import { MemoryBackendError, MemorySerializationError } from '../errors.js';
+import { MemoryBackendError, MemoryEncryptionError, MemorySerializationError } from '../errors.js';
 import { ensureLazyBackend } from '../lazy-import.js';
 import type { MetricsProvider } from '../../task/types.js';
 import { TELEMETRY_METRIC_NAMES } from '../../telemetry/metric-names.js';
+import type { EncryptionProvider } from '../encryption.js';
+import { createAES256GCMProvider } from '../encryption.js';
 
 export class SqliteBackend implements MemoryBackend {
   readonly name = 'sqlite';
@@ -30,6 +32,7 @@ export class SqliteBackend implements MemoryBackend {
   private readonly logger: Logger;
   private readonly defaultTtlMs: number;
   private readonly metrics?: MetricsProvider;
+  private readonly encryptor?: EncryptionProvider;
   private closed = false;
 
   constructor(config: SqliteBackendConfig = {}) {
@@ -42,6 +45,9 @@ export class SqliteBackend implements MemoryBackend {
     this.logger = config.logger ?? silentLogger;
     this.defaultTtlMs = config.defaultTtlMs ?? 0;
     this.metrics = config.metrics;
+    if (config.encryption) {
+      this.encryptor = createAES256GCMProvider(config.encryption);
+    }
   }
 
   // ---------- Thread Operations ----------
@@ -63,6 +69,8 @@ export class SqliteBackend implements MemoryBackend {
       }
     }
 
+    const storedContent = this.encryptField(options.content);
+
     db.prepare(
       `INSERT INTO memory_entries (id, session_id, role, content, tool_call_id, tool_name, task_pda, metadata, timestamp, expires_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -70,7 +78,7 @@ export class SqliteBackend implements MemoryBackend {
       id,
       options.sessionId,
       options.role,
-      options.content,
+      storedContent,
       options.toolCallId ?? null,
       options.toolName ?? null,
       options.taskPda ?? null,
@@ -201,9 +209,11 @@ export class SqliteBackend implements MemoryBackend {
       throw new MemorySerializationError(this.name, `Failed to serialize value: ${(err as Error).message}`);
     }
 
+    const storedValue = this.encryptField(valueJson);
+
     db.prepare(
       `INSERT OR REPLACE INTO memory_kv (key, value, expires_at) VALUES (?, ?, ?)`,
-    ).run(key, valueJson, expiresAt);
+    ).run(key, storedValue, expiresAt);
   }
 
   async get<T = unknown>(key: string): Promise<T | undefined> {
@@ -216,8 +226,10 @@ export class SqliteBackend implements MemoryBackend {
     if (!row) return undefined;
 
     try {
-      return JSON.parse((row as any).value) as T;
+      const rawValue = this.decryptField((row as any).value);
+      return JSON.parse(rawValue) as T;
     } catch (err) {
+      if (err instanceof MemoryEncryptionError) throw err;
       throw new MemorySerializationError(this.name, `Failed to deserialize value for key "${key}": ${(err as Error).message}`);
     }
   }
@@ -280,6 +292,19 @@ export class SqliteBackend implements MemoryBackend {
     } catch {
       return false;
     }
+  }
+
+  getDurability(): import('../types.js').DurabilityInfo {
+    return {
+      level: 'sync',
+      supportsFlush: true,
+      description: 'Data is persisted synchronously to disk via SQLite WAL. flush() forces a WAL checkpoint.',
+    };
+  }
+
+  async flush(): Promise<void> {
+    const db = await this.ensureDb();
+    db.pragma('wal_checkpoint(TRUNCATE)');
   }
 
   // ---------- Internals ----------
@@ -362,7 +387,7 @@ export class SqliteBackend implements MemoryBackend {
       id: row.id,
       sessionId: row.session_id,
       role: row.role,
-      content: row.content,
+      content: this.decryptField(row.content),
       timestamp: row.timestamp,
     };
 
@@ -378,5 +403,23 @@ export class SqliteBackend implements MemoryBackend {
     }
 
     return entry;
+  }
+
+  private encryptField(plaintext: string): string {
+    if (!this.encryptor) return plaintext;
+    try {
+      return this.encryptor.encrypt(plaintext);
+    } catch (err) {
+      throw new MemoryEncryptionError(this.name, `Encryption failed: ${(err as Error).message}`);
+    }
+  }
+
+  private decryptField(value: string): string {
+    if (!this.encryptor) return value;
+    try {
+      return this.encryptor.decrypt(value);
+    } catch (err) {
+      throw new MemoryEncryptionError(this.name, `Decryption failed: ${(err as Error).message}`);
+    }
   }
 }
