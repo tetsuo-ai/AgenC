@@ -174,3 +174,56 @@ export {
   type CalibrationAggregate,
   type CalibrationReport,
 } from './calibration.js';
+
+// Incident Case Model (#990 P2-501)
+export {
+  INCIDENT_CASE_SCHEMA_VERSION,
+  buildIncidentCase,
+  computeTraceWindow,
+  computeEvidenceHash,
+  computeCaseId,
+  resolveActors,
+  serializeIncidentCase,
+  deserializeIncidentCase,
+  type IncidentTraceWindow,
+  type IncidentActorRole,
+  type IncidentActor,
+  type IncidentTransition,
+  type AnomalySeverity,
+  type IncidentAnomalyRef,
+  type CaseStatus,
+  type IncidentCase,
+  type BuildIncidentCaseInput,
+} from './incident-case.js';
+
+// Query DSL (#992 P2-503)
+export {
+  parseQueryDSL,
+  normalizeQuery,
+  applyQueryFilter,
+  applyAnomalyFilter,
+  serializeQueryDSL,
+  type QuerySeverity,
+  type SlotRange,
+  type QueryDSL,
+  type NormalizedQuery,
+  type QueryValidationError,
+  type QueryParseResult,
+} from './query-dsl.js';
+
+// Evidence Pack (#991 P2-502)
+export {
+  EVIDENCE_PACK_SCHEMA_VERSION,
+  DEFAULT_REDACTION_POLICY,
+  buildEvidencePack,
+  serializeEvidencePack,
+  verifyEvidencePackIntegrity,
+  parseEvidencePack,
+  applyRedaction,
+  computeToolFingerprint,
+  type RedactionPolicy,
+  type EvidencePackManifest,
+  type EvidencePack,
+  type SerializedEvidencePack,
+  type BuildEvidencePackInput,
+} from './evidence-pack.js';
