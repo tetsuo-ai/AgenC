@@ -3,6 +3,12 @@
 This playbook is for reconstructing and triaging replay anomalies in production.
 It maps common incidents to deterministic steps and expected payload shapes.
 
+## Quick links
+
+- `docs/INCIDENT_REPLAY_RUNBOOK.md` (CLI + MCP step-by-step)
+- `runtime/docs/replay-cli.md` (CLI reference)
+- `mcp/README.md` (MCP replay tools and policy controls)
+
 ## Prerequisites
 
 - Replay enabled with deterministic tracing policy.
@@ -58,6 +64,14 @@ Failure handling:
 
 - if cursor stalls, rerun with same inputs; stalled window should be reproducible.
 - if `runBackfill()` fails, retry after fixing source fetcher only; do not mutate the store policy.
+
+Troubleshooting quick table:
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| cursor does not advance | RPC instability or nondeterministic window | rerun with same inputs; if persistent, switch RPC and retry |
+| empty backfill results | slot window wrong or filters too narrow | widen window and rerun |
+| repeated timeouts | window too large | narrow slot range; increase runtime/tool timeout where appropriate |
 
 ## 2) Comparison workflow
 
