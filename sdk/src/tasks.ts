@@ -52,6 +52,11 @@ export interface TaskParams {
   creatorTokenAccount?: PublicKey;
 }
 
+export interface DependentTaskParams extends TaskParams {
+  /** Dependency type enum value */
+  dependencyType: number;
+}
+
 export interface TaskStatus {
   /** Task ID bytes */
   taskId: Uint8Array;
@@ -245,6 +250,83 @@ export async function createTask(
 }
 
 /**
+ * Create a dependent task with an explicit parent task reference.
+ */
+export async function createDependentTask(
+  connection: Connection,
+  program: Program,
+  creator: Keypair,
+  creatorAgentId: Uint8Array | number[],
+  parentTaskPda: PublicKey,
+  params: DependentTaskParams,
+): Promise<{ taskPda: PublicKey; txSignature: string }> {
+  const programId = program.programId;
+  const idBytes = params.taskId instanceof Uint8Array ? params.taskId : Buffer.from(params.taskId);
+
+  const taskPda = deriveTaskPda(creator.publicKey, idBytes, programId);
+  const escrowPda = deriveEscrowPda(taskPda, programId);
+  const protocolPda = deriveProtocolPda(programId);
+  const creatorAgentPda = deriveAgentPda(creatorAgentId, programId);
+
+  const mint = params.rewardMint ?? null;
+
+  let tokenAccounts: Record<string, PublicKey | null>;
+  if (mint) {
+    const creatorTokenAccount = params.creatorTokenAccount
+      ?? getAssociatedTokenAddressSync(mint, creator.publicKey);
+    const tokenEscrowAta = getAssociatedTokenAddressSync(mint, escrowPda, true);
+
+    tokenAccounts = {
+      rewardMint: mint,
+      creatorTokenAccount,
+      tokenEscrowAta,
+      tokenProgram: TOKEN_PROGRAM_ID,
+      associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+    };
+  } else {
+    tokenAccounts = {
+      rewardMint: null,
+      creatorTokenAccount: null,
+      tokenEscrowAta: null,
+      tokenProgram: null,
+      associatedTokenProgram: null,
+    };
+  }
+
+  const tx = await program.methods
+    .createDependentTask(
+      Array.from(idBytes),
+      new BN(params.requiredCapabilities.toString()),
+      Buffer.from(params.description),
+      new BN(params.rewardAmount.toString()),
+      params.maxWorkers,
+      new BN(params.deadline),
+      params.taskType,
+      params.constraintHash ?? null,
+      params.dependencyType,
+      params.minReputation ?? 0,
+      mint,
+    )
+    .accountsPartial({
+      task: taskPda,
+      escrow: escrowPda,
+      parentTask: parentTaskPda,
+      protocolConfig: protocolPda,
+      creatorAgent: creatorAgentPda,
+      authority: creator.publicKey,
+      creator: creator.publicKey,
+      systemProgram: SystemProgram.programId,
+      ...tokenAccounts,
+    })
+    .signers([creator])
+    .rpc();
+
+  await connection.confirmTransaction(tx, 'confirmed');
+
+  return { taskPda, txSignature: tx };
+}
+
+/**
  * Claim a task as a worker agent.
  */
 export async function claimTask(
@@ -270,6 +352,43 @@ export async function claimTask(
       systemProgram: SystemProgram.programId,
     })
     .signers([worker])
+    .rpc();
+
+  await connection.confirmTransaction(tx, 'confirmed');
+
+  return { txSignature: tx };
+}
+
+/**
+ * Expire a claim after its deadline.
+ */
+export async function expireClaim(
+  connection: Connection,
+  program: Program,
+  caller: Keypair,
+  taskPda: PublicKey,
+  workerAgentId: Uint8Array | number[],
+  rentRecipient: PublicKey = caller.publicKey,
+): Promise<{ txSignature: string }> {
+  const programId = program.programId;
+  const workerAgentPda = deriveAgentPda(workerAgentId, programId);
+  const claimPda = deriveClaimPda(taskPda, workerAgentPda, programId);
+  const escrowPda = deriveEscrowPda(taskPda, programId);
+  const protocolPda = deriveProtocolPda(programId);
+
+  const tx = await program.methods
+    .expireClaim()
+    .accountsPartial({
+      caller: caller.publicKey,
+      task: taskPda,
+      escrow: escrowPda,
+      claim: claimPda,
+      worker: workerAgentPda,
+      protocolConfig: protocolPda,
+      rentRecipient,
+      systemProgram: SystemProgram.programId,
+    })
+    .signers([caller])
     .rpc();
 
   await connection.confirmTransaction(tx, 'confirmed');
