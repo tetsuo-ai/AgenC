@@ -199,6 +199,23 @@ export {
   type OperatingMode,
   type BatchTaskItem,
   type TaskExecutorStatus,
+  // Config migration
+  CURRENT_CONFIG_VERSION,
+  KNOWN_CONFIG_KEYS,
+  DEPRECATED_KEYS,
+  ConfigMigrationError,
+  configVersionToString,
+  parseConfigVersion,
+  compareVersions,
+  migrateConfig,
+  validateConfigStrict,
+  buildConfigSchemaSnapshot,
+  type ConfigVersion,
+  type ConfigMigrationFn,
+  type ConfigMigrationStep,
+  type ConfigWarning,
+  type ConfigValidationResult,
+  type ConfigSchemaSnapshot,
 } from './types/index.js';
 
 // Task module (Phase 3)
