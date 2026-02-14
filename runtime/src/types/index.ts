@@ -3,6 +3,26 @@
  * @packageDocumentation
  */
 
+// Configuration migration and validation
+export {
+  CURRENT_CONFIG_VERSION,
+  KNOWN_CONFIG_KEYS,
+  DEPRECATED_KEYS,
+  ConfigMigrationError,
+  configVersionToString,
+  parseConfigVersion,
+  compareVersions,
+  migrateConfig,
+  validateConfigStrict,
+  buildConfigSchemaSnapshot,
+  type ConfigVersion,
+  type ConfigMigrationFn,
+  type ConfigMigrationStep,
+  type ConfigWarning,
+  type ConfigValidationResult,
+  type ConfigSchemaSnapshot,
+} from './config-migration.js';
+
 // Protocol configuration types
 export {
   ProtocolConfig,

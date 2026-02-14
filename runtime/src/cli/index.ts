@@ -15,6 +15,7 @@ import {
   ReplayCompareOptions,
   ReplayIncidentOptions,
 } from './types.js';
+import { validateConfigStrict } from '../types/config-migration.js';
 import {
   createOnChainReplayBackfillFetcher,
   createReplayStore,
@@ -372,7 +373,7 @@ function resolveConfigPath(rawFlags: ParsedArgv['flags']): string {
   return resolve(process.cwd(), explicit ?? envPath ?? DEFAULT_CONFIG_PATH);
 }
 
-function loadFileConfig(configPath: string): CliFileConfig {
+function loadFileConfig(configPath: string, strictModeEnabled = false): CliFileConfig {
   if (!existsSync(configPath)) {
     return {};
   }
@@ -384,7 +385,15 @@ function loadFileConfig(configPath: string): CliFileConfig {
     return {};
   }
 
-  return parseCliConfig(parsed);
+  const validation = validateConfigStrict(parsed, strictModeEnabled);
+  if (!validation.valid) {
+    throw createCliError(
+      `Config validation failed: ${validation.errors.map(e => e.message).join('; ')}`,
+      ERROR_CODES.CONFIG_PARSE_ERROR,
+    );
+  }
+
+  return parseCliConfig(validation.migratedConfig);
 }
 
 function normalizeOptionAliases(name: string): string {
