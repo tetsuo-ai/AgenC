@@ -1,0 +1,72 @@
+{
+  "id": "mcp.replay.compare.empty_store",
+  "version": 1,
+  "command": "agenc_replay_compare",
+  "input": {
+    "local_trace_path": "tmp/mcp-replay-compare-success.trace.json",
+    "store_type": "memory"
+  },
+  "output": {
+    "schema": "replay.compare.output.v1",
+    "shape": {
+      "status": "ok",
+      "command": "agenc_replay_compare",
+      "schema": "replay.compare.output.v1",
+      "schema_hash": "6827a16d81fa9dbb",
+      "strictness": "lenient",
+      "local_trace_path": "tmp/mcp-replay-compare-success.trace.json",
+      "result": {
+        "status": "clean",
+        "strictness": "lenient",
+        "local_event_count": 0,
+        "projected_event_count": 0,
+        "mismatch_count": 0,
+        "match_rate": 1,
+        "anomaly_ids": [],
+        "top_anomalies": [],
+        "hashes": {
+          "local": "95af14550896665df3af5f6de4549409191fe585cc7f662858e8bdc32a6ef098",
+          "projected": "95af14550896665df3af5f6de4549409191fe585cc7f662858e8bdc32a6ef098"
+        },
+        "local_summary": {
+          "totalEvents": 0,
+          "taskCount": 0,
+          "completedTasks": 0,
+          "failedTasks": 0,
+          "escalatedTasks": 0,
+          "policyViolations": 0,
+          "verifierVerdicts": 0,
+          "speculationAborts": 0
+        },
+        "projected_summary": {
+          "totalEvents": 0,
+          "taskCount": 0,
+          "completedTasks": 0,
+          "failedTasks": 0,
+          "escalatedTasks": 0,
+          "policyViolations": 0,
+          "verifierVerdicts": 0,
+          "speculationAborts": 0
+        }
+      },
+      "task_pda": null,
+      "dispute_pda": null,
+      "sections": [
+        "result"
+      ],
+      "redactions": [
+        "signature"
+      ],
+      "command_params": {
+        "strict_mode": false,
+        "store_type": "memory"
+      },
+      "truncated": false,
+      "truncation_reason": null
+    }
+  },
+  "metadata": {
+    "generatedAt": "2026-02-14T20:20:55.076Z",
+    "generatedBy": "contract-validator"
+  }
+}

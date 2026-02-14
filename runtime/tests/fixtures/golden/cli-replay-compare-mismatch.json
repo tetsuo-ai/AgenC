@@ -1,0 +1,103 @@
+{
+  "id": "cli.replay.compare.mismatch",
+  "version": 1,
+  "command": "replay.compare",
+  "input": {
+    "argv": [
+      "replay",
+      "compare",
+      "--local-trace-path",
+      "/tmp/compare-trace-mismatch.json",
+      "--store-type",
+      "memory"
+    ]
+  },
+  "output": {
+    "schema": "replay.compare.output.v1",
+    "shape": {
+      "status": "ok",
+      "command": "replay.compare",
+      "schema": "replay.compare.output.v1",
+      "localTracePath": "fixture-compare-mismatch-trace.json",
+      "strictness": "lenient",
+      "strictMode": false,
+      "storeType": "memory",
+      "result": {
+        "status": "mismatched",
+        "strictness": "lenient",
+        "localEventCount": 3,
+        "projectedEventCount": 3,
+        "mismatchCount": 3,
+        "matchRate": 0,
+        "anomalyIds": [
+          "83c35b501fe0dfc3",
+          "c82f37ac12e92e1b",
+          "b121653778054d0c"
+        ],
+        "topAnomalies": [
+          {
+            "anomalyId": "1c22ded427dbd1bd",
+            "code": "type_mismatch",
+            "severity": "error",
+            "message": "event type mismatch at seq=1",
+            "sourceEventName": "taskCreated",
+            "signature": "SIGCLITASKCREATED",
+            "seq": 1
+          },
+          {
+            "anomalyId": "aac7a2470ab1f9b6",
+            "code": "hash_mismatch",
+            "severity": "error",
+            "message": "deterministic replay hash mismatch"
+          },
+          {
+            "anomalyId": "e1f253ce2e5b77dd",
+            "code": "transition_invalid",
+            "severity": "warning",
+            "message": "[local] unknown event type \"discovered-mismatch\" at seq=1"
+          }
+        ],
+        "hashes": {
+          "local": "cd682a13e268f5f0897d6f9595a9bdabcb9d6104330098dd9bc16a50f4879e98",
+          "projected": "4a82760b0803300f6e93d6378eb22c711b73137da711c35f1e2fb0d7374ff3b3"
+        },
+        "localSummary": {
+          "deterministicHash": "cd682a13e268f5f0897d6f9595a9bdabcb9d6104330098dd9bc16a50f4879e98",
+          "errors": [],
+          "warnings": [
+            "unknown event type \"discovered-mismatch\" at seq=1"
+          ],
+          "summary": {
+            "totalEvents": 3,
+            "taskCount": 1,
+            "completedTasks": 1,
+            "failedTasks": 0,
+            "escalatedTasks": 0,
+            "policyViolations": 0,
+            "verifierVerdicts": 0,
+            "speculationAborts": 0
+          }
+        },
+        "projectedSummary": {
+          "deterministicHash": "4a82760b0803300f6e93d6378eb22c711b73137da711c35f1e2fb0d7374ff3b3",
+          "errors": [],
+          "warnings": [],
+          "summary": {
+            "totalEvents": 3,
+            "taskCount": 1,
+            "completedTasks": 1,
+            "failedTasks": 0,
+            "escalatedTasks": 0,
+            "policyViolations": 0,
+            "verifierVerdicts": 0,
+            "speculationAborts": 0
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "generatedAt": "2026-02-14T20:17:05.681Z",
+    "generatedBy": "contract-validator"
+  }
+}
