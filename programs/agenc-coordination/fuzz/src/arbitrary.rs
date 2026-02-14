@@ -39,6 +39,17 @@ pub fn arb_reward_amount() -> impl Strategy<Value = u64> {
     ]
 }
 
+/// Arbitrary malformed reward amounts for corpus-style edge case emphasis
+pub fn arb_malformed_reward() -> impl Strategy<Value = u64> {
+    prop_oneof![
+        Just(0u64),
+        Just(1u64),
+        Just(u64::MAX),
+        Just(u64::MAX - 1),
+        (1u64..100u64),
+    ]
+}
+
 /// Arbitrary protocol fee in basis points (0-10000)
 pub fn arb_protocol_fee_bps() -> impl Strategy<Value = u16> {
     prop_oneof![
@@ -82,6 +93,16 @@ pub fn arb_capabilities() -> impl Strategy<Value = u64> {
     ]
 }
 
+/// Arbitrary malformed capability masks (0, high bits, max)
+pub fn arb_malformed_capabilities() -> impl Strategy<Value = u64> {
+    prop_oneof![
+        Just(0u64),
+        Just(u64::MAX),
+        Just(1u64 << 63),
+        (0u64..1024u64),
+    ]
+}
+
 /// Arbitrary worker count (1-255)
 pub fn arb_worker_count() -> impl Strategy<Value = u8> {
     prop_oneof![
@@ -112,6 +133,17 @@ pub fn arb_deadline() -> impl Strategy<Value = i64> {
         Just(0i64),  // No deadline
         1_700_000_000i64..1_900_000_000i64,  // Future deadline
         Just(i64::MAX),
+    ]
+}
+
+/// Arbitrary malformed deadlines (negative, min/max, near-term)
+pub fn arb_malformed_deadline() -> impl Strategy<Value = i64> {
+    prop_oneof![
+        Just(0i64),
+        Just(-1i64),
+        Just(i64::MIN),
+        Just(i64::MAX),
+        (0i64..100i64),
     ]
 }
 
@@ -367,6 +399,314 @@ impl Arbitrary for ResolveDisputeInput {
     }
 }
 
+// ============================================================================
+// Multi-instruction / lifecycle fuzz inputs
+// ============================================================================
+
+#[derive(Debug, Clone)]
+pub enum LifecycleAction {
+    Claim,
+    Complete { proof_hash: [u8; 32] },
+    Cancel,
+    ExpireClaim,
+    InitiateDispute { dispute_id: [u8; 32] },
+}
+
+impl Arbitrary for LifecycleAction {
+    type Parameters = ();
+    type Strategy = BoxedStrategy<Self>;
+
+    fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+        prop_oneof![
+            3 => Just(LifecycleAction::Claim),
+            3 => arb_id().prop_map(|proof_hash| LifecycleAction::Complete { proof_hash }),
+            2 => Just(LifecycleAction::Cancel),
+            2 => Just(LifecycleAction::ExpireClaim),
+            2 => arb_id().prop_map(|dispute_id| LifecycleAction::InitiateDispute { dispute_id }),
+        ]
+        .boxed()
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct TaskLifecycleSequence {
+    pub task_id: [u8; 32],
+    pub creator_id: [u8; 32],
+    pub worker_id: [u8; 32],
+    pub worker_status: u8,
+    pub worker_capabilities: u64,
+    pub task_required_capabilities: u64,
+    pub reward_amount: u64,
+    pub task_type: u8,
+    pub max_workers: u8,
+    pub required_completions: u8,
+    pub deadline_offset: i64,
+    pub current_timestamp: i64,
+    pub protocol_fee_bps: u16,
+    pub actions: Vec<LifecycleAction>,
+}
+
+impl Arbitrary for TaskLifecycleSequence {
+    type Parameters = ();
+    type Strategy = BoxedStrategy<Self>;
+
+    fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+        (
+            (arb_id(), arb_id(), arb_id()),
+            (
+                prop_oneof![Just(1u8), Just(3u8), 0u8..=3u8], // emphasize ACTIVE + SUSPENDED
+                prop_oneof![arb_capabilities(), arb_malformed_capabilities()],
+                prop_oneof![arb_capabilities(), arb_malformed_capabilities()],
+            ),
+            (
+                prop_oneof![arb_reward_amount(), arb_malformed_reward()],
+                0u8..=2u8,
+                1u8..=10u8,
+                1u8..=10u8,
+            ),
+            (
+                prop_oneof![Just(-1i64), Just(0i64), Just(1i64), (-1_000i64..=1_000i64)],
+                prop_oneof![arb_timestamp(), 0i64..1_000_000_000i64],
+                arb_protocol_fee_bps(),
+            ),
+            prop::collection::vec(any::<LifecycleAction>(), 0..25),
+        )
+            .prop_map(
+                |(
+                    (task_id, creator_id, worker_id),
+                    (worker_status, worker_capabilities, task_required_capabilities),
+                    (reward_amount, task_type, max_workers, required_completions),
+                    (deadline_offset, current_timestamp, protocol_fee_bps),
+                    actions,
+                )| TaskLifecycleSequence {
+                    task_id,
+                    creator_id,
+                    worker_id,
+                    worker_status,
+                    worker_capabilities,
+                    task_required_capabilities,
+                    reward_amount,
+                    task_type,
+                    max_workers,
+                    required_completions,
+                    deadline_offset,
+                    current_timestamp,
+                    protocol_fee_bps,
+                    actions,
+                },
+            )
+            .boxed()
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum DisputeAction {
+    Vote { arbiter_index: u8, approved: bool, timestamp: i64 },
+    Resolve { timestamp: i64 },
+    Cancel { timestamp: i64 },
+    Expire { timestamp: i64 },
+    ApplySlash { arbiter_index: u8, amount: u64 },
+    ApplyInitiatorSlash { amount: u64 },
+}
+
+impl Arbitrary for DisputeAction {
+    type Parameters = ();
+    type Strategy = BoxedStrategy<Self>;
+
+    fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+        prop_oneof![
+            5 => (0u8..=10u8, arb_vote(), arb_timestamp()).prop_map(|(arbiter_index, approved, timestamp)| {
+                DisputeAction::Vote { arbiter_index, approved, timestamp }
+            }),
+            2 => arb_timestamp().prop_map(|timestamp| DisputeAction::Resolve { timestamp }),
+            2 => arb_timestamp().prop_map(|timestamp| DisputeAction::Cancel { timestamp }),
+            2 => arb_timestamp().prop_map(|timestamp| DisputeAction::Expire { timestamp }),
+            2 => (0u8..=10u8, arb_reward_amount()).prop_map(|(arbiter_index, amount)| {
+                DisputeAction::ApplySlash { arbiter_index, amount }
+            }),
+            1 => arb_reward_amount().prop_map(|amount| DisputeAction::ApplyInitiatorSlash { amount }),
+        ]
+        .boxed()
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct DisputeLifecycleSequence {
+    pub dispute_id: [u8; 32],
+    pub task_id: [u8; 32],
+    pub initiator_id: [u8; 32],
+    pub initiator_stake: u64,
+    pub initial_task_status: u8,
+    pub arbiter_ids: Vec<[u8; 32]>,
+    pub arbiter_stakes: Vec<u64>,
+    pub min_arbiter_stake: u64,
+    pub resolution_type: u8,
+    pub dispute_threshold: u8,
+    pub voting_deadline: i64,
+    pub escrow_amount: u64,
+    pub protocol_fee_bps: u16,
+    pub actions: Vec<DisputeAction>,
+}
+
+impl Arbitrary for DisputeLifecycleSequence {
+    type Parameters = ();
+    type Strategy = BoxedStrategy<Self>;
+
+    fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+        (
+            arb_id(),
+            arb_id(),
+            arb_id(),
+            arb_stake(),
+            prop_oneof![
+                Just(0u8), // OPEN
+                Just(1u8), // IN_PROGRESS
+                Just(3u8), // COMPLETED
+                Just(4u8), // CANCELLED
+                Just(5u8), // DISPUTED
+            ],
+            1usize..=5usize,
+            arb_stake(),
+            0u8..=2u8,
+            arb_dispute_threshold(),
+            0i64..1_000_000_000i64,
+            arb_reward_amount(),
+            arb_protocol_fee_bps(),
+        )
+            .prop_flat_map(
+                |(
+                    dispute_id,
+                    task_id,
+                    initiator_id,
+                    initiator_stake,
+                    initial_task_status,
+                    arbiter_count,
+                    min_arbiter_stake,
+                    resolution_type,
+                    dispute_threshold,
+                    voting_deadline,
+                    escrow_amount,
+                    protocol_fee_bps,
+                )| {
+                    (
+                        (Just(dispute_id), Just(task_id), Just(initiator_id)),
+                        (Just(initiator_stake), Just(initial_task_status)),
+                        (
+                            prop::collection::vec(arb_id(), arbiter_count),
+                            prop::collection::vec(arb_stake(), arbiter_count),
+                        ),
+                        (
+                            Just(min_arbiter_stake),
+                            Just(resolution_type),
+                            Just(dispute_threshold),
+                            Just(voting_deadline),
+                            Just(escrow_amount),
+                            Just(protocol_fee_bps),
+                        ),
+                        prop::collection::vec(any::<DisputeAction>(), 0..30),
+                    )
+                },
+            )
+            .prop_map(
+                |(
+                    (dispute_id, task_id, initiator_id),
+                    (initiator_stake, initial_task_status),
+                    (arbiter_ids, arbiter_stakes),
+                    (min_arbiter_stake, resolution_type, dispute_threshold, voting_deadline, escrow_amount, protocol_fee_bps),
+                    actions
+                )| {
+                    DisputeLifecycleSequence {
+                        dispute_id,
+                        task_id,
+                        initiator_id,
+                        initiator_stake,
+                        initial_task_status,
+                        arbiter_ids,
+                        arbiter_stakes,
+                        min_arbiter_stake,
+                        resolution_type,
+                        dispute_threshold,
+                        voting_deadline,
+                        escrow_amount,
+                        protocol_fee_bps,
+                        actions,
+                    }
+                },
+            )
+            .boxed()
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct DependencyGraphInput {
+    pub task_count: u8,
+    pub edges: Vec<(u8, u8)>,
+    pub completion_order: Vec<u8>,
+}
+
+impl Arbitrary for DependencyGraphInput {
+    type Parameters = ();
+    type Strategy = BoxedStrategy<Self>;
+
+    fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+        (
+            1u8..=10u8,
+            prop::collection::vec((0u8..=20u8, 0u8..=20u8), 0..40),
+            prop::collection::vec(0u8..=20u8, 0..40),
+        )
+            .prop_map(|(task_count, edges, completion_order)| DependencyGraphInput {
+                task_count,
+                edges,
+                completion_order,
+            })
+            .boxed()
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct DisputeTimingInput {
+    pub voting_deadline: i64,
+    pub vote_timestamps: Vec<i64>,
+    pub resolution_timestamp: i64,
+    pub expiry_timestamp: i64,
+    pub claim_deadline: i64,
+    pub claim_expiry_timestamp: i64,
+}
+
+impl Arbitrary for DisputeTimingInput {
+    type Parameters = ();
+    type Strategy = BoxedStrategy<Self>;
+
+    fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+        (
+            -1_000i64..=1_000_000i64,
+            prop::collection::vec(-1_000i64..=1_000_000i64, 0..20),
+            -1_000i64..=1_000_000i64,
+            -1_000i64..=1_000_000i64,
+            -1_000i64..=1_000_000i64,
+            -1_000i64..=1_000_000i64,
+        )
+            .prop_map(
+                |(
+                    voting_deadline,
+                    vote_timestamps,
+                    resolution_timestamp,
+                    expiry_timestamp,
+                    claim_deadline,
+                    claim_expiry_timestamp,
+                )| DisputeTimingInput {
+                    voting_deadline,
+                    vote_timestamps,
+                    resolution_timestamp,
+                    expiry_timestamp,
+                    claim_deadline,
+                    claim_expiry_timestamp,
+                },
+            )
+            .boxed()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -399,6 +739,22 @@ mod tests {
         fn test_complete_task_input_generates(input in any::<CompleteTaskInput>()) {
             prop_assert!(input.task_type <= 2);
             prop_assert!(input.required_completions >= 1);
+        }
+
+        #[test]
+        fn test_task_lifecycle_sequence_generates(_seq in any::<TaskLifecycleSequence>()) {
+        }
+
+        #[test]
+        fn test_dispute_lifecycle_sequence_generates(_seq in any::<DisputeLifecycleSequence>()) {
+        }
+
+        #[test]
+        fn test_dependency_graph_input_generates(_input in any::<DependencyGraphInput>()) {
+        }
+
+        #[test]
+        fn test_dispute_timing_input_generates(_input in any::<DisputeTimingInput>()) {
         }
     }
 }

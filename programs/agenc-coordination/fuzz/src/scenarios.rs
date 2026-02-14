@@ -192,6 +192,11 @@ pub fn simulate_complete_task(
         return SimulationResult::Error("TaskNotInProgress".to_string());
     }
 
+    // Check worker is active
+    if worker.status != agent_status::ACTIVE {
+        return SimulationResult::Error("AgentNotActive".to_string());
+    }
+
     // CRITICAL: Check competitive task single-completion invariant
     // Competitive tasks (task_type == 2) must check completions == 0 before paying rewards
     if task.task_type == 2 && task.completions > 0 {
@@ -237,8 +242,8 @@ pub fn simulate_complete_task(
     if let EscrowInvariantResult::DistributedExceedsAmount { distributed, amount } =
         check_escrow_distribution_bounded(new_distributed, escrow.amount)
     {
-        return SimulationResult::InvariantViolation(format!(
-            "E3: distributed {} would exceed amount {}",
+        return SimulationResult::Error(format!(
+            "InsufficientEscrowBalance: {} > {}",
             distributed, amount
         ));
     }
@@ -418,6 +423,11 @@ pub fn simulate_resolve_dispute(
         return SimulationResult::Error("DisputeNotActive".to_string());
     }
 
+    // Check task is in disputed state
+    if task.status != task_status::DISPUTED {
+        return SimulationResult::Error("TaskNotDisputed".to_string());
+    }
+
     // D3: Check voting period has ended
     if current_time < dispute.voting_deadline {
         return SimulationResult::Error("VotingNotEnded".to_string());
@@ -515,6 +525,221 @@ pub fn simulate_resolve_dispute(
         return SimulationResult::InvariantViolation(format!(
             "E3: distributed {} exceeds amount {}",
             distributed, amount
+        ));
+    }
+
+    SimulationResult::Success
+}
+
+// ============================================================================
+// Cancel / Expire / Lifecycle Simulation
+// ============================================================================
+
+/// Simulate cancel_task instruction
+pub fn simulate_cancel_task(task: &mut SimulatedTask, escrow: &mut SimulatedEscrow) -> SimulationResult {
+    // Pre-condition checks
+    if task.status != task_status::OPEN && task.status != task_status::IN_PROGRESS {
+        return SimulationResult::Error("TaskNotCancellable".to_string());
+    }
+
+    if escrow.is_closed {
+        return SimulationResult::Error("EscrowAlreadyClosed".to_string());
+    }
+
+    let old_task_status = task.status;
+    let old_distributed = escrow.distributed;
+
+    // Cancel the task
+    task.status = task_status::CANCELLED;
+
+    // Refund remaining funds and close escrow
+    let remaining_funds = match escrow.amount.checked_sub(escrow.distributed) {
+        Some(r) => r,
+        None => {
+            return SimulationResult::InvariantViolation("E3: distributed exceeds amount".to_string());
+        }
+    };
+
+    escrow.distributed = match escrow.distributed.checked_add(remaining_funds) {
+        Some(d) => d,
+        None => return SimulationResult::Error("ArithmeticOverflow: distributed".to_string()),
+    };
+    escrow.is_closed = true;
+
+    // Post-condition invariant checks
+
+    // E2: Monotonic distribution
+    if let EscrowInvariantResult::MonotonicityViolation { old_distributed: old, new_distributed: new } =
+        check_escrow_monotonic_distribution(old_distributed, escrow.distributed)
+    {
+        return SimulationResult::InvariantViolation(format!(
+            "E2: Distribution decreased from {} to {}",
+            old, new
+        ));
+    }
+
+    // E3: Distribution bounded
+    if let EscrowInvariantResult::DistributedExceedsAmount { distributed, amount } =
+        check_escrow_distribution_bounded(escrow.distributed, escrow.amount)
+    {
+        return SimulationResult::InvariantViolation(format!(
+            "E3: distributed {} exceeds amount {}",
+            distributed, amount
+        ));
+    }
+
+    // T1: Valid task state transition
+    if let TaskInvariantResult::InvalidStateTransition { from, to } =
+        check_task_state_transition(old_task_status, task.status)
+    {
+        return SimulationResult::InvariantViolation(format!(
+            "T1: Invalid state transition from {} to {}",
+            from, to
+        ));
+    }
+
+    SimulationResult::Success
+}
+
+/// Simulate expiring a claim after task deadline passes
+pub fn simulate_expire_claim(
+    task: &mut SimulatedTask,
+    worker: &mut SimulatedAgent,
+    current_time: i64,
+) -> SimulationResult {
+    // Pre-condition checks
+    if task.status != task_status::IN_PROGRESS {
+        return SimulationResult::Error("TaskNotInProgress".to_string());
+    }
+
+    if task.deadline <= 0 || current_time < task.deadline {
+        return SimulationResult::Error("ClaimNotExpired".to_string());
+    }
+
+    if task.current_workers == 0 {
+        return SimulationResult::Error("NoActiveClaims".to_string());
+    }
+
+    if worker.active_tasks == 0 {
+        return SimulationResult::Error("WorkerHasNoActiveTasks".to_string());
+    }
+
+    let old_status = task.status;
+
+    task.current_workers = match task.current_workers.checked_sub(1) {
+        Some(w) => w,
+        None => return SimulationResult::Error("ArithmeticUnderflow: current_workers".to_string()),
+    };
+
+    worker.active_tasks = match worker.active_tasks.checked_sub(1) {
+        Some(a) => a,
+        None => return SimulationResult::Error("ArithmeticUnderflow: active_tasks".to_string()),
+    };
+
+    // Post-condition invariant checks
+
+    // T1: No invalid state transition (should remain InProgress)
+    if let TaskInvariantResult::InvalidStateTransition { from, to } =
+        check_task_state_transition(old_status, task.status)
+    {
+        return SimulationResult::InvariantViolation(format!(
+            "T1: Invalid state transition from {} to {}",
+            from, to
+        ));
+    }
+
+    // T3: Worker count consistency
+    if let TaskInvariantResult::WorkerCountExceedsMax { current, max } =
+        check_worker_count(task.current_workers, task.max_workers)
+    {
+        return SimulationResult::InvariantViolation(format!(
+            "T3: Worker count {} exceeds max {}",
+            current, max
+        ));
+    }
+
+    SimulationResult::Success
+}
+
+/// Simulate initiating a dispute for a task
+pub fn simulate_initiate_dispute(
+    task: &mut SimulatedTask,
+    dispute: &mut SimulatedDispute,
+) -> SimulationResult {
+    // Pre-condition checks
+    if task.status != task_status::IN_PROGRESS && task.status != task_status::COMPLETED {
+        return SimulationResult::Error("TaskNotDisputable".to_string());
+    }
+
+    let old_task_status = task.status;
+    task.status = task_status::DISPUTED;
+
+    // Activate dispute (id and deadlines are assumed to be set by caller)
+    dispute.status = dispute_status::ACTIVE;
+
+    // Post-condition invariant checks
+    if let TaskInvariantResult::InvalidStateTransition { from, to } =
+        check_task_state_transition(old_task_status, task.status)
+    {
+        return SimulationResult::InvariantViolation(format!(
+            "T1: Invalid state transition from {} to {}",
+            from, to
+        ));
+    }
+
+    SimulationResult::Success
+}
+
+/// Simulate expiring a dispute after voting deadline passes
+pub fn simulate_expire_dispute(dispute: &mut SimulatedDispute, current_time: i64) -> SimulationResult {
+    // Pre-condition checks
+    if dispute.status != dispute_status::ACTIVE {
+        return SimulationResult::Error("DisputeNotActive".to_string());
+    }
+
+    if current_time < dispute.voting_deadline {
+        return SimulationResult::Error("VotingNotEnded".to_string());
+    }
+
+    let old_status = dispute.status;
+    dispute.status = dispute_status::EXPIRED;
+
+    // Post-condition invariant checks
+    if let DisputeInvariantResult::InvalidStateTransition { from, to } =
+        check_dispute_state_transition(old_status, dispute.status)
+    {
+        return SimulationResult::InvariantViolation(format!(
+            "D1: Invalid dispute transition from {} to {}",
+            from, to
+        ));
+    }
+
+    SimulationResult::Success
+}
+
+/// Simulate completing a dependent task (requires all parents completed)
+pub fn simulate_complete_dependent_task(
+    task: &mut SimulatedTask,
+    parents_completed: bool,
+) -> SimulationResult {
+    if !parents_completed {
+        return SimulationResult::Error("DependenciesNotMet".to_string());
+    }
+
+    if task.status != task_status::IN_PROGRESS {
+        return SimulationResult::Error("TaskNotInProgress".to_string());
+    }
+
+    let old_status = task.status;
+    task.status = task_status::COMPLETED;
+
+    // Post-condition invariant checks
+    if let TaskInvariantResult::InvalidStateTransition { from, to } =
+        check_task_state_transition(old_status, task.status)
+    {
+        return SimulationResult::InvariantViolation(format!(
+            "T1: Invalid state transition from {} to {}",
+            from, to
         ));
     }
 
