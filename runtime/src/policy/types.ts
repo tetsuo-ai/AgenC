@@ -41,6 +41,48 @@ export interface PolicyBudgetRule {
   windowMs: number;
 }
 
+export interface EndpointExposureConfig {
+  /** Maximum number of RPC endpoints exposed publicly. */
+  maxPublicEndpoints: number;
+  /** Require HTTPS for all public endpoints. */
+  requireHttps: boolean;
+  /** Allowed origin patterns for CORS (empty means no CORS). */
+  allowedOrigins: string[];
+  /** Rate limit for public endpoint requests per minute. */
+  publicRateLimitPerMinute: number;
+}
+
+export interface EvidenceRetentionPolicy {
+  /** Maximum retention period for incident evidence bundles in milliseconds. */
+  maxRetentionMs: number;
+  /** Maximum number of evidence bundles to retain. */
+  maxBundles: number;
+  /** Auto-delete evidence older than retention period. */
+  autoDelete: boolean;
+  /** Require sealed (redacted) mode for evidence exports. */
+  requireSealedExport: boolean;
+}
+
+export interface ProductionRedactionPolicy {
+  /** Always redact actor pubkeys in evidence exports. */
+  redactActors: boolean;
+  /** Fields to always strip from evidence payloads. */
+  alwaysStripFields: string[];
+  /** Patterns to redact in all evidence output. */
+  redactPatterns: string[];
+}
+
+export interface DeletionDefaults {
+  /** Auto-delete replay events older than this TTL in milliseconds. */
+  replayEventTtlMs: number;
+  /** Auto-delete audit trail entries older than this TTL in milliseconds. */
+  auditTrailTtlMs: number;
+  /** Maximum total replay events before triggering compaction. */
+  maxReplayEventsTotal: number;
+  /** Run deletion on startup. */
+  deleteOnStartup: boolean;
+}
+
 export interface SpendBudgetRule {
   /** Max allowed spend in lamports for the rolling window. */
   limitLamports: bigint;
@@ -81,6 +123,13 @@ export interface RuntimePolicyConfig {
   maxRiskScore?: number;
   /** Auto-trip configuration on repeated policy violations. */
   circuitBreaker?: CircuitBreakerConfig;
+}
+
+export interface ProductionRuntimeExtensions {
+  endpointExposure?: EndpointExposureConfig;
+  evidenceRetention?: EvidenceRetentionPolicy;
+  redaction?: ProductionRedactionPolicy;
+  deletion?: DeletionDefaults;
 }
 
 export interface PolicyViolation {
@@ -129,4 +178,3 @@ export class PolicyViolationError extends Error {
     this.decision = decision;
   }
 }
-

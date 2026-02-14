@@ -129,3 +129,38 @@ All checks PASS
 | Symptom | Cause | Fix |
 |---------|-------|-----|
 | build differs across machines | toolchain mismatch | align Anchor/Solana versions and rebuild |
+
+## Release-Hardening Guide
+
+### 1. Local Operator Policy
+
+- Enable the policy engine with `policy.enabled: true`
+- Set `maxRiskScore` to `0.7` or lower
+- Configure action budgets for `tx_submission` and `tool_call`
+- Enable circuit breaker with threshold of `10` violations in `5` minutes
+
+### 2. Endpoint Exposure Limits
+
+- Limit public endpoints to `1` (`maxPublicEndpoints: 1`)
+- Require HTTPS for all public endpoints
+- Set CORS allowed origins explicitly (empty for no CORS)
+- Configure rate limits (`publicRateLimitPerMinute: 60`)
+
+### 3. Incident Triage Escalation
+
+- Configure operator roles (`read`, `investigate`, `execute`, `admin`)
+- Set up audit trail persistence
+- Define evidence retention policy (`90` days recommended)
+
+### 4. Retention and Deletion Defaults
+
+- Replay events: `30` days TTL, `1_000_000` max events
+- Audit trail: `1` year TTL
+- Evidence bundles: `90` days, `1000` max
+- Enable auto-delete for replay events
+
+### 5. Evidence Retention and Redaction
+
+- Enable sealed mode for all evidence exports (`requireSealedExport: true`)
+- Redact actor pubkeys (`redactActors: true`)
+- Strip sensitive payload fields (`secretKey`, `privateKey`, trace context)
