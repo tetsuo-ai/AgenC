@@ -552,6 +552,18 @@ pub const VK_IC: [[u8; 64]; 68] = [
     ],
 ];
 
+/// SHA-256 fingerprint of the concatenated verifying key components for version tracking.
+/// Allows off-chain systems to verify they are using the expected key.
+///
+/// Computed as: SHA256(VK_ALPHA_G1 || VK_BETA_G2 || VK_GAMMA_G2 || VK_DELTA_G2)
+///
+/// NOTE: Placeholder until MPC ceremony produces a production key.
+pub const VK_FINGERPRINT: [u8; 32] = [0u8; 32];
+
+/// Verifying key version. Increment after each MPC ceremony key rotation.
+/// 0 = development key, 1+ = production keys from MPC ceremony.
+pub const VK_VERSION: u8 = 0;
+
 /// Returns true if the verifying key is a development-only key (issues #356, #358).
 ///
 /// A development key has VK_GAMMA_G2 == VK_DELTA_G2, which means proofs are
@@ -635,5 +647,16 @@ mod tests {
     fn test_ic_length_matches() {
         assert_eq!(VK_IC.len(), VK_IC_LENGTH);
         assert_eq!(VK_IC_LENGTH, PUBLIC_INPUTS_COUNT + 1);
+    }
+
+    #[test]
+    fn test_vk_version_is_zero_for_dev_key() {
+        assert_eq!(VK_VERSION, 0);
+    }
+
+    #[test]
+    fn test_vk_fingerprint_is_placeholder() {
+        // Until MPC ceremony, fingerprint is all zeros
+        assert_eq!(VK_FINGERPRINT, [0u8; 32]);
     }
 }

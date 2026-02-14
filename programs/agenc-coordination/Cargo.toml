@@ -19,6 +19,10 @@ no-idl = []
 no-log-ix-name = []
 idl-build = ["anchor-lang/idl-build", "anchor-spl/idl-build"]
 init-if-needed = []
+# Allow development verifying key for integration testing.
+# BYPASSES the unconditional dev key rejection in complete_task_private.
+# NEVER enable this in production builds.
+allow-dev-key = []
 
 [dependencies]
 anchor-lang = { version = "0.32.1", features = ["init-if-needed"] }

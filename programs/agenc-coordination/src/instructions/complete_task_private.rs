@@ -390,9 +390,19 @@ fn verify_zk_proof(proof: &PrivateCompletionProof, task_key: Pubkey, agent: Pubk
     // Security check: block ZK proofs with development verifying key (issues #356, #358)
     // Development keys (gamma == delta) make proofs forgeable.
     // The key must be replaced via MPC ceremony before use.
-    require!(
-        !crate::verifying_key::is_development_key(),
-        CoordinationError::DevelopmentKeyNotAllowed
+    // The allow-dev-key feature bypasses this check for integration testing ONLY.
+    #[cfg(not(feature = "allow-dev-key"))]
+    {
+        require!(
+            !crate::verifying_key::is_development_key(),
+            CoordinationError::DevelopmentKeyNotAllowed
+        );
+    }
+
+    msg!(
+        "ZK verification using VK version {} (dev={})",
+        crate::verifying_key::VK_VERSION,
+        crate::verifying_key::is_development_key()
     );
 
     let public_inputs = build_public_inputs(&task_key, &agent, proof);
