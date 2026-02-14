@@ -14,6 +14,21 @@ export interface MutationGateThresholds {
   maxOperatorPassRateDrop: number;
 }
 
+export interface MutationGatingPolicyManifest {
+  schemaVersion: 1;
+  name: string;
+  updatedAt: string;
+  thresholds: MutationGateThresholds;
+  operatorOverrides?: Record<
+    string,
+    Partial<Pick<MutationGateThresholds, 'maxOperatorPassRateDrop'>>
+  >;
+  scenarioOverrides?: Record<
+    string,
+    Partial<Pick<MutationGateThresholds, 'maxScenarioPassRateDrop'>>
+  >;
+}
+
 export interface MutationGateViolation {
   scope: 'aggregate' | 'scenario' | 'operator';
   id: string;
@@ -45,6 +60,124 @@ function mergeThresholds(
   };
 }
 
+function parseThresholds(raw: unknown): MutationGateThresholds {
+  if (typeof raw !== 'object' || raw === null) {
+    throw new Error('Mutation gating policy thresholds must be a non-null object');
+  }
+
+  const candidate = raw as Partial<Record<keyof MutationGateThresholds, unknown>>;
+  const requiredKeys: Array<keyof MutationGateThresholds> = [
+    'maxAggregatePassRateDrop',
+    'maxAggregateConformanceDrop',
+    'maxAggregateCostUtilityDrop',
+    'maxScenarioPassRateDrop',
+    'maxOperatorPassRateDrop',
+  ];
+
+  for (const key of requiredKeys) {
+    const value = candidate[key];
+    if (typeof value !== 'number' || !Number.isFinite(value)) {
+      throw new Error(`Mutation gating threshold "${key}" must be a finite number`);
+    }
+  }
+
+  return candidate as unknown as MutationGateThresholds;
+}
+
+function parseOverrideMap(
+  raw: unknown,
+  fieldName: string,
+  allowedField: 'maxOperatorPassRateDrop' | 'maxScenarioPassRateDrop',
+): Record<
+  string,
+  Partial<
+    Pick<MutationGateThresholds, 'maxOperatorPassRateDrop' | 'maxScenarioPassRateDrop'>
+  >
+> | undefined {
+  if (raw === undefined) {
+    return undefined;
+  }
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+    throw new Error(`${fieldName} must be an object`);
+  }
+
+  const parsed: Record<
+    string,
+    Partial<
+      Pick<MutationGateThresholds, 'maxOperatorPassRateDrop' | 'maxScenarioPassRateDrop'>
+    >
+  > = {};
+  for (const [id, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+      throw new Error(`${fieldName}.${id} must be an object`);
+    }
+
+    const override =
+      value as Partial<
+        Record<'maxOperatorPassRateDrop' | 'maxScenarioPassRateDrop', unknown>
+      >;
+    const candidate = override[allowedField];
+    if (candidate !== undefined) {
+      if (typeof candidate !== 'number' || !Number.isFinite(candidate)) {
+        throw new Error(`${fieldName}.${id}.${allowedField} must be a finite number`);
+      }
+      parsed[id] = { [allowedField]: candidate };
+    } else {
+      parsed[id] = {};
+    }
+  }
+
+  return parsed;
+}
+
+/**
+ * Parse and validate a versioned mutation gating policy manifest.
+ */
+export function parseMutationGatingPolicyManifest(
+  raw: unknown,
+): MutationGatingPolicyManifest {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+    throw new Error('Mutation gating policy manifest must be a non-null object');
+  }
+
+  const candidate = raw as Record<string, unknown>;
+  if (candidate.schemaVersion !== 1) {
+    throw new Error(
+      `Unsupported mutation gating policy schema version: ${String(candidate.schemaVersion)}`
+    );
+  }
+  if (typeof candidate.name !== 'string' || candidate.name.trim().length === 0) {
+    throw new Error('Mutation gating policy manifest requires a non-empty "name"');
+  }
+  if (
+    typeof candidate.updatedAt !== 'string' ||
+    candidate.updatedAt.trim().length === 0
+  ) {
+    throw new Error('Mutation gating policy manifest requires a non-empty "updatedAt"');
+  }
+
+  const thresholds = parseThresholds(candidate.thresholds);
+  const operatorOverrides = parseOverrideMap(
+    candidate.operatorOverrides,
+    'operatorOverrides',
+    'maxOperatorPassRateDrop',
+  ) as MutationGatingPolicyManifest['operatorOverrides'];
+  const scenarioOverrides = parseOverrideMap(
+    candidate.scenarioOverrides,
+    'scenarioOverrides',
+    'maxScenarioPassRateDrop',
+  ) as MutationGatingPolicyManifest['scenarioOverrides'];
+
+  return {
+    schemaVersion: 1,
+    name: candidate.name,
+    updatedAt: candidate.updatedAt,
+    thresholds,
+    ...(operatorOverrides !== undefined ? { operatorOverrides } : {}),
+    ...(scenarioOverrides !== undefined ? { scenarioOverrides } : {}),
+  };
+}
+
 function violates(delta: number, maxDrop: number): boolean {
   return delta < (-1 * Math.max(0, maxDrop));
 }
@@ -55,8 +188,9 @@ function violates(delta: number, maxDrop: number): boolean {
 export function evaluateMutationRegressionGates(
   artifact: MutationArtifact,
   thresholds?: Partial<MutationGateThresholds>,
+  manifest?: MutationGatingPolicyManifest,
 ): MutationGateEvaluation {
-  const merged = mergeThresholds(thresholds);
+  const merged = manifest?.thresholds ?? mergeThresholds(thresholds);
   const violations: MutationGateViolation[] = [];
 
   const aggregateDelta = artifact.aggregate.deltasFromBaseline;
@@ -89,27 +223,33 @@ export function evaluateMutationRegressionGates(
   }
 
   for (const scenario of artifact.scenarios) {
+    const maxScenarioPassRateDrop =
+      manifest?.scenarioOverrides?.[scenario.scenarioId]?.maxScenarioPassRateDrop ??
+      merged.maxScenarioPassRateDrop;
     const delta = scenario.deltasFromBaseline.passRate;
-    if (violates(delta, merged.maxScenarioPassRateDrop)) {
+    if (violates(delta, maxScenarioPassRateDrop)) {
       violations.push({
         scope: 'scenario',
         id: scenario.scenarioId,
         metric: 'passRate',
         delta,
-        minAllowedDelta: -1 * merged.maxScenarioPassRateDrop,
+        minAllowedDelta: -1 * maxScenarioPassRateDrop,
       });
     }
   }
 
   for (const operator of artifact.operators) {
+    const maxOperatorPassRateDrop =
+      manifest?.operatorOverrides?.[operator.operatorId]?.maxOperatorPassRateDrop ??
+      merged.maxOperatorPassRateDrop;
     const delta = operator.deltasFromBaseline.passRate;
-    if (violates(delta, merged.maxOperatorPassRateDrop)) {
+    if (violates(delta, maxOperatorPassRateDrop)) {
       violations.push({
         scope: 'operator',
         id: operator.operatorId,
         metric: 'passRate',
         delta,
-        minAllowedDelta: -1 * merged.maxOperatorPassRateDrop,
+        minAllowedDelta: -1 * maxOperatorPassRateDrop,
       });
     }
   }
