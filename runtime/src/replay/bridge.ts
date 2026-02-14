@@ -28,6 +28,7 @@ import {
   DEFAULT_TRACE_SAMPLE_RATE,
   buildReplaySpanEvent,
   buildReplaySpanName,
+  deriveTraceId,
   startReplaySpan,
   type ReplayTracingPolicy,
 } from './trace.js';
@@ -144,6 +145,16 @@ function toReplayStoreRecord(event: ProjectedTimelineEvent): ReplayTimelineRecor
   const trace = (event.payload.onchain as Record<string, unknown> | undefined)?.trace as
     | undefined
     | { traceId?: string; spanId?: string; parentSpanId?: string; sampled?: boolean };
+
+  // Synthesize traceId from canonical tuple when trace context is absent
+  const resolvedTraceId = trace?.traceId ?? deriveTraceId(
+    undefined,
+    event.slot,
+    event.signature,
+    event.sourceEventName,
+    event.sourceEventSequence,
+  );
+
   const recordEvent: Omit<ReplayTimelineRecord, 'projectionHash'> = {
     seq: event.seq,
     type: event.type,
@@ -155,7 +166,7 @@ function toReplayStoreRecord(event: ProjectedTimelineEvent): ReplayTimelineRecor
     sourceEventName: event.sourceEventName,
     sourceEventType: base,
     sourceEventSequence: event.sourceEventSequence,
-    traceId: trace?.traceId,
+    traceId: resolvedTraceId,
     traceSpanId: trace?.spanId,
     traceParentSpanId: trace?.parentSpanId,
     traceSampled: trace?.sampled === true,
