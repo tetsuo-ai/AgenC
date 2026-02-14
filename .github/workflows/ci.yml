@@ -41,6 +41,16 @@ jobs:
           npm install --no-audit --no-fund --prefix runtime
           npm install --no-audit --no-fund --prefix mcp
 
+      - name: Check documentation links
+        run: ./scripts/check-docs-links.sh
+
+      - name: Check breaking changes (warning)
+        continue-on-error: true
+        run: |
+          npx tsx scripts/check-breaking-changes.ts --check sdk
+          npx tsx scripts/check-breaking-changes.ts --check runtime
+          npx tsx scripts/check-breaking-changes.ts --check mcp
+
       - name: Runtime tests
         run: |
           npm run check-idl-drift --prefix runtime

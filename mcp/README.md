@@ -12,6 +12,10 @@ npm install
 npm run build
 ```
 
+## Changelog
+
+See [CHANGELOG.md](./CHANGELOG.md) for release history and migration notes.
+
 ### Claude Code
 
 ```bash
