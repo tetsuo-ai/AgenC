@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
+  DEFAULT_MUTATION_GATE_THRESHOLDS,
   evaluateMutationRegressionGates,
   formatMutationGateEvaluation,
+  parseMutationGatingPolicyManifest,
 } from './mutation-gates.js';
 import type { MutationArtifact } from './mutation-runner.js';
 
@@ -133,5 +135,108 @@ describe('mutation regression gates', () => {
     expect(rendered).toContain('FAIL');
     expect(rendered).toContain('Violations');
   });
-});
 
+  it('parses a valid gating policy manifest', () => {
+    const manifest = parseMutationGatingPolicyManifest({
+      schemaVersion: 1,
+      name: 'default-ci',
+      updatedAt: '2026-02-13T00:00:00Z',
+      thresholds: {
+        maxAggregatePassRateDrop: 0.6,
+        maxAggregateConformanceDrop: 0.35,
+        maxAggregateCostUtilityDrop: 0.45,
+        maxScenarioPassRateDrop: 1.0,
+        maxOperatorPassRateDrop: 0.6,
+      },
+    });
+
+    expect(manifest.schemaVersion).toBe(1);
+    expect(manifest.name).toBe('default-ci');
+    expect(manifest.thresholds.maxAggregatePassRateDrop).toBe(0.6);
+  });
+
+  it('rejects manifest schema versions other than 1', () => {
+    expect(() =>
+      parseMutationGatingPolicyManifest({
+        schemaVersion: 2,
+        name: 'bad',
+        updatedAt: '2026-02-13T00:00:00Z',
+        thresholds: {
+          maxAggregatePassRateDrop: 0.6,
+          maxAggregateConformanceDrop: 0.35,
+          maxAggregateCostUtilityDrop: 0.45,
+          maxScenarioPassRateDrop: 1.0,
+          maxOperatorPassRateDrop: 0.6,
+        },
+      })
+    ).toThrow(/schema version/i);
+  });
+
+  it('rejects manifests with missing threshold fields', () => {
+    expect(() =>
+      parseMutationGatingPolicyManifest({
+        schemaVersion: 1,
+        name: 'incomplete',
+        updatedAt: '2026-02-13T00:00:00Z',
+        thresholds: {
+          maxAggregatePassRateDrop: 0.6,
+        },
+      })
+    ).toThrow(/threshold/i);
+  });
+
+  it('applies operator override thresholds from manifest', () => {
+    const manifest = parseMutationGatingPolicyManifest({
+      schemaVersion: 1,
+      name: 'strict-operator',
+      updatedAt: '2026-02-13T00:00:00Z',
+      thresholds: DEFAULT_MUTATION_GATE_THRESHOLDS,
+      operatorOverrides: {
+        'workflow.drop_completion': {
+          maxOperatorPassRateDrop: 0.1,
+        },
+      },
+    });
+
+    const evaluation = evaluateMutationRegressionGates(
+      artifactFixture(-0.2),
+      undefined,
+      manifest
+    );
+
+    expect(evaluation.passed).toBe(false);
+    expect(
+      evaluation.violations.some(
+        (violation) =>
+          violation.scope === 'operator' &&
+          violation.id === 'workflow.drop_completion'
+      )
+    ).toBe(true);
+  });
+
+  it('ignores manifest overrides for IDs not present in artifact', () => {
+    const manifest = parseMutationGatingPolicyManifest({
+      schemaVersion: 1,
+      name: 'unused-overrides',
+      updatedAt: '2026-02-13T00:00:00Z',
+      thresholds: DEFAULT_MUTATION_GATE_THRESHOLDS,
+      operatorOverrides: {
+        'unknown.operator': {
+          maxOperatorPassRateDrop: 0.0,
+        },
+      },
+      scenarioOverrides: {
+        'unknown-scenario': {
+          maxScenarioPassRateDrop: 0.0,
+        },
+      },
+    });
+
+    const evaluation = evaluateMutationRegressionGates(
+      artifactFixture(-0.2),
+      undefined,
+      manifest
+    );
+    expect(evaluation.passed).toBe(true);
+  });
+});
