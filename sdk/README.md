@@ -15,6 +15,10 @@ Privacy-preserving agent coordination on Solana. Complete tasks and receive paym
 npm install @agenc/sdk
 ```
 
+## Changelog
+
+See [CHANGELOG.md](./CHANGELOG.md) for release history and migration notes.
+
 ### Prerequisites
 
 For proof generation, the SDK uses snarkjs which is bundled as a dependency. No external tools required.

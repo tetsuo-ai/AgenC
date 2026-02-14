@@ -1,0 +1,3841 @@
+{
+  "package": "@agenc/runtime",
+  "version": "0.1.0",
+  "generatedAt": "2026-02-14T05:31:53.098Z",
+  "entryPoint": "runtime/src/index.ts",
+  "exports": [
+    {
+      "name": "AcceptTaskBidRequest",
+      "kind": "interface"
+    },
+    {
+      "name": "AcceptTaskBidResult",
+      "kind": "interface"
+    },
+    {
+      "name": "ActionSchemaMap",
+      "kind": "type"
+    },
+    {
+      "name": "ActiveTasksError",
+      "kind": "class"
+    },
+    {
+      "name": "AddEntryOptions",
+      "kind": "interface"
+    },
+    {
+      "name": "AddMemoryEdgeInput",
+      "kind": "interface"
+    },
+    {
+      "name": "AgencCoordination",
+      "kind": "type"
+    },
+    {
+      "name": "AGENT_ID_LENGTH",
+      "kind": "const"
+    },
+    {
+      "name": "AGENT_REGISTRATION_SIZE",
+      "kind": "const"
+    },
+    {
+      "name": "AgentAlreadyRegisteredError",
+      "kind": "class"
+    },
+    {
+      "name": "AgentBuilder",
+      "kind": "class"
+    },
+    {
+      "name": "AgentCapabilities",
+      "kind": "const"
+    },
+    {
+      "name": "AgentCapability",
+      "kind": "type"
+    },
+    {
+      "name": "AgentDeregisteredEvent",
+      "kind": "interface"
+    },
+    {
+      "name": "AgentEventCallback",
+      "kind": "type"
+    },
+    {
+      "name": "AgentEventCallbacks",
+      "kind": "interface"
+    },
+    {
+      "name": "agentIdFromString",
+      "kind": "function",
+      "signature": "(str: string): Uint8Array"
+    },
+    {
+      "name": "agentIdsEqual",
+      "kind": "function",
+      "signature": "(a: Uint8Array, b: Uint8Array): boolean"
+    },
+    {
+      "name": "agentIdToShortString",
+      "kind": "function",
+      "signature": "(agentId: Uint8Array, chars?: number): string"
+    },
+    {
+      "name": "agentIdToString",
+      "kind": "function",
+      "signature": "(agentId: Uint8Array): string"
+    },
+    {
+      "name": "AgentManager",
+      "kind": "class"
+    },
+    {
+      "name": "AgentManagerConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "AgentNotRegisteredError",
+      "kind": "class"
+    },
+    {
+      "name": "AgentRegisteredEvent",
+      "kind": "interface"
+    },
+    {
+      "name": "AgentRegistrationParams",
+      "kind": "interface"
+    },
+    {
+      "name": "AgentRuntime",
+      "kind": "class"
+    },
+    {
+      "name": "AgentRuntimeConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "AgentState",
+      "kind": "interface"
+    },
+    {
+      "name": "AgentStatus",
+      "kind": "enum"
+    },
+    {
+      "name": "agentStatusToString",
+      "kind": "function",
+      "signature": "(status: AgentStatus): string"
+    },
+    {
+      "name": "AgentSuspendedEvent",
+      "kind": "interface"
+    },
+    {
+      "name": "AgentUnsuspendedEvent",
+      "kind": "interface"
+    },
+    {
+      "name": "AgentUpdatedEvent",
+      "kind": "interface"
+    },
+    {
+      "name": "AgentUpdateParams",
+      "kind": "interface"
+    },
+    {
+      "name": "AllEndpointsUnhealthyError",
+      "kind": "class"
+    },
+    {
+      "name": "allocateVerificationBudget",
+      "kind": "function",
+      "signature": "(task: Task, risk: TaskRiskScoreResult, config: VerifierLaneConfig): VerificationBudgetDecision"
+    },
+    {
+      "name": "AnchorErrorCode",
+      "kind": "type"
+    },
+    {
+      "name": "AnchorErrorCodes",
+      "kind": "const"
+    },
+    {
+      "name": "AnchorErrorName",
+      "kind": "type"
+    },
+    {
+      "name": "ANOMALY_CODES",
+      "kind": "const"
+    },
+    {
+      "name": "AnthropicProvider",
+      "kind": "class"
+    },
+    {
+      "name": "AnthropicProviderConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "ApplySlashParams",
+      "kind": "interface"
+    },
+    {
+      "name": "ArbiterVotesCleanedUpEvent",
+      "kind": "interface"
+    },
+    {
+      "name": "arbitrateCandidates",
+      "kind": "function",
+      "signature": "(input: CandidateArbitrationInput): CandidateArbitrationDecision"
+    },
+    {
+      "name": "AssignTeamRoleInput",
+      "kind": "interface"
+    },
+    {
+      "name": "ASSOCIATED_TOKEN_PROGRAM_ID",
+      "kind": "const"
+    },
+    {
+      "name": "AutoMatchTaskBidRequest",
+      "kind": "interface"
+    },
+    {
+      "name": "AutonomousAgent",
+      "kind": "class"
+    },
+    {
+      "name": "AutonomousAgentConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "AutonomousAgentStats",
+      "kind": "interface"
+    },
+    {
+      "name": "AutonomousBidder",
+      "kind": "class"
+    },
+    {
+      "name": "AutonomousBidderConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "AutonomousTaskExecutor",
+      "kind": "type"
+    },
+    {
+      "name": "AutonomousTaskStatus",
+      "kind": "enum"
+    },
+    {
+      "name": "BackfillDuplicateReport",
+      "kind": "interface"
+    },
+    {
+      "name": "BackfillFetcher",
+      "kind": "interface"
+    },
+    {
+      "name": "BackfillFetcherPage",
+      "kind": "interface"
+    },
+    {
+      "name": "BackfillResult",
+      "kind": "interface"
+    },
+    {
+      "name": "BalancedBidStrategy",
+      "kind": "class"
+    },
+    {
+      "name": "BalancedBidStrategyConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "BatchTaskItem",
+      "kind": "interface"
+    },
+    {
+      "name": "BENCHMARK_ARTIFACT_SCHEMA_VERSION",
+      "kind": "const"
+    },
+    {
+      "name": "BENCHMARK_MANIFEST_SCHEMA_VERSION",
+      "kind": "const"
+    },
+    {
+      "name": "BenchmarkArtifact",
+      "kind": "interface"
+    },
+    {
+      "name": "BenchmarkManifest",
+      "kind": "interface"
+    },
+    {
+      "name": "BenchmarkMetricDelta",
+      "kind": "interface"
+    },
+    {
+      "name": "BenchmarkRunner",
+      "kind": "class"
+    },
+    {
+      "name": "BenchmarkRunnerConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "BenchmarkRunOptions",
+      "kind": "interface"
+    },
+    {
+      "name": "BenchmarkScenarioExecutionContext",
+      "kind": "interface"
+    },
+    {
+      "name": "BenchmarkScenarioExecutionOutput",
+      "kind": "interface"
+    },
+    {
+      "name": "BenchmarkScenarioManifest",
+      "kind": "interface"
+    },
+    {
+      "name": "BenchmarkScenarioReportArtifact",
+      "kind": "interface"
+    },
+    {
+      "name": "BenchmarkScenarioRunArtifact",
+      "kind": "interface"
+    },
+    {
+      "name": "BenchmarkScenarioRunner",
+      "kind": "type"
+    },
+    {
+      "name": "BID_ID_MAX_LENGTH",
+      "kind": "const"
+    },
+    {
+      "name": "BidAntiSpamConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "BidRateLimitConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "BidStatus",
+      "kind": "type"
+    },
+    {
+      "name": "BidStrategy",
+      "kind": "interface"
+    },
+    {
+      "name": "BidStrategyContext",
+      "kind": "interface"
+    },
+    {
+      "name": "bigintReplacer",
+      "kind": "function",
+      "signature": "(_key: string, value: unknown): unknown"
+    },
+    {
+      "name": "bigintsToProofHash",
+      "kind": "function",
+      "signature": "(output: bigint[]): Uint8Array"
+    },
+    {
+      "name": "BondDepositedEvent",
+      "kind": "interface"
+    },
+    {
+      "name": "BondLockedEvent",
+      "kind": "interface"
+    },
+    {
+      "name": "BondReleasedEvent",
+      "kind": "interface"
+    },
+    {
+      "name": "BondSlashedEvent",
+      "kind": "interface"
+    },
+    {
+      "name": "BPS_BASE",
+      "kind": "const"
+    },
+    {
+      "name": "buildApplyDisputeSlashTokenAccounts",
+      "kind": "function",
+      "signature": "(rewardMint: PublicKey | null | undefined, escrowPda: PublicKey, treasury: PublicKey): Record<string, PublicKey | null>"
+    },
+    {
+      "name": "buildCalibrationBins",
+      "kind": "function",
+      "signature": "(samples: CalibrationSample[], binCount?: number): CalibrationBin[]"
+    },
+    {
+      "name": "buildCalibrationReport",
+      "kind": "function",
+      "signature": "(samples: CalibrationSample[], comparisons: VerdictComparison[], options?: { binCount?: number; }): CalibrationReport"
+    },
+    {
+      "name": "buildCompleteTaskTokenAccounts",
+      "kind": "function",
+      "signature": "(rewardMint: PublicKey | null | undefined, escrowPda: PublicKey, workerAuthority: PublicKey, treasury: PublicKey): Record<string, PublicKey | null>"
+    },
+    {
+      "name": "buildConfigSchemaSnapshot",
+      "kind": "function",
+      "signature": "(version: ConfigVersion, profile: string): ConfigSchemaSnapshot"
+    },
+    {
+      "name": "buildCreateTaskTokenAccounts",
+      "kind": "function",
+      "signature": "(rewardMint: PublicKey | null | undefined, escrowPda: PublicKey, creatorPubkey: PublicKey): Record<string, PublicKey | null>"
+    },
+    {
+      "name": "buildExpireDisputeTokenAccounts",
+      "kind": "function",
+      "signature": "(rewardMint: PublicKey | null | undefined, escrowPda: PublicKey, creatorPubkey: PublicKey, workerAuthority: PublicKey | null): Record<string, PublicKey | null>"
+    },
+    {
+      "name": "buildReplayKey",
+      "kind": "function",
+      "signature": "(slot: number, signature: string, sourceEventType: string): string"
+    },
+    {
+      "name": "buildResolveDisputeTokenAccounts",
+      "kind": "function",
+      "signature": "(rewardMint: PublicKey | null | undefined, escrowPda: PublicKey, creatorPubkey: PublicKey, workerAuthority: PublicKey | null, treasury: PublicKey): Record<string, PublicKey | null>"
+    },
+    {
+      "name": "BuiltAgent",
+      "kind": "class"
+    },
+    {
+      "name": "bytesToHex",
+      "kind": "function",
+      "signature": "(bytes: Uint8Array, prefix?: boolean): string"
+    },
+    {
+      "name": "CalibrationAggregate",
+      "kind": "interface"
+    },
+    {
+      "name": "CalibrationBin",
+      "kind": "interface"
+    },
+    {
+      "name": "CalibrationReport",
+      "kind": "interface"
+    },
+    {
+      "name": "CalibrationSample",
+      "kind": "interface"
+    },
+    {
+      "name": "CallbackSink",
+      "kind": "class"
+    },
+    {
+      "name": "CancelTaskBidRequest",
+      "kind": "interface"
+    },
+    {
+      "name": "CancelTeamContractInput",
+      "kind": "interface"
+    },
+    {
+      "name": "CandidateArbitrationDecision",
+      "kind": "type"
+    },
+    {
+      "name": "CandidateArbitrationInput",
+      "kind": "interface"
+    },
+    {
+      "name": "CandidateArbitrationScore",
+      "kind": "interface"
+    },
+    {
+      "name": "CandidateDisagreement",
+      "kind": "interface"
+    },
+    {
+      "name": "CandidateDisagreementReason",
+      "kind": "interface"
+    },
+    {
+      "name": "CandidateDisagreementReasonCode",
+      "kind": "type"
+    },
+    {
+      "name": "CandidateGenerationAttemptContext",
+      "kind": "interface"
+    },
+    {
+      "name": "CandidateGenerationInput",
+      "kind": "interface"
+    },
+    {
+      "name": "CandidateGenerationResult",
+      "kind": "interface"
+    },
+    {
+      "name": "CandidateProvenanceLink",
+      "kind": "interface"
+    },
+    {
+      "name": "CanonicalEventTuple",
+      "kind": "interface"
+    },
+    {
+      "name": "canonicalizeEvent",
+      "kind": "function",
+      "signature": "(event: unknown): JsonObject"
+    },
+    {
+      "name": "canonicalizeMarketplaceId",
+      "kind": "function",
+      "signature": "(value: string): string"
+    },
+    {
+      "name": "canonicalizeTeamId",
+      "kind": "function",
+      "signature": "(value: string): string"
+    },
+    {
+      "name": "canonicalizeTrajectoryTrace",
+      "kind": "function",
+      "signature": "(trace: TrajectoryTrace): TrajectoryTrace"
+    },
+    {
+      "name": "CAPABILITY_NAMES",
+      "kind": "const"
+    },
+    {
+      "name": "CapabilityName",
+      "kind": "type"
+    },
+    {
+      "name": "CircuitBreakerConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "CircuitBreakerMode",
+      "kind": "type"
+    },
+    {
+      "name": "ClaimResult",
+      "kind": "interface"
+    },
+    {
+      "name": "ClaimStrategy",
+      "kind": "interface"
+    },
+    {
+      "name": "CompactOptions",
+      "kind": "interface"
+    },
+    {
+      "name": "compareVersions",
+      "kind": "function",
+      "signature": "(a: ConfigVersion, b: ConfigVersion): number"
+    },
+    {
+      "name": "CompleteResult",
+      "kind": "interface"
+    },
+    {
+      "name": "CompleteTeamCheckpointInput",
+      "kind": "interface"
+    },
+    {
+      "name": "computeAgreementRate",
+      "kind": "function",
+      "signature": "(comparisons: VerdictComparison[]): number"
+    },
+    {
+      "name": "computeAnomalySetHash",
+      "kind": "function",
+      "signature": "(alerts: ReadonlyArray<ReplayAnomalyAlert>): string"
+    },
+    {
+      "name": "computeAnomalySetHashFromContexts",
+      "kind": "function",
+      "signature": "(contexts: ReadonlyArray<ReplayAlertContext>): string"
+    },
+    {
+      "name": "computeBackoff",
+      "kind": "function",
+      "signature": "(attempt: number, config: RetryConfig): number"
+    },
+    {
+      "name": "computeEvaluationScorecard",
+      "kind": "function",
+      "signature": "(records: EvalRunRecord[], options?: { k?: number; }): EvaluationScorecard"
+    },
+    {
+      "name": "computeExpectedCalibrationError",
+      "kind": "function",
+      "signature": "(bins: CalibrationBin[]): number"
+    },
+    {
+      "name": "computeMaxCalibrationError",
+      "kind": "function",
+      "signature": "(bins: CalibrationBin[]): number"
+    },
+    {
+      "name": "computePassAtK",
+      "kind": "function",
+      "signature": "(totalRuns: number, successRuns: number, k: number): number"
+    },
+    {
+      "name": "computePassCaretK",
+      "kind": "function",
+      "signature": "(passRate: number, k: number): number"
+    },
+    {
+      "name": "computeProjectionHash",
+      "kind": "function",
+      "signature": "(event: ProjectedTimelineEvent): string"
+    },
+    {
+      "name": "computeRateLimitState",
+      "kind": "function",
+      "signature": "(agent: Pick<AgentState, \"lastTaskCreated\" | \"lastDisputeInitiated\" | \"taskCount24h\" | \"disputeCount24h\" | \"rateLimitWindowStart\">, config: { taskCreationCooldown: number; maxTasksPer24h: number; disputeInitiationCooldown: number; maxDisputesPer24h: number; }, nowUnix: number): RateLimitState"
+    },
+    {
+      "name": "computeTeamPayout",
+      "kind": "function",
+      "signature": "(input: TeamPayoutComputationInput): TeamPayoutResult"
+    },
+    {
+      "name": "computeWeightedScore",
+      "kind": "function",
+      "signature": "(bid: TaskBid, candidates: readonly TaskBid[], weights: WeightedScoreWeights): WeightedScoreComputation"
+    },
+    {
+      "name": "ConfigMigrationError",
+      "kind": "class"
+    },
+    {
+      "name": "ConfigMigrationFn",
+      "kind": "type"
+    },
+    {
+      "name": "ConfigMigrationStep",
+      "kind": "interface"
+    },
+    {
+      "name": "ConfigSchemaSnapshot",
+      "kind": "interface"
+    },
+    {
+      "name": "ConfigValidationResult",
+      "kind": "interface"
+    },
+    {
+      "name": "ConfigVersion",
+      "kind": "interface"
+    },
+    {
+      "name": "configVersionToString",
+      "kind": "function",
+      "signature": "(v: ConfigVersion): string"
+    },
+    {
+      "name": "ConfigWarning",
+      "kind": "interface"
+    },
+    {
+      "name": "ConnectionError",
+      "kind": "class"
+    },
+    {
+      "name": "ConnectionManager",
+      "kind": "class"
+    },
+    {
+      "name": "ConnectionManagerConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "ConnectionManagerStats",
+      "kind": "interface"
+    },
+    {
+      "name": "ConservativeBidStrategy",
+      "kind": "class"
+    },
+    {
+      "name": "ConservativeBidStrategyConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "ConsoleSink",
+      "kind": "class"
+    },
+    {
+      "name": "createAES256GCMProvider",
+      "kind": "function",
+      "signature": "(config: EncryptionConfig): EncryptionProvider"
+    },
+    {
+      "name": "createAgencTools",
+      "kind": "function",
+      "signature": "(context: ToolContext): Tool[]"
+    },
+    {
+      "name": "createCapabilityMask",
+      "kind": "function",
+      "signature": "(names: readonly CapabilityName[]): bigint"
+    },
+    {
+      "name": "createCreateTaskTool",
+      "kind": "function",
+      "signature": "(program: Program<AgencCoordination>, logger: Logger): Tool"
+    },
+    {
+      "name": "createDefaultMutationOperators",
+      "kind": "function",
+      "signature": "(): MutationOperator[]"
+    },
+    {
+      "name": "createDefaultWorkflowObjectiveSpec",
+      "kind": "function",
+      "signature": "(id?: string): WorkflowObjectiveSpec"
+    },
+    {
+      "name": "createGetAgentTool",
+      "kind": "function",
+      "signature": "(program: Program<AgencCoordination>, logger: Logger): Tool"
+    },
+    {
+      "name": "createGetProtocolConfigTool",
+      "kind": "function",
+      "signature": "(program: Program<AgencCoordination>, logger: Logger): Tool"
+    },
+    {
+      "name": "createGetTaskTool",
+      "kind": "function",
+      "signature": "(ops: TaskOperations, logger: Logger): Tool"
+    },
+    {
+      "name": "createGetTokenBalanceTool",
+      "kind": "function",
+      "signature": "(program: Program<AgencCoordination>, logger: Logger): Tool"
+    },
+    {
+      "name": "createListTasksTool",
+      "kind": "function",
+      "signature": "(ops: TaskOperations, logger: Logger): Tool"
+    },
+    {
+      "name": "createLogger",
+      "kind": "function",
+      "signature": "(minLevel?: LogLevel, prefix?: string): Logger"
+    },
+    {
+      "name": "createProgram",
+      "kind": "function",
+      "signature": "(provider: AnchorProvider, programId?: PublicKey): Program<AgencCoordination>"
+    },
+    {
+      "name": "createReadOnlyProgram",
+      "kind": "function",
+      "signature": "(connection: Connection, programId?: PublicKey): Program<AgencCoordination>"
+    },
+    {
+      "name": "createReplayAlertDispatcher",
+      "kind": "function",
+      "signature": "(policy: ReplayAlertingPolicyOptions | undefined, logger?: Logger): ReplayAlertDispatcher"
+    },
+    {
+      "name": "CreateTaskBidRequest",
+      "kind": "interface"
+    },
+    {
+      "name": "CreateTeamContractInput",
+      "kind": "interface"
+    },
+    {
+      "name": "CURRENT_CONFIG_VERSION",
+      "kind": "const"
+    },
+    {
+      "name": "DAGMonitor",
+      "kind": "class"
+    },
+    {
+      "name": "DAGOrchestrator",
+      "kind": "class"
+    },
+    {
+      "name": "DAGOrchestratorConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "DAGSubmitter",
+      "kind": "class"
+    },
+    {
+      "name": "DEFAULT_FEE_PERCENT",
+      "kind": "const"
+    },
+    {
+      "name": "DEFAULT_MUTATION_GATE_THRESHOLDS",
+      "kind": "const"
+    },
+    {
+      "name": "DEFAULT_MUTATION_OPERATOR_IDS",
+      "kind": "const"
+    },
+    {
+      "name": "DEFAULT_WEIGHTED_SCORE_WEIGHTS",
+      "kind": "const"
+    },
+    {
+      "name": "DefaultClaimStrategy",
+      "kind": "const"
+    },
+    {
+      "name": "defaultTaskScorer",
+      "kind": "function",
+      "signature": "(task: DiscoveredTask): number"
+    },
+    {
+      "name": "DependentTaskCreatedEvent",
+      "kind": "interface"
+    },
+    {
+      "name": "DEPRECATED_KEYS",
+      "kind": "const"
+    },
+    {
+      "name": "deriveAgentPda",
+      "kind": "function",
+      "signature": "(agentId: Uint8Array, programId?: PublicKey): PdaWithBump"
+    },
+    {
+      "name": "deriveAuthorityVotePda",
+      "kind": "function",
+      "signature": "(disputePda: PublicKey, authority: PublicKey, programId?: PublicKey): PdaWithBump"
+    },
+    {
+      "name": "deriveCacheKey",
+      "kind": "function",
+      "signature": "(inputs: ProofInputs): string"
+    },
+    {
+      "name": "deriveClaimPda",
+      "kind": "function",
+      "signature": "(taskPda: PublicKey, workerAgentPda: PublicKey, programId?: PublicKey): PdaWithBump"
+    },
+    {
+      "name": "deriveCoalesceKey",
+      "kind": "function",
+      "signature": "(methodName: string, args: unknown[]): string"
+    },
+    {
+      "name": "deriveDisputePda",
+      "kind": "function",
+      "signature": "(disputeId: Uint8Array, programId?: PublicKey): PdaWithBump"
+    },
+    {
+      "name": "deriveEscrowPda",
+      "kind": "function",
+      "signature": "(taskPda: PublicKey, programId?: PublicKey): PdaWithBump"
+    },
+    {
+      "name": "deriveProtocolPda",
+      "kind": "function",
+      "signature": "(programId?: PublicKey): PdaWithBump"
+    },
+    {
+      "name": "deriveTaskPda",
+      "kind": "function",
+      "signature": "(creator: PublicKey, taskId: Uint8Array, programId?: PublicKey): PdaWithBump"
+    },
+    {
+      "name": "deriveTraceId",
+      "kind": "function",
+      "signature": "(base: string | undefined, slot: number, signature: string, eventName: string, eventSequence?: number): string"
+    },
+    {
+      "name": "deriveVotePda",
+      "kind": "function",
+      "signature": "(disputePda: PublicKey, arbiterAgentPda: PublicKey, programId?: PublicKey): PdaWithBump"
+    },
+    {
+      "name": "detectCandidateInconsistencies",
+      "kind": "function",
+      "signature": "(input: InconsistencyDetectorInput): Promise<InconsistencyDetectionResult>"
+    },
+    {
+      "name": "DEVNET_RPC",
+      "kind": "const"
+    },
+    {
+      "name": "DiscoveredTask",
+      "kind": "interface"
+    },
+    {
+      "name": "DiscoveryMode",
+      "kind": "type"
+    },
+    {
+      "name": "DISCRIMINATOR_SIZE",
+      "kind": "const"
+    },
+    {
+      "name": "DISPUTE_STATUS_OFFSET",
+      "kind": "const"
+    },
+    {
+      "name": "DISPUTE_TASK_OFFSET",
+      "kind": "const"
+    },
+    {
+      "name": "DisputeCancelledEvent",
+      "kind": "interface"
+    },
+    {
+      "name": "DisputeEventCallbacks",
+      "kind": "interface"
+    },
+    {
+      "name": "DisputeEventFilterOptions",
+      "kind": "interface"
+    },
+    {
+      "name": "DisputeExpiredEvent",
+      "kind": "interface"
+    },
+    {
+      "name": "DisputeInitiatedEvent",
+      "kind": "interface"
+    },
+    {
+      "name": "DisputeNotFoundError",
+      "kind": "class"
+    },
+    {
+      "name": "DisputeOperations",
+      "kind": "class"
+    },
+    {
+      "name": "DisputeOpsConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "DisputeResolutionError",
+      "kind": "class"
+    },
+    {
+      "name": "DisputeResolvedEvent",
+      "kind": "interface"
+    },
+    {
+      "name": "DisputeResult",
+      "kind": "interface"
+    },
+    {
+      "name": "DisputeSlashError",
+      "kind": "class"
+    },
+    {
+      "name": "disputeStatusToString",
+      "kind": "function",
+      "signature": "(status: OnChainDisputeStatus): string"
+    },
+    {
+      "name": "DisputeVoteCastEvent",
+      "kind": "interface"
+    },
+    {
+      "name": "DisputeVoteError",
+      "kind": "class"
+    },
+    {
+      "name": "DurabilityInfo",
+      "kind": "interface"
+    },
+    {
+      "name": "DurabilityLevel",
+      "kind": "type"
+    },
+    {
+      "name": "EncryptionConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "EncryptionProvider",
+      "kind": "interface"
+    },
+    {
+      "name": "EndpointConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "EndpointHealth",
+      "kind": "interface"
+    },
+    {
+      "name": "EngineProofResult",
+      "kind": "interface"
+    },
+    {
+      "name": "ensureWallet",
+      "kind": "function",
+      "signature": "(wallet: Keypair | Wallet): Wallet"
+    },
+    {
+      "name": "entryToMessage",
+      "kind": "function",
+      "signature": "(entry: MemoryEntry): LLMMessage"
+    },
+    {
+      "name": "EscalationGraphInput",
+      "kind": "interface"
+    },
+    {
+      "name": "EscalationGraphTransition",
+      "kind": "interface"
+    },
+    {
+      "name": "EscalationTransitionReason",
+      "kind": "type"
+    },
+    {
+      "name": "EscalationTransitionState",
+      "kind": "type"
+    },
+    {
+      "name": "estimateWorkflow",
+      "kind": "function",
+      "signature": "(definition: WorkflowDefinition): WorkflowDryRunEstimate"
+    },
+    {
+      "name": "EVAL_TRACE_SCHEMA_VERSION",
+      "kind": "const"
+    },
+    {
+      "name": "EvalAggregateMetrics",
+      "kind": "interface"
+    },
+    {
+      "name": "evalRunFromReplayResult",
+      "kind": "function",
+      "signature": "(replay: TrajectoryReplayResult, overrides?: Partial<EvalRunRecord>): EvalRunRecord"
+    },
+    {
+      "name": "EvalRunRecord",
+      "kind": "interface"
+    },
+    {
+      "name": "evaluateMutationRegressionGates",
+      "kind": "function",
+      "signature": "(artifact: MutationArtifact, thresholds?: Partial<MutationGateThresholds>, manifest?: MutationGatingPolicyManifest): MutationGateEvaluation"
+    },
+    {
+      "name": "EvaluationScorecard",
+      "kind": "interface"
+    },
+    {
+      "name": "EVENT_TO_DISPUTE_STATUS",
+      "kind": "const"
+    },
+    {
+      "name": "EVENT_TO_TASK_STATUS",
+      "kind": "const"
+    },
+    {
+      "name": "EventCallback",
+      "kind": "type"
+    },
+    {
+      "name": "EventMonitor",
+      "kind": "class"
+    },
+    {
+      "name": "EventMonitorConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "EventMonitorMetrics",
+      "kind": "interface"
+    },
+    {
+      "name": "EventSubscription",
+      "kind": "interface"
+    },
+    {
+      "name": "EventSubscriptionOptions",
+      "kind": "interface"
+    },
+    {
+      "name": "ExecutorStateError",
+      "kind": "class"
+    },
+    {
+      "name": "ExpireDisputeParams",
+      "kind": "interface"
+    },
+    {
+      "name": "extractCanonicalTuple",
+      "kind": "function",
+      "signature": "(input: OnChainProjectionInput, fallbackSequence: number): CanonicalEventTuple"
+    },
+    {
+      "name": "extractTaskRiskFeatures",
+      "kind": "function",
+      "signature": "(task: Task, context?: TaskRiskScoringContext, config?: TaskRiskScoringConfig): RiskFeatureVector"
+    },
+    {
+      "name": "extractWorkflowFeatureVector",
+      "kind": "function",
+      "signature": "(state: WorkflowState, options?: WorkflowFeatureExtractionOptions): WorkflowFeatureVector"
+    },
+    {
+      "name": "extractWorkflowFeatureVectorFromCollector",
+      "kind": "function",
+      "signature": "(state: WorkflowState, collector: Pick<TelemetryCollector, \"getFullSnapshot\">, options?: Omit<WorkflowFeatureExtractionOptions, \"telemetrySnapshot\">): WorkflowFeatureVector"
+    },
+    {
+      "name": "FailTeamCheckpointInput",
+      "kind": "interface"
+    },
+    {
+      "name": "FileReplayTimelineStore",
+      "kind": "class"
+    },
+    {
+      "name": "filterAndRank",
+      "kind": "function",
+      "signature": "(tasks: OnChainTask[], agentCapabilities: bigint, filter: TaskFilterConfig, scorer?: TaskScorer): DiscoveredTask[]"
+    },
+    {
+      "name": "FinalizeTeamPayoutInput",
+      "kind": "interface"
+    },
+    {
+      "name": "findAgentPda",
+      "kind": "function",
+      "signature": "(agentId: Uint8Array, programId?: PublicKey): PublicKey"
+    },
+    {
+      "name": "findAuthorityVotePda",
+      "kind": "function",
+      "signature": "(disputePda: PublicKey, authority: PublicKey, programId?: PublicKey): PublicKey"
+    },
+    {
+      "name": "findClaimPda",
+      "kind": "function",
+      "signature": "(taskPda: PublicKey, workerAgentPda: PublicKey, programId?: PublicKey): PublicKey"
+    },
+    {
+      "name": "findDisputePda",
+      "kind": "function",
+      "signature": "(disputeId: Uint8Array, programId?: PublicKey): PublicKey"
+    },
+    {
+      "name": "findEscrowPda",
+      "kind": "function",
+      "signature": "(taskPda: PublicKey, programId?: PublicKey): PublicKey"
+    },
+    {
+      "name": "findProtocolPda",
+      "kind": "function",
+      "signature": "(programId?: PublicKey): PublicKey"
+    },
+    {
+      "name": "findTaskPda",
+      "kind": "function",
+      "signature": "(creator: PublicKey, taskId: Uint8Array, programId?: PublicKey): PublicKey"
+    },
+    {
+      "name": "findVotePda",
+      "kind": "function",
+      "signature": "(disputePda: PublicKey, arbiterAgentPda: PublicKey, programId?: PublicKey): PublicKey"
+    },
+    {
+      "name": "FixedTeamPayoutConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "formatMutationGateEvaluation",
+      "kind": "function",
+      "signature": "(evaluation: MutationGateEvaluation): string"
+    },
+    {
+      "name": "generateAgentId",
+      "kind": "function",
+      "signature": "(): Uint8Array"
+    },
+    {
+      "name": "GeneratedExecutionCandidate",
+      "kind": "interface"
+    },
+    {
+      "name": "generateExecutionCandidates",
+      "kind": "function",
+      "signature": "(input: CandidateGenerationInput): Promise<CandidateGenerationResult>"
+    },
+    {
+      "name": "generateWorkflowMutationCandidates",
+      "kind": "function",
+      "signature": "(baseline: WorkflowDefinition, config?: WorkflowMutationConfig): WorkflowMutationCandidate[]"
+    },
+    {
+      "name": "getAnchorErrorMessage",
+      "kind": "function",
+      "signature": "(code: AnchorErrorCode): string"
+    },
+    {
+      "name": "getAnchorErrorName",
+      "kind": "function",
+      "signature": "(code: number): AnchorErrorName | undefined"
+    },
+    {
+      "name": "getCapabilityNames",
+      "kind": "function",
+      "signature": "(caps: bigint): CapabilityName[]"
+    },
+    {
+      "name": "getDefaultKeypairPath",
+      "kind": "function",
+      "signature": "(): string"
+    },
+    {
+      "name": "GetProtocolConfigOptions",
+      "kind": "interface"
+    },
+    {
+      "name": "getRewardTier",
+      "kind": "function",
+      "signature": "(rewardLamports: bigint | number | string | undefined): RewardTier"
+    },
+    {
+      "name": "GoalCompiler",
+      "kind": "class"
+    },
+    {
+      "name": "GoalCompilerConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "GoalCompilerDefaults",
+      "kind": "interface"
+    },
+    {
+      "name": "GoalCompileRequest",
+      "kind": "interface"
+    },
+    {
+      "name": "GoalCompileResult",
+      "kind": "interface"
+    },
+    {
+      "name": "GoalCompileWarning",
+      "kind": "interface"
+    },
+    {
+      "name": "GoalPlanner",
+      "kind": "interface"
+    },
+    {
+      "name": "GoalPlannerInput",
+      "kind": "interface"
+    },
+    {
+      "name": "GrokProvider",
+      "kind": "class"
+    },
+    {
+      "name": "GrokProviderConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "hasCapability",
+      "kind": "function",
+      "signature": "(agentCaps: bigint, required: bigint): boolean"
+    },
+    {
+      "name": "HASH_SIZE",
+      "kind": "const"
+    },
+    {
+      "name": "hashBenchmarkManifest",
+      "kind": "function",
+      "signature": "(manifest: BenchmarkManifest): string"
+    },
+    {
+      "name": "HashResult",
+      "kind": "interface"
+    },
+    {
+      "name": "hasRequiredCapabilities",
+      "kind": "function",
+      "signature": "(agentCapabilities: bigint, requiredCapabilities: bigint): boolean"
+    },
+    {
+      "name": "HealthCheckConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "hexToBytes",
+      "kind": "function",
+      "signature": "(hex: string): Uint8Array"
+    },
+    {
+      "name": "IDL",
+      "kind": "const"
+    },
+    {
+      "name": "InconsistencyDetectionResult",
+      "kind": "interface"
+    },
+    {
+      "name": "InconsistencyDetectorInput",
+      "kind": "interface"
+    },
+    {
+      "name": "InitiateDisputeParams",
+      "kind": "interface"
+    },
+    {
+      "name": "InMemoryBackend",
+      "kind": "class"
+    },
+    {
+      "name": "InMemoryBackendConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "InMemoryReplayTimelineStore",
+      "kind": "class"
+    },
+    {
+      "name": "InMemoryTeamAuditStore",
+      "kind": "class"
+    },
+    {
+      "name": "InMemoryTeamAuditStoreConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "InsufficientStakeError",
+      "kind": "class"
+    },
+    {
+      "name": "isAnchorError",
+      "kind": "function",
+      "signature": "(error: unknown, code: AnchorErrorCode): boolean"
+    },
+    {
+      "name": "isConnectionLevelError",
+      "kind": "function",
+      "signature": "(error: unknown): boolean"
+    },
+    {
+      "name": "isKeypair",
+      "kind": "function",
+      "signature": "(wallet: Keypair | Wallet): wallet is Keypair"
+    },
+    {
+      "name": "isPrivateExecutionResult",
+      "kind": "function",
+      "signature": "(result: TaskExecutionResult | PrivateTaskExecutionResult): result is PrivateTaskExecutionResult"
+    },
+    {
+      "name": "isPrivateTask",
+      "kind": "function",
+      "signature": "(task: OnChainTask): boolean"
+    },
+    {
+      "name": "isRetryableError",
+      "kind": "function",
+      "signature": "(error: unknown): boolean"
+    },
+    {
+      "name": "isRuntimeError",
+      "kind": "function",
+      "signature": "(error: unknown): error is RuntimeError"
+    },
+    {
+      "name": "isTaskClaimable",
+      "kind": "function",
+      "signature": "(task: OnChainTask): boolean"
+    },
+    {
+      "name": "isTaskExpired",
+      "kind": "function",
+      "signature": "(task: OnChainTask, now?: number): boolean"
+    },
+    {
+      "name": "isTokenTask",
+      "kind": "function",
+      "signature": "(rewardMint: PublicKey | null | undefined): boolean"
+    },
+    {
+      "name": "isValidAgentStatus",
+      "kind": "function",
+      "signature": "(value: number): value is AgentStatus"
+    },
+    {
+      "name": "isValidBps",
+      "kind": "function",
+      "signature": "(value: number): boolean"
+    },
+    {
+      "name": "isWriteMethod",
+      "kind": "function",
+      "signature": "(methodName: string): boolean"
+    },
+    {
+      "name": "JoinTeamContractInput",
+      "kind": "interface"
+    },
+    {
+      "name": "JsonObject",
+      "kind": "interface"
+    },
+    {
+      "name": "JsonPrimitive",
+      "kind": "type"
+    },
+    {
+      "name": "JSONSchema",
+      "kind": "type"
+    },
+    {
+      "name": "JsonValue",
+      "kind": "type"
+    },
+    {
+      "name": "JUPITER_ACTION_SCHEMAS",
+      "kind": "const"
+    },
+    {
+      "name": "JUPITER_API_BASE_URL",
+      "kind": "const"
+    },
+    {
+      "name": "JUPITER_PRICE_API_URL",
+      "kind": "const"
+    },
+    {
+      "name": "JupiterApiError",
+      "kind": "class"
+    },
+    {
+      "name": "JupiterClient",
+      "kind": "class"
+    },
+    {
+      "name": "JupiterSkill",
+      "kind": "class"
+    },
+    {
+      "name": "JupiterSkillConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "KeypairFileError",
+      "kind": "class"
+    },
+    {
+      "name": "keypairToWallet",
+      "kind": "function",
+      "signature": "(keypair: Keypair): Wallet"
+    },
+    {
+      "name": "KNOWN_CONFIG_KEYS",
+      "kind": "const"
+    },
+    {
+      "name": "KnownTrajectoryEventType",
+      "kind": "type"
+    },
+    {
+      "name": "lamportsToSol",
+      "kind": "function",
+      "signature": "(lamports: bigint): string"
+    },
+    {
+      "name": "LegacyTrajectoryEventV0",
+      "kind": "interface"
+    },
+    {
+      "name": "LegacyTrajectoryTraceV0",
+      "kind": "interface"
+    },
+    {
+      "name": "LegacyWorkflowFeatureVectorV0",
+      "kind": "interface"
+    },
+    {
+      "name": "ListTaskBidsRequest",
+      "kind": "interface"
+    },
+    {
+      "name": "LLMMessage",
+      "kind": "interface"
+    },
+    {
+      "name": "LLMProvider",
+      "kind": "interface"
+    },
+    {
+      "name": "LLMProviderConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "LLMProviderError",
+      "kind": "class"
+    },
+    {
+      "name": "LLMRateLimitError",
+      "kind": "class"
+    },
+    {
+      "name": "LLMResponse",
+      "kind": "interface"
+    },
+    {
+      "name": "LLMResponseConversionError",
+      "kind": "class"
+    },
+    {
+      "name": "LLMStreamChunk",
+      "kind": "interface"
+    },
+    {
+      "name": "LLMTaskExecutor",
+      "kind": "class"
+    },
+    {
+      "name": "LLMTaskExecutorConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "LLMTimeoutError",
+      "kind": "class"
+    },
+    {
+      "name": "LLMTool",
+      "kind": "interface"
+    },
+    {
+      "name": "LLMToolCall",
+      "kind": "interface"
+    },
+    {
+      "name": "LLMToolCallError",
+      "kind": "class"
+    },
+    {
+      "name": "LLMUsage",
+      "kind": "interface"
+    },
+    {
+      "name": "loadBenchmarkManifest",
+      "kind": "function",
+      "signature": "(manifestPath: string): Promise<BenchmarkManifest>"
+    },
+    {
+      "name": "loadDefaultKeypair",
+      "kind": "function",
+      "signature": "(): Promise<Keypair>"
+    },
+    {
+      "name": "loadKeypairFromFile",
+      "kind": "function",
+      "signature": "(filePath: string): Promise<Keypair>"
+    },
+    {
+      "name": "loadKeypairFromFileSync",
+      "kind": "function",
+      "signature": "(filePath: string): Keypair"
+    },
+    {
+      "name": "Logger",
+      "kind": "interface"
+    },
+    {
+      "name": "LogLevel",
+      "kind": "type"
+    },
+    {
+      "name": "MAINNET_RPC",
+      "kind": "const"
+    },
+    {
+      "name": "MARKETPLACE_ID_PATTERN",
+      "kind": "const"
+    },
+    {
+      "name": "MarketplaceAuthorizationError",
+      "kind": "class"
+    },
+    {
+      "name": "MarketplaceMatchingError",
+      "kind": "class"
+    },
+    {
+      "name": "MarketplaceMutationInput",
+      "kind": "interface"
+    },
+    {
+      "name": "MarketplaceStateError",
+      "kind": "class"
+    },
+    {
+      "name": "MarketplaceValidationError",
+      "kind": "class"
+    },
+    {
+      "name": "matchesFilter",
+      "kind": "function",
+      "signature": "(task: OnChainTask, agentCapabilities: bigint, filter: TaskFilterConfig): boolean"
+    },
+    {
+      "name": "MatchingPolicy",
+      "kind": "type"
+    },
+    {
+      "name": "MatchingPolicyConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "MAX_ENDPOINT_LENGTH",
+      "kind": "const"
+    },
+    {
+      "name": "MAX_METADATA_URI_LENGTH",
+      "kind": "const"
+    },
+    {
+      "name": "MAX_MULTISIG_OWNERS",
+      "kind": "const"
+    },
+    {
+      "name": "MAX_REPUTATION",
+      "kind": "const"
+    },
+    {
+      "name": "MAX_TEAM_ID_LENGTH",
+      "kind": "const"
+    },
+    {
+      "name": "MAX_U8",
+      "kind": "const"
+    },
+    {
+      "name": "MEMORY_OPERATIONAL_LIMITS",
+      "kind": "const"
+    },
+    {
+      "name": "MemoryBackend",
+      "kind": "interface"
+    },
+    {
+      "name": "MemoryBackendConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "MemoryBackendError",
+      "kind": "class"
+    },
+    {
+      "name": "MemoryConnectionError",
+      "kind": "class"
+    },
+    {
+      "name": "MemoryEdgeType",
+      "kind": "type"
+    },
+    {
+      "name": "MemoryEncryptionError",
+      "kind": "class"
+    },
+    {
+      "name": "MemoryEntry",
+      "kind": "interface"
+    },
+    {
+      "name": "MemoryGraph",
+      "kind": "class"
+    },
+    {
+      "name": "MemoryGraphConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "MemoryGraphEdge",
+      "kind": "interface"
+    },
+    {
+      "name": "MemoryGraphNode",
+      "kind": "interface"
+    },
+    {
+      "name": "MemoryGraphQuery",
+      "kind": "interface"
+    },
+    {
+      "name": "MemoryGraphResult",
+      "kind": "interface"
+    },
+    {
+      "name": "MemoryQuery",
+      "kind": "interface"
+    },
+    {
+      "name": "MemoryRole",
+      "kind": "type"
+    },
+    {
+      "name": "MemorySerializationError",
+      "kind": "class"
+    },
+    {
+      "name": "MessageRole",
+      "kind": "type"
+    },
+    {
+      "name": "messageToEntryOptions",
+      "kind": "function",
+      "signature": "(msg: LLMMessage, sessionId: string): Omit<AddEntryOptions, \"taskPda\" | \"metadata\" | \"ttlMs\">"
+    },
+    {
+      "name": "migrateConfig",
+      "kind": "function",
+      "signature": "(oldConfig: Record<string, unknown>, fromVersion: ConfigVersion, toVersion: ConfigVersion): Record<string, unknown>"
+    },
+    {
+      "name": "migrateTrajectoryTrace",
+      "kind": "function",
+      "signature": "(trace: TrajectoryTrace | LegacyTrajectoryTraceV0): TrajectoryTrace"
+    },
+    {
+      "name": "MigrationCompletedEvent",
+      "kind": "interface"
+    },
+    {
+      "name": "MilestoneTeamPayoutConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "MultiCandidateArbitrationWeights",
+      "kind": "interface"
+    },
+    {
+      "name": "MultiCandidateConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "MultiCandidateEscalationPolicy",
+      "kind": "interface"
+    },
+    {
+      "name": "MultiCandidatePolicyBudget",
+      "kind": "interface"
+    },
+    {
+      "name": "MUTATION_ARTIFACT_SCHEMA_VERSION",
+      "kind": "const"
+    },
+    {
+      "name": "MutationArtifact",
+      "kind": "interface"
+    },
+    {
+      "name": "MutationCandidate",
+      "kind": "interface"
+    },
+    {
+      "name": "MutationEngine",
+      "kind": "class"
+    },
+    {
+      "name": "MutationEngineConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "MutationGateEvaluation",
+      "kind": "interface"
+    },
+    {
+      "name": "MutationGateThresholds",
+      "kind": "interface"
+    },
+    {
+      "name": "MutationGateViolation",
+      "kind": "interface"
+    },
+    {
+      "name": "MutationOperator",
+      "kind": "interface"
+    },
+    {
+      "name": "MutationOperatorCategory",
+      "kind": "type"
+    },
+    {
+      "name": "MutationOperatorContext",
+      "kind": "interface"
+    },
+    {
+      "name": "MutationOperatorReportArtifact",
+      "kind": "interface"
+    },
+    {
+      "name": "MutationOperatorResult",
+      "kind": "interface"
+    },
+    {
+      "name": "MutationRegressionScenario",
+      "kind": "interface"
+    },
+    {
+      "name": "MutationRunner",
+      "kind": "class"
+    },
+    {
+      "name": "MutationRunnerConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "MutationRunOptions",
+      "kind": "interface"
+    },
+    {
+      "name": "MutationScenarioReportArtifact",
+      "kind": "interface"
+    },
+    {
+      "name": "MutationScenarioRunArtifact",
+      "kind": "interface"
+    },
+    {
+      "name": "MutationSelectionOptions",
+      "kind": "interface"
+    },
+    {
+      "name": "NoopTelemetryCollector",
+      "kind": "class"
+    },
+    {
+      "name": "OllamaProvider",
+      "kind": "class"
+    },
+    {
+      "name": "OllamaProviderConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "ON_CHAIN_DISPUTE_START_STATES",
+      "kind": "const"
+    },
+    {
+      "name": "ON_CHAIN_DISPUTE_TRANSITIONS",
+      "kind": "const"
+    },
+    {
+      "name": "ON_CHAIN_TASK_START_STATES",
+      "kind": "const"
+    },
+    {
+      "name": "ON_CHAIN_TASK_TRANSITIONS",
+      "kind": "const"
+    },
+    {
+      "name": "OnChainDependencyType",
+      "kind": "enum"
+    },
+    {
+      "name": "OnChainDispute",
+      "kind": "interface"
+    },
+    {
+      "name": "OnChainDisputeStatus",
+      "kind": "enum"
+    },
+    {
+      "name": "OnChainDisputeVote",
+      "kind": "interface"
+    },
+    {
+      "name": "OnChainProjectionInput",
+      "kind": "interface"
+    },
+    {
+      "name": "OnChainTask",
+      "kind": "interface"
+    },
+    {
+      "name": "OnChainTaskClaim",
+      "kind": "interface"
+    },
+    {
+      "name": "OnChainTaskStatus",
+      "kind": "enum"
+    },
+    {
+      "name": "OperatingMode",
+      "kind": "type"
+    },
+    {
+      "name": "OUTPUT_FIELD_COUNT",
+      "kind": "const"
+    },
+    {
+      "name": "parseAgentState",
+      "kind": "function",
+      "signature": "(data: unknown): AgentState"
+    },
+    {
+      "name": "parseAnchorError",
+      "kind": "function",
+      "signature": "(error: unknown): ParsedAnchorError | null"
+    },
+    {
+      "name": "parseArbiterVotesCleanedUpEvent",
+      "kind": "function",
+      "signature": "(raw: RawArbiterVotesCleanedUpEvent): ArbiterVotesCleanedUpEvent"
+    },
+    {
+      "name": "parseBenchmarkManifest",
+      "kind": "function",
+      "signature": "(value: unknown): BenchmarkManifest"
+    },
+    {
+      "name": "parseBondDepositedEvent",
+      "kind": "function",
+      "signature": "(raw: RawBondDepositedEvent): BondDepositedEvent"
+    },
+    {
+      "name": "parseBondLockedEvent",
+      "kind": "function",
+      "signature": "(raw: RawBondLockedEvent): BondLockedEvent"
+    },
+    {
+      "name": "parseBondReleasedEvent",
+      "kind": "function",
+      "signature": "(raw: RawBondReleasedEvent): BondReleasedEvent"
+    },
+    {
+      "name": "parseBondSlashedEvent",
+      "kind": "function",
+      "signature": "(raw: RawBondSlashedEvent): BondSlashedEvent"
+    },
+    {
+      "name": "parseConfigVersion",
+      "kind": "function",
+      "signature": "(s: string): ConfigVersion"
+    },
+    {
+      "name": "ParsedAnchorError",
+      "kind": "interface"
+    },
+    {
+      "name": "parseDependentTaskCreatedEvent",
+      "kind": "function",
+      "signature": "(raw: RawDependentTaskCreatedEvent): DependentTaskCreatedEvent"
+    },
+    {
+      "name": "parseDisputeCancelledEvent",
+      "kind": "function",
+      "signature": "(raw: RawDisputeCancelledEvent): DisputeCancelledEvent"
+    },
+    {
+      "name": "parseDisputeExpiredEvent",
+      "kind": "function",
+      "signature": "(raw: RawDisputeExpiredEvent): DisputeExpiredEvent"
+    },
+    {
+      "name": "parseDisputeInitiatedEvent",
+      "kind": "function",
+      "signature": "(raw: RawDisputeInitiatedEvent): DisputeInitiatedEvent"
+    },
+    {
+      "name": "parseDisputeResolvedEvent",
+      "kind": "function",
+      "signature": "(raw: RawDisputeResolvedEvent): DisputeResolvedEvent"
+    },
+    {
+      "name": "parseDisputeVoteCastEvent",
+      "kind": "function",
+      "signature": "(raw: RawDisputeVoteCastEvent): DisputeVoteCastEvent"
+    },
+    {
+      "name": "parseMigrationCompletedEvent",
+      "kind": "function",
+      "signature": "(raw: RawMigrationCompletedEvent): MigrationCompletedEvent"
+    },
+    {
+      "name": "parseMutationArtifact",
+      "kind": "function",
+      "signature": "(value: unknown): MutationArtifact"
+    },
+    {
+      "name": "parseOnChainDispute",
+      "kind": "function",
+      "signature": "(raw: Record<string, unknown>): OnChainDispute"
+    },
+    {
+      "name": "parseOnChainDisputeVote",
+      "kind": "function",
+      "signature": "(raw: Record<string, unknown>): OnChainDisputeVote"
+    },
+    {
+      "name": "parseOnChainTask",
+      "kind": "function",
+      "signature": "(data: unknown): OnChainTask"
+    },
+    {
+      "name": "parseOnChainTaskClaim",
+      "kind": "function",
+      "signature": "(data: unknown): OnChainTaskClaim"
+    },
+    {
+      "name": "parseProtocolConfig",
+      "kind": "function",
+      "signature": "(data: unknown): ProtocolConfig"
+    },
+    {
+      "name": "parseProtocolFeeUpdatedEvent",
+      "kind": "function",
+      "signature": "(raw: RawProtocolFeeUpdatedEvent): ProtocolFeeUpdatedEvent"
+    },
+    {
+      "name": "parseProtocolInitializedEvent",
+      "kind": "function",
+      "signature": "(raw: RawProtocolInitializedEvent): ProtocolInitializedEvent"
+    },
+    {
+      "name": "parseProtocolVersionUpdatedEvent",
+      "kind": "function",
+      "signature": "(raw: RawProtocolVersionUpdatedEvent): ProtocolVersionUpdatedEvent"
+    },
+    {
+      "name": "parseRateLimitHitEvent",
+      "kind": "function",
+      "signature": "(raw: RawRateLimitHitEvent): RateLimitHitEvent"
+    },
+    {
+      "name": "parseRateLimitsUpdatedEvent",
+      "kind": "function",
+      "signature": "(raw: RawRateLimitsUpdatedEvent): RateLimitsUpdatedEvent"
+    },
+    {
+      "name": "parseReputationChangedEvent",
+      "kind": "function",
+      "signature": "(raw: RawReputationChangedEvent): ReputationChangedEvent"
+    },
+    {
+      "name": "parseRewardDistributedEvent",
+      "kind": "function",
+      "signature": "(raw: RawRewardDistributedEvent): RewardDistributedEvent"
+    },
+    {
+      "name": "parseSpeculativeCommitmentCreatedEvent",
+      "kind": "function",
+      "signature": "(raw: RawSpeculativeCommitmentCreatedEvent): SpeculativeCommitmentCreatedEvent"
+    },
+    {
+      "name": "parseStateUpdatedEvent",
+      "kind": "function",
+      "signature": "(raw: RawStateUpdatedEvent): StateUpdatedEvent"
+    },
+    {
+      "name": "parseTaskCancelledEvent",
+      "kind": "function",
+      "signature": "(raw: RawTaskCancelledEvent): TaskCancelledEvent"
+    },
+    {
+      "name": "parseTaskClaimedEvent",
+      "kind": "function",
+      "signature": "(raw: RawTaskClaimedEvent): TaskClaimedEvent"
+    },
+    {
+      "name": "parseTaskCompletedEvent",
+      "kind": "function",
+      "signature": "(raw: RawTaskCompletedEvent): TaskCompletedEvent"
+    },
+    {
+      "name": "parseTaskCreatedEvent",
+      "kind": "function",
+      "signature": "(raw: RawTaskCreatedEvent): TaskCreatedEvent"
+    },
+    {
+      "name": "parseTaskStatus",
+      "kind": "function",
+      "signature": "(status: { open?: object; inProgress?: object; pendingValidation?: object; completed?: object; cancelled?: object; disputed?: object; } | number): OnChainTaskStatus"
+    },
+    {
+      "name": "parseTaskType",
+      "kind": "function",
+      "signature": "(type: { exclusive?: object; collaborative?: object; competitive?: object; } | number): TaskType"
+    },
+    {
+      "name": "parseTrajectoryTrace",
+      "kind": "function",
+      "signature": "(value: unknown): TrajectoryTrace"
+    },
+    {
+      "name": "parseWorkflowFeatureVector",
+      "kind": "function",
+      "signature": "(input: unknown): WorkflowFeatureVector"
+    },
+    {
+      "name": "PdaWithBump",
+      "kind": "interface"
+    },
+    {
+      "name": "PendingDisputeVotesError",
+      "kind": "class"
+    },
+    {
+      "name": "PERCENT_BASE",
+      "kind": "const"
+    },
+    {
+      "name": "PlaceBidOptions",
+      "kind": "interface"
+    },
+    {
+      "name": "PlannerTaskDraft",
+      "kind": "interface"
+    },
+    {
+      "name": "PlannerWorkflowDraft",
+      "kind": "interface"
+    },
+    {
+      "name": "planVerifierSchedule",
+      "kind": "function",
+      "signature": "(input: VerifierScheduleInput): VerifierSchedulePlan"
+    },
+    {
+      "name": "PolicyAccess",
+      "kind": "type"
+    },
+    {
+      "name": "PolicyAction",
+      "kind": "interface"
+    },
+    {
+      "name": "PolicyActionType",
+      "kind": "type"
+    },
+    {
+      "name": "PolicyBudgetRule",
+      "kind": "interface"
+    },
+    {
+      "name": "PolicyDecision",
+      "kind": "interface"
+    },
+    {
+      "name": "PolicyEngine",
+      "kind": "class"
+    },
+    {
+      "name": "PolicyEngineConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "PolicyEngineState",
+      "kind": "interface"
+    },
+    {
+      "name": "PolicyViolation",
+      "kind": "interface"
+    },
+    {
+      "name": "PolicyViolationError",
+      "kind": "class"
+    },
+    {
+      "name": "PRIVACY_CASH_PROGRAM_ID",
+      "kind": "const"
+    },
+    {
+      "name": "PrivateTaskExecutionResult",
+      "kind": "interface"
+    },
+    {
+      "name": "PROGRAM_ID",
+      "kind": "const"
+    },
+    {
+      "name": "ProjectedTimelineEvent",
+      "kind": "interface"
+    },
+    {
+      "name": "ProjectedTimelineInput",
+      "kind": "interface"
+    },
+    {
+      "name": "ProjectionOptions",
+      "kind": "interface"
+    },
+    {
+      "name": "ProjectionResult",
+      "kind": "interface"
+    },
+    {
+      "name": "ProjectionTelemetry",
+      "kind": "interface"
+    },
+    {
+      "name": "projectOnChainEvents",
+      "kind": "function",
+      "signature": "(events: ReadonlyArray<OnChainProjectionInput>, options?: ProjectionOptions): ProjectionResult"
+    },
+    {
+      "name": "PROOF_SIZE_BYTES",
+      "kind": "const"
+    },
+    {
+      "name": "ProofCache",
+      "kind": "class"
+    },
+    {
+      "name": "ProofCacheConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "ProofCacheError",
+      "kind": "class"
+    },
+    {
+      "name": "ProofEngine",
+      "kind": "class"
+    },
+    {
+      "name": "ProofEngineConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "ProofEngineStats",
+      "kind": "interface"
+    },
+    {
+      "name": "ProofGenerationError",
+      "kind": "class"
+    },
+    {
+      "name": "proofHashToBigints",
+      "kind": "function",
+      "signature": "(hash: Uint8Array): bigint[]"
+    },
+    {
+      "name": "ProofInputs",
+      "kind": "interface"
+    },
+    {
+      "name": "ProofVerificationError",
+      "kind": "class"
+    },
+    {
+      "name": "ProtocolConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "ProtocolConfigCacheOptions",
+      "kind": "interface"
+    },
+    {
+      "name": "ProtocolEventCallbacks",
+      "kind": "interface"
+    },
+    {
+      "name": "ProtocolEventFilterOptions",
+      "kind": "interface"
+    },
+    {
+      "name": "ProtocolFeeUpdatedEvent",
+      "kind": "interface"
+    },
+    {
+      "name": "ProtocolInitializedEvent",
+      "kind": "interface"
+    },
+    {
+      "name": "ProtocolVersionUpdatedEvent",
+      "kind": "interface"
+    },
+    {
+      "name": "ProvenanceSource",
+      "kind": "interface"
+    },
+    {
+      "name": "ProvenanceSourceType",
+      "kind": "type"
+    },
+    {
+      "name": "PUBLIC_INPUTS_COUNT",
+      "kind": "const"
+    },
+    {
+      "name": "RankedTaskBid",
+      "kind": "interface"
+    },
+    {
+      "name": "rankTaskBids",
+      "kind": "function",
+      "signature": "(bids: readonly TaskBid[], policy: MatchingPolicyConfig): RankedTaskBid[]"
+    },
+    {
+      "name": "rankTasks",
+      "kind": "function",
+      "signature": "(tasks: DiscoveredTask[], scorer?: TaskScorer): DiscoveredTask[]"
+    },
+    {
+      "name": "RateLimitActionType",
+      "kind": "enum"
+    },
+    {
+      "name": "RateLimitError",
+      "kind": "class"
+    },
+    {
+      "name": "RateLimitHitEvent",
+      "kind": "interface"
+    },
+    {
+      "name": "RateLimitState",
+      "kind": "interface"
+    },
+    {
+      "name": "RateLimitsUpdatedEvent",
+      "kind": "interface"
+    },
+    {
+      "name": "RateLimitType",
+      "kind": "enum"
+    },
+    {
+      "name": "RawOnChainTask",
+      "kind": "interface"
+    },
+    {
+      "name": "RawOnChainTaskClaim",
+      "kind": "interface"
+    },
+    {
+      "name": "RecentVoteActivityError",
+      "kind": "class"
+    },
+    {
+      "name": "recordCalibrationMetrics",
+      "kind": "function",
+      "signature": "(report: CalibrationReport, metrics?: MetricsProvider): void"
+    },
+    {
+      "name": "recordEvaluationMetrics",
+      "kind": "function",
+      "signature": "(scorecard: EvaluationScorecard, metrics?: MetricsProvider): void"
+    },
+    {
+      "name": "RedisBackend",
+      "kind": "class"
+    },
+    {
+      "name": "RedisBackendConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "REPLAY_ALERT_SCHEMA_VERSION",
+      "kind": "const"
+    },
+    {
+      "name": "REPLAY_ALERT_V1_REQUIRED_FIELDS",
+      "kind": "const"
+    },
+    {
+      "name": "REPLAY_ALERT_V1_VALID_KINDS",
+      "kind": "const"
+    },
+    {
+      "name": "REPLAY_ALERT_V1_VALID_SEVERITIES",
+      "kind": "const"
+    },
+    {
+      "name": "REPLAY_OPERATIONAL_LIMITS",
+      "kind": "const"
+    },
+    {
+      "name": "ReplayAlertAdapter",
+      "kind": "interface"
+    },
+    {
+      "name": "ReplayAlertContext",
+      "kind": "interface"
+    },
+    {
+      "name": "ReplayAlertDispatcher",
+      "kind": "class"
+    },
+    {
+      "name": "ReplayAlertingPolicyOptions",
+      "kind": "interface"
+    },
+    {
+      "name": "ReplayAlertKind",
+      "kind": "type"
+    },
+    {
+      "name": "ReplayAlertSchemaV1",
+      "kind": "interface"
+    },
+    {
+      "name": "ReplayAlertSeverity",
+      "kind": "type"
+    },
+    {
+      "name": "ReplayAnomaly",
+      "kind": "interface"
+    },
+    {
+      "name": "ReplayAnomalyAlert",
+      "kind": "interface"
+    },
+    {
+      "name": "ReplayAnomalyCode",
+      "kind": "type"
+    },
+    {
+      "name": "ReplayBackfillService",
+      "kind": "class"
+    },
+    {
+      "name": "ReplayBridgeBackfillOptions",
+      "kind": "interface"
+    },
+    {
+      "name": "ReplayBridgeConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "ReplayBridgeHandle",
+      "kind": "interface"
+    },
+    {
+      "name": "ReplayBridgeStoreConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "ReplayCompareInput",
+      "kind": "interface"
+    },
+    {
+      "name": "ReplayComparisonContext",
+      "kind": "interface"
+    },
+    {
+      "name": "ReplayComparisonError",
+      "kind": "class"
+    },
+    {
+      "name": "ReplayComparisonMetrics",
+      "kind": "interface"
+    },
+    {
+      "name": "ReplayComparisonOptions",
+      "kind": "interface"
+    },
+    {
+      "name": "ReplayComparisonResult",
+      "kind": "interface"
+    },
+    {
+      "name": "ReplayComparisonService",
+      "kind": "class"
+    },
+    {
+      "name": "ReplayComparisonStrictness",
+      "kind": "type"
+    },
+    {
+      "name": "ReplayEventBridge",
+      "kind": "class"
+    },
+    {
+      "name": "ReplayEventCursor",
+      "kind": "interface"
+    },
+    {
+      "name": "ReplayHealth",
+      "kind": "interface"
+    },
+    {
+      "name": "ReplayLifecycleType",
+      "kind": "type"
+    },
+    {
+      "name": "ReplayStorageWriteResult",
+      "kind": "interface"
+    },
+    {
+      "name": "ReplaySummary",
+      "kind": "interface"
+    },
+    {
+      "name": "ReplayTaskState",
+      "kind": "interface"
+    },
+    {
+      "name": "ReplayTaskStatus",
+      "kind": "type"
+    },
+    {
+      "name": "ReplayTimelineQuery",
+      "kind": "interface"
+    },
+    {
+      "name": "ReplayTimelineRecord",
+      "kind": "interface"
+    },
+    {
+      "name": "ReplayTimelineStore",
+      "kind": "interface"
+    },
+    {
+      "name": "ReputationChangedEvent",
+      "kind": "interface"
+    },
+    {
+      "name": "ResolutionType",
+      "kind": "enum"
+    },
+    {
+      "name": "ResolveDisputeParams",
+      "kind": "interface"
+    },
+    {
+      "name": "resolveEscalationTransition",
+      "kind": "function",
+      "signature": "(input: EscalationGraphInput): EscalationGraphTransition"
+    },
+    {
+      "name": "responseToOutput",
+      "kind": "function",
+      "signature": "(response: string): bigint[]"
+    },
+    {
+      "name": "RESULT_DATA_SIZE",
+      "kind": "const"
+    },
+    {
+      "name": "RetryConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "RevisionCapableTaskExecutor",
+      "kind": "interface"
+    },
+    {
+      "name": "RevisionInput",
+      "kind": "interface"
+    },
+    {
+      "name": "RewardDistributedEvent",
+      "kind": "interface"
+    },
+    {
+      "name": "RewardTier",
+      "kind": "type"
+    },
+    {
+      "name": "RiskContribution",
+      "kind": "interface"
+    },
+    {
+      "name": "RiskFeatureVector",
+      "kind": "interface"
+    },
+    {
+      "name": "RiskTier",
+      "kind": "type"
+    },
+    {
+      "name": "RoleFailureAttribution",
+      "kind": "interface"
+    },
+    {
+      "name": "RuntimeError",
+      "kind": "class"
+    },
+    {
+      "name": "RuntimeErrorCode",
+      "kind": "type"
+    },
+    {
+      "name": "RuntimeErrorCodes",
+      "kind": "const"
+    },
+    {
+      "name": "RuntimePolicyConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "safeStringify",
+      "kind": "function",
+      "signature": "(value: unknown): string"
+    },
+    {
+      "name": "SchemaCompatibilityResult",
+      "kind": "interface"
+    },
+    {
+      "name": "ScorecardSerializeResult",
+      "kind": "interface"
+    },
+    {
+      "name": "scoreTaskRisk",
+      "kind": "function",
+      "signature": "(task: Task, context?: TaskRiskScoringContext, adaptiveRisk?: VerifierAdaptiveRiskConfig | undefined, scoringConfig?: TaskRiskScoringConfig): TaskRiskScoreResult"
+    },
+    {
+      "name": "scoreWorkflowObjective",
+      "kind": "function",
+      "signature": "(outcome: WorkflowObjectiveOutcome, spec?: WorkflowObjectiveSpec): number"
+    },
+    {
+      "name": "SeededRandom",
+      "kind": "class"
+    },
+    {
+      "name": "SEEDS",
+      "kind": "const"
+    },
+    {
+      "name": "SelectTaskBidRequest",
+      "kind": "interface"
+    },
+    {
+      "name": "selectWinningBid",
+      "kind": "function",
+      "signature": "(bids: readonly TaskBid[], policy: MatchingPolicyConfig): RankedTaskBid | null"
+    },
+    {
+      "name": "SemanticVersion",
+      "kind": "type"
+    },
+    {
+      "name": "serializeBenchmarkArtifact",
+      "kind": "function",
+      "signature": "(artifact: BenchmarkArtifact): string"
+    },
+    {
+      "name": "SerializedAgent",
+      "kind": "interface"
+    },
+    {
+      "name": "SerializedProtocolConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "SerializedTask",
+      "kind": "interface"
+    },
+    {
+      "name": "serializeEvaluationScorecard",
+      "kind": "function",
+      "signature": "(scorecard: EvaluationScorecard): ScorecardSerializeResult"
+    },
+    {
+      "name": "serializeMutationArtifact",
+      "kind": "function",
+      "signature": "(artifact: MutationArtifact): string"
+    },
+    {
+      "name": "SetTaskOwnerRequest",
+      "kind": "interface"
+    },
+    {
+      "name": "SignMessageWallet",
+      "kind": "interface"
+    },
+    {
+      "name": "silentLogger",
+      "kind": "const"
+    },
+    {
+      "name": "Skill",
+      "kind": "interface"
+    },
+    {
+      "name": "SkillAction",
+      "kind": "interface"
+    },
+    {
+      "name": "SkillActionNotFoundError",
+      "kind": "class"
+    },
+    {
+      "name": "SkillAlreadyRegisteredError",
+      "kind": "class"
+    },
+    {
+      "name": "SkillContext",
+      "kind": "interface"
+    },
+    {
+      "name": "SkillInitializationError",
+      "kind": "class"
+    },
+    {
+      "name": "SkillMetadata",
+      "kind": "interface"
+    },
+    {
+      "name": "SkillNotFoundError",
+      "kind": "class"
+    },
+    {
+      "name": "SkillNotReadyError",
+      "kind": "class"
+    },
+    {
+      "name": "SkillRegistry",
+      "kind": "class"
+    },
+    {
+      "name": "SkillRegistryConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "SkillState",
+      "kind": "enum"
+    },
+    {
+      "name": "skillToTools",
+      "kind": "function",
+      "signature": "(skill: Skill, options: SkillToToolsOptions): Tool[]"
+    },
+    {
+      "name": "SkillToToolsOptions",
+      "kind": "interface"
+    },
+    {
+      "name": "solToLamports",
+      "kind": "function",
+      "signature": "(sol: number | string): bigint"
+    },
+    {
+      "name": "SpeculationConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "SpeculativeCommitmentCreatedEvent",
+      "kind": "interface"
+    },
+    {
+      "name": "SpendBudgetRule",
+      "kind": "interface"
+    },
+    {
+      "name": "SqliteBackend",
+      "kind": "class"
+    },
+    {
+      "name": "SqliteBackendConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "stableReplayCursorString",
+      "kind": "function",
+      "signature": "(cursor: ReplayEventCursor | null): string"
+    },
+    {
+      "name": "stableStringifyJson",
+      "kind": "function",
+      "signature": "(value: JsonValue): string"
+    },
+    {
+      "name": "StateUpdatedEvent",
+      "kind": "interface"
+    },
+    {
+      "name": "StreamProgressCallback",
+      "kind": "type"
+    },
+    {
+      "name": "subscribeToAgentDeregistered",
+      "kind": "function",
+      "signature": "(program: Program<AgencCoordination>, callback: AgentEventCallback<AgentDeregisteredEvent>, options?: EventSubscriptionOptions): EventSubscription"
+    },
+    {
+      "name": "subscribeToAgentRegistered",
+      "kind": "function",
+      "signature": "(program: Program<AgencCoordination>, callback: AgentEventCallback<AgentRegisteredEvent>, options?: EventSubscriptionOptions): EventSubscription"
+    },
+    {
+      "name": "subscribeToAgentSuspended",
+      "kind": "function",
+      "signature": "(program: Program<AgencCoordination>, callback: AgentEventCallback<AgentSuspendedEvent>, options?: EventSubscriptionOptions): EventSubscription"
+    },
+    {
+      "name": "subscribeToAgentUnsuspended",
+      "kind": "function",
+      "signature": "(program: Program<AgencCoordination>, callback: AgentEventCallback<AgentUnsuspendedEvent>, options?: EventSubscriptionOptions): EventSubscription"
+    },
+    {
+      "name": "subscribeToAgentUpdated",
+      "kind": "function",
+      "signature": "(program: Program<AgencCoordination>, callback: AgentEventCallback<AgentUpdatedEvent>, options?: EventSubscriptionOptions): EventSubscription"
+    },
+    {
+      "name": "subscribeToAllAgentEvents",
+      "kind": "function",
+      "signature": "(program: Program<AgencCoordination>, callbacks: AgentEventCallbacks, options?: EventSubscriptionOptions): EventSubscription"
+    },
+    {
+      "name": "subscribeToAllDisputeEvents",
+      "kind": "function",
+      "signature": "(program: Program<AgencCoordination>, callbacks: DisputeEventCallbacks, options?: DisputeEventFilterOptions): EventSubscription"
+    },
+    {
+      "name": "subscribeToAllProtocolEvents",
+      "kind": "function",
+      "signature": "(program: Program<AgencCoordination>, callbacks: ProtocolEventCallbacks, options?: ProtocolEventFilterOptions): EventSubscription"
+    },
+    {
+      "name": "subscribeToAllTaskEvents",
+      "kind": "function",
+      "signature": "(program: Program<AgencCoordination>, callbacks: TaskEventCallbacks, options?: TaskEventFilterOptions): EventSubscription"
+    },
+    {
+      "name": "subscribeToArbiterVotesCleanedUp",
+      "kind": "function",
+      "signature": "(program: Program<AgencCoordination>, callback: EventCallback<ArbiterVotesCleanedUpEvent>): EventSubscription"
+    },
+    {
+      "name": "subscribeToBondDeposited",
+      "kind": "function",
+      "signature": "(program: Program<AgencCoordination>, callback: EventCallback<BondDepositedEvent>): EventSubscription"
+    },
+    {
+      "name": "subscribeToBondLocked",
+      "kind": "function",
+      "signature": "(program: Program<AgencCoordination>, callback: EventCallback<BondLockedEvent>): EventSubscription"
+    },
+    {
+      "name": "subscribeToBondReleased",
+      "kind": "function",
+      "signature": "(program: Program<AgencCoordination>, callback: EventCallback<BondReleasedEvent>): EventSubscription"
+    },
+    {
+      "name": "subscribeToBondSlashed",
+      "kind": "function",
+      "signature": "(program: Program<AgencCoordination>, callback: EventCallback<BondSlashedEvent>): EventSubscription"
+    },
+    {
+      "name": "subscribeToDependentTaskCreated",
+      "kind": "function",
+      "signature": "(program: Program<AgencCoordination>, callback: EventCallback<DependentTaskCreatedEvent>): EventSubscription"
+    },
+    {
+      "name": "subscribeToDisputeCancelled",
+      "kind": "function",
+      "signature": "(program: Program<AgencCoordination>, callback: EventCallback<DisputeCancelledEvent>): EventSubscription"
+    },
+    {
+      "name": "subscribeToDisputeExpired",
+      "kind": "function",
+      "signature": "(program: Program<AgencCoordination>, callback: EventCallback<DisputeExpiredEvent>, options?: DisputeEventFilterOptions): EventSubscription"
+    },
+    {
+      "name": "subscribeToDisputeInitiated",
+      "kind": "function",
+      "signature": "(program: Program<AgencCoordination>, callback: EventCallback<DisputeInitiatedEvent>, options?: DisputeEventFilterOptions): EventSubscription"
+    },
+    {
+      "name": "subscribeToDisputeResolved",
+      "kind": "function",
+      "signature": "(program: Program<AgencCoordination>, callback: EventCallback<DisputeResolvedEvent>, options?: DisputeEventFilterOptions): EventSubscription"
+    },
+    {
+      "name": "subscribeToDisputeVoteCast",
+      "kind": "function",
+      "signature": "(program: Program<AgencCoordination>, callback: EventCallback<DisputeVoteCastEvent>, options?: DisputeEventFilterOptions): EventSubscription"
+    },
+    {
+      "name": "subscribeToMigrationCompleted",
+      "kind": "function",
+      "signature": "(program: Program<AgencCoordination>, callback: EventCallback<MigrationCompletedEvent>): EventSubscription"
+    },
+    {
+      "name": "subscribeToProtocolFeeUpdated",
+      "kind": "function",
+      "signature": "(program: Program<AgencCoordination>, callback: EventCallback<ProtocolFeeUpdatedEvent>): EventSubscription"
+    },
+    {
+      "name": "subscribeToProtocolInitialized",
+      "kind": "function",
+      "signature": "(program: Program<AgencCoordination>, callback: EventCallback<ProtocolInitializedEvent>): EventSubscription"
+    },
+    {
+      "name": "subscribeToProtocolVersionUpdated",
+      "kind": "function",
+      "signature": "(program: Program<AgencCoordination>, callback: EventCallback<ProtocolVersionUpdatedEvent>): EventSubscription"
+    },
+    {
+      "name": "subscribeToRateLimitHit",
+      "kind": "function",
+      "signature": "(program: Program<AgencCoordination>, callback: EventCallback<RateLimitHitEvent>, options?: ProtocolEventFilterOptions): EventSubscription"
+    },
+    {
+      "name": "subscribeToRateLimitsUpdated",
+      "kind": "function",
+      "signature": "(program: Program<AgencCoordination>, callback: EventCallback<RateLimitsUpdatedEvent>): EventSubscription"
+    },
+    {
+      "name": "subscribeToReputationChanged",
+      "kind": "function",
+      "signature": "(program: Program<AgencCoordination>, callback: EventCallback<ReputationChangedEvent>): EventSubscription"
+    },
+    {
+      "name": "subscribeToRewardDistributed",
+      "kind": "function",
+      "signature": "(program: Program<AgencCoordination>, callback: EventCallback<RewardDistributedEvent>, options?: ProtocolEventFilterOptions): EventSubscription"
+    },
+    {
+      "name": "subscribeToSpeculativeCommitmentCreated",
+      "kind": "function",
+      "signature": "(program: Program<AgencCoordination>, callback: EventCallback<SpeculativeCommitmentCreatedEvent>): EventSubscription"
+    },
+    {
+      "name": "subscribeToStateUpdated",
+      "kind": "function",
+      "signature": "(program: Program<AgencCoordination>, callback: EventCallback<StateUpdatedEvent>): EventSubscription"
+    },
+    {
+      "name": "subscribeToTaskCancelled",
+      "kind": "function",
+      "signature": "(program: Program<AgencCoordination>, callback: EventCallback<TaskCancelledEvent>, options?: TaskEventFilterOptions): EventSubscription"
+    },
+    {
+      "name": "subscribeToTaskClaimed",
+      "kind": "function",
+      "signature": "(program: Program<AgencCoordination>, callback: EventCallback<TaskClaimedEvent>, options?: TaskEventFilterOptions): EventSubscription"
+    },
+    {
+      "name": "subscribeToTaskCompleted",
+      "kind": "function",
+      "signature": "(program: Program<AgencCoordination>, callback: EventCallback<TaskCompletedEvent>, options?: TaskEventFilterOptions): EventSubscription"
+    },
+    {
+      "name": "subscribeToTaskCreated",
+      "kind": "function",
+      "signature": "(program: Program<AgencCoordination>, callback: EventCallback<TaskCreatedEvent>, options?: TaskEventFilterOptions): EventSubscription"
+    },
+    {
+      "name": "SwapQuote",
+      "kind": "interface"
+    },
+    {
+      "name": "SwapQuoteParams",
+      "kind": "interface"
+    },
+    {
+      "name": "SwapResult",
+      "kind": "interface"
+    },
+    {
+      "name": "Task",
+      "kind": "interface"
+    },
+    {
+      "name": "TASK_ID_LENGTH",
+      "kind": "const"
+    },
+    {
+      "name": "TaskBid",
+      "kind": "interface"
+    },
+    {
+      "name": "TaskBidBookSnapshot",
+      "kind": "interface"
+    },
+    {
+      "name": "TaskBidBookState",
+      "kind": "interface"
+    },
+    {
+      "name": "TaskBidInput",
+      "kind": "interface"
+    },
+    {
+      "name": "TaskBidMarketplace",
+      "kind": "class"
+    },
+    {
+      "name": "TaskBidMarketplaceConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "TaskBidSelection",
+      "kind": "interface"
+    },
+    {
+      "name": "TaskBidUpdateInput",
+      "kind": "interface"
+    },
+    {
+      "name": "TaskCancelledEvent",
+      "kind": "interface"
+    },
+    {
+      "name": "TaskClaimedEvent",
+      "kind": "interface"
+    },
+    {
+      "name": "TaskCompletedEvent",
+      "kind": "interface"
+    },
+    {
+      "name": "TaskCreatedEvent",
+      "kind": "interface"
+    },
+    {
+      "name": "TaskDiscovery",
+      "kind": "class"
+    },
+    {
+      "name": "TaskDiscoveryConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "TaskDiscoveryListener",
+      "kind": "type"
+    },
+    {
+      "name": "TaskDiscoveryMode",
+      "kind": "type"
+    },
+    {
+      "name": "TaskDiscoveryOptions",
+      "kind": "interface"
+    },
+    {
+      "name": "TaskDiscoveryResult",
+      "kind": "interface"
+    },
+    {
+      "name": "TaskEventCallbacks",
+      "kind": "interface"
+    },
+    {
+      "name": "TaskEventFilterOptions",
+      "kind": "interface"
+    },
+    {
+      "name": "TaskExecutionContext",
+      "kind": "interface"
+    },
+    {
+      "name": "TaskExecutionError",
+      "kind": "class"
+    },
+    {
+      "name": "TaskExecutionResult",
+      "kind": "interface"
+    },
+    {
+      "name": "TaskExecutor",
+      "kind": "class"
+    },
+    {
+      "name": "TaskExecutorConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "TaskExecutorEvents",
+      "kind": "interface"
+    },
+    {
+      "name": "TaskExecutorStatus",
+      "kind": "interface"
+    },
+    {
+      "name": "TaskFilter",
+      "kind": "interface"
+    },
+    {
+      "name": "TaskFilterConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "TaskHandler",
+      "kind": "type"
+    },
+    {
+      "name": "TaskNotClaimableError",
+      "kind": "class"
+    },
+    {
+      "name": "TaskNotFoundError",
+      "kind": "class"
+    },
+    {
+      "name": "TaskOperations",
+      "kind": "class"
+    },
+    {
+      "name": "TaskOperationsConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "TaskOpsConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "TaskRiskScoreResult",
+      "kind": "interface"
+    },
+    {
+      "name": "TaskRiskScoringConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "TaskRiskScoringContext",
+      "kind": "interface"
+    },
+    {
+      "name": "TaskScanner",
+      "kind": "class"
+    },
+    {
+      "name": "TaskScannerConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "TaskScorer",
+      "kind": "type"
+    },
+    {
+      "name": "TaskState",
+      "kind": "enum"
+    },
+    {
+      "name": "TaskStatus",
+      "kind": "interface"
+    },
+    {
+      "name": "taskStatusToString",
+      "kind": "function",
+      "signature": "(status: OnChainTaskStatus): string"
+    },
+    {
+      "name": "TaskSubmissionError",
+      "kind": "class"
+    },
+    {
+      "name": "TaskTemplate",
+      "kind": "interface"
+    },
+    {
+      "name": "TaskTimeoutError",
+      "kind": "class"
+    },
+    {
+      "name": "TaskType",
+      "kind": "enum"
+    },
+    {
+      "name": "taskTypeToString",
+      "kind": "function",
+      "signature": "(type: TaskType): string"
+    },
+    {
+      "name": "TaskVerifier",
+      "kind": "interface"
+    },
+    {
+      "name": "TEAM_ID_PATTERN",
+      "kind": "const"
+    },
+    {
+      "name": "TeamAuditEvent",
+      "kind": "interface"
+    },
+    {
+      "name": "TeamAuditEventType",
+      "kind": "type"
+    },
+    {
+      "name": "TeamAuditStore",
+      "kind": "interface"
+    },
+    {
+      "name": "TeamCheckpointState",
+      "kind": "interface"
+    },
+    {
+      "name": "TeamCheckpointStatus",
+      "kind": "type"
+    },
+    {
+      "name": "TeamCheckpointTemplate",
+      "kind": "interface"
+    },
+    {
+      "name": "TeamContractEngine",
+      "kind": "class"
+    },
+    {
+      "name": "TeamContractEngineConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "TeamContractEngineReadonlyView",
+      "kind": "interface"
+    },
+    {
+      "name": "TeamContractSnapshot",
+      "kind": "interface"
+    },
+    {
+      "name": "TeamContractStateError",
+      "kind": "class"
+    },
+    {
+      "name": "TeamContractStatus",
+      "kind": "type"
+    },
+    {
+      "name": "TeamContractValidationError",
+      "kind": "class"
+    },
+    {
+      "name": "TeamEngineHooks",
+      "kind": "interface"
+    },
+    {
+      "name": "TeamMember",
+      "kind": "interface"
+    },
+    {
+      "name": "TeamMemberInput",
+      "kind": "interface"
+    },
+    {
+      "name": "TeamPayoutComputationInput",
+      "kind": "interface"
+    },
+    {
+      "name": "TeamPayoutConfig",
+      "kind": "type"
+    },
+    {
+      "name": "TeamPayoutError",
+      "kind": "class"
+    },
+    {
+      "name": "TeamPayoutResult",
+      "kind": "interface"
+    },
+    {
+      "name": "TeamRoleTemplate",
+      "kind": "interface"
+    },
+    {
+      "name": "TeamTemplate",
+      "kind": "interface"
+    },
+    {
+      "name": "TeamWorkflowAdapter",
+      "kind": "class"
+    },
+    {
+      "name": "TeamWorkflowBuildOptions",
+      "kind": "interface"
+    },
+    {
+      "name": "TeamWorkflowBuildResult",
+      "kind": "interface"
+    },
+    {
+      "name": "TeamWorkflowLaunchResult",
+      "kind": "interface"
+    },
+    {
+      "name": "TeamWorkflowTopologyError",
+      "kind": "class"
+    },
+    {
+      "name": "TELEMETRY_METRIC_NAMES",
+      "kind": "const"
+    },
+    {
+      "name": "TelemetryCollector",
+      "kind": "interface"
+    },
+    {
+      "name": "TelemetryConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "TelemetryError",
+      "kind": "class"
+    },
+    {
+      "name": "TelemetrySink",
+      "kind": "interface"
+    },
+    {
+      "name": "TelemetrySnapshot",
+      "kind": "interface"
+    },
+    {
+      "name": "toAnchorBytes",
+      "kind": "function",
+      "signature": "(bytes: Uint8Array): number[]"
+    },
+    {
+      "name": "TOKEN_PROGRAM_ID",
+      "kind": "const"
+    },
+    {
+      "name": "TokenBalance",
+      "kind": "interface"
+    },
+    {
+      "name": "TokenMint",
+      "kind": "interface"
+    },
+    {
+      "name": "TokenPrice",
+      "kind": "interface"
+    },
+    {
+      "name": "Tool",
+      "kind": "interface"
+    },
+    {
+      "name": "ToolAlreadyRegisteredError",
+      "kind": "class"
+    },
+    {
+      "name": "ToolContext",
+      "kind": "interface"
+    },
+    {
+      "name": "ToolExecutionError",
+      "kind": "class"
+    },
+    {
+      "name": "ToolHandler",
+      "kind": "type"
+    },
+    {
+      "name": "ToolNotFoundError",
+      "kind": "class"
+    },
+    {
+      "name": "ToolRegistry",
+      "kind": "class"
+    },
+    {
+      "name": "ToolRegistryConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "ToolResult",
+      "kind": "interface"
+    },
+    {
+      "name": "ToolsStatus",
+      "kind": "interface"
+    },
+    {
+      "name": "topologicalSort",
+      "kind": "function",
+      "signature": "(definition: WorkflowDefinition): string[]"
+    },
+    {
+      "name": "TrajectoryEvent",
+      "kind": "interface"
+    },
+    {
+      "name": "TrajectoryEventType",
+      "kind": "type"
+    },
+    {
+      "name": "TrajectoryRecorder",
+      "kind": "class"
+    },
+    {
+      "name": "TrajectoryRecorderConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "TrajectoryRecorderSink",
+      "kind": "interface"
+    },
+    {
+      "name": "TrajectoryRecordInput",
+      "kind": "interface"
+    },
+    {
+      "name": "TrajectoryReplayConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "TrajectoryReplayEngine",
+      "kind": "class"
+    },
+    {
+      "name": "TrajectoryReplayResult",
+      "kind": "interface"
+    },
+    {
+      "name": "TrajectoryTrace",
+      "kind": "interface"
+    },
+    {
+      "name": "TransferResult",
+      "kind": "interface"
+    },
+    {
+      "name": "TransferSolParams",
+      "kind": "interface"
+    },
+    {
+      "name": "TransferTokenParams",
+      "kind": "interface"
+    },
+    {
+      "name": "TransitionAnomalyPayload",
+      "kind": "interface"
+    },
+    {
+      "name": "TransitionValidationOptions",
+      "kind": "interface"
+    },
+    {
+      "name": "TransitionValidationResult",
+      "kind": "interface"
+    },
+    {
+      "name": "TransitionValidationViolation",
+      "kind": "interface"
+    },
+    {
+      "name": "TransitionValidator",
+      "kind": "class"
+    },
+    {
+      "name": "transitionViolationMessage",
+      "kind": "function",
+      "signature": "(violation: TransitionValidationViolation): string"
+    },
+    {
+      "name": "U64_SIZE",
+      "kind": "const"
+    },
+    {
+      "name": "UnifiedTelemetryCollector",
+      "kind": "class"
+    },
+    {
+      "name": "UpdateTaskBidRequest",
+      "kind": "interface"
+    },
+    {
+      "name": "UpsertMemoryNodeInput",
+      "kind": "interface"
+    },
+    {
+      "name": "USDC_MINT",
+      "kind": "const"
+    },
+    {
+      "name": "USDT_MINT",
+      "kind": "const"
+    },
+    {
+      "name": "validateAlertSchema",
+      "kind": "function",
+      "signature": "(payload: unknown): SchemaCompatibilityResult"
+    },
+    {
+      "name": "validateConfigStrict",
+      "kind": "function",
+      "signature": "(config: Record<string, unknown>, strict: boolean): ConfigValidationResult"
+    },
+    {
+      "name": "validateMarketplaceId",
+      "kind": "function",
+      "signature": "(value: string, maxLength?: number): string | null"
+    },
+    {
+      "name": "validateTeamId",
+      "kind": "function",
+      "signature": "(value: string, maxLength?: number): string | null"
+    },
+    {
+      "name": "validateTransition",
+      "kind": "function",
+      "signature": "(options: TransitionValidationOptions): TransitionValidationViolation | undefined"
+    },
+    {
+      "name": "validateWorkflow",
+      "kind": "function",
+      "signature": "(definition: WorkflowDefinition): void"
+    },
+    {
+      "name": "validateWorkflowObjectiveSpec",
+      "kind": "function",
+      "signature": "(spec: WorkflowObjectiveSpec): void"
+    },
+    {
+      "name": "ValidationError",
+      "kind": "class"
+    },
+    {
+      "name": "VerdictComparison",
+      "kind": "interface"
+    },
+    {
+      "name": "VERIFICATION_COMPUTE_UNITS",
+      "kind": "const"
+    },
+    {
+      "name": "VerificationBudgetDecision",
+      "kind": "interface"
+    },
+    {
+      "name": "VERIFIER_METRIC_NAMES",
+      "kind": "const"
+    },
+    {
+      "name": "VerifierAdaptiveRiskConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "VerifierAdaptiveRiskWeights",
+      "kind": "interface"
+    },
+    {
+      "name": "VerifierEscalationMetadata",
+      "kind": "interface"
+    },
+    {
+      "name": "VerifierExecutionResult",
+      "kind": "interface"
+    },
+    {
+      "name": "VerifierExecutor",
+      "kind": "class"
+    },
+    {
+      "name": "VerifierExecutorConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "VerifierInput",
+      "kind": "interface"
+    },
+    {
+      "name": "VerifierLaneConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "VerifierLaneEscalationError",
+      "kind": "class"
+    },
+    {
+      "name": "VerifierLaneMetrics",
+      "kind": "interface"
+    },
+    {
+      "name": "VerifierPolicyConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "VerifierReason",
+      "kind": "interface"
+    },
+    {
+      "name": "VerifierRouteStrategy",
+      "kind": "type"
+    },
+    {
+      "name": "VerifierScheduleInput",
+      "kind": "interface"
+    },
+    {
+      "name": "VerifierSchedulePlan",
+      "kind": "interface"
+    },
+    {
+      "name": "VerifierTaskTypePolicy",
+      "kind": "interface"
+    },
+    {
+      "name": "VerifierVerdict",
+      "kind": "type"
+    },
+    {
+      "name": "VerifierVerdictPayload",
+      "kind": "interface"
+    },
+    {
+      "name": "VERSION",
+      "kind": "const"
+    },
+    {
+      "name": "VoteDisputeParams",
+      "kind": "interface"
+    },
+    {
+      "name": "VoteResult",
+      "kind": "interface"
+    },
+    {
+      "name": "Wallet",
+      "kind": "interface"
+    },
+    {
+      "name": "WeightedScoreWeights",
+      "kind": "interface"
+    },
+    {
+      "name": "WeightedScoringBreakdown",
+      "kind": "interface"
+    },
+    {
+      "name": "WeightedTeamPayoutConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "WELL_KNOWN_TOKENS",
+      "kind": "const"
+    },
+    {
+      "name": "WORKFLOW_FEATURE_SCHEMA_VERSION",
+      "kind": "const"
+    },
+    {
+      "name": "WORKFLOW_OBJECTIVE_SCHEMA_VERSION",
+      "kind": "const"
+    },
+    {
+      "name": "WORKFLOW_TELEMETRY_KEYS",
+      "kind": "const"
+    },
+    {
+      "name": "WorkflowCallbacks",
+      "kind": "interface"
+    },
+    {
+      "name": "WorkflowCanaryRollout",
+      "kind": "class"
+    },
+    {
+      "name": "WorkflowCandidateScore",
+      "kind": "interface"
+    },
+    {
+      "name": "WorkflowCompositionFeatures",
+      "kind": "interface"
+    },
+    {
+      "name": "WorkflowConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "WorkflowDefinition",
+      "kind": "interface"
+    },
+    {
+      "name": "WorkflowDryRunEstimate",
+      "kind": "interface"
+    },
+    {
+      "name": "WorkflowEdge",
+      "kind": "interface"
+    },
+    {
+      "name": "WorkflowFeatureExtractionOptions",
+      "kind": "interface"
+    },
+    {
+      "name": "WorkflowFeatureVector",
+      "kind": "interface"
+    },
+    {
+      "name": "WorkflowMonitoringError",
+      "kind": "class"
+    },
+    {
+      "name": "WorkflowMutationCandidate",
+      "kind": "interface"
+    },
+    {
+      "name": "WorkflowMutationConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "WorkflowMutationOperator",
+      "kind": "type"
+    },
+    {
+      "name": "WorkflowMutationRecord",
+      "kind": "interface"
+    },
+    {
+      "name": "WorkflowNode",
+      "kind": "interface"
+    },
+    {
+      "name": "WorkflowNodeFeature",
+      "kind": "interface"
+    },
+    {
+      "name": "WorkflowNodeStatus",
+      "kind": "enum"
+    },
+    {
+      "name": "WorkflowObjectiveMetric",
+      "kind": "type"
+    },
+    {
+      "name": "WorkflowObjectiveOutcome",
+      "kind": "interface"
+    },
+    {
+      "name": "workflowObjectiveOutcomeFromFeature",
+      "kind": "function",
+      "signature": "(feature: WorkflowFeatureVector): WorkflowObjectiveOutcome"
+    },
+    {
+      "name": "WorkflowObjectiveSpec",
+      "kind": "interface"
+    },
+    {
+      "name": "WorkflowObjectiveWeight",
+      "kind": "interface"
+    },
+    {
+      "name": "WorkflowOptimizationAuditEntry",
+      "kind": "interface"
+    },
+    {
+      "name": "WorkflowOptimizationInput",
+      "kind": "interface"
+    },
+    {
+      "name": "WorkflowOptimizationResult",
+      "kind": "interface"
+    },
+    {
+      "name": "WorkflowOptimizer",
+      "kind": "class"
+    },
+    {
+      "name": "WorkflowOptimizerConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "WorkflowOptimizerRuntimeConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "WorkflowOutcomeLabels",
+      "kind": "interface"
+    },
+    {
+      "name": "WorkflowRolloutAction",
+      "kind": "type"
+    },
+    {
+      "name": "WorkflowRolloutConfig",
+      "kind": "interface"
+    },
+    {
+      "name": "WorkflowRolloutDecision",
+      "kind": "interface"
+    },
+    {
+      "name": "WorkflowRolloutDeltas",
+      "kind": "interface"
+    },
+    {
+      "name": "WorkflowRolloutReason",
+      "kind": "type"
+    },
+    {
+      "name": "WorkflowRolloutSample",
+      "kind": "interface"
+    },
+    {
+      "name": "WorkflowRolloutStopLossThresholds",
+      "kind": "interface"
+    },
+    {
+      "name": "WorkflowRolloutVariantStats",
+      "kind": "interface"
+    },
+    {
+      "name": "WorkflowRunOutcome",
+      "kind": "type"
+    },
+    {
+      "name": "WorkflowState",
+      "kind": "interface"
+    },
+    {
+      "name": "WorkflowStateError",
+      "kind": "class"
+    },
+    {
+      "name": "WorkflowStats",
+      "kind": "interface"
+    },
+    {
+      "name": "WorkflowStatus",
+      "kind": "enum"
+    },
+    {
+      "name": "WorkflowSubmissionError",
+      "kind": "class"
+    },
+    {
+      "name": "WorkflowTopologyFeatures",
+      "kind": "interface"
+    },
+    {
+      "name": "WorkflowValidationError",
+      "kind": "class"
+    },
+    {
+      "name": "writeBenchmarkArtifact",
+      "kind": "function",
+      "signature": "(outputPath: string, artifact: BenchmarkArtifact): Promise<void>"
+    },
+    {
+      "name": "writeMutationArtifact",
+      "kind": "function",
+      "signature": "(outputPath: string, artifact: MutationArtifact): Promise<void>"
+    },
+    {
+      "name": "WSOL_MINT",
+      "kind": "const"
+    }
+  ]
+}

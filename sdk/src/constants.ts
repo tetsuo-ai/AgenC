@@ -53,7 +53,11 @@ export const OUTPUT_FIELD_COUNT = 4;
 /** Proof size in bytes (Groth16 via groth16-solana) */
 export const PROOF_SIZE_BYTES = 256;
 
-/** @deprecated Use RECOMMENDED_CU_COMPLETE_TASK_PRIVATE instead */
+/**
+ * @deprecated Since v1.3.0. Use {@link RECOMMENDED_CU_COMPLETE_TASK_PRIVATE} instead.
+ * Will be removed in v2.0.0.
+ * See: https://github.com/tetsuo-ai/AgenC/issues/983
+ */
 export const VERIFICATION_COMPUTE_UNITS = 50_000;
 
 /** Timeout for nargo execute in ms (2 minutes) */

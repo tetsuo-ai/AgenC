@@ -1,0 +1,7 @@
+{
+  "package": "@agenc/mcp",
+  "version": "0.1.0",
+  "generatedAt": "2026-02-14T05:31:53.952Z",
+  "entryPoint": "mcp/src/index.ts",
+  "exports": []
+}
