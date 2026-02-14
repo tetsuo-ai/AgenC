@@ -76,8 +76,10 @@ Add to `~/.codeium/windsurf/mcp_config.json`:
 | `MCP_REPLAY_TOOL_TIMEOUT_MS` | `180000` | Per-call tool timeout in milliseconds |
 | `MCP_REPLAY_ALLOWLIST` | `""` | Comma-separated allowlisted MCP actor IDs |
 | `MCP_REPLAY_DENYLIST` | `""` | Comma-separated denied MCP actor IDs |
+| `MCP_REPLAY_REQUIRE_AUTH_FOR_HIGH_RISK` | `false` | Require authenticated actors for high-risk replay tools |
 | `MCP_REPLAY_DEFAULT_REDACTIONS` | `signature` | Comma-separated field names to redact from output |
 | `MCP_REPLAY_AUDIT_ENABLED` | `false` | Emit replay audit logs to stdout |
+| `MCP_REPLAY_CAPS_<TOOL>_<FIELD>` | `""` | Per-tool replay caps override (example: `MCP_REPLAY_CAPS_BACKFILL_MAX_EVENT_COUNT=5000`) |
 
 ## Tools
 
@@ -210,6 +212,7 @@ MCP_REPLAY_MAX_EVENT_COUNT=2000
 MCP_REPLAY_MAX_CONCURRENT_JOBS=2
 MCP_REPLAY_TOOL_TIMEOUT_MS=180000
 MCP_REPLAY_ALLOWLIST=incident-bot,security-operator
+MCP_REPLAY_REQUIRE_AUTH_FOR_HIGH_RISK=true
 MCP_REPLAY_AUDIT_ENABLED=true
 ```
 
@@ -217,12 +220,29 @@ Policy behavior:
 
 - `MCP_REPLAY_DENYLIST` blocks matching actors first.
 - If `MCP_REPLAY_ALLOWLIST` is set, only matching actors can run replay tools.
+- If `MCP_REPLAY_REQUIRE_AUTH_FOR_HIGH_RISK=true`, high-risk tools require actors resolved via `authInfo.clientId` (not sessions/anonymous).
 - Actor identity is resolved from MCP auth context in this order:
   1. `authInfo.clientId`
   2. `session:<sessionId>`
   3. `anonymous`
 
 Any actor that is denied gets a `replay.access_denied` response with `retriable: false`.
+
+Per-tool caps can be overridden via environment variables in this format:
+
+- `MCP_REPLAY_CAPS_<TOOL>_<FIELD>=<positive integer>`
+
+Where:
+
+- `<TOOL>` is one of: `BACKFILL`, `COMPARE`, `INCIDENT`, `STATUS`
+- `<FIELD>` is one of: `MAX_WINDOW_SLOTS`, `MAX_EVENT_COUNT`, `TIMEOUT_MS`, `MAX_PAYLOAD_BYTES`
+
+Example:
+
+```bash
+MCP_REPLAY_CAPS_BACKFILL_MAX_WINDOW_SLOTS=500000
+MCP_REPLAY_CAPS_COMPARE_TIMEOUT_MS=60000
+```
 
 See also:
 
