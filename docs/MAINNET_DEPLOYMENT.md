@@ -1,7 +1,8 @@
 # Mainnet Deployment Runbook
 
 **Protocol:** AgenC Coordination Protocol
-**Anchor Version:** 0.30.1
+**Anchor Version:** 0.32.1
+**Solana Version:** 3.0.13
 **Current Program ID:** `EopUaCV2svxj9j4hd7KjbrWfdjkspmm2BCBe7jGpKzKZ`
 
 This document provides step-by-step instructions for deploying the AgenC Coordination Protocol to Solana mainnet-beta.
@@ -11,6 +12,53 @@ This document provides step-by-step instructions for deploying the AgenC Coordin
 ## 1. Pre-Deployment Checklist
 
 Complete all items before proceeding with mainnet deployment:
+
+### Pre-Deploy Gate (automated)
+
+**Prerequisites**
+- [ ] Repo checkout is clean and on the intended release commit
+- [ ] Solana CLI configured and working
+- [ ] Anchor toolchain installed (Anchor 0.32.1, Solana 3.0.13)
+
+**Steps**
+1. Run readiness check:
+   ```bash
+   ./scripts/check-deployment-readiness.sh --network mainnet
+   ```
+2. Run LiteSVM integration suite:
+   ```bash
+   npm run test:fast
+   ```
+3. Run runtime unit tests:
+   ```bash
+   cd runtime && npm run test
+   ```
+4. Run mutation regression gates:
+   ```bash
+   cd runtime && npm run mutation:ci && npm run mutation:gates
+   ```
+5. Build verifiable program and record executable hash:
+   ```bash
+   anchor build --verifiable
+   solana-verify get-executable-hash target/deploy/agenc_coordination.so
+   ```
+
+**Expected Output**
+```
+# 1) readiness check exits 0 with PASS for all checks
+# 2) npm run test:fast: 160+ tests passing (~5s)
+# 3) runtime tests: ~1800+ tests passing
+# 4) mutation gates: exit code 0
+# 5) solana-verify prints an executable hash (record it)
+```
+
+**Troubleshooting**
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| readiness check fails | missing env/toolchain/config | follow the printed remediation and rerun |
+| `npm run test:fast` fails | regression in on-chain/LiteSVM flows | fix failing test before deploy |
+| mutation gate fails | behavior drift or insufficient coverage | investigate mutation report; fix or update gates intentionally |
+| `solana-verify` missing | solana-verify not installed | install solana-verify and rerun |
 
 ### Security Requirements
 - [ ] External security audit complete (see `docs/SECURITY_AUDIT_MAINNET.md`)
@@ -99,7 +147,8 @@ In case of suspected key compromise:
 Current configuration (localnet):
 ```toml
 [toolchain]
-anchor_version = "0.30.1"
+anchor_version = "0.32.1"
+solana_version = "3.0.13"
 
 [features]
 seeds = true
@@ -205,79 +254,136 @@ solana program deploy target/deploy/agenc_coordination.so \
 
 ### 4.3 Initialize Protocol Configuration
 
-Create an initialization script or use anchor test with custom script:
+Protocol initialization requires:
+- `authority` signer who is the program upgrade authority
+- a distinct `second_signer` who is in the multisig owners list
+- the ProgramData PDA passed as `remaining_accounts[0]`
 
-```typescript
-// scripts/init-mainnet.ts
-import * as anchor from "@coral-xyz/anchor";
-import { PublicKey, LAMPORTS_PER_SOL } from "@solana/web3.js";
+**Prerequisites**
+- [ ] You have the deploy keypair (upgrade authority) configured as Anchor provider wallet
+- [ ] You have a second signer keypair (distinct from authority) that is one of the multisig owners
+- [ ] You have the final multisig owner pubkeys and threshold
 
-const MAINNET_CONFIG = {
-  disputeThreshold: 51,           // 51% majority required
-  protocolFeeBps: 100,            // 1% protocol fee
-  minArbiterStake: 10 * LAMPORTS_PER_SOL,  // 10 SOL minimum stake
-  multisigThreshold: 3,           // 3-of-5 multisig
-  multisigOwners: [
-    new PublicKey("OWNER_1_PUBKEY"),
-    new PublicKey("OWNER_2_PUBKEY"),
-    new PublicKey("OWNER_3_PUBKEY"),
-    new PublicKey("OWNER_4_PUBKEY"),
-    new PublicKey("OWNER_5_PUBKEY"),
-  ],
-  treasury: new PublicKey("TREASURY_PUBKEY"),
-};
+**Steps**
+1. Create a temporary init script (do not commit keys):
+   ```bash
+   mkdir -p tmp
+   cat > tmp/init-protocol.ts <<'EOF'
+   import * as anchor from "@coral-xyz/anchor";
+   import { PublicKey, Keypair } from "@solana/web3.js";
+   import { readFileSync } from "node:fs";
+   
+   // [FILL BEFORE DEPLOY]
+   const MULTISIG_THRESHOLD = 3; // must be < owners.length
+   const MULTISIG_OWNERS = [
+     new PublicKey("OWNER_1_PUBKEY"), // [FILL BEFORE DEPLOY]
+     new PublicKey("OWNER_2_PUBKEY"), // [FILL BEFORE DEPLOY]
+     new PublicKey("OWNER_3_PUBKEY"), // [FILL BEFORE DEPLOY]
+     new PublicKey("OWNER_4_PUBKEY"), // [FILL BEFORE DEPLOY]
+     new PublicKey("OWNER_5_PUBKEY"), // [FILL BEFORE DEPLOY]
+   ];
+   
+   const TREASURY = new PublicKey("TREASURY_PUBKEY"); // [FILL BEFORE DEPLOY]
+   
+   // Protocol parameters
+   const DISPUTE_THRESHOLD = 51;       // 1-99
+   const PROTOCOL_FEE_BPS = 100;       // <= 1000
+   const MIN_STAKE_LAMPORTS = 10_000_000_000; // example: 10 SOL
+   const MIN_STAKE_FOR_DISPUTE = 1_000_000;   // example: 0.001 SOL (must be > 0)
+   
+   function loadKeypair(path: string): Keypair {
+     const raw = JSON.parse(readFileSync(path, "utf8")) as number[];
+     return Keypair.fromSecretKey(Uint8Array.from(raw));
+   }
+   
+   async function main() {
+     const provider = anchor.AnchorProvider.env();
+     anchor.setProvider(provider);
+   
+     const program = anchor.workspace.AgencCoordination;
+   
+     const [protocolPda] = PublicKey.findProgramAddressSync(
+       [Buffer.from("protocol")],
+       program.programId
+     );
+   
+     // ProgramData PDA: findProgramAddress([program_id], BPFLoaderUpgradeable)
+     const BPF_LOADER_UPGRADEABLE_PROGRAM_ID = new PublicKey(
+       "BPFLoaderUpgradeab1e11111111111111111111111"
+     );
+     const [programDataPda] = PublicKey.findProgramAddressSync(
+       [program.programId.toBuffer()],
+       BPF_LOADER_UPGRADEABLE_PROGRAM_ID
+     );
+   
+     // [FILL BEFORE DEPLOY] second signer keypair path
+     const secondSigner = loadKeypair(process.env.SECOND_SIGNER_KEYPAIR_PATH ?? "");
+   
+     // Optional additional multisig signers (needed when MULTISIG_THRESHOLD > 2).
+     // Comma-separated list of keypair JSON paths.
+     const extraSignerPaths = (process.env.EXTRA_SIGNER_KEYPAIR_PATHS ?? "")
+       .split(",")
+       .map((entry) => entry.trim())
+       .filter(Boolean);
+     const extraSigners = extraSignerPaths.map(loadKeypair);
+   
+     const tx = await program.methods
+       .initializeProtocol(
+         DISPUTE_THRESHOLD,
+         PROTOCOL_FEE_BPS,
+         new anchor.BN(MIN_STAKE_LAMPORTS),
+         new anchor.BN(MIN_STAKE_FOR_DISPUTE),
+         MULTISIG_THRESHOLD,
+         MULTISIG_OWNERS
+       )
+       .accounts({
+         protocolConfig: protocolPda,
+         treasury: TREASURY,
+         authority: provider.wallet.publicKey,
+         secondSigner: secondSigner.publicKey,
+         systemProgram: anchor.web3.SystemProgram.programId,
+       })
+       .remainingAccounts([
+         { pubkey: programDataPda, isSigner: false, isWritable: false },
+         ...extraSigners.map((signer) => ({
+           pubkey: signer.publicKey,
+           isSigner: true,
+           isWritable: false,
+         })),
+       ])
+       .signers([secondSigner, ...extraSigners])
+       .rpc();
+   
+     console.log("Protocol initialized tx:", tx);
+     console.log("Protocol PDA:", protocolPda.toBase58());
+   }
+   
+   main().catch((e) => {
+     console.error(e);
+     process.exit(1);
+   });
+   EOF
+   ```
+2. Run initialization:
+   ```bash
+   SECOND_SIGNER_KEYPAIR_PATH=<PATH_TO_SECOND_SIGNER_KEYPAIR_JSON> \
+   EXTRA_SIGNER_KEYPAIR_PATHS=<OPTIONAL_COMMA_SEPARATED_KEYPAIR_PATHS> \
+   npx tsx tmp/init-protocol.ts
+   ```
 
-async function main() {
-  const provider = anchor.AnchorProvider.env();
-  anchor.setProvider(provider);
-
-  const program = anchor.workspace.AgencCoordination;
-
-  const [protocolPda] = PublicKey.findProgramAddressSync(
-    [Buffer.from("protocol")],
-    program.programId
-  );
-
-  const tx = await program.methods
-    .initializeProtocol(
-      MAINNET_CONFIG.disputeThreshold,
-      MAINNET_CONFIG.protocolFeeBps,
-      MAINNET_CONFIG.minArbiterStake,
-      MAINNET_CONFIG.multisigThreshold,
-      MAINNET_CONFIG.multisigOwners
-    )
-    .accounts({
-      protocolConfig: protocolPda,
-      treasury: MAINNET_CONFIG.treasury,
-      authority: provider.wallet.publicKey,
-      systemProgram: anchor.web3.SystemProgram.programId,
-    })
-    .remainingAccounts(
-      MAINNET_CONFIG.multisigOwners.map(owner => ({
-        pubkey: owner,
-        isSigner: true,
-        isWritable: false,
-      }))
-    )
-    .rpc();
-
-  console.log("Protocol initialized:", tx);
-  console.log("Protocol PDA:", protocolPda.toBase58());
-}
-
-main().catch(console.error);
+**Expected Output**
+```
+Protocol initialized tx: <signature>
+Protocol PDA: <base58>
 ```
 
-Run initialization:
-```bash
-# Using ts-node
-npx ts-node scripts/init-mainnet.ts
-
-# Or add to Anchor.toml scripts
-# [scripts]
-# init-mainnet = "npx ts-node scripts/init-mainnet.ts"
-# Then run: anchor run init-mainnet --provider.cluster mainnet
-```
+**Troubleshooting**
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| UnauthorizedUpgrade | authority is not upgrade authority | verify deploy keypair matches program upgrade authority |
+| MultisigInvalidThreshold | threshold >= owners length | use threshold < owners.length |
+| MultisigDuplicateSigner | authority == second_signer | use a distinct second signer |
+| MultisigNotEnoughSigners | insufficient signers passed | ensure authority + second signer are owners; pass additional signers when MULTISIG_THRESHOLD > 2 |
 
 ### 4.4 Transfer Upgrade Authority
 
@@ -359,6 +465,41 @@ const config = await program.account.protocolConfig.fetch(protocolPda);
 console.log("Treasury:", config.treasury.toBase58());
 // Verify this matches expected treasury address
 ```
+
+### 5.6 Verify SPL Token Escrow (SPL-denominated tasks)
+
+**Prerequisites**
+- [ ] A known SPL-denominated task PDA (or create one in a controlled verification environment)
+- [ ] SPL token CLI installed (`spl-token`)
+- [ ] Access to the task's `reward_mint` and escrow PDA
+
+**Steps**
+1. Fetch the task and confirm `reward_mint` is non-null:
+   - Use `agenc_get_task` to record `reward_mint` and `task_pda`.
+2. Derive the escrow PDA for the task:
+   - Use `agenc_derive_pda` for the `escrow` PDA (seeded off the task PDA).
+3. Derive the escrow ATA for the reward mint:
+   ```bash
+   spl-token address --owner <ESCROW_PDA> --mint <REWARD_MINT>
+   ```
+4. Inspect escrow ATA state:
+   ```bash
+   spl-token account-info <ESCROW_ATA>
+   ```
+
+**Expected Output**
+```
+# escrow ATA exists and is owned by the SPL Token program
+# escrow ATA mint matches <REWARD_MINT>
+# escrow ATA balance matches expected locked reward amount (pre-distribution)
+```
+
+**Troubleshooting**
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| escrow ATA does not exist | task is SOL-denominated or task creation failed | confirm reward_mint and task creation transaction |
+| mint mismatch | wrong PDA/ATA derived | re-derive escrow PDA and ATA using recorded task + mint |
+| balance is 0 | escrow not funded | inspect task creation logs; verify creator funding and token accounts |
 
 ---
 
