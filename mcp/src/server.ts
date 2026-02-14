@@ -1,5 +1,4 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { z } from 'zod';
 import { registerAgentTools } from './tools/agents.js';
 import { registerTaskTools } from './tools/tasks.js';
 import { registerProtocolTools } from './tools/protocol.js';
@@ -9,6 +8,7 @@ import { registerTestingTools } from './tools/testing.js';
 import { registerCircuitTools } from './tools/circuits.js';
 import { registerInspectorTools } from './tools/inspector.js';
 import { registerReplayTools } from './tools/replay.js';
+import { registerPrompts } from './prompts/register.js';
 
 export function createServer(): McpServer {
   const server = new McpServer({
@@ -81,68 +81,6 @@ function registerResources(server: McpServer): void {
       contents: [{
         uri: uri.href,
         text: TASK_STATES_REFERENCE,
-      }],
-    }),
-  );
-}
-
-function registerPrompts(server: McpServer): void {
-  server.prompt(
-    'debug-task',
-    'Guided task debugging workflow',
-    { task_pda: z.string().describe('Task PDA to debug') },
-    ({ task_pda }) => ({
-      messages: [{
-        role: 'user' as const,
-        content: {
-          type: 'text' as const,
-          text: 'Debug the AgenC task at PDA ' + task_pda + '. Steps:\n'
-            + '1. Use agenc_get_task to fetch the task state\n'
-            + '2. Check the task status and identify any issues\n'
-            + '3. Use agenc_get_escrow to verify escrow balance\n'
-            + '4. If disputed, use agenc_get_dispute to check dispute state\n'
-            + '5. Summarize findings and suggest next steps',
-        },
-      }],
-    }),
-  );
-
-  server.prompt(
-    'inspect-agent',
-    'Agent state inspection with decoded fields',
-    { agent_id: z.string().describe('Agent ID (hex) or PDA (base58)') },
-    ({ agent_id }) => ({
-      messages: [{
-        role: 'user' as const,
-        content: {
-          type: 'text' as const,
-          text: 'Inspect the AgenC agent with ID/PDA ' + agent_id + '. Steps:\n'
-            + '1. Use agenc_get_agent to fetch full agent state\n'
-            + '2. Use agenc_decode_capabilities to explain the capability bitmask\n'
-            + '3. Check rate limit state and active tasks\n'
-            + '4. Summarize the agent health and any concerns',
-        },
-      }],
-    }),
-  );
-
-  server.prompt(
-    'escrow-audit',
-    'Escrow balance verification checklist',
-    { task_pda: z.string().describe('Task PDA to audit') },
-    ({ task_pda }) => ({
-      messages: [{
-        role: 'user' as const,
-        content: {
-          type: 'text' as const,
-          text: 'Audit the escrow for AgenC task at PDA ' + task_pda + '. Steps:\n'
-            + '1. Use agenc_get_task to fetch the task reward amount and status\n'
-            + '2. Use agenc_get_escrow to check actual escrow balance\n'
-            + '3. Compare expected vs actual balance\n'
-            + '4. Check if completions match distributed amounts\n'
-            + '5. Use agenc_get_protocol_config to verify fee calculations\n'
-            + '6. Report any discrepancies',
-        },
       }],
     }),
   );
