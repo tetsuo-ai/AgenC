@@ -17,7 +17,7 @@ import {
   DisputeResolutionError,
   DisputeSlashError,
 } from './errors.js';
-import { RuntimeError, RuntimeErrorCodes, AnchorErrorCodes } from '../types/errors.js';
+import { RuntimeError, RuntimeErrorCodes, AnchorErrorCodes, ValidationError } from '../types/errors.js';
 import { PROGRAM_ID, SEEDS } from '@agenc/sdk';
 import { silentLogger } from '../utils/logger.js';
 import { generateAgentId } from '../utils/encoding.js';
@@ -556,6 +556,8 @@ describe('DisputeOperations', () => {
     it('maps EvidenceTooLong error', async () => {
       program._rpcMock.mockRejectedValueOnce(anchorError(AnchorErrorCodes.EvidenceTooLong));
 
+      // Evidence >256 chars is now caught by local validation (#963)
+      // so we test with a valid-length evidence that triggers the Anchor error
       await expect(
         ops.initiateDispute({
           disputeId: randomBytes(32),
@@ -563,7 +565,7 @@ describe('DisputeOperations', () => {
           taskId: randomBytes(32),
           evidenceHash: randomBytes(32),
           resolutionType: 0,
-          evidence: 'x'.repeat(300),
+          evidence: 'valid evidence',
         }),
       ).rejects.toThrow(DisputeResolutionError);
     });
@@ -956,6 +958,77 @@ describe('DisputeOperations', () => {
       // Worker pair second
       expect(remainingCall[2].pubkey.equals(extraWorkers[0].claimPda)).toBe(true);
       expect(remainingCall[3].pubkey.equals(extraWorkers[0].workerPda)).toBe(true);
+    });
+  });
+
+  // ==========================================================================
+  // Input Validation Tests (#963)
+  // ==========================================================================
+
+  describe('initiateDispute input validation (#963)', () => {
+    it('rejects disputeId with wrong length', async () => {
+      await expect(
+        ops.initiateDispute({
+          disputeId: new Uint8Array(16),
+          taskId: randomBytes(32),
+          taskPda: randomPubkey(),
+          evidenceHash: randomBytes(32),
+          evidence: 'test evidence',
+          resolutionType: 0,
+        }),
+      ).rejects.toThrow(ValidationError);
+    });
+
+    it('rejects all-zero evidenceHash', async () => {
+      await expect(
+        ops.initiateDispute({
+          disputeId: randomBytes(32),
+          taskId: randomBytes(32),
+          taskPda: randomPubkey(),
+          evidenceHash: new Uint8Array(32),
+          evidence: 'test evidence',
+          resolutionType: 0,
+        }),
+      ).rejects.toThrow(ValidationError);
+    });
+
+    it('rejects empty evidence string', async () => {
+      await expect(
+        ops.initiateDispute({
+          disputeId: randomBytes(32),
+          taskId: randomBytes(32),
+          taskPda: randomPubkey(),
+          evidenceHash: randomBytes(32),
+          evidence: '',
+          resolutionType: 0,
+        }),
+      ).rejects.toThrow(ValidationError);
+    });
+
+    it('rejects evidence exceeding 256 characters', async () => {
+      await expect(
+        ops.initiateDispute({
+          disputeId: randomBytes(32),
+          taskId: randomBytes(32),
+          taskPda: randomPubkey(),
+          evidenceHash: randomBytes(32),
+          evidence: 'x'.repeat(257),
+          resolutionType: 0,
+        }),
+      ).rejects.toThrow(ValidationError);
+    });
+
+    it('rejects invalid resolution type', async () => {
+      await expect(
+        ops.initiateDispute({
+          disputeId: randomBytes(32),
+          taskId: randomBytes(32),
+          taskPda: randomPubkey(),
+          evidenceHash: randomBytes(32),
+          evidence: 'test evidence',
+          resolutionType: 5,
+        }),
+      ).rejects.toThrow(ValidationError);
     });
   });
 });

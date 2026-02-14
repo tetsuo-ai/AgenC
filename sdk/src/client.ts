@@ -45,6 +45,21 @@ export class PrivacyClient {
       throw new Error(`Invalid circuit path: ${(e as Error).message}`);
     }
 
+    // Validate RPC URL format if provided
+    if (config.rpcUrl !== undefined) {
+      try {
+        const url = new URL(config.rpcUrl);
+        if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+          throw new Error('RPC URL must use http or https protocol');
+        }
+      } catch (e) {
+        if ((e as Error).message.includes('http or https')) {
+          throw new Error(`Invalid RPC URL: ${(e as Error).message}`);
+        }
+        throw new Error(`Invalid RPC URL: ${config.rpcUrl}`);
+      }
+    }
+
     this.config = {
       devnet: false,
       circuitPath,
@@ -178,6 +193,29 @@ export class PrivacyClient {
   }): Promise<{ proofTxSignature: string; withdrawResult: any }> {
     if (!this.wallet || !this.privacyClient) {
       throw new Error('Client not initialized. Call init() first.');
+    }
+
+    // Validate output array length (must be exactly 4 field elements for BN254)
+    if (!Array.isArray(params.output) || params.output.length !== 4) {
+      throw new Error('Invalid output: must be an array of exactly 4 bigint field elements');
+    }
+
+    // Validate output elements are non-negative and within BN254 field
+    const BN254_FIELD_MODULUS = 21888242871839275222246405745257275088548364400416034343698204186575808495617n;
+    for (let i = 0; i < params.output.length; i++) {
+      if (typeof params.output[i] !== 'bigint' || params.output[i] < 0n || params.output[i] >= BN254_FIELD_MODULUS) {
+        throw new Error(`Invalid output[${i}]: must be a non-negative bigint less than BN254 field modulus`);
+      }
+    }
+
+    // Validate salt is non-zero (zero salt = deterministic commitment, defeats privacy)
+    if (params.salt === 0n) {
+      throw new Error('Invalid salt: must be non-zero for privacy preservation');
+    }
+
+    // Validate escrowLamports
+    if (!Number.isInteger(params.escrowLamports) || params.escrowLamports <= 0) {
+      throw new Error('Invalid escrowLamports: must be a positive integer');
     }
 
     return await this.privacyClient.completeTaskPrivate(params, this.wallet);
