@@ -171,6 +171,31 @@ export interface SpeculationMetrics {
   rollbackRate: number;
 }
 
+/**
+ * Reason for speculative cancellation.
+ */
+export type CancellationReason =
+  | 'creator_cancelled'
+  | 'deadline_expired'
+  | 'manual'
+  | 'policy_violation';
+
+/**
+ * Result of speculative cancellation.
+ */
+export interface SpeculativeCancellationResult {
+  /** Task that initiated cancellation */
+  cancelledTaskPda: PublicKey;
+  /** Cancellation reason */
+  reason: CancellationReason;
+  /** Descendant tasks that were canceled */
+  abortedDescendants: PublicKey[];
+  /** Deferred proofs canceled by the deferral manager */
+  cancelledProofs: number;
+  /** Stake released by releasing commitments */
+  stakeReleased: bigint;
+}
+
 // ============================================================================
 // Default Configuration
 // ============================================================================
@@ -503,6 +528,77 @@ export class SpeculativeTaskScheduler {
     reason: RollbackReason = 'manual'
   ): Promise<RollbackResult> {
     return this.rollbackController.rollback(taskPda, reason);
+  }
+
+  /**
+   * Cancel speculative work for a task subtree without rollback accounting.
+   *
+   * Unlike rollback, cancellation does not increment rollback metrics
+   * and does not slash stake.
+   *
+   * @param taskPda - Task PDA to cancel
+   * @param reason - Why the cancellation was requested
+   * @returns Cancellation result
+   */
+  cancelSpeculation(
+    taskPda: PublicKey,
+    reason: CancellationReason
+  ): SpeculativeCancellationResult {
+    const cancelledTaskKey = taskPda.toBase58();
+    const descendants = this.dependencyGraph.getDescendants(taskPda);
+
+    const abortedDescendants: PublicKey[] = [];
+    let stakeReleased = 0n;
+
+    // Cancel active speculations across descendants
+    for (const descendant of descendants) {
+      const descendantKey = descendant.taskPda.toBase58();
+      if (this.activeSpeculations.delete(descendantKey)) {
+        abortedDescendants.push(descendant.taskPda);
+      }
+
+      const commitment = this.commitmentLedger.getByTask(descendant.taskPda);
+      if (
+        commitment &&
+        commitment.status !== 'confirmed' &&
+        commitment.status !== 'failed'
+      ) {
+        stakeReleased += commitment.stakeAtRisk;
+        this.commitmentLedger.updateStatus(descendant.taskPda, 'rolled_back');
+      }
+
+      this.dependencyGraph.updateStatus(descendant.taskPda, 'failed');
+    }
+
+    // Cancel the root task itself
+    this.activeSpeculations.delete(cancelledTaskKey);
+    const rootCommitment = this.commitmentLedger.getByTask(taskPda);
+    if (
+      rootCommitment &&
+      rootCommitment.status !== 'confirmed' &&
+      rootCommitment.status !== 'failed'
+    ) {
+      stakeReleased += rootCommitment.stakeAtRisk;
+      this.commitmentLedger.updateStatus(taskPda, 'rolled_back');
+    }
+    this.dependencyGraph.updateStatus(taskPda, 'failed');
+
+    // Cancel proofs waiting on this ancestry chain (best-effort)
+    const subtreeKeys = new Set(descendants.map((n) => n.taskPda.toBase58()));
+    subtreeKeys.add(cancelledTaskKey);
+    const blockedProofs = this.proofDeferralManager.getBlockedProofs();
+    const cancelledProofs = blockedProofs.filter((proof) =>
+      subtreeKeys.has(proof.taskPda.toBase58())
+    ).length;
+    this.proofDeferralManager.onAncestorFailed(taskPda);
+
+    return {
+      cancelledTaskPda: taskPda,
+      reason,
+      abortedDescendants,
+      cancelledProofs,
+      stakeReleased,
+    };
   }
 
   // ==========================================================================

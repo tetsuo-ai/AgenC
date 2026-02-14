@@ -102,6 +102,18 @@ export interface CommitmentLedgerStats {
 }
 
 /**
+ * Result of validating a commitment ancestor chain.
+ */
+export interface ChainIntegrityResult {
+  /** Whether the chain is valid. */
+  valid: boolean;
+  /** Node where validation failed. */
+  brokenAt?: PublicKey;
+  /** Reason the chain is invalid. */
+  reason?: 'missing_ancestor' | 'failed_ancestor' | 'rolled_back_ancestor';
+}
+
+/**
  * Mutation command for single-writer pattern.
  */
 export type MutationCommand =
@@ -173,6 +185,7 @@ export class CommitmentLedger {
   private readonly config: CommitmentLedgerConfig;
   private commitments: Map<string, SpeculativeCommitment> = new Map();
   private byTask: Map<string, string> = new Map(); // taskPda -> commitmentId
+  private byParentTask: Map<string, string> = new Map(); // taskPda -> parentTaskPda
   private byDepth: Map<number, Set<string>> = new Map(); // depth -> commitmentIds
   private mutationQueue: MutationCommand[] = [];
 
@@ -311,6 +324,10 @@ export class CommitmentLedger {
     if (!exists) {
       commitment.dependentTaskPdas.push(dependentTaskPda);
     }
+
+    if (!this.byParentTask.has(dependentKey)) {
+      this.byParentTask.set(dependentKey, taskPda.toBase58());
+    }
   }
 
   /**
@@ -396,6 +413,123 @@ export class CommitmentLedger {
     }
 
     return affected;
+  }
+
+  /**
+   * Finds commitments that appear to be orphaned based on depth and ancestry data.
+   *
+   * @returns Commitments with depth > 0 but no discoverable parent commitment
+   */
+  findOrphanedCommitments(): SpeculativeCommitment[] {
+    const orphans: SpeculativeCommitment[] = [];
+
+    for (const commitment of this.commitments.values()) {
+      if (
+        commitment.status === 'confirmed' ||
+        commitment.status === 'failed' ||
+        commitment.status === 'rolled_back'
+      ) {
+        continue;
+      }
+
+      if (commitment.depth <= 0) {
+        continue;
+      }
+
+      const childKey = commitment.sourceTaskPda.toBase58();
+      const parentKey = this.byParentTask.get(childKey);
+      if (!parentKey) {
+        orphans.push(commitment);
+        continue;
+      }
+
+      const parentId = this.byTask.get(parentKey);
+      const parentCommitment = parentId ? this.commitments.get(parentId) : undefined;
+      if (!parentCommitment) {
+        orphans.push(commitment);
+      }
+    }
+
+    return orphans;
+  }
+
+  /**
+   * Validates a commitment ancestry chain and returns the first broken node.
+   *
+   * @param taskPda - Task whose chain should be validated
+   * @returns Validation result with optional broken node and reason
+   */
+  validateChainIntegrity(taskPda: PublicKey): ChainIntegrityResult {
+    const commitment = this.getByTask(taskPda);
+    if (!commitment) {
+      return {
+        valid: false,
+        reason: 'missing_ancestor',
+        brokenAt: taskPda,
+      };
+    }
+
+    const visited = new Set<string>();
+    let current = commitment;
+
+    while (current.depth > 0) {
+      const currentKey = current.sourceTaskPda.toBase58();
+      if (visited.has(currentKey)) {
+        return {
+          valid: false,
+          reason: 'missing_ancestor',
+          brokenAt: current.sourceTaskPda,
+        };
+      }
+      visited.add(currentKey);
+
+      const parentKey = this.byParentTask.get(currentKey);
+      if (!parentKey) {
+        return {
+          valid: false,
+          reason: 'missing_ancestor',
+          brokenAt: current.sourceTaskPda,
+        };
+      }
+
+      const parentId = this.byTask.get(parentKey);
+      if (!parentId) {
+        return {
+          valid: false,
+          reason: 'missing_ancestor',
+          brokenAt: current.sourceTaskPda,
+        };
+      }
+
+      const parent = this.commitments.get(parentId);
+      if (!parent) {
+        return {
+          valid: false,
+          reason: 'missing_ancestor',
+          brokenAt: current.sourceTaskPda,
+        };
+      }
+
+      if (parent.status === 'failed') {
+        return {
+          valid: false,
+          reason: 'failed_ancestor',
+          brokenAt: parent.sourceTaskPda,
+        };
+      }
+
+      if (parent.status === 'rolled_back') {
+        return {
+          valid: false,
+          reason: 'rolled_back_ancestor',
+          brokenAt: parent.sourceTaskPda,
+        };
+      }
+
+      current = parent;
+    }
+
+    return { valid: true };
   }
 
   /**
@@ -498,6 +632,15 @@ export class CommitmentLedger {
           this.byDepth.delete(commitment.depth);
         }
       }
+
+      const dependentTaskPdas = commitment.dependentTaskPdas;
+      for (const dependentPda of dependentTaskPdas) {
+        const dependentKey = dependentPda.toBase58();
+        if (this.byParentTask.get(dependentKey) === taskKey) {
+          this.byParentTask.delete(dependentKey);
+        }
+      }
+      this.byParentTask.delete(taskKey);
     }
 
     return toRemove.length;
@@ -613,6 +756,7 @@ export class CommitmentLedger {
     // Clear existing state
     this.commitments.clear();
     this.byTask.clear();
+    this.byParentTask.clear();
     this.byDepth.clear();
 
     // Restore commitments
@@ -640,6 +784,13 @@ export class CommitmentLedger {
         this.byDepth.set(commitment.depth, new Set());
       }
       this.byDepth.get(commitment.depth)!.add(commitment.id);
+
+      for (const dependentPda of commitment.dependentTaskPdas) {
+        const dependentKey = dependentPda.toBase58();
+        if (!this.byParentTask.has(dependentKey)) {
+          this.byParentTask.set(dependentKey, commitment.sourceTaskPda.toBase58());
+        }
+      }
     }
   }
 
@@ -722,6 +873,7 @@ export class CommitmentLedger {
   clear(): void {
     this.commitments.clear();
     this.byTask.clear();
+    this.byParentTask.clear();
     this.byDepth.clear();
     this.mutationQueue = [];
   }
@@ -736,8 +888,34 @@ export class CommitmentLedger {
    * @returns Calculated depth
    */
   private calculateDepth(_taskPda: PublicKey): number {
-    // Base implementation: depth 0 for all commitments
-    // A full implementation would traverse parent dependencies
-    return 0;
+    let depth = 0;
+    const visited = new Set<string>();
+    let currentKey = _taskPda.toBase58();
+
+    while (true) {
+      const parentTaskKey = this.byParentTask.get(currentKey);
+      if (!parentTaskKey) {
+        return depth;
+      }
+
+      if (visited.has(parentTaskKey)) {
+        // Cycle detected in parent linkage
+        return depth;
+      }
+      visited.add(parentTaskKey);
+      depth += 1;
+
+      const parentCommitmentId = this.byTask.get(parentTaskKey);
+      if (!parentCommitmentId) {
+        return depth;
+      }
+
+      const parentCommitment = this.commitments.get(parentCommitmentId);
+      if (!parentCommitment) {
+        return depth;
+      }
+
+      currentKey = parentCommitment.sourceTaskPda.toBase58();
+    }
   }
 }
