@@ -14,8 +14,10 @@ import {
   ReplayBackfillOptions,
   ReplayCompareOptions,
   ReplayIncidentOptions,
+  SecurityOptions,
 } from './types.js';
 import { validateConfigStrict } from '../types/config-migration.js';
+import { runSecurityCommand } from './security.js';
 import {
   createOnChainReplayBackfillFetcher,
   createReplayStore,
@@ -697,6 +699,32 @@ export async function runCli(options: CliRunOptions = {}): Promise<CliStatusCode
   if (showRootHelp) {
     context.output(buildHelp());
     return 0;
+  }
+
+  // Handle `doctor security` subcommand before replay routing
+  if (parsed.positional[0] === 'doctor' && parsed.positional[1] === 'security') {
+    const configPath = resolveConfigPath(parsed.flags);
+    let fileConfig: CliFileConfig;
+    try {
+      fileConfig = loadFileConfig(configPath);
+    } catch {
+      fileConfig = {};
+    }
+    const envConfig = readEnvironmentConfig();
+    const global = normalizeGlobalFlags(parsed.flags, fileConfig, envConfig);
+    const securityOpts: SecurityOptions = {
+      ...global,
+      deep: normalizeBool(parsed.flags.deep, false),
+      json: normalizeBool(parsed.flags.json, false),
+      fix: normalizeBool(parsed.flags.fix, false),
+    };
+    try {
+      return await runSecurityCommand(context, securityOpts);
+    } catch (error) {
+      const payload = buildErrorPayload(error);
+      context.error(payload);
+      return 1;
+    }
   }
 
   let report: CliParseReport;
