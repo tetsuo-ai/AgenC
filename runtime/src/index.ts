@@ -707,6 +707,7 @@ export {
   validateAlertSchema,
   computeAnomalySetHash,
   computeAnomalySetHashFromContexts,
+  REPLAY_OPERATIONAL_LIMITS,
 } from './replay/index.js';
 
 // Policy and Safety Engine
@@ -798,6 +799,15 @@ export {
   MemoryBackendError,
   MemoryConnectionError,
   MemorySerializationError,
+  MemoryEncryptionError,
+  // Durability
+  type DurabilityLevel,
+  type DurabilityInfo,
+  MEMORY_OPERATIONAL_LIMITS,
+  // Encryption
+  type EncryptionConfig,
+  type EncryptionProvider,
+  createAES256GCMProvider,
   // In-memory backend
   InMemoryBackend,
   type InMemoryBackendConfig,

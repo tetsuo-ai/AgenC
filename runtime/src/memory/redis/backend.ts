@@ -286,6 +286,19 @@ export class RedisBackend implements MemoryBackend {
     }
   }
 
+  getDurability(): import('../types.js').DurabilityInfo {
+    return {
+      level: 'async',
+      supportsFlush: true,
+      description: 'Data is persisted asynchronously via Redis AOF/RDB. flush() triggers BGSAVE.',
+    };
+  }
+
+  async flush(): Promise<void> {
+    const client = await this.ensureClient();
+    await (client as any).call('BGSAVE');
+  }
+
   // ---------- Internals ----------
 
   private recordMemoryMetrics(operation: string, durationMs: number): void {
