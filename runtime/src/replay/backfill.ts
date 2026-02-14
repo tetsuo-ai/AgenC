@@ -78,7 +78,20 @@ export class ReplayBackfillService {
           metadata: { cursorSlot: cursor.slot },
         });
         cursor = null;
-        await this.store.saveCursor(null);
+        try {
+          await this.store.saveCursor(null);
+        } catch (error) {
+          void this.options.alertDispatcher?.emit({
+            code: 'replay.backfill.cursor_write_failed',
+            severity: 'warning',
+            kind: 'replay_ingestion_lag',
+            message: 'backfill cursor reset failed, continuing with in-memory reset',
+            traceId,
+            metadata: {
+              error: error instanceof Error ? error.message : String(error),
+            },
+          });
+        }
       } else if (typeof cursor.signature !== 'string' || cursor.signature.length === 0) {
         void this.options.alertDispatcher?.emit({
           code: 'replay.backfill.invalid_cursor',
@@ -89,8 +102,37 @@ export class ReplayBackfillService {
           metadata: { cursorSignature: String(cursor.signature) },
         });
         cursor = null;
-        await this.store.saveCursor(null);
+        try {
+          await this.store.saveCursor(null);
+        } catch (error) {
+          void this.options.alertDispatcher?.emit({
+            code: 'replay.backfill.cursor_write_failed',
+            severity: 'warning',
+            kind: 'replay_ingestion_lag',
+            message: 'backfill cursor reset failed, continuing with in-memory reset',
+            traceId,
+            metadata: {
+              error: error instanceof Error ? error.message : String(error),
+            },
+          });
+        }
       }
+    }
+
+    if (cursor !== null) {
+      void this.options.alertDispatcher?.emit({
+        code: 'replay.backfill.resume_after_crash',
+        severity: 'info',
+        kind: 'replay_ingestion_lag',
+        message: 'backfill resumed from persisted cursor',
+        slot: cursor.slot,
+        signature: cursor.signature,
+        traceId,
+        metadata: {
+          toSlot: this.options.toSlot,
+          pageSize,
+        },
+      });
     }
 
     while (true) {
@@ -144,7 +186,38 @@ export class ReplayBackfillService {
             seed: 0,
           });
           const records = projection.events.map(toReplayStoreRecord);
-          const writeResult = await this.store.save(records);
+          let writeResult: Awaited<ReturnType<ReplayTimelineStore['save']>>;
+          try {
+            writeResult = await this.store.save(records);
+          } catch (error) {
+            pageSpan.end(error);
+
+            void this.options.alertDispatcher?.emit({
+              code: 'replay.backfill.store_write_failed',
+              severity: 'error',
+              kind: 'replay_ingestion_lag',
+              message: 'backfill store write failed, stopping early',
+              slot: cursor?.slot,
+              signature: cursor?.signature,
+              traceId,
+              metadata: {
+                toSlot: this.options.toSlot,
+                pageSize,
+                attemptedRecords: records.length,
+                cursor: stableReplayCursorString(cursor),
+                error: error instanceof Error ? error.message : String(error),
+              },
+            });
+
+            return {
+              processed,
+              duplicates,
+              cursor,
+              duplicateReport: duplicateKeys.length > 0
+                ? { count: duplicates, keys: [...duplicateKeys].sort() }
+                : undefined,
+            };
+          }
 
           processed += writeResult.inserted;
           duplicates += writeResult.duplicates;
@@ -180,13 +253,41 @@ export class ReplayBackfillService {
       const lastTraceSpanId = pageEvents.length > 0
         ? pageEvents[pageEvents.length - 1]?.traceContext?.spanId
         : cursor?.traceSpanId;
-      await this.store.saveCursor(page.nextCursor
+      const nextCursor = page.nextCursor
         ? {
           ...page.nextCursor,
           traceId,
           traceSpanId: page.nextCursor.traceSpanId ?? lastTraceSpanId,
         }
-        : null);
+        : null;
+      try {
+        await this.store.saveCursor(nextCursor);
+      } catch (error) {
+        void this.options.alertDispatcher?.emit({
+          code: 'replay.backfill.cursor_write_failed',
+          severity: 'warning',
+          kind: 'replay_ingestion_lag',
+          message: 'backfill cursor persistence failed, stopping early',
+          slot: cursor?.slot,
+          signature: cursor?.signature,
+          traceId,
+          metadata: {
+            toSlot: this.options.toSlot,
+            pageSize,
+            cursor: stableReplayCursorString(cursor),
+            nextCursor: stableReplayCursorString(nextCursor),
+            error: error instanceof Error ? error.message : String(error),
+          },
+        });
+        return {
+          processed,
+          duplicates,
+          cursor,
+          duplicateReport: duplicateKeys.length > 0
+            ? { count: duplicates, keys: [...duplicateKeys].sort() }
+            : undefined,
+        };
+      }
       cursor = page.nextCursor;
 
       if (page.done) {

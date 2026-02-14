@@ -549,7 +549,7 @@ export class ReplayComparisonService {
         for (const duplicate of bucket.slice(1)) {
           mergeAnomaly(anomalies, {
             code: 'duplicate_sequence',
-            severity: 'warning',
+            severity: 'error',
             message: `duplicate projected event sequence ${duplicate.seq}`,
             context: replayReplayContextFromProjected(duplicate),
           });
@@ -562,7 +562,7 @@ export class ReplayComparisonService {
         for (const duplicate of bucket.slice(1)) {
           mergeAnomaly(anomalies, {
             code: 'duplicate_sequence',
-            severity: 'warning',
+            severity: 'error',
             message: `duplicate local event sequence ${duplicate.seq}`,
             context: replayContextFromLocal(duplicate),
           });

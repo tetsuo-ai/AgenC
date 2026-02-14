@@ -147,6 +147,7 @@ describe('mutation regression gates', () => {
         maxAggregateCostUtilityDrop: 0.45,
         maxScenarioPassRateDrop: 1.0,
         maxOperatorPassRateDrop: 0.6,
+        maxChaosScenarioFailRate: 0.0,
       },
     });
 
@@ -167,6 +168,7 @@ describe('mutation regression gates', () => {
           maxAggregateCostUtilityDrop: 0.45,
           maxScenarioPassRateDrop: 1.0,
           maxOperatorPassRateDrop: 0.6,
+          maxChaosScenarioFailRate: 0.0,
         },
       })
     ).toThrow(/schema version/i);
@@ -238,5 +240,38 @@ describe('mutation regression gates', () => {
       manifest
     );
     expect(evaluation.passed).toBe(true);
+  });
+
+  it('fails when chaos scenario fail rate exceeds threshold', () => {
+    const artifact = artifactFixture(-0.2);
+    artifact.runs = [
+      {
+        mutationId: 'mutation-1',
+        scenarioId: 'chaos.comparator.hash_mismatch',
+        operatorId: 'workflow.drop_completion',
+        operatorCategory: 'workflow',
+        seed: 1,
+        traceId: 'trace-1',
+        deterministicHash: 'hash-1',
+        passed: false,
+      },
+      {
+        mutationId: 'mutation-2',
+        scenarioId: 'chaos.comparator.hash_mismatch',
+        operatorId: 'workflow.drop_completion',
+        operatorCategory: 'workflow',
+        seed: 2,
+        traceId: 'trace-2',
+        deterministicHash: 'hash-2',
+        passed: true,
+      },
+    ];
+
+    const evaluation = evaluateMutationRegressionGates(artifact, {
+      maxChaosScenarioFailRate: 0.0,
+    });
+
+    expect(evaluation.passed).toBe(false);
+    expect(evaluation.violations.some((violation) => violation.scope === 'chaos')).toBe(true);
   });
 });

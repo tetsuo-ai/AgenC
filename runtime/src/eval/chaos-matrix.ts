@@ -90,9 +90,9 @@ export const CHAOS_SCENARIOS: readonly ChaosScenario[] = [
     category: 'store',
     trigger: 'Store rejects write mid-batch (simulated I/O error)',
     expectedAnomaly: {
-      code: 'missing_event',
+      alertCode: 'replay.backfill.store_write_failed',
       severity: 'error',
-      kind: 'replay_anomaly_repeat',
+      kind: 'replay_ingestion_lag',
     },
     classification: 'deterministic',
     fixture: 'runtime/tests/fixtures/replay-chaos-store-fixture.ts',
@@ -114,7 +114,7 @@ export const CHAOS_SCENARIOS: readonly ChaosScenario[] = [
     category: 'store',
     trigger: 'Store returns zero records for valid query',
     expectedAnomaly: {
-      code: 'missing_event',
+      code: 'unexpected_event',
       severity: 'warning',
       kind: 'replay_anomaly_repeat',
     },
@@ -182,4 +182,3 @@ export const CHAOS_SCENARIOS: readonly ChaosScenario[] = [
     fixture: 'runtime/tests/fixtures/replay-chaos-partial-write-fixture.ts',
   },
 ] as const;
-

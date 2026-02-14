@@ -64,6 +64,10 @@ function parseCliArgs(argv: string[]): CliOptions {
       options.thresholds.maxOperatorPassRateDrop = parseThreshold(argv[++i]!, arg);
       continue;
     }
+    if (arg === '--max-chaos-scenario-fail-rate' && argv[i + 1]) {
+      options.thresholds.maxChaosScenarioFailRate = parseThreshold(argv[++i]!, arg);
+      continue;
+    }
     if (arg === '--help') {
       console.log([
         'Usage: check-mutation-gates --artifact <path> [threshold overrides]',
@@ -74,6 +78,7 @@ function parseCliArgs(argv: string[]): CliOptions {
         '  --max-aggregate-cost-utility-drop <float>',
         '  --max-scenario-pass-rate-drop <float>',
         '  --max-operator-pass-rate-drop <float>',
+        '  --max-chaos-scenario-fail-rate <float>',
         '',
         'Options:',
         '  --dry-run   Always exit 0, but print failures',
@@ -103,4 +108,3 @@ main().catch((error) => {
   console.error(`Mutation gate evaluation failed: ${message}`);
   process.exit(1);
 });
-

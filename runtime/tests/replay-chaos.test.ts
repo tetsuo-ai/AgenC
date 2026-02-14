@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { TrajectoryReplayEngine } from '../src/eval/replay.js';
 import { projectOnChainEvents } from '../src/eval/projector.js';
+import { CHAOS_SCENARIOS } from '../src/eval/chaos-matrix.js';
 import { REPLAY_CHAOS_FIXTURE } from './fixtures/replay-chaos-fixture.ts';
 
 function eventSignature(result: ReturnType<typeof projectOnChainEvents>): string {
@@ -10,6 +11,13 @@ function eventSignature(result: ReturnType<typeof projectOnChainEvents>): string
 }
 
 describe('chaotic replay projection pipeline', () => {
+  it('exposes a stable chaos scenario matrix', () => {
+    expect(CHAOS_SCENARIOS.length).toBeGreaterThanOrEqual(12);
+    const ids = CHAOS_SCENARIOS.map((scenario) => scenario.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(CHAOS_SCENARIOS.some((scenario) => scenario.category === 'partial_write')).toBe(true);
+  });
+
   it('remains deterministic for out-of-order and duplicated chaos streams in lenient mode', () => {
     const shuffled = [...REPLAY_CHAOS_FIXTURE.onChainEvents].sort((left, right) => {
       if (left.slot !== right.slot) {

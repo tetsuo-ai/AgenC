@@ -188,12 +188,27 @@ export class TrajectoryReplayEngine {
 
     const previousStatus = task.status;
 
+    if (event.type === 'dispute:initiated' && previousStatus === 'failed') {
+      const message = `invalid dispute transition ${previousStatus} -> dispute:initiated at seq=${event.seq}`;
+      if (this.strictMode) {
+        errors.push(message);
+      } else {
+        warnings.push(message);
+      }
+    }
+
     switch (event.type) {
       case 'discovered':
         task.status = 'discovered';
         break;
       case 'claimed':
         task.status = 'claimed';
+        break;
+      case 'dispute:initiated':
+      case 'dispute:vote_cast':
+      case 'dispute:resolved':
+      case 'dispute:cancelled':
+      case 'dispute:expired':
         break;
       case 'executed':
       case 'executed_speculative':

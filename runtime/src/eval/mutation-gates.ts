@@ -12,6 +12,7 @@ export interface MutationGateThresholds {
   maxAggregateCostUtilityDrop: number;
   maxScenarioPassRateDrop: number;
   maxOperatorPassRateDrop: number;
+  maxChaosScenarioFailRate: number;
 }
 
 export interface MutationGatingPolicyManifest {
@@ -30,9 +31,9 @@ export interface MutationGatingPolicyManifest {
 }
 
 export interface MutationGateViolation {
-  scope: 'aggregate' | 'scenario' | 'operator';
+  scope: 'aggregate' | 'scenario' | 'operator' | 'chaos';
   id: string;
-  metric: 'passRate' | 'conformanceScore' | 'costNormalizedUtility';
+  metric: 'passRate' | 'conformanceScore' | 'costNormalizedUtility' | 'chaosFailRate';
   delta: number;
   minAllowedDelta: number;
 }
@@ -49,6 +50,7 @@ export const DEFAULT_MUTATION_GATE_THRESHOLDS: MutationGateThresholds = {
   maxAggregateCostUtilityDrop: 0.45,
   maxScenarioPassRateDrop: 1.00,
   maxOperatorPassRateDrop: 0.60,
+  maxChaosScenarioFailRate: 0.00,
 };
 
 function mergeThresholds(
@@ -72,6 +74,7 @@ function parseThresholds(raw: unknown): MutationGateThresholds {
     'maxAggregateCostUtilityDrop',
     'maxScenarioPassRateDrop',
     'maxOperatorPassRateDrop',
+    'maxChaosScenarioFailRate',
   ];
 
   for (const key of requiredKeys) {
@@ -254,6 +257,21 @@ export function evaluateMutationRegressionGates(
     }
   }
 
+  const chaosRuns = artifact.runs.filter((run) => run.scenarioId.startsWith('chaos.'));
+  if (chaosRuns.length > 0) {
+    const failures = chaosRuns.filter((run) => !run.passed).length;
+    const failRate = failures / chaosRuns.length;
+    if (failRate > merged.maxChaosScenarioFailRate) {
+      violations.push({
+        scope: 'chaos',
+        id: 'aggregate',
+        metric: 'chaosFailRate',
+        delta: -1 * failRate,
+        minAllowedDelta: -1 * merged.maxChaosScenarioFailRate,
+      });
+    }
+  }
+
   return {
     passed: violations.length === 0,
     thresholds: merged,
@@ -273,6 +291,7 @@ export function formatMutationGateEvaluation(evaluation: MutationGateEvaluation)
     `  aggregate cost-utility drop <= ${evaluation.thresholds.maxAggregateCostUtilityDrop.toFixed(4)}`,
     `  scenario pass-rate drop <= ${evaluation.thresholds.maxScenarioPassRateDrop.toFixed(4)}`,
     `  operator pass-rate drop <= ${evaluation.thresholds.maxOperatorPassRateDrop.toFixed(4)}`,
+    `  chaos scenario fail-rate <= ${evaluation.thresholds.maxChaosScenarioFailRate.toFixed(4)}`,
   ];
 
   if (evaluation.violations.length === 0) {
