@@ -37,7 +37,9 @@ export {
 
 export {
   createTask,
+  createDependentTask,
   claimTask,
+  expireClaim,
   completeTask,
   completeTaskPrivate,
   cancelTask,
@@ -49,6 +51,7 @@ export {
   formatTaskState,
   calculateEscrowFee,
   TaskParams,
+  DependentTaskParams,
   TaskState,
   TaskStatus,
   PrivateCompletionProof,
@@ -127,7 +130,74 @@ export {
   RECOMMENDED_CU_CANCEL_TASK_TOKEN,
   // PDA seeds
   SEEDS,
+  VERIFIER_PROGRAM_ID,
 } from './constants';
+
+export {
+  registerAgent,
+  updateAgent,
+  suspendAgent,
+  unsuspendAgent,
+  deregisterAgent,
+  getAgent,
+  deriveAgentPda,
+  AgentStatus,
+  type RegisterAgentParams,
+  type UpdateAgentParams,
+  type AgentState,
+} from './agents';
+
+export {
+  initiateDispute,
+  voteDispute,
+  resolveDispute,
+  applyDisputeSlash,
+  applyInitiatorSlash,
+  cancelDispute,
+  expireDispute,
+  getDispute,
+  deriveDisputePda,
+  deriveVotePda,
+  DisputeStatus,
+  ResolutionType,
+  type InitiateDisputeParams,
+  type VoteDisputeParams,
+  type ResolveDisputeParams,
+  type ApplyDisputeSlashParams,
+  type ApplyInitiatorSlashParams,
+  type ExpireDisputeParams,
+  type DisputeState,
+} from './disputes';
+
+export {
+  updateState,
+  getState,
+  deriveStatePda,
+  type CoordinationState,
+  type UpdateStateParams,
+} from './state';
+
+export {
+  initializeProtocol,
+  updateProtocolFee,
+  updateRateLimits,
+  migrateProtocol,
+  updateMinVersion,
+  getProtocolConfig,
+  deriveProtocolPda,
+  type InitializeProtocolParams,
+  type UpdateRateLimitsParams,
+  type ProtocolConfigState,
+} from './protocol';
+
+export {
+  COORDINATION_ERROR_MAP,
+  decodeError,
+  decodeAnchorError,
+  type ErrorCategory,
+  type CoordinationErrorEntry,
+  type DecodedError,
+} from './errors';
 
 export {
   // Query functions
