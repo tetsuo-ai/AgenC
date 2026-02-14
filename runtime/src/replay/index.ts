@@ -70,4 +70,13 @@ export {
   type ReplayAlertSeverity,
   type ReplayAlertKind,
   ReplayAlertDispatcher,
+  REPLAY_ALERT_SCHEMA_VERSION,
+  type ReplayAlertSchemaV1,
+  REPLAY_ALERT_V1_REQUIRED_FIELDS,
+  REPLAY_ALERT_V1_VALID_SEVERITIES,
+  REPLAY_ALERT_V1_VALID_KINDS,
+  type SchemaCompatibilityResult,
+  validateAlertSchema,
+  computeAnomalySetHash,
+  computeAnomalySetHashFromContexts,
 } from './alerting.js';

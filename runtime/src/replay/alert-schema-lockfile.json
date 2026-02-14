@@ -1,0 +1,32 @@
+{
+  "schemaVersion": "replay.alert.v1",
+  "requiredFields": ["code", "emittedAtMs", "id", "kind", "message", "severity"],
+  "optionalFields": [
+    "disputePda", "metadata", "occurredAtMs", "repeatCount",
+    "signature", "slot", "sourceEventName", "sourceEventSequence",
+    "taskPda", "traceId"
+  ],
+  "validSeverities": ["error", "info", "warning"],
+  "validKinds": [
+    "replay_anomaly_repeat", "replay_hash_mismatch",
+    "replay_ingestion_lag", "transition_validation"
+  ],
+  "fieldTypes": {
+    "id": "string",
+    "code": "string",
+    "severity": "string",
+    "kind": "string",
+    "message": "string",
+    "emittedAtMs": "number",
+    "taskPda": "string?",
+    "disputePda": "string?",
+    "sourceEventName": "string?",
+    "signature": "string?",
+    "slot": "number?",
+    "sourceEventSequence": "number?",
+    "traceId": "string?",
+    "metadata": "Record<string, string | number | boolean | null>?",
+    "occurredAtMs": "number?",
+    "repeatCount": "number?"
+  }
+}

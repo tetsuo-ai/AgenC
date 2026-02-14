@@ -1,5 +1,11 @@
 import { z } from 'zod';
 
+/**
+ * Alert schema version referenced by replay tools.
+ * Must match REPLAY_ALERT_SCHEMA_VERSION in @agenc/runtime.
+ */
+export const REPLAY_ALERT_SCHEMA_VERSION = 'replay.alert.v1';
+
 export const REPLAY_BACKFILL_OUTPUT_SCHEMA = 'replay.backfill.output.v1';
 export const REPLAY_COMPARE_OUTPUT_SCHEMA = 'replay.compare.output.v1';
 export const REPLAY_INCIDENT_OUTPUT_SCHEMA = 'replay.incident.output.v1';
@@ -97,6 +103,7 @@ export const ReplayIncidentValidationSchema = z.object({
     replay_task_count: z.number().nonnegative(),
   }),
   anomaly_ids: z.array(z.string()),
+  deterministic_hash: z.string().optional(),
 });
 
 export const ReplayIncidentSummarySchema = z.object({
@@ -116,6 +123,7 @@ export const ReplayIncidentSummarySchema = z.object({
 export const ReplayIncidentNarrativeSchema = z.object({
   lines: z.array(z.string()),
   anomaly_ids: z.array(z.string()),
+  deterministic_hash: z.string().optional(),
 });
 
 export const ReplayBackfillOutputSchema = z.object({

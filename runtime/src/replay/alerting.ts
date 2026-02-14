@@ -14,6 +14,17 @@ import {
   type JsonValue,
 } from '../eval/types.js';
 
+// ---------------------------------------------------------------------------
+// Schema version
+// ---------------------------------------------------------------------------
+
+/**
+ * Schema version for replay alert payloads.
+ * Increment when adding required fields or changing field semantics.
+ * Adding optional fields does NOT require a version bump.
+ */
+export const REPLAY_ALERT_SCHEMA_VERSION = 'replay.alert.v1' as const;
+
 export type ReplayAlertSeverity = 'info' | 'warning' | 'error';
 
 export type ReplayAlertKind =
@@ -312,6 +323,152 @@ class ReplayWebhookAdapter implements ReplayAlertAdapter {
     }
   }
 }
+
+// ---------------------------------------------------------------------------
+// Schema V1 type definition
+// ---------------------------------------------------------------------------
+
+/**
+ * The canonical replay alert schema v1.
+ * All fields are documented here as the contract for consumers.
+ *
+ * Required fields: id, code, severity, kind, message, emittedAtMs
+ * Optional fields: taskPda, disputePda, sourceEventName, signature, slot,
+ *   sourceEventSequence, traceId, metadata, occurredAtMs, repeatCount
+ */
+export interface ReplayAlertSchemaV1 {
+  readonly schemaVersion: typeof REPLAY_ALERT_SCHEMA_VERSION;
+  readonly id: string;
+  readonly code: string;
+  readonly severity: ReplayAlertSeverity;
+  readonly kind: ReplayAlertKind;
+  readonly message: string;
+  readonly emittedAtMs: number;
+  readonly taskPda?: string;
+  readonly disputePda?: string;
+  readonly sourceEventName?: string;
+  readonly signature?: string;
+  readonly slot?: number;
+  readonly sourceEventSequence?: number;
+  readonly traceId?: string;
+  readonly metadata?: Record<string, string | number | boolean | null | undefined>;
+  readonly occurredAtMs?: number;
+  readonly repeatCount?: number;
+}
+
+// ---------------------------------------------------------------------------
+// Schema compatibility check
+// ---------------------------------------------------------------------------
+
+export const REPLAY_ALERT_V1_REQUIRED_FIELDS = [
+  'id', 'code', 'severity', 'kind', 'message', 'emittedAtMs',
+] as const;
+
+export const REPLAY_ALERT_V1_VALID_SEVERITIES: ReadonlySet<string> = new Set([
+  'info', 'warning', 'error',
+]);
+
+export const REPLAY_ALERT_V1_VALID_KINDS: ReadonlySet<string> = new Set([
+  'transition_validation',
+  'replay_hash_mismatch',
+  'replay_anomaly_repeat',
+  'replay_ingestion_lag',
+]);
+
+export interface SchemaCompatibilityResult {
+  compatible: boolean;
+  schemaVersion: string;
+  missingFields: string[];
+  invalidFields: string[];
+}
+
+/**
+ * Check if a given object conforms to the replay.alert.v1 schema.
+ * Returns a structured result with compatibility status and error details.
+ */
+export function validateAlertSchema(payload: unknown): SchemaCompatibilityResult {
+  const result: SchemaCompatibilityResult = {
+    compatible: true,
+    schemaVersion: REPLAY_ALERT_SCHEMA_VERSION,
+    missingFields: [],
+    invalidFields: [],
+  };
+
+  if (payload === null || typeof payload !== 'object' || Array.isArray(payload)) {
+    return { ...result, compatible: false, missingFields: [...REPLAY_ALERT_V1_REQUIRED_FIELDS] };
+  }
+
+  const record = payload as Record<string, unknown>;
+
+  for (const field of REPLAY_ALERT_V1_REQUIRED_FIELDS) {
+    if (!(field in record) || record[field] === undefined) {
+      result.missingFields.push(field);
+      result.compatible = false;
+    }
+  }
+
+  if (typeof record.id !== 'string' || record.id.length === 0) {
+    result.invalidFields.push('id: must be non-empty string');
+    result.compatible = false;
+  }
+  if (typeof record.code !== 'string' || record.code.length === 0) {
+    result.invalidFields.push('code: must be non-empty string');
+    result.compatible = false;
+  }
+  if (!REPLAY_ALERT_V1_VALID_SEVERITIES.has(record.severity as string)) {
+    result.invalidFields.push(`severity: must be one of ${[...REPLAY_ALERT_V1_VALID_SEVERITIES].join(', ')}`);
+    result.compatible = false;
+  }
+  if (!REPLAY_ALERT_V1_VALID_KINDS.has(record.kind as string)) {
+    result.invalidFields.push(`kind: must be one of ${[...REPLAY_ALERT_V1_VALID_KINDS].join(', ')}`);
+    result.compatible = false;
+  }
+  if (typeof record.message !== 'string') {
+    result.invalidFields.push('message: must be string');
+    result.compatible = false;
+  }
+  if (typeof record.emittedAtMs !== 'number' || !Number.isFinite(record.emittedAtMs)) {
+    result.invalidFields.push('emittedAtMs: must be finite number');
+    result.compatible = false;
+  }
+
+  return result;
+}
+
+// ---------------------------------------------------------------------------
+// Anomaly set hash
+// ---------------------------------------------------------------------------
+
+/**
+ * Compute a deterministic hash of an anomaly set for incident evidence.
+ *
+ * The hash is computed over the sorted list of alert IDs, producing a
+ * single SHA-256 hex string that uniquely identifies the set of anomalies.
+ * Two incident windows with the same anomalies produce the same hash.
+ */
+export function computeAnomalySetHash(alerts: ReadonlyArray<ReplayAnomalyAlert>): string {
+  const sortedIds = alerts
+    .map((alert) => alert.id)
+    .sort();
+  const payload = stableStringifyJson(sortedIds as JsonValue);
+  return createHash('sha256').update(payload).digest('hex');
+}
+
+/**
+ * Compute anomaly set hash from raw alert contexts (before ID assignment).
+ * Useful when alerts have not yet been dispatched.
+ */
+export function computeAnomalySetHashFromContexts(contexts: ReadonlyArray<ReplayAlertContext>): string {
+  const ids = contexts.map((ctx) => {
+    const base = buildAlertPayload(ctx);
+    return makeAlertId(base);
+  }).sort();
+  return createHash('sha256').update(stableStringifyJson(ids as JsonValue)).digest('hex');
+}
+
+// ---------------------------------------------------------------------------
+// Factory
+// ---------------------------------------------------------------------------
 
 export function createReplayAlertDispatcher(
   policy: ReplayAlertingPolicyOptions | undefined,
