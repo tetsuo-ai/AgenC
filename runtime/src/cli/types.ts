@@ -78,6 +78,7 @@ export interface ParsedArgv {
 }
 
 export interface CliFileConfig {
+  configVersion?: string;
   rpcUrl?: string;
   programId?: string;
   storeType?: 'memory' | 'sqlite';
