@@ -10,7 +10,7 @@
  *   Both are required — if either is missing, tool calls silently do nothing.
  *
  * Usage:
- *   npx ts-node examples/llm-agent/index.ts
+ *   npx tsx examples/llm-agent/index.ts
  *
  * Environment:
  *   SOLANA_RPC_URL    - RPC endpoint (default: devnet)

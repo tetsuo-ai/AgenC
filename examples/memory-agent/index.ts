@@ -13,7 +13,7 @@
  *   - LLM interop via entryToMessage() for feeding context to providers
  *
  * Usage:
- *   npx ts-node examples/memory-agent/index.ts
+ *   npx tsx examples/memory-agent/index.ts
  *
  * Environment:
  *   SOLANA_RPC_URL - RPC endpoint (default: devnet)
