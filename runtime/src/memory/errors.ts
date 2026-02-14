@@ -53,3 +53,19 @@ export class MemorySerializationError extends RuntimeError {
     this.backendName = backendName;
   }
 }
+
+/**
+ * Error thrown when encryption or decryption of memory data fails.
+ */
+export class MemoryEncryptionError extends RuntimeError {
+  public readonly backendName: string;
+
+  constructor(backendName: string, message: string) {
+    super(
+      `${backendName} encryption error: ${message}`,
+      RuntimeErrorCodes.MEMORY_BACKEND_ERROR,
+    );
+    this.name = 'MemoryEncryptionError';
+    this.backendName = backendName;
+  }
+}

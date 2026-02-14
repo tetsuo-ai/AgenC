@@ -5,6 +5,7 @@
  */
 
 import type { MemoryBackendConfig } from '../types.js';
+import type { EncryptionConfig } from '../encryption.js';
 
 /**
  * Configuration for the SQLite memory backend.
@@ -19,4 +20,6 @@ export interface SqliteBackendConfig extends MemoryBackendConfig {
   walMode?: boolean;
   /** Delete expired rows on connect. Default: true */
   cleanupOnConnect?: boolean;
+  /** Optional AES-256-GCM encryption for content fields at rest. */
+  encryption?: EncryptionConfig;
 }

@@ -94,4 +94,16 @@ export class InMemoryReplayTimelineStore implements ReplayTimelineStore {
     this.ids.clear();
     this.cursor = null;
   }
+
+  getDurability(): import('../memory/types.js').DurabilityInfo {
+    return {
+      level: 'none',
+      supportsFlush: false,
+      description: 'Data lives only in process memory and is lost on restart.',
+    };
+  }
+
+  async flush(): Promise<void> {
+    // No-op: in-memory store has no durable storage to flush.
+  }
 }
