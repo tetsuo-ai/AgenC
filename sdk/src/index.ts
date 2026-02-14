@@ -219,6 +219,19 @@ export {
 } from './nullifier-cache';
 
 export {
+  checkVersionCompatibility,
+  requireVersionCompatibility,
+  getFeaturesForVersion,
+  SDK_PROTOCOL_VERSION,
+  SDK_MIN_PROTOCOL_VERSION,
+  SDK_PACKAGE_VERSION,
+  VersionStatus,
+  type ProtocolVersionInfo,
+  type FeatureFlags,
+  type VersionCompatibilityOptions,
+} from './version';
+
+export {
   // Query functions
   getTasksByDependency,
   getDependentTaskCount,
