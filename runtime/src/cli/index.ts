@@ -11,13 +11,23 @@ import {
   CliRuntimeContext,
   CliValidationError,
   ParsedArgv,
+  PluginInstallOptions,
+  PluginListOptions,
+  PluginReloadOptions,
+  BaseCliOptions,
   ReplayBackfillOptions,
   ReplayCompareOptions,
   ReplayIncidentOptions,
+  PluginToggleOptions,
   SecurityOptions,
 } from './types.js';
 import { validateConfigStrict } from '../types/config-migration.js';
 import { runSecurityCommand } from './security.js';
+import {
+  PluginCatalog,
+  type PluginPrecedence,
+  type PluginSlot,
+} from '../skills/catalog.js';
 import {
   createOnChainReplayBackfillFetcher,
   createReplayStore,
@@ -38,6 +48,7 @@ import {
   TrajectoryReplayEngine,
 } from '../eval/replay.js';
 import { type TrajectoryTrace } from '../eval/types.js';
+import type { PluginManifest } from '../skills/manifest.js';
 
 interface CliRunOptions {
   argv?: string[];
@@ -72,7 +83,18 @@ interface CliCommandDescriptor {
   ) => Promise<CliStatusCode>;
 }
 
+interface PluginCommandDescriptor {
+  name: string;
+  description: string;
+  commandOptions: Set<string>;
+  run: (
+    context: CliRuntimeContext,
+    options: PluginCommandOptions,
+  ) => Promise<CliStatusCode>;
+}
+
 type ReplayCommand = 'backfill' | 'compare' | 'incident';
+type PluginCommand = 'list' | 'install' | 'disable' | 'enable' | 'reload';
 
 type CliStatusCode = 0 | 1 | 2;
 
@@ -80,6 +102,11 @@ type CliCommandOptions =
   | ReplayBackfillOptions
   | ReplayCompareOptions
   | ReplayIncidentOptions;
+type PluginCommandOptions =
+  | PluginListOptions
+  | PluginInstallOptions
+  | PluginToggleOptions
+  | PluginReloadOptions;
 
 const DEFAULT_IDEMPOTENCY_WINDOW = 900;
 const DEFAULT_OUTPUT_FORMAT: CliOutputFormat = 'json';
@@ -108,6 +135,13 @@ const COMMAND_OPTIONS: Record<ReplayCommand, Set<string>> = {
   compare: new Set(['local-trace-path', 'task-pda', 'dispute-pda']),
   incident: new Set(['task-pda', 'dispute-pda', 'from-slot', 'to-slot']),
 };
+const PLUGIN_COMMAND_OPTIONS: Record<PluginCommand, Set<string>> = {
+  list: new Set(),
+  install: new Set(['manifest', 'precedence', 'slot']),
+  disable: new Set(),
+  enable: new Set(),
+  reload: new Set(['manifest']),
+};
 
 const COMMANDS: Record<ReplayCommand, CliCommandDescriptor> = {
   backfill: {
@@ -129,12 +163,46 @@ const COMMANDS: Record<ReplayCommand, CliCommandDescriptor> = {
     run: runReplayIncidentCommand,
   },
 };
+const PLUGIN_COMMANDS: Record<PluginCommand, PluginCommandDescriptor> = {
+  list: {
+    name: 'list',
+    description: 'List plugin catalog entries',
+    commandOptions: PLUGIN_COMMAND_OPTIONS.list,
+    run: runPluginListCommand,
+  },
+  install: {
+    name: 'install',
+    description: 'Install a plugin from a manifest',
+    commandOptions: PLUGIN_COMMAND_OPTIONS.install,
+    run: runPluginInstallCommand,
+  },
+  disable: {
+    name: 'disable',
+    description: 'Disable a plugin by ID',
+    commandOptions: PLUGIN_COMMAND_OPTIONS.disable,
+    run: runPluginDisableCommand,
+  },
+  enable: {
+    name: 'enable',
+    description: 'Enable a plugin by ID',
+    commandOptions: PLUGIN_COMMAND_OPTIONS.enable,
+    run: runPluginEnableCommand,
+  },
+  reload: {
+    name: 'reload',
+    description: 'Reload a plugin and refresh manifest state',
+    commandOptions: PLUGIN_COMMAND_OPTIONS.reload,
+    run: runPluginReloadCommand,
+  },
+};
 
 const ERROR_CODES = {
   MISSING_ROOT_COMMAND: 'MISSING_ROOT_COMMAND',
   UNKNOWN_COMMAND: 'UNKNOWN_COMMAND',
   MISSING_REPLAY_COMMAND: 'MISSING_REPLAY_COMMAND',
   UNKNOWN_REPLAY_COMMAND: 'UNKNOWN_REPLAY_COMMAND',
+  MISSING_PLUGIN_COMMAND: 'MISSING_PLUGIN_COMMAND',
+  UNKNOWN_PLUGIN_COMMAND: 'UNKNOWN_PLUGIN_COMMAND',
   INVALID_OPTION: 'INVALID_OPTION',
   INVALID_VALUE: 'INVALID_VALUE',
   MISSING_REQUIRED_OPTION: 'MISSING_REQUIRED_OPTION',
@@ -155,11 +223,20 @@ function buildHelp(): string {
   return [
     'agenc-runtime [--help] [--config <path>]',
     'replay [--help] <command> [options]',
+    'plugin [--help] <command> [options]',
     '',
     'Replay subcommands:',
     '  backfill   Backfill replay timeline from on-chain history',
     '  compare    Compare replay projection against local trace',
     '  incident   Reconstruct incident timeline and summarize',
+    '',
+    'Plugin subcommands:',
+    '  list                               List registered plugins',
+    '  install --manifest <path> [--precedence workspace|user|builtin] [--slot memory|llm|proof|telemetry|custom]',
+    '                                   Install or register a plugin',
+    '  disable <pluginId>                 Disable a plugin',
+    '  enable <pluginId>                  Enable a plugin',
+    '  reload <pluginId> [--manifest <path>] Reload a plugin and optional manifest update',
     '',
     'Global options:',
     '  -h, --help                               Show this usage',
@@ -189,10 +266,18 @@ function buildHelp(): string {
     '      --from-slot <slot>                    Replay incident from slot',
     '      --to-slot <slot>                      Replay incident to slot',
     '',
+    'plugin options:',
+    '      --manifest <path>                     Plugin manifest path (install/reload)',
+    '      --precedence workspace|user|builtin  Plugin installation precedence',
+    '      --slot memory|llm|proof|telemetry|custom Plugin slot claim',
+    '',
     'Examples:',
     '  agenc-runtime replay backfill --to-slot 12345 --page-size 500',
     '  agenc-runtime replay compare --local-trace-path ./trace.json --task-pda AGENTpda',
     '  agenc-runtime replay incident --task-pda AGENTpda --from-slot 100 --to-slot 200',
+    '  agenc-runtime plugin install --manifest ./plugin.json --precedence workspace --slot llm',
+    '  agenc-runtime plugin disable memory.plugin',
+    '  agenc-runtime plugin list',
   ].join('\n');
 }
 
@@ -409,9 +494,13 @@ function isValidTopLevelOption(name: string): boolean {
 
 function validateUnknownOptions(
   flags: ParsedArgv['flags'],
-  command: ReplayCommand,
+  command: ReplayCommand | PluginCommand,
 ): void {
-  const commandOpts = COMMAND_OPTIONS[command];
+  const commandOpts = command === 'backfill'
+    || command === 'compare'
+    || command === 'incident'
+    ? COMMAND_OPTIONS[command]
+    : PLUGIN_COMMAND_OPTIONS[command];
   for (const rawName of Object.keys(flags)) {
     const normalized = normalizeOptionAliases(rawName);
     if (rawName === 'h' || isValidTopLevelOption(normalized)) {
@@ -456,8 +545,59 @@ function normalizeGlobalFlags(flags: ParsedArgv['flags'], fileConfig: CliFileCon
   };
 }
 
+type PluginGlobalContext = Omit<ReturnType<typeof normalizeGlobalFlags>, 'logLevel'>;
+
 function validateReplayCommand(name: string): name is ReplayCommand {
   return name === 'backfill' || name === 'compare' || name === 'incident';
+}
+
+function validatePluginCommand(name: string): name is PluginCommand {
+  return name === 'list' || name === 'install' || name === 'disable' || name === 'enable' || name === 'reload';
+}
+
+function parsePluginPrecedence(value: unknown): PluginPrecedence {
+  if (value === undefined) {
+    return 'user';
+  }
+  if (value === 'workspace' || value === 'user' || value === 'builtin') {
+    return value;
+  }
+  throw createCliError(
+    '--precedence must be one of: workspace, user, builtin',
+    ERROR_CODES.INVALID_VALUE,
+  );
+}
+
+function parsePluginSlot(value: unknown): PluginSlot {
+  if (
+    value === 'memory'
+    || value === 'llm'
+    || value === 'proof'
+    || value === 'telemetry'
+    || value === 'custom'
+  ) {
+    return value;
+  }
+  throw createCliError(
+    '--slot must be one of: memory, llm, proof, telemetry, custom',
+    ERROR_CODES.INVALID_VALUE,
+  );
+}
+
+function makePluginOptionsBase(
+  global: PluginGlobalContext,
+): BaseCliOptions {
+  return {
+    help: global.help,
+    outputFormat: global.outputFormat,
+    strictMode: global.strictMode,
+    rpcUrl: global.rpcUrl,
+    programId: global.programId,
+    storeType: global.storeType,
+    sqlitePath: global.sqlitePath,
+    traceId: global.traceId,
+    idempotencyWindow: global.idempotencyWindow,
+  };
 }
 
 function makeBackfillOptions(raw: Record<string, string | number | boolean>, global: Omit<ReplayBackfillOptions, 'toSlot' | 'pageSize'>): ReplayBackfillOptions {
@@ -520,6 +660,78 @@ function makeIncidentOptions(
     disputePda,
     fromSlot,
     toSlot,
+  };
+}
+
+function makePluginListOptions(
+  _raw: Record<string, string | number | boolean>,
+  global: PluginGlobalContext,
+): PluginListOptions {
+  return {
+    ...makePluginOptionsBase(global),
+  };
+}
+
+function makePluginInstallOptions(
+  raw: Record<string, string | number | boolean>,
+  global: PluginGlobalContext,
+): PluginInstallOptions {
+  const manifestPath = parseOptionalString(raw.manifest);
+  if (manifestPath === undefined) {
+    throw createCliError('--manifest is required for plugin install', ERROR_CODES.MISSING_REQUIRED_OPTION);
+  }
+  const precedence = parseOptionalString(raw.precedence);
+  const slot = parseOptionalString(raw.slot);
+
+  return {
+    ...makePluginOptionsBase(global),
+    manifestPath,
+    precedence: precedence === undefined ? undefined : parsePluginPrecedence(precedence),
+    slot: slot === undefined ? undefined : parsePluginSlot(slot),
+  };
+}
+
+function makePluginDisableOptions(
+  pluginId: string | undefined,
+  global: PluginGlobalContext,
+): PluginToggleOptions {
+  if (pluginId === undefined) {
+    throw createCliError('--plugin-id is required for plugin disable', ERROR_CODES.MISSING_REQUIRED_OPTION);
+  }
+
+  return {
+    ...makePluginOptionsBase(global),
+    pluginId,
+  };
+}
+
+function makePluginEnableOptions(
+  pluginId: string | undefined,
+  global: PluginGlobalContext,
+): PluginToggleOptions {
+  if (pluginId === undefined) {
+    throw createCliError('--plugin-id is required for plugin enable', ERROR_CODES.MISSING_REQUIRED_OPTION);
+  }
+
+  return {
+    ...makePluginOptionsBase(global),
+    pluginId,
+  };
+}
+
+function makePluginReloadOptions(
+  pluginId: string | undefined,
+  global: PluginGlobalContext,
+  raw: Record<string, string | number | boolean>,
+): PluginReloadOptions {
+  if (pluginId === undefined) {
+    throw createCliError('--plugin-id is required for plugin reload', ERROR_CODES.MISSING_REQUIRED_OPTION);
+  }
+
+  return {
+    ...makePluginOptionsBase(global),
+    pluginId,
+    manifestPath: parseOptionalString(raw.manifest),
   };
 }
 
@@ -607,6 +819,24 @@ function buildErrorPayload(error: unknown): { status: 'error'; code: string; mes
   };
 }
 
+interface PluginParseReport {
+  command: 'plugin';
+  pluginCommand: PluginCommand;
+  global: {
+    help: boolean;
+    strictMode: boolean;
+    outputFormat: CliOutputFormat;
+    rpcUrl?: string;
+    programId?: string;
+    storeType: 'memory' | 'sqlite';
+    sqlitePath?: string;
+    traceId?: string;
+    idempotencyWindow: number;
+  };
+  options: PluginCommandOptions;
+  outputFormat: CliOutputFormat;
+}
+
 function normalizeAndValidate(
   parsed: ParsedArgv,
 ): CliParseReport {
@@ -685,6 +915,89 @@ function normalizeAndValidate(
   };
 }
 
+function normalizeAndValidatePluginCommand(
+  parsed: ParsedArgv,
+): PluginParseReport {
+  const configPath = resolveConfigPath(parsed.flags);
+  let fileConfig: CliFileConfig;
+  try {
+    fileConfig = loadFileConfig(configPath);
+  } catch (error) {
+    throw createCliError(`failed to parse config file ${configPath}: ${error instanceof Error ? error.message : String(error)}`, ERROR_CODES.CONFIG_PARSE_ERROR);
+  }
+
+  const envConfig = readEnvironmentConfig();
+
+  if (parsed.positional.length === 0) {
+    throw createCliError('missing plugin command group', ERROR_CODES.MISSING_ROOT_COMMAND);
+  }
+
+  const root = parsed.positional[0];
+  if (root !== 'plugin') {
+    throw createCliError(`unknown root command: ${root}`, ERROR_CODES.UNKNOWN_COMMAND);
+  }
+
+  const pluginCommand = parsed.positional[1] as string | undefined;
+  if (!pluginCommand) {
+    throw createCliError('missing plugin subcommand', ERROR_CODES.MISSING_PLUGIN_COMMAND);
+  }
+  if (!validatePluginCommand(pluginCommand)) {
+    throw createCliError(`unknown plugin command: ${pluginCommand}`, ERROR_CODES.UNKNOWN_PLUGIN_COMMAND);
+  }
+
+  validateUnknownOptions(parsed.flags, pluginCommand);
+
+  const global = normalizeGlobalFlags(parsed.flags, fileConfig, envConfig);
+
+  if (global.storeType === 'sqlite' && global.sqlitePath === undefined) {
+    global.sqlitePath = fileConfig.sqlitePath ?? envConfig.sqlitePath;
+  }
+
+  const common = {
+    help: global.help,
+    outputFormat: global.outputFormat,
+    strictMode: global.strictMode,
+    rpcUrl: global.rpcUrl,
+    programId: global.programId,
+    storeType: global.storeType,
+    sqlitePath: global.sqlitePath,
+    traceId: global.traceId,
+    idempotencyWindow: global.idempotencyWindow,
+  };
+
+  const pluginId = parseOptionalString(parsed.positional[2]);
+  let options: PluginCommandOptions;
+  if (pluginCommand === 'list') {
+    options = makePluginListOptions(parsed.flags, common);
+  } else if (pluginCommand === 'install') {
+    options = makePluginInstallOptions(parsed.flags, common);
+  } else if (pluginCommand === 'disable') {
+    options = makePluginDisableOptions(pluginId, common);
+  } else if (pluginCommand === 'enable') {
+    options = makePluginEnableOptions(pluginId, common);
+  } else {
+    options = makePluginReloadOptions(pluginId, common, parsed.flags);
+  }
+
+  return {
+    command: 'plugin',
+    pluginCommand,
+    global: {
+      help: common.help,
+      strictMode: common.strictMode,
+      outputFormat: common.outputFormat,
+      rpcUrl: common.rpcUrl,
+      programId: common.programId,
+      storeType: common.storeType,
+      sqlitePath: common.sqlitePath,
+      traceId: common.traceId,
+      idempotencyWindow: common.idempotencyWindow,
+    },
+    options,
+    outputFormat: common.outputFormat,
+  };
+}
+
 export async function runCli(options: CliRunOptions = {}): Promise<CliStatusCode> {
   const argv = options.argv ?? process.argv.slice(2);
   const stdout = options.stdout ?? process.stdout;
@@ -727,16 +1040,18 @@ export async function runCli(options: CliRunOptions = {}): Promise<CliStatusCode
     }
   }
 
-  let report: CliParseReport;
+  let report: CliParseReport | PluginParseReport;
   try {
-    report = normalizeAndValidate(parsed);
+    if (parsed.positional[0] === 'plugin') {
+      report = normalizeAndValidatePluginCommand(parsed);
+    } else {
+      report = normalizeAndValidate(parsed);
+    }
   } catch (error) {
     const payload = buildErrorPayload(error);
     context.error(payload);
     return 2;
   }
-
-  const commandDescriptor = COMMANDS[report.replayCommand];
 
   const commandContext = createContext(
     stdout,
@@ -749,6 +1064,32 @@ export async function runCli(options: CliRunOptions = {}): Promise<CliStatusCode
     commandContext.output(buildHelp());
     return 0;
   }
+
+  if (report.command === 'plugin') {
+    const pluginCommand = PLUGIN_COMMANDS[report.pluginCommand];
+    try {
+      return await pluginCommand.run(
+        commandContext,
+        report.options,
+      );
+    } catch (error) {
+      const payload = buildErrorPayload(error);
+      commandContext.error(payload);
+      const isUsageError = (payload.code === ERROR_CODES.INVALID_OPTION
+        || payload.code === ERROR_CODES.INVALID_VALUE
+        || payload.code === ERROR_CODES.MISSING_REQUIRED_OPTION
+        || payload.code === ERROR_CODES.MISSING_TARGET
+        || payload.code === ERROR_CODES.MISSING_PLUGIN_COMMAND
+        || payload.code === ERROR_CODES.UNKNOWN_PLUGIN_COMMAND
+        || payload.code === ERROR_CODES.MISSING_ROOT_COMMAND
+        || payload.code === ERROR_CODES.UNKNOWN_COMMAND)
+        ? 2
+        : 1;
+      return isUsageError;
+    }
+  }
+
+  const commandDescriptor = COMMANDS[report.replayCommand];
 
   try {
     return await commandDescriptor.run(commandContext, report.options);
@@ -821,6 +1162,98 @@ async function runReplayBackfillCommand(
   });
 
   return 0;
+}
+
+function loadPluginManifest(manifestPath: string): PluginManifest {
+  const rawManifest = readFileSync(resolve(manifestPath), 'utf8');
+  return JSON.parse(rawManifest) as PluginManifest;
+}
+
+async function runPluginListCommand(
+  context: CliRuntimeContext,
+  _args: PluginCommandOptions,
+): Promise<CliStatusCode> {
+  const catalog = new PluginCatalog();
+  context.output({
+    status: 'ok',
+    command: 'plugin.list',
+    schema: 'plugin.list.output.v1',
+    plugins: catalog.list(),
+  });
+  return 0;
+}
+
+async function runPluginInstallCommand(
+  context: CliRuntimeContext,
+  args: PluginCommandOptions,
+): Promise<CliStatusCode> {
+  const pluginArgs = args as PluginInstallOptions;
+  const manifest = loadPluginManifest(pluginArgs.manifestPath);
+  const catalog = new PluginCatalog();
+  const result = catalog.install(manifest, pluginArgs.precedence ?? 'user', {
+    slot: pluginArgs.slot,
+    sourcePath: pluginArgs.manifestPath,
+  });
+
+  context.output({
+    status: 'ok',
+    command: 'plugin.install',
+    schema: 'plugin.operation.output.v1',
+    result,
+  });
+
+  return result.success ? 0 : 1;
+}
+
+async function runPluginDisableCommand(
+  context: CliRuntimeContext,
+  args: PluginCommandOptions,
+): Promise<CliStatusCode> {
+  const pluginArgs = args as PluginToggleOptions;
+  const catalog = new PluginCatalog();
+  const result = catalog.disable(pluginArgs.pluginId);
+  context.output({
+    status: 'ok',
+    command: 'plugin.disable',
+    schema: 'plugin.operation.output.v1',
+    result,
+  });
+  return result.success ? 0 : 1;
+}
+
+async function runPluginEnableCommand(
+  context: CliRuntimeContext,
+  args: PluginCommandOptions,
+): Promise<CliStatusCode> {
+  const pluginArgs = args as PluginToggleOptions;
+  const catalog = new PluginCatalog();
+  const result = catalog.enable(pluginArgs.pluginId);
+  context.output({
+    status: 'ok',
+    command: 'plugin.enable',
+    schema: 'plugin.operation.output.v1',
+    result,
+  });
+  return result.success ? 0 : 1;
+}
+
+async function runPluginReloadCommand(
+  context: CliRuntimeContext,
+  args: PluginCommandOptions,
+): Promise<CliStatusCode> {
+  const pluginArgs = args as PluginReloadOptions;
+  const catalog = new PluginCatalog();
+  const manifest = pluginArgs.manifestPath === undefined
+    ? undefined
+    : loadPluginManifest(pluginArgs.manifestPath);
+  const result = catalog.reload(pluginArgs.pluginId, manifest);
+  context.output({
+    status: 'ok',
+    command: 'plugin.reload',
+    schema: 'plugin.operation.output.v1',
+    result,
+  });
+  return result.success ? 0 : 1;
 }
 
 async function runReplayCompareCommand(
