@@ -19,6 +19,7 @@ import {
   buildReplaySpanEvent,
   buildReplaySpanName,
   buildReplayTraceContext,
+  deriveTraceId,
   startReplaySpan,
 } from './trace.js';
 import type { ReplayAlertDispatcher } from './alerting.js';
@@ -163,6 +164,15 @@ function toReplayStoreRecord(event: ProjectedTimelineEvent): ReplayTimelineRecor
     | undefined
     | { traceId?: string; spanId?: string; parentSpanId?: string; sampled?: boolean };
 
+  // Synthesize traceId from canonical tuple when trace context is absent
+  const resolvedTraceId = trace?.traceId ?? deriveTraceId(
+    undefined,
+    event.slot,
+    event.signature,
+    event.sourceEventName,
+    event.sourceEventSequence,
+  );
+
   const recordEvent = {
     seq: event.seq,
     type: event.type,
@@ -174,7 +184,7 @@ function toReplayStoreRecord(event: ProjectedTimelineEvent): ReplayTimelineRecor
     sourceEventName: event.sourceEventName,
     sourceEventSequence: event.sourceEventSequence,
     sourceEventType: event.type,
-    traceId: trace?.traceId,
+    traceId: resolvedTraceId,
     traceSpanId: trace?.spanId,
     traceParentSpanId: trace?.parentSpanId,
     traceSampled: trace?.sampled === true,

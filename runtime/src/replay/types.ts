@@ -137,19 +137,31 @@ export function stableReplayCursorString(cursor: ReplayEventCursor | null): stri
   return `${base}:${cursor.traceId ?? ''}:${cursor.traceSpanId ?? ''}`;
 }
 
+/**
+ * Compute a deterministic hash of a projected timeline event.
+ *
+ * The hash covers the canonical identity tuple (slot, signature,
+ * sourceEventName, sourceEventSequence) plus the remaining projection
+ * fields. `stableStringifyJson()` sorts keys lexicographically so the
+ * literal field order in the object literal below does not affect the
+ * output — it is listed explicitly to document which fields participate
+ * in the hash.
+ */
 export function computeProjectionHash(event: ProjectedTimelineEvent): string {
-  const payload = {
-    seq: event.seq,
-    type: event.type,
-    taskPda: event.taskPda,
-    timestampMs: event.timestampMs,
-    payload: event.payload,
+  const canonical = {
+    // Canonical identity tuple (order is contractual)
     slot: event.slot,
     signature: event.signature,
     sourceEventName: event.sourceEventName,
     sourceEventSequence: event.sourceEventSequence,
+    // Remaining projection fields
+    payload: event.payload,
+    seq: event.seq,
+    taskPda: event.taskPda,
+    timestampMs: event.timestampMs,
+    type: event.type,
   };
-  return createHash('sha256').update(stableStringifyJson(payload as JsonValue)).digest('hex');
+  return createHash('sha256').update(stableStringifyJson(canonical as JsonValue)).digest('hex');
 }
 
 export function buildReplayKey(

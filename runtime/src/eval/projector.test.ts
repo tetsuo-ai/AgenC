@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { PublicKey } from '@solana/web3.js';
-import { projectOnChainEvents } from './projector.js';
+import {
+  projectOnChainEvents,
+  extractCanonicalTuple,
+  canonicalizeEvent,
+  type OnChainProjectionInput,
+} from './projector.js';
+import { stableStringifyJson } from './types.js';
+import { computeProjectionHash } from '../replay/types.js';
+import { deriveTraceId } from '../replay/trace.js';
 import { TrajectoryReplayEngine } from './replay.js';
 import { REPLAY_QUALITY_FIXTURE_V1 } from '../../tests/fixtures/replay-quality-fixture.v1.ts';
 
@@ -501,5 +509,105 @@ describe('Dispute replay determinism (#960)', () => {
 
     expect(cancelled.status).toBe('dispute:cancelled');
     expect(expired.status).toBe('dispute:expired');
+  });
+});
+
+describe('Canonical event normalization (#964)', () => {
+  it('produces identical projection regardless of input order', () => {
+    const eventsA = [
+      {
+        eventName: 'taskCreated',
+        slot: 1,
+        signature: 'SIG_A',
+        event: { taskId: bytes(1), creator: pubkey(1), requiredCapabilities: 1n, rewardAmount: 1n, taskType: 0, deadline: 0, minReputation: 0, rewardMint: null, timestamp: 10 },
+      },
+      {
+        eventName: 'taskClaimed',
+        slot: 2,
+        signature: 'SIG_B',
+        event: { taskId: bytes(1), worker: pubkey(2), currentWorkers: 1, maxWorkers: 1, timestamp: 11 },
+      },
+    ];
+    const eventsB = [eventsA[1], eventsA[0]];
+
+    const resultA = projectOnChainEvents(eventsA, { traceId: 'test' });
+    const resultB = projectOnChainEvents(eventsB, { traceId: 'test' });
+
+    expect(resultA.events.map(e => e.sourceEventName)).toEqual(resultB.events.map(e => e.sourceEventName));
+    expect(resultA.events.map(e => computeProjectionHash(e)))
+      .toEqual(resultB.events.map(e => computeProjectionHash(e)));
+  });
+
+  it('fills missing fields with stable defaults', () => {
+    const tuple = extractCanonicalTuple(
+      { eventName: '', slot: -1, signature: '', event: {} } as OnChainProjectionInput,
+      42,
+    );
+    expect(tuple).toEqual({
+      slot: 0,
+      signature: '',
+      sourceEventSequence: 42,
+      sourceEventName: '',
+    });
+  });
+
+  it('uses provided sourceEventSequence over fallback', () => {
+    const tuple = extractCanonicalTuple(
+      { eventName: 'taskCreated', slot: 5, signature: 'SIG', event: {}, sourceEventSequence: 7 } as OnChainProjectionInput,
+      99,
+    );
+    expect(tuple).toEqual({
+      slot: 5,
+      signature: 'SIG',
+      sourceEventSequence: 7,
+      sourceEventName: 'taskCreated',
+    });
+  });
+
+  it('canonicalizeEvent produces sorted keys', () => {
+    const a = canonicalizeEvent({ z: 1, a: 2, m: { b: 3, a: 4 } });
+    const b = canonicalizeEvent({ m: { a: 4, b: 3 }, a: 2, z: 1 });
+    expect(stableStringifyJson(a)).toBe(stableStringifyJson(b));
+  });
+
+  it('canonicalizeEvent converts non-JSON-safe values', () => {
+    const result = canonicalizeEvent({
+      amount: 100n,
+      key: new PublicKey(new Uint8Array(32).fill(1)),
+      data: new Uint8Array([0xab, 0xcd]),
+    });
+    expect(typeof result.amount).toBe('string');
+    expect(typeof result.key).toBe('string');
+    expect(typeof result.data).toBe('string');
+  });
+
+  it('deriveTraceId produces same ID for same inputs', () => {
+    const id1 = deriveTraceId(undefined, 100, 'SIG_X', 'taskCreated', 0);
+    const id2 = deriveTraceId(undefined, 100, 'SIG_X', 'taskCreated', 0);
+    expect(id1).toBe(id2);
+    expect(id1.length).toBe(32);
+  });
+
+  it('deriveTraceId returns base when provided', () => {
+    const id = deriveTraceId('my-trace', 100, 'SIG_X', 'taskCreated', 0);
+    expect(id).toBe('my-trace');
+  });
+
+  it('computeProjectionHash produces identical hash for identical events', () => {
+    const event = {
+      seq: 1,
+      type: 'discovered',
+      taskPda: 'TASK_1',
+      timestampMs: 1000,
+      payload: { onchain: { eventName: 'taskCreated', signature: 'SIG_1', slot: 1 } },
+      slot: 1,
+      signature: 'SIG_1',
+      sourceEventName: 'taskCreated',
+      sourceEventSequence: 0,
+    };
+    const hash1 = computeProjectionHash(event);
+    const hash2 = computeProjectionHash({ ...event });
+    expect(hash1).toBe(hash2);
+    expect(hash1.length).toBe(64); // SHA-256 hex
   });
 });
