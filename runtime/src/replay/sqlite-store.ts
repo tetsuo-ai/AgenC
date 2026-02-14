@@ -258,6 +258,19 @@ export class SqliteReplayTimelineStore implements ReplayTimelineStore {
     await this.saveCursor(null);
   }
 
+  getDurability(): import('../memory/types.js').DurabilityInfo {
+    return {
+      level: 'sync',
+      supportsFlush: true,
+      description: 'Data is persisted synchronously to disk via SQLite WAL. flush() forces a WAL checkpoint.',
+    };
+  }
+
+  async flush(): Promise<void> {
+    const db = await this.getDb();
+    db.pragma('wal_checkpoint(TRUNCATE)');
+  }
+
   private async getDb(): Promise<any> {
     if (this.db) {
       return this.db;
