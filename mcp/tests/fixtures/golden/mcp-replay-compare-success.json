@@ -1,0 +1,144 @@
+{
+  "id": "mcp.replay.compare.success",
+  "version": 1,
+  "command": "agenc_replay_compare",
+  "input": {
+    "local_trace_path": "tmp/mcp-replay-compare-success.trace.json",
+    "store_type": "memory",
+    "strict_mode": false,
+    "task_pda": "Task_A"
+  },
+  "output": {
+    "schema": "replay.compare.output.v1",
+    "shape": {
+      "status": "ok",
+      "command": "agenc_replay_compare",
+      "schema": "replay.compare.output.v1",
+      "schema_hash": "6827a16d81fa9dbb",
+      "strictness": "lenient",
+      "local_trace_path": "tmp/mcp-replay-compare-success.trace.json",
+      "result": {
+        "status": "mismatched",
+        "strictness": "lenient",
+        "local_event_count": 3,
+        "projected_event_count": 3,
+        "mismatch_count": 7,
+        "match_rate": 0,
+        "anomaly_ids": [
+          "0432da73d04ecdd1",
+          "b6961ff1271e0c48",
+          "986e74b6a2765550",
+          "6c220700b73fad63",
+          "0f3700ab7e6a3bcc",
+          "81b465c6012f2ac2",
+          "2de5e4cbd3ca0d2e"
+        ],
+        "top_anomalies": [
+          {
+            "anomaly_id": "0432da73d04ecdd1",
+            "code": "hash_mismatch",
+            "severity": "error",
+            "message": "projected event hash mismatch",
+            "source_event_name": "task.discovered",
+            "signature": "[REDACTED]",
+            "seq": 1
+          },
+          {
+            "anomaly_id": "b6961ff1271e0c48",
+            "code": "task_id_mismatch",
+            "severity": "warning",
+            "message": "signature mismatch at seq=1",
+            "source_event_name": "task.discovered",
+            "signature": "[REDACTED]",
+            "seq": 1
+          },
+          {
+            "anomaly_id": "986e74b6a2765550",
+            "code": "hash_mismatch",
+            "severity": "error",
+            "message": "projected event hash mismatch",
+            "source_event_name": "task.discovered",
+            "signature": "[REDACTED]",
+            "seq": 2
+          },
+          {
+            "anomaly_id": "6c220700b73fad63",
+            "code": "task_id_mismatch",
+            "severity": "warning",
+            "message": "signature mismatch at seq=2",
+            "source_event_name": "task.discovered",
+            "signature": "[REDACTED]",
+            "seq": 2
+          },
+          {
+            "anomaly_id": "0f3700ab7e6a3bcc",
+            "code": "hash_mismatch",
+            "severity": "error",
+            "message": "projected event hash mismatch",
+            "source_event_name": "task.discovered",
+            "signature": "[REDACTED]",
+            "seq": 3
+          },
+          {
+            "anomaly_id": "81b465c6012f2ac2",
+            "code": "task_id_mismatch",
+            "severity": "warning",
+            "message": "signature mismatch at seq=3",
+            "source_event_name": "task.discovered",
+            "signature": "[REDACTED]",
+            "seq": 3
+          },
+          {
+            "anomaly_id": "30366d07cde6ba9d",
+            "code": "hash_mismatch",
+            "severity": "error",
+            "message": "deterministic replay hash mismatch"
+          }
+        ],
+        "hashes": {
+          "local": "004946de70b8df4061162cf9025f1507f65a2eeee121a92e235f6923482966f8",
+          "projected": "a89a43ea0a765fbb7239903a2c7fc6e6a7a670b7064d87a22e468a42b4092218"
+        },
+        "local_summary": {
+          "totalEvents": 3,
+          "taskCount": 1,
+          "completedTasks": 0,
+          "failedTasks": 0,
+          "escalatedTasks": 0,
+          "policyViolations": 0,
+          "verifierVerdicts": 0,
+          "speculationAborts": 0
+        },
+        "projected_summary": {
+          "totalEvents": 3,
+          "taskCount": 1,
+          "completedTasks": 0,
+          "failedTasks": 0,
+          "escalatedTasks": 0,
+          "policyViolations": 0,
+          "verifierVerdicts": 0,
+          "speculationAborts": 0
+        }
+      },
+      "task_pda": "Task_A",
+      "dispute_pda": null,
+      "sections": [
+        "result"
+      ],
+      "redactions": [
+        "signature"
+      ],
+      "command_params": {
+        "task_pda": "Task_A",
+        "strict_mode": false,
+        "store_type": "memory"
+      },
+      "truncated": false,
+      "truncation_reason": null
+    }
+  },
+  "metadata": {
+    "generatedAt": "2026-02-14T20:20:55.075Z",
+    "generatedBy": "contract-validator"
+  }
+}

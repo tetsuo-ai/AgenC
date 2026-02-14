@@ -1,0 +1,78 @@
+{
+  "id": "cli.replay.compare.success",
+  "version": 1,
+  "command": "replay.compare",
+  "input": {
+    "argv": [
+      "replay",
+      "compare",
+      "--local-trace-path",
+      "/tmp/compare-trace.json",
+      "--store-type",
+      "memory",
+      "--strict-mode",
+      "true"
+    ]
+  },
+  "output": {
+    "schema": "replay.compare.output.v1",
+    "shape": {
+      "status": "ok",
+      "command": "replay.compare",
+      "schema": "replay.compare.output.v1",
+      "localTracePath": "fixture-compare-trace.json",
+      "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+      "strictness": "strict",
+      "strictMode": true,
+      "storeType": "memory",
+      "result": {
+        "status": "clean",
+        "strictness": "strict",
+        "localEventCount": 3,
+        "projectedEventCount": 3,
+        "mismatchCount": 0,
+        "matchRate": 1,
+        "anomalyIds": [],
+        "topAnomalies": [],
+        "hashes": {
+          "local": "9caa5f8c26c204eee2b37134df36fe444e86cd77d98461701babae789e843df3",
+          "projected": "9caa5f8c26c204eee2b37134df36fe444e86cd77d98461701babae789e843df3"
+        },
+        "localSummary": {
+          "deterministicHash": "9caa5f8c26c204eee2b37134df36fe444e86cd77d98461701babae789e843df3",
+          "errors": [],
+          "warnings": [],
+          "summary": {
+            "totalEvents": 3,
+            "taskCount": 1,
+            "completedTasks": 1,
+            "failedTasks": 0,
+            "escalatedTasks": 0,
+            "policyViolations": 0,
+            "verifierVerdicts": 0,
+            "speculationAborts": 0
+          }
+        },
+        "projectedSummary": {
+          "deterministicHash": "9caa5f8c26c204eee2b37134df36fe444e86cd77d98461701babae789e843df3",
+          "errors": [],
+          "warnings": [],
+          "summary": {
+            "totalEvents": 3,
+            "taskCount": 1,
+            "completedTasks": 1,
+            "failedTasks": 0,
+            "escalatedTasks": 0,
+            "policyViolations": 0,
+            "verifierVerdicts": 0,
+            "speculationAborts": 0
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "generatedAt": "2026-02-14T20:17:05.680Z",
+    "generatedBy": "contract-validator"
+  }
+}

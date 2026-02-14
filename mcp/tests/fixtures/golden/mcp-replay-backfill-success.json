@@ -1,0 +1,46 @@
+{
+  "id": "mcp.replay.backfill.success",
+  "version": 1,
+  "command": "agenc_replay_backfill",
+  "input": {
+    "rpc": "http://localhost:8899",
+    "to_slot": 10,
+    "store_type": "memory"
+  },
+  "output": {
+    "schema": "replay.backfill.output.v1",
+    "shape": {
+      "status": "ok",
+      "command": "agenc_replay_backfill",
+      "schema": "replay.backfill.output.v1",
+      "schema_hash": "a98f92cd016e3338",
+      "mode": "backfill",
+      "to_slot": 10,
+      "store_type": "memory",
+      "page_size": 100,
+      "result": {
+        "processed": 0,
+        "duplicates": 0,
+        "cursor": null
+      },
+      "sections": [
+        "result"
+      ],
+      "redactions": [
+        "signature"
+      ],
+      "command_params": {
+        "rpc": "http://localhost:8899",
+        "strict_mode": false,
+        "page_size": 100,
+        "max_slot_window": 2000000
+      },
+      "truncated": false,
+      "truncation_reason": null
+    }
+  },
+  "metadata": {
+    "generatedAt": "2026-02-14T20:13:59.195Z",
+    "generatedBy": "contract-validator"
+  }
+}

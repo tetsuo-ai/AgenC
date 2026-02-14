@@ -1,0 +1,67 @@
+{
+  "id": "mcp.replay.incident.success",
+  "version": 1,
+  "command": "agenc_replay_incident",
+  "input": {
+    "task_pda": "Task_A",
+    "store_type": "memory"
+  },
+  "output": {
+    "schema": "replay.incident.output.v1",
+    "shape": {
+      "status": "ok",
+      "command": "agenc_replay_incident",
+      "schema": "replay.incident.output.v1",
+      "schema_hash": "c237bc370cdd5241",
+      "command_params": {
+        "task_pda": "Task_A",
+        "strict_mode": false,
+        "store_type": "memory"
+      },
+      "sections": [
+        "summary",
+        "validation",
+        "narrative"
+      ],
+      "redactions": [
+        "signature"
+      ],
+      "summary": {
+        "total_events": 0,
+        "task_pda_filters": [
+          "Task_A"
+        ],
+        "dispute_pda_filters": [
+          null
+        ],
+        "unique_task_ids": [],
+        "unique_dispute_ids": [],
+        "source_event_type_counts": {},
+        "source_event_name_counts": {},
+        "trace_id_counts": {},
+        "events": []
+      },
+      "validation": {
+        "strict_mode": false,
+        "event_validation": {
+          "errors": [],
+          "warnings": [],
+          "replay_task_count": 0
+        },
+        "anomaly_ids": [],
+        "deterministic_hash": "86722aba9b480d17fe418dc9bcc6da2147ee58c0f4773ea21597f01fa312f171"
+      },
+      "narrative": {
+        "lines": [],
+        "anomaly_ids": [],
+        "deterministic_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "truncated": false,
+      "truncation_reason": null
+    }
+  },
+  "metadata": {
+    "generatedAt": "2026-02-14T20:13:59.203Z",
+    "generatedBy": "contract-validator"
+  }
+}

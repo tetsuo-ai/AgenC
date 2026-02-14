@@ -1,0 +1,62 @@
+{
+  "id": "cli.replay.incident.empty",
+  "version": 1,
+  "command": "replay.incident",
+  "input": {
+    "argv": [
+      "replay",
+      "incident",
+      "--store-type",
+      "memory",
+      "--task-pda",
+      "task-missing"
+    ]
+  },
+  "output": {
+    "schema": "replay.incident.output.v1",
+    "shape": {
+      "status": "ok",
+      "command": "replay.incident",
+      "schema": "replay.incident.output.v1",
+      "commandParams": {
+        "taskPda": "task-missing",
+        "strictMode": false,
+        "storeType": "memory"
+      },
+      "summary": {
+        "totalEvents": 0,
+        "taskPdaFilters": [
+          "task-missing"
+        ],
+        "disputePdaFilters": [
+          null
+        ],
+        "uniqueTaskIds": [],
+        "uniqueDisputeIds": [],
+        "sourceEventTypeCounts": {},
+        "sourceEventNameCounts": {},
+        "traceIdCounts": {},
+        "events": [],
+        "deterministicHash": "87c8b6e721bf2a4a994816015dae429682e2c8f5410ed2e6da645260ff24c11a",
+        "eventType": "replay-incidents"
+      },
+      "validation": {
+        "strictMode": false,
+        "eventValidation": {
+          "errors": [],
+          "warnings": [],
+          "replayTaskCount": 0
+        },
+        "anomalyIds": []
+      },
+      "narrative": {
+        "lines": [],
+        "anomalyIds": []
+      }
+    }
+  },
+  "metadata": {
+    "generatedAt": "2026-02-14T20:17:05.687Z",
+    "generatedBy": "contract-validator"
+  }
+}

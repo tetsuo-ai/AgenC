@@ -1,0 +1,48 @@
+{
+  "id": "cli.replay.backfill.success",
+  "version": 1,
+  "command": "replay.backfill",
+  "input": {
+    "argv": [
+      "replay",
+      "backfill",
+      "--to-slot",
+      "999",
+      "--store-type",
+      "memory",
+      "--rpc",
+      "https://example.com",
+      "--trace-id",
+      "fixture-backfill-trace"
+    ]
+  },
+  "output": {
+    "schema": "replay.backfill.output.v1",
+    "shape": {
+      "status": "ok",
+      "command": "replay.backfill",
+      "schema": "replay.backfill.output.v1",
+      "mode": "backfill",
+      "strictMode": false,
+      "toSlot": 999,
+      "storeType": "memory",
+      "traceId": "fixture-backfill-trace",
+      "idempotencyWindow": 900,
+      "result": {
+        "processed": 6,
+        "duplicates": 0,
+        "cursor": {
+          "slot": 15,
+          "signature": "SIGCLIDISPUTERESOLVE",
+          "eventName": "disputeResolved",
+          "traceId": "fixture-backfill-trace",
+          "traceSpanId": "6d4a8aae3c6f9856"
+        }
+      }
+    }
+  },
+  "metadata": {
+    "generatedAt": "2026-02-14T20:17:05.677Z",
+    "generatedBy": "contract-validator"
+  }
+}

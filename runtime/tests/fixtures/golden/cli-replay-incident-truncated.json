@@ -1,0 +1,1738 @@
+{
+  "id": "cli.replay.incident.truncated",
+  "version": 1,
+  "command": "replay.incident",
+  "input": {
+    "argv": [
+      "replay",
+      "incident",
+      "--store-type",
+      "memory",
+      "--task-pda",
+      "task-main"
+    ]
+  },
+  "output": {
+    "schema": "replay.incident.output.v1",
+    "shape": {
+      "status": "ok",
+      "command": "replay.incident",
+      "schema": "replay.incident.output.v1",
+      "commandParams": {
+        "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+        "strictMode": false,
+        "storeType": "memory"
+      },
+      "summary": {
+        "totalEvents": 180,
+        "taskPdaFilters": [
+          "01010101010101010101010101010101010101010101010101010101010101010101"
+        ],
+        "disputePdaFilters": [
+          null
+        ],
+        "firstSlot": 10,
+        "lastSlot": 590012,
+        "firstSeq": 1,
+        "lastSeq": 180,
+        "uniqueTaskIds": [
+          "01010101010101010101010101010101010101010101010101010101010101010101"
+        ],
+        "uniqueDisputeIds": [],
+        "sourceEventTypeCounts": {
+          "claimed": 60,
+          "completed": 60,
+          "discovered": 60
+        },
+        "sourceEventNameCounts": {
+          "taskClaimed": 60,
+          "taskCompleted": 60,
+          "taskCreated": 60
+        },
+        "traceIdCounts": {},
+        "events": [
+          {
+            "seq": 1,
+            "slot": 10,
+            "signature": "SIGCLITASKCREATED-0",
+            "sourceEventType": "discovered",
+            "sourceEventName": "taskCreated",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000000000
+          },
+          {
+            "seq": 2,
+            "slot": 11,
+            "signature": "SIGCLITASKCLAIMED-0",
+            "sourceEventType": "claimed",
+            "sourceEventName": "taskClaimed",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000000001
+          },
+          {
+            "seq": 3,
+            "slot": 12,
+            "signature": "SIGCLITASKCOMPLETED-0",
+            "sourceEventType": "completed",
+            "sourceEventName": "taskCompleted",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000000002
+          },
+          {
+            "seq": 4,
+            "slot": 10010,
+            "signature": "SIGCLITASKCREATED-1",
+            "sourceEventType": "discovered",
+            "sourceEventName": "taskCreated",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000001000
+          },
+          {
+            "seq": 5,
+            "slot": 10011,
+            "signature": "SIGCLITASKCLAIMED-1",
+            "sourceEventType": "claimed",
+            "sourceEventName": "taskClaimed",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000001001
+          },
+          {
+            "seq": 6,
+            "slot": 10012,
+            "signature": "SIGCLITASKCOMPLETED-1",
+            "sourceEventType": "completed",
+            "sourceEventName": "taskCompleted",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000001002
+          },
+          {
+            "seq": 7,
+            "slot": 20010,
+            "signature": "SIGCLITASKCREATED-2",
+            "sourceEventType": "discovered",
+            "sourceEventName": "taskCreated",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000002000
+          },
+          {
+            "seq": 8,
+            "slot": 20011,
+            "signature": "SIGCLITASKCLAIMED-2",
+            "sourceEventType": "claimed",
+            "sourceEventName": "taskClaimed",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000002001
+          },
+          {
+            "seq": 9,
+            "slot": 20012,
+            "signature": "SIGCLITASKCOMPLETED-2",
+            "sourceEventType": "completed",
+            "sourceEventName": "taskCompleted",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000002002
+          },
+          {
+            "seq": 10,
+            "slot": 30010,
+            "signature": "SIGCLITASKCREATED-3",
+            "sourceEventType": "discovered",
+            "sourceEventName": "taskCreated",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000003000
+          },
+          {
+            "seq": 11,
+            "slot": 30011,
+            "signature": "SIGCLITASKCLAIMED-3",
+            "sourceEventType": "claimed",
+            "sourceEventName": "taskClaimed",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000003001
+          },
+          {
+            "seq": 12,
+            "slot": 30012,
+            "signature": "SIGCLITASKCOMPLETED-3",
+            "sourceEventType": "completed",
+            "sourceEventName": "taskCompleted",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000003002
+          },
+          {
+            "seq": 13,
+            "slot": 40010,
+            "signature": "SIGCLITASKCREATED-4",
+            "sourceEventType": "discovered",
+            "sourceEventName": "taskCreated",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000004000
+          },
+          {
+            "seq": 14,
+            "slot": 40011,
+            "signature": "SIGCLITASKCLAIMED-4",
+            "sourceEventType": "claimed",
+            "sourceEventName": "taskClaimed",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000004001
+          },
+          {
+            "seq": 15,
+            "slot": 40012,
+            "signature": "SIGCLITASKCOMPLETED-4",
+            "sourceEventType": "completed",
+            "sourceEventName": "taskCompleted",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000004002
+          },
+          {
+            "seq": 16,
+            "slot": 50010,
+            "signature": "SIGCLITASKCREATED-5",
+            "sourceEventType": "discovered",
+            "sourceEventName": "taskCreated",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000005000
+          },
+          {
+            "seq": 17,
+            "slot": 50011,
+            "signature": "SIGCLITASKCLAIMED-5",
+            "sourceEventType": "claimed",
+            "sourceEventName": "taskClaimed",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000005001
+          },
+          {
+            "seq": 18,
+            "slot": 50012,
+            "signature": "SIGCLITASKCOMPLETED-5",
+            "sourceEventType": "completed",
+            "sourceEventName": "taskCompleted",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000005002
+          },
+          {
+            "seq": 19,
+            "slot": 60010,
+            "signature": "SIGCLITASKCREATED-6",
+            "sourceEventType": "discovered",
+            "sourceEventName": "taskCreated",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000006000
+          },
+          {
+            "seq": 20,
+            "slot": 60011,
+            "signature": "SIGCLITASKCLAIMED-6",
+            "sourceEventType": "claimed",
+            "sourceEventName": "taskClaimed",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000006001
+          },
+          {
+            "seq": 21,
+            "slot": 60012,
+            "signature": "SIGCLITASKCOMPLETED-6",
+            "sourceEventType": "completed",
+            "sourceEventName": "taskCompleted",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000006002
+          },
+          {
+            "seq": 22,
+            "slot": 70010,
+            "signature": "SIGCLITASKCREATED-7",
+            "sourceEventType": "discovered",
+            "sourceEventName": "taskCreated",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000007000
+          },
+          {
+            "seq": 23,
+            "slot": 70011,
+            "signature": "SIGCLITASKCLAIMED-7",
+            "sourceEventType": "claimed",
+            "sourceEventName": "taskClaimed",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000007001
+          },
+          {
+            "seq": 24,
+            "slot": 70012,
+            "signature": "SIGCLITASKCOMPLETED-7",
+            "sourceEventType": "completed",
+            "sourceEventName": "taskCompleted",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000007002
+          },
+          {
+            "seq": 25,
+            "slot": 80010,
+            "signature": "SIGCLITASKCREATED-8",
+            "sourceEventType": "discovered",
+            "sourceEventName": "taskCreated",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000008000
+          },
+          {
+            "seq": 26,
+            "slot": 80011,
+            "signature": "SIGCLITASKCLAIMED-8",
+            "sourceEventType": "claimed",
+            "sourceEventName": "taskClaimed",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000008001
+          },
+          {
+            "seq": 27,
+            "slot": 80012,
+            "signature": "SIGCLITASKCOMPLETED-8",
+            "sourceEventType": "completed",
+            "sourceEventName": "taskCompleted",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000008002
+          },
+          {
+            "seq": 28,
+            "slot": 90010,
+            "signature": "SIGCLITASKCREATED-9",
+            "sourceEventType": "discovered",
+            "sourceEventName": "taskCreated",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000009000
+          },
+          {
+            "seq": 29,
+            "slot": 90011,
+            "signature": "SIGCLITASKCLAIMED-9",
+            "sourceEventType": "claimed",
+            "sourceEventName": "taskClaimed",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000009001
+          },
+          {
+            "seq": 30,
+            "slot": 90012,
+            "signature": "SIGCLITASKCOMPLETED-9",
+            "sourceEventType": "completed",
+            "sourceEventName": "taskCompleted",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000009002
+          },
+          {
+            "seq": 31,
+            "slot": 100010,
+            "signature": "SIGCLITASKCREATED-10",
+            "sourceEventType": "discovered",
+            "sourceEventName": "taskCreated",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000010000
+          },
+          {
+            "seq": 32,
+            "slot": 100011,
+            "signature": "SIGCLITASKCLAIMED-10",
+            "sourceEventType": "claimed",
+            "sourceEventName": "taskClaimed",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000010001
+          },
+          {
+            "seq": 33,
+            "slot": 100012,
+            "signature": "SIGCLITASKCOMPLETED-10",
+            "sourceEventType": "completed",
+            "sourceEventName": "taskCompleted",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000010002
+          },
+          {
+            "seq": 34,
+            "slot": 110010,
+            "signature": "SIGCLITASKCREATED-11",
+            "sourceEventType": "discovered",
+            "sourceEventName": "taskCreated",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000011000
+          },
+          {
+            "seq": 35,
+            "slot": 110011,
+            "signature": "SIGCLITASKCLAIMED-11",
+            "sourceEventType": "claimed",
+            "sourceEventName": "taskClaimed",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000011001
+          },
+          {
+            "seq": 36,
+            "slot": 110012,
+            "signature": "SIGCLITASKCOMPLETED-11",
+            "sourceEventType": "completed",
+            "sourceEventName": "taskCompleted",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000011002
+          },
+          {
+            "seq": 37,
+            "slot": 120010,
+            "signature": "SIGCLITASKCREATED-12",
+            "sourceEventType": "discovered",
+            "sourceEventName": "taskCreated",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000012000
+          },
+          {
+            "seq": 38,
+            "slot": 120011,
+            "signature": "SIGCLITASKCLAIMED-12",
+            "sourceEventType": "claimed",
+            "sourceEventName": "taskClaimed",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000012001
+          },
+          {
+            "seq": 39,
+            "slot": 120012,
+            "signature": "SIGCLITASKCOMPLETED-12",
+            "sourceEventType": "completed",
+            "sourceEventName": "taskCompleted",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000012002
+          },
+          {
+            "seq": 40,
+            "slot": 130010,
+            "signature": "SIGCLITASKCREATED-13",
+            "sourceEventType": "discovered",
+            "sourceEventName": "taskCreated",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000013000
+          },
+          {
+            "seq": 41,
+            "slot": 130011,
+            "signature": "SIGCLITASKCLAIMED-13",
+            "sourceEventType": "claimed",
+            "sourceEventName": "taskClaimed",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000013001
+          },
+          {
+            "seq": 42,
+            "slot": 130012,
+            "signature": "SIGCLITASKCOMPLETED-13",
+            "sourceEventType": "completed",
+            "sourceEventName": "taskCompleted",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000013002
+          },
+          {
+            "seq": 43,
+            "slot": 140010,
+            "signature": "SIGCLITASKCREATED-14",
+            "sourceEventType": "discovered",
+            "sourceEventName": "taskCreated",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000014000
+          },
+          {
+            "seq": 44,
+            "slot": 140011,
+            "signature": "SIGCLITASKCLAIMED-14",
+            "sourceEventType": "claimed",
+            "sourceEventName": "taskClaimed",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000014001
+          },
+          {
+            "seq": 45,
+            "slot": 140012,
+            "signature": "SIGCLITASKCOMPLETED-14",
+            "sourceEventType": "completed",
+            "sourceEventName": "taskCompleted",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000014002
+          },
+          {
+            "seq": 46,
+            "slot": 150010,
+            "signature": "SIGCLITASKCREATED-15",
+            "sourceEventType": "discovered",
+            "sourceEventName": "taskCreated",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000015000
+          },
+          {
+            "seq": 47,
+            "slot": 150011,
+            "signature": "SIGCLITASKCLAIMED-15",
+            "sourceEventType": "claimed",
+            "sourceEventName": "taskClaimed",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000015001
+          },
+          {
+            "seq": 48,
+            "slot": 150012,
+            "signature": "SIGCLITASKCOMPLETED-15",
+            "sourceEventType": "completed",
+            "sourceEventName": "taskCompleted",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000015002
+          },
+          {
+            "seq": 49,
+            "slot": 160010,
+            "signature": "SIGCLITASKCREATED-16",
+            "sourceEventType": "discovered",
+            "sourceEventName": "taskCreated",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000016000
+          },
+          {
+            "seq": 50,
+            "slot": 160011,
+            "signature": "SIGCLITASKCLAIMED-16",
+            "sourceEventType": "claimed",
+            "sourceEventName": "taskClaimed",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000016001
+          },
+          {
+            "seq": 51,
+            "slot": 160012,
+            "signature": "SIGCLITASKCOMPLETED-16",
+            "sourceEventType": "completed",
+            "sourceEventName": "taskCompleted",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000016002
+          },
+          {
+            "seq": 52,
+            "slot": 170010,
+            "signature": "SIGCLITASKCREATED-17",
+            "sourceEventType": "discovered",
+            "sourceEventName": "taskCreated",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000017000
+          },
+          {
+            "seq": 53,
+            "slot": 170011,
+            "signature": "SIGCLITASKCLAIMED-17",
+            "sourceEventType": "claimed",
+            "sourceEventName": "taskClaimed",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000017001
+          },
+          {
+            "seq": 54,
+            "slot": 170012,
+            "signature": "SIGCLITASKCOMPLETED-17",
+            "sourceEventType": "completed",
+            "sourceEventName": "taskCompleted",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000017002
+          },
+          {
+            "seq": 55,
+            "slot": 180010,
+            "signature": "SIGCLITASKCREATED-18",
+            "sourceEventType": "discovered",
+            "sourceEventName": "taskCreated",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000018000
+          },
+          {
+            "seq": 56,
+            "slot": 180011,
+            "signature": "SIGCLITASKCLAIMED-18",
+            "sourceEventType": "claimed",
+            "sourceEventName": "taskClaimed",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000018001
+          },
+          {
+            "seq": 57,
+            "slot": 180012,
+            "signature": "SIGCLITASKCOMPLETED-18",
+            "sourceEventType": "completed",
+            "sourceEventName": "taskCompleted",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000018002
+          },
+          {
+            "seq": 58,
+            "slot": 190010,
+            "signature": "SIGCLITASKCREATED-19",
+            "sourceEventType": "discovered",
+            "sourceEventName": "taskCreated",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000019000
+          },
+          {
+            "seq": 59,
+            "slot": 190011,
+            "signature": "SIGCLITASKCLAIMED-19",
+            "sourceEventType": "claimed",
+            "sourceEventName": "taskClaimed",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000019001
+          },
+          {
+            "seq": 60,
+            "slot": 190012,
+            "signature": "SIGCLITASKCOMPLETED-19",
+            "sourceEventType": "completed",
+            "sourceEventName": "taskCompleted",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000019002
+          },
+          {
+            "seq": 61,
+            "slot": 200010,
+            "signature": "SIGCLITASKCREATED-20",
+            "sourceEventType": "discovered",
+            "sourceEventName": "taskCreated",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000020000
+          },
+          {
+            "seq": 62,
+            "slot": 200011,
+            "signature": "SIGCLITASKCLAIMED-20",
+            "sourceEventType": "claimed",
+            "sourceEventName": "taskClaimed",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000020001
+          },
+          {
+            "seq": 63,
+            "slot": 200012,
+            "signature": "SIGCLITASKCOMPLETED-20",
+            "sourceEventType": "completed",
+            "sourceEventName": "taskCompleted",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000020002
+          },
+          {
+            "seq": 64,
+            "slot": 210010,
+            "signature": "SIGCLITASKCREATED-21",
+            "sourceEventType": "discovered",
+            "sourceEventName": "taskCreated",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000021000
+          },
+          {
+            "seq": 65,
+            "slot": 210011,
+            "signature": "SIGCLITASKCLAIMED-21",
+            "sourceEventType": "claimed",
+            "sourceEventName": "taskClaimed",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000021001
+          },
+          {
+            "seq": 66,
+            "slot": 210012,
+            "signature": "SIGCLITASKCOMPLETED-21",
+            "sourceEventType": "completed",
+            "sourceEventName": "taskCompleted",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000021002
+          },
+          {
+            "seq": 67,
+            "slot": 220010,
+            "signature": "SIGCLITASKCREATED-22",
+            "sourceEventType": "discovered",
+            "sourceEventName": "taskCreated",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000022000
+          },
+          {
+            "seq": 68,
+            "slot": 220011,
+            "signature": "SIGCLITASKCLAIMED-22",
+            "sourceEventType": "claimed",
+            "sourceEventName": "taskClaimed",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000022001
+          },
+          {
+            "seq": 69,
+            "slot": 220012,
+            "signature": "SIGCLITASKCOMPLETED-22",
+            "sourceEventType": "completed",
+            "sourceEventName": "taskCompleted",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000022002
+          },
+          {
+            "seq": 70,
+            "slot": 230010,
+            "signature": "SIGCLITASKCREATED-23",
+            "sourceEventType": "discovered",
+            "sourceEventName": "taskCreated",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000023000
+          },
+          {
+            "seq": 71,
+            "slot": 230011,
+            "signature": "SIGCLITASKCLAIMED-23",
+            "sourceEventType": "claimed",
+            "sourceEventName": "taskClaimed",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000023001
+          },
+          {
+            "seq": 72,
+            "slot": 230012,
+            "signature": "SIGCLITASKCOMPLETED-23",
+            "sourceEventType": "completed",
+            "sourceEventName": "taskCompleted",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000023002
+          },
+          {
+            "seq": 73,
+            "slot": 240010,
+            "signature": "SIGCLITASKCREATED-24",
+            "sourceEventType": "discovered",
+            "sourceEventName": "taskCreated",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000024000
+          },
+          {
+            "seq": 74,
+            "slot": 240011,
+            "signature": "SIGCLITASKCLAIMED-24",
+            "sourceEventType": "claimed",
+            "sourceEventName": "taskClaimed",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000024001
+          },
+          {
+            "seq": 75,
+            "slot": 240012,
+            "signature": "SIGCLITASKCOMPLETED-24",
+            "sourceEventType": "completed",
+            "sourceEventName": "taskCompleted",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000024002
+          },
+          {
+            "seq": 76,
+            "slot": 250010,
+            "signature": "SIGCLITASKCREATED-25",
+            "sourceEventType": "discovered",
+            "sourceEventName": "taskCreated",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000025000
+          },
+          {
+            "seq": 77,
+            "slot": 250011,
+            "signature": "SIGCLITASKCLAIMED-25",
+            "sourceEventType": "claimed",
+            "sourceEventName": "taskClaimed",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000025001
+          },
+          {
+            "seq": 78,
+            "slot": 250012,
+            "signature": "SIGCLITASKCOMPLETED-25",
+            "sourceEventType": "completed",
+            "sourceEventName": "taskCompleted",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000025002
+          },
+          {
+            "seq": 79,
+            "slot": 260010,
+            "signature": "SIGCLITASKCREATED-26",
+            "sourceEventType": "discovered",
+            "sourceEventName": "taskCreated",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000026000
+          },
+          {
+            "seq": 80,
+            "slot": 260011,
+            "signature": "SIGCLITASKCLAIMED-26",
+            "sourceEventType": "claimed",
+            "sourceEventName": "taskClaimed",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000026001
+          },
+          {
+            "seq": 81,
+            "slot": 260012,
+            "signature": "SIGCLITASKCOMPLETED-26",
+            "sourceEventType": "completed",
+            "sourceEventName": "taskCompleted",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000026002
+          },
+          {
+            "seq": 82,
+            "slot": 270010,
+            "signature": "SIGCLITASKCREATED-27",
+            "sourceEventType": "discovered",
+            "sourceEventName": "taskCreated",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000027000
+          },
+          {
+            "seq": 83,
+            "slot": 270011,
+            "signature": "SIGCLITASKCLAIMED-27",
+            "sourceEventType": "claimed",
+            "sourceEventName": "taskClaimed",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000027001
+          },
+          {
+            "seq": 84,
+            "slot": 270012,
+            "signature": "SIGCLITASKCOMPLETED-27",
+            "sourceEventType": "completed",
+            "sourceEventName": "taskCompleted",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000027002
+          },
+          {
+            "seq": 85,
+            "slot": 280010,
+            "signature": "SIGCLITASKCREATED-28",
+            "sourceEventType": "discovered",
+            "sourceEventName": "taskCreated",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000028000
+          },
+          {
+            "seq": 86,
+            "slot": 280011,
+            "signature": "SIGCLITASKCLAIMED-28",
+            "sourceEventType": "claimed",
+            "sourceEventName": "taskClaimed",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000028001
+          },
+          {
+            "seq": 87,
+            "slot": 280012,
+            "signature": "SIGCLITASKCOMPLETED-28",
+            "sourceEventType": "completed",
+            "sourceEventName": "taskCompleted",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000028002
+          },
+          {
+            "seq": 88,
+            "slot": 290010,
+            "signature": "SIGCLITASKCREATED-29",
+            "sourceEventType": "discovered",
+            "sourceEventName": "taskCreated",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000029000
+          },
+          {
+            "seq": 89,
+            "slot": 290011,
+            "signature": "SIGCLITASKCLAIMED-29",
+            "sourceEventType": "claimed",
+            "sourceEventName": "taskClaimed",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000029001
+          },
+          {
+            "seq": 90,
+            "slot": 290012,
+            "signature": "SIGCLITASKCOMPLETED-29",
+            "sourceEventType": "completed",
+            "sourceEventName": "taskCompleted",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000029002
+          },
+          {
+            "seq": 91,
+            "slot": 300010,
+            "signature": "SIGCLITASKCREATED-30",
+            "sourceEventType": "discovered",
+            "sourceEventName": "taskCreated",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000030000
+          },
+          {
+            "seq": 92,
+            "slot": 300011,
+            "signature": "SIGCLITASKCLAIMED-30",
+            "sourceEventType": "claimed",
+            "sourceEventName": "taskClaimed",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000030001
+          },
+          {
+            "seq": 93,
+            "slot": 300012,
+            "signature": "SIGCLITASKCOMPLETED-30",
+            "sourceEventType": "completed",
+            "sourceEventName": "taskCompleted",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000030002
+          },
+          {
+            "seq": 94,
+            "slot": 310010,
+            "signature": "SIGCLITASKCREATED-31",
+            "sourceEventType": "discovered",
+            "sourceEventName": "taskCreated",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000031000
+          },
+          {
+            "seq": 95,
+            "slot": 310011,
+            "signature": "SIGCLITASKCLAIMED-31",
+            "sourceEventType": "claimed",
+            "sourceEventName": "taskClaimed",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000031001
+          },
+          {
+            "seq": 96,
+            "slot": 310012,
+            "signature": "SIGCLITASKCOMPLETED-31",
+            "sourceEventType": "completed",
+            "sourceEventName": "taskCompleted",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000031002
+          },
+          {
+            "seq": 97,
+            "slot": 320010,
+            "signature": "SIGCLITASKCREATED-32",
+            "sourceEventType": "discovered",
+            "sourceEventName": "taskCreated",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000032000
+          },
+          {
+            "seq": 98,
+            "slot": 320011,
+            "signature": "SIGCLITASKCLAIMED-32",
+            "sourceEventType": "claimed",
+            "sourceEventName": "taskClaimed",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000032001
+          },
+          {
+            "seq": 99,
+            "slot": 320012,
+            "signature": "SIGCLITASKCOMPLETED-32",
+            "sourceEventType": "completed",
+            "sourceEventName": "taskCompleted",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000032002
+          },
+          {
+            "seq": 100,
+            "slot": 330010,
+            "signature": "SIGCLITASKCREATED-33",
+            "sourceEventType": "discovered",
+            "sourceEventName": "taskCreated",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000033000
+          },
+          {
+            "seq": 101,
+            "slot": 330011,
+            "signature": "SIGCLITASKCLAIMED-33",
+            "sourceEventType": "claimed",
+            "sourceEventName": "taskClaimed",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000033001
+          },
+          {
+            "seq": 102,
+            "slot": 330012,
+            "signature": "SIGCLITASKCOMPLETED-33",
+            "sourceEventType": "completed",
+            "sourceEventName": "taskCompleted",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000033002
+          },
+          {
+            "seq": 103,
+            "slot": 340010,
+            "signature": "SIGCLITASKCREATED-34",
+            "sourceEventType": "discovered",
+            "sourceEventName": "taskCreated",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000034000
+          },
+          {
+            "seq": 104,
+            "slot": 340011,
+            "signature": "SIGCLITASKCLAIMED-34",
+            "sourceEventType": "claimed",
+            "sourceEventName": "taskClaimed",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000034001
+          },
+          {
+            "seq": 105,
+            "slot": 340012,
+            "signature": "SIGCLITASKCOMPLETED-34",
+            "sourceEventType": "completed",
+            "sourceEventName": "taskCompleted",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000034002
+          },
+          {
+            "seq": 106,
+            "slot": 350010,
+            "signature": "SIGCLITASKCREATED-35",
+            "sourceEventType": "discovered",
+            "sourceEventName": "taskCreated",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000035000
+          },
+          {
+            "seq": 107,
+            "slot": 350011,
+            "signature": "SIGCLITASKCLAIMED-35",
+            "sourceEventType": "claimed",
+            "sourceEventName": "taskClaimed",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000035001
+          },
+          {
+            "seq": 108,
+            "slot": 350012,
+            "signature": "SIGCLITASKCOMPLETED-35",
+            "sourceEventType": "completed",
+            "sourceEventName": "taskCompleted",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000035002
+          },
+          {
+            "seq": 109,
+            "slot": 360010,
+            "signature": "SIGCLITASKCREATED-36",
+            "sourceEventType": "discovered",
+            "sourceEventName": "taskCreated",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000036000
+          },
+          {
+            "seq": 110,
+            "slot": 360011,
+            "signature": "SIGCLITASKCLAIMED-36",
+            "sourceEventType": "claimed",
+            "sourceEventName": "taskClaimed",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000036001
+          },
+          {
+            "seq": 111,
+            "slot": 360012,
+            "signature": "SIGCLITASKCOMPLETED-36",
+            "sourceEventType": "completed",
+            "sourceEventName": "taskCompleted",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000036002
+          },
+          {
+            "seq": 112,
+            "slot": 370010,
+            "signature": "SIGCLITASKCREATED-37",
+            "sourceEventType": "discovered",
+            "sourceEventName": "taskCreated",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000037000
+          },
+          {
+            "seq": 113,
+            "slot": 370011,
+            "signature": "SIGCLITASKCLAIMED-37",
+            "sourceEventType": "claimed",
+            "sourceEventName": "taskClaimed",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000037001
+          },
+          {
+            "seq": 114,
+            "slot": 370012,
+            "signature": "SIGCLITASKCOMPLETED-37",
+            "sourceEventType": "completed",
+            "sourceEventName": "taskCompleted",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000037002
+          },
+          {
+            "seq": 115,
+            "slot": 380010,
+            "signature": "SIGCLITASKCREATED-38",
+            "sourceEventType": "discovered",
+            "sourceEventName": "taskCreated",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000038000
+          },
+          {
+            "seq": 116,
+            "slot": 380011,
+            "signature": "SIGCLITASKCLAIMED-38",
+            "sourceEventType": "claimed",
+            "sourceEventName": "taskClaimed",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000038001
+          },
+          {
+            "seq": 117,
+            "slot": 380012,
+            "signature": "SIGCLITASKCOMPLETED-38",
+            "sourceEventType": "completed",
+            "sourceEventName": "taskCompleted",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000038002
+          },
+          {
+            "seq": 118,
+            "slot": 390010,
+            "signature": "SIGCLITASKCREATED-39",
+            "sourceEventType": "discovered",
+            "sourceEventName": "taskCreated",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000039000
+          },
+          {
+            "seq": 119,
+            "slot": 390011,
+            "signature": "SIGCLITASKCLAIMED-39",
+            "sourceEventType": "claimed",
+            "sourceEventName": "taskClaimed",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000039001
+          },
+          {
+            "seq": 120,
+            "slot": 390012,
+            "signature": "SIGCLITASKCOMPLETED-39",
+            "sourceEventType": "completed",
+            "sourceEventName": "taskCompleted",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000039002
+          },
+          {
+            "seq": 121,
+            "slot": 400010,
+            "signature": "SIGCLITASKCREATED-40",
+            "sourceEventType": "discovered",
+            "sourceEventName": "taskCreated",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000040000
+          },
+          {
+            "seq": 122,
+            "slot": 400011,
+            "signature": "SIGCLITASKCLAIMED-40",
+            "sourceEventType": "claimed",
+            "sourceEventName": "taskClaimed",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000040001
+          },
+          {
+            "seq": 123,
+            "slot": 400012,
+            "signature": "SIGCLITASKCOMPLETED-40",
+            "sourceEventType": "completed",
+            "sourceEventName": "taskCompleted",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000040002
+          },
+          {
+            "seq": 124,
+            "slot": 410010,
+            "signature": "SIGCLITASKCREATED-41",
+            "sourceEventType": "discovered",
+            "sourceEventName": "taskCreated",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000041000
+          },
+          {
+            "seq": 125,
+            "slot": 410011,
+            "signature": "SIGCLITASKCLAIMED-41",
+            "sourceEventType": "claimed",
+            "sourceEventName": "taskClaimed",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000041001
+          },
+          {
+            "seq": 126,
+            "slot": 410012,
+            "signature": "SIGCLITASKCOMPLETED-41",
+            "sourceEventType": "completed",
+            "sourceEventName": "taskCompleted",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000041002
+          },
+          {
+            "seq": 127,
+            "slot": 420010,
+            "signature": "SIGCLITASKCREATED-42",
+            "sourceEventType": "discovered",
+            "sourceEventName": "taskCreated",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000042000
+          },
+          {
+            "seq": 128,
+            "slot": 420011,
+            "signature": "SIGCLITASKCLAIMED-42",
+            "sourceEventType": "claimed",
+            "sourceEventName": "taskClaimed",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000042001
+          },
+          {
+            "seq": 129,
+            "slot": 420012,
+            "signature": "SIGCLITASKCOMPLETED-42",
+            "sourceEventType": "completed",
+            "sourceEventName": "taskCompleted",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000042002
+          },
+          {
+            "seq": 130,
+            "slot": 430010,
+            "signature": "SIGCLITASKCREATED-43",
+            "sourceEventType": "discovered",
+            "sourceEventName": "taskCreated",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000043000
+          },
+          {
+            "seq": 131,
+            "slot": 430011,
+            "signature": "SIGCLITASKCLAIMED-43",
+            "sourceEventType": "claimed",
+            "sourceEventName": "taskClaimed",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000043001
+          },
+          {
+            "seq": 132,
+            "slot": 430012,
+            "signature": "SIGCLITASKCOMPLETED-43",
+            "sourceEventType": "completed",
+            "sourceEventName": "taskCompleted",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000043002
+          },
+          {
+            "seq": 133,
+            "slot": 440010,
+            "signature": "SIGCLITASKCREATED-44",
+            "sourceEventType": "discovered",
+            "sourceEventName": "taskCreated",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000044000
+          },
+          {
+            "seq": 134,
+            "slot": 440011,
+            "signature": "SIGCLITASKCLAIMED-44",
+            "sourceEventType": "claimed",
+            "sourceEventName": "taskClaimed",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000044001
+          },
+          {
+            "seq": 135,
+            "slot": 440012,
+            "signature": "SIGCLITASKCOMPLETED-44",
+            "sourceEventType": "completed",
+            "sourceEventName": "taskCompleted",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000044002
+          },
+          {
+            "seq": 136,
+            "slot": 450010,
+            "signature": "SIGCLITASKCREATED-45",
+            "sourceEventType": "discovered",
+            "sourceEventName": "taskCreated",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000045000
+          },
+          {
+            "seq": 137,
+            "slot": 450011,
+            "signature": "SIGCLITASKCLAIMED-45",
+            "sourceEventType": "claimed",
+            "sourceEventName": "taskClaimed",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000045001
+          },
+          {
+            "seq": 138,
+            "slot": 450012,
+            "signature": "SIGCLITASKCOMPLETED-45",
+            "sourceEventType": "completed",
+            "sourceEventName": "taskCompleted",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000045002
+          },
+          {
+            "seq": 139,
+            "slot": 460010,
+            "signature": "SIGCLITASKCREATED-46",
+            "sourceEventType": "discovered",
+            "sourceEventName": "taskCreated",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000046000
+          },
+          {
+            "seq": 140,
+            "slot": 460011,
+            "signature": "SIGCLITASKCLAIMED-46",
+            "sourceEventType": "claimed",
+            "sourceEventName": "taskClaimed",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000046001
+          },
+          {
+            "seq": 141,
+            "slot": 460012,
+            "signature": "SIGCLITASKCOMPLETED-46",
+            "sourceEventType": "completed",
+            "sourceEventName": "taskCompleted",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000046002
+          },
+          {
+            "seq": 142,
+            "slot": 470010,
+            "signature": "SIGCLITASKCREATED-47",
+            "sourceEventType": "discovered",
+            "sourceEventName": "taskCreated",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000047000
+          },
+          {
+            "seq": 143,
+            "slot": 470011,
+            "signature": "SIGCLITASKCLAIMED-47",
+            "sourceEventType": "claimed",
+            "sourceEventName": "taskClaimed",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000047001
+          },
+          {
+            "seq": 144,
+            "slot": 470012,
+            "signature": "SIGCLITASKCOMPLETED-47",
+            "sourceEventType": "completed",
+            "sourceEventName": "taskCompleted",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000047002
+          },
+          {
+            "seq": 145,
+            "slot": 480010,
+            "signature": "SIGCLITASKCREATED-48",
+            "sourceEventType": "discovered",
+            "sourceEventName": "taskCreated",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000048000
+          },
+          {
+            "seq": 146,
+            "slot": 480011,
+            "signature": "SIGCLITASKCLAIMED-48",
+            "sourceEventType": "claimed",
+            "sourceEventName": "taskClaimed",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000048001
+          },
+          {
+            "seq": 147,
+            "slot": 480012,
+            "signature": "SIGCLITASKCOMPLETED-48",
+            "sourceEventType": "completed",
+            "sourceEventName": "taskCompleted",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000048002
+          },
+          {
+            "seq": 148,
+            "slot": 490010,
+            "signature": "SIGCLITASKCREATED-49",
+            "sourceEventType": "discovered",
+            "sourceEventName": "taskCreated",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000049000
+          },
+          {
+            "seq": 149,
+            "slot": 490011,
+            "signature": "SIGCLITASKCLAIMED-49",
+            "sourceEventType": "claimed",
+            "sourceEventName": "taskClaimed",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000049001
+          },
+          {
+            "seq": 150,
+            "slot": 490012,
+            "signature": "SIGCLITASKCOMPLETED-49",
+            "sourceEventType": "completed",
+            "sourceEventName": "taskCompleted",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000049002
+          },
+          {
+            "seq": 151,
+            "slot": 500010,
+            "signature": "SIGCLITASKCREATED-50",
+            "sourceEventType": "discovered",
+            "sourceEventName": "taskCreated",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000050000
+          },
+          {
+            "seq": 152,
+            "slot": 500011,
+            "signature": "SIGCLITASKCLAIMED-50",
+            "sourceEventType": "claimed",
+            "sourceEventName": "taskClaimed",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000050001
+          },
+          {
+            "seq": 153,
+            "slot": 500012,
+            "signature": "SIGCLITASKCOMPLETED-50",
+            "sourceEventType": "completed",
+            "sourceEventName": "taskCompleted",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000050002
+          },
+          {
+            "seq": 154,
+            "slot": 510010,
+            "signature": "SIGCLITASKCREATED-51",
+            "sourceEventType": "discovered",
+            "sourceEventName": "taskCreated",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000051000
+          },
+          {
+            "seq": 155,
+            "slot": 510011,
+            "signature": "SIGCLITASKCLAIMED-51",
+            "sourceEventType": "claimed",
+            "sourceEventName": "taskClaimed",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000051001
+          },
+          {
+            "seq": 156,
+            "slot": 510012,
+            "signature": "SIGCLITASKCOMPLETED-51",
+            "sourceEventType": "completed",
+            "sourceEventName": "taskCompleted",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000051002
+          },
+          {
+            "seq": 157,
+            "slot": 520010,
+            "signature": "SIGCLITASKCREATED-52",
+            "sourceEventType": "discovered",
+            "sourceEventName": "taskCreated",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000052000
+          },
+          {
+            "seq": 158,
+            "slot": 520011,
+            "signature": "SIGCLITASKCLAIMED-52",
+            "sourceEventType": "claimed",
+            "sourceEventName": "taskClaimed",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000052001
+          },
+          {
+            "seq": 159,
+            "slot": 520012,
+            "signature": "SIGCLITASKCOMPLETED-52",
+            "sourceEventType": "completed",
+            "sourceEventName": "taskCompleted",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000052002
+          },
+          {
+            "seq": 160,
+            "slot": 530010,
+            "signature": "SIGCLITASKCREATED-53",
+            "sourceEventType": "discovered",
+            "sourceEventName": "taskCreated",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000053000
+          },
+          {
+            "seq": 161,
+            "slot": 530011,
+            "signature": "SIGCLITASKCLAIMED-53",
+            "sourceEventType": "claimed",
+            "sourceEventName": "taskClaimed",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000053001
+          },
+          {
+            "seq": 162,
+            "slot": 530012,
+            "signature": "SIGCLITASKCOMPLETED-53",
+            "sourceEventType": "completed",
+            "sourceEventName": "taskCompleted",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000053002
+          },
+          {
+            "seq": 163,
+            "slot": 540010,
+            "signature": "SIGCLITASKCREATED-54",
+            "sourceEventType": "discovered",
+            "sourceEventName": "taskCreated",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000054000
+          },
+          {
+            "seq": 164,
+            "slot": 540011,
+            "signature": "SIGCLITASKCLAIMED-54",
+            "sourceEventType": "claimed",
+            "sourceEventName": "taskClaimed",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000054001
+          },
+          {
+            "seq": 165,
+            "slot": 540012,
+            "signature": "SIGCLITASKCOMPLETED-54",
+            "sourceEventType": "completed",
+            "sourceEventName": "taskCompleted",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000054002
+          },
+          {
+            "seq": 166,
+            "slot": 550010,
+            "signature": "SIGCLITASKCREATED-55",
+            "sourceEventType": "discovered",
+            "sourceEventName": "taskCreated",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000055000
+          },
+          {
+            "seq": 167,
+            "slot": 550011,
+            "signature": "SIGCLITASKCLAIMED-55",
+            "sourceEventType": "claimed",
+            "sourceEventName": "taskClaimed",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000055001
+          },
+          {
+            "seq": 168,
+            "slot": 550012,
+            "signature": "SIGCLITASKCOMPLETED-55",
+            "sourceEventType": "completed",
+            "sourceEventName": "taskCompleted",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000055002
+          },
+          {
+            "seq": 169,
+            "slot": 560010,
+            "signature": "SIGCLITASKCREATED-56",
+            "sourceEventType": "discovered",
+            "sourceEventName": "taskCreated",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000056000
+          },
+          {
+            "seq": 170,
+            "slot": 560011,
+            "signature": "SIGCLITASKCLAIMED-56",
+            "sourceEventType": "claimed",
+            "sourceEventName": "taskClaimed",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000056001
+          },
+          {
+            "seq": 171,
+            "slot": 560012,
+            "signature": "SIGCLITASKCOMPLETED-56",
+            "sourceEventType": "completed",
+            "sourceEventName": "taskCompleted",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000056002
+          },
+          {
+            "seq": 172,
+            "slot": 570010,
+            "signature": "SIGCLITASKCREATED-57",
+            "sourceEventType": "discovered",
+            "sourceEventName": "taskCreated",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000057000
+          },
+          {
+            "seq": 173,
+            "slot": 570011,
+            "signature": "SIGCLITASKCLAIMED-57",
+            "sourceEventType": "claimed",
+            "sourceEventName": "taskClaimed",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000057001
+          },
+          {
+            "seq": 174,
+            "slot": 570012,
+            "signature": "SIGCLITASKCOMPLETED-57",
+            "sourceEventType": "completed",
+            "sourceEventName": "taskCompleted",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000057002
+          },
+          {
+            "seq": 175,
+            "slot": 580010,
+            "signature": "SIGCLITASKCREATED-58",
+            "sourceEventType": "discovered",
+            "sourceEventName": "taskCreated",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000058000
+          },
+          {
+            "seq": 176,
+            "slot": 580011,
+            "signature": "SIGCLITASKCLAIMED-58",
+            "sourceEventType": "claimed",
+            "sourceEventName": "taskClaimed",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000058001
+          },
+          {
+            "seq": 177,
+            "slot": 580012,
+            "signature": "SIGCLITASKCOMPLETED-58",
+            "sourceEventType": "completed",
+            "sourceEventName": "taskCompleted",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000058002
+          },
+          {
+            "seq": 178,
+            "slot": 590010,
+            "signature": "SIGCLITASKCREATED-59",
+            "sourceEventType": "discovered",
+            "sourceEventName": "taskCreated",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000059000
+          },
+          {
+            "seq": 179,
+            "slot": 590011,
+            "signature": "SIGCLITASKCLAIMED-59",
+            "sourceEventType": "claimed",
+            "sourceEventName": "taskClaimed",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000059001
+          },
+          {
+            "seq": 180,
+            "slot": 590012,
+            "signature": "SIGCLITASKCOMPLETED-59",
+            "sourceEventType": "completed",
+            "sourceEventName": "taskCompleted",
+            "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "timestampMs": 1000000059002
+          }
+        ],
+        "deterministicHash": "bca58fe16eb505dd17d37d754c2b4c831045ae023e0ff16c0cc6226723a18a6e",
+        "eventType": "replay-incidents"
+      },
+      "validation": {
+        "strictMode": false,
+        "eventValidation": {
+          "errors": [],
+          "warnings": [],
+          "replayTaskCount": 1
+        },
+        "anomalyIds": []
+      },
+      "narrative": {
+        "lines": [
+          "1/10/SIGCLITASKCREATED-0: taskCreated (discovered)",
+          "2/11/SIGCLITASKCLAIMED-0: taskClaimed (claimed)",
+          "3/12/SIGCLITASKCOMPLETED-0: taskCompleted (completed)",
+          "4/10010/SIGCLITASKCREATED-1: taskCreated (discovered)",
+          "5/10011/SIGCLITASKCLAIMED-1: taskClaimed (claimed)",
+          "6/10012/SIGCLITASKCOMPLETED-1: taskCompleted (completed)",
+          "7/20010/SIGCLITASKCREATED-2: taskCreated (discovered)",
+          "8/20011/SIGCLITASKCLAIMED-2: taskClaimed (claimed)",
+          "9/20012/SIGCLITASKCOMPLETED-2: taskCompleted (completed)",
+          "10/30010/SIGCLITASKCREATED-3: taskCreated (discovered)",
+          "11/30011/SIGCLITASKCLAIMED-3: taskClaimed (claimed)",
+          "12/30012/SIGCLITASKCOMPLETED-3: taskCompleted (completed)",
+          "13/40010/SIGCLITASKCREATED-4: taskCreated (discovered)",
+          "14/40011/SIGCLITASKCLAIMED-4: taskClaimed (claimed)",
+          "15/40012/SIGCLITASKCOMPLETED-4: taskCompleted (completed)",
+          "16/50010/SIGCLITASKCREATED-5: taskCreated (discovered)",
+          "17/50011/SIGCLITASKCLAIMED-5: taskClaimed (claimed)",
+          "18/50012/SIGCLITASKCOMPLETED-5: taskCompleted (completed)",
+          "19/60010/SIGCLITASKCREATED-6: taskCreated (discovered)",
+          "20/60011/SIGCLITASKCLAIMED-6: taskClaimed (claimed)",
+          "21/60012/SIGCLITASKCOMPLETED-6: taskCompleted (completed)",
+          "22/70010/SIGCLITASKCREATED-7: taskCreated (discovered)",
+          "23/70011/SIGCLITASKCLAIMED-7: taskClaimed (claimed)",
+          "24/70012/SIGCLITASKCOMPLETED-7: taskCompleted (completed)",
+          "25/80010/SIGCLITASKCREATED-8: taskCreated (discovered)",
+          "26/80011/SIGCLITASKCLAIMED-8: taskClaimed (claimed)",
+          "27/80012/SIGCLITASKCOMPLETED-8: taskCompleted (completed)",
+          "28/90010/SIGCLITASKCREATED-9: taskCreated (discovered)",
+          "29/90011/SIGCLITASKCLAIMED-9: taskClaimed (claimed)",
+          "30/90012/SIGCLITASKCOMPLETED-9: taskCompleted (completed)",
+          "31/100010/SIGCLITASKCREATED-10: taskCreated (discovered)",
+          "32/100011/SIGCLITASKCLAIMED-10: taskClaimed (claimed)",
+          "33/100012/SIGCLITASKCOMPLETED-10: taskCompleted (completed)",
+          "34/110010/SIGCLITASKCREATED-11: taskCreated (discovered)",
+          "35/110011/SIGCLITASKCLAIMED-11: taskClaimed (claimed)",
+          "36/110012/SIGCLITASKCOMPLETED-11: taskCompleted (completed)",
+          "37/120010/SIGCLITASKCREATED-12: taskCreated (discovered)",
+          "38/120011/SIGCLITASKCLAIMED-12: taskClaimed (claimed)",
+          "39/120012/SIGCLITASKCOMPLETED-12: taskCompleted (completed)",
+          "40/130010/SIGCLITASKCREATED-13: taskCreated (discovered)"
+        ],
+        "anomalyIds": []
+      }
+    }
+  },
+  "metadata": {
+    "generatedAt": "2026-02-14T20:17:05.686Z",
+    "generatedBy": "contract-validator"
+  }
+}
