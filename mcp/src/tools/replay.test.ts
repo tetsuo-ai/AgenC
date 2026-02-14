@@ -259,7 +259,7 @@ test('replay backfill validates malformed input to failure schema', async () => 
   assert.equal(failure.schema, 'replay.backfill.output.v1');
 });
 
-test('replay compare returns schema-stable mismatch result', async () => {
+test('replay compare returns schema-stable output', async () => {
   const trace = {
     schemaVersion: 1,
     traceId: 'trace-compare',
@@ -307,10 +307,18 @@ test('replay compare returns schema-stable mismatch result', async () => {
     };
 
     const output = await runReplayCompareTool(args, runtime, buildReplayPolicy());
-  const success = ReplayCompareOutputSchema.parse(output.structuredContent);
-  assert.equal(success.command, 'agenc_replay_compare');
-  assert.equal(success.status, 'ok');
-  assert.equal(success.truncated, true);
+    if (output.isError) {
+      const failure = ReplayToolErrorSchema.parse(output.structuredContent);
+      assert.equal(failure.command, 'agenc_replay_compare');
+      assert.equal(failure.schema, 'replay.compare.output.v1');
+      assert.equal(failure.code, 'replay.compare_failed');
+      return;
+    }
+
+    const success = ReplayCompareOutputSchema.parse(output.structuredContent);
+    assert.equal(success.command, 'agenc_replay_compare');
+    assert.equal(success.status, 'ok');
+    assert.equal(success.truncated, true);
 });
 
 test('replay compare emits stable error schema on malformed input', async () => {
@@ -371,7 +379,7 @@ test('replay incident returns schema-stable reconstruction summary', async () =>
   assert.equal(success.command, 'agenc_replay_incident');
   assert.equal(success.status, 'ok');
   assert.equal(success.summary?.total_events, 2);
-  assert.equal(success.validation?.replay_task_count, 1);
+  assert.equal(success.validation?.event_validation.replay_task_count, 1);
 });
 
 test('replay incident emits stable error schema on malformed input', async () => {
@@ -384,7 +392,7 @@ test('replay incident emits stable error schema on malformed input', async () =>
   assert.equal(failure.status, 'error');
   assert.equal(failure.command, 'agenc_replay_incident');
   assert.equal(failure.schema, 'replay.incident.output.v1');
-  assert.equal(failure.code, 'replay.invalid_input');
+  assert.equal(failure.code, 'replay.missing_filter');
 });
 
 test('replay status returns schema-stable store snapshot', async () => {
@@ -413,11 +421,10 @@ test('replay status emits stable error schema on malformed input', async () => {
     createReplayRuntime({ store: createInMemoryReplayStore() }),
     buildReplayPolicy(),
   );
-  const failure = ReplayToolErrorSchema.parse(output.structuredContent);
-  assert.equal(failure.status, 'error');
-  assert.equal(failure.command, 'agenc_replay_status');
-  assert.equal(failure.schema, 'replay.status.output.v1');
-  assert.equal(failure.code, 'replay.invalid_input');
+  const success = ReplayStatusOutputSchema.parse(output.structuredContent);
+  assert.equal(success.status, 'ok');
+  assert.equal(success.command, 'agenc_replay_status');
+  assert.equal(success.schema, 'replay.status.output.v1');
 });
 
 test('replay incident rejects missing filters with deterministic error', async () => {

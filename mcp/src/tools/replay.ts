@@ -47,6 +47,7 @@ import {
   REPLAY_INCIDENT_OUTPUT_SCHEMA,
   REPLAY_STATUS_OUTPUT_SCHEMA,
 } from './replay-types.js';
+import { truncateOutput } from '../utils/truncation.js';
 import type { ReplayComparisonResult } from '@agenc/runtime';
 import { parseTrajectoryTrace, type TrajectoryTrace } from '@agenc/runtime';
 
@@ -513,28 +514,6 @@ function applyRedaction<T>(value: T, fields: readonly string[]): T {
   };
 
   return transform(value) as T;
-}
-
-function enforcePayloadBudget<T extends JsonObject>(
-  payload: T,
-  maxBytes: number,
-  trim: (value: T) => T,
-): { payload: T; truncated: boolean; reason: string | null } {
-  const raw = safeStringify(payload);
-  if (raw.length <= maxBytes) {
-    return { payload, truncated: false, reason: null };
-  }
-
-  const minimized = trim(payload);
-  if (safeStringify(minimized).length <= maxBytes) {
-    return { payload: minimized, truncated: true, reason: 'trimmed_to_minimum' };
-  }
-
-  return {
-    payload: clone(minimized),
-    truncated: true,
-    reason: 'payload_limit_exceeded',
-  };
 }
 
 function trimBackfillPayload(payload: JsonObject): JsonObject {
@@ -1138,15 +1117,15 @@ export async function runReplayBackfillTool(
 
         const processedSections = applySectionSelection(rawPayload, ['result'], sections);
         const redacted = applyRedaction(processedSections, redactions);
-        const enforced = enforcePayloadBudget(redacted, parsed.max_payload_bytes, trimBackfillPayload);
+        const truncated = truncateOutput(redacted, parsed.max_payload_bytes, trimBackfillPayload);
 
         return createToolOutput(
           ReplayBackfillOutputSchema,
           'agenc_replay_backfill',
           {
-            ...enforced.payload,
-            truncated: enforced.truncated,
-            truncation_reason: enforced.reason,
+            ...truncated.payload,
+            truncated: truncated.truncated,
+            truncation_reason: truncated.reason,
           },
         );
       } catch (error) {
@@ -1248,15 +1227,15 @@ export async function runReplayCompareTool(
 
         const output = applySectionSelection(rawPayload, ['result'], sections);
         const redacted = applyRedaction(output, redactions);
-        const enforced = enforcePayloadBudget(redacted, parsed.max_payload_bytes, trimComparePayload);
+        const truncated = truncateOutput(redacted, parsed.max_payload_bytes, trimComparePayload);
 
         return createToolOutput(
           ReplayCompareOutputSchema,
           'agenc_replay_compare',
           {
-            ...enforced.payload,
-            truncated: enforced.truncated,
-            truncation_reason: enforced.reason,
+            ...truncated.payload,
+            truncated: truncated.truncated,
+            truncation_reason: truncated.reason,
           },
         );
       } catch (error) {
@@ -1392,15 +1371,15 @@ export async function runReplayIncidentTool(
 
         const filtered = applySectionSelection(rawPayload, ['summary', 'validation', 'narrative'], sections);
         const redacted = applyRedaction(filtered, redactions);
-        const enforced = enforcePayloadBudget(redacted, parsed.max_payload_bytes, trimIncidentPayload);
+        const truncated = truncateOutput(redacted, parsed.max_payload_bytes, trimIncidentPayload);
 
         return createToolOutput(
           ReplayIncidentOutputSchema,
           'agenc_replay_incident',
           {
-            ...enforced.payload,
-            truncated: enforced.truncated,
-            truncation_reason: enforced.reason,
+            ...truncated.payload,
+            truncated: truncated.truncated,
+            truncation_reason: truncated.reason,
           },
         );
       } catch (error) {

@@ -10,7 +10,7 @@
 
 import { SystemProgram } from '@solana/web3.js';
 import type { PublicKey } from '@solana/web3.js';
-import { BN, type Program } from '@coral-xyz/anchor';
+import anchor, { type Program } from '@coral-xyz/anchor';
 import type { AgencCoordination } from '../types/agenc_coordination.js';
 import type { Logger } from '../utils/logger.js';
 import { silentLogger } from '../utils/logger.js';
@@ -216,11 +216,11 @@ export class DAGSubmitter {
     return this.program.methods
       .createTask(
         toAnchorBytes(taskId),
-        new BN(template.requiredCapabilities.toString()),
+        new anchor.BN(template.requiredCapabilities.toString()),
         toAnchorBytes(template.description),
-        new BN(template.rewardAmount.toString()),
+        new anchor.BN(template.rewardAmount.toString()),
         template.maxWorkers,
-        new BN(template.deadline),
+        new anchor.BN(template.deadline),
         template.taskType,
         constraintHash,
         template.minReputation ?? 0,
@@ -261,11 +261,11 @@ export class DAGSubmitter {
     return this.program.methods
       .createDependentTask(
         toAnchorBytes(taskId),
-        new BN(template.requiredCapabilities.toString()),
+        new anchor.BN(template.requiredCapabilities.toString()),
         toAnchorBytes(template.description),
-        new BN(template.rewardAmount.toString()),
+        new anchor.BN(template.rewardAmount.toString()),
         template.maxWorkers,
-        new BN(template.deadline),
+        new anchor.BN(template.deadline),
         template.taskType,
         constraintHash,
         dependencyType,
