@@ -40,6 +40,7 @@ export {
   ReplayTimelineStoreConfig,
   BackfillFetcher,
   BackfillResult,
+  type BackfillDuplicateReport,
   ProjectedTimelineInput,
   BackfillFetcherPage,
   buildReplayKey,

@@ -4,7 +4,7 @@
  * @module
  */
 
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFile, writeFile, rename } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
 import { dirname } from 'node:path';
@@ -100,6 +100,9 @@ export class FileReplayTimelineStore implements ReplayTimelineStore {
       cursor: state.cursor,
       records: state.records,
     });
-    await writeFile(this.filePath, payload);
+    // Write to temp file then rename for crash-safe persistence
+    const tmpPath = `${this.filePath}.tmp`;
+    await writeFile(tmpPath, payload);
+    await rename(tmpPath, this.filePath);
   }
 }
