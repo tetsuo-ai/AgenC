@@ -42,6 +42,7 @@ export {
   expireClaim,
   completeTask,
   completeTaskPrivate,
+  completeTaskPrivateSafe,
   cancelTask,
   getTask,
   getTasksByCreator,
@@ -58,6 +59,8 @@ export {
   TaskLifecycleEvent,
   TaskLifecycleSummary,
   PrivateCompletionProof,
+  CompleteTaskPrivateSafeOptions,
+  ProofPreconditionError,
 } from './tasks';
 
 export {
@@ -201,6 +204,19 @@ export {
   type CoordinationErrorEntry,
   type DecodedError,
 } from './errors';
+
+export {
+  validateProofPreconditions,
+  DEFAULT_MAX_PROOF_AGE_MS,
+  type ProofPreconditionResult,
+  type ProofPreconditionFailure,
+  type ProofPreconditionWarning,
+  type ValidateProofParams,
+} from './proof-validation';
+
+export {
+  NullifierCache,
+} from './nullifier-cache';
 
 export {
   // Query functions

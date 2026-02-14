@@ -21,6 +21,8 @@ import { PROGRAM_ID, SEEDS, TaskState, DISCRIMINATOR_SIZE, PERCENT_BASE, DEFAULT
 import { getAccount } from './anchor-utils';
 import { getSdkLogger } from './logger';
 import { getDependentTaskCount } from './queries';
+import { validateProofPreconditions, type ProofPreconditionResult } from './proof-validation';
+import { NullifierCache } from './nullifier-cache';
 
 export { TaskState };
 
@@ -94,6 +96,13 @@ export interface PrivateCompletionProof {
   nullifier: Buffer | Uint8Array;
 }
 
+export interface CompleteTaskPrivateSafeOptions {
+  validatePreconditions?: boolean;
+  nullifierCache?: NullifierCache;
+  proofGeneratedAtMs?: number;
+  maxProofAgeMs?: number;
+}
+
 export interface TaskLifecycleEvent {
   eventName: string;
   timestamp: number;
@@ -119,6 +128,17 @@ export interface TaskLifecycleSummary {
   dependentCount: number;
   durationSeconds: number | null;
   isExpired: boolean;
+}
+
+export class ProofPreconditionError extends Error {
+  readonly result: ProofPreconditionResult;
+
+  constructor(result: ProofPreconditionResult) {
+    const reasons = result.failures.map((failure) => failure.message).join('; ');
+    super(`Proof precondition check failed: ${reasons}`);
+    this.name = 'ProofPreconditionError';
+    this.result = result;
+  }
 }
 
 // ============================================================================
@@ -597,6 +617,58 @@ export async function completeTaskPrivate(
   await connection.confirmTransaction(tx, 'confirmed');
 
   return { txSignature: tx };
+}
+
+/**
+ * Complete a task privately with optional pre-submission validation and local
+ * nullifier cache tracking.
+ */
+export async function completeTaskPrivateSafe(
+  connection: Connection,
+  program: Program,
+  worker: Keypair,
+  workerAgentId: Uint8Array | number[],
+  taskPda: PublicKey,
+  proof: PrivateCompletionProof,
+  options: CompleteTaskPrivateSafeOptions = {},
+): Promise<{ txSignature: string; validationResult?: ProofPreconditionResult }> {
+  if (options.nullifierCache?.isUsed(proof.nullifier)) {
+    throw new Error('Nullifier already submitted in this session');
+  }
+
+  const validate = options.validatePreconditions ?? true;
+  let validationResult: ProofPreconditionResult | undefined;
+
+  if (validate) {
+    const workerAgentPda = deriveAgentPda(workerAgentId, program.programId);
+    validationResult = await validateProofPreconditions(connection, program, {
+      taskPda,
+      workerAgentPda,
+      proof,
+      proofGeneratedAtMs: options.proofGeneratedAtMs,
+      maxProofAgeMs: options.maxProofAgeMs,
+    });
+
+    if (!validationResult.valid) {
+      throw new ProofPreconditionError(validationResult);
+    }
+  }
+
+  const result = await completeTaskPrivate(
+    connection,
+    program,
+    worker,
+    workerAgentId,
+    taskPda,
+    proof,
+  );
+
+  options.nullifierCache?.markUsed(proof.nullifier);
+
+  return {
+    ...result,
+    validationResult,
+  };
 }
 
 /**
