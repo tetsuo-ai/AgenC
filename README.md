@@ -113,6 +113,56 @@ cd runtime && npm run test
 cd runtime && npm run mutation:gates
 ```
 
+## Developer Setup
+
+### One-Command Setup
+
+```bash
+./scripts/setup-dev.sh
+```
+
+This validates your environment, installs dependencies, builds all packages, runs
+unit tests and LiteSVM integration tests, and verifies replay fixture
+reproducibility.
+
+Flags:
+
+```bash
+./scripts/setup-dev.sh --skip-tests
+./scripts/setup-dev.sh --skip-fixtures
+```
+
+### Prerequisites
+
+| Tool | Version | Required |
+|------|---------|----------|
+| Node.js | >= 18 | Yes |
+| npm | latest | Yes |
+| Git | any | Yes |
+| Rust | stable | For program builds |
+| Solana CLI | 3.0.13 | For program builds |
+| Anchor CLI | 0.32.1 | For program builds |
+
+### Validation Only
+
+```bash
+./scripts/validate-env.sh
+```
+
+### Step-by-step
+
+```bash
+./scripts/validate-env.sh
+npm install
+npm install --prefix sdk
+npm install --prefix runtime
+npm install --prefix mcp
+npm run build
+npm run test
+npm run test:fast
+npm run test:fixtures
+```
+
 ## Architecture
 
 ```
