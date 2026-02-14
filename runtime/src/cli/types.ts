@@ -1,3 +1,5 @@
+import type { PluginPrecedence, PluginSlot } from '../skills/catalog.js';
+
 export type CliOutputFormat = 'json' | 'jsonl' | 'table';
 
 export interface CliReplayOutput<TPayload = unknown> {
@@ -49,6 +51,23 @@ export interface ReplayIncidentOptions extends BaseCliOptions {
   disputePda?: string;
   fromSlot?: number;
   toSlot?: number;
+}
+
+export interface PluginListOptions extends BaseCliOptions {}
+
+export interface PluginInstallOptions extends BaseCliOptions {
+  manifestPath: string;
+  precedence?: PluginPrecedence;
+  slot?: PluginSlot;
+}
+
+export interface PluginToggleOptions extends BaseCliOptions {
+  pluginId: string;
+}
+
+export interface PluginReloadOptions extends BaseCliOptions {
+  pluginId: string;
+  manifestPath?: string;
 }
 
 export interface CliUsage {

@@ -9,6 +9,7 @@
 
 // Core types
 export {
+  // Plugin catalog
   type Skill,
   type SkillMetadata,
   type SkillAction,
@@ -17,6 +18,17 @@ export {
   type SkillRegistryConfig,
   SkillState,
 } from './types.js';
+
+export {
+  PluginCatalog,
+  PluginCatalogError,
+  type CatalogEntry,
+  type CatalogOperationResult,
+  type CatalogState,
+  type PluginPrecedence,
+  type PluginSlot,
+  type SlotCollision,
+} from './catalog.js';
 
 // Error types
 export {
