@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { computeSchemaHash } from '../utils/schema-hash.js';
 
 /**
  * Alert schema version referenced by replay tools.
@@ -130,6 +131,7 @@ export const ReplayBackfillOutputSchema = z.object({
   status: z.literal('ok'),
   command: z.literal('agenc_replay_backfill'),
   schema: z.literal(REPLAY_BACKFILL_OUTPUT_SCHEMA),
+  schema_hash: z.string().optional(),
   mode: z.literal('backfill'),
   to_slot: z.number().int().positive(),
   store_type: z.enum(['memory', 'sqlite']),
@@ -146,6 +148,7 @@ export const ReplayCompareOutputSchema = z.object({
   status: z.literal('ok'),
   command: z.literal('agenc_replay_compare'),
   schema: z.literal(REPLAY_COMPARE_OUTPUT_SCHEMA),
+  schema_hash: z.string().optional(),
   strictness: z.enum(['strict', 'lenient']),
   local_trace_path: z.string(),
   result: ReplayCompareResultSchema,
@@ -162,6 +165,7 @@ export const ReplayIncidentOutputSchema = z.object({
   status: z.literal('ok'),
   command: z.literal('agenc_replay_incident'),
   schema: z.literal(REPLAY_INCIDENT_OUTPUT_SCHEMA),
+  schema_hash: z.string().optional(),
   command_params: z.record(z.unknown()),
   sections: z.array(z.string()),
   redactions: z.array(z.string()),
@@ -176,6 +180,7 @@ export const ReplayStatusOutputSchema = z.object({
   status: z.literal('ok'),
   command: z.literal('agenc_replay_status'),
   schema: z.literal(REPLAY_STATUS_OUTPUT_SCHEMA),
+  schema_hash: z.string().optional(),
   store_type: z.enum(['memory', 'sqlite']),
   event_count: z.number().nonnegative(),
   unique_task_count: z.number().nonnegative(),
@@ -189,8 +194,18 @@ export const ReplayToolErrorSchema = z.object({
   status: z.literal('error'),
   command: z.string(),
   schema: z.string(),
+  schema_hash: z.string().optional(),
   code: z.string(),
   message: z.string(),
   details: z.record(z.unknown()).optional(),
   retriable: z.boolean(),
 });
+
+export const REPLAY_SCHEMA_HASHES = {
+  [REPLAY_BACKFILL_OUTPUT_SCHEMA]: computeSchemaHash(ReplayBackfillOutputSchema),
+  [REPLAY_COMPARE_OUTPUT_SCHEMA]: computeSchemaHash(ReplayCompareOutputSchema),
+  [REPLAY_INCIDENT_OUTPUT_SCHEMA]: computeSchemaHash(ReplayIncidentOutputSchema),
+  [REPLAY_STATUS_OUTPUT_SCHEMA]: computeSchemaHash(ReplayStatusOutputSchema),
+} as const;
+
+export const REPLAY_TOOL_ERROR_SCHEMA_HASH = computeSchemaHash(ReplayToolErrorSchema);
