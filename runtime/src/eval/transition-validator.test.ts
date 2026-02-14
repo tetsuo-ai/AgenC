@@ -1,6 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import { projectOnChainEvents } from './projector.js';
-import { ANOMALY_CODES, validateTransition } from './transition-validator.js';
+import {
+  ANOMALY_CODES,
+  validateTransition,
+  OnChainTaskStatus,
+  OnChainDisputeStatus,
+  ON_CHAIN_TASK_TRANSITIONS,
+  ON_CHAIN_DISPUTE_TRANSITIONS,
+  EVENT_TO_TASK_STATUS,
+  EVENT_TO_DISPUTE_STATUS,
+  TransitionValidator,
+  type TransitionValidationViolation,
+} from './transition-validator.js';
 
 function bytes(seed: number, length = 32): Uint8Array {
   return Uint8Array.from({ length }, () => seed);
@@ -342,5 +353,426 @@ describe('anomaly codes (#959)', () => {
 
     // No violations: claimed -> disputed is valid
     expect(result.telemetry.transitionViolations).toHaveLength(0);
+  });
+});
+
+describe('on-chain transition matrices (#966)', () => {
+  it('task transition matrix matches on-chain TaskStatus::can_transition_to', () => {
+    const open = ON_CHAIN_TASK_TRANSITIONS[OnChainTaskStatus.Open];
+    expect(open.has(OnChainTaskStatus.InProgress)).toBe(true);
+    expect(open.has(OnChainTaskStatus.Cancelled)).toBe(true);
+    expect(open.size).toBe(2);
+
+    const inProgress = ON_CHAIN_TASK_TRANSITIONS[OnChainTaskStatus.InProgress];
+    expect(inProgress.has(OnChainTaskStatus.InProgress)).toBe(true);
+    expect(inProgress.has(OnChainTaskStatus.Completed)).toBe(true);
+    expect(inProgress.has(OnChainTaskStatus.Cancelled)).toBe(true);
+    expect(inProgress.has(OnChainTaskStatus.Disputed)).toBe(true);
+    expect(inProgress.has(OnChainTaskStatus.PendingValidation)).toBe(true);
+    expect(inProgress.size).toBe(5);
+
+    const pendingValidation = ON_CHAIN_TASK_TRANSITIONS[OnChainTaskStatus.PendingValidation];
+    expect(pendingValidation.has(OnChainTaskStatus.Completed)).toBe(true);
+    expect(pendingValidation.has(OnChainTaskStatus.Disputed)).toBe(true);
+    expect(pendingValidation.size).toBe(2);
+
+    const completed = ON_CHAIN_TASK_TRANSITIONS[OnChainTaskStatus.Completed];
+    expect(completed.size).toBe(0);
+
+    const cancelled = ON_CHAIN_TASK_TRANSITIONS[OnChainTaskStatus.Cancelled];
+    expect(cancelled.size).toBe(0);
+
+    const disputed = ON_CHAIN_TASK_TRANSITIONS[OnChainTaskStatus.Disputed];
+    expect(disputed.has(OnChainTaskStatus.Completed)).toBe(true);
+    expect(disputed.has(OnChainTaskStatus.Cancelled)).toBe(true);
+    expect(disputed.size).toBe(2);
+  });
+
+  it('dispute transition matrix covers all terminal states', () => {
+    const active = ON_CHAIN_DISPUTE_TRANSITIONS[OnChainDisputeStatus.Active];
+    expect(active.has(OnChainDisputeStatus.Resolved)).toBe(true);
+    expect(active.has(OnChainDisputeStatus.Expired)).toBe(true);
+    expect(active.has(OnChainDisputeStatus.Cancelled)).toBe(true);
+    expect(active.size).toBe(3);
+
+    expect(ON_CHAIN_DISPUTE_TRANSITIONS[OnChainDisputeStatus.Resolved].size).toBe(0);
+    expect(ON_CHAIN_DISPUTE_TRANSITIONS[OnChainDisputeStatus.Expired].size).toBe(0);
+    expect(ON_CHAIN_DISPUTE_TRANSITIONS[OnChainDisputeStatus.Cancelled].size).toBe(0);
+  });
+
+  it('event-to-status mappings cover expected events', () => {
+    expect(EVENT_TO_TASK_STATUS.taskCreated).toBe(OnChainTaskStatus.Open);
+    expect(EVENT_TO_TASK_STATUS.taskClaimed).toBe(OnChainTaskStatus.InProgress);
+    expect(EVENT_TO_TASK_STATUS.taskCompleted).toBe(OnChainTaskStatus.Completed);
+    expect(EVENT_TO_TASK_STATUS.taskCancelled).toBe(OnChainTaskStatus.Cancelled);
+
+    expect(EVENT_TO_DISPUTE_STATUS.disputeInitiated).toBe(OnChainDisputeStatus.Active);
+    expect(EVENT_TO_DISPUTE_STATUS.disputeResolved).toBe(OnChainDisputeStatus.Resolved);
+    expect(EVENT_TO_DISPUTE_STATUS.disputeExpired).toBe(OnChainDisputeStatus.Expired);
+    expect(EVENT_TO_DISPUTE_STATUS.disputeCancelled).toBe(OnChainDisputeStatus.Cancelled);
+  });
+});
+
+describe('negative transition corpus (#966)', () => {
+  const INVALID_TASK_TRANSITIONS: Array<[OnChainTaskStatus, OnChainTaskStatus]> = [
+    [OnChainTaskStatus.Completed, OnChainTaskStatus.Open],
+    [OnChainTaskStatus.Completed, OnChainTaskStatus.InProgress],
+    [OnChainTaskStatus.Completed, OnChainTaskStatus.Cancelled],
+    [OnChainTaskStatus.Completed, OnChainTaskStatus.Disputed],
+    [OnChainTaskStatus.Completed, OnChainTaskStatus.PendingValidation],
+    [OnChainTaskStatus.Cancelled, OnChainTaskStatus.Open],
+    [OnChainTaskStatus.Cancelled, OnChainTaskStatus.InProgress],
+    [OnChainTaskStatus.Cancelled, OnChainTaskStatus.Completed],
+    [OnChainTaskStatus.Cancelled, OnChainTaskStatus.Disputed],
+    [OnChainTaskStatus.Cancelled, OnChainTaskStatus.PendingValidation],
+    [OnChainTaskStatus.Open, OnChainTaskStatus.Completed],
+    [OnChainTaskStatus.Open, OnChainTaskStatus.Disputed],
+    [OnChainTaskStatus.Open, OnChainTaskStatus.PendingValidation],
+    [OnChainTaskStatus.PendingValidation, OnChainTaskStatus.Open],
+    [OnChainTaskStatus.PendingValidation, OnChainTaskStatus.InProgress],
+    [OnChainTaskStatus.PendingValidation, OnChainTaskStatus.Cancelled],
+    [OnChainTaskStatus.Disputed, OnChainTaskStatus.Open],
+    [OnChainTaskStatus.Disputed, OnChainTaskStatus.InProgress],
+    [OnChainTaskStatus.Disputed, OnChainTaskStatus.PendingValidation],
+  ];
+
+  for (const [from, to] of INVALID_TASK_TRANSITIONS) {
+    it(`rejects task ${OnChainTaskStatus[from]} -> ${OnChainTaskStatus[to]}`, () => {
+      const allowed = ON_CHAIN_TASK_TRANSITIONS[from];
+      expect(allowed.has(to)).toBe(false);
+    });
+  }
+
+  const INVALID_DISPUTE_TRANSITIONS: Array<[OnChainDisputeStatus, OnChainDisputeStatus]> = [
+    [OnChainDisputeStatus.Resolved, OnChainDisputeStatus.Active],
+    [OnChainDisputeStatus.Resolved, OnChainDisputeStatus.Expired],
+    [OnChainDisputeStatus.Resolved, OnChainDisputeStatus.Cancelled],
+    [OnChainDisputeStatus.Expired, OnChainDisputeStatus.Active],
+    [OnChainDisputeStatus.Expired, OnChainDisputeStatus.Resolved],
+    [OnChainDisputeStatus.Expired, OnChainDisputeStatus.Cancelled],
+    [OnChainDisputeStatus.Cancelled, OnChainDisputeStatus.Active],
+    [OnChainDisputeStatus.Cancelled, OnChainDisputeStatus.Resolved],
+    [OnChainDisputeStatus.Cancelled, OnChainDisputeStatus.Expired],
+  ];
+
+  for (const [from, to] of INVALID_DISPUTE_TRANSITIONS) {
+    it(`rejects dispute ${OnChainDisputeStatus[from]} -> ${OnChainDisputeStatus[to]}`, () => {
+      const allowed = ON_CHAIN_DISPUTE_TRANSITIONS[from];
+      expect(allowed.has(to)).toBe(false);
+    });
+  }
+});
+
+describe('TransitionValidator class (#966)', () => {
+  const TASK_TRANSITIONS: Record<string, ReadonlySet<string>> = {
+    discovered: new Set(['claimed', 'failed']),
+    claimed: new Set(['completed', 'failed', 'disputed']),
+    completed: new Set([]),
+    failed: new Set([]),
+    disputed: new Set(['completed', 'failed']),
+  };
+  const TASK_START_EVENTS = new Set<string>(['discovered']);
+
+  const DISPUTE_TRANSITIONS: Record<string, ReadonlySet<string>> = {
+    'dispute:initiated': new Set(['dispute:vote_cast', 'dispute:resolved', 'dispute:expired', 'dispute:cancelled']),
+    'dispute:vote_cast': new Set(['dispute:vote_cast', 'dispute:resolved', 'dispute:expired']),
+    'dispute:resolved': new Set([]),
+    'dispute:expired': new Set([]),
+    'dispute:cancelled': new Set([]),
+  };
+  const DISPUTE_START_EVENTS = new Set<string>(['dispute:initiated']);
+
+  it('accepts valid on-chain task lifecycle (Open -> InProgress -> Completed)', () => {
+    const validator = new TransitionValidator();
+    const r1 = validator.validate({
+      scope: 'task', entityId: 'T1', eventName: 'taskCreated', eventType: 'discovered',
+      previousState: undefined, nextState: 'discovered',
+      transitions: TASK_TRANSITIONS, allowedStarts: TASK_START_EVENTS,
+      signature: 'SIG_1', slot: 1, sourceEventSequence: 0,
+    });
+    expect(r1.valid).toBe(true);
+
+    const r2 = validator.validate({
+      scope: 'task', entityId: 'T1', eventName: 'taskClaimed', eventType: 'claimed',
+      previousState: 'discovered', nextState: 'claimed',
+      transitions: TASK_TRANSITIONS, allowedStarts: TASK_START_EVENTS,
+      signature: 'SIG_2', slot: 2, sourceEventSequence: 1,
+    });
+    expect(r2.valid).toBe(true);
+
+    const r3 = validator.validate({
+      scope: 'task', entityId: 'T1', eventName: 'taskCompleted', eventType: 'completed',
+      previousState: 'claimed', nextState: 'completed',
+      transitions: TASK_TRANSITIONS, allowedStarts: TASK_START_EVENTS,
+      signature: 'SIG_3', slot: 3, sourceEventSequence: 2,
+    });
+    expect(r3.valid).toBe(true);
+  });
+
+  it('rejects impossible on-chain task transition (Completed -> InProgress)', () => {
+    const validator = new TransitionValidator();
+    // Walk task to Completed
+    validator.validate({
+      scope: 'task', entityId: 'T1', eventName: 'taskCreated', eventType: 'discovered',
+      previousState: undefined, nextState: 'discovered',
+      transitions: TASK_TRANSITIONS, allowedStarts: TASK_START_EVENTS,
+      signature: 'SIG_1', slot: 1, sourceEventSequence: 0,
+    });
+    validator.validate({
+      scope: 'task', entityId: 'T1', eventName: 'taskClaimed', eventType: 'claimed',
+      previousState: 'discovered', nextState: 'claimed',
+      transitions: TASK_TRANSITIONS, allowedStarts: TASK_START_EVENTS,
+      signature: 'SIG_2', slot: 2, sourceEventSequence: 1,
+    });
+    validator.validate({
+      scope: 'task', entityId: 'T1', eventName: 'taskCompleted', eventType: 'completed',
+      previousState: 'claimed', nextState: 'completed',
+      transitions: TASK_TRANSITIONS, allowedStarts: TASK_START_EVENTS,
+      signature: 'SIG_3', slot: 3, sourceEventSequence: 2,
+    });
+
+    // Attempt Completed -> InProgress (taskClaimed after completed)
+    const result = validator.validate({
+      scope: 'task', entityId: 'T1', eventName: 'taskClaimed', eventType: 'claimed',
+      previousState: 'completed', nextState: 'claimed',
+      transitions: TASK_TRANSITIONS, allowedStarts: TASK_START_EVENTS,
+      signature: 'SIG_BAD', slot: 10, sourceEventSequence: 3,
+    });
+    // Replay-level validation catches this first (terminal state)
+    expect(result.valid).toBe(false);
+    expect(result.violation).toBeDefined();
+  });
+
+  it('catches on-chain violation even when replay lifecycle allows it', () => {
+    // Use permissive replay transitions but strict on-chain
+    const permissiveTransitions: Record<string, ReadonlySet<string>> = {
+      discovered: new Set(['claimed', 'completed', 'failed']),
+      claimed: new Set(['completed', 'claimed', 'discovered']),
+      completed: new Set(['claimed']),  // replay allows completed -> claimed
+    };
+    const validator = new TransitionValidator();
+
+    validator.validate({
+      scope: 'task', entityId: 'T1', eventName: 'taskCreated', eventType: 'discovered',
+      previousState: undefined, nextState: 'discovered',
+      transitions: permissiveTransitions, allowedStarts: new Set(['discovered']),
+      signature: 'SIG_1', slot: 1, sourceEventSequence: 0,
+    });
+    validator.validate({
+      scope: 'task', entityId: 'T1', eventName: 'taskClaimed', eventType: 'claimed',
+      previousState: 'discovered', nextState: 'claimed',
+      transitions: permissiveTransitions, allowedStarts: new Set(['discovered']),
+      signature: 'SIG_2', slot: 2, sourceEventSequence: 1,
+    });
+    validator.validate({
+      scope: 'task', entityId: 'T1', eventName: 'taskCompleted', eventType: 'completed',
+      previousState: 'claimed', nextState: 'completed',
+      transitions: permissiveTransitions, allowedStarts: new Set(['discovered']),
+      signature: 'SIG_3', slot: 3, sourceEventSequence: 2,
+    });
+
+    // Replay transitions allow completed -> claimed, but on-chain does not
+    const result = validator.validate({
+      scope: 'task', entityId: 'T1', eventName: 'taskClaimed', eventType: 'claimed',
+      previousState: 'completed', nextState: 'claimed',
+      transitions: permissiveTransitions, allowedStarts: new Set(['discovered']),
+      signature: 'SIG_4', slot: 4, sourceEventSequence: 3,
+    });
+    expect(result.valid).toBe(false);
+    expect(result.violation!.reason).toContain('on-chain');
+    expect(result.violation!.reason).toContain('Completed');
+    expect(result.violation!.reason).toContain('InProgress');
+  });
+
+  it('rejects impossible on-chain dispute transition (Resolved -> Active)', () => {
+    const validator = new TransitionValidator();
+
+    validator.validate({
+      scope: 'dispute', entityId: 'D1', eventName: 'disputeInitiated', eventType: 'dispute:initiated',
+      previousState: undefined, nextState: 'dispute:initiated',
+      transitions: DISPUTE_TRANSITIONS, allowedStarts: DISPUTE_START_EVENTS,
+      signature: 'SIG_D1', slot: 1, sourceEventSequence: 0,
+    });
+    validator.validate({
+      scope: 'dispute', entityId: 'D1', eventName: 'disputeResolved', eventType: 'dispute:resolved',
+      previousState: 'dispute:initiated', nextState: 'dispute:resolved',
+      transitions: DISPUTE_TRANSITIONS, allowedStarts: DISPUTE_START_EVENTS,
+      signature: 'SIG_D2', slot: 2, sourceEventSequence: 1,
+    });
+
+    // Resolved -> Active is invalid
+    const result = validator.validate({
+      scope: 'dispute', entityId: 'D1', eventName: 'disputeInitiated', eventType: 'dispute:initiated',
+      previousState: 'dispute:resolved', nextState: 'dispute:initiated',
+      transitions: DISPUTE_TRANSITIONS, allowedStarts: DISPUTE_START_EVENTS,
+      signature: 'SIG_D3', slot: 3, sourceEventSequence: 2,
+    });
+    // Replay-level validation catches this (terminal state)
+    expect(result.valid).toBe(false);
+  });
+
+  it('tracks independent entities separately', () => {
+    const validator = new TransitionValidator();
+
+    // Task T1 reaches Completed
+    validator.validate({
+      scope: 'task', entityId: 'T1', eventName: 'taskCreated', eventType: 'discovered',
+      previousState: undefined, nextState: 'discovered',
+      transitions: TASK_TRANSITIONS, allowedStarts: TASK_START_EVENTS,
+      signature: 'SIG_1', slot: 1, sourceEventSequence: 0,
+    });
+    validator.validate({
+      scope: 'task', entityId: 'T1', eventName: 'taskClaimed', eventType: 'claimed',
+      previousState: 'discovered', nextState: 'claimed',
+      transitions: TASK_TRANSITIONS, allowedStarts: TASK_START_EVENTS,
+      signature: 'SIG_2', slot: 2, sourceEventSequence: 1,
+    });
+    validator.validate({
+      scope: 'task', entityId: 'T1', eventName: 'taskCompleted', eventType: 'completed',
+      previousState: 'claimed', nextState: 'completed',
+      transitions: TASK_TRANSITIONS, allowedStarts: TASK_START_EVENTS,
+      signature: 'SIG_3', slot: 3, sourceEventSequence: 2,
+    });
+
+    // Task T2 is independent and should still be valid
+    const r = validator.validate({
+      scope: 'task', entityId: 'T2', eventName: 'taskCreated', eventType: 'discovered',
+      previousState: undefined, nextState: 'discovered',
+      transitions: TASK_TRANSITIONS, allowedStarts: TASK_START_EVENTS,
+      signature: 'SIG_4', slot: 4, sourceEventSequence: 0,
+    });
+    expect(r.valid).toBe(true);
+  });
+
+  it('reset clears all tracked state', () => {
+    const validator = new TransitionValidator();
+
+    validator.validate({
+      scope: 'task', entityId: 'T1', eventName: 'taskCreated', eventType: 'discovered',
+      previousState: undefined, nextState: 'discovered',
+      transitions: TASK_TRANSITIONS, allowedStarts: TASK_START_EVENTS,
+      signature: 'SIG_1', slot: 1, sourceEventSequence: 0,
+    });
+    validator.validate({
+      scope: 'task', entityId: 'T1', eventName: 'taskClaimed', eventType: 'claimed',
+      previousState: 'discovered', nextState: 'claimed',
+      transitions: TASK_TRANSITIONS, allowedStarts: TASK_START_EVENTS,
+      signature: 'SIG_2', slot: 2, sourceEventSequence: 1,
+    });
+    validator.validate({
+      scope: 'task', entityId: 'T1', eventName: 'taskCompleted', eventType: 'completed',
+      previousState: 'claimed', nextState: 'completed',
+      transitions: TASK_TRANSITIONS, allowedStarts: TASK_START_EVENTS,
+      signature: 'SIG_3', slot: 3, sourceEventSequence: 2,
+    });
+
+    validator.reset();
+
+    // After reset, T1 should be treated as new — taskCreated valid again
+    const result = validator.validate({
+      scope: 'task', entityId: 'T1', eventName: 'taskCreated', eventType: 'discovered',
+      previousState: undefined, nextState: 'discovered',
+      transitions: TASK_TRANSITIONS, allowedStarts: TASK_START_EVENTS,
+      signature: 'SIG_4', slot: 10, sourceEventSequence: 0,
+    });
+    expect(result.valid).toBe(true);
+  });
+
+  it('toAnomaly produces structured anomaly payload', () => {
+    const violation: TransitionValidationViolation = {
+      scope: 'task',
+      entityId: 'T1',
+      eventName: 'taskClaimed',
+      eventType: 'claimed',
+      fromState: 'Completed',
+      toState: 'InProgress',
+      reason: 'on-chain: Completed -> InProgress',
+      signature: 'SIG_X',
+      slot: 42,
+      sourceEventSequence: 3,
+      anomalyCode: ANOMALY_CODES.UNKNOWN_TRANSITION,
+    };
+
+    const validator = new TransitionValidator();
+    const anomaly = validator.toAnomaly(violation, { taskPda: 'TASK_PDA_1' });
+
+    expect(anomaly.type).toBe('transition_invalid');
+    expect(anomaly.scope).toBe('task');
+    expect(anomaly.from).toBe('Completed');
+    expect(anomaly.to).toBe('InProgress');
+    expect(anomaly.reason).toBe('on-chain: Completed -> InProgress');
+    expect(anomaly.taskPda).toBe('TASK_PDA_1');
+    expect(anomaly.disputePda).toBeUndefined();
+    expect(anomaly.entityId).toBe('T1');
+    expect(anomaly.slot).toBe(42);
+    expect(anomaly.signature).toBe('SIG_X');
+    expect(anomaly.sourceEventSequence).toBe(3);
+    expect(anomaly.eventName).toBe('taskClaimed');
+  });
+
+  it('toAnomaly includes dispute PDA context', () => {
+    const violation: TransitionValidationViolation = {
+      scope: 'dispute',
+      entityId: 'D1',
+      eventName: 'disputeInitiated',
+      eventType: 'dispute:initiated',
+      fromState: 'Resolved',
+      toState: 'Active',
+      reason: 'on-chain: Resolved -> Active',
+      signature: 'SIG_Y',
+      slot: 55,
+      sourceEventSequence: 1,
+      anomalyCode: ANOMALY_CODES.UNKNOWN_TRANSITION,
+    };
+
+    const validator = new TransitionValidator();
+    const anomaly = validator.toAnomaly(violation, { disputePda: 'DISPUTE_PDA_1' });
+
+    expect(anomaly.scope).toBe('dispute');
+    expect(anomaly.disputePda).toBe('DISPUTE_PDA_1');
+    expect(anomaly.taskPda).toBeUndefined();
+  });
+
+  it('events without on-chain mapping skip on-chain check entirely', () => {
+    const validator = new TransitionValidator();
+
+    // Set up a valid dispute lifecycle
+    validator.validate({
+      scope: 'dispute', entityId: 'D1', eventName: 'disputeInitiated', eventType: 'dispute:initiated',
+      previousState: undefined, nextState: 'dispute:initiated',
+      transitions: DISPUTE_TRANSITIONS, allowedStarts: DISPUTE_START_EVENTS,
+      signature: 'SIG_D1', slot: 1, sourceEventSequence: 0,
+    });
+
+    // disputeVoteCast has no EVENT_TO_DISPUTE_STATUS mapping
+    // It should pass on-chain check (skipped) and pass replay check (valid transition)
+    const r = validator.validate({
+      scope: 'dispute', entityId: 'D1', eventName: 'disputeVoteCast', eventType: 'dispute:vote_cast',
+      previousState: 'dispute:initiated', nextState: 'dispute:vote_cast',
+      transitions: DISPUTE_TRANSITIONS, allowedStarts: DISPUTE_START_EVENTS,
+      signature: 'SIG_V', slot: 5, sourceEventSequence: 1,
+    });
+    expect(r.valid).toBe(true);
+  });
+
+  it('unmapped events pass on-chain validation when replay lifecycle is valid', () => {
+    const validator = new TransitionValidator();
+
+    // First set up a valid dispute start
+    validator.validate({
+      scope: 'dispute', entityId: 'D1', eventName: 'disputeInitiated', eventType: 'dispute:initiated',
+      previousState: undefined, nextState: 'dispute:initiated',
+      transitions: DISPUTE_TRANSITIONS, allowedStarts: DISPUTE_START_EVENTS,
+      signature: 'SIG_D1', slot: 1, sourceEventSequence: 0,
+    });
+
+    // disputeVoteCast has no on-chain mapping — should pass if replay allows it
+    const r = validator.validate({
+      scope: 'dispute', entityId: 'D1', eventName: 'disputeVoteCast', eventType: 'dispute:vote_cast',
+      previousState: 'dispute:initiated', nextState: 'dispute:vote_cast',
+      transitions: DISPUTE_TRANSITIONS, allowedStarts: DISPUTE_START_EVENTS,
+      signature: 'SIG_V', slot: 5, sourceEventSequence: 1,
+    });
+    expect(r.valid).toBe(true);
   });
 });

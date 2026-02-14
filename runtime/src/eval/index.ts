@@ -52,11 +52,22 @@ export {
 
 export {
   ANOMALY_CODES,
+  OnChainTaskStatus,
+  OnChainDisputeStatus,
+  ON_CHAIN_TASK_TRANSITIONS,
+  ON_CHAIN_DISPUTE_TRANSITIONS,
+  ON_CHAIN_TASK_START_STATES,
+  ON_CHAIN_DISPUTE_START_STATES,
+  EVENT_TO_TASK_STATUS,
+  EVENT_TO_DISPUTE_STATUS,
+  TransitionValidator,
   validateTransition,
   transitionViolationMessage,
   type ReplayLifecycleType,
   type TransitionValidationViolation,
   type TransitionValidationOptions,
+  type TransitionValidationResult,
+  type TransitionAnomalyPayload,
 } from './transition-validator.js';
 
 export {
