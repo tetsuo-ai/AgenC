@@ -27,6 +27,19 @@ export {
   SkillAlreadyRegisteredError,
 } from './errors.js';
 
+// Plugin manifests and governance
+export {
+  type PluginManifest,
+  type PluginPermission,
+  type PluginAllowDeny,
+  type PluginsConfig,
+  type ManifestValidationError,
+  PluginManifestError,
+  validatePluginManifest,
+  validatePluginsConfig,
+  getPluginConfigHints,
+} from './manifest.js';
+
 // Registry
 export { SkillRegistry } from './registry.js';
 
