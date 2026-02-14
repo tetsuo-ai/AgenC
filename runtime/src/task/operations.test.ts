@@ -4,7 +4,7 @@ import { utils } from '@coral-xyz/anchor';
 import { TaskOperations, TASK_STATUS_OFFSET, type TaskOpsConfig } from './operations.js';
 import { OnChainTaskStatus, type OnChainTask } from './types.js';
 import { TaskType } from '../events/types.js';
-import { TaskNotClaimableError, TaskSubmissionError } from '../types/errors.js';
+import { TaskNotClaimableError, TaskSubmissionError, ValidationError, AnchorErrorCodes } from '../types/errors.js';
 import { silentLogger } from '../utils/logger.js';
 import { PROGRAM_ID } from '@agenc/sdk';
 
@@ -459,7 +459,7 @@ describe('TaskOperations', () => {
       const task = createParsedTask();
 
       mocks.claimTaskBuilder.rpc.mockRejectedValue({
-        errorCode: { number: 6010, code: 'TaskFullyClaimed' },
+        errorCode: { number: AnchorErrorCodes.TaskFullyClaimed, code: 'TaskFullyClaimed' },
         message: 'Task has reached maximum workers',
       });
 
@@ -471,7 +471,7 @@ describe('TaskOperations', () => {
       const task = createParsedTask();
 
       mocks.claimTaskBuilder.rpc.mockRejectedValue({
-        errorCode: { number: 6011, code: 'TaskExpired' },
+        errorCode: { number: AnchorErrorCodes.TaskExpired, code: 'TaskExpired' },
         message: 'Task has expired',
       });
 
@@ -483,7 +483,7 @@ describe('TaskOperations', () => {
       const task = createParsedTask();
 
       mocks.claimTaskBuilder.rpc.mockRejectedValue({
-        errorCode: { number: 6003, code: 'InsufficientCapabilities' },
+        errorCode: { number: AnchorErrorCodes.InsufficientCapabilities, code: 'InsufficientCapabilities' },
         message: 'Agent has insufficient capabilities',
       });
 
@@ -495,7 +495,7 @@ describe('TaskOperations', () => {
       const task = createParsedTask();
 
       mocks.claimTaskBuilder.rpc.mockRejectedValue({
-        errorCode: { number: 6009, code: 'TaskNotOpen' },
+        errorCode: { number: AnchorErrorCodes.TaskNotOpen, code: 'TaskNotOpen' },
         message: 'Task is not open',
       });
 
@@ -507,7 +507,7 @@ describe('TaskOperations', () => {
       const task = createParsedTask();
 
       mocks.claimTaskBuilder.rpc.mockRejectedValue({
-        errorCode: { number: 6024, code: 'AlreadyClaimed' },
+        errorCode: { number: AnchorErrorCodes.AlreadyClaimed, code: 'AlreadyClaimed' },
         message: 'Already claimed',
       });
 
@@ -546,7 +546,7 @@ describe('TaskOperations', () => {
       mocks.completeTaskBuilder.rpc.mockRejectedValue(new Error('Transaction failed'));
 
       await expect(
-        ops.completeTask(taskPda, task, new Uint8Array(32), null),
+        ops.completeTask(taskPda, task, new Uint8Array(32).fill(0xab), null),
       ).rejects.toThrow(TaskSubmissionError);
     });
   });
@@ -584,10 +584,10 @@ describe('TaskOperations', () => {
         ops.completeTaskPrivate(
           taskPda,
           task,
-          new Uint8Array(256),
-          new Uint8Array(32),
-          new Uint8Array(32),
-          new Uint8Array(32),
+          new Uint8Array(256).fill(0x01),
+          new Uint8Array(32).fill(0x02),
+          new Uint8Array(32).fill(0x03),
+          new Uint8Array(32).fill(0x04),
         ),
       ).rejects.toThrow(TaskSubmissionError);
     });
@@ -597,7 +597,7 @@ describe('TaskOperations', () => {
     it('caches treasury address across multiple calls', async () => {
       const taskPda = Keypair.generate().publicKey;
       const task = createParsedTask();
-      const proofHash = new Uint8Array(32);
+      const proofHash = new Uint8Array(32).fill(0xab);
 
       await ops.completeTask(taskPda, task, proofHash, null);
       await ops.completeTask(taskPda, task, proofHash, null);
@@ -618,6 +618,90 @@ describe('TaskOperations', () => {
       // Both should use the same agent PDA (verified via claimTask accounts)
       const calls = mocks.claimTaskBuilder.accountsPartial.mock.calls;
       expect(calls[0][0].worker.equals(calls[1][0].worker)).toBe(true);
+    });
+  });
+
+  describe('Input validation (#963)', () => {
+    const taskPda = Keypair.generate().publicKey;
+    const mockTask: OnChainTask = {
+      taskId: new Uint8Array(32).fill(1),
+      creator: Keypair.generate().publicKey,
+      requiredCapabilities: 3n,
+      description: new Uint8Array(64),
+      constraintHash: new Uint8Array(32),
+      rewardAmount: 1000000n,
+      maxWorkers: 5,
+      currentWorkers: 0,
+      status: OnChainTaskStatus.InProgress,
+      taskType: TaskType.Exclusive,
+      createdAt: 1700000000,
+      deadline: 1700003600,
+      completedAt: 0,
+      escrow: Keypair.generate().publicKey,
+      result: new Uint8Array(64),
+      completions: 0,
+      requiredCompletions: 1,
+      bump: 255,
+      protocolFeeBps: 100,
+      rewardMint: null,
+      minReputation: 0,
+      dependsOn: null,
+      dependencyType: null,
+    };
+
+    it('completeTask rejects proofHash shorter than 32 bytes', async () => {
+      await expect(
+        ops.completeTask(taskPda, mockTask, new Uint8Array(16), null)
+      ).rejects.toThrow('expected 32 bytes');
+    });
+
+    it('completeTask rejects all-zero proofHash', async () => {
+      await expect(
+        ops.completeTask(taskPda, mockTask, new Uint8Array(32), null)
+      ).rejects.toThrow('cannot be all zeros');
+    });
+
+    it('completeTask rejects resultData shorter than 64 bytes', async () => {
+      const validProof = new Uint8Array(32).fill(1);
+      await expect(
+        ops.completeTask(taskPda, mockTask, validProof, new Uint8Array(32))
+      ).rejects.toThrow('expected 64 bytes');
+    });
+
+    it('completeTaskPrivate rejects proof shorter than 256 bytes', async () => {
+      await expect(
+        ops.completeTaskPrivate(
+          taskPda, mockTask,
+          new Uint8Array(128),
+          new Uint8Array(32).fill(1),
+          new Uint8Array(32).fill(1),
+          new Uint8Array(32).fill(1),
+        )
+      ).rejects.toThrow('expected 256 bytes');
+    });
+
+    it('completeTaskPrivate rejects all-zero outputCommitment', async () => {
+      await expect(
+        ops.completeTaskPrivate(
+          taskPda, mockTask,
+          new Uint8Array(256).fill(1),
+          new Uint8Array(32).fill(1),
+          new Uint8Array(32),
+          new Uint8Array(32).fill(1),
+        )
+      ).rejects.toThrow('cannot be all zeros');
+    });
+
+    it('completeTaskPrivate rejects all-zero expectedBinding', async () => {
+      await expect(
+        ops.completeTaskPrivate(
+          taskPda, mockTask,
+          new Uint8Array(256).fill(1),
+          new Uint8Array(32).fill(1),
+          new Uint8Array(32).fill(1),
+          new Uint8Array(32),
+        )
+      ).rejects.toThrow('cannot be all zeros');
     });
   });
 });

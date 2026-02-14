@@ -43,6 +43,9 @@ import {
 import {
   isAnchorError,
   AnchorErrorCodes,
+  validateByteLength,
+  validateNonZeroBytes,
+  ValidationError,
 } from '../types/errors.js';
 import {
   DisputeVoteError,
@@ -272,6 +275,21 @@ export class DisputeOperations {
    * @returns Dispute result with PDA and transaction signature
    */
   async initiateDispute(params: InitiateDisputeParams): Promise<DisputeResult> {
+    // Input validation (#963)
+    validateByteLength(params.disputeId, 32, 'disputeId');
+    validateByteLength(params.taskId, 32, 'taskId');
+    validateByteLength(params.evidenceHash, 32, 'evidenceHash');
+    validateNonZeroBytes(params.evidenceHash, 'evidenceHash');
+    if (!params.evidence || params.evidence.length === 0) {
+      throw new ValidationError('Invalid evidence: cannot be empty');
+    }
+    if (params.evidence.length > 256) {
+      throw new ValidationError('Invalid evidence: exceeds maximum length (256 characters)');
+    }
+    if (params.resolutionType < 0 || params.resolutionType > 2) {
+      throw new ValidationError('Invalid resolution type: must be 0 (Refund), 1 (Complete), or 2 (Split)');
+    }
+
     const start = Date.now();
     const { address: disputePda } = deriveDisputePda(params.disputeId, this.program.programId);
     const { address: claimPda } = deriveClaimPda(params.taskPda, this.agentPda, this.program.programId);
