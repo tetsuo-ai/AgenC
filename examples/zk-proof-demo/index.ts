@@ -9,6 +9,9 @@
  * Prerequisites:
  * - snarkjs installed (npm install snarkjs)
  * - Circuits compiled with trusted setup completed
+ *
+ * Usage:
+ *   npx tsx examples/zk-proof-demo/index.ts
  */
 
 import { Keypair } from '@solana/web3.js';

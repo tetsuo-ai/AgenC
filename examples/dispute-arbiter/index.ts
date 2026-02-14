@@ -11,7 +11,7 @@
  *   4. Evaluates dispute evidence and casts votes
  *
  * Usage:
- *   npx ts-node examples/dispute-arbiter/index.ts
+ *   npx tsx examples/dispute-arbiter/index.ts
  *
  * Environment:
  *   SOLANA_RPC_URL - RPC endpoint (default: devnet)

@@ -4,7 +4,7 @@
  * Demonstrates an agent that automatically discovers, claims, and completes tasks.
  *
  * Usage:
- *   npx ts-node examples/autonomous-agent/index.ts
+ *   npx tsx examples/autonomous-agent/index.ts
  *
  * Environment:
  *   SOLANA_RPC_URL - RPC endpoint (default: devnet)
@@ -18,7 +18,7 @@ import {
   loadDefaultKeypair,
   type Task,
 } from '@agenc/runtime';
-import { EchoExecutor } from './executors.js';
+import { EchoExecutor } from './executors.ts';
 
 const RPC_URL = process.env.SOLANA_RPC_URL || 'https://api.devnet.solana.com';
 

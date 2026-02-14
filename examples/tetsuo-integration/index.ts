@@ -13,6 +13,12 @@
  * - Generate verifiable outputs
  * - Operate autonomously with budget constraints
  *
+ * Usage:
+ *   npx tsx examples/tetsuo-integration/index.ts
+ *
+ * Environment:
+ *   NODE_ENV (optional) - Set to production to disable demo-mode placeholders
+ *
  * ============================================================================
  * SECURITY WARNING - DEMO CODE ONLY
  * ============================================================================

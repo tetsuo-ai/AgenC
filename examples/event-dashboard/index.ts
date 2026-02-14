@@ -12,7 +12,7 @@
  *   - Agent events:    registered, updated, deregistered
  *
  * Usage:
- *   npx ts-node examples/event-dashboard/index.ts
+ *   npx tsx examples/event-dashboard/index.ts
  *
  * Environment:
  *   SOLANA_RPC_URL - RPC endpoint (default: devnet)
