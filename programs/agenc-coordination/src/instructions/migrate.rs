@@ -38,6 +38,14 @@ pub fn handler(ctx: Context<MigrateProtocol>, target_version: u8) -> Result<()> 
     // Require multisig approval for migrations
     require_multisig(config, ctx.remaining_accounts)?;
 
+    // Validate reserved fields are zeroed before migration (defense-in-depth).
+    // If padding contains non-zero data, the account may be corrupted or
+    // a previous migration wrote unexpected data.
+    require!(
+        config.validate_padding_fields(),
+        CoordinationError::CorruptedData
+    );
+
     let current_version = config.protocol_version;
 
     // Validate migration path
@@ -160,4 +168,66 @@ pub fn update_min_version_handler(
     );
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn default_config() -> ProtocolConfig {
+        ProtocolConfig {
+            protocol_version: 1,
+            min_supported_version: 1,
+            ..ProtocolConfig::default()
+        }
+    }
+
+    #[test]
+    fn test_migration_v1_is_noop() {
+        let mut config = default_config();
+        let original_fee = config.protocol_fee_bps;
+        let original_threshold = config.dispute_threshold;
+        apply_migration(&mut config, 1).unwrap();
+        assert_eq!(config.protocol_fee_bps, original_fee);
+        assert_eq!(config.dispute_threshold, original_threshold);
+        assert_eq!(config._padding, [0u8; 2]);
+    }
+
+    #[test]
+    fn test_migration_v2_is_noop() {
+        let mut config = default_config();
+        let original_fee = config.protocol_fee_bps;
+        apply_migration(&mut config, 2).unwrap();
+        assert_eq!(config.protocol_fee_bps, original_fee);
+        assert_eq!(config._padding, [0u8; 2]);
+    }
+
+    #[test]
+    fn test_migration_unknown_version_3_fails() {
+        let mut config = default_config();
+        let result = apply_migration(&mut config, 3);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_migration_unknown_version_255_fails() {
+        let mut config = default_config();
+        let result = apply_migration(&mut config, 255);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_sequential_migration_v1_to_v2_preserves_padding() {
+        let mut config = default_config();
+        apply_migration(&mut config, 1).unwrap();
+        apply_migration(&mut config, 2).unwrap();
+        assert_eq!(config._padding, [0u8; 2]);
+    }
+
+    #[test]
+    fn test_migration_v0_fails() {
+        let mut config = default_config();
+        let result = apply_migration(&mut config, 0);
+        assert!(result.is_err());
+    }
 }

@@ -369,6 +369,12 @@ impl ProtocolConfig {
             // Program can read configs at or above program's min
             && self.protocol_version >= MIN_SUPPORTED_VERSION
     }
+
+    /// Validates that padding bytes are zeroed.
+    /// Called during migration to ensure no data corruption.
+    pub fn validate_padding_fields(&self) -> bool {
+        self._padding == [0u8; 2]
+    }
 }
 
 /// Agent registration account
@@ -467,6 +473,12 @@ impl AgentRegistration {
         8 +  // last_state_update
         1 +  // disputes_as_defendant
         5; // reserved
+
+    /// Validates that reserved bytes are zeroed.
+    /// Called during migration to ensure no data corruption.
+    pub fn validate_reserved_fields(&self) -> bool {
+        self._reserved == [0u8; 5]
+    }
 }
 
 /// Task account
@@ -995,5 +1007,43 @@ mod tests {
     #[test]
     fn test_nullifier_size() {
         test_size_constant!(Nullifier);
+    }
+
+    #[test]
+    fn test_agent_registration_reserved_fields_default_to_zero() {
+        let agent = AgentRegistration::default();
+        assert_eq!(agent._reserved, [0u8; 5]);
+    }
+
+    #[test]
+    fn test_protocol_config_padding_defaults_to_zero() {
+        let config = ProtocolConfig::default();
+        assert_eq!(config._padding, [0u8; 2]);
+    }
+
+    #[test]
+    fn test_agent_validate_reserved_fields_ok() {
+        let agent = AgentRegistration::default();
+        assert!(agent.validate_reserved_fields());
+    }
+
+    #[test]
+    fn test_agent_validate_reserved_fields_corrupted() {
+        let mut agent = AgentRegistration::default();
+        agent._reserved[0] = 0xFF;
+        assert!(!agent.validate_reserved_fields());
+    }
+
+    #[test]
+    fn test_config_validate_padding_fields_ok() {
+        let config = ProtocolConfig::default();
+        assert!(config.validate_padding_fields());
+    }
+
+    #[test]
+    fn test_config_validate_padding_fields_corrupted() {
+        let mut config = ProtocolConfig::default();
+        config._padding[0] = 0xFF;
+        assert!(!config.validate_padding_fields());
     }
 }
