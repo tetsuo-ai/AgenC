@@ -39,6 +39,7 @@ export {
 
 export {
   projectOnChainEvents,
+  type DisputeReplayState,
   type OnChainProjectionInput,
   type ProjectionOptions,
   type ProjectionResult,
