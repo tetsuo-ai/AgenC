@@ -2,9 +2,15 @@
  * AgenC Helius Webhook Integration
  *
  * Real-time monitoring of task completions via Helius webhooks.
- * Subscribes to program events from the Sunspot verifier.
  *
- * Bounty: Helius ($5k)
+ * Usage:
+ *   npx tsx examples/helius-webhook/index.ts server
+ *
+ * Environment:
+ *   HELIUS_API_KEY (required) - Helius API key
+ *   HELIUS_WEBHOOK_SECRET (optional) - Webhook secret for signature verification
+ *   PORT (optional) - Server port (default: 3000)
+ *   NODE_ENV (optional) - Set to production to enforce stricter security checks
  */
 
 import express from 'express';

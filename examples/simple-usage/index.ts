@@ -5,6 +5,9 @@
  * 1. Generate a salt
  * 2. Compute hashes for proof inputs
  * 3. Generate and verify a proof
+ *
+ * Usage:
+ *   npx tsx examples/simple-usage/index.ts
  */
 
 import { Keypair } from '@solana/web3.js';

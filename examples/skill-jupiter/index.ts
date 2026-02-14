@@ -10,11 +10,11 @@
  *   - RPC endpoint (defaults to devnet)
  *
  * Usage:
- *   npx ts-node examples/skill-jupiter/index.ts
+ *   npx tsx examples/skill-jupiter/index.ts
  *
  * Environment variables:
  *   SOLANA_RPC_URL - RPC endpoint (default: https://api.devnet.solana.com)
- *   SOLANA_KEYPAIR  - Path to keypair JSON file (default: ~/.config/solana/id.json)
+ *   KEYPAIR_PATH - Path to keypair JSON file (default: ~/.config/solana/id.json)
  */
 
 import { Connection, Keypair, PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js';
@@ -26,7 +26,7 @@ import {
   createLogger,
   keypairToWallet,
   loadDefaultKeypair,
-} from '../../runtime/src/index.js';
+} from '@agenc/runtime';
 
 async function main(): Promise<void> {
   const logger = createLogger('info', '[Jupiter Example]');
