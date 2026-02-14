@@ -110,6 +110,20 @@ export interface RollbackResult {
 }
 
 /**
+ * Validation details for a completed rollback chain.
+ */
+export interface RollbackChainValidation {
+  /** Whether the rollback was complete (no orphaned descendants). */
+  valid: boolean;
+  /** Orphaned task PDAs that were not rolled back. */
+  orphans: PublicKey[];
+  /** Descendants already in terminal state. */
+  alreadyTerminal: PublicKey[];
+  /** Maximum depth among descendants. */
+  maxChainDepth: number;
+}
+
+/**
  * Event callbacks for rollback operations.
  */
 export interface RollbackEvents {
@@ -221,6 +235,9 @@ export class RollbackController {
   /** Map from root task PDA (base58) to rollback result */
   private rollbackResults: Map<string, RollbackResult> = new Map();
 
+  /** Promises for rollback operations currently in progress by root task */
+  private rollbackInFlight: Map<string, Promise<RollbackResult>> = new Map();
+
   /** History of rollback results (newest first) */
   private rollbackHistory: RollbackResult[] = [];
 
@@ -321,90 +338,176 @@ export class RollbackController {
   ): Promise<RollbackResult> {
     const rootKey = rootTaskPda.toBase58();
 
+    const inFlight = this.rollbackInFlight.get(rootKey);
+    if (inFlight) {
+      return inFlight;
+    }
+
     // Idempotency check - return cached result if already rolled back
     const existingResult = this.rollbackResults.get(rootKey);
     if (existingResult) {
       return existingResult;
     }
 
-    // Get all affected tasks via BFS through dependency graph
-    const affectedNodes = this.getAffectedTasks(rootTaskPda);
+    const executeRollback = async (): Promise<RollbackResult> => {
+      // Get all affected tasks via BFS through dependency graph
+      const affectedNodes = this.getAffectedTasks(rootTaskPda);
 
-    // Emit start event
-    if (this.config.enableEvents && this.events.onRollbackStarted) {
-      this.events.onRollbackStarted(rootTaskPda, affectedNodes.length);
-    }
+      // Emit start event
+      if (this.config.enableEvents && this.events.onRollbackStarted) {
+        this.events.onRollbackStarted(rootTaskPda, affectedNodes.length);
+      }
 
-    // Process each affected task
-    const rolledBackTasks: RolledBackTask[] = [];
+      // Process each affected task, deepest-first to avoid partial state.
+      const orderedNodes = [...affectedNodes].sort(
+        (a, b) => b.depth - a.depth
+      );
+      const rolledBackTasks: RolledBackTask[] = [];
 
-    for (const node of affectedNodes) {
-      const rolledBack = await this.rollbackTask(node, reason);
-      if (rolledBack) {
-        rolledBackTasks.push(rolledBack);
+      for (const node of orderedNodes) {
+        const rolledBack = await this.rollbackTask(node, reason);
+        if (rolledBack) {
+          rolledBackTasks.push(rolledBack);
 
-        // Emit per-task event
-        if (this.config.enableEvents && this.events.onTaskRolledBack) {
-          this.events.onTaskRolledBack(rolledBack);
+          // Emit per-task event
+          if (this.config.enableEvents && this.events.onTaskRolledBack) {
+            this.events.onTaskRolledBack(rolledBack);
+          }
         }
+      }
+
+      // Mark the root task as rolled back too
+      this.rolledBackTasks.add(rootKey);
+
+      // Mark root commitment as failed
+      try {
+        this.commitmentLedger.markFailed(rootTaskPda);
+      } catch {
+        // Commitment may not exist for root task
+      }
+
+      // Update root task status in graph
+      this.dependencyGraph.updateStatus(rootTaskPda, 'failed');
+
+      // Post-rollback validation and orphan cleanup
+      const validation = this.validateRollbackChain(rootTaskPda);
+      if (!validation.valid) {
+        const cleanedUp = await this.cleanupOrphans(validation.orphans);
+        rolledBackTasks.push(...cleanedUp);
+      }
+
+      // Calculate totals
+      const wastedComputeMs = rolledBackTasks.reduce(
+        (sum, t) => sum + t.computeTimeMs,
+        0
+      );
+      const stakeAtRisk = rolledBackTasks.reduce(
+        (sum, t) => sum + t.stakeAtRisk,
+        0n
+      );
+
+      // Build result
+      const result: RollbackResult = {
+        rootTaskPda,
+        reason,
+        rolledBackTasks,
+        wastedComputeMs,
+        stakeAtRisk,
+        timestamp: Date.now(),
+      };
+
+      // Cache result for idempotency
+      this.rollbackResults.set(rootKey, result);
+
+      // Add to history
+      this.rollbackHistory.unshift(result);
+      if (this.rollbackHistory.length > this.maxHistorySize) {
+        this.rollbackHistory.pop();
+      }
+
+      // Update stats
+      this.stats.totalRollbacks++;
+      this.stats.totalTasksRolledBack += rolledBackTasks.length;
+      this.stats.totalWastedComputeMs += wastedComputeMs;
+      this.stats.totalStakeLost += stakeAtRisk;
+      this.stats.rollbacksByReason[reason]++;
+
+      // Emit completion event
+      if (this.config.enableEvents && this.events.onRollbackCompleted) {
+        this.events.onRollbackCompleted(result);
+      }
+
+      return result;
+    };
+
+    const rollbackPromise = executeRollback();
+    this.rollbackInFlight.set(rootKey, rollbackPromise);
+
+    try {
+      return await rollbackPromise;
+    } finally {
+      this.rollbackInFlight.delete(rootKey);
+    }
+  }
+
+  /**
+   * Validates rollback chain integrity after rollback completion.
+   *
+   * @param rootTaskPda - Root task that initiated the rollback
+   * @returns RollbackChainValidation with orphan/terminal details
+   */
+  validateRollbackChain(rootTaskPda: PublicKey): RollbackChainValidation {
+    const descendants = this.dependencyGraph.getDescendants(rootTaskPda);
+
+    const orphans: PublicKey[] = [];
+    const alreadyTerminal: PublicKey[] = [];
+    let maxChainDepth = 0;
+
+    for (const desc of descendants) {
+      const descKey = desc.taskPda.toBase58();
+      maxChainDepth = Math.max(maxChainDepth, desc.depth);
+
+      if (desc.status === 'completed' || desc.status === 'failed') {
+        alreadyTerminal.push(desc.taskPda);
+        continue;
+      }
+
+      if (!this.rolledBackTasks.has(descKey)) {
+        orphans.push(desc.taskPda);
       }
     }
 
-    // Mark the root task as rolled back too
-    this.rolledBackTasks.add(rootKey);
-
-    // Mark root commitment as failed
-    try {
-      this.commitmentLedger.markFailed(rootTaskPda);
-    } catch {
-      // Commitment may not exist for root task
-    }
-
-    // Update root task status in graph
-    this.dependencyGraph.updateStatus(rootTaskPda, 'failed');
-
-    // Calculate totals
-    const wastedComputeMs = rolledBackTasks.reduce(
-      (sum, t) => sum + t.computeTimeMs,
-      0
-    );
-    const stakeAtRisk = rolledBackTasks.reduce(
-      (sum, t) => sum + t.stakeAtRisk,
-      0n
-    );
-
-    // Build result
-    const result: RollbackResult = {
-      rootTaskPda,
-      reason,
-      rolledBackTasks,
-      wastedComputeMs,
-      stakeAtRisk,
-      timestamp: Date.now(),
+    return {
+      valid: orphans.length === 0,
+      orphans,
+      alreadyTerminal,
+      maxChainDepth,
     };
+  }
 
-    // Cache result for idempotency
-    this.rollbackResults.set(rootKey, result);
+  /**
+   * Attempts best-effort orphan cleanup after rollback by explicitly processing
+   * any descendants that remained active in the dependency graph.
+   *
+   * @param orphans - Orphaned tasks to clean up
+   * @returns Rollback results for tasks cleaned up via this path
+   */
+  async cleanupOrphans(orphans: PublicKey[]): Promise<RolledBackTask[]> {
+    const results: RolledBackTask[] = [];
 
-    // Add to history
-    this.rollbackHistory.unshift(result);
-    if (this.rollbackHistory.length > this.maxHistorySize) {
-      this.rollbackHistory.pop();
+    for (const orphanPda of orphans) {
+      const node = this.dependencyGraph.getNode(orphanPda);
+      if (!node) {
+        continue;
+      }
+
+      const rolledBack = await this.rollbackTask(node, 'ancestor_failed');
+      if (rolledBack) {
+        results.push(rolledBack);
+      }
     }
 
-    // Update stats
-    this.stats.totalRollbacks++;
-    this.stats.totalTasksRolledBack += rolledBackTasks.length;
-    this.stats.totalWastedComputeMs += wastedComputeMs;
-    this.stats.totalStakeLost += stakeAtRisk;
-    this.stats.rollbacksByReason[reason]++;
-
-    // Emit completion event
-    if (this.config.enableEvents && this.events.onRollbackCompleted) {
-      this.events.onRollbackCompleted(result);
-    }
-
-    return result;
+    return results;
   }
 
   /**
@@ -433,6 +536,7 @@ export class RollbackController {
     this.activeTasks.clear();
     this.rolledBackTasks.clear();
     this.rollbackResults.clear();
+    this.rollbackInFlight.clear();
     this.rollbackHistory = [];
     this.stats = {
       totalRollbacks: 0,

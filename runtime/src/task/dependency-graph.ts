@@ -77,6 +77,20 @@ export interface DependencyGraphStats {
   rootCount: number;
 }
 
+/**
+ * Result of validating graph consistency invariants.
+ */
+export interface GraphConsistencyResult {
+  /** Whether graph invariants are valid. */
+  valid: boolean;
+  /** All detected cycles, represented as arrays of task PDAs in order. */
+  cycles: PublicKey[][];
+  /** Edges that reference missing nodes. */
+  danglingEdges: Array<{ from: string; to: string }>;
+  /** Nodes whose depth no longer matches parent depth + 1. */
+  depthMismatches: Array<{ taskPda: string; expected: number; actual: number }>;
+}
+
 // ============================================================================
 // DependencyGraph Implementation
 // ============================================================================
@@ -318,16 +332,16 @@ export class DependencyGraph {
       return true;
     }
 
-    // Check if parent is reachable from child (walking up the ancestors)
-    // If parent is an ancestor of child, adding child->parent would create cycle
+    // Check for any path from child to parent through dependency edges.
+    // Adding parent -> child would create a cycle if such a path exists.
     const visited = new Set<string>();
-    const stack = [parentKey];
+    const stack = [childKey];
 
     while (stack.length > 0) {
       const current = stack.pop()!;
 
-      if (current === childKey) {
-        return true; // Found child in parent's ancestor chain
+      if (current === parentKey) {
+        return true;
       }
 
       if (visited.has(current)) {
@@ -335,14 +349,132 @@ export class DependencyGraph {
       }
       visited.add(current);
 
-      // Walk up to ancestors
-      const ancestorKey = this.reverseEdges.get(current);
-      if (ancestorKey) {
-        stack.push(ancestorKey);
+      const children = this.edges.get(current) ?? [];
+      for (const edge of children) {
+        stack.push(edge.to.toBase58());
       }
     }
 
     return false;
+  }
+
+  /**
+   * Detect all cycles in the dependency graph.
+   *
+   * Uses DFS coloring (white/gray/black) to find back edges.
+   *
+   * @returns Array of cycles (each represented by task PDAs in order)
+   */
+  detectCycles(): PublicKey[][] {
+    const WHITE = 0;
+    const GRAY = 1;
+    const BLACK = 2;
+
+    const color = new Map<string, number>();
+    const parent = new Map<string, string | null>();
+    const cycles: PublicKey[][] = [];
+
+    for (const key of this.nodes.keys()) {
+      color.set(key, WHITE);
+      parent.set(key, null);
+    }
+
+    const dfs = (nodeKey: string): void => {
+      color.set(nodeKey, GRAY);
+      const children = this.edges.get(nodeKey) ?? [];
+
+      for (const edge of children) {
+        const childKey = edge.to.toBase58();
+        const childColor = color.get(childKey) ?? WHITE;
+
+        if (childColor === GRAY) {
+          const cycle: PublicKey[] = [];
+          let currentKey: string | null = nodeKey;
+          while (currentKey !== null && currentKey !== childKey) {
+            const node = this.nodes.get(currentKey);
+            if (node) {
+              cycle.unshift(node.taskPda);
+            }
+            currentKey = parent.get(currentKey) ?? null;
+          }
+
+          const closingNode = this.nodes.get(childKey);
+          if (closingNode) {
+            cycle.unshift(closingNode.taskPda);
+          }
+
+          if (cycle.length > 0) {
+            cycles.push(cycle);
+          }
+          continue;
+        }
+
+        if (childColor === WHITE) {
+          parent.set(childKey, nodeKey);
+          dfs(childKey);
+        }
+      }
+
+      color.set(nodeKey, BLACK);
+    };
+
+    for (const key of this.nodes.keys()) {
+      if (color.get(key) === WHITE) {
+        dfs(key);
+      }
+    }
+
+    return cycles;
+  }
+
+  /**
+   * Validates graph invariants (acyclic, no dangling edges, depth consistency).
+   *
+   * @returns Graph consistency result object
+   */
+  validateConsistency(): GraphConsistencyResult {
+    const cycles = this.detectCycles();
+    const danglingEdges: Array<{ from: string; to: string }> = [];
+    const depthMismatches: Array<{ taskPda: string; expected: number; actual: number }> =
+      [];
+
+    // Validate edges
+    for (const [fromKey, edges] of this.edges.entries()) {
+      if (!this.nodes.has(fromKey)) {
+        for (const edge of edges) {
+          danglingEdges.push({ from: fromKey, to: edge.to.toBase58() });
+        }
+      }
+
+      for (const edge of edges) {
+        const toKey = edge.to.toBase58();
+        if (!this.nodes.has(toKey)) {
+          danglingEdges.push({ from: fromKey, to: toKey });
+        }
+      }
+    }
+
+    // Validate node depths
+    for (const node of this.nodes.values()) {
+      const expectedDepth = node.dependsOn
+        ? (this.nodes.get(node.dependsOn.toBase58())?.depth ?? -1) + 1
+        : 0;
+
+      if (node.depth !== expectedDepth) {
+        depthMismatches.push({
+          taskPda: node.taskPda.toBase58(),
+          expected: expectedDepth,
+          actual: node.depth,
+        });
+      }
+    }
+
+    return {
+      valid: cycles.length === 0 && danglingEdges.length === 0 && depthMismatches.length === 0,
+      cycles,
+      danglingEdges,
+      depthMismatches,
+    };
   }
 
   /**
