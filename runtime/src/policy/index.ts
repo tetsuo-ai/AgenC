@@ -19,5 +19,21 @@ export {
   type PolicyDecision,
   type PolicyEngineState,
   type PolicyEngineConfig,
+  type EndpointExposureConfig,
+  type EvidenceRetentionPolicy,
+  type ProductionRedactionPolicy,
+  type DeletionDefaults,
+  type ProductionRuntimeExtensions,
 } from './types.js';
-
+export {
+  type ProductionReadinessCheck,
+  type ProductionProfileConfig,
+  PRODUCTION_POLICY,
+  PRODUCTION_ENDPOINT_EXPOSURE,
+  PRODUCTION_EVIDENCE_RETENTION,
+  PRODUCTION_REDACTION,
+  PRODUCTION_DELETION,
+  PRODUCTION_PROFILE,
+  applyProductionProfile,
+  validateProductionReadiness,
+} from './production-profile.js';
