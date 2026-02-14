@@ -65,6 +65,44 @@ export interface OnChainProjectionInput {
   sourceEventSequence?: number;
 }
 
+/**
+ * Canonical identity tuple for a single on-chain event.
+ * Field order is contractual -- changing it breaks projection hashes.
+ */
+export interface CanonicalEventTuple {
+  readonly slot: number;
+  readonly signature: string;
+  readonly sourceEventSequence: number;
+  readonly sourceEventName: string;
+}
+
+/**
+ * Extract the canonical identity tuple from a projection input.
+ * Missing fields receive stable defaults (0 for sequence, '' for name).
+ */
+export function extractCanonicalTuple(input: OnChainProjectionInput, fallbackSequence: number): CanonicalEventTuple {
+  return {
+    slot: Number.isInteger(input.slot) && input.slot >= 0 ? input.slot : 0,
+    signature: typeof input.signature === 'string' && input.signature.length > 0
+      ? input.signature
+      : '',
+    sourceEventSequence: input.sourceEventSequence ?? fallbackSequence,
+    sourceEventName: typeof input.eventName === 'string' && input.eventName.length > 0
+      ? input.eventName
+      : '',
+  };
+}
+
+/**
+ * Normalize event payload fields into deterministic sorted-key order.
+ * Returns a new object with keys sorted lexicographically at every depth.
+ * All non-JSON-safe values (bigint, PublicKey, Uint8Array, Date) are
+ * converted to their string representation via sanitizeJson().
+ */
+export function canonicalizeEvent(event: unknown): JsonObject {
+  return sanitizePayload(event);
+}
+
 export interface ProjectedTimelineEvent extends TrajectoryEvent {
   slot: number;
   signature: string;
@@ -375,11 +413,17 @@ function getContext(eventName: keyof OnChainEventMap, event: Record<string, unkn
   };
 }
 
-function buildFingerprint(slot: number, signature: string, eventName: string, event: unknown): string {
+function buildFingerprint(slot: number, signature: string, eventName: string, _sourceEventSequence: number, event: unknown): string {
+  // Note: sourceEventSequence is intentionally excluded from the dedup
+  // fingerprint because it is a projection-level concept (array index
+  // fallback) rather than an on-chain identity field. Including it would
+  // prevent deduplication of the same on-chain event arriving at different
+  // positions. The full canonical tuple including sourceEventSequence is
+  // captured in computeProjectionHash() instead.
   return stableStringifyJson({
     slot,
     signature,
-    eventName,
+    sourceEventName: eventName,
     eventPayload: sanitizePayload(event),
   });
 }
@@ -426,7 +470,7 @@ export function projectOnChainEvents(
       input,
       sourceEventSequence,
       trajectorySortKey: eventSortRank(trajectoryType),
-      fingerprint: buildFingerprint(input.slot, input.signature, input.eventName, input.event),
+      fingerprint: buildFingerprint(input.slot, input.signature, input.eventName, sourceEventSequence, input.event),
     };
   }).sort((left, right) => {
     if (left.input.slot !== right.input.slot) {

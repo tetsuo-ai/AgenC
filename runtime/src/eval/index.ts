@@ -39,6 +39,9 @@ export {
 
 export {
   projectOnChainEvents,
+  extractCanonicalTuple,
+  canonicalizeEvent,
+  type CanonicalEventTuple,
   type DisputeReplayState,
   type OnChainProjectionInput,
   type ProjectionOptions,

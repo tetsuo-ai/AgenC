@@ -137,7 +137,7 @@ function deterministicSample(key: string, sampleRate: number): boolean {
   return (value / 0xFFFF_FFFF) < sampleRate;
 }
 
-function deriveTraceId(base: string | undefined, slot: number, signature: string, eventName: string, eventSequence?: number): string {
+export function deriveTraceId(base: string | undefined, slot: number, signature: string, eventName: string, eventSequence?: number): string {
   if (base && base.length > 0) {
     return base;
   }
