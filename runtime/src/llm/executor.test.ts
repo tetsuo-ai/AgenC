@@ -138,6 +138,92 @@ describe('LLMTaskExecutor', () => {
     expect(output).toHaveLength(4);
   });
 
+  it('returns invalid tool-argument errors to the model and skips tool execution', async () => {
+    const invalidToolCallResponse: LLMResponse = {
+      content: '',
+      toolCalls: [{ id: 'call_1', name: 'lookup', arguments: '{invalid-json' }],
+      usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
+      model: 'mock-model',
+      finishReason: 'tool_calls',
+    };
+    const finalResponse: LLMResponse = {
+      content: 'final answer',
+      toolCalls: [],
+      usage: { promptTokens: 20, completionTokens: 10, totalTokens: 30 },
+      model: 'mock-model',
+      finishReason: 'stop',
+    };
+
+    const chatFn = vi.fn<[LLMMessage[]], Promise<LLMResponse>>()
+      .mockResolvedValueOnce(invalidToolCallResponse)
+      .mockResolvedValueOnce(finalResponse);
+
+    const provider = createMockProvider({ chat: chatFn });
+    const toolHandler = vi.fn().mockResolvedValue('tool result');
+
+    const executor = new LLMTaskExecutor({ provider, toolHandler });
+    await executor.execute(createMockTask());
+
+    expect(toolHandler).not.toHaveBeenCalled();
+
+    const followupMessages = chatFn.mock.calls[1][0] as LLMMessage[];
+    const toolErrorMessage = followupMessages.find(
+      (message) => message.role === 'tool' && message.toolCallId === 'call_1',
+    );
+    expect(toolErrorMessage?.content).toContain('Invalid tool arguments');
+  });
+
+  it('rejects tool arguments that are valid JSON but not an object', async () => {
+    const invalidShapeResponse: LLMResponse = {
+      content: '',
+      toolCalls: [{ id: 'call_1', name: 'lookup', arguments: '[1,2,3]' }],
+      usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
+      model: 'mock-model',
+      finishReason: 'tool_calls',
+    };
+    const finalResponse: LLMResponse = {
+      content: 'final answer',
+      toolCalls: [],
+      usage: { promptTokens: 20, completionTokens: 10, totalTokens: 30 },
+      model: 'mock-model',
+      finishReason: 'stop',
+    };
+
+    const chatFn = vi.fn<[LLMMessage[]], Promise<LLMResponse>>()
+      .mockResolvedValueOnce(invalidShapeResponse)
+      .mockResolvedValueOnce(finalResponse);
+    const provider = createMockProvider({ chat: chatFn });
+    const toolHandler = vi.fn().mockResolvedValue('tool result');
+    const executor = new LLMTaskExecutor({ provider, toolHandler });
+
+    await executor.execute(createMockTask());
+
+    expect(toolHandler).not.toHaveBeenCalled();
+    const followupMessages = chatFn.mock.calls[1][0] as LLMMessage[];
+    const toolErrorMessage = followupMessages.find(
+      (message) => message.role === 'tool' && message.toolCallId === 'call_1',
+    );
+    expect(toolErrorMessage?.content).toContain('JSON object');
+  });
+
+  it('rejects when provider returns an error finish reason', async () => {
+    const streamError = new Error('partial stream failed');
+    const provider = createMockProvider({
+      chat: vi.fn<[LLMMessage[]], Promise<LLMResponse>>().mockResolvedValue({
+        content: 'partial',
+        toolCalls: [],
+        usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+        model: 'mock-model',
+        finishReason: 'error',
+        error: streamError,
+        partial: true,
+      }),
+    });
+
+    const executor = new LLMTaskExecutor({ provider });
+    await expect(executor.execute(createMockTask())).rejects.toThrow('partial stream failed');
+  });
+
   it('terminates tool call loop at maxToolRounds', async () => {
     const toolCallResponse: LLMResponse = {
       content: 'thinking...',

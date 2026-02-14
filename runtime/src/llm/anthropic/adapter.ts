@@ -16,9 +16,11 @@ import type {
   LLMTool,
   StreamProgressCallback,
 } from '../types.js';
+import { validateToolCall } from '../types.js';
 import type { AnthropicProviderConfig } from './types.js';
 import { mapLLMError } from '../errors.js';
 import { ensureLazyImport } from '../lazy-import.js';
+import { withTimeout } from '../timeout.js';
 
 const DEFAULT_MODEL = 'claude-sonnet-4-5-20250929';
 
@@ -39,7 +41,11 @@ export class AnthropicProvider implements LLMProvider {
     const params = this.buildParams(messages);
 
     try {
-      const response = await (client as any).messages.create(params);
+      const response = await withTimeout(
+        async (signal) => (client as any).messages.create(params, { signal }),
+        this.config.timeoutMs,
+        this.name,
+      );
       return this.parseResponse(response);
     } catch (err: unknown) {
       throw this.mapError(err);
@@ -49,17 +55,20 @@ export class AnthropicProvider implements LLMProvider {
   async chatStream(messages: LLMMessage[], onChunk: StreamProgressCallback): Promise<LLMResponse> {
     const client = await this.ensureClient();
     const params = { ...this.buildParams(messages), stream: true };
+    let content = '';
+    let toolCalls: LLMToolCall[] = [];
+    let model = this.config.model;
+    let finishReason: LLMResponse['finishReason'] = 'stop';
+    let inputTokens = 0;
+    let outputTokens = 0;
+    let currentToolUse: { id: string; name: string; arguments: string } | null = null;
 
     try {
-      const stream = await (client as any).messages.create(params);
-
-      let content = '';
-      let toolCalls: LLMToolCall[] = [];
-      let model = this.config.model;
-      let finishReason: LLMResponse['finishReason'] = 'stop';
-      let inputTokens = 0;
-      let outputTokens = 0;
-      let currentToolUse: { id: string; name: string; arguments: string } | null = null;
+      const stream = await withTimeout(
+        async (signal) => (client as any).messages.create(params, { signal }),
+        this.config.timeoutMs,
+        this.name,
+      );
 
       for await (const event of stream as AsyncIterable<any>) {
         switch (event.type) {
@@ -90,7 +99,10 @@ export class AnthropicProvider implements LLMProvider {
 
           case 'content_block_stop':
             if (currentToolUse) {
-              toolCalls.push(currentToolUse);
+              const validated = validateToolCall(currentToolUse);
+              if (validated) {
+                toolCalls.push(validated);
+              }
               currentToolUse = null;
             }
             break;
@@ -114,6 +126,23 @@ export class AnthropicProvider implements LLMProvider {
         finishReason,
       };
     } catch (err: unknown) {
+      if (content.length > 0) {
+        const mappedError = this.mapError(err);
+        onChunk({ content: '', done: true, toolCalls });
+        return {
+          content,
+          toolCalls,
+          usage: {
+            promptTokens: inputTokens,
+            completionTokens: outputTokens,
+            totalTokens: inputTokens + outputTokens,
+          },
+          model,
+          finishReason: 'error',
+          error: mappedError,
+          partial: true,
+        };
+      }
       throw this.mapError(err);
     }
   }
@@ -216,11 +245,14 @@ export class AnthropicProvider implements LLMProvider {
       if (block.type === 'text') {
         content += block.text;
       } else if (block.type === 'tool_use') {
-        toolCalls.push({
+        const validated = validateToolCall({
           id: block.id,
           name: block.name,
           arguments: JSON.stringify(block.input),
         });
+        if (validated) {
+          toolCalls.push(validated);
+        }
       }
     }
 

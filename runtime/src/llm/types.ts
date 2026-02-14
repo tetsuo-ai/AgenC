@@ -63,6 +63,10 @@ export interface LLMResponse {
   usage: LLMUsage;
   model: string;
   finishReason: 'stop' | 'tool_calls' | 'length' | 'content_filter' | 'error';
+  /** Underlying error when finishReason is "error". */
+  error?: Error;
+  /** True if partial content was received before an error. */
+  partial?: boolean;
 }
 
 /**
@@ -118,4 +122,36 @@ export interface LLMProviderConfig {
   maxRetries?: number;
   /** Base delay between retries in milliseconds */
   retryDelayMs?: number;
+}
+
+/**
+ * Validate/sanitize a raw tool call payload.
+ *
+ * Ensures `id` and `name` are non-empty strings, and `arguments` is a JSON string.
+ */
+export function validateToolCall(raw: unknown): LLMToolCall | null {
+  if (typeof raw !== 'object' || raw === null) {
+    return null;
+  }
+
+  const candidate = raw as Record<string, unknown>;
+  const id = typeof candidate.id === 'string' ? candidate.id.trim() : '';
+  const name = typeof candidate.name === 'string' ? candidate.name.trim() : '';
+  const argumentsRaw = candidate.arguments;
+
+  if (!id || !name || typeof argumentsRaw !== 'string') {
+    return null;
+  }
+
+  try {
+    JSON.parse(argumentsRaw);
+  } catch {
+    return null;
+  }
+
+  return {
+    id,
+    name,
+    arguments: argumentsRaw,
+  };
 }

@@ -126,6 +126,11 @@ export class LLMTaskExecutor implements TaskExecutor {
       throw err;
     }
 
+    if (response.finishReason === 'error') {
+      this.metrics?.counter(TELEMETRY_METRIC_NAMES.LLM_ERRORS_TOTAL);
+      throw response.error ?? new Error(`${this.provider.name} returned an error response`);
+    }
+
     // Persist assistant response
     const assistantMsg: LLMMessage = { role: 'assistant', content: response.content };
     messages.push(assistantMsg);
@@ -159,9 +164,23 @@ export class LLMTaskExecutor implements TaskExecutor {
 
         let args: Record<string, unknown>;
         try {
-          args = JSON.parse(toolCall.arguments) as Record<string, unknown>;
-        } catch {
-          args = {};
+          const parsed = JSON.parse(toolCall.arguments) as unknown;
+          if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+            throw new Error('Tool arguments must be a JSON object');
+          }
+          args = parsed as Record<string, unknown>;
+        } catch (parseErr) {
+          const toolMsg: LLMMessage = {
+            role: 'tool',
+            content: JSON.stringify({
+              error: `Invalid tool arguments: ${(parseErr as Error).message}`,
+            }),
+            toolCallId: toolCall.id,
+            toolName: toolCall.name,
+          };
+          messages.push(toolMsg);
+          await this.persistMessage(sessionId, toolMsg, taskPda);
+          continue;
         }
         const result = await this.toolHandler(toolCall.name, args);
         await this.ingestToolResult(sessionId, taskPda, toolCall.name, result);
@@ -186,6 +205,11 @@ export class LLMTaskExecutor implements TaskExecutor {
       } catch (err) {
         this.metrics?.counter(TELEMETRY_METRIC_NAMES.LLM_ERRORS_TOTAL);
         throw err;
+      }
+
+      if (response.finishReason === 'error') {
+        this.metrics?.counter(TELEMETRY_METRIC_NAMES.LLM_ERRORS_TOTAL);
+        throw response.error ?? new Error(`${this.provider.name} returned an error response`);
       }
 
       // Persist new assistant response

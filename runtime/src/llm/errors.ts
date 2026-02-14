@@ -92,34 +92,113 @@ export class LLMTimeoutError extends RuntimeError {
 }
 
 /**
+ * Error thrown when an LLM provider rejects authentication.
+ */
+export class LLMAuthenticationError extends RuntimeError {
+  public readonly providerName: string;
+  public readonly statusCode: number;
+
+  constructor(providerName: string, statusCode: number) {
+    super(
+      `${providerName} authentication failed (HTTP ${statusCode})`,
+      RuntimeErrorCodes.LLM_PROVIDER_ERROR,
+    );
+    this.name = 'LLMAuthenticationError';
+    this.providerName = providerName;
+    this.statusCode = statusCode;
+  }
+}
+
+/**
+ * Error thrown when an LLM provider returns a 5xx response.
+ */
+export class LLMServerError extends RuntimeError {
+  public readonly providerName: string;
+  public readonly statusCode: number;
+
+  constructor(providerName: string, statusCode: number, message: string) {
+    super(
+      `${providerName} server error (HTTP ${statusCode}): ${message}`,
+      RuntimeErrorCodes.LLM_PROVIDER_ERROR,
+    );
+    this.name = 'LLMServerError';
+    this.providerName = providerName;
+    this.statusCode = statusCode;
+  }
+}
+
+function parseRetryAfterMs(headers: unknown): number | undefined {
+  if (!headers) return undefined;
+
+  let raw: string | undefined;
+  if (typeof (headers as any).get === 'function') {
+    const value = (headers as { get(name: string): string | null }).get('retry-after');
+    raw = value ?? undefined;
+  } else if (typeof headers === 'object' && headers !== null) {
+    const record = headers as Record<string, unknown>;
+    const value = record['retry-after'] ?? record['Retry-After'];
+    if (typeof value === 'string' || typeof value === 'number') {
+      raw = String(value);
+    }
+  }
+
+  if (!raw) return undefined;
+  const seconds = Number.parseInt(raw, 10);
+  return Number.isFinite(seconds) ? seconds * 1000 : undefined;
+}
+
+/**
  * Map an unknown error from an LLM SDK call into a typed LLM error.
  *
- * Handles: already-typed errors (passthrough), 429 rate limits,
- * timeout codes (ETIMEDOUT, ECONNABORTED), and generic provider errors.
+ * Handles typed errors, auth/rate-limit/server status codes, timeout/abort
+ * semantics, and generic provider errors.
  */
 export function mapLLMError(
   providerName: string,
   err: unknown,
   timeoutMs: number,
 ): Error {
-  if (err instanceof LLMProviderError || err instanceof LLMRateLimitError || err instanceof LLMTimeoutError) {
+  if (
+    err instanceof LLMProviderError ||
+    err instanceof LLMRateLimitError ||
+    err instanceof LLMTimeoutError ||
+    err instanceof LLMAuthenticationError ||
+    err instanceof LLMServerError
+  ) {
     return err;
   }
 
   const e = err as any;
-  const status = e?.status ?? e?.statusCode;
+  const rawStatus = e?.status ?? e?.statusCode;
+  const parsedStatus =
+    typeof rawStatus === 'number'
+      ? rawStatus
+      : Number.parseInt(String(rawStatus ?? ''), 10);
+  const status = Number.isFinite(parsedStatus) ? parsedStatus : undefined;
   const message = e?.message ?? String(err);
 
-  if (status === 429) {
-    const retryAfter = e?.headers?.['retry-after'];
-    return new LLMRateLimitError(
-      providerName,
-      retryAfter ? parseInt(retryAfter, 10) * 1000 : undefined,
-    );
+  if (e?.name === 'AbortError' || e?.code === 'ABORT_ERR') {
+    return new LLMTimeoutError(providerName, timeoutMs);
   }
 
-  if (e?.code === 'ETIMEDOUT' || e?.code === 'ECONNABORTED' || message.includes('timeout')) {
+  if (status === 401 || status === 403) {
+    return new LLMAuthenticationError(providerName, status);
+  }
+
+  if (status === 429) {
+    return new LLMRateLimitError(providerName, parseRetryAfterMs(e?.headers));
+  }
+
+  if (
+    e?.code === 'ETIMEDOUT' ||
+    e?.code === 'ECONNABORTED' ||
+    /timeout/i.test(message)
+  ) {
     return new LLMTimeoutError(providerName, timeoutMs);
+  }
+
+  if (status !== undefined && status >= 500) {
+    return new LLMServerError(providerName, status, message);
   }
 
   return new LLMProviderError(providerName, message, status);
