@@ -1117,5 +1117,40 @@ export {
   TELEMETRY_METRIC_NAMES,
 } from './telemetry/index.js';
 
+// Gateway (Phase 1)
+export {
+  Gateway,
+  ConfigWatcher,
+  getDefaultConfigPath,
+  loadGatewayConfig,
+  validateGatewayConfig,
+  diffGatewayConfig,
+  GatewayValidationError,
+  GatewayConnectionError,
+  GatewayStateError,
+  GatewayLifecycleError,
+  type GatewayConfig,
+  type GatewayLLMConfig,
+  type GatewayMemoryConfig,
+  type GatewayChannelConfig,
+  type GatewayAgentConfig,
+  type GatewayConnectionConfig,
+  type GatewayLoggingConfig,
+  type GatewayBindConfig,
+  type GatewayState,
+  type GatewayStatus,
+  type GatewayEvent,
+  type GatewayEventHandler,
+  type GatewayEventSubscription,
+  type GatewayOptions,
+  type ControlMessage,
+  type ControlMessageType,
+  type ControlResponse,
+  type ChannelHandle,
+  type ConfigDiff,
+  type ConfigReloadCallback,
+  type ConfigErrorCallback,
+} from './gateway/index.js';
+
 // Agent Builder (Phase 10)
 export { AgentBuilder, BuiltAgent } from './builder.js';
