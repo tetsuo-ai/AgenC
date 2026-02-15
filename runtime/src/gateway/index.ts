@@ -65,3 +65,19 @@ export {
   generateTemplate,
   scaffoldWorkspace,
 } from './workspace-files.js';
+
+// Session management (Phase 1.6)
+export type {
+  SessionScope,
+  SessionResetMode,
+  CompactionStrategy,
+  SessionConfig,
+  SessionResetConfig,
+  Session,
+  SessionLookupParams,
+  CompactionResult,
+  SessionInfo,
+  Summarizer,
+} from './session.js';
+
+export { SessionManager, deriveSessionId } from './session.js';
