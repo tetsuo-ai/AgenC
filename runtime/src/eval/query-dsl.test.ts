@@ -1,287 +1,144 @@
-/**
- * Tests for Query DSL
- *
- * @module
- */
-
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
+import { PublicKey } from '@solana/web3.js';
 import {
-  parseQueryDSL,
-  normalizeQuery,
-  applyQueryFilter,
   applyAnomalyFilter,
-  serializeQueryDSL,
-  type QueryDSL,
+  applyQueryFilter,
+  normalizeQuery,
+  parseQueryDSL,
+  QueryDSLParseError,
 } from './query-dsl.js';
 import type { ProjectedTimelineEvent } from './projector.js';
-import type { IncidentAnomalyRef } from './incident-case.js';
+import type { ReplayAnomaly } from './replay-comparison.js';
 
-// ============================================================================
-// Test Fixtures
-// ============================================================================
-
-function createTestEvents(): ProjectedTimelineEvent[] {
-  return [
-    {
-      seq: 1,
-      type: 'task_created',
-      taskPda: 'TaskPda111111111111111111111111111111111111',
-      timestampMs: 1700000000000,
-      payload: {
-        creator: 'Creator1111111111111111111111111111111111111',
-      },
-      slot: 100,
-      signature: 'Sig1',
-      sourceEventName: 'TaskCreated',
-      sourceEventSequence: 1,
-    },
-    {
-      seq: 2,
-      type: 'task_claimed',
-      taskPda: 'TaskPda111111111111111111111111111111111111',
-      timestampMs: 1700000001000,
-      payload: {
-        worker: 'Worker1111111111111111111111111111111111111',
-      },
-      slot: 150,
-      signature: 'Sig2',
-      sourceEventName: 'TaskClaimed',
-      sourceEventSequence: 2,
-    },
-    {
-      seq: 3,
-      type: 'task_completed',
-      taskPda: 'TaskPda222222222222222222222222222222222222',
-      timestampMs: 1700000002000,
-      payload: {
-        worker: 'Worker2222222222222222222222222222222222222',
-      },
-      slot: 200,
-      signature: 'Sig3',
-      sourceEventName: 'TaskCompleted',
-      sourceEventSequence: 3,
-    },
-  ];
+function pubkey(seed: number): string {
+  const bytes = new Uint8Array(32);
+  bytes.fill(seed);
+  return new PublicKey(bytes).toBase58();
 }
 
-function createTestAnomalies(): IncidentAnomalyRef[] {
-  return [
-    {
-      code: 'hash_mismatch',
+function makeEvent(input: Partial<ProjectedTimelineEvent> & Pick<ProjectedTimelineEvent, 'seq' | 'slot' | 'type'>): ProjectedTimelineEvent {
+  return {
+    seq: input.seq,
+    slot: input.slot,
+    type: input.type,
+    taskPda: input.taskPda,
+    timestampMs: input.timestampMs ?? 0,
+    signature: input.signature ?? `SIG_${input.seq}`,
+    sourceEventName: input.sourceEventName ?? `event_${input.seq}`,
+    sourceEventSequence: input.sourceEventSequence ?? 0,
+    payload: (input.payload ?? {}) as ProjectedTimelineEvent['payload'],
+  };
+}
+
+describe('query-dsl', () => {
+  it('parses valid DSL string', () => {
+    const taskPda = pubkey(1);
+    const parsed = parseQueryDSL(`taskPda=${taskPda} severity=error slotRange=100-200`);
+
+    expect(parsed).toEqual({
+      taskPda,
       severity: 'error',
-      description: 'Hash mismatch',
-      slot: 100,
-    },
-    {
-      code: 'missing_sig',
-      severity: 'warning',
-      description: 'Missing signature',
-      slot: 150,
-    },
-    {
-      code: 'slot_regression',
-      severity: 'warning',
-      description: 'Slot regression',
-      slot: 200,
-    },
-  ];
-}
-
-// ============================================================================
-// Tests
-// ============================================================================
-
-describe('Query DSL', () => {
-  describe('parseQueryDSL', () => {
-    it('parses valid taskPda', () => {
-      const result = parseQueryDSL('taskPda=TaskPda111111111111111111111111111111111111');
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.query.taskPda).toBe('TaskPda111111111111111111111111111111111111');
-      }
-    });
-
-    it('parses valid severity', () => {
-      const result = parseQueryDSL('severity=error');
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.query.severity).toBe('error');
-      }
-    });
-
-    it('parses valid slotRange', () => {
-      const result = parseQueryDSL('slotRange=100-200');
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.query.slotRange?.from).toBe(100);
-        expect(result.query.slotRange?.to).toBe(200);
-      }
-    });
-
-    it('parses multiple parameters', () => {
-      const result = parseQueryDSL('taskPda=TaskPda111111111111111111111111111111111111 severity=error slotRange=100-200');
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.query.taskPda).toBeDefined();
-        expect(result.query.severity).toBe('error');
-        expect(result.query.slotRange?.from).toBe(100);
-      }
-    });
-
-    it('parses ampersand-separated parameters', () => {
-      const result = parseQueryDSL('eventType=TaskCreated&severity=warning');
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.query.eventType).toBe('TaskCreated');
-        expect(result.query.severity).toBe('warning');
-      }
-    });
-
-    it('parses anomalyCodes', () => {
-      const result = parseQueryDSL('anomalyCodes=hash_mismatch,slot_regression');
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.query.anomalyCodes).toEqual(['hash_mismatch', 'slot_regression']);
-      }
-    });
-
-    it('returns errors for invalid base58 keys', () => {
-      const result = parseQueryDSL('taskPda=invalid!key');
-      expect(result.success).toBe(false);
-      if (!result.success) {
-        expect(result.errors[0].field).toBe('taskPda');
-      }
-    });
-
-    it('returns errors for invalid severity', () => {
-      const result = parseQueryDSL('severity=invalid');
-      expect(result.success).toBe(false);
-      if (!result.success) {
-        expect(result.errors[0].field).toBe('severity');
-      }
-    });
-
-    it('returns errors for invalid slotRange format', () => {
-      const result = parseQueryDSL('slotRange=invalid');
-      expect(result.success).toBe(false);
-      if (!result.success) {
-        expect(result.errors[0].field).toBe('slotRange');
-      }
+      slotRange: { from: 100, to: 200 },
     });
   });
 
-  describe('normalizeQuery', () => {
-    it('produces deterministic hash', () => {
-      const query: QueryDSL = { taskPda: 'TaskPda111111111111111111111111111111111111', severity: 'error' };
-      const norm1 = normalizeQuery(query);
-      const norm2 = normalizeQuery(query);
+  it('parses anomaly codes list', () => {
+    const parsed = parseQueryDSL('anomalyCodes=hash_mismatch,missing_event');
+    expect(parsed.anomalyCodes).toEqual(['hash_mismatch', 'missing_event']);
+  });
 
-      expect(norm1.hash).toBe(norm2.hash);
-      expect(norm1.hash).toHaveLength(64);
-    });
+  it('parses wallet set and sorts entries', () => {
+    const key1 = pubkey(3);
+    const key2 = pubkey(2);
+    const key3 = pubkey(4);
 
-    it('produces same hash regardless of property order', () => {
-      const query1: QueryDSL = { taskPda: 'TaskPda111111111111111111111111111111111111', severity: 'error' };
-      const query2: QueryDSL = { severity: 'error', taskPda: 'TaskPda111111111111111111111111111111111111' };
+    const parsed = parseQueryDSL(`walletSet=${key1},${key2},${key3}`);
+    expect(parsed.walletSet).toEqual([key2, key1, key3].sort());
+  });
 
-      const norm1 = normalizeQuery(query1);
-      const norm2 = normalizeQuery(query2);
+  it('throws validation error when missing equals', () => {
+    expect(() => parseQueryDSL('taskPda')).toThrow(QueryDSLParseError);
 
-      expect(norm1.hash).toBe(norm2.hash);
-    });
+    try {
+      parseQueryDSL('taskPda');
+    } catch (error) {
+      const parsed = error as QueryDSLParseError;
+      expect(parsed.errors.some((entry) => entry.field === 'taskPda')).toBe(true);
+    }
+  });
 
-    it('sorts walletSet for determinism', () => {
-      const query: QueryDSL = {
-        walletSet: ['Wallet2222222222222222222222222222222222222', 'Wallet1111111111111111111111111111111111111']
-      };
-      const norm = normalizeQuery(query);
-      const parsed = JSON.parse(norm.canonicalJson);
+  it('throws validation error for invalid severity', () => {
+    expect(() => parseQueryDSL('severity=critical')).toThrow(QueryDSLParseError);
+  });
 
-      expect(parsed.walletSet[0]).toBe('Wallet1111111111111111111111111111111111111');
+  it('throws validation error for inverted slot range', () => {
+    expect(() => parseQueryDSL('slotRange=200-100')).toThrow(QueryDSLParseError);
+  });
+
+  it('throws validation error for unknown fields', () => {
+    expect(() => parseQueryDSL('fooBar=123')).toThrow(QueryDSLParseError);
+  });
+
+  it('normalizes to identical hashes regardless of token ordering', () => {
+    const taskPda = pubkey(9);
+    const first = normalizeQuery(parseQueryDSL(`taskPda=${taskPda} severity=warning slotRange=5-10`));
+    const second = normalizeQuery(parseQueryDSL(`slotRange=5-10 taskPda=${taskPda} severity=warning`));
+
+    expect(first.hash).toBe(second.hash);
+    expect(first.canonical).toBe(second.canonical);
+  });
+
+  it('normalizes empty DSL to stable defaults', () => {
+    const normalized = normalizeQuery({});
+    expect(normalized.dsl).toEqual({
+      taskPda: null,
+      disputePda: null,
+      actorPubkey: null,
+      eventType: null,
+      severity: null,
+      slotRange: { from: null, to: null },
+      walletSet: [],
+      anomalyCodes: [],
     });
   });
 
-  describe('applyQueryFilter', () => {
-    it('filters by taskPda', () => {
-      const events = createTestEvents();
-      const filtered = applyQueryFilter(events, { taskPda: 'TaskPda111111111111111111111111111111111111' });
-
-      expect(filtered).toHaveLength(2);
-      expect(filtered.every(e => e.taskPda === 'TaskPda111111111111111111111111111111111111')).toBe(true);
-    });
-
-    it('filters by eventType', () => {
-      const events = createTestEvents();
-      const filtered = applyQueryFilter(events, { eventType: 'TaskCreated' });
-
-      expect(filtered).toHaveLength(1);
-      expect(filtered[0].sourceEventName).toBe('TaskCreated');
-    });
-
-    it('filters by slotRange', () => {
-      const events = createTestEvents();
-      const filtered = applyQueryFilter(events, { slotRange: { from: 100, to: 150 } });
-
-      expect(filtered).toHaveLength(2);
-      expect(filtered.every(e => e.slot >= 100 && e.slot <= 150)).toBe(true);
-    });
-
-    it('filters by actorPubkey', () => {
-      const events = createTestEvents();
-      const filtered = applyQueryFilter(events, { actorPubkey: 'Worker1111111111111111111111111111111111111' });
-
-      expect(filtered).toHaveLength(1);
-    });
-
-    it('combines multiple filters', () => {
-      const events = createTestEvents();
-      const filtered = applyQueryFilter(events, {
-        taskPda: 'TaskPda111111111111111111111111111111111111',
-        slotRange: { from: 140, to: 160 },
-      });
-
-      expect(filtered).toHaveLength(1);
-      expect(filtered[0].slot).toBe(150);
-    });
+  it('produces identical hashes across repeated parse+normalize calls', () => {
+    const taskPda = pubkey(7);
+    const input = `taskPda=${taskPda} severity=error slotRange=0-0`;
+    const first = normalizeQuery(parseQueryDSL(input));
+    const second = normalizeQuery(parseQueryDSL(input));
+    expect(first.hash).toBe(second.hash);
   });
 
-  describe('applyAnomalyFilter', () => {
-    it('filters by severity', () => {
-      const anomalies = createTestAnomalies();
-      const filtered = applyAnomalyFilter(anomalies, { severity: 'error' });
+  it('applyQueryFilter filters events by taskPda', () => {
+    const taskA = pubkey(1);
+    const taskB = pubkey(2);
+    const events = Array.from({ length: 10 }, (_, index) => makeEvent({
+      seq: index + 1,
+      slot: index,
+      type: 'discovered',
+      taskPda: index % 2 === 0 ? taskA : taskB,
+    }));
 
-      expect(filtered).toHaveLength(1);
-      expect(filtered[0].code).toBe('hash_mismatch');
-    });
-
-    it('filters by anomalyCodes', () => {
-      const anomalies = createTestAnomalies();
-      const filtered = applyAnomalyFilter(anomalies, { anomalyCodes: ['hash_mismatch', 'missing_sig'] });
-
-      expect(filtered).toHaveLength(2);
-    });
-
-    it('filters by slotRange', () => {
-      const anomalies = createTestAnomalies();
-      const filtered = applyAnomalyFilter(anomalies, { slotRange: { from: 100, to: 150 } });
-
-      expect(filtered).toHaveLength(2);
-    });
+    const filtered = applyQueryFilter(events, { taskPda: taskA });
+    expect(filtered).toHaveLength(5);
+    expect(filtered.every((event) => event.taskPda === taskA)).toBe(true);
   });
 
-  describe('serializeQueryDSL', () => {
-    it('serializes query to string format', () => {
-      const query: QueryDSL = {
-        taskPda: 'TaskPda111111111111111111111111111111111111',
-        severity: 'error',
-        slotRange: { from: 100, to: 200 },
-      };
+  it('applyAnomalyFilter filters anomalies by severity', () => {
+    const anomalies: ReplayAnomaly[] = [
+      { code: 'hash_mismatch', severity: 'error', message: 'a', context: {} },
+      { code: 'missing_event', severity: 'warning', message: 'b', context: {} },
+      { code: 'type_mismatch', severity: 'error', message: 'c', context: {} },
+    ];
 
-      const serialized = serializeQueryDSL(query);
+    const filtered = applyAnomalyFilter(anomalies, { severity: 'error' });
+    expect(filtered.map((entry) => entry.code).sort()).toEqual(['hash_mismatch', 'type_mismatch']);
+  });
 
-      expect(serialized).toContain('taskPda=TaskPda111111111111111111111111111111111111');
-      expect(serialized).toContain('severity=error');
-      expect(serialized).toContain('slotRange=100-200');
-    });
+  it('returns empty QueryDSL for empty input', () => {
+    expect(parseQueryDSL('')).toEqual({});
+    expect(parseQueryDSL('   ')).toEqual({});
   });
 });
+

@@ -1,410 +1,440 @@
 /**
- * Incident Case Object Model - Foundation for incident reconstruction and evidence management.
- *
- * Implements #990 P2-501: Case object model and timeline evidence
+ * Incident case model for deterministic timeline reconstruction and evidence export.
  *
  * @module
  */
 
-import { createHash } from 'crypto';
-import type { JsonObject } from './types.js';
+import { createHash } from 'node:crypto';
+import { PublicKey } from '@solana/web3.js';
+import { bytesToHex, hexToBytes } from '../utils/encoding.js';
+import { stableStringifyJson, type JsonValue } from './types.js';
 import type { ProjectedTimelineEvent } from './projector.js';
+import type { ReplayAnomaly, ReplayAnomalyCode } from './replay-comparison.js';
 
+/** Schema version for case export format — bump on breaking layout changes. */
 export const INCIDENT_CASE_SCHEMA_VERSION = 1 as const;
 
-/**
- * Bounds incident by slot and timestamp ranges.
- */
+/** Deterministic slot+timestamp window bounding the incident. */
 export interface IncidentTraceWindow {
-  /** Starting slot (inclusive) */
-  startSlot: number;
-  /** Ending slot (inclusive) */
-  endSlot: number;
-  /** Starting timestamp in milliseconds */
-  startTimestampMs: number;
-  /** Ending timestamp in milliseconds */
-  endTimestampMs: number;
+  fromSlot: number;
+  toSlot: number;
+  fromTimestampMs: number;
+  toTimestampMs: number;
 }
 
-/**
- * Actor role categorization for incident participants.
- */
+/** Actor role in the incident context. */
 export type IncidentActorRole = 'creator' | 'worker' | 'arbiter' | 'authority' | 'unknown';
 
-/**
- * Maps participants with roles in an incident.
- */
+/** Resolved actor entry. */
 export interface IncidentActor {
-  /** Public key of the actor (base58 encoded) */
   pubkey: string;
-  /** Role of the actor in the incident */
   role: IncidentActorRole;
-  /** First seen slot */
-  firstSeenSlot: number;
-  /** Last seen slot */
-  lastSeenSlot: number;
+  firstSeenSeq: number;
 }
 
-/**
- * Records state machine transitions in the case timeline.
- */
+/** Lifecycle transition recorded in the case timeline. */
 export interface IncidentTransition {
-  /** Sequence number within the incident */
   seq: number;
-  /** Previous state (null for initial) */
   fromState: string | null;
-  /** New state */
   toState: string;
-  /** Slot where transition occurred */
   slot: number;
-  /** Timestamp in milliseconds */
-  timestampMs: number;
-  /** Transaction signature triggering the transition */
   signature: string;
-  /** Actor who triggered the transition */
-  actor?: string;
-  /** Additional transition metadata */
-  metadata?: JsonObject;
+  sourceEventName: string;
+  timestampMs: number;
+  taskPda?: string;
+  disputePda?: string;
 }
 
-/**
- * Severity levels for anomalies.
- */
-export type AnomalySeverity = 'error' | 'warning' | 'info';
-
-/**
- * References detected anomalies with severity metadata.
- */
+/** Reference to an anomaly detected during comparison/replay. */
 export interface IncidentAnomalyRef {
-  /** Anomaly code identifier */
-  code: string;
-  /** Severity level */
-  severity: AnomalySeverity;
-  /** Human-readable description */
-  description: string;
-  /** Slot where anomaly was detected */
-  slot: number;
-  /** Related entity (task PDA, dispute PDA, etc.) */
-  entityPda?: string;
+  anomalyId: string;
+  code: ReplayAnomalyCode;
+  severity: 'error' | 'warning';
+  message: string;
+  seq?: number;
 }
 
-/**
- * Case status for lifecycle tracking.
- */
-export type CaseStatus = 'open' | 'investigating' | 'resolved' | 'archived';
+/** SHA-256 hash of an attached evidence artifact. */
+export interface IncidentEvidenceHash {
+  label: string;
+  sha256: string;
+}
 
-/**
- * Top-level incident case payload.
- */
+export type IncidentCaseStatus = 'open' | 'investigating' | 'resolved' | 'archived';
+
+/** Top-level incident case payload. */
 export interface IncidentCase {
-  /** Schema version for forward compatibility */
   schemaVersion: typeof INCIDENT_CASE_SCHEMA_VERSION;
-  /** Deterministic case identifier (SHA-256 hex) */
   caseId: string;
-  /** Trace window bounding the incident */
-  traceWindow: IncidentTraceWindow;
-  /** State machine transitions */
-  transitions: IncidentTransition[];
-  /** Referenced anomaly IDs */
-  anomalyRefs: IncidentAnomalyRef[];
-  /** Map of actors involved (pubkey -> actor info) */
-  actorMap: Map<string, IncidentActor>;
-  /** Evidence attachment hashes (artifact name -> SHA-256 hex) */
-  evidenceHashes: Map<string, string>;
-  /** Current case status */
-  caseStatus: CaseStatus;
-  /** Task PDA if case relates to a specific task */
-  taskPda?: string;
-  /** Dispute PDA if case relates to a dispute */
-  disputePda?: string;
-  /** Creation timestamp */
   createdAtMs: number;
-  /** Last update timestamp */
-  updatedAtMs: number;
+  traceWindow: IncidentTraceWindow;
+  transitions: IncidentTransition[];
+  anomalyIds: string[];
+  anomalies: IncidentAnomalyRef[];
+  actorMap: IncidentActor[];
+  evidenceHashes: IncidentEvidenceHash[];
+  caseStatus: IncidentCaseStatus;
+  taskIds: string[];
+  disputeIds: string[];
+  metadata?: Record<string, unknown>;
 }
 
-/**
- * Input for building an incident case.
- */
 export interface BuildIncidentCaseInput {
-  /** Projected timeline events to analyze */
-  events: ProjectedTimelineEvent[];
-  /** Optional manual trace window override */
-  traceWindow?: Partial<IncidentTraceWindow>;
-  /** Optional task PDA filter */
-  taskPda?: string;
-  /** Optional dispute PDA filter */
-  disputePda?: string;
-  /** Detected anomalies to include */
-  anomalies?: IncidentAnomalyRef[];
-  /** Initial case status */
-  initialStatus?: CaseStatus;
-  /** Optional timestamp override for deterministic output (milliseconds) */
-  timestampMs?: number;
+  events: readonly ProjectedTimelineEvent[];
+  anomalies?: readonly ReplayAnomaly[];
+  window?: { fromSlot?: number; toSlot?: number };
+  metadata?: Record<string, unknown>;
 }
 
-/**
- * Compute trace window from events or use manual override.
- * Pass defaultTimestampMs for deterministic output when events is empty.
- */
-export function computeTraceWindow(
-  events: ProjectedTimelineEvent[],
-  override?: Partial<IncidentTraceWindow>,
-  defaultTimestampMs?: number,
-): IncidentTraceWindow {
-  if (events.length === 0) {
-    const fallbackTimestamp = defaultTimestampMs ?? Date.now();
-    return {
-      startSlot: override?.startSlot ?? 0,
-      endSlot: override?.endSlot ?? 0,
-      startTimestampMs: override?.startTimestampMs ?? fallbackTimestamp,
-      endTimestampMs: override?.endTimestampMs ?? fallbackTimestamp,
-    };
-  }
+const TASK_TRANSITIONS: Readonly<Record<string, ReadonlySet<string>>> = {
+  discovered: new Set(['claimed', 'failed']),
+  claimed: new Set(['completed', 'failed', 'disputed']),
+  disputed: new Set(['completed', 'failed']),
+  completed: new Set(),
+  failed: new Set(),
+};
 
-  const sorted = [...events].sort((a, b) => a.slot - b.slot);
-  const first = sorted[0];
-  const last = sorted[sorted.length - 1];
+const TASK_EVENT_TYPES = new Set<string>([
+  'discovered',
+  'claimed',
+  'completed',
+  'failed',
+  'disputed',
+]);
+
+const DISPUTE_EVENT_TYPES = new Set<string>([
+  'dispute:initiated',
+  'dispute:vote_cast',
+  'dispute:resolved',
+  'dispute:cancelled',
+  'dispute:expired',
+]);
+
+const SPECULATION_EVENT_TYPES = new Set<string>([
+  'speculation_started',
+  'speculation_confirmed',
+  'speculation_aborted',
+]);
+
+export function buildIncidentCase(input: BuildIncidentCaseInput): IncidentCase {
+  const sorted = [...input.events].sort((left, right) => {
+    if (left.seq !== right.seq) return left.seq - right.seq;
+    if (left.slot !== right.slot) return left.slot - right.slot;
+    if (left.timestampMs !== right.timestampMs) return left.timestampMs - right.timestampMs;
+    if (left.signature !== right.signature) return left.signature.localeCompare(right.signature);
+    if (left.sourceEventName !== right.sourceEventName) return left.sourceEventName.localeCompare(right.sourceEventName);
+    if (left.type !== right.type) return left.type.localeCompare(right.type);
+    return (left.taskPda ?? '').localeCompare(right.taskPda ?? '');
+  });
+
+  const traceWindow = computeTraceWindow(sorted, input.window);
+
+  const windowedEvents = sorted.filter((event) => (
+    event.slot >= traceWindow.fromSlot && event.slot <= traceWindow.toSlot
+  ));
+
+  const transitions = buildTransitions(windowedEvents);
+  const actorMap = resolveActors(windowedEvents);
+
+  const anomalyRefs = (input.anomalies ?? []).map((anomaly, index) => ({
+    anomalyId: computeAnomalyId(anomaly, index),
+    code: anomaly.code,
+    severity: anomaly.severity,
+    message: anomaly.message,
+    ...(typeof anomaly.context.seq === 'number' ? { seq: anomaly.context.seq } : {}),
+  }));
+
+  const taskIds = [...new Set(
+    windowedEvents
+      .map((event) => event.taskPda)
+      .filter((entry): entry is string => typeof entry === 'string' && entry.length > 0),
+  )].sort();
+
+  const disputeIds = collectDisputeIds(windowedEvents);
+  const caseId = computeCaseId(traceWindow, taskIds, disputeIds);
 
   return {
-    startSlot: override?.startSlot ?? first.slot,
-    endSlot: override?.endSlot ?? last.slot,
-    startTimestampMs: override?.startTimestampMs ?? first.timestampMs,
-    endTimestampMs: override?.endTimestampMs ?? last.timestampMs,
+    schemaVersion: INCIDENT_CASE_SCHEMA_VERSION,
+    caseId,
+    createdAtMs: Date.now(),
+    traceWindow,
+    transitions,
+    anomalyIds: anomalyRefs.map((entry) => entry.anomalyId),
+    anomalies: anomalyRefs,
+    actorMap,
+    evidenceHashes: [],
+    caseStatus: 'open',
+    taskIds,
+    disputeIds,
+    metadata: input.metadata,
   };
 }
 
-/**
- * Resolve actor role from event payload fields.
- */
-function resolveActorRole(sourceEventName: string, fieldName: string): IncidentActorRole {
-  // Creator role
-  if (fieldName === 'creator' || fieldName === 'owner' || fieldName === 'initiator') {
-    return 'creator';
-  }
-  // Worker role
-  if (fieldName === 'worker' || fieldName === 'agent' || fieldName === 'claimant') {
-    return 'worker';
-  }
-  // Arbiter role
-  if (fieldName === 'arbiter' || fieldName === 'voter' || sourceEventName.includes('Dispute')) {
-    return 'arbiter';
-  }
-  // Authority role
-  if (fieldName === 'authority' || fieldName === 'admin' || fieldName === 'multisig') {
-    return 'authority';
-  }
-  return 'unknown';
+export function computeEvidenceHash(label: string, content: JsonValue): IncidentEvidenceHash {
+  const sha256 = createHash('sha256')
+    .update(stableStringifyJson(content))
+    .digest('hex');
+  return { label, sha256 };
 }
 
-/**
- * Extract and categorize participants from events.
- */
-export function resolveActors(events: ProjectedTimelineEvent[]): Map<string, IncidentActor> {
+function computeTraceWindow(
+  events: readonly ProjectedTimelineEvent[],
+  override?: { fromSlot?: number; toSlot?: number },
+): IncidentTraceWindow {
+  if (events.length === 0) {
+    return { fromSlot: 0, toSlot: 0, fromTimestampMs: 0, toTimestampMs: 0 };
+  }
+
+  const overrideFrom = override?.fromSlot;
+  const overrideTo = override?.toSlot;
+
+  const resolvedFromSlot = Number.isInteger(overrideFrom) && (overrideFrom as number) >= 0
+    ? (overrideFrom as number)
+    : events[0].slot;
+  const resolvedToSlot = Number.isInteger(overrideTo) && (overrideTo as number) >= 0
+    ? (overrideTo as number)
+    : events[events.length - 1].slot;
+
+  const fromSlot = Math.min(resolvedFromSlot, resolvedToSlot);
+  const toSlot = Math.max(resolvedFromSlot, resolvedToSlot);
+
+  const fromTimestampMs = events.find((event) => event.slot >= fromSlot)?.timestampMs ?? 0;
+  const toTimestampMs = [...events].reverse().find((event) => event.slot <= toSlot)?.timestampMs ?? 0;
+
+  return { fromSlot, toSlot, fromTimestampMs, toTimestampMs };
+}
+
+function resolveActors(events: readonly ProjectedTimelineEvent[]): IncidentActor[] {
   const actors = new Map<string, IncidentActor>();
 
   for (const event of events) {
-    const payload = event.payload as JsonObject;
+    const payload = event.payload as unknown as Record<string, unknown>;
+    const candidates: Array<{ pubkey: string; role: IncidentActorRole }> = [];
 
-    // Extract known actor fields
-    const actorFields = ['creator', 'worker', 'agent', 'claimant', 'arbiter', 'voter', 'authority', 'owner', 'initiator'];
+    const creator = payload.creator;
+    if (typeof creator === 'string' && creator.length > 0) candidates.push({ pubkey: creator, role: 'creator' });
 
-    for (const field of actorFields) {
-      const value = payload[field];
-      if (typeof value === 'string' && value.length > 0) {
-        const existing = actors.get(value);
-        const role = resolveActorRole(event.sourceEventName, field);
+    const worker = payload.worker;
+    if (typeof worker === 'string' && worker.length > 0) candidates.push({ pubkey: worker, role: 'worker' });
 
-        if (existing) {
-          existing.lastSeenSlot = Math.max(existing.lastSeenSlot, event.slot);
-          // Upgrade role if more specific
-          if (existing.role === 'unknown' && role !== 'unknown') {
-            existing.role = role;
-          }
-        } else {
-          actors.set(value, {
-            pubkey: value,
-            role,
-            firstSeenSlot: event.slot,
-            lastSeenSlot: event.slot,
-          });
-        }
+    const authority = payload.authority;
+    if (typeof authority === 'string' && authority.length > 0) candidates.push({ pubkey: authority, role: 'authority' });
+
+    const voter = payload.voter;
+    if (typeof voter === 'string' && voter.length > 0) candidates.push({ pubkey: voter, role: 'arbiter' });
+
+    const initiator = payload.initiator;
+    if (typeof initiator === 'string' && initiator.length > 0) candidates.push({ pubkey: initiator, role: 'creator' });
+
+    const defendant = payload.defendant;
+    if (typeof defendant === 'string' && defendant.length > 0) candidates.push({ pubkey: defendant, role: 'worker' });
+
+    const recipient = payload.recipient;
+    if (typeof recipient === 'string' && recipient.length > 0) candidates.push({ pubkey: recipient, role: 'worker' });
+
+    const updater = payload.updater;
+    if (typeof updater === 'string' && updater.length > 0) candidates.push({ pubkey: updater, role: 'authority' });
+
+    const updatedBy = payload.updatedBy;
+    if (typeof updatedBy === 'string' && updatedBy.length > 0) candidates.push({ pubkey: updatedBy, role: 'authority' });
+
+    const agent = payload.agent;
+    if (typeof agent === 'string' && agent.length > 0 && !candidates.some((entry) => entry.pubkey === agent)) {
+      candidates.push({ pubkey: agent, role: 'unknown' });
+    }
+
+    for (const { pubkey, role } of candidates) {
+      const existing = actors.get(pubkey);
+      if (!existing) {
+        actors.set(pubkey, { pubkey, role, firstSeenSeq: event.seq });
+        continue;
+      }
+
+      if (existing.role === 'unknown' && role !== 'unknown') {
+        existing.role = role;
       }
     }
   }
 
-  return actors;
+  return [...actors.values()].sort((left, right) => {
+    if (left.firstSeenSeq !== right.firstSeenSeq) return left.firstSeenSeq - right.firstSeenSeq;
+    return left.pubkey.localeCompare(right.pubkey);
+  });
 }
 
-/**
- * Build state machine transitions from events.
- */
-function buildTransitions(events: ProjectedTimelineEvent[]): IncidentTransition[] {
+function buildTransitions(events: readonly ProjectedTimelineEvent[]): IncidentTransition[] {
   const transitions: IncidentTransition[] = [];
-  const stateByEntity = new Map<string, string>();
-  let seq = 1;
 
-  const sorted = [...events].sort((a, b) => a.slot - b.slot || a.seq - b.seq);
+  const taskStates = new Map<string, string>();
+  const disputeStates = new Map<string, string>();
+  const speculationStates = new Map<string, string>();
 
-  for (const event of sorted) {
-    const payload = event.payload as JsonObject;
-    const entityPda = event.taskPda || (payload.disputePda as string) || '';
+  for (const event of events) {
+    const { seq, type, slot, signature, sourceEventName, timestampMs, taskPda } = event;
 
-    // Determine state from event type
-    let newState: string | null = null;
-
-    if (event.sourceEventName.includes('Created')) {
-      newState = 'created';
-    } else if (event.sourceEventName.includes('Claimed')) {
-      newState = 'claimed';
-    } else if (event.sourceEventName.includes('Completed')) {
-      newState = 'completed';
-    } else if (event.sourceEventName.includes('Cancelled')) {
-      newState = 'cancelled';
-    } else if (event.sourceEventName.includes('Disputed') || event.sourceEventName.includes('DisputeInitiated')) {
-      newState = 'disputed';
-    } else if (event.sourceEventName.includes('Resolved')) {
-      newState = 'resolved';
-    } else if (event.sourceEventName.includes('Expired')) {
-      newState = 'expired';
+    if (TASK_EVENT_TYPES.has(type) && taskPda) {
+      const previous = taskStates.get(taskPda) ?? null;
+      transitions.push({
+        seq,
+        fromState: previous,
+        toState: type,
+        slot,
+        signature,
+        sourceEventName,
+        timestampMs,
+        taskPda,
+      });
+      taskStates.set(taskPda, type);
     }
 
-    if (newState && entityPda) {
-      const fromState = stateByEntity.get(entityPda) || null;
-      stateByEntity.set(entityPda, newState);
+    if (sourceEventName === 'disputeInitiated' && taskPda) {
+      const previous = taskStates.get(taskPda);
+      if (previous !== undefined && TASK_TRANSITIONS[previous]?.has('disputed')) {
+        transitions.push({
+          seq,
+          fromState: previous,
+          toState: 'disputed',
+          slot,
+          signature,
+          sourceEventName,
+          timestampMs,
+          taskPda,
+        });
+        taskStates.set(taskPda, 'disputed');
+      }
+    }
 
+    if (DISPUTE_EVENT_TYPES.has(type)) {
+      const disputePda = extractDisputePda(event);
+      if (disputePda) {
+        const previous = disputeStates.get(disputePda) ?? null;
+        transitions.push({
+          seq,
+          fromState: previous,
+          toState: type,
+          slot,
+          signature,
+          sourceEventName,
+          timestampMs,
+          taskPda,
+          disputePda,
+        });
+        disputeStates.set(disputePda, type);
+      }
+    }
+
+    if (SPECULATION_EVENT_TYPES.has(type) && taskPda) {
+      const previous = speculationStates.get(taskPda) ?? null;
       transitions.push({
-        seq: seq++,
-        fromState,
-        toState: newState,
-        slot: event.slot,
-        timestampMs: event.timestampMs,
-        signature: event.signature,
-        actor: (payload.creator || payload.worker || payload.authority) as string | undefined,
-        metadata: { sourceEventName: event.sourceEventName, entityPda },
+        seq,
+        fromState: previous,
+        toState: type,
+        slot,
+        signature,
+        sourceEventName,
+        timestampMs,
+        taskPda,
       });
+      speculationStates.set(taskPda, type);
     }
   }
 
   return transitions;
 }
 
-/**
- * Generate SHA-256 hash for evidence artifacts.
- */
-export function computeEvidenceHash(data: string | Buffer): string {
-  return createHash('sha256').update(data).digest('hex');
+function collectDisputeIds(events: readonly ProjectedTimelineEvent[]): string[] {
+  const disputeIds = new Set<string>();
+  for (const event of events) {
+    const disputePda = extractDisputePda(event);
+    if (disputePda) disputeIds.add(disputePda);
+  }
+  return [...disputeIds].sort();
 }
 
-/**
- * Compute deterministic case ID from trace window and entity IDs.
- */
-export function computeCaseId(
-  traceWindow: IncidentTraceWindow,
-  taskPda?: string,
-  disputePda?: string,
+function extractDisputePda(event: ProjectedTimelineEvent): string | undefined {
+  const payload = event.payload as unknown as Record<string, unknown>;
+  const onchain = payload.onchain;
+
+  if (typeof onchain === 'object' && onchain !== null) {
+    const raw = (onchain as Record<string, unknown>).disputeId;
+    const normalized = normalizePdaValue(raw);
+    if (normalized) return normalized;
+  }
+
+  const direct = payload.disputeId;
+  const normalized = normalizePdaValue(direct);
+  if (normalized) return normalized;
+
+  return undefined;
+}
+
+function normalizePdaValue(value: unknown): string | undefined {
+  if (value instanceof PublicKey) return value.toBase58();
+
+  if (value instanceof Uint8Array) {
+    return bytesToPdaString(value);
+  }
+
+  if (Array.isArray(value) && value.every((entry) => Number.isInteger(entry) && entry >= 0 && entry <= 255)) {
+    return bytesToPdaString(new Uint8Array(value));
+  }
+
+  if (typeof value === 'string' && value.length > 0) {
+    const clean = value.startsWith('0x') ? value.slice(2) : value;
+    if (clean.length === 64 && /^[0-9a-fA-F]+$/.test(clean)) {
+      try {
+        return bytesToPdaString(hexToBytes(clean));
+      } catch {
+        return value;
+      }
+    }
+    return value;
+  }
+
+  return undefined;
+}
+
+function bytesToPdaString(bytes: Uint8Array): string {
+  if (bytes.length !== 32) return bytesToHex(bytes);
+  try {
+    return new PublicKey(bytes).toBase58();
+  } catch {
+    return bytesToHex(bytes);
+  }
+}
+
+function computeCaseId(
+  window: IncidentTraceWindow,
+  taskIds: string[],
+  disputeIds: string[],
 ): string {
-  const input = JSON.stringify({
-    startSlot: traceWindow.startSlot,
-    endSlot: traceWindow.endSlot,
-    taskPda: taskPda || '',
-    disputePda: disputePda || '',
-  });
-  return createHash('sha256').update(input).digest('hex');
+  const seed = stableStringifyJson({
+    fromSlot: window.fromSlot,
+    toSlot: window.toSlot,
+    taskIds,
+    disputeIds,
+  } as unknown as JsonValue);
+
+  return createHash('sha256').update(seed).digest('hex').slice(0, 32);
 }
 
-/**
- * Build an incident case from projected timeline events.
- * Produces deterministic output for identical inputs when timestampMs is provided.
- * Note: createdAtMs/updatedAtMs use Date.now() unless timestampMs is specified.
- */
-export function buildIncidentCase(input: BuildIncidentCaseInput): IncidentCase {
-  const { events, traceWindow: windowOverride, taskPda, disputePda, anomalies, initialStatus, timestampMs } = input;
+function computeAnomalyId(anomaly: ReplayAnomaly, fallbackIndex: number): string {
+  const context = anomaly.context;
+  const seed = stableStringifyJson({
+    code: anomaly.code,
+    severity: anomaly.severity,
+    taskPda: context.taskPda,
+    disputePda: context.disputePda,
+    sourceEventName: context.sourceEventName,
+    sourceEventSequence: context.sourceEventSequence,
+    signature: context.signature,
+    eventType: context.eventType,
+    seq: context.seq ?? fallbackIndex,
+    traceId: context.traceId,
+    traceSpanId: context.traceSpanId,
+    traceParentSpanId: context.traceParentSpanId,
+    traceSampled: context.traceSampled,
+  } as unknown as JsonValue);
 
-  // Sort events deterministically by sequence number
-  const sortedEvents = [...events].sort((a, b) => a.seq - b.seq);
-
-  // Filter events within window boundaries if taskPda or disputePda specified
-  const filteredEvents = sortedEvents.filter((event) => {
-    if (taskPda && event.taskPda !== taskPda) {
-      return false;
-    }
-    const payload = event.payload as JsonObject;
-    if (disputePda && payload.disputePda !== disputePda) {
-      return false;
-    }
-    return true;
-  });
-
-  // Compute trace window (pass timestampMs for deterministic empty-events case)
-  const traceWindow = computeTraceWindow(filteredEvents, windowOverride, timestampMs);
-
-  // Build state machine transitions
-  const transitions = buildTransitions(filteredEvents);
-
-  // Resolve actor map
-  const actorMap = resolveActors(filteredEvents);
-
-  // Compute case ID
-  const caseId = computeCaseId(traceWindow, taskPda, disputePda);
-
-  // Initialize evidence hashes (empty - populated when evidence is attached)
-  const evidenceHashes = new Map<string, string>();
-
-  const now = timestampMs ?? Date.now();
-
-  return {
-    schemaVersion: INCIDENT_CASE_SCHEMA_VERSION,
-    caseId,
-    traceWindow,
-    transitions,
-    anomalyRefs: anomalies || [],
-    actorMap,
-    evidenceHashes,
-    caseStatus: initialStatus || 'open',
-    taskPda,
-    disputePda,
-    createdAtMs: now,
-    updatedAtMs: now,
-  };
-}
-
-/**
- * Serialize incident case to JSON-compatible object.
- */
-export function serializeIncidentCase(caseData: IncidentCase): JsonObject {
-  return {
-    schemaVersion: caseData.schemaVersion,
-    caseId: caseData.caseId,
-    traceWindow: caseData.traceWindow,
-    transitions: caseData.transitions,
-    anomalyRefs: caseData.anomalyRefs,
-    actorMap: Object.fromEntries(caseData.actorMap),
-    evidenceHashes: Object.fromEntries(caseData.evidenceHashes),
-    caseStatus: caseData.caseStatus,
-    taskPda: caseData.taskPda,
-    disputePda: caseData.disputePda,
-    createdAtMs: caseData.createdAtMs,
-    updatedAtMs: caseData.updatedAtMs,
-  };
-}
-
-/**
- * Deserialize incident case from JSON object.
- */
-export function deserializeIncidentCase(obj: JsonObject): IncidentCase {
-  return {
-    schemaVersion: obj.schemaVersion as typeof INCIDENT_CASE_SCHEMA_VERSION,
-    caseId: obj.caseId as string,
-    traceWindow: obj.traceWindow as IncidentTraceWindow,
-    transitions: obj.transitions as IncidentTransition[],
-    anomalyRefs: obj.anomalyRefs as IncidentAnomalyRef[],
-    actorMap: new Map(Object.entries(obj.actorMap as Record<string, IncidentActor>)),
-    evidenceHashes: new Map(Object.entries(obj.evidenceHashes as Record<string, string>)),
-    caseStatus: obj.caseStatus as CaseStatus,
-    taskPda: obj.taskPda as string | undefined,
-    disputePda: obj.disputePda as string | undefined,
-    createdAtMs: obj.createdAtMs as number,
-    updatedAtMs: obj.updatedAtMs as number,
-  };
+  return createHash('sha1').update(seed).digest('hex').slice(0, 16);
 }

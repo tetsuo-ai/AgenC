@@ -12,6 +12,7 @@ import {
 import { PROGRAM_ID } from '@agenc/sdk';
 import { parseTrajectoryTrace, stableStringifyJson, type JsonValue, type TrajectoryTrace } from '../eval/types.js';
 import { createReadOnlyProgram } from '../idl.js';
+import { extractDisputePdaFromPayload } from '../replay/pda-utils.js';
 import {
   type ReplayEventCursor,
   type BackfillFetcher,
@@ -316,6 +317,8 @@ export function summarizeReplayIncidentRecords(
   });
 
   const events = sorted.map((record) => {
+    const disputePda = record.disputePda ?? extractDisputePdaFromPayload(record.payload);
+
     sourceEventTypeCounts[record.sourceEventType] = (sourceEventTypeCounts[record.sourceEventType] ?? 0) + 1;
     sourceEventNameCounts[record.sourceEventName] = (sourceEventNameCounts[record.sourceEventName] ?? 0) + 1;
     if (record.traceId) {
@@ -325,8 +328,8 @@ export function summarizeReplayIncidentRecords(
     if (record.taskPda) {
       taskIds.add(record.taskPda);
     }
-    if (record.disputePda) {
-      disputeIds.add(record.disputePda);
+    if (disputePda) {
+      disputeIds.add(disputePda);
     }
 
     return {
@@ -336,7 +339,7 @@ export function summarizeReplayIncidentRecords(
       sourceEventType: record.sourceEventType,
       sourceEventName: record.sourceEventName,
       taskPda: record.taskPda,
-      disputePda: record.disputePda,
+      disputePda,
       timestampMs: record.timestampMs,
       traceId: record.traceId,
       traceSpanId: record.traceSpanId,

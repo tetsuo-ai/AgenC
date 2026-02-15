@@ -249,6 +249,47 @@ describe('runtime replay cli commands', () => {
     expect((payload.result as Record<string, unknown>).mismatchCount).toBeGreaterThan(0);
   });
 
+  it('redacts requested replay compare fields when --redact-fields is set', async () => {
+    const projection = projectOnChainEvents(TASK_FIXTURE_EVENTS, {
+      traceId: 'fixture-replay',
+      seed: 99,
+    });
+    const records = buildReplayRecords(TASK_FIXTURE_EVENTS, 'fixture-replay', projection.trace.seed);
+    const store = cliReplay.createReplayStore({ storeType: 'memory' });
+    await store.save(records);
+    vi.spyOn(cliReplay, 'createReplayStore').mockReturnValue(store);
+
+    const mismatchedTrace = {
+      ...projection.trace,
+      events: projection.trace.events.map((entry, index) =>
+        index === 0
+          ? { ...entry, type: 'claimed' as const, taskPda: 'task-mismatch' }
+          : entry,
+      ),
+    };
+    const localTracePath = writeTraceFixture(workspace, mismatchedTrace);
+    const signature = records[0]?.signature ?? 'SIG_MISSING';
+
+    const result = await runCliCapture([
+      'replay',
+      'compare',
+      '--local-trace-path',
+      localTracePath,
+      '--store-type',
+      'memory',
+      '--redact-fields',
+      'signature',
+    ]);
+
+    expect(result.code).toBe(0);
+    expect(result.stdout).not.toContain(signature);
+
+    const payload = JSON.parse(result.stdout.trim()) as Record<string, unknown>;
+    const topAnomalies = (payload.result as Record<string, unknown>).topAnomalies as Array<Record<string, unknown>>;
+    expect(Array.isArray(topAnomalies)).toBe(true);
+    expect(topAnomalies.some((entry) => entry.signature === '[REDACTED]')).toBe(true);
+  });
+
   it('returns a stable incident reconstruction summary with validation', async () => {
     const projection = projectOnChainEvents(FIXTURE_EVENTS, {
       traceId: 'fixture-replay',
@@ -285,6 +326,117 @@ describe('runtime replay cli commands', () => {
     expect(payload.summary.taskPdaFilters).toEqual([projection.events[0]?.taskPda]);
     expect(payload.commandParams.taskPda).toBe(projection.events[0]?.taskPda);
     expect(payload.validation.strictMode).toBe(false);
+  });
+
+  it('redacts incident narrative/signatures when --redact-fields is set', async () => {
+    const projection = projectOnChainEvents(FIXTURE_EVENTS, {
+      traceId: 'fixture-replay',
+      seed: 99,
+    });
+    const records = buildReplayRecords(FIXTURE_EVENTS, 'fixture-replay', projection.trace.seed);
+    const store = cliReplay.createReplayStore({ storeType: 'memory' });
+    await store.save(records);
+    vi.spyOn(cliReplay, 'createReplayStore').mockReturnValue(store);
+
+    const signature = records[0]?.signature ?? 'SIG_MISSING';
+
+    const result = await runCliCapture([
+      'replay',
+      'incident',
+      '--store-type',
+      'memory',
+      '--task-pda',
+      projection.events[0]?.taskPda ?? 'task-missing',
+      '--redact-fields',
+      'signature,task_pda,dispute_pda',
+    ]);
+
+    expect(result.code).toBe(0);
+    expect(result.stdout).not.toContain(signature);
+
+    const payload = JSON.parse(result.stdout.trim()) as Record<string, unknown>;
+    expect((payload.commandParams as Record<string, unknown>).taskPda).toBe('[REDACTED]');
+    expect(((payload.summary as Record<string, unknown>).events as Array<Record<string, unknown>>)[0]?.signature).toBe('[REDACTED]');
+    expect(((payload.narrative as Record<string, unknown>).lines as string[])[0]).toContain('[REDACTED]');
+  });
+
+  it('populates disputePda on incident summary from dispute event payloads', async () => {
+    const disputeEvents = FIXTURE_EVENTS.filter(
+      (entry) => entry.eventName.startsWith('dispute') || entry.eventName.startsWith('task'),
+    );
+    const projection = projectOnChainEvents(disputeEvents, {
+      traceId: 'fixture-dispute',
+      seed: 99,
+    });
+    const records = buildReplayRecords(disputeEvents, 'fixture-dispute', projection.trace.seed);
+    const store = cliReplay.createReplayStore({ storeType: 'memory' });
+    await store.save(records);
+    vi.spyOn(cliReplay, 'createReplayStore').mockReturnValue(store);
+
+    const result = await runCliCapture([
+      'replay',
+      'incident',
+      '--store-type',
+      'memory',
+      '--task-pda',
+      projection.events[0]?.taskPda ?? 'task-missing',
+    ]);
+
+    expect(result.code).toBe(0);
+    const payload = JSON.parse(result.stdout.trim()) as Record<string, unknown>;
+    const summary = payload.summary as Record<string, unknown>;
+    const uniqueDisputeIds = summary.uniqueDisputeIds as string[];
+    expect(Array.isArray(uniqueDisputeIds)).toBe(true);
+
+    const events = summary.events as Array<Record<string, unknown>>;
+    const disputeEvent = events.find((entry) => entry.sourceEventName === 'disputeInitiated');
+    expect(disputeEvent).toBeDefined();
+    expect(typeof disputeEvent!.disputePda).toBe('string');
+    expect((disputeEvent!.disputePda as string).length).toBeGreaterThan(0);
+  });
+
+  it('emits a sealed evidence pack when --sealed is set', async () => {
+    const projection = projectOnChainEvents(FIXTURE_EVENTS, {
+      traceId: 'fixture-replay',
+      seed: 99,
+    });
+    const records = buildReplayRecords(FIXTURE_EVENTS, 'fixture-replay', projection.trace.seed);
+    const store = cliReplay.createReplayStore({ storeType: 'memory' });
+    await store.save(records);
+    vi.spyOn(cliReplay, 'createReplayStore').mockReturnValue(store);
+
+    const result = await runCliCapture([
+      'replay',
+      'incident',
+      '--store-type',
+      'memory',
+      '--task-pda',
+      projection.events[0]?.taskPda ?? 'task-missing',
+      '--sealed',
+    ]);
+
+    expect(result.code).toBe(0);
+    const payload = JSON.parse(result.stdout.trim()) as Record<string, unknown>;
+
+    assertOutputSchema(
+      payload,
+      SCHEMA_FIXTURE.incident.schemaValue,
+      SCHEMA_FIXTURE.incident.commandValue,
+      {
+        ...SCHEMA_FIXTURE.incident,
+        optionalTopLevel: [...(SCHEMA_FIXTURE.incident.optionalTopLevel ?? []), 'evidencePack'],
+      },
+    );
+
+    expect((payload.commandParams as Record<string, unknown>).sealed).toBe(true);
+    const evidencePack = payload.evidencePack as Record<string, unknown>;
+    expect(typeof evidencePack).toBe('object');
+    expect(evidencePack).toBeTruthy();
+    expect(typeof (evidencePack.manifest as Record<string, unknown>).queryHash).toBe('string');
+    const files = evidencePack.files as Record<string, unknown>;
+    expect(typeof files['manifest.json']).toBe('string');
+    expect(typeof files['incident-case.jsonl']).toBe('string');
+    expect(typeof files['events.jsonl']).toBe('string');
   });
 
   it('runs backfill through deterministic on-chain fetcher output', async () => {

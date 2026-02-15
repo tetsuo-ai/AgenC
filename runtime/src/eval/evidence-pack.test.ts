@@ -1,319 +1,303 @@
-/**
- * Tests for Evidence Pack Export
- *
- * @module
- */
-
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
+import { createHash } from 'node:crypto';
+import { PublicKey } from '@solana/web3.js';
+import { projectOnChainEvents, type OnChainProjectionInput } from './projector.js';
+import { buildIncidentCase } from './incident-case.js';
 import {
+  EVIDENCE_PACK_SCHEMA_VERSION,
   buildEvidencePack,
   serializeEvidencePack,
-  verifyEvidencePackIntegrity,
-  parseEvidencePack,
-  applyRedaction,
-  computeToolFingerprint,
-  EVIDENCE_PACK_SCHEMA_VERSION,
 } from './evidence-pack.js';
-import { buildIncidentCase } from './incident-case.js';
-import { normalizeQuery } from './query-dsl.js';
-import type { ProjectedTimelineEvent } from './projector.js';
 
-// ============================================================================
-// Test Fixtures
-// ============================================================================
-
-function createTestEvents(): ProjectedTimelineEvent[] {
-  return [
-    {
-      seq: 1,
-      type: 'task_created',
-      taskPda: 'TaskPda111111111111111111111111111111111111',
-      timestampMs: 1700000000000,
-      payload: {
-        creator: 'Creator1111111111111111111111111111111111111',
-        reward: 1000000,
-      },
-      slot: 100,
-      signature: 'Sig111111111111111111111111111111111111111111111111111111111111111111111111111111111111',
-      sourceEventName: 'TaskCreated',
-      sourceEventSequence: 1,
-    },
-    {
-      seq: 2,
-      type: 'task_claimed',
-      taskPda: 'TaskPda111111111111111111111111111111111111',
-      timestampMs: 1700000001000,
-      payload: {
-        worker: 'Worker1111111111111111111111111111111111111',
-      },
-      slot: 101,
-      signature: 'Sig222222222222222222222222222222222222222222222222222222222222222222222222222222222222',
-      sourceEventName: 'TaskClaimed',
-      sourceEventSequence: 2,
-    },
-  ];
+function pubkey(seed: number): PublicKey {
+  const bytes = new Uint8Array(32);
+  bytes.fill(seed);
+  return new PublicKey(bytes);
 }
 
-// ============================================================================
-// Tests
-// ============================================================================
+function bytes(seed = 0, length = 32): Uint8Array {
+  const output = new Uint8Array(length);
+  output.fill(seed);
+  return output;
+}
 
-describe('Evidence Pack', () => {
-  describe('buildEvidencePack', () => {
-    it('builds pack with all required fields', () => {
-      const events = createTestEvents();
-      const caseData = buildIncidentCase({ events });
-      const query = normalizeQuery({ taskPda: 'TaskPda111111111111111111111111111111111111' });
+describe('evidence-pack', () => {
+  it('builds a basic evidence pack manifest with deterministic hashes', () => {
+    const taskId = bytes(1);
+    const creator = pubkey(2);
+    const worker = pubkey(3);
 
-      const pack = buildEvidencePack({
-        caseData,
-        events,
-        query,
-      });
+    const inputs: OnChainProjectionInput[] = [
+      {
+        eventName: 'taskCreated',
+        slot: 10,
+        signature: 'AAA',
+        timestampMs: 1_000,
+        event: {
+          taskId,
+          creator,
+          requiredCapabilities: 0n,
+          rewardAmount: 0n,
+          taskType: 0,
+          deadline: 0,
+          minReputation: 0,
+          rewardMint: null,
+          timestamp: 1_000,
+        },
+      },
+      {
+        eventName: 'taskClaimed',
+        slot: 11,
+        signature: 'BBB',
+        timestampMs: 1_100,
+        event: {
+          taskId,
+          worker,
+          currentWorkers: 1,
+          maxWorkers: 1,
+          timestamp: 1_100,
+        },
+      },
+    ];
 
-      expect(pack.manifest.schemaVersion).toBe(EVIDENCE_PACK_SCHEMA_VERSION);
-      expect(pack.manifest.queryHash).toBe(query.hash);
-      expect(pack.manifest.sealed).toBe(false);
-      expect(pack.manifest.caseHash).toHaveLength(64);
-      expect(pack.manifest.eventsHash).toHaveLength(64);
-      expect(pack.events).toHaveLength(2);
+    const events = projectOnChainEvents(inputs).events;
+    const incidentCase = buildIncidentCase({ events });
+    const queryHash = createHash('sha256').update('query').digest('hex');
+
+    const pack = buildEvidencePack({
+      incidentCase,
+      events,
+      seed: 99,
+      queryHash,
+      runtimeVersion: '0.1.0-test',
     });
 
-    it('computes correct slot cursor', () => {
-      const events = createTestEvents();
-      const caseData = buildIncidentCase({ events });
-      const query = normalizeQuery({});
+    expect(pack.manifest.schemaVersion).toBe(EVIDENCE_PACK_SCHEMA_VERSION);
+    expect(pack.manifest.seed).toBe(99);
+    expect(pack.manifest.queryHash).toBe(queryHash);
+    expect(pack.manifest.runtimeVersion).toBe('0.1.0-test');
+    expect(pack.manifest.sealed).toBe(false);
+    expect(pack.manifest.cursorRange.fromSlot).toBe(pack.incidentCase.traceWindow.fromSlot);
+    expect(pack.manifest.cursorRange.toSlot).toBe(pack.incidentCase.traceWindow.toSlot);
+    expect(pack.manifest.cursorRange.fromSignature).toBe(events[0]?.signature);
+    expect(pack.manifest.cursorRange.toSignature).toBe(events[events.length - 1]?.signature);
 
-      const pack = buildEvidencePack({ caseData, events, query });
+    expect(pack.manifest.schemaHash).toMatch(/^[0-9a-f]{64}$/);
+    expect(pack.manifest.toolFingerprint).toMatch(/^[0-9a-f]{64}$/);
 
-      expect(pack.manifest.slotCursor.start).toBe(100);
-      expect(pack.manifest.slotCursor.end).toBe(101);
-    });
-
-    it('uses provided seed', () => {
-      const events = createTestEvents();
-      const caseData = buildIncidentCase({ events });
-      const query = normalizeQuery({});
-
-      const pack = buildEvidencePack({ caseData, events, query, seed: 12345 });
-
-      expect(pack.manifest.seed).toBe(12345);
-    });
-
-    it('applies redaction when sealed', () => {
-      const events = createTestEvents();
-      const caseData = buildIncidentCase({ events });
-      const query = normalizeQuery({});
-
-      const pack = buildEvidencePack({ caseData, events, query, sealed: true });
-
-      expect(pack.manifest.sealed).toBe(true);
-      // Check that signatures are redacted
-      for (const event of pack.events) {
-        expect(event.signature).toContain('[REDACTED:');
-      }
-    });
+    expect(pack.manifest.evidenceHashes).toHaveLength(2);
+    expect(pack.manifest.evidenceHashes.map((entry) => entry.label)).toEqual(['incident-case', 'events']);
+    expect(pack.manifest.evidenceHashes.every((entry) => /^[0-9a-f]{64}$/.test(entry.sha256))).toBe(true);
+    expect(pack.incidentCase.evidenceHashes.some((entry) => entry.label === 'events')).toBe(true);
   });
 
-  describe('serializeEvidencePack', () => {
-    it('produces three-file format', () => {
-      const events = createTestEvents();
-      const caseData = buildIncidentCase({ events });
-      const query = normalizeQuery({});
-      const pack = buildEvidencePack({ caseData, events, query });
+  it('serializes to manifest + case jsonl + events jsonl', () => {
+    const events = projectOnChainEvents([
+      {
+        eventName: 'taskCreated',
+        slot: 1,
+        signature: 'SIG',
+        timestampMs: 1_000,
+        event: {
+          taskId: bytes(1),
+          creator: pubkey(1),
+          requiredCapabilities: 0n,
+          rewardAmount: 0n,
+          taskType: 0,
+          deadline: 0,
+          minReputation: 0,
+          rewardMint: null,
+          timestamp: 1_000,
+        },
+      },
+    ]).events;
 
-      const serialized = serializeEvidencePack(pack);
-
-      expect(serialized.manifestJson).toBeTruthy();
-      expect(serialized.caseJson).toBeTruthy();
-      expect(serialized.eventsJsonl).toBeTruthy();
-
-      // Verify manifest is valid JSON
-      const parsedManifest = JSON.parse(serialized.manifestJson);
-      expect(parsedManifest.schemaVersion).toBe(EVIDENCE_PACK_SCHEMA_VERSION);
-
-      // Verify events are JSONL format
-      const eventLines = serialized.eventsJsonl.split('\n').filter(l => l.length > 0);
-      expect(eventLines).toHaveLength(2);
+    const pack = buildEvidencePack({
+      incidentCase: buildIncidentCase({ events }),
+      events,
+      seed: 0,
+      queryHash: createHash('sha256').update('q').digest('hex'),
+      runtimeVersion: '0.1.0-test',
     });
+
+    const files = serializeEvidencePack(pack);
+    const manifest = JSON.parse(files['manifest.json']) as Record<string, unknown>;
+    expect(manifest.schemaVersion).toBe(EVIDENCE_PACK_SCHEMA_VERSION);
+
+    const parsedCase = JSON.parse(files['incident-case.jsonl']) as Record<string, unknown>;
+    expect(parsedCase.caseId).toBe(pack.incidentCase.caseId);
+
+    const parsedEvents = files['events.jsonl']
+      .split('\n')
+      .filter((line) => line.length > 0)
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+    expect(parsedEvents).toHaveLength(events.length);
+    expect(parsedEvents[0]?.signature).toBe(events[0]?.signature);
   });
 
-  describe('verifyEvidencePackIntegrity', () => {
-    it('validates unmodified pack', () => {
-      const events = createTestEvents();
-      const caseData = buildIncidentCase({ events });
-      const query = normalizeQuery({});
-      const pack = buildEvidencePack({ caseData, events, query });
+  it('supports sealed mode with dot-path redaction', () => {
+    const taskId = bytes(1);
+    const traceContext = {
+      traceId: 'trace-1',
+      spanId: 'span-1',
+      parentSpanId: 'parent-1',
+      sampled: true,
+    };
 
-      const result = verifyEvidencePackIntegrity(pack);
+    const events = projectOnChainEvents([
+      {
+        eventName: 'taskCreated',
+        slot: 1,
+        signature: 'SIG',
+        timestampMs: 1_000,
+        traceContext,
+        event: {
+          taskId,
+          creator: pubkey(1),
+          requiredCapabilities: 0n,
+          rewardAmount: 0n,
+          taskType: 0,
+          deadline: 0,
+          minReputation: 0,
+          rewardMint: null,
+          timestamp: 1_000,
+        },
+      },
+    ]).events;
 
-      expect(result.valid).toBe(true);
-      expect(result.errors).toHaveLength(0);
+    const pack = buildEvidencePack({
+      incidentCase: buildIncidentCase({ events }),
+      events,
+      seed: 0,
+      queryHash: createHash('sha256').update('q').digest('hex'),
+      runtimeVersion: '0.1.0-test',
+      sealed: true,
+      redactionPolicy: {
+        stripFields: ['payload.onchain.trace'],
+      },
     });
 
-    it('detects tampered case data', () => {
-      const events = createTestEvents();
-      const caseData = buildIncidentCase({ events });
-      const query = normalizeQuery({});
-      const pack = buildEvidencePack({ caseData, events, query });
-
-      // Tamper with case data
-      pack.caseData.caseStatus = 'resolved';
-
-      const result = verifyEvidencePackIntegrity(pack);
-
-      expect(result.valid).toBe(false);
-      expect(result.errors.some(e => e.includes('Case hash mismatch'))).toBe(true);
-    });
-
-    it('detects tampered events', () => {
-      const events = createTestEvents();
-      const caseData = buildIncidentCase({ events });
-      const query = normalizeQuery({});
-      const pack = buildEvidencePack({ caseData, events, query });
-
-      // Tamper with events
-      pack.events[0].slot = 999;
-
-      const result = verifyEvidencePackIntegrity(pack);
-
-      expect(result.valid).toBe(false);
-      expect(result.errors.some(e => e.includes('Events hash mismatch'))).toBe(true);
-    });
+    const onchain = (pack.events[0]?.payload as Record<string, unknown>).onchain as Record<string, unknown>;
+    expect(onchain.trace).toBeUndefined();
   });
 
-  describe('parseEvidencePack', () => {
-    it('round-trips through serialization', () => {
-      const events = createTestEvents();
-      const caseData = buildIncidentCase({ events });
-      const query = normalizeQuery({});
-      const original = buildEvidencePack({ caseData, events, query });
+  it('supports actor redaction in sealed mode', () => {
+    const taskId = bytes(1);
+    const creator = pubkey(2);
 
-      const serialized = serializeEvidencePack(original);
-      const parsed = parseEvidencePack(serialized);
+    const events = projectOnChainEvents([
+      {
+        eventName: 'taskCreated',
+        slot: 1,
+        signature: 'SIG',
+        timestampMs: 1_000,
+        event: {
+          taskId,
+          creator,
+          requiredCapabilities: 0n,
+          rewardAmount: 0n,
+          taskType: 0,
+          deadline: 0,
+          minReputation: 0,
+          rewardMint: null,
+          timestamp: 1_000,
+        },
+      },
+    ]).events;
 
-      expect(parsed.manifest.schemaVersion).toBe(original.manifest.schemaVersion);
-      expect(parsed.manifest.queryHash).toBe(original.manifest.queryHash);
-      expect(parsed.events).toHaveLength(original.events.length);
+    const caseUnsealed = buildIncidentCase({ events });
+    const pack = buildEvidencePack({
+      incidentCase: caseUnsealed,
+      events,
+      seed: 0,
+      queryHash: createHash('sha256').update('q').digest('hex'),
+      runtimeVersion: '0.1.0-test',
+      sealed: true,
+      redactionPolicy: {
+        redactActors: true,
+      },
     });
+
+    expect(caseUnsealed.actorMap[0]?.pubkey).toBe(creator.toBase58());
+    expect(pack.incidentCase.actorMap[0]?.pubkey).not.toBe(creator.toBase58());
+    expect(pack.incidentCase.actorMap[0]?.pubkey).toMatch(/^[0-9a-f]{16}$/);
   });
 
-  describe('applyRedaction', () => {
-    it('removes specified fields', () => {
-      const payload = {
-        creator: 'Creator1111111111111111111111111111111111111',
-        privateKey: 'secret_key',
-        data: 'public',
-      };
+  it('produces identical evidence hashes for identical inputs', () => {
+    const events = projectOnChainEvents([
+      {
+        eventName: 'taskCreated',
+        slot: 1,
+        signature: 'SIG',
+        timestampMs: 1_000,
+        event: {
+          taskId: bytes(1),
+          creator: pubkey(1),
+          requiredCapabilities: 0n,
+          rewardAmount: 0n,
+          taskType: 0,
+          deadline: 0,
+          minReputation: 0,
+          rewardMint: null,
+          timestamp: 1_000,
+        },
+      },
+    ]).events;
 
-      const redacted = applyRedaction(payload, { removeFields: ['privateKey'] });
+    const incidentCase = buildIncidentCase({ events });
+    const queryHash = createHash('sha256').update('q').digest('hex');
 
-      expect(redacted.creator).toBeDefined();
-      expect(redacted.data).toBe('public');
-      expect(redacted.privateKey).toBeUndefined();
-    });
+    const pack1 = buildEvidencePack({ incidentCase, events, seed: 0, queryHash, runtimeVersion: '0.1.0-test' });
+    const pack2 = buildEvidencePack({ incidentCase, events, seed: 0, queryHash, runtimeVersion: '0.1.0-test' });
 
-    it('masks specified fields', () => {
-      const payload = {
-        signature: 'some_signature_value',
-        data: 'public',
-      };
-
-      const redacted = applyRedaction(payload, { maskFields: ['signature'] });
-
-      expect(redacted.signature).toBe('[REDACTED]');
-      expect(redacted.data).toBe('public');
-    });
-
-    it('truncates actor keys', () => {
-      const payload = {
-        creator: 'Creator1111111111111111111111111111111111111',
-        worker: 'Worker1111111111111111111111111111111111111',
-      };
-
-      const redacted = applyRedaction(payload, { truncateActorKeys: 8 });
-
-      expect(redacted.creator).toBe('Creator1...');
-      expect(redacted.worker).toBe('Worker11...');
-    });
-
-    it('hashes signatures when configured', () => {
-      const payload = {
-        signature: 'test_signature',
-      };
-
-      const redacted = applyRedaction(payload, { maskFields: ['signature'], hashSignatures: true });
-
-      expect(redacted.signature).toContain('[REDACTED:');
-      expect(redacted.signature).not.toBe('[REDACTED]');
-    });
-
-    it('recurses into arrays', () => {
-      const payload = {
-        participants: [
-          { creator: 'Creator1111111111111111111111111111111111111', privateKey: 'secret1' },
-          { worker: 'Worker1111111111111111111111111111111111111', privateKey: 'secret2' },
-        ],
-        data: 'public',
-      };
-
-      const redacted = applyRedaction(payload, {
-        removeFields: ['privateKey'],
-        truncateActorKeys: 8,
-      });
-
-      expect(redacted.data).toBe('public');
-      expect(Array.isArray(redacted.participants)).toBe(true);
-      const participants = redacted.participants as Array<Record<string, unknown>>;
-      expect(participants).toHaveLength(2);
-      expect(participants[0].privateKey).toBeUndefined();
-      expect(participants[0].creator).toBe('Creator1...');
-      expect(participants[1].privateKey).toBeUndefined();
-      expect(participants[1].worker).toBe('Worker11...');
-    });
+    expect(pack1.manifest.queryHash).toBe(pack2.manifest.queryHash);
+    expect(pack1.manifest.evidenceHashes).toEqual(pack2.manifest.evidenceHashes);
   });
 
-  describe('computeToolFingerprint', () => {
-    it('produces deterministic fingerprint', () => {
-      const fp1 = computeToolFingerprint('1.0.0');
-      const fp2 = computeToolFingerprint('1.0.0');
-
-      expect(fp1).toBe(fp2);
-      expect(fp1).toHaveLength(64);
+  it('handles empty events', () => {
+    const pack = buildEvidencePack({
+      incidentCase: buildIncidentCase({ events: [] }),
+      events: [],
+      seed: 0,
+      queryHash: createHash('sha256').update('q').digest('hex'),
+      runtimeVersion: '0.1.0-test',
     });
 
-    it('produces different fingerprints for different versions', () => {
-      const fp1 = computeToolFingerprint('1.0.0');
-      const fp2 = computeToolFingerprint('2.0.0');
-
-      expect(fp1).not.toBe(fp2);
-    });
+    expect(pack.manifest.cursorRange.fromSlot).toBe(0);
+    expect(pack.manifest.cursorRange.toSlot).toBe(0);
+    expect(pack.events).toHaveLength(0);
+    expect(serializeEvidencePack(pack)['events.jsonl']).toBe('');
   });
 
-  describe('Determinism', () => {
-    it('produces deterministic hashes for identical inputs', () => {
-      const events = createTestEvents();
-      const caseData = buildIncidentCase({ events });
-      const query = normalizeQuery({});
+  it('does not change evidence hashes when runtimeVersion changes', () => {
+    const events = projectOnChainEvents([
+      {
+        eventName: 'taskCreated',
+        slot: 1,
+        signature: 'SIG',
+        timestampMs: 1_000,
+        event: {
+          taskId: bytes(1),
+          creator: pubkey(1),
+          requiredCapabilities: 0n,
+          rewardAmount: 0n,
+          taskType: 0,
+          deadline: 0,
+          minReputation: 0,
+          rewardMint: null,
+          timestamp: 1_000,
+        },
+      },
+    ]).events;
 
-      const pack1 = buildEvidencePack({ caseData, events, query, seed: 1 });
-      const pack2 = buildEvidencePack({ caseData, events, query, seed: 1 });
+    const incidentCase = buildIncidentCase({ events });
+    const queryHash = createHash('sha256').update('q').digest('hex');
 
-      expect(pack1.manifest.caseHash).toBe(pack2.manifest.caseHash);
-      expect(pack1.manifest.eventsHash).toBe(pack2.manifest.eventsHash);
-    });
-  });
+    const pack1 = buildEvidencePack({ incidentCase, events, seed: 0, queryHash, runtimeVersion: '0.1.0-test' });
+    const pack2 = buildEvidencePack({ incidentCase, events, seed: 0, queryHash, runtimeVersion: '0.2.0-test' });
 
-  describe('Empty Events', () => {
-    it('handles empty event list', () => {
-      const caseData = buildIncidentCase({ events: [] });
-      const query = normalizeQuery({});
-
-      const pack = buildEvidencePack({ caseData, events: [], query });
-
-      expect(pack.events).toHaveLength(0);
-      expect(pack.manifest.slotCursor.start).toBe(0);
-      expect(pack.manifest.slotCursor.end).toBe(0);
-    });
+    expect(pack1.manifest.runtimeVersion).not.toBe(pack2.manifest.runtimeVersion);
+    expect(pack1.manifest.evidenceHashes).toEqual(pack2.manifest.evidenceHashes);
   });
 });
+

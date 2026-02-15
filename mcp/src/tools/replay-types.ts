@@ -44,6 +44,7 @@ export type ReplayCompareInput = z.infer<typeof ReplayCompareInputSchema>;
 export const ReplayIncidentInputSchema = baseSchema.extend({
   task_pda: z.string().optional(),
   dispute_pda: z.string().optional(),
+  query: z.string().optional().describe('Analyst query DSL key=value filters'),
   from_slot: z.number().int().nonnegative().optional(),
   to_slot: z.number().int().positive().optional(),
   command: z.string().optional(),

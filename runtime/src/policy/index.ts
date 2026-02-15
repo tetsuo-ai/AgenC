@@ -38,42 +38,21 @@ export {
   validateProductionReadiness,
 } from './production-profile.js';
 
-// Incident Roles (#993 P2-504)
 export {
-  ROLE_HIERARCHY,
-  PERMISSION_REQUIREMENTS,
-  COMMAND_PERMISSIONS,
-  MCP_TOOL_PERMISSIONS,
-  hasPermission,
-  canExecuteCommand,
-  canInvokeMcpTool,
-  getPermissionsForRole,
-  getCommandsForRole,
-  getMcpToolsForRole,
-  parseRole,
-  isValidRole,
-  enforcePermission,
-  enforceCommand,
-  enforceMcpTool,
+  ROLE_PERMISSION_MATRIX,
+  isCommandAllowed,
+  enforceRole,
+  IncidentRoleViolationError,
   type OperatorRole,
-  type IncidentPermission,
-  type IncidentCommand,
-  type McpTool,
-  type RoleEnforcementResult,
+  type IncidentCommandCategory,
+  type RolePermission,
 } from './incident-roles.js';
 
-// Audit Trail (#993 P2-504)
 export {
-  GENESIS_HASH,
   InMemoryAuditTrail,
-  AuditTrailIntegrityError,
-  createAuditInput,
-  computeAuditHash,
-  serializeAuditTrail,
-  loadAuditTrail,
-  type AuditEntry,
+  computeInputHash,
+  computeOutputHash,
+  type AuditTrailEntry,
   type AuditTrailStore,
-  type AuditVerificationResult,
-  type AuditVerificationError,
-  type CreateAuditInputOptions,
+  type AuditTrailVerification,
 } from './audit-trail.js';

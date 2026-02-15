@@ -171,7 +171,7 @@ cmd_contribute() {
     local verify_output
     verify_output=$(snarkjs zkey verify "$CIRCUIT_R1CS" "$PTAU_FILE" "$output" 2>&1 || true)
     local contribution_hash
-    contribution_hash=$(echo "$verify_output" | grep -oP '[a-f0-9]{8}\s[a-f0-9]{8}\s[a-f0-9]{8}\s[a-f0-9]{8}' | tail -1 || echo "unknown")
+    contribution_hash=$(echo "$verify_output" | grep -Eo '[a-f0-9]{8}\s[a-f0-9]{8}\s[a-f0-9]{8}\s[a-f0-9]{8}' | tail -1 || echo "unknown")
 
     add_contribution_to_transcript "$contributor_name" "$contribution_hash" "$next_index"
 

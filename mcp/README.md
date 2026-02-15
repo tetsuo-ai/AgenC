@@ -202,6 +202,12 @@ agenc_replay_compare { "local_trace_path": "/var/tmp/incident-trace.json", "stri
 agenc_replay_incident { "task_pda": "Ag...task", "strict_mode": true }
 ```
 
+You can also provide an analyst query DSL string (shared with the runtime CLI):
+
+```bash
+agenc_replay_incident { "query": "taskPda=Ag...task slotRange=1000-2048 eventType=discovered", "store_type": "memory" }
+```
+
 4. Inspect store cursor and counts:
 
 ```bash
@@ -216,6 +222,7 @@ MCP_REPLAY_MAX_EVENT_COUNT=2000
 MCP_REPLAY_MAX_CONCURRENT_JOBS=2
 MCP_REPLAY_TOOL_TIMEOUT_MS=180000
 MCP_REPLAY_ALLOWLIST=incident-bot,security-operator
+MCP_OPERATOR_ROLE=read
 MCP_REPLAY_REQUIRE_AUTH_FOR_HIGH_RISK=true
 MCP_REPLAY_AUDIT_ENABLED=true
 ```
@@ -224,6 +231,7 @@ Policy behavior:
 
 - `MCP_REPLAY_DENYLIST` blocks matching actors first.
 - If `MCP_REPLAY_ALLOWLIST` is set, only matching actors can run replay tools.
+- `MCP_OPERATOR_ROLE` (when set) enforces the incident role permission matrix for replay tools.
 - If `MCP_REPLAY_REQUIRE_AUTH_FOR_HIGH_RISK=true`, high-risk tools require actors resolved via `authInfo.clientId` (not sessions/anonymous).
 - Actor identity is resolved from MCP auth context in this order:
   1. `authInfo.clientId`

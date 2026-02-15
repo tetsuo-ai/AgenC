@@ -1,383 +1,158 @@
 /**
- * Immutable Audit Trail - Append-only, hash-chained audit log.
- *
- * Implements #993 P2-504: Role-aware incident workflow + immutable audit trail
+ * Append-only audit trail with deterministic SHA-256 hash chaining.
  *
  * @module
  */
 
-import { createHash } from 'crypto';
-import type { OperatorRole, IncidentPermission } from './incident-roles.js';
+import { createHash } from 'node:crypto';
+import { stableStringifyJson, type JsonValue } from '../eval/types.js';
+import type { IncidentCommandCategory, OperatorRole } from './incident-roles.js';
 
-/**
- * Audit entry representing a single action.
- */
-export interface AuditEntry {
-  /** Monotonic sequence number */
+/** Single entry in the append-only audit trail. */
+export interface AuditTrailEntry {
+  /** Monotonic sequence number. */
   seq: number;
-  /** ISO-8601 timestamp */
+  /** ISO-8601 timestamp. */
   timestamp: string;
-  /** Actor identity (public key or user ID) */
+  /** Operator identity (pubkey or username). */
   actor: string;
-  /** Actor's role at time of action */
+  /** Operator role at time of action. */
   role: OperatorRole;
-  /** Action performed */
-  action: string;
-  /** Permission used */
-  permission: IncidentPermission;
-  /** SHA-256 hash of input data */
+  /** Action performed (command category). */
+  action: IncidentCommandCategory;
+  /** SHA-256 of the action input parameters. */
   inputHash: string;
-  /** SHA-256 hash of output data */
+  /** SHA-256 of the action output. */
   outputHash: string;
-  /** Hash of previous entry (for chain integrity) */
-  prevHash: string;
-  /** Hash of this entry */
+  /** SHA-256 of the previous entry (empty string for first entry). */
+  prevEntryHash: string;
+  /** SHA-256 of this entry (computed from all fields above). */
   entryHash: string;
-  /** Optional metadata */
-  metadata?: Record<string, unknown>;
 }
 
-/**
- * Audit trail store interface.
- */
+/** Persistence interface for audit trail. */
 export interface AuditTrailStore {
-  /** Append a new entry */
-  append(entry: Omit<AuditEntry, 'seq' | 'prevHash' | 'entryHash'>): AuditEntry;
-  /** Get entry by sequence number */
-  get(seq: number): AuditEntry | undefined;
-  /** Get all entries */
-  getAll(): AuditEntry[];
-  /** Get entries in range */
-  getRange(startSeq: number, endSeq: number): AuditEntry[];
-  /** Get latest entry */
-  getLatest(): AuditEntry | undefined;
-  /** Verify chain integrity */
-  verify(): AuditVerificationResult;
-  /** Get entry count */
-  count(): number;
+  append(entry: Omit<AuditTrailEntry, 'seq' | 'entryHash' | 'prevEntryHash'>): AuditTrailEntry;
+  getAll(): ReadonlyArray<AuditTrailEntry>;
+  getLast(): AuditTrailEntry | null;
+  verify(): AuditTrailVerification;
+  clear(): void;
 }
 
-/**
- * Audit verification result.
- */
-export interface AuditVerificationResult {
+export interface AuditTrailVerification {
   valid: boolean;
-  errors: AuditVerificationError[];
-  entriesVerified: number;
+  entries: number;
+  brokenAt?: number; // seq of first broken link
+  message?: string;
 }
 
-/**
- * Audit verification error.
- */
-export interface AuditVerificationError {
-  seq: number;
-  type: 'hash_mismatch' | 'chain_break' | 'sequence_gap';
-  expected: string;
-  actual: string;
-  message: string;
-}
-
-/**
- * Compute SHA-256 hash of a string.
- */
-function sha256(data: string): string {
-  return createHash('sha256').update(data).digest('hex');
-}
-
-/**
- * Compute entry hash from entry fields.
- */
-function computeEntryHash(entry: Omit<AuditEntry, 'entryHash'>): string {
-  const canonical = {
+function computeEntryHash(entry: Omit<AuditTrailEntry, 'entryHash'>): string {
+  const canonical = stableStringifyJson({
     seq: entry.seq,
     timestamp: entry.timestamp,
     actor: entry.actor,
     role: entry.role,
     action: entry.action,
-    permission: entry.permission,
     inputHash: entry.inputHash,
     outputHash: entry.outputHash,
-    prevHash: entry.prevHash,
-    metadata: entry.metadata,
-  };
-  return sha256(JSON.stringify(canonical));
+    prevEntryHash: entry.prevEntryHash,
+  } as unknown as JsonValue);
+
+  return createHash('sha256').update(canonical).digest('hex');
 }
 
-/**
- * Genesis hash for the first entry.
- */
-export const GENESIS_HASH = sha256('agenc-audit-trail-genesis');
-
-/**
- * In-memory audit trail store implementation.
- */
 export class InMemoryAuditTrail implements AuditTrailStore {
-  private entries: AuditEntry[] = [];
+  private entries: AuditTrailEntry[] = [];
 
-  append(input: Omit<AuditEntry, 'seq' | 'prevHash' | 'entryHash'>): AuditEntry {
+  append(input: Omit<AuditTrailEntry, 'seq' | 'entryHash' | 'prevEntryHash'>): AuditTrailEntry {
     const seq = this.entries.length + 1;
-    const prevHash = this.entries.length > 0
-      ? this.entries[this.entries.length - 1].entryHash
-      : GENESIS_HASH;
+    const prevEntry = this.entries[this.entries.length - 1];
+    const prevEntryHash = prevEntry?.entryHash ?? '';
 
-    const entryWithoutHash: Omit<AuditEntry, 'entryHash'> = {
-      ...input,
+    const entry: Omit<AuditTrailEntry, 'entryHash'> = {
       seq,
-      prevHash,
+      timestamp: input.timestamp,
+      actor: input.actor,
+      role: input.role,
+      action: input.action,
+      inputHash: input.inputHash,
+      outputHash: input.outputHash,
+      prevEntryHash,
     };
 
-    const entry: AuditEntry = {
-      ...entryWithoutHash,
-      entryHash: computeEntryHash(entryWithoutHash),
+    const entryHash = computeEntryHash(entry);
+    const resolved: AuditTrailEntry = {
+      ...entry,
+      entryHash,
     };
 
-    this.entries.push(entry);
-    return entry;
+    this.entries.push(resolved);
+    return resolved;
   }
 
-  get(seq: number): AuditEntry | undefined {
-    return this.entries.find((e) => e.seq === seq);
+  getAll(): ReadonlyArray<AuditTrailEntry> {
+    return this.entries;
   }
 
-  getAll(): AuditEntry[] {
-    return [...this.entries];
+  getLast(): AuditTrailEntry | null {
+    return this.entries.length === 0 ? null : this.entries[this.entries.length - 1] ?? null;
   }
 
-  getRange(startSeq: number, endSeq: number): AuditEntry[] {
-    return this.entries.filter((e) => e.seq >= startSeq && e.seq <= endSeq);
-  }
+  verify(): AuditTrailVerification {
+    if (this.entries.length === 0) {
+      return { valid: true, entries: 0 };
+    }
 
-  getLatest(): AuditEntry | undefined {
-    return this.entries.length > 0 ? this.entries[this.entries.length - 1] : undefined;
-  }
+    for (let index = 0; index < this.entries.length; index += 1) {
+      const entry = this.entries[index]!;
 
-  verify(): AuditVerificationResult {
-    const errors: AuditVerificationError[] = [];
-
-    for (let i = 0; i < this.entries.length; i++) {
-      const entry = this.entries[i];
-      const expectedSeq = i + 1;
-
-      // Check sequence continuity
-      if (entry.seq !== expectedSeq) {
-        errors.push({
-          seq: entry.seq,
-          type: 'sequence_gap',
-          expected: String(expectedSeq),
-          actual: String(entry.seq),
-          message: `Sequence gap: expected ${expectedSeq}, got ${entry.seq}`,
-        });
+      const expectedPrev = index === 0 ? '' : this.entries[index - 1]!.entryHash;
+      if (entry.prevEntryHash !== expectedPrev) {
+        return {
+          valid: false,
+          entries: this.entries.length,
+          brokenAt: entry.seq,
+          message: 'chain link broken',
+        };
       }
 
-      // Check prev hash chain
-      const expectedPrevHash = i === 0 ? GENESIS_HASH : this.entries[i - 1].entryHash;
-      if (entry.prevHash !== expectedPrevHash) {
-        errors.push({
-          seq: entry.seq,
-          type: 'chain_break',
-          expected: expectedPrevHash,
-          actual: entry.prevHash,
-          message: `Chain break at seq ${entry.seq}: prevHash mismatch`,
-        });
-      }
-
-      // Verify entry hash
-      const entryWithoutHash: Omit<AuditEntry, 'entryHash'> = {
+      const recomputed = computeEntryHash({
         seq: entry.seq,
         timestamp: entry.timestamp,
         actor: entry.actor,
         role: entry.role,
         action: entry.action,
-        permission: entry.permission,
         inputHash: entry.inputHash,
         outputHash: entry.outputHash,
-        prevHash: entry.prevHash,
-        metadata: entry.metadata,
-      };
-      const computedHash = computeEntryHash(entryWithoutHash);
-      if (entry.entryHash !== computedHash) {
-        errors.push({
-          seq: entry.seq,
-          type: 'hash_mismatch',
-          expected: computedHash,
-          actual: entry.entryHash,
-          message: `Hash mismatch at seq ${entry.seq}: entry has been tampered`,
-        });
+        prevEntryHash: entry.prevEntryHash,
+      });
+      if (entry.entryHash !== recomputed) {
+        return {
+          valid: false,
+          entries: this.entries.length,
+          brokenAt: entry.seq,
+          message: 'entry hash mismatch',
+        };
       }
     }
 
-    return {
-      valid: errors.length === 0,
-      errors,
-      entriesVerified: this.entries.length,
-    };
+    return { valid: true, entries: this.entries.length };
   }
 
-  count(): number {
-    return this.entries.length;
+  clear(): void {
+    this.entries = [];
   }
 }
 
-/**
- * Options for creating audit input.
- */
-export interface CreateAuditInputOptions {
-  /** Optional timestamp override for deterministic testing */
-  timestamp?: string;
-  /** Optional metadata */
-  metadata?: Record<string, unknown>;
+export function computeInputHash(input: unknown): string {
+  return createHash('sha256')
+    .update(stableStringifyJson(input as JsonValue))
+    .digest('hex');
 }
 
-/**
- * Create an audit entry for an action.
- * Pass a timestamp in options for deterministic output.
- */
-export function createAuditInput(
-  actor: string,
-  role: OperatorRole,
-  action: string,
-  permission: IncidentPermission,
-  inputData: unknown,
-  outputData: unknown,
-  metadataOrOptions?: Record<string, unknown> | CreateAuditInputOptions,
-): Omit<AuditEntry, 'seq' | 'prevHash' | 'entryHash'> {
-  // Handle backwards compatibility: if options has 'timestamp' key, treat as new format
-  const isOptionsFormat = metadataOrOptions && ('timestamp' in metadataOrOptions || !Object.keys(metadataOrOptions).length || Object.keys(metadataOrOptions).every(k => k === 'timestamp' || k === 'metadata'));
-  const options: CreateAuditInputOptions = isOptionsFormat
-    ? (metadataOrOptions as CreateAuditInputOptions)
-    : { metadata: metadataOrOptions as Record<string, unknown> | undefined };
-
-  return {
-    timestamp: options.timestamp ?? new Date().toISOString(),
-    actor,
-    role,
-    action,
-    permission,
-    inputHash: sha256(JSON.stringify(sortObjectKeys(inputData))),
-    outputHash: sha256(JSON.stringify(sortObjectKeys(outputData))),
-    metadata: options.metadata,
-  };
+export function computeOutputHash(output: unknown): string {
+  return createHash('sha256')
+    .update(stableStringifyJson(output as JsonValue))
+    .digest('hex');
 }
 
-/**
- * Recursively sort object keys for deterministic JSON serialization.
- */
-function sortObjectKeys(obj: unknown): unknown {
-  if (obj === null || typeof obj !== 'object') {
-    return obj;
-  }
-  if (Array.isArray(obj)) {
-    return obj.map(sortObjectKeys);
-  }
-  const sorted: Record<string, unknown> = {};
-  for (const key of Object.keys(obj as Record<string, unknown>).sort()) {
-    sorted[key] = sortObjectKeys((obj as Record<string, unknown>)[key]);
-  }
-  return sorted;
-}
-
-/**
- * Helper to compute hash of arbitrary data for audit logging.
- * Uses sorted keys for deterministic output regardless of key order.
- */
-export function computeAuditHash(data: unknown): string {
-  return sha256(JSON.stringify(sortObjectKeys(data)));
-}
-
-/**
- * Serialize audit trail to JSON.
- */
-export function serializeAuditTrail(store: AuditTrailStore): string {
-  return JSON.stringify(store.getAll(), null, 2);
-}
-
-/**
- * Error thrown when loading a tampered audit trail.
- */
-export class AuditTrailIntegrityError extends Error {
-  constructor(
-    message: string,
-    public readonly seq: number,
-    public readonly expected: string,
-    public readonly actual: string,
-  ) {
-    super(message);
-    this.name = 'AuditTrailIntegrityError';
-  }
-}
-
-/**
- * Load audit trail from JSON, verifying integrity of original hashes.
- * Throws AuditTrailIntegrityError if any entry has been tampered with.
- */
-export function loadAuditTrail(json: string): InMemoryAuditTrail {
-  const entries = JSON.parse(json) as AuditEntry[];
-
-  // Verify integrity of serialized entries before loading
-  for (let i = 0; i < entries.length; i++) {
-    const entry = entries[i];
-    const expectedSeq = i + 1;
-
-    // Verify sequence
-    if (entry.seq !== expectedSeq) {
-      throw new AuditTrailIntegrityError(
-        `Sequence mismatch at index ${i}: expected ${expectedSeq}, got ${entry.seq}`,
-        entry.seq,
-        String(expectedSeq),
-        String(entry.seq),
-      );
-    }
-
-    // Verify prevHash chain
-    const expectedPrevHash = i === 0 ? GENESIS_HASH : entries[i - 1].entryHash;
-    if (entry.prevHash !== expectedPrevHash) {
-      throw new AuditTrailIntegrityError(
-        `Chain break at seq ${entry.seq}: prevHash mismatch`,
-        entry.seq,
-        expectedPrevHash,
-        entry.prevHash,
-      );
-    }
-
-    // Recompute and verify entryHash
-    const entryWithoutHash: Omit<AuditEntry, 'entryHash'> = {
-      seq: entry.seq,
-      timestamp: entry.timestamp,
-      actor: entry.actor,
-      role: entry.role,
-      action: entry.action,
-      permission: entry.permission,
-      inputHash: entry.inputHash,
-      outputHash: entry.outputHash,
-      prevHash: entry.prevHash,
-      metadata: entry.metadata,
-    };
-    const computedHash = computeEntryHash(entryWithoutHash);
-    if (entry.entryHash !== computedHash) {
-      throw new AuditTrailIntegrityError(
-        `Entry hash mismatch at seq ${entry.seq}: entry has been tampered`,
-        entry.seq,
-        computedHash,
-        entry.entryHash,
-      );
-    }
-  }
-
-  // Now rebuild the trail with verified entries
-  const trail = new InMemoryAuditTrail();
-  for (const entry of entries) {
-    const input: Omit<AuditEntry, 'seq' | 'prevHash' | 'entryHash'> = {
-      timestamp: entry.timestamp,
-      actor: entry.actor,
-      role: entry.role,
-      action: entry.action,
-      permission: entry.permission,
-      inputHash: entry.inputHash,
-      outputHash: entry.outputHash,
-      metadata: entry.metadata,
-    };
-    trail.append(input);
-  }
-
-  return trail;
-}

@@ -2,6 +2,42 @@
 
 The replay CLI commands are available under the `replay` root command and are intended for incident reconstruction workflows.
 
+## Bootstrap commands
+
+The runtime CLI also provides operator bootstrap and diagnostics commands. All three commands return deterministic exit codes:
+
+- `0`: healthy (all checks passed)
+- `1`: degraded (warnings present)
+- `2`: unhealthy (failures present)
+
+### 1) onboard
+
+Generate a runtime config file (default: `.agenc-runtime.json`) and run basic environment checks.
+
+```bash
+agenc-runtime onboard \
+  --force \
+  --rpc https://api.devnet.solana.com \
+  --store-type sqlite \
+  --sqlite-path .agenc/replay-events.sqlite
+```
+
+### 2) health
+
+Report RPC reachability, replay store status, wallet availability, and config validity.
+
+```bash
+agenc-runtime health --deep
+```
+
+### 3) doctor
+
+Run all health checks and surface remediation guidance. Use `--fix` to attempt safe automatic remediation where possible.
+
+```bash
+agenc-runtime doctor --deep --fix
+```
+
 ## Commands
 
 ### 1) backfill
@@ -55,6 +91,17 @@ agenc-runtime replay incident \
   --task-pda TaskPDA... \
   --from-slot 1000 \
   --to-slot 2048 \
+  --store-type sqlite \
+  --sqlite-path .agenc/replay-events.sqlite
+```
+
+Role enforcement is opt-in. Provide `--role read|investigate|execute|admin` to enforce the incident permission matrix.
+
+You can also provide a structured analyst query DSL:
+
+```bash
+agenc-runtime replay incident \
+  --query "taskPda=TaskPDA... slotRange=1000-2048 eventType=discovered" \
   --store-type sqlite \
   --sqlite-path .agenc/replay-events.sqlite
 ```

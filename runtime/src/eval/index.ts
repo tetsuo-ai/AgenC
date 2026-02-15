@@ -84,6 +84,42 @@ export {
 } from './replay-comparison.js';
 
 export {
+  parseQueryDSL,
+  normalizeQuery,
+  applyQueryFilter,
+  applyAnomalyFilter,
+  QueryDSLParseError,
+  type QueryDSL,
+  type CanonicalQuery,
+  type QueryDSLValidationError,
+} from './query-dsl.js';
+
+export {
+  INCIDENT_CASE_SCHEMA_VERSION,
+  buildIncidentCase,
+  computeEvidenceHash,
+  type BuildIncidentCaseInput,
+  type IncidentActor,
+  type IncidentActorRole,
+  type IncidentAnomalyRef,
+  type IncidentCase,
+  type IncidentCaseStatus,
+  type IncidentEvidenceHash,
+  type IncidentTraceWindow,
+  type IncidentTransition,
+} from './incident-case.js';
+
+export {
+  EVIDENCE_PACK_SCHEMA_VERSION,
+  buildEvidencePack,
+  serializeEvidencePack,
+  type BuildEvidencePackInput,
+  type EvidencePack,
+  type EvidencePackManifest,
+  type RedactionPolicy,
+} from './evidence-pack.js';
+
+export {
   BENCHMARK_MANIFEST_SCHEMA_VERSION,
   parseBenchmarkManifest,
   loadBenchmarkManifest,

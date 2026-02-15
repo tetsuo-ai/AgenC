@@ -19,10 +19,15 @@ import {
   ReplayCompareOptions,
   ReplayIncidentOptions,
   PluginToggleOptions,
+  OnboardOptions,
+  HealthOptions,
+  DoctorOptions,
   SecurityOptions,
 } from './types.js';
 import { validateConfigStrict } from '../types/config-migration.js';
 import { runSecurityCommand } from './security.js';
+import { runOnboardCommand } from './onboard.js';
+import { runDoctorCommand, runHealthCommand } from './health.js';
 import {
   PluginCatalog,
   type PluginPrecedence,
@@ -48,7 +53,27 @@ import {
   TrajectoryReplayEngine,
 } from '../eval/replay.js';
 import { type TrajectoryTrace } from '../eval/types.js';
+import {
+  applyQueryFilter,
+  normalizeQuery,
+  parseQueryDSL,
+  type QueryDSL,
+} from '../eval/query-dsl.js';
+import { buildIncidentCase } from '../eval/incident-case.js';
+import { buildEvidencePack, serializeEvidencePack } from '../eval/evidence-pack.js';
+import {
+  enforceRole,
+  IncidentRoleViolationError,
+  type IncidentCommandCategory,
+  type OperatorRole,
+} from '../policy/incident-roles.js';
+import {
+  InMemoryAuditTrail,
+  computeInputHash,
+  computeOutputHash,
+} from '../policy/audit-trail.js';
 import type { PluginManifest } from '../skills/manifest.js';
+import { bigintReplacer, safeStringify } from '../tools/types.js';
 
 interface CliRunOptions {
   argv?: string[];
@@ -120,6 +145,7 @@ const GLOBAL_OPTIONS = new Set([
   'output',
   'output-format',
   'strict-mode',
+  'role',
   'rpc',
   'program-id',
   'trace-id',
@@ -132,8 +158,8 @@ const GLOBAL_OPTIONS = new Set([
 
 const COMMAND_OPTIONS: Record<ReplayCommand, Set<string>> = {
   backfill: new Set(['to-slot', 'page-size']),
-  compare: new Set(['local-trace-path', 'task-pda', 'dispute-pda']),
-  incident: new Set(['task-pda', 'dispute-pda', 'from-slot', 'to-slot']),
+  compare: new Set(['local-trace-path', 'task-pda', 'dispute-pda', 'redact-fields']),
+  incident: new Set(['task-pda', 'dispute-pda', 'query', 'from-slot', 'to-slot', 'sealed', 'redact-fields']),
 };
 const PLUGIN_COMMAND_OPTIONS: Record<PluginCommand, Set<string>> = {
   list: new Set(),
@@ -142,6 +168,10 @@ const PLUGIN_COMMAND_OPTIONS: Record<PluginCommand, Set<string>> = {
   enable: new Set(),
   reload: new Set(['manifest']),
 };
+
+const ONBOARD_COMMAND_OPTIONS = new Set(['non-interactive', 'force']);
+const HEALTH_COMMAND_OPTIONS = new Set(['non-interactive', 'deep']);
+const DOCTOR_COMMAND_OPTIONS = new Set(['non-interactive', 'deep', 'fix']);
 
 const COMMANDS: Record<ReplayCommand, CliCommandDescriptor> = {
   backfill: {
@@ -222,8 +252,18 @@ function createCliError(message: string, code: ErrorCode): CliValidationError {
 function buildHelp(): string {
   return [
     'agenc-runtime [--help] [--config <path>]',
+    'onboard [--help] [options]',
+    'health [--help] [options]',
+    'doctor [--help] [options]',
+    'doctor security [--help] [options]',
     'replay [--help] <command> [options]',
     'plugin [--help] <command> [options]',
+    '',
+    'Bootstrap commands:',
+    '  onboard   Generate a runtime config file and run sanity checks',
+    '  health    Report RPC, store, wallet, and config status',
+    '  doctor    Run all health checks and provide remediation guidance',
+    '  doctor security  Security posture checks',
     '',
     'Replay subcommands:',
     '  backfill   Backfill replay timeline from on-chain history',
@@ -242,6 +282,7 @@ function buildHelp(): string {
     '  -h, --help                               Show this usage',
     '      --output, --output-format json|jsonl|table  Response output format',
     '      --strict-mode                         Enable strict validation',
+    '      --role <role>                         Operator role (read|investigate|execute|admin)',
     '      --rpc                                 RPC endpoint',
     '      --program-id                          Program id',
     '      --trace-id                            Trace id',
@@ -251,6 +292,19 @@ function buildHelp(): string {
     '      --log-level silent|error|warn|info|debug',
     '      --config <path>                       Config file path (default: .agenc-runtime.json)',
     '',
+    'onboard options:',
+    '      --non-interactive                     Skip interactive prompts (CI-friendly)',
+    '      --force                               Overwrite existing config file',
+    '',
+    'health options:',
+    '      --non-interactive                     Skip interactive prompts (CI-friendly)',
+    '      --deep                                Run extended checks (latency, store integrity)',
+    '',
+    'doctor options:',
+    '      --non-interactive                     Skip interactive prompts (CI-friendly)',
+    '      --deep                                Run extended checks (latency, store integrity)',
+    '      --fix                                 Attempt automatic remediation where possible',
+    '',
     'backfill options:',
     '      --to-slot <slot>                      Highest slot to scan (required)',
     '      --page-size <size>                    Number of events per page',
@@ -259,10 +313,13 @@ function buildHelp(): string {
     '      --local-trace-path <path>              Path to local trajectory trace (required)',
     '      --task-pda <pda>                      Limit by task id',
     '      --dispute-pda <pda>                   Limit by dispute id',
+    '      --redact-fields <fields>               Comma-separated output redaction keys',
     '',
     'incident options:',
     '      --task-pda <pda>                      Limit by task id',
     '      --dispute-pda <pda>                   Limit by dispute id',
+    '      --query <dsl>                         Analyst query DSL filter string',
+    '      --redact-fields <fields>               Comma-separated output redaction keys',
     '      --from-slot <slot>                    Replay incident from slot',
     '      --to-slot <slot>                      Replay incident to slot',
     '',
@@ -272,6 +329,10 @@ function buildHelp(): string {
     '      --slot memory|llm|proof|telemetry|custom Plugin slot claim',
     '',
     'Examples:',
+    '  agenc-runtime onboard --force',
+    '  agenc-runtime health --deep',
+    '  agenc-runtime doctor --deep --fix',
+    '  agenc-runtime doctor security --deep --fix',
     '  agenc-runtime replay backfill --to-slot 12345 --page-size 500',
     '  agenc-runtime replay compare --local-trace-path ./trace.json --task-pda AGENTpda',
     '  agenc-runtime replay incident --task-pda AGENTpda --from-slot 100 --to-slot 200',
@@ -513,9 +574,26 @@ function validateUnknownOptions(
   }
 }
 
+function validateUnknownStandaloneOptions(
+  flags: ParsedArgv['flags'],
+  allowed: Set<string>,
+): void {
+  for (const rawName of Object.keys(flags)) {
+    const normalized = normalizeOptionAliases(rawName);
+    if (rawName === 'h' || isValidTopLevelOption(normalized)) {
+      continue;
+    }
+    if (allowed.has(rawName) || allowed.has(normalized)) {
+      continue;
+    }
+    throw createCliError(`unknown option --${rawName}`, ERROR_CODES.INVALID_OPTION);
+  }
+}
+
 function normalizeGlobalFlags(flags: ParsedArgv['flags'], fileConfig: CliFileConfig, envConfig: CliFileConfig): {
   outputFormat: CliOutputFormat;
   strictMode: boolean;
+  role?: OperatorRole;
   rpcUrl?: string;
   programId?: string;
   storeType: 'memory' | 'sqlite';
@@ -531,6 +609,7 @@ function normalizeGlobalFlags(flags: ParsedArgv['flags'], fileConfig: CliFileCon
       flags.output ?? flags['output-format'] ?? envConfig.outputFormat ?? fileConfig.outputFormat,
     ),
     strictMode: normalizeBool(flags['strict-mode'], envConfig.strictMode ?? configStrictMode ?? false),
+    role: parseOperatorRole(flags.role),
     rpcUrl: parseOptionalString(flags.rpc ?? fileConfig.rpcUrl ?? envConfig.rpcUrl),
     programId: parseOptionalString(flags['program-id'] ?? fileConfig.programId ?? envConfig.programId),
     storeType: normalizeStoreType(flags['store-type'] ?? envConfig.storeType ?? fileConfig.storeType),
@@ -553,6 +632,19 @@ function validateReplayCommand(name: string): name is ReplayCommand {
 
 function validatePluginCommand(name: string): name is PluginCommand {
   return name === 'list' || name === 'install' || name === 'disable' || name === 'enable' || name === 'reload';
+}
+
+function parseOperatorRole(value: unknown): OperatorRole | undefined {
+  const raw = parseOptionalString(value);
+  if (raw === undefined) {
+    return undefined;
+  }
+
+  if (raw === 'read' || raw === 'investigate' || raw === 'execute' || raw === 'admin') {
+    return raw;
+  }
+
+  throw createCliError('--role must be one of: read, investigate, execute, admin', ERROR_CODES.INVALID_VALUE);
 }
 
 function parsePluginPrecedence(value: unknown): PluginPrecedence {
@@ -591,6 +683,7 @@ function makePluginOptionsBase(
     help: global.help,
     outputFormat: global.outputFormat,
     strictMode: global.strictMode,
+    role: global.role,
     rpcUrl: global.rpcUrl,
     programId: global.programId,
     storeType: global.storeType,
@@ -621,22 +714,28 @@ function makeCompareOptions(raw: Record<string, string | number | boolean>, glob
     throw createCliError('--local-trace-path is required for replay compare', ERROR_CODES.MISSING_REQUIRED_OPTION);
   }
 
+  const redactFields = parseRedactFields(raw['redact-fields']);
+
   return {
     ...global,
     localTracePath,
     taskPda: parseOptionalString(raw['task-pda']),
     disputePda: parseOptionalString(raw['dispute-pda']),
+    redactFields,
   };
 }
 
 function makeIncidentOptions(
   raw: Record<string, string | number | boolean>,
-  global: Omit<ReplayIncidentOptions, 'taskPda' | 'disputePda' | 'fromSlot' | 'toSlot'>,
+  global: Omit<ReplayIncidentOptions, 'taskPda' | 'disputePda' | 'query' | 'fromSlot' | 'toSlot'>,
 ): ReplayIncidentOptions {
   const taskPda = parseOptionalString(raw['task-pda']);
   const disputePda = parseOptionalString(raw['dispute-pda']);
+  const query = parseOptionalString(raw.query);
   const fromSlot = parseIntValue(raw['from-slot']);
   const toSlot = parseIntValue(raw['to-slot']);
+  const sealed = raw.sealed === undefined ? undefined : normalizeCommandFlag(raw.sealed);
+  const redactFields = parseRedactFields(raw['redact-fields']);
 
   if (fromSlot !== undefined && fromSlot < 0) {
     throw createCliError('--from-slot must be non-negative', ERROR_CODES.INVALID_VALUE);
@@ -650,16 +749,19 @@ function makeIncidentOptions(
     throw createCliError('--to-slot must be greater than or equal to --from-slot', ERROR_CODES.INVALID_VALUE);
   }
 
-  if (taskPda === undefined && disputePda === undefined) {
-    throw createCliError('incident requires --task-pda or --dispute-pda', ERROR_CODES.MISSING_TARGET);
+  if (taskPda === undefined && disputePda === undefined && query === undefined) {
+    throw createCliError('incident requires --task-pda, --dispute-pda, or --query', ERROR_CODES.MISSING_TARGET);
   }
 
   return {
     ...global,
     taskPda,
     disputePda,
+    query,
     fromSlot,
     toSlot,
+    sealed,
+    redactFields,
   };
 }
 
@@ -738,9 +840,9 @@ function makePluginReloadOptions(
 function buildOutput(value: unknown, format: CliOutputFormat): string {
   if (format === 'jsonl') {
     if (Array.isArray(value)) {
-      return value.map((entry) => JSON.stringify(entry)).join('\n');
+      return value.map((entry) => safeStringify(entry)).join('\n');
     }
-    return JSON.stringify(value);
+    return safeStringify(value);
   }
 
   if (format === 'table') {
@@ -752,7 +854,64 @@ function buildOutput(value: unknown, format: CliOutputFormat): string {
     });
   }
 
-  return JSON.stringify(value, null, 2);
+  return JSON.stringify(value, bigintReplacer, 2);
+}
+
+function snakeToCamel(value: string): string {
+  if (!value.includes('_')) {
+    return value;
+  }
+  return value.replace(/_([a-z])/g, (_match, letter: string) => letter.toUpperCase());
+}
+
+function parseRedactFields(raw: unknown): string[] {
+  if (raw === undefined) {
+    return [];
+  }
+
+  let input = raw;
+  if (Array.isArray(raw)) {
+    input = raw.join(',');
+  } else if (typeof raw !== 'string') {
+    return [];
+  }
+
+  return String(input)
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0)
+    .map((entry) => snakeToCamel(entry));
+}
+
+function applyRedaction<T>(value: T, redactions: readonly string[]): T {
+  if (redactions.length === 0) {
+    return value;
+  }
+
+  const redactionSet = new Set(redactions);
+  const transform = (input: unknown): unknown => {
+    if (input === null || input === undefined || typeof input !== 'object') {
+      return input;
+    }
+
+    if (Array.isArray(input)) {
+      return input.map((entry) => transform(entry));
+    }
+
+    const output: Record<string, unknown> = {};
+    const record = input as Record<string, unknown>;
+    for (const [key, itemValue] of Object.entries(record)) {
+      if (redactionSet.has(key)) {
+        output[key] = '[REDACTED]';
+      } else {
+        output[key] = transform(itemValue);
+      }
+    }
+
+    return output;
+  };
+
+  return transform(value) as T;
 }
 
 function createContext(
@@ -826,6 +985,7 @@ interface PluginParseReport {
     help: boolean;
     strictMode: boolean;
     outputFormat: CliOutputFormat;
+    role?: OperatorRole;
     rpcUrl?: string;
     programId?: string;
     storeType: 'memory' | 'sqlite';
@@ -879,6 +1039,7 @@ function normalizeAndValidate(
     help: global.help,
     outputFormat: global.outputFormat,
     strictMode: global.strictMode,
+    role: global.role,
     rpcUrl: global.rpcUrl,
     programId: global.programId,
     storeType: global.storeType,
@@ -903,6 +1064,7 @@ function normalizeAndValidate(
       help: global.help,
       strictMode: common.strictMode,
       outputFormat: common.outputFormat,
+      role: common.role,
       rpcUrl: common.rpcUrl,
       programId: common.programId,
       storeType: common.storeType,
@@ -957,6 +1119,7 @@ function normalizeAndValidatePluginCommand(
     help: global.help,
     outputFormat: global.outputFormat,
     strictMode: global.strictMode,
+    role: global.role,
     rpcUrl: global.rpcUrl,
     programId: global.programId,
     storeType: global.storeType,
@@ -986,6 +1149,7 @@ function normalizeAndValidatePluginCommand(
       help: common.help,
       strictMode: common.strictMode,
       outputFormat: common.outputFormat,
+      role: common.role,
       rpcUrl: common.rpcUrl,
       programId: common.programId,
       storeType: common.storeType,
@@ -1014,6 +1178,88 @@ export async function runCli(options: CliRunOptions = {}): Promise<CliStatusCode
     return 0;
   }
 
+  if (parsed.positional[0] === 'onboard') {
+    try {
+      if (parsed.positional.length > 1) {
+        throw createCliError('onboard does not accept positional arguments', ERROR_CODES.INVALID_VALUE);
+      }
+
+      validateUnknownStandaloneOptions(parsed.flags, ONBOARD_COMMAND_OPTIONS);
+
+      const configPath = resolveConfigPath(parsed.flags);
+      let fileConfig: CliFileConfig;
+      try {
+        fileConfig = loadFileConfig(configPath);
+      } catch {
+        fileConfig = {};
+      }
+
+      const envConfig = readEnvironmentConfig();
+      const global = normalizeGlobalFlags(parsed.flags, fileConfig, envConfig);
+      const onboardOpts: OnboardOptions = {
+        ...global,
+        configPath,
+        nonInteractive: normalizeBool(parsed.flags['non-interactive'], false),
+        force: normalizeBool(parsed.flags.force, false),
+      };
+
+      return await runOnboardCommand(context, onboardOpts);
+    } catch (error) {
+      const payload = buildErrorPayload(error);
+      context.error(payload);
+      const isUsageError = (payload.code === ERROR_CODES.INVALID_OPTION
+        || payload.code === ERROR_CODES.INVALID_VALUE
+        || payload.code === ERROR_CODES.MISSING_REQUIRED_OPTION
+        || payload.code === ERROR_CODES.MISSING_TARGET
+        || payload.code === ERROR_CODES.MISSING_ROOT_COMMAND
+        || payload.code === ERROR_CODES.UNKNOWN_COMMAND)
+        ? 2
+        : 1;
+      return isUsageError;
+    }
+  }
+
+  if (parsed.positional[0] === 'health') {
+    try {
+      if (parsed.positional.length > 1) {
+        throw createCliError('health does not accept positional arguments', ERROR_CODES.INVALID_VALUE);
+      }
+
+      validateUnknownStandaloneOptions(parsed.flags, HEALTH_COMMAND_OPTIONS);
+
+      const configPath = resolveConfigPath(parsed.flags);
+      let fileConfig: CliFileConfig;
+      try {
+        fileConfig = loadFileConfig(configPath);
+      } catch {
+        fileConfig = {};
+      }
+
+      const envConfig = readEnvironmentConfig();
+      const global = normalizeGlobalFlags(parsed.flags, fileConfig, envConfig);
+      const healthOpts: HealthOptions = {
+        ...global,
+        configPath,
+        nonInteractive: normalizeBool(parsed.flags['non-interactive'], false),
+        deep: normalizeBool(parsed.flags.deep, false),
+      };
+
+      return await runHealthCommand(context, healthOpts);
+    } catch (error) {
+      const payload = buildErrorPayload(error);
+      context.error(payload);
+      const isUsageError = (payload.code === ERROR_CODES.INVALID_OPTION
+        || payload.code === ERROR_CODES.INVALID_VALUE
+        || payload.code === ERROR_CODES.MISSING_REQUIRED_OPTION
+        || payload.code === ERROR_CODES.MISSING_TARGET
+        || payload.code === ERROR_CODES.MISSING_ROOT_COMMAND
+        || payload.code === ERROR_CODES.UNKNOWN_COMMAND)
+        ? 2
+        : 1;
+      return isUsageError;
+    }
+  }
+
   // Handle `doctor security` subcommand before replay routing
   if (parsed.positional[0] === 'doctor' && parsed.positional[1] === 'security') {
     const configPath = resolveConfigPath(parsed.flags);
@@ -1037,6 +1283,48 @@ export async function runCli(options: CliRunOptions = {}): Promise<CliStatusCode
       const payload = buildErrorPayload(error);
       context.error(payload);
       return 1;
+    }
+  }
+
+  if (parsed.positional[0] === 'doctor') {
+    try {
+      if (parsed.positional.length > 1) {
+        throw createCliError(`unknown doctor subcommand: ${parsed.positional[1]}`, ERROR_CODES.UNKNOWN_COMMAND);
+      }
+
+      validateUnknownStandaloneOptions(parsed.flags, DOCTOR_COMMAND_OPTIONS);
+
+      const configPath = resolveConfigPath(parsed.flags);
+      let fileConfig: CliFileConfig;
+      try {
+        fileConfig = loadFileConfig(configPath);
+      } catch {
+        fileConfig = {};
+      }
+
+      const envConfig = readEnvironmentConfig();
+      const global = normalizeGlobalFlags(parsed.flags, fileConfig, envConfig);
+      const doctorOpts: DoctorOptions = {
+        ...global,
+        configPath,
+        nonInteractive: normalizeBool(parsed.flags['non-interactive'], false),
+        deep: normalizeBool(parsed.flags.deep, false),
+        fix: normalizeBool(parsed.flags.fix, false),
+      };
+
+      return await runDoctorCommand(context, doctorOpts);
+    } catch (error) {
+      const payload = buildErrorPayload(error);
+      context.error(payload);
+      const isUsageError = (payload.code === ERROR_CODES.INVALID_OPTION
+        || payload.code === ERROR_CODES.INVALID_VALUE
+        || payload.code === ERROR_CODES.MISSING_REQUIRED_OPTION
+        || payload.code === ERROR_CODES.MISSING_TARGET
+        || payload.code === ERROR_CODES.MISSING_ROOT_COMMAND
+        || payload.code === ERROR_CODES.UNKNOWN_COMMAND)
+        ? 2
+        : 1;
+      return isUsageError;
     }
   }
 
@@ -1090,12 +1378,75 @@ export async function runCli(options: CliRunOptions = {}): Promise<CliStatusCode
   }
 
   const commandDescriptor = COMMANDS[report.replayCommand];
+  const role = report.options.role;
+  const commandCategory: IncidentCommandCategory = report.replayCommand === 'backfill'
+    ? 'replay.backfill'
+    : report.replayCommand === 'compare'
+      ? 'replay.compare'
+      : 'replay.incident';
+
+  const auditTrail = role ? new InMemoryAuditTrail() : null;
+  let capturedOutput: unknown;
+  let capturedError: unknown;
+
+  if (role) {
+    const originalOutput = commandContext.output;
+    const originalError = commandContext.error;
+
+    commandContext.output = (value) => {
+      capturedOutput = value;
+      originalOutput(value);
+    };
+
+    commandContext.error = (value) => {
+      capturedError = value;
+      originalError(value);
+    };
+  }
 
   try {
-    return await commandDescriptor.run(commandContext, report.options);
+    if (role) {
+      try {
+        enforceRole(role, commandCategory);
+      } catch (error) {
+        if (error instanceof IncidentRoleViolationError) {
+          throw createCliError(error.message, ERROR_CODES.INVALID_VALUE);
+        }
+        throw error;
+      }
+    }
+
+    const status = await commandDescriptor.run(commandContext, report.options);
+
+    if (role && auditTrail) {
+      const outputValue = capturedOutput ?? { status };
+      auditTrail.append({
+        timestamp: new Date().toISOString(),
+        actor: process.env.USER ?? 'unknown',
+        role,
+        action: commandCategory,
+        inputHash: computeInputHash(report.options),
+        outputHash: computeOutputHash(outputValue),
+      });
+    }
+
+    return status;
   } catch (error) {
     const payload = buildErrorPayload(error);
     commandContext.error(payload);
+
+    if (role && auditTrail) {
+      const outputValue = capturedError ?? payload;
+      auditTrail.append({
+        timestamp: new Date().toISOString(),
+        actor: process.env.USER ?? 'unknown',
+        role,
+        action: commandCategory,
+        inputHash: computeInputHash(report.options),
+        outputHash: computeOutputHash(outputValue),
+      });
+    }
+
     const isUsageError = (payload.code === ERROR_CODES.INVALID_OPTION
       || payload.code === ERROR_CODES.INVALID_VALUE
       || payload.code === ERROR_CODES.MISSING_REQUIRED_OPTION
@@ -1278,18 +1629,21 @@ async function runReplayCompareCommand(
     strictness,
   });
 
-  context.output({
-    status: 'ok',
-    command: 'replay.compare',
-    schema: 'replay.compare.output.v1',
-    localTracePath: options.localTracePath,
-    taskPda: options.taskPda,
-    disputePda: options.disputePda,
-    strictness,
-    strictMode: options.strictMode,
-    storeType: options.storeType,
-    result: buildReplayCompareResult(comparison),
-  });
+  context.output(applyRedaction(
+    {
+      status: 'ok',
+      command: 'replay.compare',
+      schema: 'replay.compare.output.v1',
+      localTracePath: options.localTracePath,
+      taskPda: options.taskPda,
+      disputePda: options.disputePda,
+      strictness,
+      strictMode: options.strictMode,
+      storeType: options.storeType,
+      result: buildReplayCompareResult(comparison),
+    },
+    options.redactFields ?? [],
+  ));
 
   return 0;
 }
@@ -1300,22 +1654,72 @@ async function runReplayIncidentCommand(
 ): Promise<CliStatusCode> {
   const options = args as ReplayIncidentOptions;
 
+  let queryDsl: QueryDSL = {};
+  if (options.query !== undefined) {
+    try {
+      queryDsl = parseQueryDSL(options.query);
+    } catch (error) {
+      throw createCliError(
+        error instanceof Error ? error.message : String(error),
+        ERROR_CODES.INVALID_VALUE,
+      );
+    }
+  }
+
+  if (options.taskPda !== undefined) {
+    if (queryDsl.taskPda !== undefined && queryDsl.taskPda !== options.taskPda) {
+      throw createCliError('conflicting task PDA filters between --task-pda and --query', ERROR_CODES.INVALID_VALUE);
+    }
+    queryDsl.taskPda = queryDsl.taskPda ?? options.taskPda;
+  }
+
+  if (options.disputePda !== undefined) {
+    if (queryDsl.disputePda !== undefined && queryDsl.disputePda !== options.disputePda) {
+      throw createCliError('conflicting dispute PDA filters between --dispute-pda and --query', ERROR_CODES.INVALID_VALUE);
+    }
+    queryDsl.disputePda = queryDsl.disputePda ?? options.disputePda;
+  }
+
+  if (options.fromSlot !== undefined || options.toSlot !== undefined) {
+    const from = queryDsl.slotRange?.from ?? options.fromSlot;
+    const to = queryDsl.slotRange?.to ?? options.toSlot;
+
+    if (options.fromSlot !== undefined && queryDsl.slotRange?.from !== undefined && options.fromSlot !== queryDsl.slotRange.from) {
+      throw createCliError('conflicting from-slot filters between --from-slot and --query', ERROR_CODES.INVALID_VALUE);
+    }
+
+    if (options.toSlot !== undefined && queryDsl.slotRange?.to !== undefined && options.toSlot !== queryDsl.slotRange.to) {
+      throw createCliError('conflicting to-slot filters between --to-slot and --query', ERROR_CODES.INVALID_VALUE);
+    }
+
+    queryDsl.slotRange = { from, to };
+  }
+
+  if (queryDsl.taskPda === undefined && queryDsl.disputePda === undefined) {
+    throw createCliError('incident requires --task-pda, --dispute-pda, or --query', ERROR_CODES.MISSING_TARGET);
+  }
+
+  if (queryDsl.slotRange?.from !== undefined && queryDsl.slotRange?.to !== undefined && queryDsl.slotRange.to < queryDsl.slotRange.from) {
+    throw createCliError('--to-slot must be greater than or equal to --from-slot', ERROR_CODES.INVALID_VALUE);
+  }
+
+  const normalizedQuery = normalizeQuery(queryDsl);
+  const incidentFilters = {
+    taskPda: queryDsl.taskPda,
+    disputePda: queryDsl.disputePda,
+    fromSlot: queryDsl.slotRange?.from,
+    toSlot: queryDsl.slotRange?.to,
+  };
+
   const store = createReplayStore({
     storeType: options.storeType,
     sqlitePath: options.sqlitePath,
   });
-  const records = await queryIncidentRecords(store, {
-    taskPda: options.taskPda,
-    disputePda: options.disputePda,
-    fromSlot: options.fromSlot,
-    toSlot: options.toSlot,
-  });
-  const summary = summarizeReplayIncidentRecords(records, {
-    taskPda: options.taskPda,
-    disputePda: options.disputePda,
-    fromSlot: options.fromSlot,
-    toSlot: options.toSlot,
-  });
+  const records = applyQueryFilter(
+    await queryIncidentRecords(store, incidentFilters),
+    queryDsl,
+  );
+  const summary = summarizeReplayIncidentRecords(records, incidentFilters);
 
   const validation = summarizeIncidentValidation(records, options.strictMode);
   const narrative = buildIncidentNarrative(
@@ -1331,20 +1735,64 @@ async function runReplayIncidentCommand(
       timestampMs: entry.timestampMs,
     })),
     validation,
+    new Set(options.redactFields ?? []),
   );
 
-  context.output({
+  const evidencePack = options.sealed === true
+    ? (() => {
+      const events = records.map((record) => ({
+        seq: record.seq,
+        type: record.type,
+        taskPda: record.taskPda,
+        timestampMs: record.timestampMs,
+        payload: record.payload,
+        slot: record.slot,
+        signature: record.signature,
+        sourceEventName: record.sourceEventName,
+        sourceEventSequence: record.sourceEventSequence,
+      }));
+
+      const incidentCase = buildIncidentCase({
+        events,
+        window: {
+          fromSlot: incidentFilters.fromSlot,
+          toSlot: incidentFilters.toSlot,
+        },
+      });
+
+      const pack = buildEvidencePack({
+        incidentCase,
+        events,
+        seed: 0,
+        queryHash: normalizedQuery.hash,
+        sealed: true,
+        redactionPolicy: {
+          stripFields: ['payload.onchain.trace'],
+          redactActors: true,
+        },
+      });
+
+      return {
+        manifest: pack.manifest,
+        files: serializeEvidencePack(pack),
+      };
+    })()
+    : undefined;
+
+  const payload = {
     status: 'ok',
     command: 'replay.incident',
     schema: 'replay.incident.output.v1',
     commandParams: {
-      taskPda: options.taskPda,
-      disputePda: options.disputePda,
-      fromSlot: options.fromSlot,
-      toSlot: options.toSlot,
+      taskPda: incidentFilters.taskPda,
+      disputePda: incidentFilters.disputePda,
+      query: options.query,
+      fromSlot: incidentFilters.fromSlot,
+      toSlot: incidentFilters.toSlot,
       strictMode: options.strictMode,
       storeType: options.storeType,
       sqlitePath: options.sqlitePath,
+      sealed: options.sealed,
     },
     summary: {
       ...summary,
@@ -1352,7 +1800,10 @@ async function runReplayIncidentCommand(
     },
     validation,
     narrative,
-  });
+    ...(evidencePack ? { evidencePack } : {}),
+  };
+
+  context.output(applyRedaction(payload, options.redactFields ?? []));
 
   return 0;
 }
@@ -1523,14 +1974,24 @@ function summarizeIncidentValidation(
   };
 }
 
+function redactField<T>(redactions: ReadonlySet<string>, key: string, value: T): T | string {
+  return redactions.has(key) ? '[REDACTED]' : value;
+}
+
 function buildIncidentNarrative(
   events: ReplayIncidentEventSummary[],
   validation: { anomalyIds: string[]; eventValidation: { errors: string[]; warnings: string[] } },
+  redactions: ReadonlySet<string>,
 ): ReplayIncidentNarrative {
   const eventsLines = events.slice(0, 40).map((event, index) => {
     const anomaly = validation.anomalyIds[index];
     const marker = anomaly === undefined ? '' : ` | anomaly:${anomaly}`;
-    return `${event.seq}/${event.slot}/${event.signature}: ${event.sourceEventName} (${event.sourceEventType})${marker}`;
+    const seq = redactField(redactions, 'seq', event.seq);
+    const slot = redactField(redactions, 'slot', event.slot);
+    const signature = redactField(redactions, 'signature', event.signature);
+    const sourceEventName = redactField(redactions, 'sourceEventName', event.sourceEventName);
+    const sourceEventType = redactField(redactions, 'sourceEventType', event.sourceEventType);
+    return `${seq}/${slot}/${signature}: ${sourceEventName} (${sourceEventType})${marker}`;
   });
 
   const messages = [...validation.eventValidation.errors, ...validation.eventValidation.warnings]

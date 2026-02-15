@@ -654,6 +654,14 @@ export {
   type ReplayComparisonResult,
   type ReplayComparisonStrictness,
   type ReplayCompareInput,
+  parseQueryDSL,
+  normalizeQuery,
+  applyQueryFilter,
+  applyAnomalyFilter,
+  QueryDSLParseError,
+  type QueryDSL,
+  type CanonicalQuery,
+  type QueryDSLValidationError,
   type RewardTier,
   type EvalRunRecord,
   type EvalAggregateMetrics,
@@ -708,12 +716,22 @@ export {
   computeAnomalySetHash,
   computeAnomalySetHashFromContexts,
   REPLAY_OPERATIONAL_LIMITS,
+  normalizePdaValue,
+  normalizePdaString,
+  extractDisputePdaFromPayload,
 } from './replay/index.js';
 
 // Policy and Safety Engine
 export {
   PolicyEngine,
   PolicyViolationError,
+  ROLE_PERMISSION_MATRIX,
+  isCommandAllowed,
+  enforceRole,
+  IncidentRoleViolationError,
+  InMemoryAuditTrail,
+  computeInputHash,
+  computeOutputHash,
   type PolicyActionType,
   type PolicyAccess,
   type CircuitBreakerMode,
@@ -726,6 +744,12 @@ export {
   type PolicyDecision,
   type PolicyEngineState,
   type PolicyEngineConfig,
+  type OperatorRole,
+  type IncidentCommandCategory,
+  type RolePermission,
+  type AuditTrailEntry,
+  type AuditTrailStore,
+  type AuditTrailVerification,
 } from './policy/index.js';
 
 // Tool System (Phase 5)

@@ -1,0 +1,1800 @@
+{
+  "meta": {
+    "description": "Machine-readable index mapping roadmap issues to architecture docs, code locations, and dependencies",
+    "sourceDocument": "docs/ROADMAP.md",
+    "masterEpic": "#1121",
+    "totalIssues": 58,
+    "generatedFrom": "docs/ISSUES_ROADMAP.md"
+  },
+  "trackingIssues": {
+    "1": {
+      "issue": 1111,
+      "title": "Gateway & Channel Foundation",
+      "priority": "P0"
+    },
+    "2": {
+      "issue": 1112,
+      "title": "Heartbeat & Autonomous Daemon",
+      "priority": "P1"
+    },
+    "3": {
+      "issue": 1113,
+      "title": "Documentation-Centric Skills (SKILL.md)",
+      "priority": "P0"
+    },
+    "4": {
+      "issue": 1114,
+      "title": "System Tools",
+      "priority": "P0"
+    },
+    "5": {
+      "issue": 1115,
+      "title": "Semantic Memory & Agent Personality",
+      "priority": "P1"
+    },
+    "6": {
+      "issue": 1116,
+      "title": "Remote Skill Registry",
+      "priority": "P2"
+    },
+    "7": {
+      "issue": 1117,
+      "title": "Multi-Agent Routing & Sub-Agents",
+      "priority": "P2"
+    },
+    "8": {
+      "issue": 1118,
+      "title": "Agent Social Layer",
+      "priority": "P2"
+    },
+    "9": {
+      "issue": 1119,
+      "title": "Advanced Channels & UI",
+      "priority": "P2"
+    },
+    "10": {
+      "issue": 1120,
+      "title": "Ecosystem & Marketplace",
+      "priority": "P3"
+    }
+  },
+  "issues": {
+    "1053": {
+      "title": "Gateway core process and WebSocket control plane",
+      "phase": 1,
+      "section": "1.1",
+      "priority": "P0",
+      "roadmapLineStart": 53,
+      "roadmapLineEnd": 125,
+      "filesToCreate": [
+        "runtime/src/gateway/gateway.ts",
+        "runtime/src/gateway/types.ts",
+        "runtime/src/gateway/session.ts",
+        "runtime/src/gateway/router.ts",
+        "runtime/src/gateway/hooks.ts",
+        "runtime/src/gateway/config-watcher.ts",
+        "runtime/src/gateway/index.ts"
+      ],
+      "filesToModify": [
+        "runtime/src/index.ts",
+        "runtime/src/builder.ts"
+      ],
+      "dependsOnIssues": [],
+      "dependedByIssues": [
+        1051,
+        1052,
+        1054,
+        1055,
+        1056,
+        1057,
+        1058,
+        1059,
+        1060,
+        1061,
+        1063,
+        1066,
+        1078,
+        1081,
+        1093,
+        1099,
+        1102
+      ],
+      "existingPatterns": [
+        "runtime/src/runtime.ts",
+        "runtime/src/connection/manager.ts",
+        "runtime/src/policy/engine.ts",
+        "runtime/src/telemetry/collector.ts"
+      ],
+      "keyInterfaces": [
+        "Gateway",
+        "GatewayConfig",
+        "SessionConfig"
+      ],
+      "phaseDoc": "docs/architecture/phases/phase-01-gateway.md",
+      "estimatedScope": "L"
+    },
+    "1051": {
+      "title": "Unified message format (GatewayMessage / OutboundMessage)",
+      "phase": 1,
+      "section": "1.2",
+      "priority": "P0",
+      "roadmapLineStart": 127,
+      "roadmapLineEnd": 183,
+      "filesToCreate": [
+        "runtime/src/gateway/message.ts"
+      ],
+      "filesToModify": [
+        "runtime/src/gateway/types.ts"
+      ],
+      "dependsOnIssues": [
+        1053
+      ],
+      "dependedByIssues": [
+        1054,
+        1059,
+        1060,
+        1061,
+        1063
+      ],
+      "existingPatterns": [
+        "runtime/src/events/types.ts",
+        "runtime/src/llm/types.ts"
+      ],
+      "keyInterfaces": [
+        "GatewayMessage",
+        "OutboundMessage",
+        "MessageAttachment"
+      ],
+      "phaseDoc": "docs/architecture/phases/phase-01-gateway.md",
+      "estimatedScope": "S"
+    },
+    "1054": {
+      "title": "Channel plugin interface and ChannelContext",
+      "phase": 1,
+      "section": "1.3",
+      "priority": "P0",
+      "roadmapLineStart": 185,
+      "roadmapLineEnd": 231,
+      "filesToCreate": [
+        "runtime/src/gateway/channel.ts"
+      ],
+      "filesToModify": [],
+      "dependsOnIssues": [
+        1051,
+        1053
+      ],
+      "dependedByIssues": [
+        1057,
+        1060,
+        1061,
+        1098
+      ],
+      "existingPatterns": [
+        "runtime/src/skills/types.ts",
+        "runtime/src/tools/types.ts"
+      ],
+      "keyInterfaces": [
+        "ChannelPlugin",
+        "ChannelContext",
+        "WebhookRouter"
+      ],
+      "phaseDoc": "docs/architecture/phases/phase-01-gateway.md",
+      "estimatedScope": "S"
+    },
+    "1060": {
+      "title": "Telegram channel plugin",
+      "phase": 1,
+      "section": "1.4",
+      "priority": "P0",
+      "roadmapLineStart": 233,
+      "roadmapLineEnd": 264,
+      "filesToCreate": [
+        "runtime/src/channels/telegram/plugin.ts",
+        "runtime/src/channels/telegram/types.ts",
+        "runtime/src/channels/telegram/index.ts"
+      ],
+      "filesToModify": [
+        "runtime/src/index.ts"
+      ],
+      "dependsOnIssues": [
+        1051,
+        1053,
+        1054
+      ],
+      "dependedByIssues": [],
+      "existingPatterns": [
+        "runtime/src/llm/grok.ts",
+        "runtime/src/utils/lazy-import.ts"
+      ],
+      "keyInterfaces": [
+        "TelegramChannel",
+        "TelegramChannelConfig"
+      ],
+      "phaseDoc": "docs/architecture/phases/phase-01-gateway.md",
+      "estimatedScope": "M"
+    },
+    "1061": {
+      "title": "Discord channel plugin",
+      "phase": 1,
+      "section": "1.5",
+      "priority": "P1",
+      "roadmapLineStart": 266,
+      "roadmapLineEnd": 282,
+      "filesToCreate": [
+        "runtime/src/channels/discord/plugin.ts",
+        "runtime/src/channels/discord/types.ts",
+        "runtime/src/channels/discord/index.ts"
+      ],
+      "filesToModify": [
+        "runtime/src/index.ts"
+      ],
+      "dependsOnIssues": [
+        1051,
+        1053,
+        1054
+      ],
+      "dependedByIssues": [],
+      "existingPatterns": [
+        "runtime/src/channels/telegram/plugin.ts",
+        "runtime/src/utils/lazy-import.ts"
+      ],
+      "keyInterfaces": [
+        "DiscordChannel",
+        "DiscordChannelConfig"
+      ],
+      "phaseDoc": "docs/architecture/phases/phase-01-gateway.md",
+      "estimatedScope": "M"
+    },
+    "1055": {
+      "title": "Session management (scoping, reset, compaction)",
+      "phase": 1,
+      "section": "1.6",
+      "priority": "P0",
+      "roadmapLineStart": 284,
+      "roadmapLineEnd": 339,
+      "filesToCreate": [
+        "runtime/src/gateway/session.ts",
+        "runtime/src/gateway/session.test.ts"
+      ],
+      "filesToModify": [
+        "runtime/src/gateway/index.ts",
+        "runtime/src/gateway/session.ts"
+      ],
+      "dependsOnIssues": [
+        1053
+      ],
+      "dependedByIssues": [
+        1063,
+        1095
+      ],
+      "existingPatterns": [
+        "runtime/src/memory/types.ts",
+        "runtime/src/llm/types.ts"
+      ],
+      "keyInterfaces": [
+        "SessionConfig",
+        "Session",
+        "SessionManager"
+      ],
+      "phaseDoc": "docs/architecture/phases/phase-01-gateway.md",
+      "estimatedScope": "M"
+    },
+    "1056": {
+      "title": "Lifecycle hook system (HookDispatcher)",
+      "phase": 1,
+      "section": "1.7",
+      "priority": "P1",
+      "roadmapLineStart": 341,
+      "roadmapLineEnd": 411,
+      "filesToCreate": [
+        "runtime/src/gateway/hooks.ts",
+        "runtime/src/gateway/hooks.test.ts"
+      ],
+      "filesToModify": [
+        "runtime/src/gateway/hooks.ts",
+        "runtime/src/gateway/index.ts"
+      ],
+      "dependsOnIssues": [
+        1053
+      ],
+      "dependedByIssues": [
+        1073,
+        1077
+      ],
+      "existingPatterns": [
+        "runtime/src/events/monitor.ts",
+        "runtime/src/telemetry/collector.ts"
+      ],
+      "keyInterfaces": [
+        "HookDispatcher",
+        "HookHandler",
+        "HookEvent",
+        "HookContext",
+        "HookResult"
+      ],
+      "phaseDoc": "docs/architecture/phases/phase-01-gateway.md",
+      "estimatedScope": "M"
+    },
+    "1052": {
+      "title": "Slash commands handler",
+      "phase": 1,
+      "section": "1.8",
+      "priority": "P1",
+      "roadmapLineStart": 413,
+      "roadmapLineEnd": 439,
+      "filesToCreate": [
+        "runtime/src/gateway/commands.ts"
+      ],
+      "filesToModify": [],
+      "dependsOnIssues": [
+        1053
+      ],
+      "dependedByIssues": [],
+      "existingPatterns": [
+        "runtime/src/cli/health.ts"
+      ],
+      "keyInterfaces": [
+        "SlashCommand",
+        "SlashCommandHandler"
+      ],
+      "phaseDoc": "docs/architecture/phases/phase-01-gateway.md",
+      "estimatedScope": "S"
+    },
+    "1057": {
+      "title": "Cross-channel identity linking",
+      "phase": 1,
+      "section": "1.9",
+      "priority": "P2",
+      "roadmapLineStart": 441,
+      "roadmapLineEnd": 465,
+      "filesToCreate": [
+        "runtime/src/gateway/identity.ts"
+      ],
+      "filesToModify": [],
+      "dependsOnIssues": [
+        1053,
+        1054
+      ],
+      "dependedByIssues": [],
+      "existingPatterns": [
+        "runtime/src/agent/pda.ts"
+      ],
+      "keyInterfaces": [
+        "IdentityLink",
+        "IdentityResolver"
+      ],
+      "phaseDoc": "docs/architecture/phases/phase-01-gateway.md",
+      "estimatedScope": "M"
+    },
+    "1058": {
+      "title": "Gateway CLI commands and setup wizard",
+      "phase": 1,
+      "section": "1.10",
+      "priority": "P1",
+      "roadmapLineStart": 467,
+      "roadmapLineEnd": 495,
+      "filesToCreate": [
+        "runtime/src/cli/wizard.ts",
+        "runtime/src/cli/doctor.ts",
+        "runtime/src/cli/sessions.ts"
+      ],
+      "filesToModify": [
+        "runtime/src/cli/index.ts"
+      ],
+      "dependsOnIssues": [
+        1053
+      ],
+      "dependedByIssues": [],
+      "existingPatterns": [
+        "runtime/src/cli/health.ts",
+        "runtime/src/cli/onboard.ts"
+      ],
+      "keyInterfaces": [
+        "WizardStep",
+        "DiagnosticResult"
+      ],
+      "phaseDoc": "docs/architecture/phases/phase-01-gateway.md",
+      "estimatedScope": "M"
+    },
+    "1063": {
+      "title": "Agent loop integration (ChatExecutor + model fallback)",
+      "phase": 1,
+      "section": "1.11",
+      "priority": "P0",
+      "roadmapLineStart": 497,
+      "roadmapLineEnd": 569,
+      "filesToCreate": [
+        "runtime/src/llm/chat-executor.ts"
+      ],
+      "filesToModify": [
+        "runtime/src/llm/index.ts",
+        "runtime/src/index.ts"
+      ],
+      "dependsOnIssues": [
+        1051,
+        1053,
+        1055
+      ],
+      "dependedByIssues": [
+        1075
+      ],
+      "existingPatterns": [
+        "runtime/src/llm/executor.ts",
+        "runtime/src/tools/registry.ts"
+      ],
+      "keyInterfaces": [
+        "ChatExecutor",
+        "ChatExecutorConfig"
+      ],
+      "phaseDoc": "docs/architecture/phases/phase-01-gateway.md",
+      "estimatedScope": "L"
+    },
+    "1059": {
+      "title": "Media pipeline (voice transcription, image description)",
+      "phase": 1,
+      "section": "1.12",
+      "priority": "P2",
+      "roadmapLineStart": 571,
+      "roadmapLineEnd": 601,
+      "filesToCreate": [
+        "runtime/src/gateway/media.ts"
+      ],
+      "filesToModify": [],
+      "dependsOnIssues": [
+        1051,
+        1053
+      ],
+      "dependedByIssues": [
+        1100
+      ],
+      "existingPatterns": [
+        "runtime/src/llm/types.ts"
+      ],
+      "keyInterfaces": [
+        "MediaPipeline",
+        "MediaPipelineConfig"
+      ],
+      "phaseDoc": "docs/architecture/phases/phase-01-gateway.md",
+      "estimatedScope": "M"
+    },
+    "1081": {
+      "title": "Heartbeat scheduler",
+      "phase": 2,
+      "section": "2.1",
+      "priority": "P1",
+      "roadmapLineStart": 610,
+      "roadmapLineEnd": 666,
+      "filesToCreate": [
+        "runtime/src/gateway/heartbeat.ts"
+      ],
+      "filesToModify": [
+        "runtime/src/gateway/gateway.ts"
+      ],
+      "dependsOnIssues": [
+        1053
+      ],
+      "dependedByIssues": [
+        1078,
+        1084,
+        1085
+      ],
+      "existingPatterns": [
+        "runtime/src/autonomous/scanner.ts"
+      ],
+      "keyInterfaces": [
+        "HeartbeatScheduler",
+        "HeartbeatConfig",
+        "HeartbeatAction",
+        "HeartbeatContext"
+      ],
+      "phaseDoc": "docs/architecture/phases/phase-02-heartbeat.md",
+      "estimatedScope": "M"
+    },
+    "1084": {
+      "title": "Built-in heartbeat actions (task scan, summary, portfolio)",
+      "phase": 2,
+      "section": "2.2",
+      "priority": "P1",
+      "roadmapLineStart": 668,
+      "roadmapLineEnd": 693,
+      "filesToCreate": [
+        "runtime/src/gateway/heartbeat-actions.ts"
+      ],
+      "filesToModify": [],
+      "dependsOnIssues": [
+        1081
+      ],
+      "dependedByIssues": [],
+      "existingPatterns": [
+        "runtime/src/autonomous/scanner.ts",
+        "runtime/src/task/discovery.ts"
+      ],
+      "keyInterfaces": [
+        "TaskScanAction",
+        "SummaryAction",
+        "PortfolioAction"
+      ],
+      "phaseDoc": "docs/architecture/phases/phase-02-heartbeat.md",
+      "estimatedScope": "M"
+    },
+    "1085": {
+      "title": "Cron-like scheduling with per-action schedules",
+      "phase": 2,
+      "section": "2.3",
+      "priority": "P1",
+      "roadmapLineStart": 694,
+      "roadmapLineEnd": 710,
+      "filesToCreate": [
+        "runtime/src/gateway/scheduler.ts"
+      ],
+      "filesToModify": [
+        "runtime/src/gateway/heartbeat.ts"
+      ],
+      "dependsOnIssues": [
+        1081
+      ],
+      "dependedByIssues": [],
+      "existingPatterns": [],
+      "keyInterfaces": [
+        "CronScheduler",
+        "CronExpression"
+      ],
+      "phaseDoc": "docs/architecture/phases/phase-02-heartbeat.md",
+      "estimatedScope": "S"
+    },
+    "1078": {
+      "title": "Daemon lifecycle (PID, signals, systemd, crash recovery)",
+      "phase": 2,
+      "section": "2.4",
+      "priority": "P1",
+      "roadmapLineStart": 711,
+      "roadmapLineEnd": 727,
+      "filesToCreate": [
+        "runtime/src/bin/daemon.ts",
+        "runtime/src/cli/daemon.ts"
+      ],
+      "filesToModify": [
+        "runtime/src/cli/index.ts"
+      ],
+      "dependsOnIssues": [
+        1053,
+        1081
+      ],
+      "dependedByIssues": [],
+      "existingPatterns": [
+        "runtime/src/bin/cli.ts",
+        "runtime/src/cli/health.ts"
+      ],
+      "keyInterfaces": [
+        "DaemonManager",
+        "DaemonStatus"
+      ],
+      "phaseDoc": "docs/architecture/phases/phase-02-heartbeat.md",
+      "estimatedScope": "M"
+    },
+    "1065": {
+      "title": "SKILL.md parser (YAML frontmatter + markdown body)",
+      "phase": 3,
+      "section": "3.1",
+      "priority": "P0",
+      "roadmapLineStart": 736,
+      "roadmapLineEnd": 797,
+      "filesToCreate": [
+        "runtime/src/skills/markdown/parser.ts",
+        "runtime/src/skills/markdown/types.ts",
+        "runtime/src/skills/markdown/index.ts"
+      ],
+      "filesToModify": [
+        "runtime/src/skills/index.ts"
+      ],
+      "dependsOnIssues": [],
+      "dependedByIssues": [
+        1070,
+        1071,
+        1074,
+        1075,
+        1088,
+        1089
+      ],
+      "existingPatterns": [
+        "runtime/src/skills/types.ts",
+        "runtime/src/skills/manifest.ts"
+      ],
+      "keyInterfaces": [
+        "MarkdownSkill",
+        "SkillFrontmatter",
+        "SkillParser"
+      ],
+      "phaseDoc": "docs/architecture/phases/phase-03-skills.md",
+      "estimatedScope": "M"
+    },
+    "1070": {
+      "title": "Skill discovery and validation (3-tier, requirement checks)",
+      "phase": 3,
+      "section": "3.2",
+      "priority": "P0",
+      "roadmapLineStart": 799,
+      "roadmapLineEnd": 824,
+      "filesToCreate": [
+        "runtime/src/skills/markdown/discovery.ts",
+        "runtime/src/skills/markdown/validator.ts"
+      ],
+      "filesToModify": [],
+      "dependsOnIssues": [
+        1065
+      ],
+      "dependedByIssues": [
+        1074,
+        1075
+      ],
+      "existingPatterns": [
+        "runtime/src/skills/catalog.ts"
+      ],
+      "keyInterfaces": [
+        "SkillDiscovery",
+        "SkillValidator",
+        "SkillDiscoveryResult"
+      ],
+      "phaseDoc": "docs/architecture/phases/phase-03-skills.md",
+      "estimatedScope": "M"
+    },
+    "1075": {
+      "title": "Skill injection engine (context-aware prompt assembly)",
+      "phase": 3,
+      "section": "3.3",
+      "priority": "P0",
+      "roadmapLineStart": 825,
+      "roadmapLineEnd": 846,
+      "filesToCreate": [
+        "runtime/src/skills/markdown/injector.ts"
+      ],
+      "filesToModify": [
+        "runtime/src/llm/chat-executor.ts"
+      ],
+      "dependsOnIssues": [
+        1063,
+        1065,
+        1070
+      ],
+      "dependedByIssues": [],
+      "existingPatterns": [
+        "runtime/src/skills/skill-adapter.ts"
+      ],
+      "keyInterfaces": [
+        "SkillInjector",
+        "SkillInjectorConfig"
+      ],
+      "phaseDoc": "docs/architecture/phases/phase-03-skills.md",
+      "estimatedScope": "M"
+    },
+    "1071": {
+      "title": "Bundled skills (8 starter SKILL.md files)",
+      "phase": 3,
+      "section": "3.4",
+      "priority": "P1",
+      "roadmapLineStart": 848,
+      "roadmapLineEnd": 862,
+      "filesToCreate": [
+        "runtime/src/skills/bundled/solana/SKILL.md",
+        "runtime/src/skills/bundled/agenc-protocol/SKILL.md",
+        "runtime/src/skills/bundled/github/SKILL.md",
+        "runtime/src/skills/bundled/jupiter/SKILL.md",
+        "runtime/src/skills/bundled/spl-token/SKILL.md",
+        "runtime/src/skills/bundled/system/SKILL.md",
+        "runtime/src/skills/bundled/defi-monitor/SKILL.md",
+        "runtime/src/skills/bundled/wallet/SKILL.md"
+      ],
+      "filesToModify": [],
+      "dependsOnIssues": [
+        1065
+      ],
+      "dependedByIssues": [],
+      "existingPatterns": [],
+      "keyInterfaces": [],
+      "phaseDoc": "docs/architecture/phases/phase-03-skills.md",
+      "estimatedScope": "M"
+    },
+    "1066": {
+      "title": "Workspace files (AGENT.md, SOUL.md, USER.md, etc.)",
+      "phase": 3,
+      "section": "3.5",
+      "priority": "P1",
+      "roadmapLineStart": 863,
+      "roadmapLineEnd": 889,
+      "filesToCreate": [
+        "runtime/src/gateway/workspace-files.ts"
+      ],
+      "filesToModify": [
+        "runtime/src/gateway/types.ts"
+      ],
+      "dependsOnIssues": [
+        1053
+      ],
+      "dependedByIssues": [
+        1083
+      ],
+      "existingPatterns": [],
+      "keyInterfaces": [
+        "WorkspaceFiles",
+        "WorkspaceFileLoader"
+      ],
+      "phaseDoc": "docs/architecture/phases/phase-03-skills.md",
+      "estimatedScope": "S"
+    },
+    "1074": {
+      "title": "Skill CLI commands (list, info, validate, create, install)",
+      "phase": 3,
+      "section": "3.6",
+      "priority": "P1",
+      "roadmapLineStart": 890,
+      "roadmapLineEnd": 902,
+      "filesToCreate": [
+        "runtime/src/cli/skills-cli.ts"
+      ],
+      "filesToModify": [
+        "runtime/src/cli/index.ts"
+      ],
+      "dependsOnIssues": [
+        1065,
+        1070
+      ],
+      "dependedByIssues": [
+        1090
+      ],
+      "existingPatterns": [
+        "runtime/src/cli/health.ts",
+        "runtime/src/cli/onboard.ts"
+      ],
+      "keyInterfaces": [],
+      "phaseDoc": "docs/architecture/phases/phase-03-skills.md",
+      "estimatedScope": "S"
+    },
+    "1067": {
+      "title": "Bash tool (command execution with allow/deny lists)",
+      "phase": 4,
+      "section": "4.1",
+      "priority": "P0",
+      "roadmapLineStart": 912,
+      "roadmapLineEnd": 944,
+      "filesToCreate": [
+        "runtime/src/tools/system/bash.ts",
+        "runtime/src/tools/system/types.ts",
+        "runtime/src/tools/system/index.ts"
+      ],
+      "filesToModify": [
+        "runtime/src/tools/index.ts",
+        "runtime/src/index.ts"
+      ],
+      "dependsOnIssues": [],
+      "dependedByIssues": [
+        1076
+      ],
+      "existingPatterns": [
+        "runtime/src/tools/agenc/tools.ts",
+        "runtime/src/tools/registry.ts"
+      ],
+      "keyInterfaces": [
+        "BashTool",
+        "BashToolConfig"
+      ],
+      "phaseDoc": "docs/architecture/phases/phase-04-tools.md",
+      "estimatedScope": "M"
+    },
+    "1068": {
+      "title": "Filesystem tool (read, write, list, stat, delete)",
+      "phase": 4,
+      "section": "4.2",
+      "priority": "P0",
+      "roadmapLineStart": 946,
+      "roadmapLineEnd": 966,
+      "filesToCreate": [
+        "runtime/src/tools/system/filesystem.ts"
+      ],
+      "filesToModify": [],
+      "dependsOnIssues": [],
+      "dependedByIssues": [],
+      "existingPatterns": [
+        "runtime/src/tools/agenc/tools.ts"
+      ],
+      "keyInterfaces": [
+        "FileSystemTool",
+        "FileSystemToolConfig"
+      ],
+      "phaseDoc": "docs/architecture/phases/phase-04-tools.md",
+      "estimatedScope": "M"
+    },
+    "1069": {
+      "title": "HTTP tool (GET, POST, fetch with domain control)",
+      "phase": 4,
+      "section": "4.3",
+      "priority": "P0",
+      "roadmapLineStart": 967,
+      "roadmapLineEnd": 983,
+      "filesToCreate": [
+        "runtime/src/tools/system/http.ts"
+      ],
+      "filesToModify": [],
+      "dependsOnIssues": [],
+      "dependedByIssues": [],
+      "existingPatterns": [
+        "runtime/src/tools/agenc/tools.ts"
+      ],
+      "keyInterfaces": [
+        "HttpTool",
+        "HttpToolConfig"
+      ],
+      "phaseDoc": "docs/architecture/phases/phase-04-tools.md",
+      "estimatedScope": "M"
+    },
+    "1072": {
+      "title": "Browser tool (HTML extraction + optional Playwright)",
+      "phase": 4,
+      "section": "4.4",
+      "priority": "P1",
+      "roadmapLineStart": 984,
+      "roadmapLineEnd": 1006,
+      "filesToCreate": [
+        "runtime/src/tools/system/browser.ts"
+      ],
+      "filesToModify": [],
+      "dependsOnIssues": [],
+      "dependedByIssues": [],
+      "existingPatterns": [
+        "runtime/src/utils/lazy-import.ts"
+      ],
+      "keyInterfaces": [
+        "BrowserTool",
+        "BrowserToolConfig"
+      ],
+      "phaseDoc": "docs/architecture/phases/phase-04-tools.md",
+      "estimatedScope": "L"
+    },
+    "1076": {
+      "title": "Execution sandboxing via Docker",
+      "phase": 4,
+      "section": "4.5",
+      "priority": "P2",
+      "roadmapLineStart": 1007,
+      "roadmapLineEnd": 1039,
+      "filesToCreate": [
+        "runtime/src/gateway/sandbox.ts"
+      ],
+      "filesToModify": [
+        "runtime/src/tools/system/bash.ts"
+      ],
+      "dependsOnIssues": [
+        1067
+      ],
+      "dependedByIssues": [],
+      "existingPatterns": [],
+      "keyInterfaces": [
+        "SandboxManager",
+        "SandboxConfig"
+      ],
+      "phaseDoc": "docs/architecture/phases/phase-04-tools.md",
+      "estimatedScope": "L"
+    },
+    "1073": {
+      "title": "Approval policies (per-tool, per-amount rules)",
+      "phase": 4,
+      "section": "4.6",
+      "priority": "P0",
+      "roadmapLineStart": 1041,
+      "roadmapLineEnd": 1094,
+      "filesToCreate": [
+        "runtime/src/gateway/approvals.ts"
+      ],
+      "filesToModify": [
+        "runtime/src/gateway/hooks.ts"
+      ],
+      "dependsOnIssues": [
+        1056
+      ],
+      "dependedByIssues": [
+        1077
+      ],
+      "existingPatterns": [
+        "runtime/src/policy/engine.ts"
+      ],
+      "keyInterfaces": [
+        "ApprovalGate",
+        "ApprovalPolicyConfig",
+        "ApprovalRule"
+      ],
+      "phaseDoc": "docs/architecture/phases/phase-04-tools.md",
+      "estimatedScope": "M"
+    },
+    "1077": {
+      "title": "Tool permission policy integration (extend PolicyEngine)",
+      "phase": 4,
+      "section": "4.7",
+      "priority": "P1",
+      "roadmapLineStart": 1096,
+      "roadmapLineEnd": 1121,
+      "filesToCreate": [
+        "runtime/src/policy/tool-policy.ts",
+        "runtime/src/policy/tool-policy.test.ts"
+      ],
+      "filesToModify": [
+        "runtime/src/index.ts",
+        "runtime/src/policy/engine.ts",
+        "runtime/src/policy/index.ts",
+        "runtime/src/policy/types.ts"
+      ],
+      "dependsOnIssues": [
+        1056,
+        1073
+      ],
+      "dependedByIssues": [],
+      "existingPatterns": [
+        "runtime/src/policy/engine.ts"
+      ],
+      "keyInterfaces": [
+        "ToolPolicy"
+      ],
+      "phaseDoc": "docs/architecture/phases/phase-04-tools.md",
+      "estimatedScope": "S"
+    },
+    "1079": {
+      "title": "Embedding generation (multi-provider interface)",
+      "phase": 5,
+      "section": "5.1",
+      "priority": "P1",
+      "roadmapLineStart": 1130,
+      "roadmapLineEnd": 1147,
+      "filesToCreate": [
+        "runtime/src/memory/embeddings.ts"
+      ],
+      "filesToModify": [
+        "runtime/src/memory/types.ts"
+      ],
+      "dependsOnIssues": [],
+      "dependedByIssues": [
+        1082,
+        1087
+      ],
+      "existingPatterns": [
+        "runtime/src/llm/types.ts",
+        "runtime/src/utils/lazy-import.ts"
+      ],
+      "keyInterfaces": [
+        "EmbeddingProvider",
+        "OpenAIEmbeddingProvider",
+        "OllamaEmbeddingProvider"
+      ],
+      "phaseDoc": "docs/architecture/phases/phase-05-memory.md",
+      "estimatedScope": "M"
+    },
+    "1082": {
+      "title": "Vector memory store (cosine similarity + hybrid BM25)",
+      "phase": 5,
+      "section": "5.2",
+      "priority": "P1",
+      "roadmapLineStart": 1148,
+      "roadmapLineEnd": 1186,
+      "filesToCreate": [
+        "runtime/src/memory/vector-store.ts"
+      ],
+      "filesToModify": [
+        "runtime/src/memory/types.ts"
+      ],
+      "dependsOnIssues": [
+        1079
+      ],
+      "dependedByIssues": [
+        1086,
+        1087
+      ],
+      "existingPatterns": [
+        "runtime/src/memory/in-memory/backend.ts",
+        "runtime/src/memory/sqlite/backend.ts"
+      ],
+      "keyInterfaces": [
+        "VectorMemoryBackend",
+        "VectorSearchOptions",
+        "HybridSearchOptions",
+        "ScoredMemoryEntry"
+      ],
+      "phaseDoc": "docs/architecture/phases/phase-05-memory.md",
+      "estimatedScope": "L"
+    },
+    "1080": {
+      "title": "Structured memory model (daily logs + curated facts + entities)",
+      "phase": 5,
+      "section": "5.3",
+      "priority": "P1",
+      "roadmapLineStart": 1188,
+      "roadmapLineEnd": 1210,
+      "filesToCreate": [
+        "runtime/src/memory/structured.ts"
+      ],
+      "filesToModify": [
+        "runtime/src/memory/types.ts"
+      ],
+      "dependsOnIssues": [],
+      "dependedByIssues": [
+        1086
+      ],
+      "existingPatterns": [
+        "runtime/src/memory/types.ts"
+      ],
+      "keyInterfaces": [
+        "StructuredMemoryModel",
+        "MemoryTier",
+        "EntityRecord"
+      ],
+      "phaseDoc": "docs/architecture/phases/phase-05-memory.md",
+      "estimatedScope": "M"
+    },
+    "1086": {
+      "title": "Automatic memory ingestion (per-turn + session-end)",
+      "phase": 5,
+      "section": "5.4",
+      "priority": "P1",
+      "roadmapLineStart": 1212,
+      "roadmapLineEnd": 1225,
+      "filesToCreate": [
+        "runtime/src/memory/ingestion.ts"
+      ],
+      "filesToModify": [
+        "runtime/src/gateway/session.ts"
+      ],
+      "dependsOnIssues": [
+        1080,
+        1082
+      ],
+      "dependedByIssues": [
+        1087
+      ],
+      "existingPatterns": [
+        "runtime/src/memory/types.ts"
+      ],
+      "keyInterfaces": [
+        "MemoryIngester",
+        "IngestionConfig"
+      ],
+      "phaseDoc": "docs/architecture/phases/phase-05-memory.md",
+      "estimatedScope": "M"
+    },
+    "1087": {
+      "title": "Context-aware retrieval (semantic search in prompt assembly)",
+      "phase": 5,
+      "section": "5.5",
+      "priority": "P1",
+      "roadmapLineStart": 1226,
+      "roadmapLineEnd": 1236,
+      "filesToCreate": [
+        "runtime/src/memory/retriever.ts"
+      ],
+      "filesToModify": [
+        "runtime/src/llm/chat-executor.ts"
+      ],
+      "dependsOnIssues": [
+        1079,
+        1082,
+        1086
+      ],
+      "dependedByIssues": [],
+      "existingPatterns": [
+        "runtime/src/memory/types.ts"
+      ],
+      "keyInterfaces": [
+        "MemoryRetriever",
+        "RetrievalConfig"
+      ],
+      "phaseDoc": "docs/architecture/phases/phase-05-memory.md",
+      "estimatedScope": "M"
+    },
+    "1083": {
+      "title": "Agent personality file templates and loading",
+      "phase": 5,
+      "section": "5.6",
+      "priority": "P1",
+      "roadmapLineStart": 1238,
+      "roadmapLineEnd": 1283,
+      "filesToCreate": [
+        "runtime/src/gateway/personality.ts"
+      ],
+      "filesToModify": [
+        "runtime/src/gateway/types.ts"
+      ],
+      "dependsOnIssues": [
+        1066
+      ],
+      "dependedByIssues": [],
+      "existingPatterns": [],
+      "keyInterfaces": [
+        "PersonalityLoader",
+        "PersonalityConfig"
+      ],
+      "phaseDoc": "docs/architecture/phases/phase-05-memory.md",
+      "estimatedScope": "S"
+    },
+    "1089": {
+      "title": "Registry API client (search, install, publish, rate)",
+      "phase": 6,
+      "section": "6.1",
+      "priority": "P2",
+      "roadmapLineStart": 1292,
+      "roadmapLineEnd": 1339,
+      "filesToCreate": [
+        "runtime/src/skills/registry/client.ts",
+        "runtime/src/skills/registry/types.ts",
+        "runtime/src/skills/registry/index.ts"
+      ],
+      "filesToModify": [
+        "runtime/src/skills/index.ts"
+      ],
+      "dependsOnIssues": [
+        1065
+      ],
+      "dependedByIssues": [
+        1090,
+        1091,
+        1092
+      ],
+      "existingPatterns": [
+        "runtime/src/task/operations.ts"
+      ],
+      "keyInterfaces": [
+        "SkillRegistryClient",
+        "SkillListing",
+        "SkillListingEntry"
+      ],
+      "phaseDoc": "docs/architecture/phases/phase-06-registry.md",
+      "estimatedScope": "L"
+    },
+    "1091": {
+      "title": "On-chain skill registration instructions",
+      "phase": 6,
+      "section": "6.2",
+      "priority": "P2",
+      "roadmapLineStart": 1341,
+      "roadmapLineEnd": 1381,
+      "filesToCreate": [
+        "programs/agenc-coordination/src/instructions/register_skill.rs",
+        "programs/agenc-coordination/src/instructions/update_skill.rs",
+        "programs/agenc-coordination/src/instructions/rate_skill.rs",
+        "programs/agenc-coordination/src/instructions/purchase_skill.rs"
+      ],
+      "filesToModify": [
+        "programs/agenc-coordination/src/lib.rs",
+        "programs/agenc-coordination/src/state.rs",
+        "programs/agenc-coordination/src/instructions/mod.rs"
+      ],
+      "dependsOnIssues": [
+        1089
+      ],
+      "dependedByIssues": [
+        1092
+      ],
+      "existingPatterns": [
+        "programs/agenc-coordination/src/instructions/register_agent.rs",
+        "programs/agenc-coordination/src/instructions/task_init_helpers.rs"
+      ],
+      "keyInterfaces": [
+        "SkillRegistration",
+        "SkillRating"
+      ],
+      "phaseDoc": "docs/architecture/phases/phase-06-registry.md",
+      "estimatedScope": "L"
+    },
+    "1092": {
+      "title": "Skill payment flow (escrow + protocol fee)",
+      "phase": 6,
+      "section": "6.3",
+      "priority": "P2",
+      "roadmapLineStart": 1383,
+      "roadmapLineEnd": 1392,
+      "filesToCreate": [
+        "runtime/src/skills/registry/payment.ts",
+        "runtime/src/skills/registry/payment.test.ts"
+      ],
+      "filesToModify": [
+        "programs/agenc-coordination/src/instructions/purchase_skill.rs",
+        "runtime/src/skills/registry/client.ts",
+        "runtime/src/skills/registry/index.ts",
+        "sdk/src/skills-registry.ts"
+      ],
+      "dependsOnIssues": [
+        1089,
+        1091
+      ],
+      "dependedByIssues": [
+        1107
+      ],
+      "existingPatterns": [
+        "programs/agenc-coordination/src/instructions/completion_helpers.rs",
+        "programs/agenc-coordination/src/instructions/token_helpers.rs"
+      ],
+      "keyInterfaces": [],
+      "phaseDoc": "docs/architecture/phases/phase-06-registry.md",
+      "estimatedScope": "M"
+    },
+    "1088": {
+      "title": "OpenClaw skill import bridge (namespace mapping)",
+      "phase": 6,
+      "section": "6.4",
+      "priority": "P2",
+      "roadmapLineStart": 1394,
+      "roadmapLineEnd": 1402,
+      "filesToCreate": [
+        "runtime/src/skills/markdown/compat.ts"
+      ],
+      "filesToModify": [],
+      "dependsOnIssues": [
+        1065
+      ],
+      "dependedByIssues": [],
+      "existingPatterns": [
+        "runtime/src/skills/markdown/parser.ts"
+      ],
+      "keyInterfaces": [
+        "OpenClawCompat"
+      ],
+      "phaseDoc": "docs/architecture/phases/phase-06-registry.md",
+      "estimatedScope": "S"
+    },
+    "1090": {
+      "title": "Registry CLI integration (search, install, publish)",
+      "phase": 6,
+      "section": "6.5",
+      "priority": "P2",
+      "roadmapLineStart": 1404,
+      "roadmapLineEnd": 1414,
+      "filesToCreate": [
+        "runtime/src/cli/registry-cli.ts",
+        "runtime/src/cli/registry-cli.test.ts"
+      ],
+      "filesToModify": [
+        "runtime/src/cli/index.ts",
+        "runtime/src/cli/skills-cli.ts"
+      ],
+      "dependsOnIssues": [
+        1074,
+        1089
+      ],
+      "dependedByIssues": [],
+      "existingPatterns": [
+        "runtime/src/cli/health.ts"
+      ],
+      "keyInterfaces": [],
+      "phaseDoc": "docs/architecture/phases/phase-06-registry.md",
+      "estimatedScope": "S"
+    },
+    "1093": {
+      "title": "Agent workspace model (isolated config, memory, tools)",
+      "phase": 7,
+      "section": "7.1",
+      "priority": "P2",
+      "roadmapLineStart": 1423,
+      "roadmapLineEnd": 1450,
+      "filesToCreate": [
+        "runtime/src/gateway/workspace.ts"
+      ],
+      "filesToModify": [
+        "runtime/src/gateway/types.ts"
+      ],
+      "dependsOnIssues": [
+        1053
+      ],
+      "dependedByIssues": [
+        1094,
+        1095,
+        1096
+      ],
+      "existingPatterns": [
+        "runtime/src/gateway/types.ts"
+      ],
+      "keyInterfaces": [
+        "AgentWorkspace",
+        "WorkspaceFiles"
+      ],
+      "phaseDoc": "docs/architecture/phases/phase-07-multi-agent.md",
+      "estimatedScope": "M"
+    },
+    "1094": {
+      "title": "Routing rules (peer/guild/channel/content matching)",
+      "phase": 7,
+      "section": "7.2",
+      "priority": "P2",
+      "roadmapLineStart": 1452,
+      "roadmapLineEnd": 1499,
+      "filesToCreate": [
+        "runtime/src/gateway/routing.ts"
+      ],
+      "filesToModify": [
+        "runtime/src/gateway/router.ts"
+      ],
+      "dependsOnIssues": [
+        1093
+      ],
+      "dependedByIssues": [],
+      "existingPatterns": [
+        "runtime/src/marketplace/matching.ts"
+      ],
+      "keyInterfaces": [
+        "RoutingRule",
+        "RoutingEngine"
+      ],
+      "phaseDoc": "docs/architecture/phases/phase-07-multi-agent.md",
+      "estimatedScope": "M"
+    },
+    "1095": {
+      "title": "Session isolation (per-workspace memory, policy, auth)",
+      "phase": 7,
+      "section": "7.3",
+      "priority": "P2",
+      "roadmapLineStart": 1501,
+      "roadmapLineEnd": 1509,
+      "filesToCreate": [
+        "runtime/src/gateway/session-isolation.ts",
+        "runtime/src/gateway/session-isolation.test.ts"
+      ],
+      "filesToModify": [
+        "runtime/src/gateway/index.ts",
+        "runtime/src/gateway/session.ts",
+        "runtime/src/gateway/workspace.ts"
+      ],
+      "dependsOnIssues": [
+        1055,
+        1093
+      ],
+      "dependedByIssues": [],
+      "existingPatterns": [
+        "runtime/src/memory/types.ts",
+        "runtime/src/policy/engine.ts"
+      ],
+      "keyInterfaces": [],
+      "phaseDoc": "docs/architecture/phases/phase-07-multi-agent.md",
+      "estimatedScope": "M"
+    },
+    "1096": {
+      "title": "Sub-agent spawning (parallel work, on-chain coordination)",
+      "phase": 7,
+      "section": "7.4",
+      "priority": "P2",
+      "roadmapLineStart": 1511,
+      "roadmapLineEnd": 1554,
+      "filesToCreate": [
+        "runtime/src/gateway/sub-agent.ts"
+      ],
+      "filesToModify": [
+        "runtime/src/gateway/gateway.ts"
+      ],
+      "dependsOnIssues": [
+        1093
+      ],
+      "dependedByIssues": [],
+      "existingPatterns": [
+        "runtime/src/autonomous/agent.ts",
+        "runtime/src/workflow/orchestrator.ts"
+      ],
+      "keyInterfaces": [
+        "SubAgentManager",
+        "SubAgentConfig",
+        "SubAgentResult"
+      ],
+      "phaseDoc": "docs/architecture/phases/phase-07-multi-agent.md",
+      "estimatedScope": "L"
+    },
+    "1097": {
+      "title": "Agent discovery (on-chain search by capability/reputation)",
+      "phase": 8,
+      "section": "8.1",
+      "priority": "P2",
+      "roadmapLineStart": 1564,
+      "roadmapLineEnd": 1576,
+      "filesToCreate": [
+        "runtime/src/social/discovery.ts",
+        "runtime/src/social/types.ts",
+        "runtime/src/social/index.ts"
+      ],
+      "filesToModify": [
+        "runtime/src/index.ts"
+      ],
+      "dependsOnIssues": [],
+      "dependedByIssues": [
+        1101,
+        1103,
+        1104,
+        1105
+      ],
+      "existingPatterns": [
+        "runtime/src/agent/manager.ts",
+        "runtime/src/task/discovery.ts"
+      ],
+      "keyInterfaces": [
+        "AgentDiscovery",
+        "AgentProfile"
+      ],
+      "phaseDoc": "docs/architecture/phases/phase-08-social.md",
+      "estimatedScope": "M"
+    },
+    "1101": {
+      "title": "Agent-to-agent messaging (on-chain + off-chain)",
+      "phase": 8,
+      "section": "8.2",
+      "priority": "P2",
+      "roadmapLineStart": 1577,
+      "roadmapLineEnd": 1596,
+      "filesToCreate": [
+        "runtime/src/social/messaging.ts"
+      ],
+      "filesToModify": [],
+      "dependsOnIssues": [
+        1097
+      ],
+      "dependedByIssues": [
+        1105
+      ],
+      "existingPatterns": [
+        "runtime/src/gateway/message.ts"
+      ],
+      "keyInterfaces": [
+        "AgentMessaging",
+        "SignedMessage"
+      ],
+      "phaseDoc": "docs/architecture/phases/phase-08-social.md",
+      "estimatedScope": "L"
+    },
+    "1103": {
+      "title": "Agent feed / forum (on-chain posts + IPFS content)",
+      "phase": 8,
+      "section": "8.3",
+      "priority": "P2",
+      "roadmapLineStart": 1598,
+      "roadmapLineEnd": 1634,
+      "filesToCreate": [
+        "runtime/src/social/feed.ts"
+      ],
+      "filesToModify": [
+        "programs/agenc-coordination/src/lib.rs",
+        "programs/agenc-coordination/src/state.rs",
+        "programs/agenc-coordination/src/instructions/mod.rs"
+      ],
+      "dependsOnIssues": [
+        1097
+      ],
+      "dependedByIssues": [
+        1104,
+        1105
+      ],
+      "existingPatterns": [
+        "programs/agenc-coordination/src/instructions/update_state.rs"
+      ],
+      "keyInterfaces": [
+        "AgentFeed",
+        "FeedPost"
+      ],
+      "phaseDoc": "docs/architecture/phases/phase-08-social.md",
+      "estimatedScope": "L"
+    },
+    "1104": {
+      "title": "Reputation integration (social signals to reputation score)",
+      "phase": 8,
+      "section": "8.4",
+      "priority": "P2",
+      "roadmapLineStart": 1636,
+      "roadmapLineEnd": 1644,
+      "filesToCreate": [
+        "runtime/src/social/reputation.ts",
+        "runtime/src/social/reputation.test.ts"
+      ],
+      "filesToModify": [
+        "runtime/src/index.ts",
+        "runtime/src/social/discovery.ts",
+        "runtime/src/social/feed.ts",
+        "runtime/src/social/index.ts",
+        "runtime/src/social/types.ts"
+      ],
+      "dependsOnIssues": [
+        1097,
+        1103
+      ],
+      "dependedByIssues": [
+        1110
+      ],
+      "existingPatterns": [
+        "runtime/src/agent/capabilities.ts"
+      ],
+      "keyInterfaces": [
+        "ReputationScorer"
+      ],
+      "phaseDoc": "docs/architecture/phases/phase-08-social.md",
+      "estimatedScope": "S"
+    },
+    "1105": {
+      "title": "Agent collaboration protocol (team formation via feed)",
+      "phase": 8,
+      "section": "8.5",
+      "priority": "P2",
+      "roadmapLineStart": 1645,
+      "roadmapLineEnd": 1658,
+      "filesToCreate": [
+        "runtime/src/social/collaboration.ts"
+      ],
+      "filesToModify": [],
+      "dependsOnIssues": [
+        1097,
+        1101,
+        1103
+      ],
+      "dependedByIssues": [],
+      "existingPatterns": [
+        "runtime/src/team/engine.ts",
+        "runtime/src/workflow/orchestrator.ts"
+      ],
+      "keyInterfaces": [
+        "CollaborationProtocol",
+        "CollaborationRequest"
+      ],
+      "phaseDoc": "docs/architecture/phases/phase-08-social.md",
+      "estimatedScope": "L"
+    },
+    "1098": {
+      "title": "Additional channel plugins (Slack, WhatsApp, Signal, Matrix)",
+      "phase": 9,
+      "section": "9.1",
+      "priority": "P2",
+      "roadmapLineStart": 1668,
+      "roadmapLineEnd": 1680,
+      "filesToCreate": [
+        "runtime/src/channels/slack/plugin.ts",
+        "runtime/src/channels/slack/types.ts",
+        "runtime/src/channels/slack/index.ts",
+        "runtime/src/channels/whatsapp/plugin.ts",
+        "runtime/src/channels/whatsapp/types.ts",
+        "runtime/src/channels/whatsapp/index.ts",
+        "runtime/src/channels/signal/plugin.ts",
+        "runtime/src/channels/signal/types.ts",
+        "runtime/src/channels/signal/index.ts",
+        "runtime/src/channels/matrix/plugin.ts",
+        "runtime/src/channels/matrix/types.ts",
+        "runtime/src/channels/matrix/index.ts"
+      ],
+      "filesToModify": [],
+      "dependsOnIssues": [
+        1054
+      ],
+      "dependedByIssues": [],
+      "existingPatterns": [
+        "runtime/src/channels/telegram/plugin.ts"
+      ],
+      "keyInterfaces": [
+        "SlackChannel",
+        "WhatsAppChannel",
+        "SignalChannel",
+        "MatrixChannel"
+      ],
+      "phaseDoc": "docs/architecture/phases/phase-09-channels-ui.md",
+      "estimatedScope": "L"
+    },
+    "1099": {
+      "title": "WebChat UI (React + WebSocket to Gateway)",
+      "phase": 9,
+      "section": "9.2",
+      "priority": "P1",
+      "roadmapLineStart": 1681,
+      "roadmapLineEnd": 1702,
+      "filesToCreate": [
+        "web/src/App.tsx",
+        "web/src/components/Chat.tsx",
+        "web/src/hooks/useGateway.ts",
+        "web/package.json",
+        "web/vite.config.ts"
+      ],
+      "filesToModify": [],
+      "dependsOnIssues": [
+        1053
+      ],
+      "dependedByIssues": [
+        1102
+      ],
+      "existingPatterns": [
+        "demo-app/src/App.tsx"
+      ],
+      "keyInterfaces": [],
+      "phaseDoc": "docs/architecture/phases/phase-09-channels-ui.md",
+      "estimatedScope": "L"
+    },
+    "1100": {
+      "title": "Voice support (STT/TTS integration)",
+      "phase": 9,
+      "section": "9.3",
+      "priority": "P2",
+      "roadmapLineStart": 1703,
+      "roadmapLineEnd": 1712,
+      "filesToCreate": [
+        "runtime/src/channels/voice/stt.ts",
+        "runtime/src/channels/voice/tts.ts",
+        "runtime/src/channels/voice/types.ts",
+        "runtime/src/channels/voice/index.ts"
+      ],
+      "filesToModify": [],
+      "dependsOnIssues": [
+        1059
+      ],
+      "dependedByIssues": [],
+      "existingPatterns": [
+        "runtime/src/llm/types.ts"
+      ],
+      "keyInterfaces": [
+        "STTProvider",
+        "TTSProvider"
+      ],
+      "phaseDoc": "docs/architecture/phases/phase-09-channels-ui.md",
+      "estimatedScope": "M"
+    },
+    "1102": {
+      "title": "Mobile support (stretch - remote Gateway node)",
+      "phase": 9,
+      "section": "9.4",
+      "priority": "P3",
+      "roadmapLineStart": 1714,
+      "roadmapLineEnd": 1721,
+      "filesToCreate": [
+        "mobile/src/screens/ChatScreen.tsx",
+        "mobile/src/screens/DashboardScreen.tsx",
+        "mobile/src/screens/ApprovalScreen.tsx",
+        "mobile/src/services/gateway-client.ts",
+        "mobile/src/services/push-notifications.ts"
+      ],
+      "filesToModify": [],
+      "dependsOnIssues": [
+        1053,
+        1099
+      ],
+      "dependedByIssues": [],
+      "existingPatterns": [],
+      "keyInterfaces": [],
+      "phaseDoc": "docs/architecture/phases/phase-09-channels-ui.md",
+      "estimatedScope": "L"
+    },
+    "1109": {
+      "title": "Service marketplace (human-posted requests + agent bids)",
+      "phase": 10,
+      "section": "10.1",
+      "priority": "P3",
+      "roadmapLineStart": 1730,
+      "roadmapLineEnd": 1737,
+      "filesToCreate": [
+        "runtime/src/marketplace/service-marketplace.ts"
+      ],
+      "filesToModify": [
+        "runtime/src/marketplace/types.ts"
+      ],
+      "dependsOnIssues": [],
+      "dependedByIssues": [],
+      "existingPatterns": [
+        "runtime/src/marketplace/marketplace.ts",
+        "runtime/src/marketplace/matching.ts"
+      ],
+      "keyInterfaces": [
+        "ServiceMarketplace",
+        "ServiceRequest"
+      ],
+      "phaseDoc": "docs/architecture/phases/phase-10-marketplace.md",
+      "estimatedScope": "L"
+    },
+    "1107": {
+      "title": "Skill monetization (subscriptions, revenue sharing)",
+      "phase": 10,
+      "section": "10.2",
+      "priority": "P3",
+      "roadmapLineStart": 1739,
+      "roadmapLineEnd": 1744,
+      "filesToCreate": [
+        "runtime/src/skills/registry/monetization.ts"
+      ],
+      "filesToModify": [
+        "runtime/src/skills/registry/client.ts"
+      ],
+      "dependsOnIssues": [
+        1092
+      ],
+      "dependedByIssues": [],
+      "existingPatterns": [
+        "runtime/src/team/payouts.ts"
+      ],
+      "keyInterfaces": [
+        "SkillMonetization",
+        "SubscriptionModel"
+      ],
+      "phaseDoc": "docs/architecture/phases/phase-10-marketplace.md",
+      "estimatedScope": "L"
+    },
+    "1110": {
+      "title": "Agent reputation economy (staking, delegation, portability)",
+      "phase": 10,
+      "section": "10.3",
+      "priority": "P3",
+      "roadmapLineStart": 1746,
+      "roadmapLineEnd": 1751,
+      "filesToCreate": [
+        "runtime/src/social/reputation-economy.ts"
+      ],
+      "filesToModify": [
+        "runtime/src/agent/manager.ts"
+      ],
+      "dependsOnIssues": [
+        1104
+      ],
+      "dependedByIssues": [],
+      "existingPatterns": [
+        "runtime/src/agent/capabilities.ts"
+      ],
+      "keyInterfaces": [
+        "ReputationEconomy",
+        "ReputationStake",
+        "ReputationDelegation"
+      ],
+      "phaseDoc": "docs/architecture/phases/phase-10-marketplace.md",
+      "estimatedScope": "L"
+    },
+    "1108": {
+      "title": "Cross-protocol bridges (OpenClaw, LangChain, Farcaster)",
+      "phase": 10,
+      "section": "10.4",
+      "priority": "P3",
+      "roadmapLineStart": 1753,
+      "roadmapLineEnd": 1759,
+      "filesToCreate": [
+        "runtime/src/bridges/openclaw.ts",
+        "runtime/src/bridges/langchain.ts",
+        "runtime/src/bridges/farcaster.ts",
+        "runtime/src/bridges/types.ts",
+        "runtime/src/bridges/index.ts"
+      ],
+      "filesToModify": [
+        "runtime/src/index.ts"
+      ],
+      "dependsOnIssues": [],
+      "dependedByIssues": [],
+      "existingPatterns": [
+        "runtime/src/skills/markdown/compat.ts"
+      ],
+      "keyInterfaces": [
+        "ProtocolBridge",
+        "OpenClawBridge",
+        "LangChainAdapter"
+      ],
+      "phaseDoc": "docs/architecture/phases/phase-10-marketplace.md",
+      "estimatedScope": "L"
+    },
+    "1106": {
+      "title": "Governance (on-chain voting, treasury management)",
+      "phase": 10,
+      "section": "10.5",
+      "priority": "P3",
+      "roadmapLineStart": 1761,
+      "roadmapLineEnd": 1766,
+      "filesToCreate": [
+        "programs/agenc-coordination/src/instructions/create_proposal.rs",
+        "programs/agenc-coordination/src/instructions/vote_proposal.rs",
+        "programs/agenc-coordination/src/instructions/execute_proposal.rs",
+        "runtime/src/governance/engine.ts",
+        "runtime/src/governance/types.ts",
+        "runtime/src/governance/index.ts"
+      ],
+      "filesToModify": [
+        "programs/agenc-coordination/src/lib.rs",
+        "programs/agenc-coordination/src/state.rs",
+        "programs/agenc-coordination/src/instructions/mod.rs"
+      ],
+      "dependsOnIssues": [],
+      "dependedByIssues": [],
+      "existingPatterns": [
+        "programs/agenc-coordination/src/instructions/vote_dispute.rs",
+        "programs/agenc-coordination/src/instructions/resolve_dispute.rs"
+      ],
+      "keyInterfaces": [
+        "GovernanceEngine",
+        "Proposal",
+        "Vote"
+      ],
+      "phaseDoc": "docs/architecture/phases/phase-10-marketplace.md",
+      "estimatedScope": "L"
+    }
+  }
+}

@@ -1,304 +1,144 @@
 /**
- * Operator Onboarding CLI Command
- *
- * Implements #994 P2-505: Operator onboarding and environment health bootstrap
+ * Operator onboarding workflow for bootstrapping runtime CLI configuration.
  *
  * @module
  */
 
-import * as fs from 'fs';
-import * as path from 'path';
-import type { CliFileConfig } from './types.js';
-import { runHealthChecks, type HealthReport, type HealthOptions } from './health.js';
+import { existsSync, writeFileSync, mkdirSync } from 'node:fs';
+import * as path from 'node:path';
+import { validateConfigStrict } from '../types/config-migration.js';
+import { DEFAULT_SQLITE_REPLAY_PATH } from './replay.js';
+import type { CliFileConfig, CliRuntimeContext, OnboardOptions } from './types.js';
+import {
+  type HealthCheckResult,
+  checkConfigValidity,
+  checkRpcReachability,
+  checkWalletAvailability,
+} from './health.js';
 
-/**
- * Onboard command options.
- */
-export interface OnboardOptions {
-  /** Output path for generated config */
-  configPath?: string;
-  /** RPC URL to use */
-  rpcUrl?: string;
-  /** Program ID to use */
-  programId?: string;
-  /** Store type */
-  storeType?: 'memory' | 'sqlite';
-  /** SQLite path (if storeType is sqlite) */
-  sqlitePath?: string;
-  /** Wallet path */
-  walletPath?: string;
-  /** Skip health checks */
-  skipHealthChecks?: boolean;
-  /** Non-interactive mode for CI/CD */
-  nonInteractive?: boolean;
-  /** Force overwrite existing config */
-  force?: boolean;
-}
-
-/**
- * Onboard result.
- */
+/** Onboard configuration output. */
 export interface OnboardResult {
-  success: boolean;
   configPath: string;
-  config: CliFileConfig;
-  healthReport?: HealthReport;
-  errors: string[];
-  warnings: string[];
+  configGenerated: boolean;
+  walletDetected: boolean;
+  rpcReachable: boolean;
+  checks: HealthCheckResult[];
+  exitCode: 0 | 1 | 2;
 }
 
-/**
- * Default configuration values.
- */
-const DEFAULT_CONFIG: CliFileConfig = {
-  configVersion: '1.0.0',
-  rpcUrl: 'https://api.devnet.solana.com',
-  storeType: 'memory',
-  strictMode: false,
-  idempotencyWindow: 300,
-  outputFormat: 'table',
-  logLevel: 'info',
-};
+const DEFAULT_CONFIG_PATH = '.agenc-runtime.json';
 
-/**
- * Default config file path.
- */
-const DEFAULT_CONFIG_PATH = '.agenc.json';
-
-/**
- * Validate RPC URL format.
- */
-function isValidRpcUrl(url: string): boolean {
-  try {
-    const parsed = new URL(url);
-    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
-  } catch {
-    return false;
+function resolveConfigPath(configPath: string | undefined): string {
+  if (typeof configPath === 'string' && configPath.length > 0) {
+    return path.resolve(process.cwd(), configPath);
   }
+
+  const envPath = process.env.AGENC_RUNTIME_CONFIG;
+  if (typeof envPath === 'string' && envPath.length > 0) {
+    return path.resolve(process.cwd(), envPath);
+  }
+
+  return path.resolve(process.cwd(), DEFAULT_CONFIG_PATH);
 }
 
-/**
- * Validate program ID format (base58 Solana public key: 43-44 chars).
- */
-function isValidProgramId(id: string): boolean {
-  const base58Regex = /^[123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+$/;
-  return base58Regex.test(id) && id.length >= 43 && id.length <= 44;
+function computeExitCode(checks: HealthCheckResult[]): 0 | 1 | 2 {
+  const hasErrors = checks.some((check) => check.status === 'fail');
+  const hasWarnings = checks.some((check) => check.status === 'warn');
+  return hasErrors ? 2 : hasWarnings ? 1 : 0;
 }
 
-/**
- * Generate validated runtime configuration.
- */
-export function generateConfig(options: OnboardOptions): { config: CliFileConfig; errors: string[] } {
-  const errors: string[] = [];
-  const config: CliFileConfig = { ...DEFAULT_CONFIG };
-
-  // Validate and set RPC URL
-  if (options.rpcUrl) {
-    if (isValidRpcUrl(options.rpcUrl)) {
-      config.rpcUrl = options.rpcUrl;
-    } else {
-      errors.push(`Invalid RPC URL: ${options.rpcUrl}`);
-    }
-  }
-
-  // Validate and set program ID
-  if (options.programId) {
-    if (isValidProgramId(options.programId)) {
-      config.programId = options.programId;
-    } else {
-      errors.push(`Invalid program ID: ${options.programId}`);
-    }
-  }
-
-  // Set store type
-  if (options.storeType) {
-    config.storeType = options.storeType;
-  }
-
-  // Set SQLite path
-  if (options.storeType === 'sqlite') {
-    config.sqlitePath = options.sqlitePath || './agenc-store.db';
-  }
-
-  return { config, errors };
-}
-
-/**
- * Write config to file.
- */
-function writeConfig(configPath: string, config: CliFileConfig, force: boolean): { success: boolean; error?: string } {
-  // Check if file exists
-  if (fs.existsSync(configPath) && !force) {
-    return {
-      success: false,
-      error: `Config file already exists: ${configPath}. Use --force to overwrite.`,
-    };
-  }
-
-  // Ensure directory exists
-  const dir = path.dirname(configPath);
-  if (dir !== '.' && !fs.existsSync(dir)) {
-    try {
-      fs.mkdirSync(dir, { recursive: true });
-    } catch (err) {
-      return {
-        success: false,
-        error: `Failed to create directory: ${dir}`,
-      };
-    }
-  }
-
-  // Write config
-  try {
-    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf-8');
-    return { success: true };
-  } catch (err) {
-    return {
-      success: false,
-      error: `Failed to write config: ${err instanceof Error ? err.message : String(err)}`,
-    };
-  }
-}
-
-/**
- * Run onboarding process.
- */
-export async function runOnboard(options: OnboardOptions): Promise<OnboardResult> {
-  const errors: string[] = [];
-  const warnings: string[] = [];
-  const configPath = options.configPath || DEFAULT_CONFIG_PATH;
-
-  // Generate configuration
-  const { config, errors: configErrors } = generateConfig(options);
-  errors.push(...configErrors);
-
-  // Run health checks unless skipped
-  let healthReport: HealthReport | undefined;
-  if (!options.skipHealthChecks) {
-    const healthOptions: HealthOptions = {
-      rpcUrl: config.rpcUrl,
-      sqlitePath: config.sqlitePath,
-      walletPath: options.walletPath,
-      nonInteractive: options.nonInteractive,
-    };
-
-    healthReport = await runHealthChecks(healthOptions);
-
-    // Add warnings from health checks
-    for (const check of healthReport.checks) {
-      if (check.status === 'warn') {
-        warnings.push(`${check.id}: ${check.message}`);
-      } else if (check.status === 'fail') {
-        errors.push(`${check.id}: ${check.message}`);
-      }
-    }
-  }
-
-  // Write config if no errors (or only warnings)
-  if (errors.length === 0) {
-    const writeResult = writeConfig(configPath, config, options.force || false);
-    if (!writeResult.success && writeResult.error) {
-      errors.push(writeResult.error);
-    }
-  }
+function buildDefaultConfig(options: OnboardOptions): CliFileConfig {
+  const storeType = options.storeType ?? 'sqlite';
+  const sqlitePath = storeType === 'sqlite'
+    ? options.sqlitePath ?? DEFAULT_SQLITE_REPLAY_PATH
+    : undefined;
 
   return {
-    success: errors.length === 0,
-    configPath,
-    config,
-    healthReport,
-    errors,
-    warnings,
+    rpcUrl: options.rpcUrl ?? 'https://api.devnet.solana.com',
+    storeType,
+    ...(sqlitePath ? { sqlitePath } : {}),
+    logLevel: 'info',
+    outputFormat: 'json',
+    strictMode: false,
+    idempotencyWindow: options.idempotencyWindow,
   };
 }
 
-/**
- * Format onboard result for CLI output.
- */
-export function formatOnboardResult(result: OnboardResult, format: 'json' | 'table'): string {
-  if (format === 'json') {
-    return JSON.stringify(result, null, 2);
+export async function runOnboardCommand(
+  context: CliRuntimeContext,
+  options: OnboardOptions,
+): Promise<0 | 1 | 2> {
+  const checks: HealthCheckResult[] = [];
+
+  const configPath = resolveConfigPath(options.configPath);
+  const configExists = existsSync(configPath);
+
+  if (configExists && !options.force) {
+    checks.push({
+      id: 'config.exists',
+      category: 'config',
+      status: 'warn',
+      message: `Config file already exists at ${configPath}. Use --force to overwrite.`,
+    });
   }
 
-  const lines: string[] = [];
+  const defaultConfig = buildDefaultConfig(options);
+  const validation = validateConfigStrict(defaultConfig as unknown as Record<string, unknown>, false);
+  if (!validation.valid) {
+    checks.push({
+      id: 'config.generated',
+      category: 'config',
+      status: 'fail',
+      message: `Generated config failed validation: ${validation.errors.map(e => e.message).join('; ')}`,
+      remediation: 'Fix runtime defaults or supply explicit config values',
+    });
+  }
 
-  if (result.success) {
-    lines.push('Onboarding completed successfully!');
-    lines.push(`Config written to: ${result.configPath}`);
-  } else {
-    lines.push('Onboarding failed with errors:');
-    for (const error of result.errors) {
-      lines.push(`  [ERROR] ${error}`);
+  let configGenerated = false;
+  if ((!configExists || options.force) && validation.valid) {
+    try {
+      mkdirSync(path.dirname(configPath), { recursive: true });
+      writeFileSync(configPath, JSON.stringify(validation.migratedConfig, null, 2), 'utf8');
+      configGenerated = true;
+      checks.push({
+        id: 'config.generated',
+        category: 'config',
+        status: 'pass',
+        message: `Config written to ${configPath}`,
+      });
+    } catch (error) {
+      checks.push({
+        id: 'config.generated',
+        category: 'config',
+        status: 'fail',
+        message: `Failed to write config to ${configPath}: ${error instanceof Error ? error.message : String(error)}`,
+        remediation: 'Ensure the config directory is writable',
+      });
     }
   }
 
-  if (result.warnings.length > 0) {
-    lines.push('');
-    lines.push('Warnings:');
-    for (const warning of result.warnings) {
-      lines.push(`  [WARN] ${warning}`);
-    }
-  }
+  const walletDetected = await checkWalletAvailability(checks);
+  const rpcUrl = defaultConfig.rpcUrl ?? options.rpcUrl;
+  const rpcReachable = await checkRpcReachability(rpcUrl, checks);
 
-  if (result.healthReport) {
-    lines.push('');
-    lines.push(`Health: ${result.healthReport.summary.passed}/${result.healthReport.summary.total} checks passed`);
-  }
+  checkConfigValidity(configPath, checks);
 
-  return lines.join('\n');
-}
+  const exitCode = computeExitCode(checks);
 
-/**
- * Parse onboard CLI arguments.
- * Returns parsed options or throws on missing required values.
- */
-export function parseOnboardArgs(args: string[]): OnboardOptions {
-  const options: OnboardOptions = {};
+  const result: OnboardResult = {
+    configPath,
+    configGenerated,
+    walletDetected,
+    rpcReachable,
+    checks,
+    exitCode,
+  };
 
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i];
+  context.output({
+    status: 'ok',
+    command: 'onboard',
+    result,
+  });
 
-    if (arg === '--config' || arg === '-c') {
-      if (i + 1 >= args.length) {
-        throw new Error(`Missing value for ${arg}`);
-      }
-      options.configPath = args[++i];
-    } else if (arg === '--rpc-url' || arg === '-r') {
-      if (i + 1 >= args.length) {
-        throw new Error(`Missing value for ${arg}`);
-      }
-      options.rpcUrl = args[++i];
-    } else if (arg === '--program-id' || arg === '-p') {
-      if (i + 1 >= args.length) {
-        throw new Error(`Missing value for ${arg}`);
-      }
-      options.programId = args[++i];
-    } else if (arg === '--store-type') {
-      if (i + 1 >= args.length) {
-        throw new Error(`Missing value for ${arg}`);
-      }
-      const value = args[++i];
-      if (value === 'memory' || value === 'sqlite') {
-        options.storeType = value;
-      }
-    } else if (arg === '--sqlite-path') {
-      if (i + 1 >= args.length) {
-        throw new Error(`Missing value for ${arg}`);
-      }
-      options.sqlitePath = args[++i];
-    } else if (arg === '--wallet-path' || arg === '-w') {
-      if (i + 1 >= args.length) {
-        throw new Error(`Missing value for ${arg}`);
-      }
-      options.walletPath = args[++i];
-    } else if (arg === '--skip-health-checks') {
-      options.skipHealthChecks = true;
-    } else if (arg === '--non-interactive' || arg === '-y') {
-      options.nonInteractive = true;
-    } else if (arg === '--force' || arg === '-f') {
-      options.force = true;
-    }
-  }
-
-  return options;
+  return exitCode;
 }

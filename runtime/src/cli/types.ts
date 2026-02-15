@@ -1,4 +1,5 @@
 import type { PluginPrecedence, PluginSlot } from '../skills/catalog.js';
+import type { OperatorRole } from '../policy/incident-roles.js';
 
 export type CliOutputFormat = 'json' | 'jsonl' | 'table';
 
@@ -27,6 +28,7 @@ export interface BaseCliOptions {
   help: boolean;
   outputFormat: CliOutputFormat;
   strictMode: boolean;
+  role?: OperatorRole;
   rpcUrl?: string;
   programId?: string;
   storeType: 'memory' | 'sqlite';
@@ -44,13 +46,17 @@ export interface ReplayCompareOptions extends BaseCliOptions {
   localTracePath?: string;
   taskPda?: string;
   disputePda?: string;
+  redactFields?: string[];
 }
 
 export interface ReplayIncidentOptions extends BaseCliOptions {
   taskPda?: string;
   disputePda?: string;
+  query?: string;
   fromSlot?: number;
   toSlot?: number;
+  sealed?: boolean;
+  redactFields?: string[];
 }
 
 export interface PluginListOptions extends BaseCliOptions {}
@@ -107,6 +113,33 @@ export interface CliFileConfig {
   idempotencyWindow?: number;
   outputFormat?: CliOutputFormat;
   logLevel?: CliLogLevel;
+}
+
+export interface OnboardOptions extends BaseCliOptions {
+  /** If true, skip interactive prompts (default false). */
+  nonInteractive?: boolean;
+  /** Force overwrite existing config. */
+  force?: boolean;
+  /** Config file path override for onboard output. */
+  configPath?: string;
+}
+
+export interface HealthOptions extends BaseCliOptions {
+  /** If true, skip interactive prompts. */
+  nonInteractive?: boolean;
+  /** Run extended checks (slower but more thorough). */
+  deep?: boolean;
+  /** Config file path override for health output. */
+  configPath?: string;
+}
+
+export interface DoctorOptions extends BaseCliOptions {
+  nonInteractive?: boolean;
+  deep?: boolean;
+  /** Attempt automatic fixes where possible. */
+  fix?: boolean;
+  /** Config file path override for doctor output. */
+  configPath?: string;
 }
 
 export interface SecurityOptions extends BaseCliOptions {

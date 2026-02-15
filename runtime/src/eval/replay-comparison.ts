@@ -31,6 +31,11 @@ import {
   type ReplaySummary,
   type TrajectoryReplayResult,
 } from './replay.js';
+import {
+  applyAnomalyFilter,
+  applyQueryFilter,
+  type QueryDSL,
+} from './query-dsl.js';
 
 export type ReplayComparisonStrictness = 'strict' | 'lenient';
 
@@ -101,6 +106,7 @@ export interface ReplayComparisonOptions {
   taskPda?: string;
   disputePda?: string;
   traceId?: string;
+  query?: QueryDSL;
   emitOtel?: boolean;
   metrics?: ReplayComparisonMetrics;
   alertDispatcher?: ReplayAlertDispatcher;
@@ -136,6 +142,36 @@ const METRIC_NAMES = {
   EVENT_MISMATCH: 'agenc.replay.comparison.anomaly.event_mismatch',
   TRANSITION_MISMATCH: 'agenc.replay.comparison.anomaly.transition_invalid',
 } as const;
+
+const QUERY_ACTOR_FIELDS = [
+  'creator',
+  'worker',
+  'authority',
+  'voter',
+  'initiator',
+  'defendant',
+  'recipient',
+  'updater',
+  'agent',
+] as const;
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+  return value as Record<string, unknown>;
+}
+
+function payloadHasActor(payload: Record<string, unknown>, actor: string): boolean {
+  return QUERY_ACTOR_FIELDS.some((field) => payload[field] === actor);
+}
+
+function payloadHasWallet(payload: Record<string, unknown>, wallets: ReadonlySet<string>): boolean {
+  return QUERY_ACTOR_FIELDS.some((field) => {
+    const value = payload[field];
+    return typeof value === 'string' && wallets.has(value);
+  });
+}
 
 function replayReplayContextFromProjected(event: ReplayTimelineRecord): ReplayComparisonContext {
   const disputeId = event.disputePda ?? extractDisputeIdFromPayload(event.payload);
@@ -259,11 +295,26 @@ export class ReplayComparisonService {
       ...DEFAULT_COMPARE_OPTIONS,
       ...input.options,
     };
+    const queryDsl = options.query;
+    const taskPda = queryDsl?.taskPda ?? options.taskPda;
+    const disputePda = queryDsl?.disputePda ?? options.disputePda;
     const strictness = options.strictness ?? 'lenient';
     const start = Date.now();
 
-    const projectedEvents = await this.loadProjectedEvents(input.projected, options);
-    const localEvents = this.filterLocalEvents(input.localTrace.events, options);
+    const projectedEvents = await this.loadProjectedEvents(input.projected, {
+      ...options,
+      taskPda,
+      disputePda,
+    });
+    const filteredProjected = queryDsl
+      ? applyQueryFilter(projectedEvents, queryDsl)
+      : projectedEvents;
+
+    const localEvents = this.filterLocalEvents(input.localTrace.events, {
+      ...options,
+      taskPda,
+      disputePda,
+    });
 
     const localTrace = canonicalizeTrajectoryTrace({
       ...input.localTrace,
@@ -294,13 +345,13 @@ export class ReplayComparisonService {
       attributes: buildReplaySpanEvent('replay.compare', {
         slot: firstLocalPayloadSlot,
         signature: firstLocalSignature,
-        taskPda: options.taskPda,
-        disputePda: options.disputePda,
+        taskPda,
+        disputePda,
       }),
     });
 
     const projectedTrace = makeReplayTraceFromRecords(
-      projectedEvents,
+      filteredProjected,
       localTrace.seed,
       options.traceId ?? localTrace.traceId,
     );
@@ -310,10 +361,10 @@ export class ReplayComparisonService {
 
     const anomalies: ReplayAnomaly[] = [];
 
-    this.compareEventSequences(projectedEvents, localEvents, anomalies);
+    this.compareEventSequences(filteredProjected, localEvents, anomalies);
     this.compareReplayTransitions(projectedReplay, localReplay, anomalies);
     this.compareReplayHashes(projectedReplay, localReplay, anomalies);
-    this.compareRecordHashes(projectedEvents, anomalies);
+    this.compareRecordHashes(filteredProjected, anomalies);
 
     const sortedAnomalies = anomalies.sort((left, right) => {
       const leftSeq = left.context.seq ?? Number.MAX_SAFE_INTEGER;
@@ -324,21 +375,25 @@ export class ReplayComparisonService {
       return left.code.localeCompare(right.code);
     });
 
+    const slicedAnomalies = queryDsl
+      ? applyAnomalyFilter(sortedAnomalies, queryDsl)
+      : sortedAnomalies;
+
     const localEventsCount = localEvents.length;
-    const projectedEventsCount = projectedEvents.length;
+    const projectedEventsCount = filteredProjected.length;
     const divisor = Math.max(localEventsCount, projectedEventsCount, 1);
-    const matchRate = Math.max(0, 1 - sortedAnomalies.length / divisor);
-    const ids = this.collectIds(projectedEvents, localEvents);
+    const matchRate = Math.max(0, 1 - slicedAnomalies.length / divisor);
+    const ids = this.collectIds(filteredProjected, localEvents);
 
     const result: ReplayComparisonResult = {
       strictness,
-      status: sortedAnomalies.length === 0 ? 'clean' : 'mismatched',
+      status: slicedAnomalies.length === 0 ? 'clean' : 'mismatched',
       durationMs: Date.now() - start,
       localEventCount: localEventsCount,
       projectedEventCount: projectedEventsCount,
-      mismatchCount: sortedAnomalies.length,
+      mismatchCount: slicedAnomalies.length,
       matchRate,
-      anomalies: sortedAnomalies,
+      anomalies: slicedAnomalies,
       taskIds: ids.taskIds,
       disputeIds: ids.disputeIds,
       localReplay: {
@@ -512,7 +567,22 @@ export class ReplayComparisonService {
     events: readonly TrajectoryEvent[],
     options: ReplayComparisonOptions,
   ): TrajectoryEvent[] {
-    if (!options.taskPda && !options.disputePda) {
+    const queryDsl = options.query;
+    const actorFilter = queryDsl?.actorPubkey;
+    const eventTypeFilter = queryDsl?.eventType;
+    const fromSlot = queryDsl?.slotRange?.from;
+    const toSlot = queryDsl?.slotRange?.to;
+    const walletSet = queryDsl?.walletSet && queryDsl.walletSet.length > 0 ? new Set(queryDsl.walletSet) : null;
+
+    if (
+      !options.taskPda
+      && !options.disputePda
+      && !actorFilter
+      && !eventTypeFilter
+      && fromSlot === undefined
+      && toSlot === undefined
+      && walletSet === null
+    ) {
       return [...events];
     }
 
@@ -521,7 +591,41 @@ export class ReplayComparisonService {
       const disputeMatch = !options.disputePda
         || extractDisputeIdFromPayload(event.payload) === options.disputePda;
 
-      return taskMatch && disputeMatch;
+      if (!taskMatch || !disputeMatch) {
+        return false;
+      }
+
+      if (eventTypeFilter && event.type !== eventTypeFilter) {
+        return false;
+      }
+
+      if (fromSlot !== undefined || toSlot !== undefined) {
+        const slot = extractSlotFromPayload(event.payload);
+        if (slot === undefined) {
+          return false;
+        }
+        if (fromSlot !== undefined && slot < fromSlot) {
+          return false;
+        }
+        if (toSlot !== undefined && slot > toSlot) {
+          return false;
+        }
+      }
+
+      const payload = asRecord(event.payload);
+      if (!payload) {
+        return actorFilter === undefined && walletSet === null;
+      }
+
+      if (actorFilter && !payloadHasActor(payload, actorFilter)) {
+        return false;
+      }
+
+      if (walletSet && !payloadHasWallet(payload, walletSet)) {
+        return false;
+      }
+
+      return true;
     });
   }
 

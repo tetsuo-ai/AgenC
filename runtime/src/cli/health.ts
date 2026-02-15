@@ -1,377 +1,478 @@
 /**
- * Environment Health and Diagnostics CLI Commands
- *
- * Implements #994 P2-505: Operator onboarding and environment health bootstrap
+ * Operator environment health checks for runtime CLI bootstrap and diagnostics.
  *
  * @module
  */
 
-import { Connection } from '@solana/web3.js';
-import * as fs from 'fs';
-import * as path from 'path';
-import * as os from 'os';
-import { DEVNET_RPC } from '@agenc/sdk';
+import { existsSync, readFileSync } from 'node:fs';
+import { mkdir } from 'node:fs/promises';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { Connection, PublicKey } from '@solana/web3.js';
+import { validateIdl } from '../idl.js';
+import { validateConfigStrict } from '../types/config-migration.js';
+import { DEFAULT_SQLITE_REPLAY_PATH } from './replay.js';
+import type { CliRuntimeContext, DoctorOptions, HealthOptions } from './types.js';
 
-/**
- * Health check category.
- */
-export type HealthCategory = 'rpc' | 'store' | 'wallet' | 'config' | 'capability';
-
-/**
- * Health check status.
- */
-export type HealthStatus = 'pass' | 'warn' | 'fail';
-
-/**
- * Individual health check result.
- */
+/** Individual health check result. */
 export interface HealthCheckResult {
-  /** Check identifier */
-  id: string;
-  /** Check category */
-  category: HealthCategory;
-  /** Check status */
-  status: HealthStatus;
-  /** Human-readable message */
+  id: string; // e.g. 'rpc.reachable', 'store.sqlite', 'wallet.exists'
+  category: 'rpc' | 'store' | 'wallet' | 'capability' | 'config' | 'program';
+  status: 'pass' | 'warn' | 'fail';
   message: string;
-  /** Optional remediation suggestion */
-  remediation?: string;
-  /** Duration in milliseconds */
-  durationMs: number;
+  remediation?: string; // suggested fix
+  durationMs?: number;
 }
 
-/**
- * Aggregated health report.
- */
+/** Aggregate health report. */
 export interface HealthReport {
-  /** Overall status */
-  status: HealthStatus;
-  /** Timestamp (ISO 8601) */
-  timestamp: string;
-  /** Exit code (0=healthy, 1=warnings, 2=errors) */
-  exitCode: 0 | 1 | 2;
-  /** Individual check results */
+  status: 'healthy' | 'degraded' | 'unhealthy';
   checks: HealthCheckResult[];
-  /** Summary counts */
-  summary: {
-    total: number;
-    passed: number;
-    warnings: number;
-    failed: number;
-  };
+  timestamp: string; // ISO-8601
+  exitCode: 0 | 1 | 2;
 }
 
-/**
- * Health command options.
- */
-export interface HealthOptions {
-  /** RPC URL to check */
-  rpcUrl?: string;
-  /** Path to SQLite store */
-  sqlitePath?: string;
-  /** Path to wallet file */
-  walletPath?: string;
-  /** Enable deep checks (latency, integrity) */
-  deep?: boolean;
-  /** Non-interactive mode for CI/CD */
-  nonInteractive?: boolean;
-}
+const DEFAULT_CONFIG_PATH = '.agenc-runtime.json';
 
-/**
- * Doctor command options.
- */
-export interface DoctorOptions extends HealthOptions {
-  /** Attempt automatic fixes */
-  fix?: boolean;
-}
-
-/**
- * Run an individual health check.
- */
-async function runCheck(
-  id: string,
-  category: HealthCategory,
-  checker: () => Promise<{ status: HealthStatus; message: string; remediation?: string }>,
-): Promise<HealthCheckResult> {
-  const startTime = Date.now();
-  try {
-    const result = await checker();
-    return {
-      id,
-      category,
-      ...result,
-      durationMs: Date.now() - startTime,
-    };
-  } catch (error) {
-    return {
-      id,
-      category,
-      status: 'fail',
-      message: error instanceof Error ? error.message : String(error),
-      remediation: 'Check the error details and verify configuration',
-      durationMs: Date.now() - startTime,
-    };
-  }
-}
-
-/**
- * Check RPC connectivity.
- */
-async function checkRpcConnectivity(rpcUrl: string): Promise<HealthCheckResult> {
-  return runCheck('rpc-connectivity', 'rpc', async () => {
-    const connection = new Connection(rpcUrl, 'confirmed');
-    const version = await connection.getVersion();
-    return {
-      status: 'pass',
-      message: `Connected to RPC (Solana ${version['solana-core']})`,
-    };
-  });
-}
-
-/**
- * Check RPC latency (deep check).
- */
-async function checkRpcLatency(rpcUrl: string): Promise<HealthCheckResult> {
-  return runCheck('rpc-latency', 'rpc', async () => {
-    const connection = new Connection(rpcUrl, 'confirmed');
-    const start = Date.now();
-    await connection.getSlot();
-    const latency = Date.now() - start;
-
-    if (latency > 2000) {
-      return {
-        status: 'warn',
-        message: `High RPC latency: ${latency}ms`,
-        remediation: 'Consider using a faster RPC endpoint',
-      };
-    }
-
-    return {
-      status: 'pass',
-      message: `RPC latency: ${latency}ms`,
-    };
-  });
-}
-
-/**
- * Check store accessibility.
- */
-async function checkStoreAccessibility(sqlitePath?: string): Promise<HealthCheckResult> {
-  return runCheck('store-access', 'store', async () => {
-    if (!sqlitePath) {
-      return {
-        status: 'pass',
-        message: 'Using in-memory store (no persistence)',
-      };
-    }
-
-    const dir = path.dirname(sqlitePath);
-
-    // Check if directory exists and is writable
-    if (!fs.existsSync(dir)) {
-      return {
-        status: 'fail',
-        message: `Store directory does not exist: ${dir}`,
-        remediation: `Create directory: mkdir -p ${dir}`,
-      };
-    }
-
-    try {
-      fs.accessSync(dir, fs.constants.W_OK);
-      return {
-        status: 'pass',
-        message: `Store directory writable: ${dir}`,
-      };
-    } catch {
-      return {
-        status: 'fail',
-        message: `Store directory not writable: ${dir}`,
-        remediation: `Check permissions: chmod 755 ${dir}`,
-      };
-    }
-  });
-}
-
-/**
- * Get the user's home directory in a cross-platform way.
- */
-function getHomeDir(): string {
-  return os.homedir();
-}
-
-/**
- * Check wallet file detection.
- */
-async function checkWalletFile(walletPath?: string): Promise<HealthCheckResult> {
-  return runCheck('wallet-file', 'wallet', async () => {
-    const homeDir = getHomeDir();
-    const defaultPath = walletPath || path.join(homeDir, '.config', 'solana', 'id.json');
-
-    if (!fs.existsSync(defaultPath)) {
-      return {
-        status: 'warn',
-        message: `Wallet file not found: ${defaultPath}`,
-        remediation: 'Generate a keypair: solana-keygen new',
-      };
-    }
-
-    try {
-      const content = fs.readFileSync(defaultPath, 'utf-8');
-      JSON.parse(content);
-      return {
-        status: 'pass',
-        message: `Wallet file found: ${defaultPath}`,
-      };
-    } catch {
-      return {
-        status: 'fail',
-        message: `Invalid wallet file format: ${defaultPath}`,
-        remediation: 'Verify the wallet file contains a valid JSON keypair array',
-      };
-    }
-  });
-}
-
-/**
- * Check config file validity.
- */
-async function checkConfigFile(): Promise<HealthCheckResult> {
-  return runCheck('config-file', 'config', async () => {
-    const homeDir = getHomeDir();
-    const configPaths = [
-      '.agenc.json',
-      'agenc.config.json',
-      path.join(homeDir, '.config', 'agenc', 'config.json'),
-    ];
-
-    for (const configPath of configPaths) {
-      if (fs.existsSync(configPath)) {
-        try {
-          const content = fs.readFileSync(configPath, 'utf-8');
-          JSON.parse(content);
-          return {
-            status: 'pass',
-            message: `Config file valid: ${configPath}`,
-          };
-        } catch {
-          return {
-            status: 'warn',
-            message: `Config file invalid JSON: ${configPath}`,
-            remediation: 'Fix JSON syntax errors in config file',
-          };
-        }
-      }
-    }
-
-    return {
-      status: 'pass',
-      message: 'No config file found (using defaults)',
-    };
-  });
-}
-
-/**
- * Run health checks.
- */
-export async function runHealthChecks(options: HealthOptions): Promise<HealthReport> {
-  const checks: HealthCheckResult[] = [];
-  const rpcUrl = options.rpcUrl || DEVNET_RPC;
-
-  // Core checks
-  checks.push(await checkRpcConnectivity(rpcUrl));
-  checks.push(await checkStoreAccessibility(options.sqlitePath));
-  checks.push(await checkWalletFile(options.walletPath));
-  checks.push(await checkConfigFile());
-
-  // Deep checks
-  if (options.deep) {
-    checks.push(await checkRpcLatency(rpcUrl));
+function resolveConfigPath(configPath: string | undefined): string {
+  if (typeof configPath === 'string' && configPath.length > 0) {
+    return path.resolve(process.cwd(), configPath);
   }
 
-  // Calculate summary
-  const passed = checks.filter((c) => c.status === 'pass').length;
-  const warnings = checks.filter((c) => c.status === 'warn').length;
-  const failed = checks.filter((c) => c.status === 'fail').length;
-
-  // Determine overall status and exit code
-  let status: HealthStatus = 'pass';
-  let exitCode: 0 | 1 | 2 = 0;
-
-  if (failed > 0) {
-    status = 'fail';
-    exitCode = 2;
-  } else if (warnings > 0) {
-    status = 'warn';
-    exitCode = 1;
+  const envPath = process.env.AGENC_RUNTIME_CONFIG;
+  if (typeof envPath === 'string' && envPath.length > 0) {
+    return path.resolve(process.cwd(), envPath);
   }
+
+  return path.resolve(process.cwd(), DEFAULT_CONFIG_PATH);
+}
+
+export function aggregateHealthReport(checks: HealthCheckResult[]): HealthReport {
+  const hasErrors = checks.some((check) => check.status === 'fail');
+  const hasWarnings = checks.some((check) => check.status === 'warn');
+  const status: HealthReport['status'] = hasErrors ? 'unhealthy' : hasWarnings ? 'degraded' : 'healthy';
+  const exitCode: 0 | 1 | 2 = hasErrors ? 2 : hasWarnings ? 1 : 0;
 
   return {
     status,
+    checks,
     timestamp: new Date().toISOString(),
     exitCode,
-    checks,
-    summary: {
-      total: checks.length,
-      passed,
-      warnings,
-      failed,
-    },
   };
 }
 
-/**
- * Callback for doctor fix suggestions.
- */
-export type DoctorFixCallback = (checkId: string, remediation: string) => void;
+export async function checkRpcReachability(
+  rpcUrl: string | undefined,
+  checks: HealthCheckResult[],
+): Promise<boolean> {
+  if (!rpcUrl) {
+    checks.push({
+      id: 'rpc.configured',
+      category: 'rpc',
+      status: 'fail',
+      message: 'No RPC URL configured',
+      remediation: 'Set --rpc or AGENC_RUNTIME_RPC_URL or rpcUrl in config file',
+    });
+    return false;
+  }
 
-/**
- * Run doctor checks with optional fix suggestions.
- * Note: The fix option logs remediation suggestions but does not execute automatic fixes.
- * Use the onFix callback to handle fix suggestions programmatically.
- */
-export async function runDoctorChecks(
+  try {
+    const start = Date.now();
+    const connection = new Connection(rpcUrl);
+    await connection.getSlot();
+    checks.push({
+      id: 'rpc.reachable',
+      category: 'rpc',
+      status: 'pass',
+      message: `RPC at ${rpcUrl} is reachable`,
+      durationMs: Date.now() - start,
+    });
+    return true;
+  } catch (error) {
+    checks.push({
+      id: 'rpc.reachable',
+      category: 'rpc',
+      status: 'fail',
+      message: `RPC at ${rpcUrl} is unreachable: ${error instanceof Error ? error.message : String(error)}`,
+      remediation: 'Check RPC URL and network connectivity',
+    });
+    return false;
+  }
+}
+
+async function checkRpcLatency(rpcUrl: string | undefined, checks: HealthCheckResult[]): Promise<void> {
+  if (!rpcUrl) {
+    checks.push({
+      id: 'rpc.latency',
+      category: 'rpc',
+      status: 'warn',
+      message: 'RPC latency check skipped (no RPC configured)',
+    });
+    return;
+  }
+
+  try {
+    const start = Date.now();
+    const connection = new Connection(rpcUrl);
+    await connection.getSlot();
+    checks.push({
+      id: 'rpc.latency',
+      category: 'rpc',
+      status: 'pass',
+      message: 'RPC latency sample collected',
+      durationMs: Date.now() - start,
+    });
+  } catch (error) {
+    checks.push({
+      id: 'rpc.latency',
+      category: 'rpc',
+      status: 'warn',
+      message: `RPC latency check skipped (RPC unreachable): ${error instanceof Error ? error.message : String(error)}`,
+    });
+  }
+}
+
+export function checkReplayStore(
+  options: { storeType: 'memory' | 'sqlite'; sqlitePath?: string },
+  checks: HealthCheckResult[],
+): void {
+  if (options.storeType === 'sqlite') {
+    const sqlitePath = options.sqlitePath ?? DEFAULT_SQLITE_REPLAY_PATH;
+    const absoluteSqlitePath = path.resolve(process.cwd(), sqlitePath);
+    const parentDir = path.dirname(absoluteSqlitePath);
+    if (!existsSync(parentDir)) {
+      checks.push({
+        id: 'store.directory',
+        category: 'store',
+        status: 'fail',
+        message: `SQLite parent directory ${parentDir} does not exist`,
+        remediation: `Run: mkdir -p ${parentDir}`,
+      });
+      return;
+    }
+
+    checks.push({
+      id: 'store.sqlite',
+      category: 'store',
+      status: 'pass',
+      message: `SQLite store path ${absoluteSqlitePath} is accessible`,
+    });
+    return;
+  }
+
+  checks.push({
+    id: 'store.memory',
+    category: 'store',
+    status: 'pass',
+    message: 'In-memory store configured (no persistence)',
+  });
+}
+
+async function checkStoreIntegrity(
+  options: { storeType: 'memory' | 'sqlite'; sqlitePath?: string },
+  checks: HealthCheckResult[],
+): Promise<void> {
+  if (options.storeType !== 'sqlite') {
+    checks.push({
+      id: 'store.integrity',
+      category: 'store',
+      status: 'pass',
+      message: 'Store integrity check not applicable (memory store)',
+    });
+    return;
+  }
+
+  const sqlitePath = options.sqlitePath ?? DEFAULT_SQLITE_REPLAY_PATH;
+  const absoluteSqlitePath = path.resolve(process.cwd(), sqlitePath);
+  const parentDir = path.dirname(absoluteSqlitePath);
+  if (!existsSync(parentDir)) {
+    checks.push({
+      id: 'store.integrity',
+      category: 'store',
+      status: 'warn',
+      message: 'Store integrity check skipped (SQLite directory missing)',
+      remediation: `Run: mkdir -p ${parentDir}`,
+    });
+    return;
+  }
+
+  try {
+    const start = Date.now();
+    const mod = await import('better-sqlite3');
+    const Database = (mod.default ?? mod) as unknown as new (...args: unknown[]) => any;
+    const db = new Database(absoluteSqlitePath);
+    try {
+      const result = db.pragma('integrity_check', { simple: true }) as string;
+      const passed = result === 'ok';
+      checks.push({
+        id: 'store.integrity',
+        category: 'store',
+        status: passed ? 'pass' : 'fail',
+        message: passed ? 'SQLite integrity check passed' : `SQLite integrity check failed: ${result}`,
+        remediation: passed ? undefined : 'Consider backing up and recreating the SQLite store',
+        durationMs: Date.now() - start,
+      });
+    } finally {
+      db.close();
+    }
+  } catch (error) {
+    checks.push({
+      id: 'store.integrity',
+      category: 'store',
+      status: 'fail',
+      message: `SQLite integrity check failed: ${error instanceof Error ? error.message : String(error)}`,
+      remediation: 'Ensure better-sqlite3 is installed and the SQLite path is writable',
+    });
+  }
+}
+
+export async function checkWalletAvailability(checks: HealthCheckResult[]): Promise<boolean> {
+  const defaultKeyPath = path.join(os.homedir(), '.config', 'solana', 'id.json');
+  const envKeyPath = process.env.SOLANA_KEYPAIR_PATH;
+  const keyPath = (typeof envKeyPath === 'string' && envKeyPath.length > 0) ? envKeyPath : defaultKeyPath;
+
+  if (!existsSync(keyPath)) {
+    checks.push({
+      id: 'wallet.exists',
+      category: 'wallet',
+      status: 'warn',
+      message: `Keypair not found at ${keyPath}`,
+      remediation: 'Run: solana-keygen new',
+    });
+    return false;
+  }
+
+  checks.push({
+    id: 'wallet.exists',
+    category: 'wallet',
+    status: 'pass',
+    message: `Keypair found at ${keyPath}`,
+  });
+
+  return true;
+}
+
+export function checkProgramAvailability(programId: string | undefined, checks: HealthCheckResult[]): void {
+  if (programId === undefined) {
+    checks.push({
+      id: 'program.id',
+      category: 'program',
+      status: 'pass',
+      message: 'Program id not configured (using SDK default)',
+    });
+  } else {
+    try {
+      // PublicKey constructor validates base58 and byte length.
+      new PublicKey(programId);
+      checks.push({
+        id: 'program.id',
+        category: 'program',
+        status: 'pass',
+        message: `Program id ${programId} is valid`,
+      });
+    } catch (error) {
+      checks.push({
+        id: 'program.id',
+        category: 'program',
+        status: 'fail',
+        message: `Program id is invalid: ${error instanceof Error ? error.message : String(error)}`,
+        remediation: 'Set --program-id to a valid base58 public key',
+      });
+    }
+  }
+
+  try {
+    validateIdl();
+    checks.push({
+      id: 'capability.idl',
+      category: 'capability',
+      status: 'pass',
+      message: 'Program IDL is available',
+    });
+  } catch (error) {
+    checks.push({
+      id: 'capability.idl',
+      category: 'capability',
+      status: 'fail',
+      message: `Program IDL validation failed: ${error instanceof Error ? error.message : String(error)}`,
+      remediation: 'Run: anchor build',
+    });
+  }
+}
+
+export function checkConfigValidity(configPath: string | undefined, checks: HealthCheckResult[]): void {
+  const resolvedPath = resolveConfigPath(configPath);
+  if (!existsSync(resolvedPath)) {
+    checks.push({
+      id: 'config.exists',
+      category: 'config',
+      status: 'warn',
+      message: `Config file not found at ${resolvedPath}`,
+      remediation: 'Run: agenc-runtime onboard',
+    });
+    return;
+  }
+
+  try {
+    const raw = readFileSync(resolvedPath, 'utf8');
+    const parsed = JSON.parse(raw) as unknown;
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+      checks.push({
+        id: 'config.valid',
+        category: 'config',
+        status: 'fail',
+        message: `Config file at ${resolvedPath} must be a JSON object`,
+        remediation: 'Fix the config file or regenerate via agenc-runtime onboard',
+      });
+      return;
+    }
+
+    const validation = validateConfigStrict(parsed as Record<string, unknown>, false);
+    if (!validation.valid) {
+      checks.push({
+        id: 'config.valid',
+        category: 'config',
+        status: 'fail',
+        message: `Config validation failed: ${validation.errors.map(e => e.message).join('; ')}`,
+        remediation: 'Fix the config file or regenerate via agenc-runtime onboard',
+      });
+      return;
+    }
+
+    checks.push({
+      id: 'config.valid',
+      category: 'config',
+      status: 'pass',
+      message: `Config file at ${resolvedPath} is valid`,
+    });
+  } catch (error) {
+    checks.push({
+      id: 'config.valid',
+      category: 'config',
+      status: 'fail',
+      message: `Config file at ${resolvedPath} is unreadable: ${error instanceof Error ? error.message : String(error)}`,
+      remediation: 'Fix the config file or regenerate via agenc-runtime onboard',
+    });
+  }
+}
+
+export async function runAllHealthChecks(
+  options: Pick<HealthOptions, 'rpcUrl' | 'programId' | 'storeType' | 'sqlitePath' | 'deep' | 'configPath'>,
+  checks: HealthCheckResult[],
+): Promise<void> {
+  const rpcReachable = await checkRpcReachability(options.rpcUrl, checks);
+  checkReplayStore({ storeType: options.storeType, sqlitePath: options.sqlitePath }, checks);
+  await checkWalletAvailability(checks);
+  checkProgramAvailability(options.programId, checks);
+  checkConfigValidity(options.configPath, checks);
+
+  if (options.deep) {
+    if (rpcReachable) {
+      await checkRpcLatency(options.rpcUrl, checks);
+    } else {
+      checks.push({
+        id: 'rpc.latency',
+        category: 'rpc',
+        status: 'warn',
+        message: 'RPC latency check skipped (RPC unreachable)',
+      });
+    }
+
+    await checkStoreIntegrity({ storeType: options.storeType, sqlitePath: options.sqlitePath }, checks);
+  }
+}
+
+async function attemptAutoFix(check: HealthCheckResult, options: DoctorOptions): Promise<boolean> {
+  if (check.id === 'store.directory' && options.storeType === 'sqlite') {
+    const sqlitePath = options.sqlitePath ?? DEFAULT_SQLITE_REPLAY_PATH;
+    const absoluteSqlitePath = path.resolve(process.cwd(), sqlitePath);
+    const parentDir = path.dirname(absoluteSqlitePath);
+    try {
+      await mkdir(parentDir, { recursive: true });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  return false;
+}
+
+export async function runHealthCommand(
+  context: CliRuntimeContext,
+  options: HealthOptions,
+): Promise<0 | 1 | 2> {
+  const checks: HealthCheckResult[] = [];
+  await runAllHealthChecks(
+    {
+      rpcUrl: options.rpcUrl,
+      programId: options.programId,
+      storeType: options.storeType,
+      sqlitePath: options.sqlitePath,
+      deep: options.deep,
+      configPath: options.configPath,
+    },
+    checks,
+  );
+
+  const report = aggregateHealthReport(checks);
+
+  context.output({
+    status: 'ok',
+    command: 'health',
+    report,
+  });
+
+  return report.exitCode;
+}
+
+export async function runDoctorCommand(
+  context: CliRuntimeContext,
   options: DoctorOptions,
-  onFix?: DoctorFixCallback,
-): Promise<HealthReport> {
-  const report = await runHealthChecks(options);
+): Promise<0 | 1 | 2> {
+  const checks: HealthCheckResult[] = [];
+
+  await runAllHealthChecks(
+    {
+      rpcUrl: options.rpcUrl,
+      programId: options.programId,
+      storeType: options.storeType,
+      sqlitePath: options.sqlitePath,
+      deep: options.deep,
+      configPath: options.configPath,
+    },
+    checks,
+  );
 
   if (options.fix) {
-    // Output remediation suggestions for failed checks
-    for (const check of report.checks) {
-      if (check.status === 'fail' && check.remediation) {
-        if (onFix) {
-          onFix(check.id, check.remediation);
-        }
+    for (const check of checks) {
+      if (check.status !== 'fail') {
+        continue;
+      }
+
+      const fixed = await attemptAutoFix(check, options);
+      if (fixed) {
+        check.status = 'pass';
+        check.message += ' (auto-fixed)';
       }
     }
   }
 
-  return report;
-}
+  const report = aggregateHealthReport(checks);
+  const recommendations = checks
+    .filter((check) => check.status !== 'pass')
+    .map((check) => ({
+      id: check.id,
+      status: check.status,
+      remediation: check.remediation ?? 'No auto-fix available',
+    }));
 
-/**
- * Format health report for CLI output.
- */
-export function formatHealthReport(report: HealthReport, format: 'json' | 'table'): string {
-  if (format === 'json') {
-    return JSON.stringify(report, null, 2);
-  }
+  context.output({
+    status: 'ok',
+    command: 'doctor',
+    report,
+    recommendations,
+  });
 
-  const lines: string[] = [];
-  lines.push(`Health Report - ${report.timestamp}`);
-  lines.push(`Status: ${report.status.toUpperCase()}`);
-  lines.push('');
-
-  for (const check of report.checks) {
-    const icon = check.status === 'pass' ? '[OK]' : check.status === 'warn' ? '[WARN]' : '[FAIL]';
-    lines.push(`${icon} ${check.id}: ${check.message}`);
-    if (check.remediation && check.status !== 'pass') {
-      lines.push(`    Fix: ${check.remediation}`);
-    }
-  }
-
-  lines.push('');
-  lines.push(`Summary: ${report.summary.passed} passed, ${report.summary.warnings} warnings, ${report.summary.failed} failed`);
-
-  return lines.join('\n');
+  return report.exitCode;
 }
