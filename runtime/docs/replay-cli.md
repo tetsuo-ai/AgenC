@@ -59,6 +59,8 @@ agenc-runtime replay incident \
   --sqlite-path .agenc/replay-events.sqlite
 ```
 
+Role enforcement is opt-in. Provide `--role read|investigate|execute|admin` to enforce the incident permission matrix.
+
 You can also provide a structured analyst query DSL:
 
 ```bash

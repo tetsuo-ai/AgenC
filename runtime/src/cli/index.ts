@@ -56,6 +56,17 @@ import {
 } from '../eval/query-dsl.js';
 import { buildIncidentCase } from '../eval/incident-case.js';
 import { buildEvidencePack, serializeEvidencePack } from '../eval/evidence-pack.js';
+import {
+  enforceRole,
+  IncidentRoleViolationError,
+  type IncidentCommandCategory,
+  type OperatorRole,
+} from '../policy/incident-roles.js';
+import {
+  InMemoryAuditTrail,
+  computeInputHash,
+  computeOutputHash,
+} from '../policy/audit-trail.js';
 import type { PluginManifest } from '../skills/manifest.js';
 import { bigintReplacer, safeStringify } from '../tools/types.js';
 
@@ -129,6 +140,7 @@ const GLOBAL_OPTIONS = new Set([
   'output',
   'output-format',
   'strict-mode',
+  'role',
   'rpc',
   'program-id',
   'trace-id',
@@ -251,6 +263,7 @@ function buildHelp(): string {
     '  -h, --help                               Show this usage',
     '      --output, --output-format json|jsonl|table  Response output format',
     '      --strict-mode                         Enable strict validation',
+    '      --role <role>                         Operator role (read|investigate|execute|admin)',
     '      --rpc                                 RPC endpoint',
     '      --program-id                          Program id',
     '      --trace-id                            Trace id',
@@ -528,6 +541,7 @@ function validateUnknownOptions(
 function normalizeGlobalFlags(flags: ParsedArgv['flags'], fileConfig: CliFileConfig, envConfig: CliFileConfig): {
   outputFormat: CliOutputFormat;
   strictMode: boolean;
+  role?: OperatorRole;
   rpcUrl?: string;
   programId?: string;
   storeType: 'memory' | 'sqlite';
@@ -543,6 +557,7 @@ function normalizeGlobalFlags(flags: ParsedArgv['flags'], fileConfig: CliFileCon
       flags.output ?? flags['output-format'] ?? envConfig.outputFormat ?? fileConfig.outputFormat,
     ),
     strictMode: normalizeBool(flags['strict-mode'], envConfig.strictMode ?? configStrictMode ?? false),
+    role: parseOperatorRole(flags.role),
     rpcUrl: parseOptionalString(flags.rpc ?? fileConfig.rpcUrl ?? envConfig.rpcUrl),
     programId: parseOptionalString(flags['program-id'] ?? fileConfig.programId ?? envConfig.programId),
     storeType: normalizeStoreType(flags['store-type'] ?? envConfig.storeType ?? fileConfig.storeType),
@@ -565,6 +580,19 @@ function validateReplayCommand(name: string): name is ReplayCommand {
 
 function validatePluginCommand(name: string): name is PluginCommand {
   return name === 'list' || name === 'install' || name === 'disable' || name === 'enable' || name === 'reload';
+}
+
+function parseOperatorRole(value: unknown): OperatorRole | undefined {
+  const raw = parseOptionalString(value);
+  if (raw === undefined) {
+    return undefined;
+  }
+
+  if (raw === 'read' || raw === 'investigate' || raw === 'execute' || raw === 'admin') {
+    return raw;
+  }
+
+  throw createCliError('--role must be one of: read, investigate, execute, admin', ERROR_CODES.INVALID_VALUE);
 }
 
 function parsePluginPrecedence(value: unknown): PluginPrecedence {
@@ -603,6 +631,7 @@ function makePluginOptionsBase(
     help: global.help,
     outputFormat: global.outputFormat,
     strictMode: global.strictMode,
+    role: global.role,
     rpcUrl: global.rpcUrl,
     programId: global.programId,
     storeType: global.storeType,
@@ -904,6 +933,7 @@ interface PluginParseReport {
     help: boolean;
     strictMode: boolean;
     outputFormat: CliOutputFormat;
+    role?: OperatorRole;
     rpcUrl?: string;
     programId?: string;
     storeType: 'memory' | 'sqlite';
@@ -957,6 +987,7 @@ function normalizeAndValidate(
     help: global.help,
     outputFormat: global.outputFormat,
     strictMode: global.strictMode,
+    role: global.role,
     rpcUrl: global.rpcUrl,
     programId: global.programId,
     storeType: global.storeType,
@@ -981,6 +1012,7 @@ function normalizeAndValidate(
       help: global.help,
       strictMode: common.strictMode,
       outputFormat: common.outputFormat,
+      role: common.role,
       rpcUrl: common.rpcUrl,
       programId: common.programId,
       storeType: common.storeType,
@@ -1035,6 +1067,7 @@ function normalizeAndValidatePluginCommand(
     help: global.help,
     outputFormat: global.outputFormat,
     strictMode: global.strictMode,
+    role: global.role,
     rpcUrl: global.rpcUrl,
     programId: global.programId,
     storeType: global.storeType,
@@ -1064,6 +1097,7 @@ function normalizeAndValidatePluginCommand(
       help: common.help,
       strictMode: common.strictMode,
       outputFormat: common.outputFormat,
+      role: common.role,
       rpcUrl: common.rpcUrl,
       programId: common.programId,
       storeType: common.storeType,
@@ -1168,12 +1202,75 @@ export async function runCli(options: CliRunOptions = {}): Promise<CliStatusCode
   }
 
   const commandDescriptor = COMMANDS[report.replayCommand];
+  const role = report.options.role;
+  const commandCategory: IncidentCommandCategory = report.replayCommand === 'backfill'
+    ? 'replay.backfill'
+    : report.replayCommand === 'compare'
+      ? 'replay.compare'
+      : 'replay.incident';
+
+  const auditTrail = role ? new InMemoryAuditTrail() : null;
+  let capturedOutput: unknown;
+  let capturedError: unknown;
+
+  if (role) {
+    const originalOutput = commandContext.output;
+    const originalError = commandContext.error;
+
+    commandContext.output = (value) => {
+      capturedOutput = value;
+      originalOutput(value);
+    };
+
+    commandContext.error = (value) => {
+      capturedError = value;
+      originalError(value);
+    };
+  }
 
   try {
-    return await commandDescriptor.run(commandContext, report.options);
+    if (role) {
+      try {
+        enforceRole(role, commandCategory);
+      } catch (error) {
+        if (error instanceof IncidentRoleViolationError) {
+          throw createCliError(error.message, ERROR_CODES.INVALID_VALUE);
+        }
+        throw error;
+      }
+    }
+
+    const status = await commandDescriptor.run(commandContext, report.options);
+
+    if (role && auditTrail) {
+      const outputValue = capturedOutput ?? { status };
+      auditTrail.append({
+        timestamp: new Date().toISOString(),
+        actor: process.env.USER ?? 'unknown',
+        role,
+        action: commandCategory,
+        inputHash: computeInputHash(report.options),
+        outputHash: computeOutputHash(outputValue),
+      });
+    }
+
+    return status;
   } catch (error) {
     const payload = buildErrorPayload(error);
     commandContext.error(payload);
+
+    if (role && auditTrail) {
+      const outputValue = capturedError ?? payload;
+      auditTrail.append({
+        timestamp: new Date().toISOString(),
+        actor: process.env.USER ?? 'unknown',
+        role,
+        action: commandCategory,
+        inputHash: computeInputHash(report.options),
+        outputHash: computeOutputHash(outputValue),
+      });
+    }
+
     const isUsageError = (payload.code === ERROR_CODES.INVALID_OPTION
       || payload.code === ERROR_CODES.INVALID_VALUE
       || payload.code === ERROR_CODES.MISSING_REQUIRED_OPTION

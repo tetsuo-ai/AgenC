@@ -1,4 +1,13 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import {
+  InMemoryAuditTrail,
+  computeInputHash,
+  computeOutputHash,
+  enforceRole,
+  IncidentRoleViolationError,
+  type IncidentCommandCategory,
+  type OperatorRole,
+} from '@agenc/runtime';
 import { registerAgentTools } from './tools/agents.js';
 import { registerTaskTools } from './tools/tasks.js';
 import { registerProtocolTools } from './tools/protocol.js';
@@ -10,11 +19,108 @@ import { registerInspectorTools } from './tools/inspector.js';
 import { registerReplayTools } from './tools/replay.js';
 import { registerPrompts } from './prompts/register.js';
 
+function parseOperatorRole(value: string | undefined): OperatorRole | null {
+  if (!value) {
+    return null;
+  }
+
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'read' || normalized === 'investigate' || normalized === 'execute' || normalized === 'admin') {
+    return normalized;
+  }
+
+  throw new Error(`MCP_OPERATOR_ROLE must be one of: read, investigate, execute, admin (got: ${value})`);
+}
+
+function commandCategoryForTool(name: string): IncidentCommandCategory | null {
+  if (name === 'agenc_replay_backfill') return 'replay.backfill';
+  if (name === 'agenc_replay_compare') return 'replay.compare';
+  if (name === 'agenc_replay_incident') return 'replay.incident';
+  return null;
+}
+
+function actorIdFromExtra(extra: unknown): string {
+  const record = extra as { authInfo?: { clientId?: string }; sessionId?: string } | null;
+  const clientId = record?.authInfo?.clientId;
+  if (typeof clientId === 'string' && clientId.length > 0) {
+    return clientId;
+  }
+  const sessionId = record?.sessionId;
+  if (typeof sessionId === 'string' && sessionId.length > 0) {
+    return `session:${sessionId}`;
+  }
+  return 'anonymous';
+}
+
 export function createServer(): McpServer {
   const server = new McpServer({
     name: 'AgenC Protocol Tools',
     version: '0.1.0',
   });
+
+  const operatorRole = parseOperatorRole(process.env.MCP_OPERATOR_ROLE);
+  if (operatorRole) {
+    const auditTrail = new InMemoryAuditTrail();
+    const originalTool = server.tool.bind(server) as (...args: unknown[]) => unknown;
+
+    // Wrap tool handlers for role enforcement + audit trail recording.
+    // Opt-in: only enabled when MCP_OPERATOR_ROLE is set.
+    (server as unknown as { tool: (...args: unknown[]) => unknown }).tool = (...args: unknown[]) => {
+      const name = args[0];
+      const handler = args[args.length - 1];
+      if (typeof name !== 'string' || typeof handler !== 'function') {
+        return originalTool(...args);
+      }
+
+      const category = commandCategoryForTool(name);
+      if (!category) {
+        return originalTool(...args);
+      }
+
+      const wrappedHandler = async (...handlerArgs: unknown[]) => {
+        const toolArgs = handlerArgs[0];
+        const extra = handlerArgs[1];
+        const actor = actorIdFromExtra(extra);
+        const timestamp = new Date().toISOString();
+        const inputHash = computeInputHash(toolArgs);
+
+        try {
+          enforceRole(operatorRole, category);
+        } catch (error) {
+          if (error instanceof IncidentRoleViolationError) {
+            const denied = {
+              content: [{ type: 'text' as const, text: `Error: ${error.message}` }],
+            };
+            auditTrail.append({
+              timestamp,
+              actor,
+              role: operatorRole,
+              action: category,
+              inputHash,
+              outputHash: computeOutputHash(denied),
+            });
+            return denied;
+          }
+          throw error;
+        }
+
+        const result = await (handler as (...innerArgs: unknown[]) => unknown)(...handlerArgs);
+        auditTrail.append({
+          timestamp,
+          actor,
+          role: operatorRole,
+          action: category,
+          inputHash,
+          outputHash: computeOutputHash(result),
+        });
+        return result;
+      };
+
+      const forwarded = [...args];
+      forwarded[forwarded.length - 1] = wrappedHandler;
+      return originalTool(...forwarded);
+    };
+  }
 
   // Register all tool modules
   registerConnectionTools(server);
