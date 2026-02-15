@@ -483,6 +483,15 @@ export {
   // Fallback provider
   FallbackLLMProvider,
   type FallbackChainConfig,
+  // Chat Executor (Phase 1.11)
+  ChatExecutor,
+  ChatBudgetExceededError,
+  type ChatExecutorConfig,
+  type ChatExecuteParams,
+  type ChatExecutorResult,
+  type ToolCallRecord,
+  type SkillInjector,
+  type MemoryRetriever,
   // Provider adapters
   GrokProvider,
   type GrokProviderConfig,
