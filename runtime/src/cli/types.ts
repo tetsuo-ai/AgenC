@@ -44,6 +44,7 @@ export interface ReplayCompareOptions extends BaseCliOptions {
   localTracePath?: string;
   taskPda?: string;
   disputePda?: string;
+  redactFields?: string[];
 }
 
 export interface ReplayIncidentOptions extends BaseCliOptions {
@@ -51,6 +52,7 @@ export interface ReplayIncidentOptions extends BaseCliOptions {
   disputePda?: string;
   fromSlot?: number;
   toSlot?: number;
+  redactFields?: string[];
 }
 
 export interface PluginListOptions extends BaseCliOptions {}

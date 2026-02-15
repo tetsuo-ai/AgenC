@@ -23,6 +23,7 @@ import {
   type ReplayAlertingPolicyOptions,
 } from './alerting.js';
 import { computeProjectionHash } from './types.js';
+import { extractDisputePdaFromPayload } from './pda-utils.js';
 import {
   buildReplayTraceContext,
   DEFAULT_TRACE_SAMPLE_RATE,
@@ -159,6 +160,7 @@ function toReplayStoreRecord(event: ProjectedTimelineEvent): ReplayTimelineRecor
     seq: event.seq,
     type: event.type,
     taskPda: event.taskPda,
+    disputePda: extractDisputePdaFromPayload(event.payload),
     timestampMs: event.timestampMs,
     payload: event.payload,
     slot: event.slot,

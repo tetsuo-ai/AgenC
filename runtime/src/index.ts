@@ -708,6 +708,9 @@ export {
   computeAnomalySetHash,
   computeAnomalySetHashFromContexts,
   REPLAY_OPERATIONAL_LIMITS,
+  normalizePdaValue,
+  normalizePdaString,
+  extractDisputePdaFromPayload,
 } from './replay/index.js';
 
 // Policy and Safety Engine
