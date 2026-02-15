@@ -59,6 +59,15 @@ agenc-runtime replay incident \
   --sqlite-path .agenc/replay-events.sqlite
 ```
 
+You can also provide a structured analyst query DSL:
+
+```bash
+agenc-runtime replay incident \
+  --query "taskPda=TaskPDA... slotRange=1000-2048 eventType=discovered" \
+  --store-type sqlite \
+  --sqlite-path .agenc/replay-events.sqlite
+```
+
 Successful output schema:
 
 - `status`: `ok`
