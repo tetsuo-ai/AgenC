@@ -103,14 +103,14 @@ describe('SessionManager', () => {
     await manager.appendMessage(session.id, msg('user', 'hello'));
     expect(session.history).toHaveLength(1);
 
-    manager.reset(session.id);
+    await manager.reset(session.id);
     expect(session.history).toEqual([]);
     expect(session.metadata.foo).toBe('bar');
   });
 
   it('destroy removes session completely', async () => {
     const session = await manager.getOrCreate(lookupParams());
-    manager.destroy(session.id);
+    await manager.destroy(session.id);
     expect(manager.get(session.id)).toBeUndefined();
     expect(manager.count).toBe(0);
   });
@@ -168,6 +168,7 @@ describe('SessionManager', () => {
     const summarizer = vi.fn().mockResolvedValue('This is a summary.');
     const sumManager = new SessionManager(
       defaultConfig({ compaction: 'summarize' }),
+      undefined,
       summarizer,
     );
     const session = await sumManager.getOrCreate(lookupParams());
@@ -286,5 +287,120 @@ describe('SessionManager', () => {
     // Group uses 'main' scope override — same session
     expect(groupSession.id).toBe(groupOther.id);
     expect(dmSession.id).not.toBe(groupSession.id);
+  });
+
+  it('channel override takes precedence over scope override', async () => {
+    const precedenceManager = new SessionManager(
+      defaultConfig({
+        scope: 'per-channel-peer',
+        overrides: {
+          dm: { scope: 'per-peer' },
+        },
+        channelOverrides: {
+          telegram: { scope: 'main' },
+        },
+      }),
+    );
+
+    // Both dm scope override (per-peer) and telegram channel override (main)
+    // apply. Channel should win → scope is 'main'.
+    const a = await precedenceManager.getOrCreate(
+      lookupParams({ channel: 'telegram', scope: 'dm', senderId: 'user-1' }),
+    );
+    const b = await precedenceManager.getOrCreate(
+      lookupParams({ channel: 'telegram', scope: 'dm', senderId: 'user-2' }),
+    );
+
+    // If channel wins (main scope), same session for different senders
+    expect(a.id).toBe(b.id);
+  });
+
+  it('MemoryBackend persists messages via addEntry', async () => {
+    const mockBackend = {
+      name: 'mock',
+      addEntry: vi.fn().mockResolvedValue({ id: 'entry-1', sessionId: '', role: 'user', content: '', timestamp: 0 }),
+      getThread: vi.fn().mockResolvedValue([]),
+      deleteThread: vi.fn().mockResolvedValue(0),
+      listSessions: vi.fn().mockResolvedValue([]),
+      query: vi.fn(),
+      set: vi.fn(),
+      get: vi.fn(),
+      delete: vi.fn(),
+      has: vi.fn(),
+      listKeys: vi.fn(),
+      getDurability: vi.fn(),
+      flush: vi.fn(),
+      clear: vi.fn(),
+      close: vi.fn(),
+      healthCheck: vi.fn(),
+    };
+
+    const backendManager = new SessionManager(defaultConfig(), mockBackend);
+    const session = await backendManager.getOrCreate(lookupParams());
+    await backendManager.appendMessage(session.id, msg('user', 'hello'));
+
+    expect(mockBackend.addEntry).toHaveBeenCalledOnce();
+    expect(mockBackend.addEntry).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: session.id, role: 'user', content: 'hello' }),
+    );
+  });
+
+  it('MemoryBackend restores history on getOrCreate', async () => {
+    const mockBackend = {
+      name: 'mock',
+      addEntry: vi.fn(),
+      getThread: vi.fn().mockResolvedValue([
+        { id: 'e1', sessionId: 's1', role: 'user', content: 'restored', timestamp: 1 },
+        { id: 'e2', sessionId: 's1', role: 'assistant', content: 'reply', timestamp: 2 },
+      ]),
+      deleteThread: vi.fn().mockResolvedValue(0),
+      listSessions: vi.fn().mockResolvedValue([]),
+      query: vi.fn(),
+      set: vi.fn(),
+      get: vi.fn(),
+      delete: vi.fn(),
+      has: vi.fn(),
+      listKeys: vi.fn(),
+      getDurability: vi.fn(),
+      flush: vi.fn(),
+      clear: vi.fn(),
+      close: vi.fn(),
+      healthCheck: vi.fn(),
+    };
+
+    const backendManager = new SessionManager(defaultConfig(), mockBackend);
+    const session = await backendManager.getOrCreate(lookupParams());
+
+    expect(mockBackend.getThread).toHaveBeenCalledOnce();
+    expect(session.history).toHaveLength(2);
+    expect(session.history[0].content).toBe('restored');
+    expect(session.history[1].content).toBe('reply');
+  });
+
+  it('destroy deletes thread from MemoryBackend', async () => {
+    const mockBackend = {
+      name: 'mock',
+      addEntry: vi.fn(),
+      getThread: vi.fn().mockResolvedValue([]),
+      deleteThread: vi.fn().mockResolvedValue(0),
+      listSessions: vi.fn().mockResolvedValue([]),
+      query: vi.fn(),
+      set: vi.fn(),
+      get: vi.fn(),
+      delete: vi.fn(),
+      has: vi.fn(),
+      listKeys: vi.fn(),
+      getDurability: vi.fn(),
+      flush: vi.fn(),
+      clear: vi.fn(),
+      close: vi.fn(),
+      healthCheck: vi.fn(),
+    };
+
+    const backendManager = new SessionManager(defaultConfig(), mockBackend);
+    const session = await backendManager.getOrCreate(lookupParams());
+    await backendManager.destroy(session.id);
+
+    expect(mockBackend.deleteThread).toHaveBeenCalledWith(session.id);
   });
 });

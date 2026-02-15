@@ -10,6 +10,8 @@
 
 import { createHash } from 'node:crypto';
 import type { LLMMessage } from '../llm/types.js';
+import type { MemoryBackend, AddEntryOptions } from '../memory/types.js';
+import { entryToMessage, messageToEntryOptions } from '../memory/types.js';
 
 // ============================================================================
 // Types
@@ -136,16 +138,16 @@ function resolveConfig(
   base: SessionConfig,
   params: SessionLookupParams,
 ): SessionConfig {
-  // Channel override takes precedence
-  const channelOverride = base.channelOverrides?.[params.channel];
-  if (channelOverride) {
-    base = { ...base, ...channelOverride } as SessionConfig;
-  }
-
-  // Scope override
+  // Scope override applied first (lower precedence)
   const scopeOverride = base.overrides?.[params.scope];
   if (scopeOverride) {
     base = { ...base, ...scopeOverride } as SessionConfig;
+  }
+
+  // Channel override applied last (highest precedence)
+  const channelOverride = base.channelOverrides?.[params.channel];
+  if (channelOverride) {
+    base = { ...base, ...channelOverride } as SessionConfig;
   }
 
   return base;
@@ -167,9 +169,15 @@ export class SessionManager {
   >();
   private readonly config: SessionConfig;
   private readonly summarizer?: SummarizeCallback;
+  private readonly memoryBackend?: MemoryBackend;
 
-  constructor(config: SessionConfig, summarizer?: SummarizeCallback) {
+  constructor(
+    config: SessionConfig,
+    memoryBackend?: MemoryBackend,
+    summarizer?: SummarizeCallback,
+  ) {
     this.config = config;
+    this.memoryBackend = memoryBackend;
     this.summarizer = summarizer;
   }
 
@@ -184,10 +192,17 @@ export class SessionManager {
       return existing;
     }
 
+    // Try restoring from MemoryBackend
+    let history: LLMMessage[] = [];
+    if (this.memoryBackend) {
+      const entries = await this.memoryBackend.getThread(id);
+      history = entries.map(entryToMessage);
+    }
+
     const session: Session = {
       id,
       workspaceId: params.workspaceId,
-      history: [],
+      history,
       createdAt: Date.now(),
       lastActiveAt: Date.now(),
       metadata: {},
@@ -208,18 +223,24 @@ export class SessionManager {
   }
 
   /** Reset a session (clear history, keep metadata). */
-  reset(sessionId: string): void {
+  async reset(sessionId: string): Promise<void> {
     const session = this.sessions.get(sessionId);
     if (session) {
       session.history = [];
       session.lastActiveAt = Date.now();
+      if (this.memoryBackend) {
+        await this.memoryBackend.deleteThread(sessionId);
+      }
     }
   }
 
   /** Destroy a session completely. */
-  destroy(sessionId: string): void {
+  async destroy(sessionId: string): Promise<void> {
     this.sessions.delete(sessionId);
     this.sessionMeta.delete(sessionId);
+    if (this.memoryBackend) {
+      await this.memoryBackend.deleteThread(sessionId);
+    }
   }
 
   /** Append a message to session history, triggering compaction if needed. */
@@ -229,6 +250,13 @@ export class SessionManager {
 
     session.history.push(message);
     session.lastActiveAt = Date.now();
+
+    // Persist to MemoryBackend
+    if (this.memoryBackend) {
+      await this.memoryBackend.addEntry(
+        messageToEntryOptions(message, sessionId) as AddEntryOptions,
+      );
+    }
 
     const maxHistory = this.config.maxHistoryLength ?? DEFAULT_MAX_HISTORY;
     if (session.history.length > maxHistory) {
