@@ -84,6 +84,21 @@ export {
 } from './replay-comparison.js';
 
 export {
+  INCIDENT_CASE_SCHEMA_VERSION,
+  buildIncidentCase,
+  computeEvidenceHash,
+  type BuildIncidentCaseInput,
+  type IncidentActor,
+  type IncidentActorRole,
+  type IncidentAnomalyRef,
+  type IncidentCase,
+  type IncidentCaseStatus,
+  type IncidentEvidenceHash,
+  type IncidentTraceWindow,
+  type IncidentTransition,
+} from './incident-case.js';
+
+export {
   BENCHMARK_MANIFEST_SCHEMA_VERSION,
   parseBenchmarkManifest,
   loadBenchmarkManifest,
