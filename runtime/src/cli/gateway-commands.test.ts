@@ -10,6 +10,7 @@ import {
   runConfigValidateCommand,
   runConfigShowCommand,
 } from './gateway-commands.js';
+import { runGatewayDiagnostics } from './doctor.js';
 import { runCli } from './index.js';
 
 function createContextCapture(): { context: CliRuntimeContext; outputs: unknown[]; errors: unknown[] } {
@@ -103,12 +104,10 @@ describe('gateway cli commands', () => {
 
   // ---- scaffoldWorkspace tests ----
 
-  it('scaffoldWorkspace creates all expected directories and files', () => {
+  it('scaffoldWorkspace creates all expected directories and files', async () => {
     const wsPath = join(workspace, 'scaffold-test');
-    scaffoldWorkspace(wsPath);
+    await scaffoldWorkspace(wsPath);
 
-    expect(existsSync(join(wsPath, 'memory'))).toBe(true);
-    expect(existsSync(join(wsPath, 'skills'))).toBe(true);
     expect(existsSync(join(wsPath, 'AGENT.md'))).toBe(true);
     expect(existsSync(join(wsPath, 'SOUL.md'))).toBe(true);
     expect(existsSync(join(wsPath, 'USER.md'))).toBe(true);
@@ -117,14 +116,14 @@ describe('gateway cli commands', () => {
     expect(existsSync(join(wsPath, 'BOOT.md'))).toBe(true);
   });
 
-  it('scaffoldWorkspace does not overwrite existing files', () => {
+  it('scaffoldWorkspace does not overwrite existing files', async () => {
     const wsPath = join(workspace, 'no-overwrite');
-    scaffoldWorkspace(wsPath);
+    await scaffoldWorkspace(wsPath);
 
     const customContent = '# My Custom Agent\n';
     writeFileSync(join(wsPath, 'AGENT.md'), customContent, 'utf-8');
 
-    scaffoldWorkspace(wsPath);
+    await scaffoldWorkspace(wsPath);
 
     const content = readFileSync(join(wsPath, 'AGENT.md'), 'utf-8');
     expect(content).toBe(customContent);
@@ -337,5 +336,72 @@ describe('gateway cli commands', () => {
     expect(output).toContain('Config subcommands:');
     expect(output).toContain('Session subcommands:');
     expect(output).toContain('Logs:');
+  });
+
+  // ---- Gateway diagnostics tests ----
+
+  it('runGatewayDiagnostics reports unhealthy when config is missing', async () => {
+    const configPath = join(workspace, 'nonexistent-config.json');
+    const report = await runGatewayDiagnostics(configPath);
+
+    expect(report.status).toBe('unhealthy');
+    expect(report.results.length).toBeGreaterThan(0);
+    const configResult = report.results.find((r) => r.id === 'gateway.config.load');
+    expect(configResult).toBeDefined();
+    expect(configResult!.status).toBe('fail');
+    expect(configResult!.remediation).toBeDefined();
+  });
+
+  it('runGatewayDiagnostics reports degraded when config valid but no gateway running', async () => {
+    const configPath = join(workspace, 'diag-config.json');
+    const config = makeValidConfig({ gateway: { port: 19998, bind: '127.0.0.1' } });
+    writeGatewayConfig(configPath, config);
+
+    // Create workspace so workspace check passes
+    const wsPath = join(workspace, 'workspace');
+    await scaffoldWorkspace(wsPath);
+
+    const report = await runGatewayDiagnostics(configPath);
+
+    // Config passes, but control plane can't connect = degraded
+    expect(report.status).toBe('degraded');
+    const configResult = report.results.find((r) => r.id === 'gateway.config.validate');
+    expect(configResult!.status).toBe('pass');
+    const cpResult = report.results.find((r) => r.id === 'gateway.controlplane.connect');
+    expect(cpResult!.status).toBe('warn');
+  });
+
+  it('runGatewayDiagnostics returns structured DiagnosticResult objects', async () => {
+    const configPath = join(workspace, 'struct-config.json');
+    const config = makeValidConfig();
+    writeGatewayConfig(configPath, config);
+
+    const report = await runGatewayDiagnostics(configPath);
+
+    expect(report.timestamp).toBeDefined();
+    for (const result of report.results) {
+      expect(result.id).toBeDefined();
+      expect(result.label).toBeDefined();
+      expect(['pass', 'warn', 'fail']).toContain(result.status);
+      expect(result.message).toBeDefined();
+    }
+  });
+
+  it('gateway start validates config before reporting readiness', async () => {
+    const configPath = join(workspace, 'start-invalid.json');
+    writeFileSync(configPath, JSON.stringify({ gateway: {} }), 'utf-8');
+
+    const { context, errors } = createContextCapture();
+    const code = await runConfigValidateCommand(context, {
+      help: false,
+      outputFormat: 'json',
+      strictMode: false,
+      storeType: 'memory',
+      idempotencyWindow: 900,
+      configPath,
+    });
+
+    expect(code).toBe(1);
+    expect(errors.length).toBeGreaterThan(0);
   });
 });

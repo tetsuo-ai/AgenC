@@ -13,6 +13,7 @@ import {
   getDefaultConfigPath,
   validateGatewayConfig,
 } from '../gateway/config-watcher.js';
+import { scaffoldWorkspace as scaffoldWorkspaceFiles } from '../gateway/workspace-files.js';
 
 // ============================================================================
 // Types
@@ -34,20 +35,8 @@ export interface WizardResult {
   readonly diagnosticsPassed: boolean;
 }
 
-// ============================================================================
-// Default workspace files
-// ============================================================================
-
-const WORKSPACE_FILES: ReadonlyArray<{ name: string; content: string }> = [
-  { name: 'AGENT.md', content: '# Agent Profile\n\nDescribe the agent persona here.\n' },
-  { name: 'SOUL.md', content: '# Soul\n\nCore values and personality traits.\n' },
-  { name: 'USER.md', content: '# User Context\n\nUser preferences and context.\n' },
-  { name: 'TOOLS.md', content: '# Tools\n\nAvailable tool descriptions.\n' },
-  { name: 'HEARTBEAT.md', content: '# Heartbeat\n\nPeriodic status and reflection.\n' },
-  { name: 'BOOT.md', content: '# Boot Sequence\n\nStartup instructions and initialization steps.\n' },
-];
-
-const WORKSPACE_DIRS: readonly string[] = ['memory', 'skills'];
+// Workspace scaffolding is delegated to gateway/workspace-files.ts
+// to avoid duplication. See scaffoldWorkspaceFiles import above.
 
 // ============================================================================
 // Wizard steps
@@ -167,23 +156,11 @@ export function generateDefaultConfig(overrides?: Partial<GatewayConfig>): Gatew
 }
 
 // ============================================================================
-// Workspace scaffolding
+// Workspace scaffolding (delegates to gateway/workspace-files.ts)
 // ============================================================================
 
-export function scaffoldWorkspace(workspacePath: string): void {
-  mkdirSync(workspacePath, { recursive: true });
-
-  for (const dir of WORKSPACE_DIRS) {
-    const dirPath = join(workspacePath, dir);
-    mkdirSync(dirPath, { recursive: true });
-  }
-
-  for (const file of WORKSPACE_FILES) {
-    const filePath = join(workspacePath, file.name);
-    if (!existsSync(filePath)) {
-      writeFileSync(filePath, file.content, 'utf-8');
-    }
-  }
+export async function scaffoldWorkspace(workspacePath: string): Promise<void> {
+  await scaffoldWorkspaceFiles(workspacePath);
 }
 
 // ============================================================================
@@ -275,7 +252,7 @@ export async function runSetupWizard(options?: {
   writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf-8');
 
   // Scaffold workspace
-  scaffoldWorkspace(workspacePath);
+  await scaffoldWorkspace(workspacePath);
 
   // Run basic diagnostics
   const validation = validateGatewayConfig(config);

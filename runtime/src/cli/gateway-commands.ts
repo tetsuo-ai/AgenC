@@ -248,10 +248,10 @@ export async function runLogsCommand(
 }
 
 // ============================================================================
-// Control plane query helper
+// Control plane query helper (shared — also imported by sessions.ts)
 // ============================================================================
 
-function queryControlPlane(
+export function queryControlPlane(
   wsUrl: string,
   message: { type: string; id?: string },
   timeoutMs = 5000,
