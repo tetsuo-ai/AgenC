@@ -10,7 +10,7 @@ import {
   serializeEvidencePack,
   verifyEvidencePackIntegrity,
   parseEvidencePack,
-  applyRedaction,
+  applyEvidenceRedaction,
   computeToolFingerprint,
   EVIDENCE_PACK_SCHEMA_VERSION,
 } from './evidence-pack.js';
@@ -98,6 +98,21 @@ describe('Evidence Pack', () => {
       const pack = buildEvidencePack({ caseData, events, query, seed: 12345 });
 
       expect(pack.manifest.seed).toBe(12345);
+    });
+
+    it('uses provided manifest timestamp override', () => {
+      const events = createTestEvents();
+      const caseData = buildIncidentCase({ events });
+      const query = normalizeQuery({});
+
+      const pack = buildEvidencePack({
+        caseData,
+        events,
+        query,
+        timestamp: '2025-01-01T00:00:00.000Z',
+      });
+
+      expect(pack.manifest.timestamp).toBe('2025-01-01T00:00:00.000Z');
     });
 
     it('applies redaction when sealed', () => {
@@ -198,7 +213,7 @@ describe('Evidence Pack', () => {
     });
   });
 
-  describe('applyRedaction', () => {
+  describe('applyEvidenceRedaction', () => {
     it('removes specified fields', () => {
       const payload = {
         creator: 'Creator1111111111111111111111111111111111111',
@@ -206,7 +221,7 @@ describe('Evidence Pack', () => {
         data: 'public',
       };
 
-      const redacted = applyRedaction(payload, { removeFields: ['privateKey'] });
+      const redacted = applyEvidenceRedaction(payload, { removeFields: ['privateKey'] });
 
       expect(redacted.creator).toBeDefined();
       expect(redacted.data).toBe('public');
@@ -219,7 +234,7 @@ describe('Evidence Pack', () => {
         data: 'public',
       };
 
-      const redacted = applyRedaction(payload, { maskFields: ['signature'] });
+      const redacted = applyEvidenceRedaction(payload, { maskFields: ['signature'] });
 
       expect(redacted.signature).toBe('[REDACTED]');
       expect(redacted.data).toBe('public');
@@ -231,7 +246,7 @@ describe('Evidence Pack', () => {
         worker: 'Worker1111111111111111111111111111111111111',
       };
 
-      const redacted = applyRedaction(payload, { truncateActorKeys: 8 });
+      const redacted = applyEvidenceRedaction(payload, { truncateActorKeys: 8 });
 
       expect(redacted.creator).toBe('Creator1...');
       expect(redacted.worker).toBe('Worker11...');
@@ -242,7 +257,7 @@ describe('Evidence Pack', () => {
         signature: 'test_signature',
       };
 
-      const redacted = applyRedaction(payload, { maskFields: ['signature'], hashSignatures: true });
+      const redacted = applyEvidenceRedaction(payload, { maskFields: ['signature'], hashSignatures: true });
 
       expect(redacted.signature).toContain('[REDACTED:');
       expect(redacted.signature).not.toBe('[REDACTED]');
@@ -257,7 +272,7 @@ describe('Evidence Pack', () => {
         data: 'public',
       };
 
-      const redacted = applyRedaction(payload, {
+      const redacted = applyEvidenceRedaction(payload, {
         removeFields: ['privateKey'],
         truncateActorKeys: 8,
       });

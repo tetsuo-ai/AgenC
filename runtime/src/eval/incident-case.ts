@@ -249,23 +249,29 @@ function buildTransitions(events: ProjectedTimelineEvent[]): IncidentTransition[
   for (const event of sorted) {
     const payload = event.payload as JsonObject;
     const entityPda = event.taskPda || (payload.disputePda as string) || '';
+    const sourceEventName = event.sourceEventName.toLowerCase();
 
     // Determine state from event type
     let newState: string | null = null;
 
-    if (event.sourceEventName.includes('Created')) {
+    if (sourceEventName.includes('created')) {
       newState = 'created';
-    } else if (event.sourceEventName.includes('Claimed')) {
+    } else if (sourceEventName.includes('claimed')) {
       newState = 'claimed';
-    } else if (event.sourceEventName.includes('Completed')) {
+    } else if (sourceEventName.includes('completed')) {
       newState = 'completed';
-    } else if (event.sourceEventName.includes('Cancelled')) {
+    } else if (sourceEventName.includes('cancelled')) {
       newState = 'cancelled';
-    } else if (event.sourceEventName.includes('Disputed') || event.sourceEventName.includes('DisputeInitiated')) {
+    } else if (
+      sourceEventName.includes('disputed')
+      || sourceEventName.includes('disputeinitiated')
+      || sourceEventName.includes('dispute_initiated')
+      || sourceEventName.includes('dispute-initiated')
+    ) {
       newState = 'disputed';
-    } else if (event.sourceEventName.includes('Resolved')) {
+    } else if (sourceEventName.includes('resolved')) {
       newState = 'resolved';
-    } else if (event.sourceEventName.includes('Expired')) {
+    } else if (sourceEventName.includes('expired')) {
       newState = 'expired';
     }
 

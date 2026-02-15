@@ -193,6 +193,28 @@ describe('Incident Case Model', () => {
       expect(caseData.transitions[2].toState).toBe('completed');
     });
 
+    it('treats camelCase dispute event names as disputed transitions', () => {
+      const events: ProjectedTimelineEvent[] = [
+        ...createTestEvents().slice(0, 2),
+        {
+          seq: 4,
+          type: 'task_disputed',
+          taskPda: 'TaskPda111111111111111111111111111111111111',
+          timestampMs: 1700000003000,
+          payload: {
+            initiator: 'Creator1111111111111111111111111111111111111',
+          },
+          slot: 103,
+          signature: 'Sig4',
+          sourceEventName: 'disputeInitiated',
+          sourceEventSequence: 4,
+        },
+      ];
+
+      const caseData = buildIncidentCase({ events });
+      expect(caseData.transitions.at(-1)?.toState).toBe('disputed');
+    });
+
     it('filters by taskPda when provided', () => {
       const events = createTestEvents();
       const caseData = buildIncidentCase({

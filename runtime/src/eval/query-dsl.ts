@@ -75,11 +75,11 @@ export type QueryParseResult =
 
 /**
  * Validate base58 format for Solana public keys.
- * Valid Solana public keys are 43-44 base58 characters.
+ * Valid Solana public keys are 32-44 base58 characters.
  */
 function isValidBase58(value: string): boolean {
   const base58Regex = /^[123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+$/;
-  return base58Regex.test(value) && value.length >= 43 && value.length <= 44;
+  return base58Regex.test(value) && value.length >= 32 && value.length <= 44;
 }
 
 /**

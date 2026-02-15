@@ -78,11 +78,11 @@ function isValidRpcUrl(url: string): boolean {
 }
 
 /**
- * Validate program ID format (base58 Solana public key: 43-44 chars).
+ * Validate program ID format (base58 Solana public key: 32-44 chars).
  */
 function isValidProgramId(id: string): boolean {
   const base58Regex = /^[123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+$/;
-  return base58Regex.test(id) && id.length >= 43 && id.length <= 44;
+  return base58Regex.test(id) && id.length >= 32 && id.length <= 44;
 }
 
 /**

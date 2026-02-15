@@ -219,7 +219,7 @@ export {
   serializeEvidencePack,
   verifyEvidencePackIntegrity,
   parseEvidencePack,
-  applyRedaction,
+  applyEvidenceRedaction,
   computeToolFingerprint,
   type RedactionPolicy,
   type EvidencePackManifest,

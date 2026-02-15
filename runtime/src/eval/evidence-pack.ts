@@ -112,6 +112,8 @@ export interface BuildEvidencePackInput {
   runtimeVersion?: string;
   /** Random seed for reproducibility */
   seed?: number;
+  /** Manifest timestamp override for deterministic output */
+  timestamp?: string;
 }
 
 /**
@@ -126,10 +128,8 @@ function sha256(data: string): string {
  */
 export function computeToolFingerprint(runtimeVersion: string): string {
   const fingerprint = {
+    tool: 'agenc-runtime',
     runtime: runtimeVersion,
-    nodeVersion: process.version,
-    platform: process.platform,
-    arch: process.arch,
   };
   return sha256(JSON.stringify(fingerprint));
 }
@@ -138,7 +138,7 @@ export function computeToolFingerprint(runtimeVersion: string): string {
  * Apply redaction to a payload object.
  * Recursively handles nested objects and arrays.
  */
-export function applyRedaction(
+export function applyEvidenceRedaction(
   payload: JsonObject,
   policy: RedactionPolicy,
 ): JsonObject {
@@ -173,7 +173,7 @@ export function applyRedaction(
     if (Array.isArray(value)) {
       result[key] = value.map((item) => {
         if (typeof item === 'object' && item !== null && !Array.isArray(item)) {
-          return applyRedaction(item as JsonObject, policy);
+          return applyEvidenceRedaction(item as JsonObject, policy);
         }
         return item;
       });
@@ -182,7 +182,7 @@ export function applyRedaction(
 
     // Recurse into nested objects
     if (typeof value === 'object' && value !== null) {
-      result[key] = applyRedaction(value as JsonObject, policy);
+      result[key] = applyEvidenceRedaction(value as JsonObject, policy);
       continue;
     }
 
@@ -202,7 +202,7 @@ function redactEvents(
 ): ProjectedTimelineEvent[] {
   return events.map((event) => ({
     ...event,
-    payload: applyRedaction(event.payload, policy),
+    payload: applyEvidenceRedaction(event.payload, policy),
     signature: policy.hashSignatures
       ? `[REDACTED:${sha256(event.signature).substring(0, 16)}]`
       : event.signature,
@@ -234,7 +234,7 @@ function redactCaseData(
     actor: transition.actor && policy.truncateActorKeys && transition.actor.length > policy.truncateActorKeys
       ? transition.actor.substring(0, policy.truncateActorKeys) + '...'
       : transition.actor,
-    metadata: transition.metadata ? applyRedaction(transition.metadata, policy) : undefined,
+    metadata: transition.metadata ? applyEvidenceRedaction(transition.metadata, policy) : undefined,
   }));
 
   return {
@@ -256,6 +256,7 @@ export function buildEvidencePack(input: BuildEvidencePackInput): EvidencePack {
     redactionPolicy = DEFAULT_REDACTION_POLICY,
     runtimeVersion = '1.0.0',
     seed = Math.floor(Math.random() * 2147483647),
+    timestamp,
   } = input;
 
   // Apply redaction if sealed
@@ -286,7 +287,7 @@ export function buildEvidencePack(input: BuildEvidencePackInput): EvidencePack {
     schemaHash: sha256(`evidence-pack-v${EVIDENCE_PACK_SCHEMA_VERSION}`),
     toolFingerprint: computeToolFingerprint(runtimeVersion),
     sealed,
-    timestamp: new Date().toISOString(),
+    timestamp: timestamp ?? new Date().toISOString(),
     caseHash,
     eventsHash,
   };

@@ -101,6 +101,15 @@ describe('Query DSL', () => {
       }
     });
 
+    it('accepts 32-character base58 public keys', () => {
+      const key32 = '11111111111111111111111111111111';
+      const result = parseQueryDSL(`taskPda=${key32}`);
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.query.taskPda).toBe(key32);
+      }
+    });
+
     it('parses valid severity', () => {
       const result = parseQueryDSL('severity=error');
       expect(result.success).toBe(true);

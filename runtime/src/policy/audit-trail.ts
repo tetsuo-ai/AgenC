@@ -98,7 +98,7 @@ function computeEntryHash(entry: Omit<AuditEntry, 'entryHash'>): string {
     inputHash: entry.inputHash,
     outputHash: entry.outputHash,
     prevHash: entry.prevHash,
-    metadata: entry.metadata,
+    metadata: entry.metadata ?? null,
   };
   return sha256(JSON.stringify(canonical));
 }

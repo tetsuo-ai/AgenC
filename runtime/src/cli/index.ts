@@ -23,6 +23,8 @@ import {
 } from './types.js';
 import { validateConfigStrict } from '../types/config-migration.js';
 import { runSecurityCommand } from './security.js';
+import { runDoctorChecks, runHealthChecks, type DoctorOptions, type HealthOptions } from './health.js';
+import { runOnboard, type OnboardOptions } from './onboard.js';
 import {
   PluginCatalog,
   type PluginPrecedence,
@@ -222,8 +224,15 @@ function createCliError(message: string, code: ErrorCode): CliValidationError {
 function buildHelp(): string {
   return [
     'agenc-runtime [--help] [--config <path>]',
+    'health [--help] [options]',
     'replay [--help] <command> [options]',
     'plugin [--help] <command> [options]',
+    'onboard [--help] [options]',
+    'doctor security [--help] [--deep] [--fix] [--json]',
+    'doctor health [--help] [--deep] [--fix]',
+    '',
+    'Health command:',
+    '  health                              Run environment health checks',
     '',
     'Replay subcommands:',
     '  backfill   Backfill replay timeline from on-chain history',
@@ -237,6 +246,9 @@ function buildHelp(): string {
     '  disable <pluginId>                 Disable a plugin',
     '  enable <pluginId>                  Enable a plugin',
     '  reload <pluginId> [--manifest <path>] Reload a plugin and optional manifest update',
+    '',
+    'Onboard command:',
+    '  onboard                             Bootstrap operator config and run health checks',
     '',
     'Global options:',
     '  -h, --help                               Show this usage',
@@ -735,6 +747,39 @@ function makePluginReloadOptions(
   };
 }
 
+function makeHealthOptions(raw: Record<string, string | number | boolean>): HealthOptions {
+  return {
+    rpcUrl: parseOptionalString(raw['rpc-url']) ?? parseOptionalString(raw.rpc),
+    sqlitePath: parseOptionalString(raw['sqlite-path']),
+    walletPath: parseOptionalString(raw['wallet-path']),
+    deep: normalizeBool(raw.deep, false),
+    nonInteractive: normalizeBool(raw['non-interactive'], false),
+  };
+}
+
+function makeDoctorHealthOptions(raw: Record<string, string | number | boolean>): DoctorOptions {
+  return {
+    ...makeHealthOptions(raw),
+    fix: normalizeBool(raw.fix, false),
+  };
+}
+
+function makeOnboardOptions(raw: Record<string, string | number | boolean>): OnboardOptions {
+  const storeTypeRaw = parseOptionalString(raw['store-type']);
+  const storeType = storeTypeRaw === 'memory' || storeTypeRaw === 'sqlite' ? storeTypeRaw : undefined;
+  return {
+    configPath: parseOptionalString(raw['config-path']) ?? parseOptionalString(raw.config),
+    rpcUrl: parseOptionalString(raw['rpc-url']) ?? parseOptionalString(raw.rpc),
+    programId: parseOptionalString(raw['program-id']),
+    storeType,
+    sqlitePath: parseOptionalString(raw['sqlite-path']),
+    walletPath: parseOptionalString(raw['wallet-path']),
+    skipHealthChecks: normalizeBool(raw['skip-health-checks'], false),
+    nonInteractive: normalizeBool(raw['non-interactive'], false),
+    force: normalizeBool(raw.force, false),
+  };
+}
+
 function buildOutput(value: unknown, format: CliOutputFormat): string {
   if (format === 'jsonl') {
     if (Array.isArray(value)) {
@@ -1014,6 +1059,44 @@ export async function runCli(options: CliRunOptions = {}): Promise<CliStatusCode
     return 0;
   }
 
+  // Handle `health` command before replay routing
+  if (parsed.positional[0] === 'health') {
+    try {
+      const healthOptions = makeHealthOptions(parsed.flags);
+      const report = await runHealthChecks(healthOptions);
+      context.output({
+        status: report.status,
+        command: 'health',
+        schema: 'health.report.output.v1',
+        report,
+      });
+      return report.exitCode;
+    } catch (error) {
+      const payload = buildErrorPayload(error);
+      context.error(payload);
+      return 1;
+    }
+  }
+
+  // Handle `doctor health` subcommand before replay routing
+  if (parsed.positional[0] === 'doctor' && parsed.positional[1] === 'health') {
+    try {
+      const healthOptions = makeDoctorHealthOptions(parsed.flags);
+      const report = await runDoctorChecks(healthOptions);
+      context.output({
+        status: report.status,
+        command: 'doctor.health',
+        schema: 'doctor.health.output.v1',
+        report,
+      });
+      return report.exitCode;
+    } catch (error) {
+      const payload = buildErrorPayload(error);
+      context.error(payload);
+      return 1;
+    }
+  }
+
   // Handle `doctor security` subcommand before replay routing
   if (parsed.positional[0] === 'doctor' && parsed.positional[1] === 'security') {
     const configPath = resolveConfigPath(parsed.flags);
@@ -1033,6 +1116,25 @@ export async function runCli(options: CliRunOptions = {}): Promise<CliStatusCode
     };
     try {
       return await runSecurityCommand(context, securityOpts);
+    } catch (error) {
+      const payload = buildErrorPayload(error);
+      context.error(payload);
+      return 1;
+    }
+  }
+
+  // Handle `onboard` command before replay routing
+  if (parsed.positional[0] === 'onboard') {
+    try {
+      const onboardOptions = makeOnboardOptions(parsed.flags);
+      const result = await runOnboard(onboardOptions);
+      context.output({
+        status: result.success ? 'ok' : 'error',
+        command: 'onboard',
+        schema: 'onboard.output.v1',
+        result,
+      });
+      return result.success ? 0 : 1;
     } catch (error) {
       const payload = buildErrorPayload(error);
       context.error(payload);
