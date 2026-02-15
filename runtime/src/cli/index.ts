@@ -47,7 +47,9 @@ import {
 import {
   TrajectoryReplayEngine,
 } from '../eval/replay.js';
-import { type TrajectoryTrace } from '../eval/types.js';
+import { stableStringifyJson, type JsonValue, type TrajectoryTrace } from '../eval/types.js';
+import { buildIncidentCase } from '../eval/incident-case.js';
+import { buildEvidencePack, serializeEvidencePack } from '../eval/evidence-pack.js';
 import type { PluginManifest } from '../skills/manifest.js';
 import { bigintReplacer, safeStringify } from '../tools/types.js';
 
@@ -134,7 +136,7 @@ const GLOBAL_OPTIONS = new Set([
 const COMMAND_OPTIONS: Record<ReplayCommand, Set<string>> = {
   backfill: new Set(['to-slot', 'page-size']),
   compare: new Set(['local-trace-path', 'task-pda', 'dispute-pda', 'redact-fields']),
-  incident: new Set(['task-pda', 'dispute-pda', 'from-slot', 'to-slot', 'redact-fields']),
+  incident: new Set(['task-pda', 'dispute-pda', 'from-slot', 'to-slot', 'sealed', 'redact-fields']),
 };
 const PLUGIN_COMMAND_OPTIONS: Record<PluginCommand, Set<string>> = {
   list: new Set(),
@@ -643,6 +645,7 @@ function makeIncidentOptions(
   const disputePda = parseOptionalString(raw['dispute-pda']);
   const fromSlot = parseIntValue(raw['from-slot']);
   const toSlot = parseIntValue(raw['to-slot']);
+  const sealed = raw.sealed === undefined ? undefined : normalizeCommandFlag(raw.sealed);
   const redactFields = parseRedactFields(raw['redact-fields']);
 
   if (fromSlot !== undefined && fromSlot < 0) {
@@ -667,6 +670,7 @@ function makeIncidentOptions(
     disputePda,
     fromSlot,
     toSlot,
+    sealed,
     redactFields,
   };
 }
@@ -1402,6 +1406,56 @@ async function runReplayIncidentCommand(
     new Set(options.redactFields ?? []),
   );
 
+  const evidencePack = options.sealed === true
+    ? (() => {
+      const events = records.map((record) => ({
+        seq: record.seq,
+        type: record.type,
+        taskPda: record.taskPda,
+        timestampMs: record.timestampMs,
+        payload: record.payload,
+        slot: record.slot,
+        signature: record.signature,
+        sourceEventName: record.sourceEventName,
+        sourceEventSequence: record.sourceEventSequence,
+      }));
+
+      const incidentCase = buildIncidentCase({
+        events,
+        window: {
+          fromSlot: options.fromSlot,
+          toSlot: options.toSlot,
+        },
+      });
+
+      const queryHash = createHash('sha256')
+        .update(stableStringifyJson({
+          taskPda: options.taskPda ?? null,
+          disputePda: options.disputePda ?? null,
+          fromSlot: options.fromSlot ?? null,
+          toSlot: options.toSlot ?? null,
+        } as unknown as JsonValue))
+        .digest('hex');
+
+      const pack = buildEvidencePack({
+        incidentCase,
+        events,
+        seed: 0,
+        queryHash,
+        sealed: true,
+        redactionPolicy: {
+          stripFields: ['payload.onchain.trace'],
+          redactActors: true,
+        },
+      });
+
+      return {
+        manifest: pack.manifest,
+        files: serializeEvidencePack(pack),
+      };
+    })()
+    : undefined;
+
   const payload = {
     status: 'ok',
     command: 'replay.incident',
@@ -1414,6 +1468,7 @@ async function runReplayIncidentCommand(
       strictMode: options.strictMode,
       storeType: options.storeType,
       sqlitePath: options.sqlitePath,
+      sealed: options.sealed,
     },
     summary: {
       ...summary,
@@ -1421,6 +1476,7 @@ async function runReplayIncidentCommand(
     },
     validation,
     narrative,
+    ...(evidencePack ? { evidencePack } : {}),
   };
 
   context.output(applyRedaction(payload, options.redactFields ?? []));
