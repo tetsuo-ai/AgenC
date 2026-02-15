@@ -40,7 +40,6 @@ export { Gateway, type GatewayOptions } from './gateway.js';
 
 export {
   createGatewayMessage,
-  createOutboundMessage,
   validateGatewayMessage,
   validateAttachment,
   type GatewayMessage,
@@ -48,4 +47,5 @@ export {
   type MessageAttachment,
   type MessageScope,
   type AttachmentType,
+  type ValidationResult,
 } from './message.js';

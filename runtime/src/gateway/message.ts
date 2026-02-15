@@ -12,6 +12,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
+import { isRecord } from '../utils/type-guards.js';
 
 // ============================================================================
 // Message Scope
@@ -117,52 +118,54 @@ export function createGatewayMessage(
   };
 }
 
-/** Factory function to create an OutboundMessage. */
-export function createOutboundMessage(params: OutboundMessage): OutboundMessage {
-  return { ...params };
-}
-
 // ============================================================================
 // Validation
 // ============================================================================
+
+/** Validation result with optional reason for failure. */
+export interface ValidationResult {
+  readonly valid: boolean;
+  readonly reason?: string;
+}
 
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0;
 }
 
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
+/** Validate that a value is a well-formed GatewayMessage. */
+export function validateGatewayMessage(msg: unknown): ValidationResult {
+  if (!isRecord(msg)) return { valid: false, reason: 'Message must be a non-null object' };
 
-/** Validate that a GatewayMessage has all required fields. */
-export function validateGatewayMessage(msg: unknown): msg is GatewayMessage {
-  if (!isObject(msg)) return false;
+  if (!isNonEmptyString(msg.id)) return { valid: false, reason: 'id must be a non-empty string' };
+  if (!isNonEmptyString(msg.channel)) return { valid: false, reason: 'channel must be a non-empty string' };
+  if (!isNonEmptyString(msg.senderId)) return { valid: false, reason: 'senderId must be a non-empty string' };
+  if (!isNonEmptyString(msg.senderName)) return { valid: false, reason: 'senderName must be a non-empty string' };
+  if (!isNonEmptyString(msg.sessionId)) return { valid: false, reason: 'sessionId must be a non-empty string' };
+  if (typeof msg.content !== 'string') return { valid: false, reason: 'content must be a string' };
+  if (typeof msg.timestamp !== 'number') return { valid: false, reason: 'timestamp must be a number' };
 
-  if (!isNonEmptyString(msg.id)) return false;
-  if (!isNonEmptyString(msg.channel)) return false;
-  if (!isNonEmptyString(msg.senderId)) return false;
-  if (!isNonEmptyString(msg.senderName)) return false;
-  if (!isNonEmptyString(msg.sessionId)) return false;
-  if (typeof msg.content !== 'string') return false;
-  if (typeof msg.timestamp !== 'number') return false;
-
-  if (!isNonEmptyString(msg.scope) || !VALID_SCOPES.has(msg.scope)) return false;
+  if (!isNonEmptyString(msg.scope) || !VALID_SCOPES.has(msg.scope)) {
+    return { valid: false, reason: `scope must be one of: ${[...VALID_SCOPES].join(', ')}` };
+  }
 
   if (msg.attachments !== undefined) {
-    if (!Array.isArray(msg.attachments)) return false;
-    for (const att of msg.attachments) {
-      if (!isValidAttachmentShape(att)) return false;
+    if (!Array.isArray(msg.attachments)) return { valid: false, reason: 'attachments must be an array' };
+    for (let i = 0; i < msg.attachments.length; i++) {
+      const attResult = isValidAttachmentShape(msg.attachments[i]);
+      if (!attResult.valid) return { valid: false, reason: `attachments[${i}]: ${attResult.reason}` };
     }
   }
 
-  return true;
+  return { valid: true };
 }
 
-function isValidAttachmentShape(att: unknown): boolean {
-  if (!isObject(att)) return false;
-  if (!isNonEmptyString(att.type) || !VALID_ATTACHMENT_TYPES.has(att.type)) return false;
-  if (!isNonEmptyString(att.mimeType)) return false;
-  return true;
+function isValidAttachmentShape(att: unknown): ValidationResult {
+  if (!isRecord(att)) return { valid: false, reason: 'attachment must be a non-null object' };
+  if (!isNonEmptyString(att.type) || !VALID_ATTACHMENT_TYPES.has(att.type)) {
+    return { valid: false, reason: `type must be one of: ${[...VALID_ATTACHMENT_TYPES].join(', ')}` };
+  }
+  if (!isNonEmptyString(att.mimeType)) return { valid: false, reason: 'mimeType must be a non-empty string' };
+  return { valid: true };
 }
 
 /** Validate attachment constraints (size, MIME type). */

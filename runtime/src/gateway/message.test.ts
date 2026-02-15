@@ -1,11 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import {
   createGatewayMessage,
-  createOutboundMessage,
   validateGatewayMessage,
   validateAttachment,
   type GatewayMessage,
-  type OutboundMessage,
   type MessageAttachment,
 } from './message.js';
 
@@ -74,52 +72,71 @@ describe('validateGatewayMessage', () => {
     };
   }
 
-  it('returns true for valid message', () => {
-    expect(validateGatewayMessage(validMessage())).toBe(true);
+  it('returns valid for valid message', () => {
+    const result = validateGatewayMessage(validMessage());
+    expect(result.valid).toBe(true);
+    expect(result.reason).toBeUndefined();
   });
 
-  it('returns false for missing channel', () => {
+  it('returns reason for missing channel', () => {
     const msg = { ...validMessage(), channel: '' };
-    expect(validateGatewayMessage(msg)).toBe(false);
+    const result = validateGatewayMessage(msg);
+    expect(result.valid).toBe(false);
+    expect(result.reason).toContain('channel');
   });
 
-  it('returns false for missing senderId', () => {
+  it('returns reason for missing senderId', () => {
     const msg = { ...validMessage(), senderId: '' };
-    expect(validateGatewayMessage(msg)).toBe(false);
+    const result = validateGatewayMessage(msg);
+    expect(result.valid).toBe(false);
+    expect(result.reason).toContain('senderId');
   });
 
-  it('returns false for missing content (non-string)', () => {
+  it('returns reason for missing content (non-string)', () => {
     const msg = { ...validMessage() } as Record<string, unknown>;
     delete msg.content;
-    expect(validateGatewayMessage(msg)).toBe(false);
+    const result = validateGatewayMessage(msg);
+    expect(result.valid).toBe(false);
+    expect(result.reason).toContain('content');
   });
 
-  it('returns false for invalid scope value', () => {
+  it('returns reason for invalid scope value', () => {
     const msg = { ...validMessage(), scope: 'broadcast' };
-    expect(validateGatewayMessage(msg)).toBe(false);
+    const result = validateGatewayMessage(msg);
+    expect(result.valid).toBe(false);
+    expect(result.reason).toContain('scope');
   });
 
-  it('returns false for null input', () => {
-    expect(validateGatewayMessage(null)).toBe(false);
+  it('returns reason for null input', () => {
+    const result = validateGatewayMessage(null);
+    expect(result.valid).toBe(false);
+    expect(result.reason).toContain('object');
   });
 
-  it('returns false for non-object input', () => {
-    expect(validateGatewayMessage('string')).toBe(false);
+  it('returns reason for non-object input', () => {
+    const result = validateGatewayMessage('string');
+    expect(result.valid).toBe(false);
+    expect(result.reason).toContain('object');
   });
 
-  it('returns false for missing sessionId', () => {
+  it('returns reason for missing sessionId', () => {
     const msg = { ...validMessage(), sessionId: '' };
-    expect(validateGatewayMessage(msg)).toBe(false);
+    const result = validateGatewayMessage(msg);
+    expect(result.valid).toBe(false);
+    expect(result.reason).toContain('sessionId');
   });
 
-  it('returns false for missing senderName', () => {
+  it('returns reason for missing senderName', () => {
     const msg = { ...validMessage(), senderName: '' };
-    expect(validateGatewayMessage(msg)).toBe(false);
+    const result = validateGatewayMessage(msg);
+    expect(result.valid).toBe(false);
+    expect(result.reason).toContain('senderName');
   });
 
   it('accepts message with empty content string', () => {
     const msg = { ...validMessage(), content: '' };
-    expect(validateGatewayMessage(msg)).toBe(true);
+    const result = validateGatewayMessage(msg);
+    expect(result.valid).toBe(true);
   });
 
   it('accepts message with valid attachments', () => {
@@ -127,26 +144,31 @@ describe('validateGatewayMessage', () => {
       ...validMessage(),
       attachments: [{ type: 'image', mimeType: 'image/png' }],
     };
-    expect(validateGatewayMessage(msg)).toBe(true);
+    const result = validateGatewayMessage(msg);
+    expect(result.valid).toBe(true);
   });
 
-  it('returns false for attachment with invalid type', () => {
+  it('returns reason for attachment with invalid type', () => {
     const msg = {
       ...validMessage(),
       attachments: [{ type: 'gif', mimeType: 'image/gif' }],
     };
-    expect(validateGatewayMessage(msg)).toBe(false);
+    const result = validateGatewayMessage(msg);
+    expect(result.valid).toBe(false);
+    expect(result.reason).toContain('attachments[0]');
   });
 
   it('accepts message with empty attachments array', () => {
     const msg = { ...validMessage(), attachments: [] };
-    expect(validateGatewayMessage(msg)).toBe(true);
+    const result = validateGatewayMessage(msg);
+    expect(result.valid).toBe(true);
   });
 
   it('accepts all valid scope values', () => {
     for (const scope of ['dm', 'group', 'thread']) {
       const msg = { ...validMessage(), scope };
-      expect(validateGatewayMessage(msg)).toBe(true);
+      const result = validateGatewayMessage(msg);
+      expect(result.valid).toBe(true);
     }
   });
 });
@@ -202,31 +224,5 @@ describe('validateAttachment', () => {
     };
     const result = validateAttachment(att, 5_000_000);
     expect(result.valid).toBe(true);
-  });
-});
-
-describe('createOutboundMessage', () => {
-  it('creates valid outbound message', () => {
-    const params: OutboundMessage = {
-      sessionId: 'sess-abc',
-      content: 'Hello user',
-    };
-    const msg = createOutboundMessage(params);
-    expect(msg.sessionId).toBe('sess-abc');
-    expect(msg.content).toBe('Hello user');
-  });
-
-  it('preserves optional fields', () => {
-    const params: OutboundMessage = {
-      sessionId: 'sess-abc',
-      content: 'Reply',
-      isPartial: true,
-      tts: true,
-      attachments: [{ type: 'image', mimeType: 'image/jpeg' }],
-    };
-    const msg = createOutboundMessage(params);
-    expect(msg.isPartial).toBe(true);
-    expect(msg.tts).toBe(true);
-    expect(msg.attachments).toHaveLength(1);
   });
 });
