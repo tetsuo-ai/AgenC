@@ -81,3 +81,7 @@ export type {
 } from './session.js';
 
 export { SessionManager, deriveSessionId } from './session.js';
+
+// Media pipeline (Phase 1.12)
+export type { MediaPipelineConfig, MediaProcessingResult, TranscriptionProvider, ImageDescriptionProvider, MediaLogger } from './media.js';
+export { MediaPipeline, NoopTranscriptionProvider, NoopImageDescriptionProvider, defaultMediaPipelineConfig } from './media.js';
