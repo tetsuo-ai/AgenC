@@ -24,6 +24,7 @@ import {
   startReplaySpan,
 } from './trace.js';
 import type { ReplayAlertDispatcher } from './alerting.js';
+import { extractDisputePdaFromPayload } from './pda-utils.js';
 
 const DEFAULT_BACKFILL_PAGE_SIZE = 100;
 
@@ -344,6 +345,7 @@ function toReplayStoreRecord(event: ProjectedTimelineEvent): ReplayTimelineRecor
     seq: event.seq,
     type: event.type,
     taskPda: event.taskPda,
+    disputePda: extractDisputePdaFromPayload(event.payload),
     timestampMs: event.timestampMs,
     payload: event.payload,
     slot: event.slot,
