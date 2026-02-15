@@ -99,6 +99,16 @@ export {
 } from './incident-case.js';
 
 export {
+  EVIDENCE_PACK_SCHEMA_VERSION,
+  buildEvidencePack,
+  serializeEvidencePack,
+  type BuildEvidencePackInput,
+  type EvidencePack,
+  type EvidencePackManifest,
+  type RedactionPolicy,
+} from './evidence-pack.js';
+
+export {
   BENCHMARK_MANIFEST_SCHEMA_VERSION,
   parseBenchmarkManifest,
   loadBenchmarkManifest,
