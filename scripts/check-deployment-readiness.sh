@@ -5,11 +5,24 @@
 # It should be run as part of CI and before any mainnet deployment.
 #
 # Usage:
-#   ./scripts/check-deployment-readiness.sh [--network mainnet|devnet]
+#   ./scripts/check-deployment-readiness.sh --network mainnet|devnet
+#   ./scripts/check-deployment-readiness.sh mainnet|devnet   (positional, backward compat)
 
 set -euo pipefail
 
-NETWORK="${1:-devnet}"
+NETWORK="devnet"
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --network)
+            shift
+            NETWORK="${1:-devnet}"
+            ;;
+        mainnet|devnet|localnet)
+            NETWORK="$1"
+            ;;
+    esac
+    shift
+done
 EXIT_CODE=0
 
 RED='\033[0;31m'
