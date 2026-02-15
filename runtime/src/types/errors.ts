@@ -108,6 +108,14 @@ export const RuntimeErrorCodes = {
   ALL_ENDPOINTS_UNHEALTHY: 'ALL_ENDPOINTS_UNHEALTHY',
   /** Telemetry system error */
   TELEMETRY_ERROR: 'TELEMETRY_ERROR',
+  /** Gateway configuration validation failed */
+  GATEWAY_VALIDATION_ERROR: 'GATEWAY_VALIDATION_ERROR',
+  /** Gateway WebSocket or file system connection error */
+  GATEWAY_CONNECTION_ERROR: 'GATEWAY_CONNECTION_ERROR',
+  /** Gateway invalid lifecycle state transition */
+  GATEWAY_STATE_ERROR: 'GATEWAY_STATE_ERROR',
+  /** Gateway start/stop lifecycle failure */
+  GATEWAY_LIFECYCLE_ERROR: 'GATEWAY_LIFECYCLE_ERROR',
 } as const;
 
 /** Union type of all runtime error code values */
