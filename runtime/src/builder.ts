@@ -59,6 +59,7 @@ import { UnifiedTelemetryCollector } from './telemetry/collector.js';
 import { PolicyEngine } from './policy/engine.js';
 import type { RuntimePolicyConfig, PolicyViolation } from './policy/types.js';
 import type { WorkflowOptimizerRuntimeConfig } from './workflow/optimizer.js';
+import type { GatewayConfig } from './gateway/types.js';
 
 // ============================================================================
 // LLM provider type discriminator
@@ -187,6 +188,8 @@ export class AgentBuilder {
   private telemetryConfig?: TelemetryConfig;
   // Policy
   private policyConfig?: RuntimePolicyConfig;
+  // Gateway
+  private gatewayConfig?: GatewayConfig;
 
   constructor(connection: Connection, wallet: Keypair | Wallet) {
     this.connection = connection;
@@ -375,6 +378,17 @@ export class AgentBuilder {
   }
 
   /**
+   * Store gateway config for future Gateway integration.
+   *
+   * The config is stored and will be used when `build()` is extended
+   * to optionally create a Gateway wrapper.
+   */
+  withGateway(config: GatewayConfig): this {
+    this.gatewayConfig = config;
+    return this;
+  }
+
+  /**
    * Build and return a fully wired BuiltAgent.
    *
    * Validates configuration, creates all components, and wires them together.
@@ -395,6 +409,11 @@ export class AgentBuilder {
     const builderWallet: Wallet = ensureWallet(this.wallet);
 
     const resolvedConnection = this.connectionManager?.getConnection() ?? this.connection;
+
+    // Gateway integration will be wired here in a future PR (#1055+)
+    if (this.gatewayConfig) {
+      logger.debug('Gateway config provided — will be used once Gateway integration lands');
+    }
 
     // Create telemetry collector if configured
     const telemetry = this.telemetryConfig
