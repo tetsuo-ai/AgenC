@@ -1,0 +1,52 @@
+{
+  "name": "@agenc/docs-mcp",
+  "version": "0.1.0",
+  "description": "MCP server serving AgenC architecture documentation and issue context to AI agents",
+  "main": "dist/index.cjs",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "agenc-docs": "./dist/index.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "documentation",
+    "architecture",
+    "agents"
+  ],
+  "author": "Tetsuo AI",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tetsuo-ai/AgenC",
+    "directory": "docs-mcp"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.6.1",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "type": "module"
+}
