@@ -37,3 +37,22 @@ export {
   applyProductionProfile,
   validateProductionReadiness,
 } from './production-profile.js';
+
+export {
+  ROLE_PERMISSION_MATRIX,
+  isCommandAllowed,
+  enforceRole,
+  IncidentRoleViolationError,
+  type OperatorRole,
+  type IncidentCommandCategory,
+  type RolePermission,
+} from './incident-roles.js';
+
+export {
+  InMemoryAuditTrail,
+  computeInputHash,
+  computeOutputHash,
+  type AuditTrailEntry,
+  type AuditTrailStore,
+  type AuditTrailVerification,
+} from './audit-trail.js';
