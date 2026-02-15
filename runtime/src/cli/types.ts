@@ -1,4 +1,5 @@
 import type { PluginPrecedence, PluginSlot } from '../skills/catalog.js';
+import type { OperatorRole } from '../policy/incident-roles.js';
 
 export type CliOutputFormat = 'json' | 'jsonl' | 'table';
 
@@ -27,6 +28,7 @@ export interface BaseCliOptions {
   help: boolean;
   outputFormat: CliOutputFormat;
   strictMode: boolean;
+  role?: OperatorRole;
   rpcUrl?: string;
   programId?: string;
   storeType: 'memory' | 'sqlite';

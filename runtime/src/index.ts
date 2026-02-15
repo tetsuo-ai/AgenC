@@ -725,6 +725,13 @@ export {
 export {
   PolicyEngine,
   PolicyViolationError,
+  ROLE_PERMISSION_MATRIX,
+  isCommandAllowed,
+  enforceRole,
+  IncidentRoleViolationError,
+  InMemoryAuditTrail,
+  computeInputHash,
+  computeOutputHash,
   type PolicyActionType,
   type PolicyAccess,
   type CircuitBreakerMode,
@@ -737,6 +744,12 @@ export {
   type PolicyDecision,
   type PolicyEngineState,
   type PolicyEngineConfig,
+  type OperatorRole,
+  type IncidentCommandCategory,
+  type RolePermission,
+  type AuditTrailEntry,
+  type AuditTrailStore,
+  type AuditTrailVerification,
 } from './policy/index.js';
 
 // Tool System (Phase 5)
