@@ -84,6 +84,17 @@ export {
 } from './replay-comparison.js';
 
 export {
+  parseQueryDSL,
+  normalizeQuery,
+  applyQueryFilter,
+  applyAnomalyFilter,
+  QueryDSLParseError,
+  type QueryDSL,
+  type CanonicalQuery,
+  type QueryDSLValidationError,
+} from './query-dsl.js';
+
+export {
   INCIDENT_CASE_SCHEMA_VERSION,
   buildIncidentCase,
   computeEvidenceHash,

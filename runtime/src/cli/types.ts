@@ -50,6 +50,7 @@ export interface ReplayCompareOptions extends BaseCliOptions {
 export interface ReplayIncidentOptions extends BaseCliOptions {
   taskPda?: string;
   disputePda?: string;
+  query?: string;
   fromSlot?: number;
   toSlot?: number;
   sealed?: boolean;

@@ -202,6 +202,12 @@ agenc_replay_compare { "local_trace_path": "/var/tmp/incident-trace.json", "stri
 agenc_replay_incident { "task_pda": "Ag...task", "strict_mode": true }
 ```
 
+You can also provide an analyst query DSL string (shared with the runtime CLI):
+
+```bash
+agenc_replay_incident { "query": "taskPda=Ag...task slotRange=1000-2048 eventType=discovered", "store_type": "memory" }
+```
+
 4. Inspect store cursor and counts:
 
 ```bash
