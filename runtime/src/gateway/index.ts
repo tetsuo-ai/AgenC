@@ -37,3 +37,18 @@ export {
 } from './config-watcher.js';
 
 export { Gateway, type GatewayOptions } from './gateway.js';
+
+export {
+  SessionManager,
+  deriveSessionId,
+  type SessionScope,
+  type SessionResetMode,
+  type CompactionStrategy,
+  type SessionResetConfig,
+  type SessionConfig,
+  type Session,
+  type SessionLookupParams,
+  type CompactionResult,
+  type SessionInfo,
+  type SummarizeCallback,
+} from './session.js';

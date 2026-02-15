@@ -1150,6 +1150,18 @@ export {
   type ConfigDiff,
   type ConfigReloadCallback,
   type ConfigErrorCallback,
+  SessionManager,
+  deriveSessionId,
+  type SessionScope,
+  type SessionResetMode,
+  type CompactionStrategy,
+  type SessionResetConfig,
+  type SessionConfig,
+  type Session,
+  type SessionLookupParams,
+  type CompactionResult,
+  type SessionInfo,
+  type SummarizeCallback,
 } from './gateway/index.js';
 
 // Agent Builder (Phase 10)
