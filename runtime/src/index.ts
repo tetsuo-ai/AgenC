@@ -422,6 +422,16 @@ export {
   USDC_MINT,
   USDT_MINT,
   WELL_KNOWN_TOKENS,
+  // Markdown skill parser (SKILL.md)
+  parseSkillFile,
+  parseSkillContent,
+  validateSkillMetadata,
+  isSkillMarkdown,
+  type MarkdownSkill,
+  type SkillMetadataBlock,
+  type SkillRequirements,
+  type SkillInstallStep,
+  type SkillParseError,
 } from './skills/index.js';
 
 // LLM Adapters (Phase 4)

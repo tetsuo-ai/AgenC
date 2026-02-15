@@ -78,3 +78,16 @@ export {
   USDT_MINT,
   WELL_KNOWN_TOKENS,
 } from './jupiter/index.js';
+
+// Markdown skill parser (SKILL.md)
+export {
+  parseSkillFile,
+  parseSkillContent,
+  validateSkillMetadata,
+  isSkillMarkdown,
+  type MarkdownSkill,
+  type SkillMetadataBlock,
+  type SkillRequirements,
+  type SkillInstallStep,
+  type SkillParseError,
+} from './markdown/index.js';
