@@ -42,19 +42,19 @@ export interface SlashCommandDef {
   /** Short description for /help output. */
   readonly description: string;
   /** Optional argument pattern description (e.g. '<name>'). */
-  readonly usage?: string;
-  /** Whether this command is available in all channels (default: true). */
-  readonly global?: boolean;
+  readonly args?: string;
+  /** Whether this command is available in all channels. */
+  readonly global: boolean;
   /** Handler function. */
   readonly handler: SlashCommandHandler;
 }
 
 /** Result of parsing a message for slash commands. */
-export interface ParseResult {
+export interface ParsedCommand {
   /** Whether the message is a slash command. */
   readonly isCommand: boolean;
   /** The command name (without slash), if parsed. */
-  readonly command?: string;
+  readonly name?: string;
   /** The raw argument string after the command name. */
   readonly args?: string;
   /** Parsed argument tokens. */
@@ -65,15 +65,18 @@ export interface ParseResult {
 // Parser
 // ============================================================================
 
+/** Max command name length (alphanumeric + hyphens, 1-32 chars). */
+const MAX_COMMAND_LENGTH = 32;
 const COMMAND_PATTERN = /^\/([a-zA-Z][a-zA-Z0-9_-]*)(?:\s+(.*))?$/;
 
 /**
  * Parse a message string to check if it's a slash command.
  *
  * A valid slash command starts with `/` followed by a letter and optional
- * alphanumeric/dash/underscore characters, optionally followed by arguments.
+ * alphanumeric/dash/underscore characters (max 32 chars), optionally
+ * followed by arguments.
  */
-export function parseCommand(message: string): ParseResult {
+export function parseCommand(message: string): ParsedCommand {
   const trimmed = message.trim();
   const match = COMMAND_PATTERN.exec(trimmed);
 
@@ -81,34 +84,38 @@ export function parseCommand(message: string): ParseResult {
     return { isCommand: false };
   }
 
-  const command = match[1].toLowerCase();
+  const name = match[1].toLowerCase();
+  if (name.length > MAX_COMMAND_LENGTH) {
+    return { isCommand: false };
+  }
+
   const args = match[2]?.trim() ?? '';
   const argv = args ? args.split(/\s+/) : [];
 
-  return { isCommand: true, command, args, argv };
+  return { isCommand: true, name, args, argv };
 }
 
 // ============================================================================
-// Command Registry
+// SlashCommandRegistry
 // ============================================================================
 
-export interface CommandRegistryConfig {
+export interface SlashCommandRegistryConfig {
   readonly logger?: Logger;
 }
 
 /**
  * Registry for slash commands.
  *
- * Manages command definitions and dispatch. Built-in commands are registered
- * at construction. Additional commands can be added by plugins.
+ * Manages command definitions and dispatch. Built-in commands can be
+ * registered via `createDefaultCommands()`. Additional commands can be
+ * added by plugins.
  */
-export class CommandRegistry {
+export class SlashCommandRegistry {
   private readonly commands = new Map<string, SlashCommandDef>();
   private readonly logger: Logger;
 
-  constructor(config?: CommandRegistryConfig) {
+  constructor(config?: SlashCommandRegistryConfig) {
     this.logger = config?.logger ?? silentLogger;
-    this.registerBuiltins();
   }
 
   /** Register a slash command. Overwrites if name already exists. */
@@ -131,9 +138,16 @@ export class CommandRegistry {
     return this.commands.get(name);
   }
 
-  /** List all registered command definitions. */
-  listAll(): ReadonlyArray<SlashCommandDef> {
-    return Array.from(this.commands.values());
+  /** Check if a command is registered. */
+  has(name: string): boolean {
+    return this.commands.has(name);
+  }
+
+  /** Get all registered command definitions sorted by name. */
+  getCommands(): ReadonlyArray<SlashCommandDef> {
+    return Array.from(this.commands.values()).sort((a, b) =>
+      a.name.localeCompare(b.name),
+    );
   }
 
   /** List all command names. */
@@ -146,9 +160,54 @@ export class CommandRegistry {
     return this.commands.size;
   }
 
+  /** Parse a message string for a slash command. */
+  parse(content: string): ParsedCommand {
+    return parseCommand(content);
+  }
+
+  /**
+   * Execute a previously parsed command.
+   *
+   * Returns true if the command was handled, false if unknown.
+   */
+  async execute(
+    parsed: ParsedCommand,
+    context: Omit<SlashCommandContext, 'args' | 'argv'>,
+  ): Promise<boolean> {
+    if (!parsed.isCommand || !parsed.name) {
+      return false;
+    }
+
+    const command = this.commands.get(parsed.name);
+    if (!command) {
+      this.logger.debug(`Unknown command: /${parsed.name}, passing through`);
+      return false;
+    }
+
+    const ctx: SlashCommandContext = {
+      args: parsed.args ?? '',
+      argv: parsed.argv ?? [],
+      sessionId: context.sessionId,
+      senderId: context.senderId,
+      channel: context.channel,
+      reply: context.reply,
+    };
+
+    try {
+      await command.handler(ctx);
+      this.logger.debug(`Command executed: /${parsed.name}`);
+    } catch (err) {
+      this.logger.error(`Command /${parsed.name} failed:`, err);
+      await context.reply(`Error: /${parsed.name} failed — ${(err as Error).message}`);
+    }
+
+    return true;
+  }
+
   /**
    * Dispatch a message to the appropriate command handler.
    *
+   * Convenience method that combines parse + execute.
    * Returns true if the message was handled as a command, false if it should
    * be passed through to the LLM (not a command or unknown command).
    */
@@ -159,121 +218,97 @@ export class CommandRegistry {
     channel: string,
     reply: (content: string) => Promise<void>,
   ): Promise<boolean> {
-    const parsed = parseCommand(message);
-    if (!parsed.isCommand || !parsed.command) {
-      return false;
-    }
-
-    const command = this.commands.get(parsed.command);
-    if (!command) {
-      // Unknown command — pass through to LLM
-      this.logger.debug(`Unknown command: /${parsed.command}, passing through`);
-      return false;
-    }
-
-    const ctx: SlashCommandContext = {
-      args: parsed.args!,
-      argv: parsed.argv!,
-      sessionId,
-      senderId,
-      channel,
-      reply,
-    };
-
-    try {
-      await command.handler(ctx);
-      this.logger.debug(`Command executed: /${parsed.command}`);
-    } catch (err) {
-      this.logger.error(`Command /${parsed.command} failed:`, err);
-      await reply(`Error: /${parsed.command} failed — ${(err as Error).message}`);
-    }
-
-    return true;
+    const parsed = this.parse(message);
+    return this.execute(parsed, { sessionId, senderId, channel, reply });
   }
+}
 
-  // --------------------------------------------------------------------------
-  // Built-in commands
-  // --------------------------------------------------------------------------
+// ============================================================================
+// Default commands factory
+// ============================================================================
 
-  private registerBuiltins(): void {
-    this.register({
+/**
+ * Create the 14 built-in slash command definitions.
+ *
+ * Returns an array of SlashCommandDef that can be registered on a
+ * SlashCommandRegistry. This factory enables constructing a registry
+ * without defaults, or getting defaults without a registry.
+ */
+export function createDefaultCommands(): SlashCommandDef[] {
+  return [
+    {
       name: 'help',
       description: 'Show available commands',
+      global: true,
       handler: async (ctx) => {
-        const lines = ['**Available commands:**', ''];
-        const sorted = Array.from(this.commands.values()).sort((a, b) =>
-          a.name.localeCompare(b.name),
-        );
-        for (const cmd of sorted) {
-          const usage = cmd.usage ? ` ${cmd.usage}` : '';
-          lines.push(`  /${cmd.name}${usage} — ${cmd.description}`);
-        }
-        await ctx.reply(lines.join('\n'));
+        // Help needs access to a registry, so this is a placeholder.
+        // The gateway wires up the real help handler with registry access.
+        await ctx.reply('Use /help to see available commands.');
       },
-    });
-
-    this.register({
+    },
+    {
       name: 'status',
       description: 'Show agent status',
+      global: true,
       handler: async (ctx) => {
         await ctx.reply(
           `Agent is running.\nSession: ${ctx.sessionId}\nChannel: ${ctx.channel}`,
         );
       },
-    });
-
-    this.register({
+    },
+    {
       name: 'new',
       description: 'Start a new session (reset conversation)',
+      global: true,
       handler: async (ctx) => {
         await ctx.reply('Session reset. Starting fresh conversation.');
       },
-    });
-
-    this.register({
+    },
+    {
       name: 'reset',
       description: 'Reset session and clear context',
+      global: true,
       handler: async (ctx) => {
         await ctx.reply('Session and context cleared.');
       },
-    });
-
-    this.register({
+    },
+    {
       name: 'stop',
       description: 'Pause the agent (stop responding)',
+      global: true,
       handler: async (ctx) => {
         await ctx.reply('Agent paused. Use /start to resume.');
       },
-    });
-
-    this.register({
+    },
+    {
       name: 'start',
       description: 'Resume the agent',
+      global: true,
       handler: async (ctx) => {
         await ctx.reply('Agent resumed.');
       },
-    });
-
-    this.register({
+    },
+    {
       name: 'context',
       description: 'Show current context window usage',
+      global: true,
       handler: async (ctx) => {
         await ctx.reply(`Session: ${ctx.sessionId}\nContext info not yet available.`);
       },
-    });
-
-    this.register({
+    },
+    {
       name: 'compact',
       description: 'Force conversation compaction',
+      global: true,
       handler: async (ctx) => {
         await ctx.reply('Compaction triggered.');
       },
-    });
-
-    this.register({
+    },
+    {
       name: 'model',
       description: 'Show or switch the current LLM model',
-      usage: '[name]',
+      args: '[name]',
+      global: true,
       handler: async (ctx) => {
         if (ctx.args) {
           await ctx.reply(`Model switching not yet implemented. Requested: ${ctx.args}`);
@@ -281,14 +316,46 @@ export class CommandRegistry {
           await ctx.reply('Current model info not yet available.');
         }
       },
-    });
-
-    this.register({
+    },
+    {
       name: 'skills',
       description: 'List available skills',
+      global: true,
       handler: async (ctx) => {
         await ctx.reply('Skill listing not yet available.');
       },
-    });
-  }
+    },
+    {
+      name: 'task',
+      description: 'Show current task status',
+      global: true,
+      handler: async (ctx) => {
+        await ctx.reply('Task status not yet available.');
+      },
+    },
+    {
+      name: 'tasks',
+      description: 'List all tasks',
+      global: true,
+      handler: async (ctx) => {
+        await ctx.reply('Task listing not yet available.');
+      },
+    },
+    {
+      name: 'balance',
+      description: 'Show token balance',
+      global: true,
+      handler: async (ctx) => {
+        await ctx.reply('Balance info not yet available.');
+      },
+    },
+    {
+      name: 'reputation',
+      description: 'Show agent reputation score',
+      global: true,
+      handler: async (ctx) => {
+        await ctx.reply('Reputation info not yet available.');
+      },
+    },
+  ];
 }
