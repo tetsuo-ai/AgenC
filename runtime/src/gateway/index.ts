@@ -37,3 +37,15 @@ export {
 } from './config-watcher.js';
 
 export { Gateway, type GatewayOptions } from './gateway.js';
+
+export {
+  createGatewayMessage,
+  createOutboundMessage,
+  validateGatewayMessage,
+  validateAttachment,
+  type GatewayMessage,
+  type OutboundMessage,
+  type MessageAttachment,
+  type MessageScope,
+  type AttachmentType,
+} from './message.js';
