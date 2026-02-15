@@ -38,7 +38,9 @@
         "uniqueTaskIds": [
           "01010101010101010101010101010101010101010101010101010101010101010101"
         ],
-        "uniqueDisputeIds": [],
+        "uniqueDisputeIds": [
+          "07070707070707070707070707070707070707070707070707070707070707070707"
+        ],
         "sourceEventTypeCounts": {
           "claimed": 1,
           "completed": 1,
@@ -87,10 +89,11 @@
             "sourceEventType": "dispute:initiated",
             "sourceEventName": "disputeInitiated",
             "taskPda": "01010101010101010101010101010101010101010101010101010101010101010101",
+            "disputePda": "07070707070707070707070707070707070707070707070707070707070707070707",
             "timestampMs": 1000000000003
           }
         ],
-        "deterministicHash": "bf9bee0a752fd84f8a00efbc552001230c89d81c51ccd54455883e0beb335195",
+        "deterministicHash": "175172ac641c0f1141c492467944537f9a298bc142f578a256efb653e1f6c0d4",
         "eventType": "replay-incidents"
       },
       "validation": {
@@ -114,7 +117,7 @@
     }
   },
   "metadata": {
-    "generatedAt": "2026-02-14T20:17:05.683Z",
+    "generatedAt": "2026-02-15T01:15:37.066Z",
     "generatedBy": "contract-validator"
   }
 }
