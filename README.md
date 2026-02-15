@@ -60,7 +60,7 @@ AgenC is a decentralized protocol for coordinating AI agents on Solana. Agents r
 
 | Package | Version | Description |
 |---------|---------|-------------|
-| [`programs/agenc-coordination`](programs/agenc-coordination/) | — | Solana smart contract (Rust/Anchor) — 24 instructions, 25 event types |
+| [`programs/agenc-coordination`](programs/agenc-coordination/) | — | Solana smart contract (Rust/Anchor) — 25 instructions, 30 event types |
 | [`@agenc/sdk`](sdk/) | 1.3.0 | TypeScript SDK — task operations, ZK proofs, SPL token support |
 | [`@agenc/runtime`](runtime/) | 0.1.0 | Agent runtime (~90k lines) — LLM adapters, memory, workflows, marketplace |
 | [`@agenc/mcp`](mcp/) | 0.1.0 | MCP server — protocol operations as AI-consumable tools |
@@ -97,7 +97,7 @@ anchor build
 ### Run Tests
 
 ```bash
-# Fast integration tests via LiteSVM (~5s, 163 tests)
+# Fast integration tests via LiteSVM (~5s, 185 tests)
 npm run test:fast
 
 # SDK + Runtime unit tests (~1800+ tests)
@@ -226,13 +226,13 @@ npm run test:fixtures
 AgenC/
 ├── programs/agenc-coordination/     # Solana program (Rust/Anchor)
 │   ├── src/
-│   │   ├── lib.rs                   # Program entrypoint (24 instructions)
+│   │   ├── lib.rs                   # Program entrypoint (25 instructions)
 │   │   ├── state.rs                 # Account structures
-│   │   ├── errors.rs                # 139+ error codes
-│   │   ├── events.rs                # 25 event types
+│   │   ├── errors.rs                # 147 error codes (6000-6146)
+│   │   ├── events.rs                # 30 event types
 │   │   ├── verifying_key.rs         # Groth16 verifying key
-│   │   └── instructions/            # 24 instruction + 9 helper modules
-│   └── fuzz/                        # Fuzz testing (5 targets)
+│   │   └── instructions/            # Instruction handlers + helper modules
+│   └── fuzz/                        # Fuzz testing targets + infrastructure
 ├── sdk/                             # TypeScript SDK (v1.3.0)
 │   └── src/                         # Client, proofs, tasks, tokens, bids, validation
 ├── runtime/                         # Agent Runtime (v0.1.0, ~90k lines)
@@ -243,7 +243,7 @@ AgenC/
 ├── circuits/task_completion/        # Noir ZK circuits
 ├── circuits-circom/task_completion/ # Circom circuits + MPC ceremony tooling
 ├── examples/                        # 10 example projects
-├── tests/                           # LiteSVM integration tests (163 tests)
+├── tests/                           # LiteSVM integration tests (185 tests)
 ├── docs/                            # Security audits, deployment, observability
 └── migrations/                      # Protocol version migration tools
 ```
@@ -291,7 +291,8 @@ AgenC/
 | `initialize_protocol` | Set up protocol config, treasury, fees |
 | `update_protocol_fee` | Adjust protocol fees (multisig required) |
 | `update_rate_limits` | Configure rate limits (multisig required) |
-| `migrate` | Protocol version migration (multisig required) |
+| `migrate_protocol` | Protocol version migration (multisig required) |
+| `update_min_version` | Update minimum supported version (multisig required) |
 | `update_state` | Sync shared state with version tracking |
 
 ## Zero-Knowledge Privacy
@@ -396,7 +397,7 @@ const agent = new AgentBuilder()
 | `skills/` | Pluggable skill registry + Jupiter DEX integration |
 | `telemetry/` | Unified metrics collection with pluggable sinks |
 | `eval/` | Deterministic benchmarks, mutation testing, trajectory recording + replay |
-| `events/` | Event subscriptions + parsing for 17+ on-chain event types |
+| `events/` | Event subscriptions + parsing for 30 on-chain event types |
 
 ### LLM Providers
 
@@ -543,6 +544,7 @@ The project runs a comprehensive CI pipeline via GitHub Actions:
 | [Static Analysis](docs/STATIC_ANALYSIS.md) | Static analysis results |
 | [Privacy Guide](docs/PRIVACY_README.md) | Privacy features deep-dive |
 | [Noir Reference](docs/NOIR_REFERENCE.md) | Noir circuit language reference |
+| [Sprint Issue Map (959-999)](docs/ISSUES_959_999.md) | Issue-to-PR mapping snapshot for the 959-999 backlog |
 | [Whitepaper](WHITEPAPER.md) | Protocol vision and design |
 
 ## Ecosystem
