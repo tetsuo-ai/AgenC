@@ -56,7 +56,7 @@ export {
 } from './message.js';
 
 // Workspace files (Phase 3.5)
-export type { WorkspaceFiles, WorkspaceValidation, WorkspaceFileName } from './workspace-files.js';
+export type { WorkspaceFiles, WorkspaceValidation, WorkspaceFileName, AssembleSystemPromptOptions } from './workspace-files.js';
 export {
   WORKSPACE_FILES,
   WorkspaceLoader,

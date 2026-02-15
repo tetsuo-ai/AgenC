@@ -1192,6 +1192,7 @@ export {
   type WorkspaceFiles,
   type WorkspaceValidation,
   type WorkspaceFileName,
+  type AssembleSystemPromptOptions,
 } from './gateway/index.js';
 
 // Agent Builder (Phase 10)

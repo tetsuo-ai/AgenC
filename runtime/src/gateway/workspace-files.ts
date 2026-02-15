@@ -67,7 +67,13 @@ export interface WorkspaceValidation {
 async function readSafe(filePath: string): Promise<string | undefined> {
   try {
     return await readFile(filePath, 'utf-8');
-  } catch {
+  } catch (err: unknown) {
+    if (err instanceof Error && 'code' in err && (err as NodeJS.ErrnoException).code === 'ENOENT') {
+      return undefined;
+    }
+    // Non-ENOENT errors (permission denied, etc.) — log warning and skip
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`[workspace] Failed to read ${filePath}: ${msg}`);
     return undefined;
   }
 }
@@ -206,6 +212,7 @@ export function assembleSystemPrompt(
   let result = sections.join('\n\n');
 
   if (options?.maxLength !== undefined && result.length > options.maxLength) {
+    if (options.maxLength < 1) return '';
     result = result.slice(0, options.maxLength - 1) + '\u2026';
   }
 
@@ -340,11 +347,13 @@ export async function scaffoldWorkspace(workspacePath: string): Promise<string[]
   for (const fileName of Object.values(WORKSPACE_FILES)) {
     const filePath = join(workspacePath, fileName);
     try {
-      await access(filePath, constants.F_OK);
-      // File exists — skip
-    } catch {
-      await writeFile(filePath, TEMPLATES[fileName], 'utf-8');
+      await writeFile(filePath, TEMPLATES[fileName], { encoding: 'utf-8', flag: 'wx' });
       created.push(fileName);
+    } catch (err: unknown) {
+      // EEXIST = file already exists — skip. Re-throw anything else.
+      if (!(err instanceof Error && 'code' in err && (err as NodeJS.ErrnoException).code === 'EEXIST')) {
+        throw err;
+      }
     }
   }
 

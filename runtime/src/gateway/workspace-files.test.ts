@@ -124,6 +124,19 @@ describe('WorkspaceLoader.validate', () => {
     expect(result.warnings).toContain('AGENT.md is missing — agent has no personality configuration');
     expect(result.missing).toContain('AGENT.md');
   });
+
+  it('reports no missing files when all are present', async () => {
+    for (const fileName of Object.values(WORKSPACE_FILES)) {
+      await writeFile(join(tmpDir, fileName), `# ${fileName}`);
+    }
+
+    const loader = new WorkspaceLoader(tmpDir);
+    const result = await loader.validate();
+
+    expect(result.valid).toBe(true);
+    expect(result.missing).toHaveLength(0);
+    expect(result.warnings).toHaveLength(0);
+  });
 });
 
 describe('assembleSystemPrompt', () => {
@@ -131,21 +144,33 @@ describe('assembleSystemPrompt', () => {
     const result = assembleSystemPrompt({
       agent: '# Agent',
       soul: '# Soul',
+      identity: '# Identity',
       capabilities: '# Caps',
+      policy: '# Policy',
+      reputation: '# Reputation',
       user: '# User',
       tools: '# Tools',
+      memory: '# Memory',
     });
 
     const agentIdx = result.indexOf('# Agent');
     const soulIdx = result.indexOf('# Soul');
+    const identityIdx = result.indexOf('# Identity');
     const capsIdx = result.indexOf('# Caps');
+    const policyIdx = result.indexOf('# Policy');
+    const reputationIdx = result.indexOf('# Reputation');
     const userIdx = result.indexOf('# User');
     const toolsIdx = result.indexOf('# Tools');
+    const memoryIdx = result.indexOf('# Memory');
 
     expect(agentIdx).toBeLessThan(soulIdx);
-    expect(soulIdx).toBeLessThan(capsIdx);
-    expect(capsIdx).toBeLessThan(userIdx);
+    expect(soulIdx).toBeLessThan(identityIdx);
+    expect(identityIdx).toBeLessThan(capsIdx);
+    expect(capsIdx).toBeLessThan(policyIdx);
+    expect(policyIdx).toBeLessThan(reputationIdx);
+    expect(reputationIdx).toBeLessThan(userIdx);
     expect(userIdx).toBeLessThan(toolsIdx);
+    expect(toolsIdx).toBeLessThan(memoryIdx);
   });
 
   it('skips undefined files', () => {
@@ -177,6 +202,15 @@ describe('assembleSystemPrompt', () => {
 
     expect(result).toHaveLength(50);
     expect(result.endsWith('\u2026')).toBe(true);
+  });
+
+  it('returns empty string when maxLength is 0', () => {
+    const result = assembleSystemPrompt(
+      { agent: 'A'.repeat(100) },
+      { maxLength: 0 },
+    );
+
+    expect(result).toBe('');
   });
 });
 
