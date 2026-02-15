@@ -82,6 +82,19 @@ describe('validate', () => {
     expect(result.valid).toBe(true);
     expect(result.errors).toHaveLength(0);
   });
+
+  it('rejects large data buffer when sizeBytes is absent', () => {
+    const pipeline = new MediaPipeline(
+      makeConfig({ tempDir, maxAttachmentBytes: 100 }),
+    );
+    const att = makeAttachment({
+      data: new Uint8Array(200),
+      sizeBytes: undefined,
+    });
+    const result = pipeline.validate(att);
+    expect(result.valid).toBe(false);
+    expect(result.errors.some((e) => e.includes('byteLength'))).toBe(true);
+  });
 });
 
 // ============================================================================
@@ -124,6 +137,16 @@ describe('process', () => {
     const result = await pipeline.process(att);
     expect(result.success).toBe(false);
     expect(result.error).toContain('Unsupported MIME type');
+  });
+
+  it('rejects oversized attachment inline', async () => {
+    const pipeline = new MediaPipeline(
+      makeConfig({ tempDir, maxAttachmentBytes: 10 }),
+    );
+    const att = makeAttachment({ data: new Uint8Array(50) });
+    const result = await pipeline.process(att);
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('exceeds maximum');
   });
 });
 
@@ -178,6 +201,47 @@ describe('enrichMessage', () => {
     expect(enriched.content).toContain('[Voice transcription: Voice text]');
     expect(enriched.content).toContain('[Image description: Image text]');
   });
+
+  it('skips audio when autoTranscribeVoice is false', async () => {
+    const pipeline = new MediaPipeline(
+      makeConfig({ tempDir, autoTranscribeVoice: false }),
+    );
+    pipeline.setTranscriptionProvider({
+      async transcribe() {
+        return 'Should not appear';
+      },
+    });
+
+    const msg = makeMessage({
+      content: 'Original',
+      attachments: [makeAttachment({ type: 'audio', mimeType: 'audio/ogg' })],
+    });
+    const enriched = await pipeline.enrichMessage(msg);
+    expect(enriched.content).toBe('Original');
+  });
+
+  it('skips attachments without data (URL-only)', async () => {
+    const pipeline = new MediaPipeline(makeConfig({ tempDir }));
+    pipeline.setTranscriptionProvider({
+      async transcribe() {
+        return 'Should not appear';
+      },
+    });
+
+    const msg = makeMessage({
+      content: 'Original',
+      attachments: [
+        makeAttachment({
+          type: 'audio',
+          mimeType: 'audio/ogg',
+          data: undefined,
+          url: 'https://example.com/voice.ogg',
+        }),
+      ],
+    });
+    const enriched = await pipeline.enrichMessage(msg);
+    expect(enriched.content).toBe('Original');
+  });
 });
 
 // ============================================================================
@@ -218,7 +282,8 @@ describe('cleanup', () => {
 describe('NoopTranscriptionProvider', () => {
   it('returns placeholder text', async () => {
     const provider = new NoopTranscriptionProvider();
-    const text = await provider.transcribe(new Uint8Array([1]), 'audio/ogg');
+    const ac = new AbortController();
+    const text = await provider.transcribe(new Uint8Array([1]), 'audio/ogg', ac.signal);
     expect(text).toContain('placeholder');
     expect(text).toContain('audio/ogg');
   });
@@ -227,7 +292,8 @@ describe('NoopTranscriptionProvider', () => {
 describe('NoopImageDescriptionProvider', () => {
   it('returns placeholder text', async () => {
     const provider = new NoopImageDescriptionProvider();
-    const text = await provider.describe(new Uint8Array([1]), 'image/png');
+    const ac = new AbortController();
+    const text = await provider.describe(new Uint8Array([1]), 'image/png', ac.signal);
     expect(text).toContain('placeholder');
     expect(text).toContain('image/png');
   });

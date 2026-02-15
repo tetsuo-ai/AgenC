@@ -6,25 +6,39 @@
  * Manages temp file lifecycle, size validation, and pluggable provider
  * interfaces. Ships with noop providers only (no Whisper/TTS integration).
  *
+ * Scope limitations (deferred to future work):
+ * - Document extraction (PDF, DOCX) — returns unsupported MIME type
+ * - Per-channel quota enforcement
+ *
  * @module
  */
 
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
-import { readdir, stat, unlink } from 'node:fs/promises';
+import { readdir, lstat, unlink } from 'node:fs/promises';
 import type { GatewayMessage, MessageAttachment } from './message.js';
 import { validateAttachment } from './message.js';
 import type { ValidationResult } from '../utils/validation.js';
 import { withTimeout } from '../llm/timeout.js';
 
 // ============================================================================
-// Logger (minimal interface to avoid @agenc/sdk dependency)
+// Logger (inline to avoid transitive @agenc/sdk runtime dependency)
 // ============================================================================
 
-/** Minimal logger interface matching the SDK Logger shape. */
+/**
+ * Minimal logger interface matching the SDK Logger shape.
+ *
+ * Defined inline rather than importing from `../utils/logger.js` because that
+ * module re-exports from `@agenc/sdk`, which is not resolvable in the test
+ * environment (Vite cannot resolve the package entry). Once `@agenc/sdk` is
+ * available as a proper workspace dependency, replace with:
+ *
+ *   import type { Logger } from '../utils/logger.js';
+ *   import { silentLogger } from '../utils/logger.js';
+ */
 export interface MediaLogger {
-  debug(msg: string): void;
-  warn(msg: string): void;
+  debug(msg: string, ...args: unknown[]): void;
+  warn(msg: string, ...args: unknown[]): void;
 }
 
 const silentMediaLogger: MediaLogger = {
@@ -81,12 +95,12 @@ export interface MediaProcessingResult {
 
 /** Provider that converts audio data to text. */
 export interface TranscriptionProvider {
-  transcribe(data: Uint8Array, mimeType: string): Promise<string>;
+  transcribe(data: Uint8Array, mimeType: string, signal: AbortSignal): Promise<string>;
 }
 
 /** Provider that converts image data to a text description. */
 export interface ImageDescriptionProvider {
-  describe(data: Uint8Array, mimeType: string): Promise<string>;
+  describe(data: Uint8Array, mimeType: string, signal: AbortSignal): Promise<string>;
 }
 
 // ============================================================================
@@ -95,14 +109,14 @@ export interface ImageDescriptionProvider {
 
 /** Placeholder transcription provider that returns a stub string. */
 export class NoopTranscriptionProvider implements TranscriptionProvider {
-  async transcribe(_data: Uint8Array, mimeType: string): Promise<string> {
+  async transcribe(_data: Uint8Array, mimeType: string, _signal: AbortSignal): Promise<string> {
     return `[Transcription placeholder for ${mimeType} audio]`;
   }
 }
 
 /** Placeholder image description provider that returns a stub string. */
 export class NoopImageDescriptionProvider implements ImageDescriptionProvider {
-  async describe(_data: Uint8Array, mimeType: string): Promise<string> {
+  async describe(_data: Uint8Array, mimeType: string, _signal: AbortSignal): Promise<string> {
     return `[Description placeholder for ${mimeType} image]`;
   }
 }
@@ -172,7 +186,22 @@ export class MediaPipeline {
 
   /** Validate an attachment against pipeline size constraints. */
   validate(attachment: MessageAttachment): ValidationResult {
-    return validateAttachment(attachment, this.config.maxAttachmentBytes);
+    const result = validateAttachment(attachment, this.config.maxAttachmentBytes);
+    if (!result.valid) return result;
+
+    // Check actual data size when sizeBytes is absent
+    if (attachment.data && attachment.sizeBytes === undefined) {
+      if (attachment.data.byteLength > this.config.maxAttachmentBytes) {
+        return {
+          valid: false,
+          errors: [
+            `data byteLength (${attachment.data.byteLength}) exceeds maximum (${this.config.maxAttachmentBytes})`,
+          ],
+        };
+      }
+    }
+
+    return result;
   }
 
   /** Process a single attachment, returning a text representation. */
@@ -189,6 +218,16 @@ export class MediaPipeline {
       };
     }
 
+    const validation = this.validate(attachment);
+    if (!validation.valid) {
+      return {
+        success: false,
+        error: validation.errors.join('; '),
+        mimeType,
+        processingTimeMs: Date.now() - start,
+      };
+    }
+
     if (!isAudioMime(mimeType) && !isImageMime(mimeType)) {
       return {
         success: false,
@@ -200,11 +239,11 @@ export class MediaPipeline {
 
     try {
       const text = await withTimeout(
-        (_signal) => {
+        (signal) => {
           if (isAudioMime(mimeType)) {
-            return this.transcriber.transcribe(attachment.data!, mimeType);
+            return this.transcriber.transcribe(attachment.data!, mimeType, signal);
           }
-          return this.imageDescriber.describe(attachment.data!, mimeType);
+          return this.imageDescriber.describe(attachment.data!, mimeType, signal);
         },
         this.config.processingTimeoutMs,
         'MediaPipeline',
@@ -273,6 +312,7 @@ export class MediaPipeline {
   async cleanup(): Promise<number> {
     const now = Date.now();
     let removed = 0;
+    const resolvedTempDir = resolve(this.config.tempDir);
 
     let entries: string[];
     try {
@@ -284,7 +324,12 @@ export class MediaPipeline {
     for (const entry of entries) {
       try {
         const filePath = join(this.config.tempDir, entry);
-        const info = await stat(filePath);
+        const resolvedPath = resolve(filePath);
+        if (!resolvedPath.startsWith(resolvedTempDir + '/')) continue;
+
+        const info = await lstat(filePath);
+        if (!info.isFile()) continue;
+
         if (now - info.mtimeMs >= this.config.tempFileTtlMs) {
           await unlink(filePath);
           removed++;
