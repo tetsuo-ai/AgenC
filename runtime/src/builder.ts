@@ -188,8 +188,8 @@ export class AgentBuilder {
   private telemetryConfig?: TelemetryConfig;
   // Policy
   private policyConfig?: RuntimePolicyConfig;
-  // Gateway (stored for future Gateway integration in build())
-  gatewayConfig?: GatewayConfig;
+  // Gateway
+  private gatewayConfig?: GatewayConfig;
 
   constructor(connection: Connection, wallet: Keypair | Wallet) {
     this.connection = connection;
@@ -409,6 +409,11 @@ export class AgentBuilder {
     const builderWallet: Wallet = ensureWallet(this.wallet);
 
     const resolvedConnection = this.connectionManager?.getConnection() ?? this.connection;
+
+    // Gateway integration will be wired here in a future PR (#1055+)
+    if (this.gatewayConfig) {
+      logger.debug('Gateway config provided — will be used once Gateway integration lands');
+    }
 
     // Create telemetry collector if configured
     const telemetry = this.telemetryConfig

@@ -36,7 +36,7 @@ function makeConfig(overrides?: Partial<GatewayConfig>): GatewayConfig {
 function makeChannel(name: string, healthy = true): ChannelHandle {
   return {
     name,
-    healthy,
+    isHealthy: () => healthy,
     start: vi.fn().mockResolvedValue(undefined),
     stop: vi.fn().mockResolvedValue(undefined),
   };
@@ -172,18 +172,23 @@ describe('Gateway', () => {
       expect(gateway.config.logging?.level).toBe('debug');
     });
 
-    it('reloadConfig warns on unsafe changes', async () => {
+    it('reloadConfig preserves unsafe fields from old config', async () => {
       await gateway.start();
       const warnSpy = vi.spyOn(silentLogger, 'warn');
 
       const newConfig = makeConfig({
         connection: { rpcUrl: 'http://other-rpc:8899' },
+        logging: { level: 'debug' },
       });
 
       const diff = gateway.reloadConfig(newConfig);
 
       expect(diff.unsafe).toContain('connection.rpcUrl');
-      // warn was called (silentLogger is no-op but spy still records calls)
+      expect(diff.safe).toContain('logging.level');
+      // Unsafe field preserved from original
+      expect(gateway.config.connection.rpcUrl).toBe('http://localhost:8899');
+      // Safe field applied from new config
+      expect(gateway.config.logging?.level).toBe('debug');
       expect(warnSpy).toHaveBeenCalled();
       warnSpy.mockRestore();
     });
@@ -201,12 +206,7 @@ describe('Gateway', () => {
       await gateway.stop();
       await gateway.start();
 
-      // handler should NOT have been called for the second stop
-      // but was called again for second start since we only unsubscribed 'started'
-      // Actually: we unsubscribed, so second start should not fire handler
-      // Wait - we stopped then started. After unsubscribe the handler shouldn't fire.
-      // But stop fires 'stopped' not 'started'. Let's re-check:
-      // After stop + re-start, handler was unsubscribed so second 'started' won't call it.
+      // After unsubscribe, second 'started' event should not call handler
       expect(handler).toHaveBeenCalledTimes(1);
     });
 
@@ -299,8 +299,8 @@ describe('config loading', () => {
 
     watcher.stop();
 
-    // Should have been called at most a few times (debounced), not 3 times
-    // Due to OS-level file watching variability, just verify it doesn't explode
-    expect(onReload.mock.calls.length).toBeLessThanOrEqual(3);
+    // Debounce should collapse 3 rapid writes into fewer reloads
+    // Due to OS-level file watching variability, we assert strictly less than 3
+    expect(onReload.mock.calls.length).toBeLessThan(3);
   });
 });

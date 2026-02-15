@@ -32,7 +32,8 @@ export interface GatewayChannelConfig {
 
 export interface GatewayAgentConfig {
   name: string;
-  capabilities?: number;
+  /** Capability bitmask as decimal string (bigint doesn't survive JSON round-trip) */
+  capabilities?: string;
   endpoint?: string;
   stake?: string;
 }
@@ -123,7 +124,8 @@ export interface ControlResponse {
 
 export interface ChannelHandle {
   readonly name: string;
-  readonly healthy: boolean;
+  /** Live health check — implementations should report current status */
+  isHealthy(): boolean;
   start(): Promise<void>;
   stop(): Promise<void>;
 }

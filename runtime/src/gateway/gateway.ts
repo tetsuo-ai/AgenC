@@ -31,6 +31,7 @@ import {
   ConfigWatcher,
   diffGatewayConfig,
   validateGatewayConfig,
+  loadGatewayConfig,
 } from './config-watcher.js';
 
 // ============================================================================
@@ -223,9 +224,9 @@ export class Gateway {
       );
     }
 
-    // Apply safe changes immediately
+    // Only apply safe changes — merge from newConfig, preserving unsafe fields
     if (diff.safe.length > 0) {
-      this._config = newConfig;
+      this._config = mergeSafeConfig(this._config, newConfig, diff);
       this.emit('configReloaded', diff);
       this.logger.info(`Config reloaded. Safe changes: ${diff.safe.join(', ')}`);
     }
@@ -312,6 +313,8 @@ export class Gateway {
     });
   }
 
+  // Intentionally resolves (never rejects) — shutdown should not throw.
+  // Errors are logged but swallowed to avoid blocking the stop() sequence.
   private stopControlPlane(): Promise<void> {
     return new Promise((resolve) => {
       // Close all client connections
@@ -354,46 +357,36 @@ export class Gateway {
     }
 
     if (!msg.type || typeof msg.type !== 'string') {
-      this.sendResponse(socket, { type: 'error', error: 'Missing message type', id: msg.id });
+      this.sendResponse(socket, { type: 'error', error: 'Missing message type' });
       return;
     }
 
+    // Sanitize id: only echo back if it's a string
+    const id = typeof msg.id === 'string' ? msg.id : undefined;
+
     switch (msg.type) {
       case 'ping':
-        this.sendResponse(socket, { type: 'pong', id: msg.id });
+        this.sendResponse(socket, { type: 'pong', id });
         break;
 
       case 'status':
         this.sendResponse(socket, {
           type: 'status',
           payload: this.getStatus(),
-          id: msg.id,
+          id,
         });
         break;
 
       case 'reload':
-        try {
-          // Reload from disk requires configPath
-          if (!this.configPath) {
-            this.sendResponse(socket, {
-              type: 'reload',
-              error: 'No config path configured for file-based reload',
-              id: msg.id,
-            });
-          } else {
-            // For WS-triggered reload, we just report the current config diff info
-            this.sendResponse(socket, {
-              type: 'reload',
-              payload: { message: 'Reload triggered via config watcher' },
-              id: msg.id,
-            });
-          }
-        } catch (err) {
+        if (!this.configPath) {
           this.sendResponse(socket, {
             type: 'reload',
-            error: (err as Error).message,
-            id: msg.id,
+            error: 'No config path configured for file-based reload',
+            id,
           });
+        } else {
+          // Async reload — load from disk and apply
+          void this.handleReloadCommand(socket, id);
         }
         break;
 
@@ -402,9 +395,9 @@ export class Gateway {
           type: 'channels',
           payload: [...this.channels.entries()].map(([name, ch]) => ({
             name,
-            healthy: ch.healthy,
+            healthy: ch.isHealthy(),
           })),
-          id: msg.id,
+          id,
         });
         break;
 
@@ -412,7 +405,7 @@ export class Gateway {
         this.sendResponse(socket, {
           type: 'error',
           error: `Unknown message type: ${msg.type}`,
-          id: msg.id,
+          id,
         });
     }
   }
@@ -422,6 +415,24 @@ export class Gateway {
       socket.send(safeStringify(response));
     } catch (err) {
       this.logger.error('Failed to send WebSocket response:', err);
+    }
+  }
+
+  private async handleReloadCommand(socket: WsWebSocket, id?: string): Promise<void> {
+    try {
+      const newConfig = await loadGatewayConfig(this.configPath!);
+      const diff = this.reloadConfig(newConfig);
+      this.sendResponse(socket, {
+        type: 'reload',
+        payload: diff,
+        id,
+      });
+    } catch (err) {
+      this.sendResponse(socket, {
+        type: 'reload',
+        error: (err as Error).message,
+        id,
+      });
     }
   }
 
@@ -447,4 +458,40 @@ export class Gateway {
       },
     );
   }
+}
+
+// ============================================================================
+// Helpers
+// ============================================================================
+
+/**
+ * Merge only safe fields from newConfig into oldConfig, preserving unsafe fields
+ * from the running config to avoid state/status drift.
+ */
+function mergeSafeConfig(
+  oldConfig: GatewayConfig,
+  newConfig: GatewayConfig,
+  diff: ConfigDiff,
+): GatewayConfig {
+  // If there are no unsafe changes, the new config is safe wholesale
+  if (diff.unsafe.length === 0) {
+    return newConfig;
+  }
+
+  // Deep-clone old config as the base, then overlay safe sections from new
+  const merged = JSON.parse(JSON.stringify(oldConfig)) as GatewayConfig;
+
+  // Apply safe top-level sections from new config
+  const safeSections = new Set(diff.safe.map((key) => key.split('.')[0]));
+  const unsafeSections = new Set(diff.unsafe.map((key) => key.split('.')[0]));
+
+  for (const section of safeSections) {
+    // Only merge sections that have NO unsafe keys
+    if (!unsafeSections.has(section)) {
+      (merged as unknown as Record<string, unknown>)[section] =
+        (newConfig as unknown as Record<string, unknown>)[section];
+    }
+  }
+
+  return merged;
 }

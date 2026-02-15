@@ -110,6 +110,32 @@ export function validateGatewayConfig(
     }
   }
 
+  // llm (optional)
+  if (config.llm !== undefined) {
+    if (typeof config.llm !== 'object' || config.llm === null) {
+      errors.push('llm must be an object');
+    } else {
+      const llm = config.llm as Record<string, unknown>;
+      const validProviders = ['grok', 'anthropic', 'ollama'];
+      if (typeof llm.provider !== 'string' || !validProviders.includes(llm.provider)) {
+        errors.push(`llm.provider must be one of: ${validProviders.join(', ')}`);
+      }
+    }
+  }
+
+  // memory (optional)
+  if (config.memory !== undefined) {
+    if (typeof config.memory !== 'object' || config.memory === null) {
+      errors.push('memory must be an object');
+    } else {
+      const memory = config.memory as Record<string, unknown>;
+      const validBackends = ['memory', 'sqlite', 'redis'];
+      if (typeof memory.backend !== 'string' || !validBackends.includes(memory.backend)) {
+        errors.push(`memory.backend must be one of: ${validBackends.join(', ')}`);
+      }
+    }
+  }
+
   return { valid: errors.length === 0, errors };
 }
 
