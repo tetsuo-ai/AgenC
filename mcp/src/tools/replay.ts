@@ -11,7 +11,11 @@ import {
   PROGRAM_ID,
   ReplayBackfillService,
   ReplayComparisonService,
+  applyQueryFilter,
+  normalizeQuery,
+  parseQueryDSL,
   stableStringifyJson,
+  type QueryDSL,
   type BackfillFetcher,
   type JsonValue,
   type ProjectedTimelineInput,
@@ -1308,12 +1312,75 @@ export async function runReplayIncidentTool(
     );
   }
 
-  if (parsed.task_pda === undefined && parsed.dispute_pda === undefined) {
+  const queryRaw = typeof parsed.query === 'string' && parsed.query.trim().length > 0 ? parsed.query : undefined;
+  let queryDsl: QueryDSL | null = null;
+  let normalizedQueryHash: string | undefined;
+  if (queryRaw !== undefined) {
+    try {
+      queryDsl = parseQueryDSL(queryRaw);
+      normalizedQueryHash = normalizeQuery(queryDsl).hash;
+    } catch (error) {
+      return createToolError(
+        'agenc_replay_incident',
+        REPLAY_INCIDENT_OUTPUT_SCHEMA,
+        'replay.invalid_input',
+        error instanceof Error ? error.message : String(error),
+        false,
+      );
+    }
+  }
+
+  if (queryDsl?.taskPda && parsed.task_pda && parsed.task_pda !== queryDsl.taskPda) {
+    return createToolError(
+      'agenc_replay_incident',
+      REPLAY_INCIDENT_OUTPUT_SCHEMA,
+      'replay.invalid_input',
+      'conflicting task_pda and query.taskPda filters',
+      false,
+    );
+  }
+
+  if (queryDsl?.disputePda && parsed.dispute_pda && parsed.dispute_pda !== queryDsl.disputePda) {
+    return createToolError(
+      'agenc_replay_incident',
+      REPLAY_INCIDENT_OUTPUT_SCHEMA,
+      'replay.invalid_input',
+      'conflicting dispute_pda and query.disputePda filters',
+      false,
+    );
+  }
+
+  if (queryDsl?.slotRange?.from !== undefined && parsed.from_slot !== undefined && parsed.from_slot !== queryDsl.slotRange.from) {
+    return createToolError(
+      'agenc_replay_incident',
+      REPLAY_INCIDENT_OUTPUT_SCHEMA,
+      'replay.invalid_input',
+      'conflicting from_slot and query.slotRange filters',
+      false,
+    );
+  }
+
+  if (queryDsl?.slotRange?.to !== undefined && parsed.to_slot !== undefined && parsed.to_slot !== queryDsl.slotRange.to) {
+    return createToolError(
+      'agenc_replay_incident',
+      REPLAY_INCIDENT_OUTPUT_SCHEMA,
+      'replay.invalid_input',
+      'conflicting to_slot and query.slotRange filters',
+      false,
+    );
+  }
+
+  const effectiveTaskPda = queryDsl?.taskPda ?? parsed.task_pda;
+  const effectiveDisputePda = queryDsl?.disputePda ?? parsed.dispute_pda;
+  const effectiveFromSlot = queryDsl?.slotRange?.from ?? parsed.from_slot;
+  const effectiveToSlot = queryDsl?.slotRange?.to ?? parsed.to_slot;
+
+  if (effectiveTaskPda === undefined && effectiveDisputePda === undefined) {
     return createToolError(
       'agenc_replay_incident',
       REPLAY_INCIDENT_OUTPUT_SCHEMA,
       'replay.missing_filter',
-      'incident requires task_pda or dispute_pda',
+      'incident requires task_pda, dispute_pda, or query with a taskPda/disputePda filter',
       false,
     );
   }
@@ -1329,14 +1396,19 @@ export async function runReplayIncidentTool(
         const windowError = enforceQueryWindow(
           'agenc_replay_incident',
           REPLAY_INCIDENT_OUTPUT_SCHEMA,
-          parsed.from_slot,
-          parsed.to_slot,
+          effectiveFromSlot,
+          effectiveToSlot,
           caps.maxWindowSlots,
         );
         if (windowError) {
           return windowError;
         }
-        const records = await store.query(pickQuery(parsed));
+        const records = await store.query({
+          taskPda: effectiveTaskPda,
+          disputePda: effectiveDisputePda,
+          fromSlot: effectiveFromSlot,
+          toSlot: effectiveToSlot,
+        });
         const capError = enforceEventCap(
           'agenc_replay_incident',
           records.length,
@@ -1348,20 +1420,17 @@ export async function runReplayIncidentTool(
           return capError;
         }
 
+        const slicedRecords = queryDsl ? applyQueryFilter(records, queryDsl) : records;
         const sections = parseSections(parsed.sections, ['summary', 'validation', 'narrative']);
         const redactions = mergeRedactions(policy.defaultRedactions, parsed.redact_fields);
-        const summary = summarizeReplayIncident(records, {
-          taskPda: parsed.task_pda,
-          disputePda: parsed.dispute_pda,
-          fromSlot: parsed.from_slot,
-          toSlot: parsed.to_slot,
-        });
-        const validation = validateReplayIncident(records, parsed.strict_mode, {
-          taskPda: parsed.task_pda,
-          disputePda: parsed.dispute_pda,
-          fromSlot: parsed.from_slot,
-          toSlot: parsed.to_slot,
-        });
+        const summaryFilters = {
+          taskPda: effectiveTaskPda,
+          disputePda: effectiveDisputePda,
+          fromSlot: effectiveFromSlot,
+          toSlot: effectiveToSlot,
+        };
+        const summary = summarizeReplayIncident(slicedRecords, summaryFilters);
+        const validation = validateReplayIncident(slicedRecords, parsed.strict_mode, summaryFilters);
         const narrative = buildIncidentNarrative(summary.events.map((entry, index) => ({
           seq: entry.seq,
           slot: entry.slot,
@@ -1390,10 +1459,12 @@ export async function runReplayIncidentTool(
           command: 'agenc_replay_incident',
           schema: REPLAY_INCIDENT_OUTPUT_SCHEMA,
           command_params: {
-            task_pda: parsed.task_pda,
-            dispute_pda: parsed.dispute_pda,
-            from_slot: parsed.from_slot,
-            to_slot: parsed.to_slot,
+            task_pda: effectiveTaskPda,
+            dispute_pda: effectiveDisputePda,
+            query: queryRaw,
+            query_hash: normalizedQueryHash,
+            from_slot: effectiveFromSlot,
+            to_slot: effectiveToSlot,
             strict_mode: parsed.strict_mode,
             store_type: parsed.store_type,
             sqlite_path: parsed.sqlite_path,

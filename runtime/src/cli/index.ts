@@ -47,7 +47,13 @@ import {
 import {
   TrajectoryReplayEngine,
 } from '../eval/replay.js';
-import { stableStringifyJson, type JsonValue, type TrajectoryTrace } from '../eval/types.js';
+import { type TrajectoryTrace } from '../eval/types.js';
+import {
+  applyQueryFilter,
+  normalizeQuery,
+  parseQueryDSL,
+  type QueryDSL,
+} from '../eval/query-dsl.js';
 import { buildIncidentCase } from '../eval/incident-case.js';
 import { buildEvidencePack, serializeEvidencePack } from '../eval/evidence-pack.js';
 import type { PluginManifest } from '../skills/manifest.js';
@@ -136,7 +142,7 @@ const GLOBAL_OPTIONS = new Set([
 const COMMAND_OPTIONS: Record<ReplayCommand, Set<string>> = {
   backfill: new Set(['to-slot', 'page-size']),
   compare: new Set(['local-trace-path', 'task-pda', 'dispute-pda', 'redact-fields']),
-  incident: new Set(['task-pda', 'dispute-pda', 'from-slot', 'to-slot', 'sealed', 'redact-fields']),
+  incident: new Set(['task-pda', 'dispute-pda', 'query', 'from-slot', 'to-slot', 'sealed', 'redact-fields']),
 };
 const PLUGIN_COMMAND_OPTIONS: Record<PluginCommand, Set<string>> = {
   list: new Set(),
@@ -267,6 +273,7 @@ function buildHelp(): string {
     'incident options:',
     '      --task-pda <pda>                      Limit by task id',
     '      --dispute-pda <pda>                   Limit by dispute id',
+    '      --query <dsl>                         Analyst query DSL filter string',
     '      --redact-fields <fields>               Comma-separated output redaction keys',
     '      --from-slot <slot>                    Replay incident from slot',
     '      --to-slot <slot>                      Replay incident to slot',
@@ -639,10 +646,11 @@ function makeCompareOptions(raw: Record<string, string | number | boolean>, glob
 
 function makeIncidentOptions(
   raw: Record<string, string | number | boolean>,
-  global: Omit<ReplayIncidentOptions, 'taskPda' | 'disputePda' | 'fromSlot' | 'toSlot'>,
+  global: Omit<ReplayIncidentOptions, 'taskPda' | 'disputePda' | 'query' | 'fromSlot' | 'toSlot'>,
 ): ReplayIncidentOptions {
   const taskPda = parseOptionalString(raw['task-pda']);
   const disputePda = parseOptionalString(raw['dispute-pda']);
+  const query = parseOptionalString(raw.query);
   const fromSlot = parseIntValue(raw['from-slot']);
   const toSlot = parseIntValue(raw['to-slot']);
   const sealed = raw.sealed === undefined ? undefined : normalizeCommandFlag(raw.sealed);
@@ -660,14 +668,15 @@ function makeIncidentOptions(
     throw createCliError('--to-slot must be greater than or equal to --from-slot', ERROR_CODES.INVALID_VALUE);
   }
 
-  if (taskPda === undefined && disputePda === undefined) {
-    throw createCliError('incident requires --task-pda or --dispute-pda', ERROR_CODES.MISSING_TARGET);
+  if (taskPda === undefined && disputePda === undefined && query === undefined) {
+    throw createCliError('incident requires --task-pda, --dispute-pda, or --query', ERROR_CODES.MISSING_TARGET);
   }
 
   return {
     ...global,
     taskPda,
     disputePda,
+    query,
     fromSlot,
     toSlot,
     sealed,
@@ -1372,22 +1381,72 @@ async function runReplayIncidentCommand(
 ): Promise<CliStatusCode> {
   const options = args as ReplayIncidentOptions;
 
+  let queryDsl: QueryDSL = {};
+  if (options.query !== undefined) {
+    try {
+      queryDsl = parseQueryDSL(options.query);
+    } catch (error) {
+      throw createCliError(
+        error instanceof Error ? error.message : String(error),
+        ERROR_CODES.INVALID_VALUE,
+      );
+    }
+  }
+
+  if (options.taskPda !== undefined) {
+    if (queryDsl.taskPda !== undefined && queryDsl.taskPda !== options.taskPda) {
+      throw createCliError('conflicting task PDA filters between --task-pda and --query', ERROR_CODES.INVALID_VALUE);
+    }
+    queryDsl.taskPda = queryDsl.taskPda ?? options.taskPda;
+  }
+
+  if (options.disputePda !== undefined) {
+    if (queryDsl.disputePda !== undefined && queryDsl.disputePda !== options.disputePda) {
+      throw createCliError('conflicting dispute PDA filters between --dispute-pda and --query', ERROR_CODES.INVALID_VALUE);
+    }
+    queryDsl.disputePda = queryDsl.disputePda ?? options.disputePda;
+  }
+
+  if (options.fromSlot !== undefined || options.toSlot !== undefined) {
+    const from = queryDsl.slotRange?.from ?? options.fromSlot;
+    const to = queryDsl.slotRange?.to ?? options.toSlot;
+
+    if (options.fromSlot !== undefined && queryDsl.slotRange?.from !== undefined && options.fromSlot !== queryDsl.slotRange.from) {
+      throw createCliError('conflicting from-slot filters between --from-slot and --query', ERROR_CODES.INVALID_VALUE);
+    }
+
+    if (options.toSlot !== undefined && queryDsl.slotRange?.to !== undefined && options.toSlot !== queryDsl.slotRange.to) {
+      throw createCliError('conflicting to-slot filters between --to-slot and --query', ERROR_CODES.INVALID_VALUE);
+    }
+
+    queryDsl.slotRange = { from, to };
+  }
+
+  if (queryDsl.taskPda === undefined && queryDsl.disputePda === undefined) {
+    throw createCliError('incident requires --task-pda, --dispute-pda, or --query', ERROR_CODES.MISSING_TARGET);
+  }
+
+  if (queryDsl.slotRange?.from !== undefined && queryDsl.slotRange?.to !== undefined && queryDsl.slotRange.to < queryDsl.slotRange.from) {
+    throw createCliError('--to-slot must be greater than or equal to --from-slot', ERROR_CODES.INVALID_VALUE);
+  }
+
+  const normalizedQuery = normalizeQuery(queryDsl);
+  const incidentFilters = {
+    taskPda: queryDsl.taskPda,
+    disputePda: queryDsl.disputePda,
+    fromSlot: queryDsl.slotRange?.from,
+    toSlot: queryDsl.slotRange?.to,
+  };
+
   const store = createReplayStore({
     storeType: options.storeType,
     sqlitePath: options.sqlitePath,
   });
-  const records = await queryIncidentRecords(store, {
-    taskPda: options.taskPda,
-    disputePda: options.disputePda,
-    fromSlot: options.fromSlot,
-    toSlot: options.toSlot,
-  });
-  const summary = summarizeReplayIncidentRecords(records, {
-    taskPda: options.taskPda,
-    disputePda: options.disputePda,
-    fromSlot: options.fromSlot,
-    toSlot: options.toSlot,
-  });
+  const records = applyQueryFilter(
+    await queryIncidentRecords(store, incidentFilters),
+    queryDsl,
+  );
+  const summary = summarizeReplayIncidentRecords(records, incidentFilters);
 
   const validation = summarizeIncidentValidation(records, options.strictMode);
   const narrative = buildIncidentNarrative(
@@ -1423,25 +1482,16 @@ async function runReplayIncidentCommand(
       const incidentCase = buildIncidentCase({
         events,
         window: {
-          fromSlot: options.fromSlot,
-          toSlot: options.toSlot,
+          fromSlot: incidentFilters.fromSlot,
+          toSlot: incidentFilters.toSlot,
         },
       });
-
-      const queryHash = createHash('sha256')
-        .update(stableStringifyJson({
-          taskPda: options.taskPda ?? null,
-          disputePda: options.disputePda ?? null,
-          fromSlot: options.fromSlot ?? null,
-          toSlot: options.toSlot ?? null,
-        } as unknown as JsonValue))
-        .digest('hex');
 
       const pack = buildEvidencePack({
         incidentCase,
         events,
         seed: 0,
-        queryHash,
+        queryHash: normalizedQuery.hash,
         sealed: true,
         redactionPolicy: {
           stripFields: ['payload.onchain.trace'],
@@ -1461,10 +1511,11 @@ async function runReplayIncidentCommand(
     command: 'replay.incident',
     schema: 'replay.incident.output.v1',
     commandParams: {
-      taskPda: options.taskPda,
-      disputePda: options.disputePda,
-      fromSlot: options.fromSlot,
-      toSlot: options.toSlot,
+      taskPda: incidentFilters.taskPda,
+      disputePda: incidentFilters.disputePda,
+      query: options.query,
+      fromSlot: incidentFilters.fromSlot,
+      toSlot: incidentFilters.toSlot,
       strictMode: options.strictMode,
       storeType: options.storeType,
       sqlitePath: options.sqlitePath,
