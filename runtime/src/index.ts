@@ -1222,6 +1222,17 @@ export {
   type CompactionResult,
   type SessionInfo,
   type Summarizer,
+  // Agent workspace model (Phase 7.1)
+  WorkspaceManager,
+  WorkspaceValidationError,
+  WORKSPACE_CONFIG_FILE,
+  DEFAULT_WORKSPACE_ID,
+  WORKSPACE_ID_PATTERN,
+  MEMORY_NAMESPACE_PREFIX,
+  type AgentWorkspace,
+  type ToolPolicy,
+  type PersonalityTemplate,
+  type WorkspaceConfigJson,
 } from './gateway/index.js';
 
 // Agent Builder (Phase 10)
