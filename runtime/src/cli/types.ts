@@ -172,6 +172,23 @@ export interface ServiceInstallOptions {
   macos?: boolean;
 }
 
+export interface GatewayCommandOptions extends BaseCliOptions {
+  configPath?: string;
+}
+
+export interface ConfigInitOptions extends GatewayCommandOptions {
+  nonInteractive?: boolean;
+  force?: boolean;
+}
+
+export interface SessionsKillOptions extends GatewayCommandOptions {
+  sessionId: string;
+}
+
+export interface LogsOptions extends GatewayCommandOptions {
+  sessionId?: string;
+}
+
 export interface CliValidationError extends Error {
   code: string;
 }
