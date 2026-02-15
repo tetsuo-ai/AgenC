@@ -19,10 +19,15 @@ import {
   ReplayCompareOptions,
   ReplayIncidentOptions,
   PluginToggleOptions,
+  OnboardOptions,
+  HealthOptions,
+  DoctorOptions,
   SecurityOptions,
 } from './types.js';
 import { validateConfigStrict } from '../types/config-migration.js';
 import { runSecurityCommand } from './security.js';
+import { runOnboardCommand } from './onboard.js';
+import { runDoctorCommand, runHealthCommand } from './health.js';
 import {
   PluginCatalog,
   type PluginPrecedence,
@@ -164,6 +169,10 @@ const PLUGIN_COMMAND_OPTIONS: Record<PluginCommand, Set<string>> = {
   reload: new Set(['manifest']),
 };
 
+const ONBOARD_COMMAND_OPTIONS = new Set(['non-interactive', 'force']);
+const HEALTH_COMMAND_OPTIONS = new Set(['non-interactive', 'deep']);
+const DOCTOR_COMMAND_OPTIONS = new Set(['non-interactive', 'deep', 'fix']);
+
 const COMMANDS: Record<ReplayCommand, CliCommandDescriptor> = {
   backfill: {
     name: 'backfill',
@@ -243,8 +252,18 @@ function createCliError(message: string, code: ErrorCode): CliValidationError {
 function buildHelp(): string {
   return [
     'agenc-runtime [--help] [--config <path>]',
+    'onboard [--help] [options]',
+    'health [--help] [options]',
+    'doctor [--help] [options]',
+    'doctor security [--help] [options]',
     'replay [--help] <command> [options]',
     'plugin [--help] <command> [options]',
+    '',
+    'Bootstrap commands:',
+    '  onboard   Generate a runtime config file and run sanity checks',
+    '  health    Report RPC, store, wallet, and config status',
+    '  doctor    Run all health checks and provide remediation guidance',
+    '  doctor security  Security posture checks',
     '',
     'Replay subcommands:',
     '  backfill   Backfill replay timeline from on-chain history',
@@ -273,6 +292,19 @@ function buildHelp(): string {
     '      --log-level silent|error|warn|info|debug',
     '      --config <path>                       Config file path (default: .agenc-runtime.json)',
     '',
+    'onboard options:',
+    '      --non-interactive                     Skip interactive prompts (CI-friendly)',
+    '      --force                               Overwrite existing config file',
+    '',
+    'health options:',
+    '      --non-interactive                     Skip interactive prompts (CI-friendly)',
+    '      --deep                                Run extended checks (latency, store integrity)',
+    '',
+    'doctor options:',
+    '      --non-interactive                     Skip interactive prompts (CI-friendly)',
+    '      --deep                                Run extended checks (latency, store integrity)',
+    '      --fix                                 Attempt automatic remediation where possible',
+    '',
     'backfill options:',
     '      --to-slot <slot>                      Highest slot to scan (required)',
     '      --page-size <size>                    Number of events per page',
@@ -297,6 +329,10 @@ function buildHelp(): string {
     '      --slot memory|llm|proof|telemetry|custom Plugin slot claim',
     '',
     'Examples:',
+    '  agenc-runtime onboard --force',
+    '  agenc-runtime health --deep',
+    '  agenc-runtime doctor --deep --fix',
+    '  agenc-runtime doctor security --deep --fix',
     '  agenc-runtime replay backfill --to-slot 12345 --page-size 500',
     '  agenc-runtime replay compare --local-trace-path ./trace.json --task-pda AGENTpda',
     '  agenc-runtime replay incident --task-pda AGENTpda --from-slot 100 --to-slot 200',
@@ -532,6 +568,22 @@ function validateUnknownOptions(
       continue;
     }
     if (commandOpts.has(rawName) || commandOpts.has(normalized)) {
+      continue;
+    }
+    throw createCliError(`unknown option --${rawName}`, ERROR_CODES.INVALID_OPTION);
+  }
+}
+
+function validateUnknownStandaloneOptions(
+  flags: ParsedArgv['flags'],
+  allowed: Set<string>,
+): void {
+  for (const rawName of Object.keys(flags)) {
+    const normalized = normalizeOptionAliases(rawName);
+    if (rawName === 'h' || isValidTopLevelOption(normalized)) {
+      continue;
+    }
+    if (allowed.has(rawName) || allowed.has(normalized)) {
       continue;
     }
     throw createCliError(`unknown option --${rawName}`, ERROR_CODES.INVALID_OPTION);
@@ -1126,6 +1178,88 @@ export async function runCli(options: CliRunOptions = {}): Promise<CliStatusCode
     return 0;
   }
 
+  if (parsed.positional[0] === 'onboard') {
+    try {
+      if (parsed.positional.length > 1) {
+        throw createCliError('onboard does not accept positional arguments', ERROR_CODES.INVALID_VALUE);
+      }
+
+      validateUnknownStandaloneOptions(parsed.flags, ONBOARD_COMMAND_OPTIONS);
+
+      const configPath = resolveConfigPath(parsed.flags);
+      let fileConfig: CliFileConfig;
+      try {
+        fileConfig = loadFileConfig(configPath);
+      } catch {
+        fileConfig = {};
+      }
+
+      const envConfig = readEnvironmentConfig();
+      const global = normalizeGlobalFlags(parsed.flags, fileConfig, envConfig);
+      const onboardOpts: OnboardOptions = {
+        ...global,
+        configPath,
+        nonInteractive: normalizeBool(parsed.flags['non-interactive'], false),
+        force: normalizeBool(parsed.flags.force, false),
+      };
+
+      return await runOnboardCommand(context, onboardOpts);
+    } catch (error) {
+      const payload = buildErrorPayload(error);
+      context.error(payload);
+      const isUsageError = (payload.code === ERROR_CODES.INVALID_OPTION
+        || payload.code === ERROR_CODES.INVALID_VALUE
+        || payload.code === ERROR_CODES.MISSING_REQUIRED_OPTION
+        || payload.code === ERROR_CODES.MISSING_TARGET
+        || payload.code === ERROR_CODES.MISSING_ROOT_COMMAND
+        || payload.code === ERROR_CODES.UNKNOWN_COMMAND)
+        ? 2
+        : 1;
+      return isUsageError;
+    }
+  }
+
+  if (parsed.positional[0] === 'health') {
+    try {
+      if (parsed.positional.length > 1) {
+        throw createCliError('health does not accept positional arguments', ERROR_CODES.INVALID_VALUE);
+      }
+
+      validateUnknownStandaloneOptions(parsed.flags, HEALTH_COMMAND_OPTIONS);
+
+      const configPath = resolveConfigPath(parsed.flags);
+      let fileConfig: CliFileConfig;
+      try {
+        fileConfig = loadFileConfig(configPath);
+      } catch {
+        fileConfig = {};
+      }
+
+      const envConfig = readEnvironmentConfig();
+      const global = normalizeGlobalFlags(parsed.flags, fileConfig, envConfig);
+      const healthOpts: HealthOptions = {
+        ...global,
+        configPath,
+        nonInteractive: normalizeBool(parsed.flags['non-interactive'], false),
+        deep: normalizeBool(parsed.flags.deep, false),
+      };
+
+      return await runHealthCommand(context, healthOpts);
+    } catch (error) {
+      const payload = buildErrorPayload(error);
+      context.error(payload);
+      const isUsageError = (payload.code === ERROR_CODES.INVALID_OPTION
+        || payload.code === ERROR_CODES.INVALID_VALUE
+        || payload.code === ERROR_CODES.MISSING_REQUIRED_OPTION
+        || payload.code === ERROR_CODES.MISSING_TARGET
+        || payload.code === ERROR_CODES.MISSING_ROOT_COMMAND
+        || payload.code === ERROR_CODES.UNKNOWN_COMMAND)
+        ? 2
+        : 1;
+      return isUsageError;
+    }
+  }
+
   // Handle `doctor security` subcommand before replay routing
   if (parsed.positional[0] === 'doctor' && parsed.positional[1] === 'security') {
     const configPath = resolveConfigPath(parsed.flags);
@@ -1149,6 +1283,48 @@ export async function runCli(options: CliRunOptions = {}): Promise<CliStatusCode
       const payload = buildErrorPayload(error);
       context.error(payload);
       return 1;
+    }
+  }
+
+  if (parsed.positional[0] === 'doctor') {
+    try {
+      if (parsed.positional.length > 1) {
+        throw createCliError(`unknown doctor subcommand: ${parsed.positional[1]}`, ERROR_CODES.UNKNOWN_COMMAND);
+      }
+
+      validateUnknownStandaloneOptions(parsed.flags, DOCTOR_COMMAND_OPTIONS);
+
+      const configPath = resolveConfigPath(parsed.flags);
+      let fileConfig: CliFileConfig;
+      try {
+        fileConfig = loadFileConfig(configPath);
+      } catch {
+        fileConfig = {};
+      }
+
+      const envConfig = readEnvironmentConfig();
+      const global = normalizeGlobalFlags(parsed.flags, fileConfig, envConfig);
+      const doctorOpts: DoctorOptions = {
+        ...global,
+        configPath,
+        nonInteractive: normalizeBool(parsed.flags['non-interactive'], false),
+        deep: normalizeBool(parsed.flags.deep, false),
+        fix: normalizeBool(parsed.flags.fix, false),
+      };
+
+      return await runDoctorCommand(context, doctorOpts);
+    } catch (error) {
+      const payload = buildErrorPayload(error);
+      context.error(payload);
+      const isUsageError = (payload.code === ERROR_CODES.INVALID_OPTION
+        || payload.code === ERROR_CODES.INVALID_VALUE
+        || payload.code === ERROR_CODES.MISSING_REQUIRED_OPTION
+        || payload.code === ERROR_CODES.MISSING_TARGET
+        || payload.code === ERROR_CODES.MISSING_ROOT_COMMAND
+        || payload.code === ERROR_CODES.UNKNOWN_COMMAND)
+        ? 2
+        : 1;
+      return isUsageError;
     }
   }
 
