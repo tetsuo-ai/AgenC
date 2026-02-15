@@ -54,3 +54,14 @@ export {
   validateOutboundMessage,
   validateAttachment,
 } from './message.js';
+
+// Workspace files (Phase 3.5)
+export type { WorkspaceFiles, WorkspaceValidation, WorkspaceFileName } from './workspace-files.js';
+export {
+  WORKSPACE_FILES,
+  WorkspaceLoader,
+  getDefaultWorkspacePath,
+  assembleSystemPrompt,
+  generateTemplate,
+  scaffoldWorkspace,
+} from './workspace-files.js';

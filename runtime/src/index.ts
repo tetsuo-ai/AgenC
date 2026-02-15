@@ -1182,6 +1182,16 @@ export {
   type MessageAttachment,
   type MessageScope,
   type CreateGatewayMessageParams,
+  // Workspace files (Phase 3.5)
+  WORKSPACE_FILES,
+  WorkspaceLoader,
+  getDefaultWorkspacePath,
+  assembleSystemPrompt,
+  generateTemplate,
+  scaffoldWorkspace,
+  type WorkspaceFiles,
+  type WorkspaceValidation,
+  type WorkspaceFileName,
 } from './gateway/index.js';
 
 // Agent Builder (Phase 10)
