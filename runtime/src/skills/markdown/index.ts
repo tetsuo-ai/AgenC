@@ -18,3 +18,12 @@ export {
   parseSkillFile,
   validateSkillMetadata,
 } from './parser.js';
+
+export type {
+  DiscoveryPaths,
+  DiscoveryTier,
+  DiscoveredSkill,
+  MissingRequirement,
+} from './discovery.js';
+
+export { SkillDiscovery } from './discovery.js';
