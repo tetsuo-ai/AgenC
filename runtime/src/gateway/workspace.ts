@@ -13,7 +13,7 @@ import { readFile, readdir, mkdir, writeFile, access, rm } from 'node:fs/promise
 import { join } from 'node:path';
 import { constants } from 'node:fs';
 import type { WorkspaceFiles } from './workspace-files.js';
-import { WorkspaceLoader, scaffoldWorkspace } from './workspace-files.js';
+import { WORKSPACE_FILES, WorkspaceLoader, scaffoldWorkspace } from './workspace-files.js';
 import type { GatewayLLMConfig } from './types.js';
 import type { SessionConfig } from './session.js';
 import type { CapabilityName } from '../agent/capabilities.js';
@@ -41,6 +41,7 @@ export interface ToolPolicy {
   readonly reason?: string;
 }
 
+/** Minimal stub for workspace creation input. Extended by Phase 5.6 (#1083). */
 export interface PersonalityTemplate {
   readonly name?: string;
   readonly files?: Partial<WorkspaceFiles>;
@@ -205,17 +206,10 @@ function resolveAgentWorkspace(
   config: WorkspaceConfigJson,
   files: WorkspaceFiles,
 ): AgentWorkspace {
-  let capabilities: bigint = 0n;
-  if (config.capabilities !== undefined) {
-    try {
-      capabilities = BigInt(config.capabilities);
-    } catch {
-      throw new WorkspaceValidationError(
-        'capabilities',
-        `Invalid capabilities value: "${config.capabilities}"`,
-      );
-    }
-  }
+  // Validation already guarantees config.capabilities is a valid BigInt string
+  const capabilities = config.capabilities !== undefined
+    ? BigInt(config.capabilities)
+    : 0n;
 
   return {
     id,
@@ -277,7 +271,7 @@ export class WorkspaceManager {
 
     const results: string[] = [];
     for (const entry of entries) {
-      if (!WORKSPACE_ID_PATTERN.test(entry)) continue;
+      if (!WORKSPACE_ID_PATTERN.test(entry) || entry.length > MAX_WORKSPACE_ID_LENGTH) continue;
 
       try {
         await access(join(this.basePath, entry, WORKSPACE_CONFIG_FILE), constants.R_OK);
@@ -297,6 +291,16 @@ export class WorkspaceManager {
     validateWorkspaceId(id);
 
     const workspacePath = join(this.basePath, id);
+
+    // Guard against silently overwriting an existing workspace
+    try {
+      await access(workspacePath, constants.F_OK);
+      throw new WorkspaceValidationError('id', `Workspace already exists: ${id}`);
+    } catch (err) {
+      if (err instanceof WorkspaceValidationError) throw err;
+      // ENOENT = doesn't exist yet, proceed
+    }
+
     await mkdir(workspacePath, { recursive: true });
 
     // Build config from template
@@ -320,23 +324,14 @@ export class WorkspaceManager {
 
     // Write file overrides FIRST (before scaffold, which uses wx flag)
     if (template?.files) {
-      const fileMap: Record<string, string | undefined> = {
-        agent: 'AGENT.md',
-        soul: 'SOUL.md',
-        user: 'USER.md',
-        tools: 'TOOLS.md',
-        heartbeat: 'HEARTBEAT.md',
-        boot: 'BOOT.md',
-        identity: 'IDENTITY.md',
-        memory: 'MEMORY.md',
-        capabilities: 'CAPABILITIES.md',
-        policy: 'POLICY.md',
-        reputation: 'REPUTATION.md',
-      };
+      // Derive key→filename mapping from WORKSPACE_FILES to stay in sync
+      const fileMap = Object.fromEntries(
+        Object.entries(WORKSPACE_FILES).map(([key, fileName]) => [key.toLowerCase(), fileName]),
+      );
 
       for (const [key, fileName] of Object.entries(fileMap)) {
         const content = (template.files as Record<string, string | undefined>)[key];
-        if (content !== undefined && fileName !== undefined) {
+        if (content !== undefined) {
           await writeFile(join(workspacePath, fileName), content, 'utf-8');
         }
       }
@@ -360,7 +355,7 @@ export class WorkspaceManager {
 
     const workspacePath = join(this.basePath, id);
     try {
-      await access(workspacePath, constants.R_OK);
+      await access(join(workspacePath, WORKSPACE_CONFIG_FILE), constants.R_OK);
     } catch {
       return false;
     }

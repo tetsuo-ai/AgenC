@@ -84,6 +84,16 @@ describe('WorkspaceManager.listWorkspaces', () => {
 });
 
 describe('WorkspaceManager.createWorkspace', () => {
+  it('throws when workspace already exists', async () => {
+    await manager.createWorkspace('duplicate');
+    await expect(manager.createWorkspace('duplicate')).rejects.toThrow(
+      WorkspaceValidationError,
+    );
+    await expect(manager.createWorkspace('duplicate')).rejects.toThrow(
+      'Workspace already exists',
+    );
+  });
+
   it('scaffolds directory with template', async () => {
     const ws = await manager.createWorkspace('myagent', {
       name: 'My Agent',
@@ -180,6 +190,12 @@ describe('missing workspace directory', () => {
   it('throws WorkspaceValidationError with descriptive message', async () => {
     await expect(manager.load('nonexistent')).rejects.toThrow(WorkspaceValidationError);
     await expect(manager.load('nonexistent')).rejects.toThrow('Workspace directory not found');
+  });
+
+  it('throws when directory exists but workspace.json is missing', async () => {
+    await mkdir(join(tmpDir, 'no-config'), { recursive: true });
+    await expect(manager.load('no-config')).rejects.toThrow(WorkspaceValidationError);
+    await expect(manager.load('no-config')).rejects.toThrow('not found');
   });
 });
 
