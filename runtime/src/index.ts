@@ -1199,6 +1199,19 @@ export {
   type WorkspaceValidation,
   type WorkspaceFileName,
   type AssembleSystemPromptOptions,
+  // Session management (Phase 1.6)
+  SessionManager,
+  deriveSessionId,
+  type SessionScope,
+  type SessionResetMode,
+  type CompactionStrategy,
+  type SessionConfig,
+  type SessionResetConfig,
+  type Session,
+  type SessionLookupParams,
+  type CompactionResult,
+  type SessionInfo,
+  type Summarizer,
 } from './gateway/index.js';
 
 // Agent Builder (Phase 10)
