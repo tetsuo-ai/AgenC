@@ -115,6 +115,33 @@ export interface CliFileConfig {
   logLevel?: CliLogLevel;
 }
 
+export interface OnboardOptions extends BaseCliOptions {
+  /** If true, skip interactive prompts (default false). */
+  nonInteractive?: boolean;
+  /** Force overwrite existing config. */
+  force?: boolean;
+  /** Config file path override for onboard output. */
+  configPath?: string;
+}
+
+export interface HealthOptions extends BaseCliOptions {
+  /** If true, skip interactive prompts. */
+  nonInteractive?: boolean;
+  /** Run extended checks (slower but more thorough). */
+  deep?: boolean;
+  /** Config file path override for health output. */
+  configPath?: string;
+}
+
+export interface DoctorOptions extends BaseCliOptions {
+  nonInteractive?: boolean;
+  deep?: boolean;
+  /** Attempt automatic fixes where possible. */
+  fix?: boolean;
+  /** Config file path override for doctor output. */
+  configPath?: string;
+}
+
 export interface SecurityOptions extends BaseCliOptions {
   deep?: boolean;
   json?: boolean;
