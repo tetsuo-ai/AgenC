@@ -59,7 +59,7 @@ else
     fi
 
     # Check VK_VERSION (fix #962)
-    VK_VERSION=$(grep 'pub const VK_VERSION' "$VK_FILE" | grep -oP '= \K\d+' | head -1 || echo "")
+    VK_VERSION=$(sed -n 's/.*pub const VK_VERSION.*= \([0-9][0-9]*\).*/\1/p' "$VK_FILE" | head -1 || echo "")
     if [ -n "$VK_VERSION" ]; then
         if [ "$VK_VERSION" = "0" ]; then
             if [ "$NETWORK" = "mainnet" ]; then

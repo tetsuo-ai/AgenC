@@ -36,8 +36,8 @@ echo "=== Verifying Key Security Check (issues #356, #358, #962) ==="
 echo ""
 
 # Check 1: gamma != delta
-GAMMA_HEX=$(grep -A 8 "pub const VK_GAMMA_G2" "$VK_FILE" | grep -oP '0x[0-9a-f]{2}' | tr -d '\n' | sed 's/0x//g')
-DELTA_HEX=$(grep -A 8 "pub const VK_DELTA_G2" "$VK_FILE" | grep -oP '0x[0-9a-f]{2}' | tr -d '\n' | sed 's/0x//g')
+GAMMA_HEX=$(grep -A 8 "pub const VK_GAMMA_G2" "$VK_FILE" | grep -Eo '0x[0-9a-f]{2}' | tr -d '\n' | sed 's/0x//g')
+DELTA_HEX=$(grep -A 8 "pub const VK_DELTA_G2" "$VK_FILE" | grep -Eo '0x[0-9a-f]{2}' | tr -d '\n' | sed 's/0x//g')
 
 if [ "$GAMMA_HEX" = "$DELTA_HEX" ]; then
     echo "WARNING: VK_GAMMA_G2 == VK_DELTA_G2"
@@ -63,7 +63,7 @@ else
 fi
 
 # Check 2: VK_VERSION
-VK_VERSION=$(grep 'pub const VK_VERSION' "$VK_FILE" | grep -oP '= \K\d+' | head -1)
+VK_VERSION=$(sed -n 's/.*pub const VK_VERSION.*= \([0-9][0-9]*\).*/\1/p' "$VK_FILE" | head -1)
 echo "VK_VERSION: $VK_VERSION"
 if [ "$VK_VERSION" = "0" ]; then
     if [ "$MAINNET_MODE" = true ]; then
