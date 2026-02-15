@@ -1160,6 +1160,15 @@ export {
   type ConfigDiff,
   type ConfigReloadCallback,
   type ConfigErrorCallback,
+  createGatewayMessage,
+  createOutboundMessage,
+  validateGatewayMessage,
+  validateAttachment,
+  type GatewayMessage,
+  type OutboundMessage,
+  type MessageAttachment,
+  type MessageScope,
+  type AttachmentType,
 } from './gateway/index.js';
 
 // Agent Builder (Phase 10)
