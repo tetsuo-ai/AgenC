@@ -29,6 +29,8 @@ export { fetchTreasury } from './treasury.js';
 
 export { ensureLazyModule } from './lazy-import.js';
 
+export { isRecord, isStringArray } from './type-guards.js';
+
 export {
   isTokenTask,
   buildCompleteTaskTokenAccounts,

@@ -4,6 +4,8 @@
  * @module
  */
 
+import { isRecord, isStringArray } from '../utils/type-guards.js';
+
 /** Permission a plugin requests. */
 export interface PluginPermission {
   /** Permission type. */
@@ -87,14 +89,6 @@ export class PluginManifestError extends Error {
 const VALID_PLUGIN_ID = /^[a-z][a-z0-9._-]*$/;
 
 const VALID_PERMISSION_TYPES = ['tool_call', 'network', 'filesystem', 'wallet_sign'];
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function isStringArray(value: unknown): value is string[] {
-  return Array.isArray(value) && value.every((entry) => typeof entry === 'string');
-}
 
 /**
  * Validate a single plugin manifest and return structured errors.
