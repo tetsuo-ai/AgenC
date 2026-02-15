@@ -52,6 +52,7 @@ export interface ReplayIncidentOptions extends BaseCliOptions {
   disputePda?: string;
   fromSlot?: number;
   toSlot?: number;
+  sealed?: boolean;
   redactFields?: string[];
 }
 

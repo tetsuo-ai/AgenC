@@ -395,6 +395,50 @@ describe('runtime replay cli commands', () => {
     expect((disputeEvent!.disputePda as string).length).toBeGreaterThan(0);
   });
 
+  it('emits a sealed evidence pack when --sealed is set', async () => {
+    const projection = projectOnChainEvents(FIXTURE_EVENTS, {
+      traceId: 'fixture-replay',
+      seed: 99,
+    });
+    const records = buildReplayRecords(FIXTURE_EVENTS, 'fixture-replay', projection.trace.seed);
+    const store = cliReplay.createReplayStore({ storeType: 'memory' });
+    await store.save(records);
+    vi.spyOn(cliReplay, 'createReplayStore').mockReturnValue(store);
+
+    const result = await runCliCapture([
+      'replay',
+      'incident',
+      '--store-type',
+      'memory',
+      '--task-pda',
+      projection.events[0]?.taskPda ?? 'task-missing',
+      '--sealed',
+    ]);
+
+    expect(result.code).toBe(0);
+    const payload = JSON.parse(result.stdout.trim()) as Record<string, unknown>;
+
+    assertOutputSchema(
+      payload,
+      SCHEMA_FIXTURE.incident.schemaValue,
+      SCHEMA_FIXTURE.incident.commandValue,
+      {
+        ...SCHEMA_FIXTURE.incident,
+        optionalTopLevel: [...(SCHEMA_FIXTURE.incident.optionalTopLevel ?? []), 'evidencePack'],
+      },
+    );
+
+    expect((payload.commandParams as Record<string, unknown>).sealed).toBe(true);
+    const evidencePack = payload.evidencePack as Record<string, unknown>;
+    expect(typeof evidencePack).toBe('object');
+    expect(evidencePack).toBeTruthy();
+    expect(typeof (evidencePack.manifest as Record<string, unknown>).queryHash).toBe('string');
+    const files = evidencePack.files as Record<string, unknown>;
+    expect(typeof files['manifest.json']).toBe('string');
+    expect(typeof files['incident-case.jsonl']).toBe('string');
+    expect(typeof files['events.jsonl']).toBe('string');
+  });
+
   it('runs backfill through deterministic on-chain fetcher output', async () => {
     const projectionInputs = FIXTURE_EVENTS.map((entry, index) => ({
       eventName: entry.eventName,
