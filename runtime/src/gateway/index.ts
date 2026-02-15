@@ -30,6 +30,7 @@ export {
   getDefaultConfigPath,
   loadGatewayConfig,
   validateGatewayConfig,
+  isValidGatewayConfig,
   diffGatewayConfig,
   ConfigWatcher,
   type ConfigReloadCallback,
@@ -37,3 +38,19 @@ export {
 } from './config-watcher.js';
 
 export { Gateway, type GatewayOptions } from './gateway.js';
+
+export type {
+  GatewayMessage,
+  OutboundMessage,
+  MessageAttachment,
+  MessageScope,
+  CreateGatewayMessageParams,
+} from './message.js';
+
+export {
+  createGatewayMessage,
+  createOutboundMessage,
+  validateGatewayMessage,
+  validateOutboundMessage,
+  validateAttachment,
+} from './message.js';

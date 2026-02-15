@@ -31,6 +31,16 @@ export { ensureLazyModule } from './lazy-import.js';
 
 export { isRecord, isStringArray } from './type-guards.js';
 
+export type { ValidationResult } from './validation.js';
+
+export {
+  validationResult,
+  requireNonEmptyString,
+  requireFiniteNumber,
+  requireOneOf,
+  requireIntRange,
+} from './validation.js';
+
 export {
   isTokenTask,
   buildCompleteTaskTokenAccounts,

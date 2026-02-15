@@ -10,6 +10,13 @@ import { join } from 'node:path';
 import { homedir } from 'node:os';
 import type { GatewayConfig, ConfigDiff } from './types.js';
 import { GatewayValidationError, GatewayConnectionError } from './errors.js';
+import {
+  type ValidationResult,
+  validationResult,
+  requireIntRange,
+  requireOneOf,
+} from '../utils/validation.js';
+import { isRecord } from '../utils/type-guards.js';
 
 // ============================================================================
 // Default config path
@@ -40,103 +47,90 @@ export async function loadGatewayConfig(path: string): Promise<GatewayConfig> {
     throw new GatewayValidationError('config', 'Invalid JSON');
   }
 
-  const result = validateGatewayConfig(parsed);
-  if (!result.valid) {
+  if (!isValidGatewayConfig(parsed)) {
+    const result = validateGatewayConfig(parsed);
     throw new GatewayValidationError('config', result.errors.join('; '));
   }
 
-  return parsed as GatewayConfig;
+  return parsed;
 }
 
 // ============================================================================
 // Config validation
 // ============================================================================
 
-const VALID_LOG_LEVELS = new Set(['debug', 'info', 'warn', 'error']);
+const VALID_LOG_LEVELS: ReadonlySet<string> = new Set(['debug', 'info', 'warn', 'error']);
+const VALID_LLM_PROVIDERS: ReadonlySet<string> = new Set(['grok', 'anthropic', 'ollama']);
+const VALID_MEMORY_BACKENDS: ReadonlySet<string> = new Set(['memory', 'sqlite', 'redis']);
 
-export function validateGatewayConfig(
-  obj: unknown,
-): { valid: boolean; errors: string[] } {
+/** Type predicate — returns true when `obj` satisfies the GatewayConfig shape. */
+export function isValidGatewayConfig(obj: unknown): obj is GatewayConfig {
+  return validateGatewayConfig(obj).valid;
+}
+
+export function validateGatewayConfig(obj: unknown): ValidationResult {
   const errors: string[] = [];
 
-  if (!obj || typeof obj !== 'object') {
+  if (!isRecord(obj)) {
     return { valid: false, errors: ['Config must be a non-null object'] };
   }
 
-  const config = obj as Record<string, unknown>;
-
   // gateway section
-  if (!config.gateway || typeof config.gateway !== 'object') {
+  if (!isRecord(obj.gateway)) {
     errors.push('gateway section is required');
   } else {
-    const gw = config.gateway as Record<string, unknown>;
-    if (typeof gw.port !== 'number' || !Number.isInteger(gw.port) || gw.port < 1 || gw.port > 65535) {
-      errors.push('gateway.port must be an integer between 1 and 65535');
-    }
-    if (gw.bind !== undefined && typeof gw.bind !== 'string') {
+    requireIntRange(obj.gateway.port, 'gateway.port', 1, 65535, errors);
+    if (obj.gateway.bind !== undefined && typeof obj.gateway.bind !== 'string') {
       errors.push('gateway.bind must be a string');
     }
   }
 
   // agent section
-  if (!config.agent || typeof config.agent !== 'object') {
+  if (!isRecord(obj.agent)) {
     errors.push('agent section is required');
   } else {
-    const agent = config.agent as Record<string, unknown>;
-    if (typeof agent.name !== 'string' || agent.name.trim().length === 0) {
+    if (typeof obj.agent.name !== 'string' || obj.agent.name.trim().length === 0) {
       errors.push('agent.name must be a non-empty string');
     }
   }
 
   // connection section
-  if (!config.connection || typeof config.connection !== 'object') {
+  if (!isRecord(obj.connection)) {
     errors.push('connection section is required');
   } else {
-    const conn = config.connection as Record<string, unknown>;
-    if (typeof conn.rpcUrl !== 'string' || conn.rpcUrl.trim().length === 0) {
+    if (typeof obj.connection.rpcUrl !== 'string' || obj.connection.rpcUrl.trim().length === 0) {
       errors.push('connection.rpcUrl must be a non-empty string');
     }
   }
 
-  // logging (optional)
-  if (config.logging !== undefined) {
-    if (typeof config.logging !== 'object' || config.logging === null) {
+  // logging (optional — requires process restart to change level)
+  if (obj.logging !== undefined) {
+    if (!isRecord(obj.logging)) {
       errors.push('logging must be an object');
-    } else {
-      const logging = config.logging as Record<string, unknown>;
-      if (logging.level !== undefined && !VALID_LOG_LEVELS.has(logging.level as string)) {
-        errors.push(`logging.level must be one of: ${[...VALID_LOG_LEVELS].join(', ')}`);
-      }
+    } else if (obj.logging.level !== undefined) {
+      requireOneOf(obj.logging.level, 'logging.level', VALID_LOG_LEVELS, errors);
     }
   }
 
   // llm (optional)
-  if (config.llm !== undefined) {
-    if (typeof config.llm !== 'object' || config.llm === null) {
+  if (obj.llm !== undefined) {
+    if (!isRecord(obj.llm)) {
       errors.push('llm must be an object');
     } else {
-      const llm = config.llm as Record<string, unknown>;
-      const validProviders = ['grok', 'anthropic', 'ollama'];
-      if (typeof llm.provider !== 'string' || !validProviders.includes(llm.provider)) {
-        errors.push(`llm.provider must be one of: ${validProviders.join(', ')}`);
-      }
+      requireOneOf(obj.llm.provider, 'llm.provider', VALID_LLM_PROVIDERS, errors);
     }
   }
 
   // memory (optional)
-  if (config.memory !== undefined) {
-    if (typeof config.memory !== 'object' || config.memory === null) {
+  if (obj.memory !== undefined) {
+    if (!isRecord(obj.memory)) {
       errors.push('memory must be an object');
     } else {
-      const memory = config.memory as Record<string, unknown>;
-      const validBackends = ['memory', 'sqlite', 'redis'];
-      if (typeof memory.backend !== 'string' || !validBackends.includes(memory.backend)) {
-        errors.push(`memory.backend must be one of: ${validBackends.join(', ')}`);
-      }
+      requireOneOf(obj.memory.backend, 'memory.backend', VALID_MEMORY_BACKENDS, errors);
     }
   }
 
-  return { valid: errors.length === 0, errors };
+  return validationResult(errors);
 }
 
 // ============================================================================
