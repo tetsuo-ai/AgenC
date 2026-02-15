@@ -49,6 +49,7 @@ import {
 } from '../eval/replay.js';
 import { type TrajectoryTrace } from '../eval/types.js';
 import type { PluginManifest } from '../skills/manifest.js';
+import { bigintReplacer, safeStringify } from '../tools/types.js';
 
 interface CliRunOptions {
   argv?: string[];
@@ -132,8 +133,8 @@ const GLOBAL_OPTIONS = new Set([
 
 const COMMAND_OPTIONS: Record<ReplayCommand, Set<string>> = {
   backfill: new Set(['to-slot', 'page-size']),
-  compare: new Set(['local-trace-path', 'task-pda', 'dispute-pda']),
-  incident: new Set(['task-pda', 'dispute-pda', 'from-slot', 'to-slot']),
+  compare: new Set(['local-trace-path', 'task-pda', 'dispute-pda', 'redact-fields']),
+  incident: new Set(['task-pda', 'dispute-pda', 'from-slot', 'to-slot', 'redact-fields']),
 };
 const PLUGIN_COMMAND_OPTIONS: Record<PluginCommand, Set<string>> = {
   list: new Set(),
@@ -259,10 +260,12 @@ function buildHelp(): string {
     '      --local-trace-path <path>              Path to local trajectory trace (required)',
     '      --task-pda <pda>                      Limit by task id',
     '      --dispute-pda <pda>                   Limit by dispute id',
+    '      --redact-fields <fields>               Comma-separated output redaction keys',
     '',
     'incident options:',
     '      --task-pda <pda>                      Limit by task id',
     '      --dispute-pda <pda>                   Limit by dispute id',
+    '      --redact-fields <fields>               Comma-separated output redaction keys',
     '      --from-slot <slot>                    Replay incident from slot',
     '      --to-slot <slot>                      Replay incident to slot',
     '',
@@ -621,11 +624,14 @@ function makeCompareOptions(raw: Record<string, string | number | boolean>, glob
     throw createCliError('--local-trace-path is required for replay compare', ERROR_CODES.MISSING_REQUIRED_OPTION);
   }
 
+  const redactFields = parseRedactFields(raw['redact-fields']);
+
   return {
     ...global,
     localTracePath,
     taskPda: parseOptionalString(raw['task-pda']),
     disputePda: parseOptionalString(raw['dispute-pda']),
+    redactFields,
   };
 }
 
@@ -637,6 +643,7 @@ function makeIncidentOptions(
   const disputePda = parseOptionalString(raw['dispute-pda']);
   const fromSlot = parseIntValue(raw['from-slot']);
   const toSlot = parseIntValue(raw['to-slot']);
+  const redactFields = parseRedactFields(raw['redact-fields']);
 
   if (fromSlot !== undefined && fromSlot < 0) {
     throw createCliError('--from-slot must be non-negative', ERROR_CODES.INVALID_VALUE);
@@ -660,6 +667,7 @@ function makeIncidentOptions(
     disputePda,
     fromSlot,
     toSlot,
+    redactFields,
   };
 }
 
@@ -738,9 +746,9 @@ function makePluginReloadOptions(
 function buildOutput(value: unknown, format: CliOutputFormat): string {
   if (format === 'jsonl') {
     if (Array.isArray(value)) {
-      return value.map((entry) => JSON.stringify(entry)).join('\n');
+      return value.map((entry) => safeStringify(entry)).join('\n');
     }
-    return JSON.stringify(value);
+    return safeStringify(value);
   }
 
   if (format === 'table') {
@@ -752,7 +760,64 @@ function buildOutput(value: unknown, format: CliOutputFormat): string {
     });
   }
 
-  return JSON.stringify(value, null, 2);
+  return JSON.stringify(value, bigintReplacer, 2);
+}
+
+function snakeToCamel(value: string): string {
+  if (!value.includes('_')) {
+    return value;
+  }
+  return value.replace(/_([a-z])/g, (_match, letter: string) => letter.toUpperCase());
+}
+
+function parseRedactFields(raw: unknown): string[] {
+  if (raw === undefined) {
+    return [];
+  }
+
+  let input = raw;
+  if (Array.isArray(raw)) {
+    input = raw.join(',');
+  } else if (typeof raw !== 'string') {
+    return [];
+  }
+
+  return String(input)
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0)
+    .map((entry) => snakeToCamel(entry));
+}
+
+function applyRedaction<T>(value: T, redactions: readonly string[]): T {
+  if (redactions.length === 0) {
+    return value;
+  }
+
+  const redactionSet = new Set(redactions);
+  const transform = (input: unknown): unknown => {
+    if (input === null || input === undefined || typeof input !== 'object') {
+      return input;
+    }
+
+    if (Array.isArray(input)) {
+      return input.map((entry) => transform(entry));
+    }
+
+    const output: Record<string, unknown> = {};
+    const record = input as Record<string, unknown>;
+    for (const [key, itemValue] of Object.entries(record)) {
+      if (redactionSet.has(key)) {
+        output[key] = '[REDACTED]';
+      } else {
+        output[key] = transform(itemValue);
+      }
+    }
+
+    return output;
+  };
+
+  return transform(value) as T;
 }
 
 function createContext(
@@ -1278,18 +1343,21 @@ async function runReplayCompareCommand(
     strictness,
   });
 
-  context.output({
-    status: 'ok',
-    command: 'replay.compare',
-    schema: 'replay.compare.output.v1',
-    localTracePath: options.localTracePath,
-    taskPda: options.taskPda,
-    disputePda: options.disputePda,
-    strictness,
-    strictMode: options.strictMode,
-    storeType: options.storeType,
-    result: buildReplayCompareResult(comparison),
-  });
+  context.output(applyRedaction(
+    {
+      status: 'ok',
+      command: 'replay.compare',
+      schema: 'replay.compare.output.v1',
+      localTracePath: options.localTracePath,
+      taskPda: options.taskPda,
+      disputePda: options.disputePda,
+      strictness,
+      strictMode: options.strictMode,
+      storeType: options.storeType,
+      result: buildReplayCompareResult(comparison),
+    },
+    options.redactFields ?? [],
+  ));
 
   return 0;
 }
@@ -1331,9 +1399,10 @@ async function runReplayIncidentCommand(
       timestampMs: entry.timestampMs,
     })),
     validation,
+    new Set(options.redactFields ?? []),
   );
 
-  context.output({
+  const payload = {
     status: 'ok',
     command: 'replay.incident',
     schema: 'replay.incident.output.v1',
@@ -1352,7 +1421,9 @@ async function runReplayIncidentCommand(
     },
     validation,
     narrative,
-  });
+  };
+
+  context.output(applyRedaction(payload, options.redactFields ?? []));
 
   return 0;
 }
@@ -1523,14 +1594,24 @@ function summarizeIncidentValidation(
   };
 }
 
+function redactField<T>(redactions: ReadonlySet<string>, key: string, value: T): T | string {
+  return redactions.has(key) ? '[REDACTED]' : value;
+}
+
 function buildIncidentNarrative(
   events: ReplayIncidentEventSummary[],
   validation: { anomalyIds: string[]; eventValidation: { errors: string[]; warnings: string[] } },
+  redactions: ReadonlySet<string>,
 ): ReplayIncidentNarrative {
   const eventsLines = events.slice(0, 40).map((event, index) => {
     const anomaly = validation.anomalyIds[index];
     const marker = anomaly === undefined ? '' : ` | anomaly:${anomaly}`;
-    return `${event.seq}/${event.slot}/${event.signature}: ${event.sourceEventName} (${event.sourceEventType})${marker}`;
+    const seq = redactField(redactions, 'seq', event.seq);
+    const slot = redactField(redactions, 'slot', event.slot);
+    const signature = redactField(redactions, 'signature', event.signature);
+    const sourceEventName = redactField(redactions, 'sourceEventName', event.sourceEventName);
+    const sourceEventType = redactField(redactions, 'sourceEventType', event.sourceEventType);
+    return `${seq}/${slot}/${signature}: ${sourceEventName} (${sourceEventType})${marker}`;
   });
 
   const messages = [...validation.eventValidation.errors, ...validation.eventValidation.warnings]
