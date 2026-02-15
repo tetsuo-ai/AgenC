@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 
 import type { PluginManifest } from './manifest.js';
+import { isRecord } from '../utils/type-guards.js';
 
 export type PluginPrecedence = 'workspace' | 'user' | 'builtin';
 
@@ -65,10 +66,6 @@ function toDateNow(): number {
 
 function normalizePluginPrecedence(precedence: PluginPrecedence): PluginPrecedence {
   return precedence;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function cloneEntry(entry: CatalogEntry): CatalogEntry {
