@@ -263,6 +263,16 @@ export {
   toAnchorBytes,
 } from './utils/index.js';
 
+// Validation utilities
+export {
+  type ValidationResult,
+  validationResult,
+  requireNonEmptyString,
+  requireFiniteNumber,
+  requireOneOf,
+  requireIntRange,
+} from './utils/index.js';
+
 // SPL Token utilities
 export {
   isTokenTask,
@@ -1134,6 +1144,7 @@ export {
   getDefaultConfigPath,
   loadGatewayConfig,
   validateGatewayConfig,
+  isValidGatewayConfig,
   diffGatewayConfig,
   GatewayValidationError,
   GatewayConnectionError,
@@ -1160,6 +1171,17 @@ export {
   type ConfigDiff,
   type ConfigReloadCallback,
   type ConfigErrorCallback,
+  // Message types (Phase 1.2)
+  createGatewayMessage,
+  createOutboundMessage,
+  validateGatewayMessage,
+  validateOutboundMessage,
+  validateAttachment,
+  type GatewayMessage,
+  type OutboundMessage,
+  type MessageAttachment,
+  type MessageScope,
+  type CreateGatewayMessageParams,
 } from './gateway/index.js';
 
 // Agent Builder (Phase 10)
