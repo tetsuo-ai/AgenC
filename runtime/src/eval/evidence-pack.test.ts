@@ -12,7 +12,6 @@ import {
   parseEvidencePack,
   applyRedaction,
   computeToolFingerprint,
-  DEFAULT_REDACTION_POLICY,
   EVIDENCE_PACK_SCHEMA_VERSION,
 } from './evidence-pack.js';
 import { buildIncidentCase } from './incident-case.js';
@@ -247,6 +246,30 @@ describe('Evidence Pack', () => {
 
       expect(redacted.signature).toContain('[REDACTED:');
       expect(redacted.signature).not.toBe('[REDACTED]');
+    });
+
+    it('recurses into arrays', () => {
+      const payload = {
+        participants: [
+          { creator: 'Creator1111111111111111111111111111111111111', privateKey: 'secret1' },
+          { worker: 'Worker1111111111111111111111111111111111111', privateKey: 'secret2' },
+        ],
+        data: 'public',
+      };
+
+      const redacted = applyRedaction(payload, {
+        removeFields: ['privateKey'],
+        truncateActorKeys: 8,
+      });
+
+      expect(redacted.data).toBe('public');
+      expect(Array.isArray(redacted.participants)).toBe(true);
+      const participants = redacted.participants as Array<Record<string, unknown>>;
+      expect(participants).toHaveLength(2);
+      expect(participants[0].privateKey).toBeUndefined();
+      expect(participants[0].creator).toBe('Creator1...');
+      expect(participants[1].privateKey).toBeUndefined();
+      expect(participants[1].worker).toBe('Worker11...');
     });
   });
 

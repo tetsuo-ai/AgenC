@@ -9,7 +9,8 @@
 import { Connection } from '@solana/web3.js';
 import * as fs from 'fs';
 import * as path from 'path';
-import type { CliLogger, CliRuntimeContext } from './types.js';
+import * as os from 'os';
+import { DEVNET_RPC } from '@agenc/sdk';
 
 /**
  * Health check category.
@@ -192,11 +193,19 @@ async function checkStoreAccessibility(sqlitePath?: string): Promise<HealthCheck
 }
 
 /**
+ * Get the user's home directory in a cross-platform way.
+ */
+function getHomeDir(): string {
+  return os.homedir();
+}
+
+/**
  * Check wallet file detection.
  */
 async function checkWalletFile(walletPath?: string): Promise<HealthCheckResult> {
   return runCheck('wallet-file', 'wallet', async () => {
-    const defaultPath = walletPath || `${process.env.HOME}/.config/solana/id.json`;
+    const homeDir = getHomeDir();
+    const defaultPath = walletPath || path.join(homeDir, '.config', 'solana', 'id.json');
 
     if (!fs.existsSync(defaultPath)) {
       return {
@@ -228,10 +237,11 @@ async function checkWalletFile(walletPath?: string): Promise<HealthCheckResult> 
  */
 async function checkConfigFile(): Promise<HealthCheckResult> {
   return runCheck('config-file', 'config', async () => {
+    const homeDir = getHomeDir();
     const configPaths = [
       '.agenc.json',
       'agenc.config.json',
-      `${process.env.HOME}/.config/agenc/config.json`,
+      path.join(homeDir, '.config', 'agenc', 'config.json'),
     ];
 
     for (const configPath of configPaths) {
@@ -265,7 +275,7 @@ async function checkConfigFile(): Promise<HealthCheckResult> {
  */
 export async function runHealthChecks(options: HealthOptions): Promise<HealthReport> {
   const checks: HealthCheckResult[] = [];
-  const rpcUrl = options.rpcUrl || 'https://api.devnet.solana.com';
+  const rpcUrl = options.rpcUrl || DEVNET_RPC;
 
   // Core checks
   checks.push(await checkRpcConnectivity(rpcUrl));
@@ -310,17 +320,28 @@ export async function runHealthChecks(options: HealthOptions): Promise<HealthRep
 }
 
 /**
- * Run doctor checks with optional fixes.
+ * Callback for doctor fix suggestions.
  */
-export async function runDoctorChecks(options: DoctorOptions): Promise<HealthReport> {
+export type DoctorFixCallback = (checkId: string, remediation: string) => void;
+
+/**
+ * Run doctor checks with optional fix suggestions.
+ * Note: The fix option logs remediation suggestions but does not execute automatic fixes.
+ * Use the onFix callback to handle fix suggestions programmatically.
+ */
+export async function runDoctorChecks(
+  options: DoctorOptions,
+  onFix?: DoctorFixCallback,
+): Promise<HealthReport> {
   const report = await runHealthChecks(options);
 
   if (options.fix) {
-    // Attempt automatic fixes for failed checks
+    // Output remediation suggestions for failed checks
     for (const check of report.checks) {
       if (check.status === 'fail' && check.remediation) {
-        // Log remediation suggestion (actual fix implementation would go here)
-        console.log(`[FIX] ${check.id}: ${check.remediation}`);
+        if (onFix) {
+          onFix(check.id, check.remediation);
+        }
       }
     }
   }

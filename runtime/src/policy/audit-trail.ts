@@ -219,7 +219,18 @@ export class InMemoryAuditTrail implements AuditTrailStore {
 }
 
 /**
+ * Options for creating audit input.
+ */
+export interface CreateAuditInputOptions {
+  /** Optional timestamp override for deterministic testing */
+  timestamp?: string;
+  /** Optional metadata */
+  metadata?: Record<string, unknown>;
+}
+
+/**
  * Create an audit entry for an action.
+ * Pass a timestamp in options for deterministic output.
  */
 export function createAuditInput(
   actor: string,
@@ -228,25 +239,49 @@ export function createAuditInput(
   permission: IncidentPermission,
   inputData: unknown,
   outputData: unknown,
-  metadata?: Record<string, unknown>,
+  metadataOrOptions?: Record<string, unknown> | CreateAuditInputOptions,
 ): Omit<AuditEntry, 'seq' | 'prevHash' | 'entryHash'> {
+  // Handle backwards compatibility: if options has 'timestamp' key, treat as new format
+  const isOptionsFormat = metadataOrOptions && ('timestamp' in metadataOrOptions || !Object.keys(metadataOrOptions).length || Object.keys(metadataOrOptions).every(k => k === 'timestamp' || k === 'metadata'));
+  const options: CreateAuditInputOptions = isOptionsFormat
+    ? (metadataOrOptions as CreateAuditInputOptions)
+    : { metadata: metadataOrOptions as Record<string, unknown> | undefined };
+
   return {
-    timestamp: new Date().toISOString(),
+    timestamp: options.timestamp ?? new Date().toISOString(),
     actor,
     role,
     action,
     permission,
-    inputHash: sha256(JSON.stringify(inputData)),
-    outputHash: sha256(JSON.stringify(outputData)),
-    metadata,
+    inputHash: sha256(JSON.stringify(sortObjectKeys(inputData))),
+    outputHash: sha256(JSON.stringify(sortObjectKeys(outputData))),
+    metadata: options.metadata,
   };
 }
 
 /**
+ * Recursively sort object keys for deterministic JSON serialization.
+ */
+function sortObjectKeys(obj: unknown): unknown {
+  if (obj === null || typeof obj !== 'object') {
+    return obj;
+  }
+  if (Array.isArray(obj)) {
+    return obj.map(sortObjectKeys);
+  }
+  const sorted: Record<string, unknown> = {};
+  for (const key of Object.keys(obj as Record<string, unknown>).sort()) {
+    sorted[key] = sortObjectKeys((obj as Record<string, unknown>)[key]);
+  }
+  return sorted;
+}
+
+/**
  * Helper to compute hash of arbitrary data for audit logging.
+ * Uses sorted keys for deterministic output regardless of key order.
  */
 export function computeAuditHash(data: unknown): string {
-  return sha256(JSON.stringify(data));
+  return sha256(JSON.stringify(sortObjectKeys(data)));
 }
 
 /**
@@ -257,13 +292,79 @@ export function serializeAuditTrail(store: AuditTrailStore): string {
 }
 
 /**
- * Load audit trail from JSON.
+ * Error thrown when loading a tampered audit trail.
+ */
+export class AuditTrailIntegrityError extends Error {
+  constructor(
+    message: string,
+    public readonly seq: number,
+    public readonly expected: string,
+    public readonly actual: string,
+  ) {
+    super(message);
+    this.name = 'AuditTrailIntegrityError';
+  }
+}
+
+/**
+ * Load audit trail from JSON, verifying integrity of original hashes.
+ * Throws AuditTrailIntegrityError if any entry has been tampered with.
  */
 export function loadAuditTrail(json: string): InMemoryAuditTrail {
-  const trail = new InMemoryAuditTrail();
   const entries = JSON.parse(json) as AuditEntry[];
 
-  // Rebuild the trail entry by entry to verify integrity
+  // Verify integrity of serialized entries before loading
+  for (let i = 0; i < entries.length; i++) {
+    const entry = entries[i];
+    const expectedSeq = i + 1;
+
+    // Verify sequence
+    if (entry.seq !== expectedSeq) {
+      throw new AuditTrailIntegrityError(
+        `Sequence mismatch at index ${i}: expected ${expectedSeq}, got ${entry.seq}`,
+        entry.seq,
+        String(expectedSeq),
+        String(entry.seq),
+      );
+    }
+
+    // Verify prevHash chain
+    const expectedPrevHash = i === 0 ? GENESIS_HASH : entries[i - 1].entryHash;
+    if (entry.prevHash !== expectedPrevHash) {
+      throw new AuditTrailIntegrityError(
+        `Chain break at seq ${entry.seq}: prevHash mismatch`,
+        entry.seq,
+        expectedPrevHash,
+        entry.prevHash,
+      );
+    }
+
+    // Recompute and verify entryHash
+    const entryWithoutHash: Omit<AuditEntry, 'entryHash'> = {
+      seq: entry.seq,
+      timestamp: entry.timestamp,
+      actor: entry.actor,
+      role: entry.role,
+      action: entry.action,
+      permission: entry.permission,
+      inputHash: entry.inputHash,
+      outputHash: entry.outputHash,
+      prevHash: entry.prevHash,
+      metadata: entry.metadata,
+    };
+    const computedHash = computeEntryHash(entryWithoutHash);
+    if (entry.entryHash !== computedHash) {
+      throw new AuditTrailIntegrityError(
+        `Entry hash mismatch at seq ${entry.seq}: entry has been tampered`,
+        entry.seq,
+        computedHash,
+        entry.entryHash,
+      );
+    }
+  }
+
+  // Now rebuild the trail with verified entries
+  const trail = new InMemoryAuditTrail();
   for (const entry of entries) {
     const input: Omit<AuditEntry, 'seq' | 'prevHash' | 'entryHash'> = {
       timestamp: entry.timestamp,

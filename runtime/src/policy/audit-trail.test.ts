@@ -12,6 +12,7 @@ import {
   computeAuditHash,
   serializeAuditTrail,
   loadAuditTrail,
+  AuditTrailIntegrityError,
   type AuditEntry,
 } from './audit-trail.js';
 
@@ -297,6 +298,102 @@ describe('Audit Trail', () => {
       for (let i = 1; i < entries.length; i++) {
         expect(entries[i].prevHash).toBe(entries[i - 1].entryHash);
       }
+    });
+  });
+
+  describe('loadAuditTrail Integrity Verification', () => {
+    it('detects tampered actor field', () => {
+      trail.append(createAuditInput('actor1', 'read', 'action1', 'view_incidents', {}, {}));
+      trail.append(createAuditInput('actor2', 'admin', 'action2', 'configure', {}, {}));
+
+      const json = serializeAuditTrail(trail);
+      const parsed = JSON.parse(json) as AuditEntry[];
+
+      // Tamper with actor field
+      parsed[0].actor = 'tampered_actor';
+
+      const tamperedJson = JSON.stringify(parsed);
+
+      expect(() => loadAuditTrail(tamperedJson)).toThrow(AuditTrailIntegrityError);
+      expect(() => loadAuditTrail(tamperedJson)).toThrow('entry has been tampered');
+    });
+
+    it('detects tampered action field', () => {
+      trail.append(createAuditInput('actor1', 'read', 'action1', 'view_incidents', {}, {}));
+
+      const json = serializeAuditTrail(trail);
+      const parsed = JSON.parse(json) as AuditEntry[];
+
+      // Tamper with action field
+      parsed[0].action = 'malicious_action';
+
+      const tamperedJson = JSON.stringify(parsed);
+
+      expect(() => loadAuditTrail(tamperedJson)).toThrow(AuditTrailIntegrityError);
+    });
+
+    it('detects tampered inputHash', () => {
+      trail.append(createAuditInput('actor1', 'read', 'action1', 'view_incidents', { key: 'value' }, {}));
+
+      const json = serializeAuditTrail(trail);
+      const parsed = JSON.parse(json) as AuditEntry[];
+
+      // Tamper with inputHash
+      parsed[0].inputHash = 'deadbeef'.repeat(8);
+
+      const tamperedJson = JSON.stringify(parsed);
+
+      expect(() => loadAuditTrail(tamperedJson)).toThrow(AuditTrailIntegrityError);
+    });
+
+    it('detects chain break (modified prevHash)', () => {
+      trail.append(createAuditInput('actor1', 'read', 'action1', 'view_incidents', {}, {}));
+      trail.append(createAuditInput('actor2', 'admin', 'action2', 'configure', {}, {}));
+
+      const json = serializeAuditTrail(trail);
+      const parsed = JSON.parse(json) as AuditEntry[];
+
+      // Tamper with prevHash of second entry
+      parsed[1].prevHash = 'fake_prev_hash'.repeat(4);
+
+      const tamperedJson = JSON.stringify(parsed);
+
+      expect(() => loadAuditTrail(tamperedJson)).toThrow(AuditTrailIntegrityError);
+      expect(() => loadAuditTrail(tamperedJson)).toThrow('Chain break');
+    });
+
+    it('detects sequence tampering', () => {
+      trail.append(createAuditInput('actor1', 'read', 'action1', 'view_incidents', {}, {}));
+      trail.append(createAuditInput('actor2', 'admin', 'action2', 'configure', {}, {}));
+
+      const json = serializeAuditTrail(trail);
+      const parsed = JSON.parse(json) as AuditEntry[];
+
+      // Tamper with sequence number
+      parsed[1].seq = 999;
+
+      const tamperedJson = JSON.stringify(parsed);
+
+      expect(() => loadAuditTrail(tamperedJson)).toThrow(AuditTrailIntegrityError);
+      expect(() => loadAuditTrail(tamperedJson)).toThrow('Sequence mismatch');
+    });
+  });
+
+  describe('computeAuditHash Determinism', () => {
+    it('produces same hash regardless of key order', () => {
+      const hash1 = computeAuditHash({ a: 1, b: 2, c: 3 });
+      const hash2 = computeAuditHash({ c: 3, b: 2, a: 1 });
+      const hash3 = computeAuditHash({ b: 2, a: 1, c: 3 });
+
+      expect(hash1).toBe(hash2);
+      expect(hash2).toBe(hash3);
+    });
+
+    it('produces same hash for nested objects with different key order', () => {
+      const hash1 = computeAuditHash({ outer: { a: 1, b: 2 }, x: 'y' });
+      const hash2 = computeAuditHash({ x: 'y', outer: { b: 2, a: 1 } });
+
+      expect(hash1).toBe(hash2);
     });
   });
 });

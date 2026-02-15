@@ -74,23 +74,24 @@ export type QueryParseResult =
   | { success: false; errors: QueryValidationError[] };
 
 /**
- * Validate base58 format (simplified check).
+ * Validate base58 format for Solana public keys.
+ * Valid Solana public keys are 43-44 base58 characters.
  */
 function isValidBase58(value: string): boolean {
-  // Base58 alphabet: 123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz
   const base58Regex = /^[123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+$/;
-  return base58Regex.test(value) && value.length >= 32 && value.length <= 44;
+  return base58Regex.test(value) && value.length >= 43 && value.length <= 44;
 }
 
 /**
  * Parse slot range string (format: "from-to").
+ * Uses regex for robustness.
  */
 function parseSlotRange(value: string): SlotRange | null {
-  const parts = value.split('-');
-  if (parts.length !== 2) return null;
+  const match = value.match(/^(\d+)-(\d+)$/);
+  if (!match) return null;
 
-  const from = parseInt(parts[0], 10);
-  const to = parseInt(parts[1], 10);
+  const from = parseInt(match[1], 10);
+  const to = parseInt(match[2], 10);
 
   if (isNaN(from) || isNaN(to) || from < 0 || to < 0 || from > to) {
     return null;
@@ -171,7 +172,7 @@ export function parseQueryDSL(input: string): QueryParseResult {
         break;
       }
 
-      case 'walletSet':
+      case 'walletSet': {
         const wallets = value.split(',').map((w) => w.trim()).filter((w) => w.length > 0);
         const invalidWallets = wallets.filter((w) => !isValidBase58(w));
         if (invalidWallets.length > 0) {
@@ -180,6 +181,7 @@ export function parseQueryDSL(input: string): QueryParseResult {
           query.walletSet = wallets;
         }
         break;
+      }
 
       case 'anomalyCodes':
         query.anomalyCodes = value.split(',').map((c) => c.trim()).filter((c) => c.length > 0);

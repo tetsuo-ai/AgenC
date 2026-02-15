@@ -66,6 +66,7 @@ export {
 export {
   GENESIS_HASH,
   InMemoryAuditTrail,
+  AuditTrailIntegrityError,
   createAuditInput,
   computeAuditHash,
   serializeAuditTrail,
@@ -74,4 +75,5 @@ export {
   type AuditTrailStore,
   type AuditVerificationResult,
   type AuditVerificationError,
+  type CreateAuditInputOptions,
 } from './audit-trail.js';

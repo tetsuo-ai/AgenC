@@ -136,6 +136,7 @@ export function computeToolFingerprint(runtimeVersion: string): string {
 
 /**
  * Apply redaction to a payload object.
+ * Recursively handles nested objects and arrays.
  */
 export function applyRedaction(
   payload: JsonObject,
@@ -168,8 +169,19 @@ export function applyRedaction(
       }
     }
 
+    // Recurse into arrays
+    if (Array.isArray(value)) {
+      result[key] = value.map((item) => {
+        if (typeof item === 'object' && item !== null && !Array.isArray(item)) {
+          return applyRedaction(item as JsonObject, policy);
+        }
+        return item;
+      });
+      continue;
+    }
+
     // Recurse into nested objects
-    if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+    if (typeof value === 'object' && value !== null) {
       result[key] = applyRedaction(value as JsonObject, policy);
       continue;
     }
@@ -198,6 +210,41 @@ function redactEvents(
 }
 
 /**
+ * Apply redaction to incident case data.
+ */
+function redactCaseData(
+  caseData: IncidentCase,
+  policy: RedactionPolicy,
+): IncidentCase {
+  // Redact actor map
+  const redactedActorMap = new Map<string, IncidentCase['actorMap'] extends Map<string, infer V> ? V : never>();
+  for (const [key, actor] of caseData.actorMap) {
+    const redactedPubkey = policy.truncateActorKeys && actor.pubkey.length > policy.truncateActorKeys
+      ? actor.pubkey.substring(0, policy.truncateActorKeys) + '...'
+      : actor.pubkey;
+    redactedActorMap.set(key, { ...actor, pubkey: redactedPubkey });
+  }
+
+  // Redact transitions
+  const redactedTransitions = caseData.transitions.map((transition) => ({
+    ...transition,
+    signature: policy.hashSignatures
+      ? `[REDACTED:${sha256(transition.signature).substring(0, 16)}]`
+      : transition.signature,
+    actor: transition.actor && policy.truncateActorKeys && transition.actor.length > policy.truncateActorKeys
+      ? transition.actor.substring(0, policy.truncateActorKeys) + '...'
+      : transition.actor,
+    metadata: transition.metadata ? applyRedaction(transition.metadata, policy) : undefined,
+  }));
+
+  return {
+    ...caseData,
+    actorMap: redactedActorMap,
+    transitions: redactedTransitions,
+  };
+}
+
+/**
  * Build an evidence pack from case data and events.
  */
 export function buildEvidencePack(input: BuildEvidencePackInput): EvidencePack {
@@ -213,9 +260,10 @@ export function buildEvidencePack(input: BuildEvidencePackInput): EvidencePack {
 
   // Apply redaction if sealed
   const finalEvents = sealed ? redactEvents(events, redactionPolicy) : events;
+  const finalCaseData = sealed ? redactCaseData(caseData, redactionPolicy) : caseData;
 
-  // Compute hashes
-  const caseJson = JSON.stringify(serializeIncidentCase(caseData));
+  // Compute hashes from redacted data when sealed
+  const caseJson = JSON.stringify(serializeIncidentCase(finalCaseData));
   const caseHash = sha256(caseJson);
 
   const eventsJson = finalEvents.map((e) => JSON.stringify(e)).join('\n');
@@ -245,7 +293,7 @@ export function buildEvidencePack(input: BuildEvidencePackInput): EvidencePack {
 
   return {
     manifest,
-    caseData,
+    caseData: finalCaseData,
     events: finalEvents,
   };
 }

@@ -6,6 +6,13 @@
  *
  * Implements #989 P2-404: Cross-layer observability parity tests
  *
+ * LIMITATION: These tests use simulated layer outputs (simulateRuntimeAlerts,
+ * simulateReplayStoreRecords, simulateMcpToolResponse) defined locally.
+ * They verify that the simulation functions produce consistent output from
+ * shared inputs, but do NOT verify the actual runtime alerting, replay store,
+ * or MCP tool implementations produce matching output. Integration tests
+ * against real implementations are needed for full parity verification.
+ *
  * @module
  */
 

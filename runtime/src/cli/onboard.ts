@@ -78,11 +78,11 @@ function isValidRpcUrl(url: string): boolean {
 }
 
 /**
- * Validate program ID format (base58).
+ * Validate program ID format (base58 Solana public key: 43-44 chars).
  */
 function isValidProgramId(id: string): boolean {
   const base58Regex = /^[123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]+$/;
-  return base58Regex.test(id) && id.length >= 32 && id.length <= 44;
+  return base58Regex.test(id) && id.length >= 43 && id.length <= 44;
 }
 
 /**
@@ -250,6 +250,7 @@ export function formatOnboardResult(result: OnboardResult, format: 'json' | 'tab
 
 /**
  * Parse onboard CLI arguments.
+ * Returns parsed options or throws on missing required values.
  */
 export function parseOnboardArgs(args: string[]): OnboardOptions {
   const options: OnboardOptions = {};
@@ -258,19 +259,37 @@ export function parseOnboardArgs(args: string[]): OnboardOptions {
     const arg = args[i];
 
     if (arg === '--config' || arg === '-c') {
+      if (i + 1 >= args.length) {
+        throw new Error(`Missing value for ${arg}`);
+      }
       options.configPath = args[++i];
     } else if (arg === '--rpc-url' || arg === '-r') {
+      if (i + 1 >= args.length) {
+        throw new Error(`Missing value for ${arg}`);
+      }
       options.rpcUrl = args[++i];
     } else if (arg === '--program-id' || arg === '-p') {
+      if (i + 1 >= args.length) {
+        throw new Error(`Missing value for ${arg}`);
+      }
       options.programId = args[++i];
     } else if (arg === '--store-type') {
+      if (i + 1 >= args.length) {
+        throw new Error(`Missing value for ${arg}`);
+      }
       const value = args[++i];
       if (value === 'memory' || value === 'sqlite') {
         options.storeType = value;
       }
     } else if (arg === '--sqlite-path') {
+      if (i + 1 >= args.length) {
+        throw new Error(`Missing value for ${arg}`);
+      }
       options.sqlitePath = args[++i];
     } else if (arg === '--wallet-path' || arg === '-w') {
+      if (i + 1 >= args.length) {
+        throw new Error(`Missing value for ${arg}`);
+      }
       options.walletPath = args[++i];
     } else if (arg === '--skip-health-checks') {
       options.skipHealthChecks = true;

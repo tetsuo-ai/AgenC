@@ -7,7 +7,7 @@
  */
 
 import { createHash } from 'crypto';
-import type { TrajectoryEvent, JsonObject } from './types.js';
+import type { JsonObject } from './types.js';
 import type { ProjectedTimelineEvent } from './projector.js';
 
 export const INCIDENT_CASE_SCHEMA_VERSION = 1 as const;
@@ -139,21 +139,26 @@ export interface BuildIncidentCaseInput {
   anomalies?: IncidentAnomalyRef[];
   /** Initial case status */
   initialStatus?: CaseStatus;
+  /** Optional timestamp override for deterministic output (milliseconds) */
+  timestampMs?: number;
 }
 
 /**
  * Compute trace window from events or use manual override.
+ * Pass defaultTimestampMs for deterministic output when events is empty.
  */
 export function computeTraceWindow(
   events: ProjectedTimelineEvent[],
   override?: Partial<IncidentTraceWindow>,
+  defaultTimestampMs?: number,
 ): IncidentTraceWindow {
   if (events.length === 0) {
+    const fallbackTimestamp = defaultTimestampMs ?? Date.now();
     return {
       startSlot: override?.startSlot ?? 0,
       endSlot: override?.endSlot ?? 0,
-      startTimestampMs: override?.startTimestampMs ?? Date.now(),
-      endTimestampMs: override?.endTimestampMs ?? Date.now(),
+      startTimestampMs: override?.startTimestampMs ?? fallbackTimestamp,
+      endTimestampMs: override?.endTimestampMs ?? fallbackTimestamp,
     };
   }
 
@@ -310,10 +315,11 @@ export function computeCaseId(
 
 /**
  * Build an incident case from projected timeline events.
- * Produces deterministic output for identical inputs.
+ * Produces deterministic output for identical inputs when timestampMs is provided.
+ * Note: createdAtMs/updatedAtMs use Date.now() unless timestampMs is specified.
  */
 export function buildIncidentCase(input: BuildIncidentCaseInput): IncidentCase {
-  const { events, traceWindow: windowOverride, taskPda, disputePda, anomalies, initialStatus } = input;
+  const { events, traceWindow: windowOverride, taskPda, disputePda, anomalies, initialStatus, timestampMs } = input;
 
   // Sort events deterministically by sequence number
   const sortedEvents = [...events].sort((a, b) => a.seq - b.seq);
@@ -330,8 +336,8 @@ export function buildIncidentCase(input: BuildIncidentCaseInput): IncidentCase {
     return true;
   });
 
-  // Compute trace window
-  const traceWindow = computeTraceWindow(filteredEvents, windowOverride);
+  // Compute trace window (pass timestampMs for deterministic empty-events case)
+  const traceWindow = computeTraceWindow(filteredEvents, windowOverride, timestampMs);
 
   // Build state machine transitions
   const transitions = buildTransitions(filteredEvents);
@@ -345,7 +351,7 @@ export function buildIncidentCase(input: BuildIncidentCaseInput): IncidentCase {
   // Initialize evidence hashes (empty - populated when evidence is attached)
   const evidenceHashes = new Map<string, string>();
 
-  const now = Date.now();
+  const now = timestampMs ?? Date.now();
 
   return {
     schemaVersion: INCIDENT_CASE_SCHEMA_VERSION,
