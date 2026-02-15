@@ -1,0 +1,351 @@
+/**
+ * Channel plugin interface and ChannelContext.
+ *
+ * Defines the contract that all channel plugins (Telegram, Discord, etc.)
+ * implement to bridge external messaging platforms to the Gateway. Includes
+ * the ChannelContext provided during initialization, a WebhookRouter for
+ * HTTP endpoint registration, and a PluginCatalog for channel management.
+ *
+ * @module
+ */
+
+import type { Logger } from '../utils/logger.js';
+import { silentLogger } from '../utils/logger.js';
+import type { GatewayMessage, OutboundMessage } from './message.js';
+
+// ============================================================================
+// Webhook Router
+// ============================================================================
+
+/** HTTP method for webhook routes. */
+export type WebhookMethod = 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH';
+
+/** A registered webhook route. */
+export interface WebhookRoute {
+  readonly method: WebhookMethod;
+  readonly path: string;
+  readonly handler: WebhookHandler;
+}
+
+/** Webhook request passed to handlers. */
+export interface WebhookRequest {
+  readonly method: string;
+  readonly path: string;
+  readonly headers: Readonly<Record<string, string>>;
+  readonly body: unknown;
+  readonly query: Readonly<Record<string, string>>;
+}
+
+/** Webhook response returned by handlers. */
+export interface WebhookResponse {
+  readonly status: number;
+  readonly headers?: Record<string, string>;
+  readonly body?: unknown;
+}
+
+/** Handler function for a webhook route. */
+export type WebhookHandler = (req: WebhookRequest) => Promise<WebhookResponse>;
+
+/**
+ * Router for registering channel-specific HTTP webhook endpoints.
+ *
+ * Channel plugins use this to register webhook handlers (e.g. Telegram
+ * webhook updates, Discord interactions endpoint). The gateway exposes
+ * these routes on its HTTP server.
+ */
+export class WebhookRouter {
+  private readonly _routes: WebhookRoute[] = [];
+  private readonly prefix: string;
+
+  constructor(channelName: string) {
+    this.prefix = `/webhooks/${channelName}`;
+  }
+
+  /** Register a route. Path is auto-prefixed with /webhooks/{channelName}. */
+  route(method: WebhookMethod, path: string, handler: WebhookHandler): void {
+    this._routes.push({
+      method,
+      path: this.prefix + path,
+      handler,
+    });
+  }
+
+  /** Shorthand for POST routes (most common for webhooks). */
+  post(path: string, handler: WebhookHandler): void {
+    this.route('POST', path, handler);
+  }
+
+  /** Shorthand for GET routes (used for webhook verification). */
+  get(path: string, handler: WebhookHandler): void {
+    this.route('GET', path, handler);
+  }
+
+  /** All registered routes. */
+  get routes(): ReadonlyArray<WebhookRoute> {
+    return this._routes;
+  }
+}
+
+// ============================================================================
+// Reaction Event
+// ============================================================================
+
+/** An emoji reaction event from a channel. */
+export interface ReactionEvent {
+  /** Channel name that produced this event. */
+  readonly channel: string;
+  /** The user who reacted. */
+  readonly senderId: string;
+  /** The message ID being reacted to. */
+  readonly messageId: string;
+  /** The emoji or reaction identifier. */
+  readonly emoji: string;
+  /** Whether the reaction was added or removed. */
+  readonly action: 'add' | 'remove';
+}
+
+// ============================================================================
+// Channel Context
+// ============================================================================
+
+/** Context provided to channel plugins during initialization. */
+export interface ChannelContext {
+  /** Callback to deliver inbound messages to the Gateway. */
+  readonly onMessage: (message: GatewayMessage) => Promise<void>;
+  /** Logger scoped to this channel. */
+  readonly logger: Logger;
+  /** Channel-specific config from gateway config. */
+  readonly config: Readonly<Record<string, unknown>>;
+}
+
+// ============================================================================
+// Channel Plugin
+// ============================================================================
+
+/**
+ * Contract for channel plugins that bridge external messaging platforms
+ * to the Gateway.
+ *
+ * Lifecycle: `initialize()` → `start()` → (running) → `stop()`
+ *
+ * Channel plugins must:
+ * 1. Normalize inbound messages to `GatewayMessage` via `context.onMessage`
+ * 2. Convert `OutboundMessage` to platform-specific format in `send()`
+ * 3. Report health status via `isHealthy()`
+ */
+export interface ChannelPlugin {
+  /** Channel name (e.g. 'telegram', 'discord', 'slack'). */
+  readonly name: string;
+
+  /** Initialize the channel with gateway context. */
+  initialize(context: ChannelContext): Promise<void>;
+
+  /** Start listening for inbound messages. */
+  start(): Promise<void>;
+
+  /** Stop listening and clean up resources. */
+  stop(): Promise<void>;
+
+  /** Send an outbound message through this channel. */
+  send(message: OutboundMessage): Promise<void>;
+
+  /** Health check — returns true if the channel connection is healthy. */
+  isHealthy(): boolean;
+
+  /** Optional: register HTTP webhook endpoints. */
+  registerWebhooks?(router: WebhookRouter): void;
+
+  /** Optional: handle emoji reactions. */
+  handleReaction?(event: ReactionEvent): Promise<void>;
+}
+
+// ============================================================================
+// Plugin Catalog
+// ============================================================================
+
+/** Configuration for the PluginCatalog. */
+export interface PluginCatalogConfig {
+  readonly logger?: Logger;
+}
+
+/**
+ * Registry for managing channel plugin instances.
+ *
+ * Follows the same pattern as ToolRegistry — register, lookup, lifecycle
+ * management. The catalog owns the plugin lifecycle: it initializes,
+ * starts, and stops plugins, and tracks their health status.
+ */
+export class PluginCatalog {
+  private readonly plugins = new Map<string, ChannelPlugin>();
+  private readonly contexts = new Map<string, ChannelContext>();
+  private readonly webhookRouters = new Map<string, WebhookRouter>();
+  private readonly logger: Logger;
+
+  constructor(config?: PluginCatalogConfig) {
+    this.logger = config?.logger ?? silentLogger;
+  }
+
+  /**
+   * Register a channel plugin. Throws if a plugin with the same name exists.
+   */
+  register(plugin: ChannelPlugin): void {
+    if (this.plugins.has(plugin.name)) {
+      throw new ChannelAlreadyRegisteredError(plugin.name);
+    }
+    this.plugins.set(plugin.name, plugin);
+    this.logger.info(`Channel plugin registered: "${plugin.name}"`);
+  }
+
+  /**
+   * Initialize and start a registered plugin.
+   *
+   * Creates a ChannelContext, calls `initialize()`, optionally registers
+   * webhooks, then calls `start()`.
+   */
+  async activate(
+    name: string,
+    onMessage: (message: GatewayMessage) => Promise<void>,
+    channelConfig: Record<string, unknown> = {},
+  ): Promise<void> {
+    const plugin = this.plugins.get(name);
+    if (!plugin) {
+      throw new ChannelNotFoundError(name);
+    }
+
+    const context: ChannelContext = {
+      onMessage,
+      logger: this.logger,
+      config: channelConfig,
+    };
+
+    this.contexts.set(name, context);
+    await plugin.initialize(context);
+
+    if (plugin.registerWebhooks) {
+      const router = new WebhookRouter(name);
+      plugin.registerWebhooks(router);
+      this.webhookRouters.set(name, router);
+      this.logger.info(`Channel "${name}" registered ${router.routes.length} webhook route(s)`);
+    }
+
+    await plugin.start();
+    this.logger.info(`Channel "${name}" activated`);
+  }
+
+  /**
+   * Stop and remove a channel plugin.
+   */
+  async deactivate(name: string): Promise<void> {
+    const plugin = this.plugins.get(name);
+    if (!plugin) return;
+
+    try {
+      await plugin.stop();
+    } catch (err) {
+      this.logger.error(`Error stopping channel "${name}":`, err);
+    }
+
+    this.contexts.delete(name);
+    this.webhookRouters.delete(name);
+    this.logger.info(`Channel "${name}" deactivated`);
+  }
+
+  /**
+   * Remove a channel plugin from the catalog entirely.
+   * Calls deactivate first if the plugin is active.
+   */
+  async unregister(name: string): Promise<void> {
+    await this.deactivate(name);
+    this.plugins.delete(name);
+    this.logger.info(`Channel plugin unregistered: "${name}"`);
+  }
+
+  /** Get a plugin by name. */
+  get(name: string): ChannelPlugin | undefined {
+    return this.plugins.get(name);
+  }
+
+  /** Get a plugin by name, throwing if not found. */
+  getOrThrow(name: string): ChannelPlugin {
+    const plugin = this.plugins.get(name);
+    if (!plugin) {
+      throw new ChannelNotFoundError(name);
+    }
+    return plugin;
+  }
+
+  /** List all registered plugin names. */
+  listNames(): string[] {
+    return Array.from(this.plugins.keys());
+  }
+
+  /** List all registered plugins. */
+  listAll(): ReadonlyArray<ChannelPlugin> {
+    return Array.from(this.plugins.values());
+  }
+
+  /** Number of registered plugins. */
+  get size(): number {
+    return this.plugins.size;
+  }
+
+  /** Get webhook routes for a specific channel, or all channels. */
+  getWebhookRoutes(channelName?: string): ReadonlyArray<WebhookRoute> {
+    if (channelName) {
+      return this.webhookRouters.get(channelName)?.routes ?? [];
+    }
+    const allRoutes: WebhookRoute[] = [];
+    for (const router of this.webhookRouters.values()) {
+      allRoutes.push(...router.routes);
+    }
+    return allRoutes;
+  }
+
+  /** Get health status for all active channels. */
+  getHealthStatus(): ReadonlyArray<{ name: string; healthy: boolean }> {
+    return Array.from(this.plugins.entries()).map(([name, plugin]) => ({
+      name,
+      healthy: plugin.isHealthy(),
+    }));
+  }
+
+  /** Stop all active plugins. */
+  async stopAll(): Promise<void> {
+    const names = Array.from(this.plugins.keys());
+    for (const name of names) {
+      await this.deactivate(name);
+    }
+  }
+}
+
+// ============================================================================
+// Errors
+// ============================================================================
+
+import { RuntimeError, RuntimeErrorCodes } from '../types/errors.js';
+
+export class ChannelAlreadyRegisteredError extends RuntimeError {
+  public readonly channelName: string;
+
+  constructor(channelName: string) {
+    super(
+      `Channel "${channelName}" is already registered`,
+      RuntimeErrorCodes.GATEWAY_VALIDATION_ERROR,
+    );
+    this.name = 'ChannelAlreadyRegisteredError';
+    this.channelName = channelName;
+  }
+}
+
+export class ChannelNotFoundError extends RuntimeError {
+  public readonly channelName: string;
+
+  constructor(channelName: string) {
+    super(
+      `Channel "${channelName}" not found`,
+      RuntimeErrorCodes.GATEWAY_VALIDATION_ERROR,
+    );
+    this.name = 'ChannelNotFoundError';
+    this.channelName = channelName;
+  }
+}
