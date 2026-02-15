@@ -465,16 +465,24 @@ export {
   type StreamProgressCallback,
   type ToolHandler,
   // Error classes
+  LLMAuthenticationError,
   LLMProviderError,
   LLMRateLimitError,
   LLMResponseConversionError,
+  LLMServerError,
   LLMToolCallError,
   LLMTimeoutError,
+  mapLLMError,
   // Response converter
   responseToOutput,
+  // Utilities
+  validateToolCall,
   // LLM Task Executor
   LLMTaskExecutor,
   type LLMTaskExecutorConfig,
+  // Fallback provider
+  FallbackLLMProvider,
+  type FallbackChainConfig,
   // Provider adapters
   GrokProvider,
   type GrokProviderConfig,
