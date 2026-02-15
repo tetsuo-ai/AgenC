@@ -12,6 +12,7 @@
 import type { Logger } from '../utils/logger.js';
 import { silentLogger } from '../utils/logger.js';
 import type { GatewayMessage, OutboundMessage } from './message.js';
+import { RuntimeError, RuntimeErrorCodes } from '../types/errors.js';
 
 // ============================================================================
 // Webhook Router
@@ -100,8 +101,8 @@ export interface ReactionEvent {
   readonly messageId: string;
   /** The emoji or reaction identifier. */
   readonly emoji: string;
-  /** Whether the reaction was added or removed. */
-  readonly action: 'add' | 'remove';
+  /** True if the reaction was added, false if removed. */
+  readonly added: boolean;
 }
 
 // ============================================================================
@@ -116,6 +117,20 @@ export interface ChannelContext {
   readonly logger: Logger;
   /** Channel-specific config from gateway config. */
   readonly config: Readonly<Record<string, unknown>>;
+  /** Hook dispatcher for lifecycle events (available after Phase 1.7). */
+  readonly hooks?: unknown;
+}
+
+/** Context provided when handling a slash command from a channel. */
+export interface SlashCommandContext {
+  /** Channel that received the command. */
+  readonly channel: string;
+  /** The user who invoked the command. */
+  readonly senderId: string;
+  /** The original message ID. */
+  readonly messageId: string;
+  /** Reply helper — sends a response back to the channel. */
+  readonly reply: (content: string) => Promise<void>;
 }
 
 // ============================================================================
@@ -157,6 +172,37 @@ export interface ChannelPlugin {
 
   /** Optional: handle emoji reactions. */
   handleReaction?(event: ReactionEvent): Promise<void>;
+
+  /** Optional: handle slash commands from this channel. */
+  handleSlashCommand?(command: string, args: string, context: SlashCommandContext): Promise<void>;
+}
+
+// ============================================================================
+// Base Channel Plugin
+// ============================================================================
+
+/**
+ * Abstract base class for channel plugins with sensible defaults.
+ *
+ * Subclasses must implement `name`, `start()`, `stop()`, and `send()`.
+ * `initialize()` stores context by default; `isHealthy()` returns true.
+ */
+export abstract class BaseChannelPlugin implements ChannelPlugin {
+  protected context!: ChannelContext;
+
+  abstract readonly name: string;
+
+  async initialize(context: ChannelContext): Promise<void> {
+    this.context = context;
+  }
+
+  abstract start(): Promise<void>;
+  abstract stop(): Promise<void>;
+  abstract send(message: OutboundMessage): Promise<void>;
+
+  isHealthy(): boolean {
+    return true;
+  }
 }
 
 // ============================================================================
@@ -321,8 +367,6 @@ export class PluginCatalog {
 // ============================================================================
 // Errors
 // ============================================================================
-
-import { RuntimeError, RuntimeErrorCodes } from '../types/errors.js';
 
 export class ChannelAlreadyRegisteredError extends RuntimeError {
   public readonly channelName: string;

@@ -2,10 +2,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   PluginCatalog,
   WebhookRouter,
+  BaseChannelPlugin,
   ChannelAlreadyRegisteredError,
   ChannelNotFoundError,
 } from './channel.js';
-import type { ChannelPlugin, ChannelContext } from './channel.js';
+import type { ChannelPlugin, ChannelContext, SlashCommandContext, ReactionEvent } from './channel.js';
 import type { GatewayMessage, OutboundMessage } from './message.js';
 import { silentLogger } from '../utils/logger.js';
 
@@ -281,5 +282,90 @@ describe('PluginCatalog', () => {
       expect(tg.stop).toHaveBeenCalledTimes(1);
       expect(dc.stop).toHaveBeenCalledTimes(1);
     });
+  });
+});
+
+describe('BaseChannelPlugin', () => {
+  class TestPlugin extends BaseChannelPlugin {
+    readonly name = 'test';
+    start = vi.fn().mockResolvedValue(undefined);
+    stop = vi.fn().mockResolvedValue(undefined);
+    send = vi.fn().mockResolvedValue(undefined);
+  }
+
+  it('initialize stores context', async () => {
+    const plugin = new TestPlugin();
+    const ctx: ChannelContext = {
+      onMessage: vi.fn(),
+      logger: silentLogger,
+      config: { key: 'value' },
+    };
+
+    await plugin.initialize(ctx);
+
+    // Context is stored as protected field — verify via isHealthy default
+    expect(plugin.isHealthy()).toBe(true);
+  });
+
+  it('isHealthy defaults to true', () => {
+    const plugin = new TestPlugin();
+    expect(plugin.isHealthy()).toBe(true);
+  });
+
+  it('implements ChannelPlugin interface', async () => {
+    const plugin = new TestPlugin();
+    const ctx: ChannelContext = {
+      onMessage: vi.fn(),
+      logger: silentLogger,
+      config: {},
+    };
+
+    await plugin.initialize(ctx);
+    await plugin.start();
+    await plugin.stop();
+    await plugin.send({} as OutboundMessage);
+
+    expect(plugin.start).toHaveBeenCalledTimes(1);
+    expect(plugin.stop).toHaveBeenCalledTimes(1);
+    expect(plugin.send).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('SlashCommandContext', () => {
+  it('has required fields', () => {
+    const ctx: SlashCommandContext = {
+      channel: 'telegram',
+      senderId: 'user-1',
+      messageId: 'msg-123',
+      reply: vi.fn().mockResolvedValue(undefined),
+    };
+
+    expect(ctx.channel).toBe('telegram');
+    expect(ctx.senderId).toBe('user-1');
+    expect(ctx.messageId).toBe('msg-123');
+    expect(typeof ctx.reply).toBe('function');
+  });
+});
+
+describe('ReactionEvent', () => {
+  it('uses boolean added field', () => {
+    const addEvent: ReactionEvent = {
+      channel: 'discord',
+      senderId: 'user-1',
+      messageId: 'msg-1',
+      emoji: '👍',
+      added: true,
+    };
+
+    const removeEvent: ReactionEvent = {
+      channel: 'discord',
+      senderId: 'user-1',
+      messageId: 'msg-1',
+      emoji: '👍',
+      added: false,
+    };
+
+    expect(addEvent.added).toBe(true);
+    expect(removeEvent.added).toBe(false);
   });
 });

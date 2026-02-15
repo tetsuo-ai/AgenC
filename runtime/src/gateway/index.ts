@@ -144,6 +144,7 @@ export {
 export {
   PluginCatalog,
   WebhookRouter,
+  BaseChannelPlugin,
   ChannelAlreadyRegisteredError,
   ChannelNotFoundError,
   type ChannelPlugin,
