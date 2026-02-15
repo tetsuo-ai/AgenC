@@ -50,3 +50,11 @@ export {
   type SerializedAgent,
   type SerializedProtocolConfig,
 } from './agenc/index.js';
+
+// System tools
+export {
+  createBashTool,
+  type BashToolConfig,
+  type BashToolInput,
+  type BashToolOutput,
+} from './system/index.js';
