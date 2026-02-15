@@ -9,7 +9,6 @@
 
 import { createHash } from 'node:crypto';
 import type { LLMMessage } from '../llm/types.js';
-import type { MemoryBackend } from '../memory/types.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -127,7 +126,6 @@ const DEFAULT_DAILY_HOUR = 4;
 const DEFAULT_IDLE_MINUTES = 120;
 
 interface SessionManagerOptions {
-  memoryBackend?: MemoryBackend;
   summarizer?: Summarizer;
 }
 
@@ -217,6 +215,8 @@ export class SessionManager {
   /**
    * Compact a session's history using the configured strategy.
    * Returns null if session not found.
+   *
+   * TODO: emit session:compact hook event before/after compaction (#1056)
    */
   async compact(sessionId: string): Promise<CompactionResult | null> {
     const session = this.sessions.get(sessionId);

@@ -245,6 +245,20 @@ describe('SessionManager', () => {
     it('returns null for unknown session', async () => {
       expect(await manager.compact('nonexistent')).toBeNull();
     });
+
+    it('propagates summarizer errors', async () => {
+      const summarizer: Summarizer = vi.fn().mockRejectedValue(new Error('LLM failed'));
+      const mgr = new SessionManager(
+        makeConfig({ compaction: 'summarize' }),
+        { summarizer },
+      );
+      const session = mgr.getOrCreate(makeParams());
+      for (let i = 0; i < 10; i++) {
+        session.history.push(msg('user', `m${i}`));
+      }
+
+      await expect(mgr.compact(session.id)).rejects.toThrow('LLM failed');
+    });
   });
 
   // --- checkResets ---------------------------------------------------------
@@ -266,39 +280,27 @@ describe('SessionManager', () => {
     });
 
     it("'daily' mode resets sessions after daily hour", () => {
-      const mgr = new SessionManager(makeConfig({
-        reset: { mode: 'daily', dailyHour: 4 },
-      }));
-      const session = mgr.getOrCreate(makeParams());
-      session.history.push(msg('user', 'hi'));
+      vi.useFakeTimers();
+      try {
+        // Set clock to 2025-06-15 10:00 UTC (well past 4 AM reset hour)
+        const fakeNow = new Date('2025-06-15T10:00:00Z');
+        vi.setSystemTime(fakeNow);
 
-      // Simulate: last activity was yesterday, and current time is past 4AM today
-      const yesterday = new Date();
-      yesterday.setDate(yesterday.getDate() - 1);
-      yesterday.setHours(3, 0, 0, 0); // 3 AM yesterday
-      session.lastActiveAt = yesterday.getTime();
+        const mgr = new SessionManager(makeConfig({
+          reset: { mode: 'daily', dailyHour: 4 },
+        }));
+        const session = mgr.getOrCreate(makeParams());
+        session.history.push(msg('user', 'hi'));
 
-      const now = new Date();
-      // Only reset if now is past today's reset hour
-      const todayReset = new Date();
-      todayReset.setHours(4, 0, 0, 0);
+        // Set last activity to yesterday 3 AM (before today's 4 AM reset)
+        const yesterday = new Date('2025-06-14T03:00:00Z');
+        session.lastActiveAt = yesterday.getTime();
 
-      if (Date.now() >= todayReset.getTime()) {
         const resetIds = mgr.checkResets();
         expect(resetIds).toContain(session.id);
         expect(session.history).toEqual([]);
-      } else {
-        // Before 4 AM — session should NOT reset because todayReset is in the future
-        // We still need to test the reset logic, so force lastActiveAt even further back
-        const twoDaysAgo = new Date();
-        twoDaysAgo.setDate(twoDaysAgo.getDate() - 2);
-        twoDaysAgo.setHours(3, 0, 0, 0);
-        session.lastActiveAt = twoDaysAgo.getTime();
-        // Reset won't fire because now < todayReset (reset time hasn't passed yet today)
-        // This is correct behavior — daily reset only triggers after the reset hour
-        const resetIds = mgr.checkResets();
-        // Before the daily hour, no reset should happen
-        expect(resetIds).toEqual([]);
+      } finally {
+        vi.useRealTimers();
       }
     });
 
@@ -314,24 +316,23 @@ describe('SessionManager', () => {
     });
 
     it("'weekday' mode resets on new weekday", () => {
-      const mgr = new SessionManager(makeConfig({ reset: { mode: 'weekday' } }));
-      const session = mgr.getOrCreate(makeParams());
-      session.history.push(msg('user', 'hi'));
+      vi.useFakeTimers();
+      try {
+        // 2025-06-18 is a Wednesday (day 3)
+        vi.setSystemTime(new Date('2025-06-18T12:00:00Z'));
 
-      // Set lastActiveAt to a different weekday
-      const now = new Date();
-      const currentDay = now.getDay();
-      // Go back enough days to hit a different weekday
-      const daysBack = currentDay === 0 ? 2 : currentDay === 6 ? 2 : 1;
-      const pastDate = new Date(now);
-      pastDate.setDate(pastDate.getDate() - daysBack);
-      session.lastActiveAt = pastDate.getTime();
+        const mgr = new SessionManager(makeConfig({ reset: { mode: 'weekday' } }));
+        const session = mgr.getOrCreate(makeParams());
+        session.history.push(msg('user', 'hi'));
 
-      const resetIds = mgr.checkResets();
-      // If the past date is a different weekday AND different date string, it should reset
-      if (pastDate.getDay() !== now.getDay() && pastDate.toDateString() !== now.toDateString()) {
+        // Set last activity to Tuesday (day 2) — different weekday
+        session.lastActiveAt = new Date('2025-06-17T12:00:00Z').getTime();
+
+        const resetIds = mgr.checkResets();
         expect(resetIds).toContain(session.id);
         expect(session.history).toEqual([]);
+      } finally {
+        vi.useRealTimers();
       }
     });
   });
