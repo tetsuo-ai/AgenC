@@ -71,10 +71,14 @@ export interface HookHandler {
   readonly handler: (context: HookContext) => Promise<HookResult>;
 }
 
-/** Options for dispatching a hook event. */
-export interface DispatchOptions {
-  /** Clock function for testing (default: Date.now). */
-  now?: () => number;
+/** Hook configuration for gateway config file integration. */
+export interface HookConfig {
+  /** Handlers to register on startup. */
+  readonly handlers?: ReadonlyArray<{
+    readonly event: HookEvent;
+    readonly name: string;
+    readonly priority?: number;
+  }>;
 }
 
 // ============================================================================
@@ -250,6 +254,20 @@ export class HookDispatcher {
     return total;
   }
 
+  /** Total number of registered handlers across all events. */
+  get handlerCount(): number {
+    let total = 0;
+    for (const list of this.handlers.values()) {
+      total += list.length;
+    }
+    return total;
+  }
+
+  /** Get all handlers registered for a specific event. */
+  getHandlers(event: HookEvent): readonly HookHandler[] {
+    return this.handlers.get(event) ?? [];
+  }
+
   /** List all registered handler names, grouped by event. */
   listHandlers(): ReadonlyMap<HookEvent, ReadonlyArray<{ name: string; priority: number }>> {
     const result = new Map<HookEvent, ReadonlyArray<{ name: string; priority: number }>>();
@@ -261,4 +279,44 @@ export class HookDispatcher {
     }
     return result;
   }
+}
+
+// ============================================================================
+// Built-in hooks
+// ============================================================================
+
+/**
+ * Create stub HookHandlers for the built-in gateway hooks.
+ *
+ * These are no-op stubs that will be replaced with real implementations
+ * as their respective systems are built (memory recorder in Phase 5,
+ * audit logger in Phase 5, boot executor in Phase 2, approval gate in Phase 5).
+ */
+export function createBuiltinHooks(): HookHandler[] {
+  return [
+    {
+      event: 'message:inbound',
+      name: 'session-memory-recorder',
+      priority: 50,
+      handler: async () => ({ continue: true }),
+    },
+    {
+      event: 'tool:after',
+      name: 'tool-audit-logger',
+      priority: 90,
+      handler: async () => ({ continue: true }),
+    },
+    {
+      event: 'gateway:startup',
+      name: 'boot-executor',
+      priority: 10,
+      handler: async () => ({ continue: true }),
+    },
+    {
+      event: 'tool:before',
+      name: 'approval-gate',
+      priority: 5,
+      handler: async () => ({ continue: true }),
+    },
+  ];
 }

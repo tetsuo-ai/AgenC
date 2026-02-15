@@ -1274,6 +1274,16 @@ export {
   type TranscriptionProvider,
   type ImageDescriptionProvider,
   type MediaLogger,
+  // Lifecycle hooks (Phase 1.7)
+  HookDispatcher,
+  createBuiltinHooks,
+  type HookDispatcherConfig,
+  type HookConfig,
+  type HookEvent,
+  type HookHandler,
+  type HookContext,
+  type HookResult,
+  type DispatchResult,
 } from './gateway/index.js';
 
 // Agent Builder (Phase 10)

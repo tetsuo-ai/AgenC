@@ -130,11 +130,12 @@ export {
 // Lifecycle hooks (Phase 1.7)
 export {
   HookDispatcher,
+  createBuiltinHooks,
   type HookDispatcherConfig,
+  type HookConfig,
   type HookEvent,
   type HookHandler,
   type HookContext,
   type HookResult,
   type DispatchResult,
-  type DispatchOptions,
 } from './hooks.js';

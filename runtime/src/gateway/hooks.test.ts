@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { HookDispatcher } from './hooks.js';
+import { HookDispatcher, createBuiltinHooks } from './hooks.js';
 import type { HookHandler, HookContext, HookResult } from './hooks.js';
 import { silentLogger } from '../utils/logger.js';
 
@@ -353,6 +353,140 @@ describe('HookDispatcher', () => {
       const toolBefore = listing.get('tool:before');
       expect(toolBefore).toHaveLength(1);
       expect(toolBefore![0]).toEqual({ name: 'audit', priority: 100 });
+    });
+  });
+
+  describe('dispatch — event isolation', () => {
+    it('does not call handlers registered for a different event', async () => {
+      const handler = makeHandler('gateway:shutdown', 'shutdown-only');
+      dispatcher.on(handler);
+
+      await dispatcher.dispatch('gateway:startup', { ready: true });
+
+      expect(handler.handler).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('getHandlers', () => {
+    it('returns handlers for a registered event', () => {
+      dispatcher.on(makeHandler('gateway:startup', 'boot', { continue: true }, 10));
+      dispatcher.on(makeHandler('gateway:startup', 'metrics', { continue: true }, 50));
+
+      const handlers = dispatcher.getHandlers('gateway:startup');
+
+      expect(handlers).toHaveLength(2);
+      expect(handlers[0].name).toBe('boot');
+      expect(handlers[1].name).toBe('metrics');
+    });
+
+    it('returns empty array for event with no handlers', () => {
+      const handlers = dispatcher.getHandlers('gateway:shutdown');
+
+      expect(handlers).toEqual([]);
+    });
+
+    it('returns readonly array (does not expose internal list)', () => {
+      dispatcher.on(makeHandler('tool:before', 'audit'));
+
+      const handlers = dispatcher.getHandlers('tool:before');
+
+      expect(Array.isArray(handlers)).toBe(true);
+      expect(handlers).toHaveLength(1);
+    });
+  });
+
+  describe('handlerCount getter', () => {
+    it('returns 0 when no handlers registered', () => {
+      expect(dispatcher.handlerCount).toBe(0);
+    });
+
+    it('returns total handler count across all events', () => {
+      dispatcher.on(makeHandler('gateway:startup', 'a'));
+      dispatcher.on(makeHandler('gateway:shutdown', 'b'));
+      dispatcher.on(makeHandler('message:inbound', 'c'));
+      dispatcher.on(makeHandler('message:inbound', 'd'));
+
+      expect(dispatcher.handlerCount).toBe(4);
+    });
+
+    it('decreases when handlers are removed', () => {
+      dispatcher.on(makeHandler('gateway:startup', 'a'));
+      dispatcher.on(makeHandler('gateway:startup', 'b'));
+
+      dispatcher.off('gateway:startup', 'a');
+
+      expect(dispatcher.handlerCount).toBe(1);
+    });
+  });
+
+  describe('createBuiltinHooks', () => {
+    it('returns 4 built-in hook handlers', () => {
+      const hooks = createBuiltinHooks();
+
+      expect(hooks).toHaveLength(4);
+    });
+
+    it('includes session-memory-recorder on message:inbound', () => {
+      const hooks = createBuiltinHooks();
+      const recorder = hooks.find((h) => h.name === 'session-memory-recorder');
+
+      expect(recorder).toBeDefined();
+      expect(recorder!.event).toBe('message:inbound');
+      expect(recorder!.priority).toBe(50);
+    });
+
+    it('includes tool-audit-logger on tool:after', () => {
+      const hooks = createBuiltinHooks();
+      const logger = hooks.find((h) => h.name === 'tool-audit-logger');
+
+      expect(logger).toBeDefined();
+      expect(logger!.event).toBe('tool:after');
+      expect(logger!.priority).toBe(90);
+    });
+
+    it('includes boot-executor on gateway:startup', () => {
+      const hooks = createBuiltinHooks();
+      const boot = hooks.find((h) => h.name === 'boot-executor');
+
+      expect(boot).toBeDefined();
+      expect(boot!.event).toBe('gateway:startup');
+      expect(boot!.priority).toBe(10);
+    });
+
+    it('includes approval-gate on tool:before', () => {
+      const hooks = createBuiltinHooks();
+      const gate = hooks.find((h) => h.name === 'approval-gate');
+
+      expect(gate).toBeDefined();
+      expect(gate!.event).toBe('tool:before');
+      expect(gate!.priority).toBe(5);
+    });
+
+    it('all built-in hooks are no-op stubs that continue', async () => {
+      const hooks = createBuiltinHooks();
+
+      for (const hook of hooks) {
+        const result = await hook.handler({
+          event: hook.event,
+          payload: {},
+          logger: silentLogger,
+          timestamp: Date.now(),
+        });
+        expect(result.continue).toBe(true);
+      }
+    });
+
+    it('can be registered on a dispatcher', () => {
+      const hooks = createBuiltinHooks();
+      for (const hook of hooks) {
+        dispatcher.on(hook);
+      }
+
+      expect(dispatcher.handlerCount).toBe(4);
+      expect(dispatcher.hasHandlers('message:inbound')).toBe(true);
+      expect(dispatcher.hasHandlers('tool:after')).toBe(true);
+      expect(dispatcher.hasHandlers('gateway:startup')).toBe(true);
+      expect(dispatcher.hasHandlers('tool:before')).toBe(true);
     });
   });
 
