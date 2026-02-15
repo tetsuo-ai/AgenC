@@ -442,6 +442,12 @@ export {
   parseSkillContent,
   parseSkillFile,
   validateSkillMetadata,
+  // Skill discovery (Phase 3.2)
+  type DiscoveryPaths,
+  type DiscoveryTier,
+  type DiscoveredSkill,
+  type MissingRequirement,
+  SkillDiscovery,
 } from './skills/index.js';
 
 // LLM Adapters (Phase 4)

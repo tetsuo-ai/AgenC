@@ -90,4 +90,10 @@ export {
   parseSkillContent,
   parseSkillFile,
   validateSkillMetadata,
+  // Skill discovery (Phase 3.2)
+  type DiscoveryPaths,
+  type DiscoveryTier,
+  type DiscoveredSkill,
+  type MissingRequirement,
+  SkillDiscovery,
 } from './markdown/index.js';
