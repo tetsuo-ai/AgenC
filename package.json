@@ -3,10 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "build": "npm run build:sdk && npm run build:runtime && npm run build:mcp",
+    "build": "npm run build:sdk && npm run build:runtime && npm run build:mcp && npm run build:docs-mcp",
     "build:sdk": "npm run build --prefix sdk",
     "build:runtime": "npm run build --prefix runtime",
     "build:mcp": "npm run build --prefix mcp",
+    "build:docs-mcp": "npm run build --prefix docs-mcp",
     "test": "npm run build:sdk && npm run build:runtime && npm run test --prefix sdk && npm run test --prefix runtime",
     "typecheck": "npm run typecheck --prefix sdk && npm run typecheck --prefix runtime && npm run typecheck --prefix mcp",
     "test:anchor": "ts-mocha -p ./tsconfig.json -t 1000000 tests/**/*.ts",
@@ -17,13 +18,15 @@
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.32.1",
-    "@solana/web3.js": "^1.95.0"
+    "@solana/web3.js": "^1.95.0",
+    "openai": "^6.22.0"
   },
   "devDependencies": {
     "@agenc/mcp": "file:./mcp",
     "@agenc/runtime": "file:./runtime",
     "@agenc/sdk": "file:./sdk",
     "@solana/spl-token": "0.4.6",
+    "@types/bn.js": "^5.2.0",
     "@types/chai": "^4.3.0",
     "@types/chai-as-promised": "^7.1.8",
     "@types/mocha": "^10.0.0",
