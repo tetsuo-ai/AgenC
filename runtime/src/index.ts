@@ -810,6 +810,11 @@ export {
   type SerializedTask,
   type SerializedAgent,
   type SerializedProtocolConfig,
+  // System tools (HTTP)
+  createHttpTools,
+  isDomainAllowed,
+  type HttpToolConfig,
+  type HttpResponse,
 } from './tools/index.js';
 
 // ZK Proof Engine (Phase 7)

@@ -50,3 +50,11 @@ export {
   type SerializedAgent,
   type SerializedProtocolConfig,
 } from './agenc/index.js';
+
+// System tools (HTTP)
+export {
+  createHttpTools,
+  isDomainAllowed,
+  type HttpToolConfig,
+  type HttpResponse,
+} from './system/index.js';
