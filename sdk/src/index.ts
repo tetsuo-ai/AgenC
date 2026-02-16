@@ -275,5 +275,22 @@ export {
   RECOMMENDED_CU_CANCEL_PROPOSAL,
 } from './governance';
 
+export {
+  deriveSkillPda,
+  deriveSkillRatingPda,
+  deriveSkillPurchasePda,
+  RECOMMENDED_CU_REGISTER_SKILL,
+  RECOMMENDED_CU_UPDATE_SKILL,
+  RECOMMENDED_CU_RATE_SKILL,
+  RECOMMENDED_CU_PURCHASE_SKILL,
+  RECOMMENDED_CU_PURCHASE_SKILL_TOKEN,
+  type RegisterSkillParams,
+  type UpdateSkillParams,
+  type RateSkillParams,
+  type SkillState,
+  type SkillRatingState,
+  type PurchaseRecordState,
+} from './skills';
+
 // Version info
 export const VERSION = '1.3.0';

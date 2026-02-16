@@ -427,4 +427,55 @@ pub mod agenc_coordination {
     pub fn cancel_proposal(ctx: Context<CancelProposal>) -> Result<()> {
         instructions::cancel_proposal::handler(ctx)
     }
+
+    /// Register a new skill on-chain.
+    /// Author must be an active agent.
+    #[allow(clippy::too_many_arguments)]
+    pub fn register_skill(
+        ctx: Context<RegisterSkill>,
+        skill_id: [u8; 32],
+        name: [u8; 32],
+        content_hash: [u8; 32],
+        price: u64,
+        price_mint: Option<Pubkey>,
+        tags: [u8; 64],
+    ) -> Result<()> {
+        instructions::register_skill::handler(
+            ctx,
+            skill_id,
+            name,
+            content_hash,
+            price,
+            price_mint,
+            tags,
+        )
+    }
+
+    /// Update a skill's content, price, tags, or active status.
+    /// Only the skill author can update.
+    pub fn update_skill(
+        ctx: Context<UpdateSkill>,
+        content_hash: [u8; 32],
+        price: u64,
+        tags: Option<[u8; 64]>,
+        is_active: Option<bool>,
+    ) -> Result<()> {
+        instructions::update_skill::handler(ctx, content_hash, price, tags, is_active)
+    }
+
+    /// Rate a skill (1-5, reputation-weighted).
+    /// One rating per agent per skill, enforced by PDA uniqueness.
+    pub fn rate_skill(
+        ctx: Context<RateSkill>,
+        rating: u8,
+        review_hash: Option<[u8; 32]>,
+    ) -> Result<()> {
+        instructions::rate_skill::handler(ctx, rating, review_hash)
+    }
+
+    /// Purchase a skill (SOL or SPL token).
+    /// Protocol fee is deducted and sent to treasury.
+    pub fn purchase_skill(ctx: Context<PurchaseSkill>) -> Result<()> {
+        instructions::purchase_skill::handler(ctx)
+    }
 }
