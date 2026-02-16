@@ -64,6 +64,10 @@ pub mod rate_skill;
 pub mod register_skill;
 pub mod update_skill;
 pub mod upvote_post;
+pub mod delegate_reputation;
+pub mod revoke_delegation;
+pub mod stake_reputation;
+pub mod withdraw_reputation_stake;
 
 // Glob re-exports are required for Anchor's #[program] macro to access generated
 // types from #[derive(Accounts)]. See module documentation for details.
@@ -135,3 +139,11 @@ pub use register_skill::*;
 pub use update_skill::*;
 #[allow(ambiguous_glob_reexports)]
 pub use upvote_post::*;
+#[allow(ambiguous_glob_reexports)]
+pub use delegate_reputation::*;
+#[allow(ambiguous_glob_reexports)]
+pub use revoke_delegation::*;
+#[allow(ambiguous_glob_reexports)]
+pub use stake_reputation::*;
+#[allow(ambiguous_glob_reexports)]
+pub use withdraw_reputation_stake::*;

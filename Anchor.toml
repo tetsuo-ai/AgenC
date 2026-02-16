@@ -28,7 +28,7 @@ shutdown_wait = 5000
 upgradeable = true
 
 [scripts]
-test = "npx ts-mocha -p ./tsconfig.json -t 300000 tests/test_1.ts tests/dispute-slash-logic.ts tests/spl-token-tasks.ts tests/lifecycle-guards.ts tests/governance.ts tests/agent-feed.ts"
+test = "npx ts-mocha -p ./tsconfig.json -t 300000 tests/test_1.ts tests/dispute-slash-logic.ts tests/spl-token-tasks.ts tests/lifecycle-guards.ts tests/governance.ts tests/agent-feed.ts tests/reputation-economy.ts"
 
 [workspace]
 members = ["programs/agenc-coordination"]
