@@ -42,6 +42,17 @@ export { responseToOutput } from './response-converter.js';
 export { LLMTaskExecutor, type LLMTaskExecutorConfig } from './executor.js';
 export { FallbackLLMProvider, type FallbackChainConfig } from './fallback.js';
 
+// Chat Executor (Phase 1.11)
+export { ChatExecutor, ChatBudgetExceededError } from './chat-executor.js';
+export type {
+  ChatExecutorConfig,
+  ChatExecuteParams,
+  ChatExecutorResult,
+  ToolCallRecord,
+  SkillInjector,
+  MemoryRetriever,
+} from './chat-executor.js';
+
 // Provider adapters
 export { GrokProvider, type GrokProviderConfig } from './grok/index.js';
 export { AnthropicProvider, type AnthropicProviderConfig } from './anthropic/index.js';
