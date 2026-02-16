@@ -154,6 +154,10 @@ export const RuntimeErrorCodes = {
   SANDBOX_EXECUTION_ERROR: 'SANDBOX_EXECUTION_ERROR',
   /** Docker daemon is not available or not running */
   SANDBOX_UNAVAILABLE: 'SANDBOX_UNAVAILABLE',
+  /** Cross-protocol bridge operation failed */
+  BRIDGE_ERROR: 'BRIDGE_ERROR',
+  /** x402 payment transfer failed */
+  BRIDGE_PAYMENT_ERROR: 'BRIDGE_PAYMENT_ERROR',
 } as const;
 
 /** Union type of all runtime error code values */
