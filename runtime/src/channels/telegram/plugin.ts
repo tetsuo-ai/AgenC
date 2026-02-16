@@ -66,6 +66,7 @@ export class TelegramChannel extends BaseChannelPlugin {
 
   // -- Polling state --
   private pollingActive = false;
+  // Not reset in stop() — retaining the offset avoids re-processing old updates on restart
   private updateOffset = 0;
   private pollingTimer: ReturnType<typeof setTimeout> | undefined;
   private pollingPromise: Promise<void> | undefined;
@@ -177,23 +178,14 @@ export class TelegramChannel extends BaseChannelPlugin {
       );
     }
 
-    // Rate limiting — try once, then wait and retry once
-    if (!this.acquireToken(chatId)) {
-      await this.delay(MS_PER_SECOND / this.config.rateLimitPerChat);
-      if (!this.acquireToken(chatId)) {
-        throw new RuntimeError(
-          `Rate limit exceeded for chat ${chatId}`,
-          RuntimeErrorCodes.RATE_LIMIT_ERROR,
-        );
-      }
-    }
+    // Build the list of API calls to make, then acquire one rate-limit
+    // token per call to avoid 429s on multi-attachment messages.
+    const calls: Array<() => Promise<unknown>> = [];
 
-    // Send text (skip empty strings)
     if (message.content.length > 0) {
-      await this.api.sendMessage(chatId, message.content);
+      calls.push(() => this.api.sendMessage(chatId, message.content));
     }
 
-    // Send attachments
     if (message.attachments) {
       for (const att of message.attachments) {
         const source = att.url ?? att.data;
@@ -201,16 +193,30 @@ export class TelegramChannel extends BaseChannelPlugin {
 
         switch (att.type) {
           case 'image':
-            await this.api.sendPhoto(chatId, source);
+            calls.push(() => this.api.sendPhoto(chatId, source));
             break;
           case 'audio':
-            await this.api.sendVoice(chatId, source);
+            calls.push(() => this.api.sendVoice(chatId, source));
             break;
           default:
-            await this.api.sendDocument(chatId, source);
+            calls.push(() => this.api.sendDocument(chatId, source));
             break;
         }
       }
+    }
+
+    for (const call of calls) {
+      // Rate limiting — try once, then wait and retry once per API call
+      if (!this.acquireToken(chatId)) {
+        await this.delay(MS_PER_SECOND / this.config.rateLimitPerChat);
+        if (!this.acquireToken(chatId)) {
+          throw new RuntimeError(
+            `Rate limit exceeded for chat ${chatId}`,
+            RuntimeErrorCodes.RATE_LIMIT_ERROR,
+          );
+        }
+      }
+      await call();
     }
   }
 

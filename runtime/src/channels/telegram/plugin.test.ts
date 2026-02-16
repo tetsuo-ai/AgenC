@@ -576,6 +576,30 @@ describe('TelegramChannel', () => {
   });
 
   // --------------------------------------------------------------------------
+  // 22. send() propagates Telegram API errors
+  // --------------------------------------------------------------------------
+  it('send() propagates Telegram API errors', async () => {
+    const ctx = makeContext();
+    await plugin.initialize(ctx);
+
+    const update = makeUpdate();
+    mockApi.getUpdates.mockResolvedValueOnce([update]);
+    await plugin.start();
+    await vi.advanceTimersByTimeAsync(50);
+
+    const onMessage = ctx.onMessage as ReturnType<typeof vi.fn>;
+    const sessionId = onMessage.mock.calls[0][0].sessionId;
+
+    mockApi.sendMessage.mockRejectedValueOnce(new Error('Forbidden: bot was blocked by the user'));
+
+    await expect(plugin.send({ sessionId, content: 'hello' })).rejects.toThrow(
+      /bot was blocked/,
+    );
+
+    await plugin.stop();
+  });
+
+  // --------------------------------------------------------------------------
   // Webhook handler tests
   // --------------------------------------------------------------------------
   describe('registerWebhooks', () => {
@@ -588,6 +612,62 @@ describe('TelegramChannel', () => {
       expect(router.routes[0].path).toBe('/webhooks/telegram/update');
       expect(router.routes[1].method).toBe('GET');
       expect(router.routes[1].path).toBe('/webhooks/telegram/verify');
+    });
+
+    it('POST /update handler processes update and delivers to gateway', async () => {
+      const ctx = makeContext({
+        webhook: { url: 'https://example.com', secretToken: 'secret123' },
+      });
+      await plugin.initialize(ctx);
+      await plugin.start();
+
+      const router = new WebhookRouter('telegram');
+      plugin.registerWebhooks(router);
+
+      const postHandler = router.routes[0].handler;
+      const update = makeUpdate();
+
+      const response = await postHandler({
+        method: 'POST',
+        path: '/webhooks/telegram/update',
+        headers: { 'x-telegram-bot-api-secret-token': 'secret123' },
+        body: update,
+        query: {},
+      });
+
+      expect(response.status).toBe(200);
+      expect(ctx.onMessage).toHaveBeenCalledTimes(1);
+      const msg = (ctx.onMessage as ReturnType<typeof vi.fn>).mock.calls[0][0];
+      expect(msg.content).toBe('hello bot');
+      expect(msg.channel).toBe('telegram');
+
+      await plugin.stop();
+    });
+
+    it('POST /update handler rejects invalid secret token', async () => {
+      const ctx = makeContext({
+        webhook: { url: 'https://example.com', secretToken: 'secret123' },
+      });
+      await plugin.initialize(ctx);
+      await plugin.start();
+
+      const router = new WebhookRouter('telegram');
+      plugin.registerWebhooks(router);
+
+      const postHandler = router.routes[0].handler;
+
+      const response = await postHandler({
+        method: 'POST',
+        path: '/webhooks/telegram/update',
+        headers: { 'x-telegram-bot-api-secret-token': 'wrong-secret' },
+        body: makeUpdate(),
+        query: {},
+      });
+
+      expect(response.status).toBe(403);
+      expect(ctx.onMessage).not.toHaveBeenCalled();
+
+      await plugin.stop();
     });
   });
 });
