@@ -832,6 +832,11 @@ export {
   isDomainAllowed,
   type HttpToolConfig,
   type HttpResponse,
+  // System tools (Filesystem)
+  createFilesystemTools,
+  isPathAllowed,
+  safePath,
+  type FilesystemToolConfig,
 } from './tools/index.js';
 
 // ZK Proof Engine (Phase 7)
@@ -889,6 +894,14 @@ export {
   // Redis backend
   RedisBackend,
   type RedisBackendConfig,
+  // Embeddings
+  type EmbeddingProvider,
+  OpenAIEmbeddingProvider,
+  OllamaEmbeddingProvider,
+  NoopEmbeddingProvider,
+  createEmbeddingProvider,
+  cosineSimilarity,
+  normalizeVector,
   // Memory graph
   MemoryGraph,
   type ProvenanceSourceType,
@@ -1299,6 +1312,16 @@ export {
   type HookContext,
   type HookResult,
   type DispatchResult,
+  // Cron scheduling (Phase 2.3)
+  parseCron,
+  cronMatches,
+  nextCronMatch,
+  CronScheduler,
+  type CronSchedule,
+  type CronSchedulerConfig,
+  type ScheduledJob,
+  type HeartbeatActionDef,
+  type HeartbeatContext,
   // Channel plugin (Phase 1.5)
   PluginCatalog,
   WebhookRouter,
@@ -1329,6 +1352,17 @@ export {
   type IdentityResolverConfig,
   type IdentityStore,
 } from './gateway/index.js';
+
+// Channel Plugins (Phase 1.5)
+export {
+  TelegramChannel,
+  ChannelConnectionError,
+  type TelegramChannelConfig,
+  type TelegramWebhookConfig,
+  DiscordChannel,
+  type DiscordChannelConfig,
+  type DiscordIntentName,
+} from './channels/index.js';
 
 // Agent Builder (Phase 10)
 export { AgentBuilder, BuiltAgent } from './builder.js';

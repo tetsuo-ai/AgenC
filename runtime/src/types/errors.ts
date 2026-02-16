@@ -130,6 +130,12 @@ export const RuntimeErrorCodes = {
   IDENTITY_SIGNATURE_INVALID: 'IDENTITY_SIGNATURE_INVALID',
   /** Identity input validation failed */
   IDENTITY_VALIDATION_ERROR: 'IDENTITY_VALIDATION_ERROR',
+  /** Heartbeat scheduler invalid lifecycle state transition */
+  HEARTBEAT_STATE_ERROR: 'HEARTBEAT_STATE_ERROR',
+  /** Heartbeat action execution failed */
+  HEARTBEAT_ACTION_FAILED: 'HEARTBEAT_ACTION_FAILED',
+  /** Heartbeat action exceeded timeout */
+  HEARTBEAT_TIMEOUT: 'HEARTBEAT_TIMEOUT',
 } as const;
 
 /** Union type of all runtime error code values */

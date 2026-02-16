@@ -24,9 +24,25 @@ import {
   HealthOptions,
   DoctorOptions,
   SecurityOptions,
+  SkillCommandOptions,
+  SkillInfoOptions,
+  SkillCreateOptions,
+  SkillInstallOptions,
+  SkillUninstallOptions,
+  SkillToggleOptions,
 } from './types.js';
 import { validateConfigStrict } from '../types/config-migration.js';
 import { runSecurityCommand } from './security.js';
+import {
+  runSkillListCommand,
+  runSkillInfoCommand,
+  runSkillValidateCommand,
+  runSkillCreateCommand,
+  runSkillInstallCommand,
+  runSkillUninstallCommand,
+  runSkillEnableCommand,
+  runSkillDisableCommand,
+} from './skills-cli.js';
 import { runOnboardCommand } from './onboard.js';
 import { runDoctorCommand, runHealthCommand } from './health.js';
 import {
@@ -49,6 +65,13 @@ import {
   type PluginPrecedence,
   type PluginSlot,
 } from '../skills/catalog.js';
+import {
+  runJobsListCommand,
+  runJobsRunCommand,
+  runJobsEnableCommand,
+  runJobsDisableCommand,
+} from './jobs.js';
+import { CronScheduler } from '../gateway/scheduler.js';
 import {
   createOnChainReplayBackfillFetcher,
   createReplayStore,
@@ -192,6 +215,7 @@ const STOP_COMMAND_OPTIONS = new Set(['pid-path', 'timeout']);
 const RESTART_COMMAND_OPTIONS = new Set([...START_COMMAND_OPTIONS, ...STOP_COMMAND_OPTIONS]);
 const STATUS_COMMAND_OPTIONS = new Set(['pid-path', 'port']);
 const SERVICE_COMMAND_OPTIONS = new Set(['macos']);
+const JOBS_COMMAND_OPTIONS = new Set<string>([]);
 
 const COMMANDS: Record<ReplayCommand, CliCommandDescriptor> = {
   backfill: {
@@ -246,6 +270,86 @@ const PLUGIN_COMMANDS: Record<PluginCommand, PluginCommandDescriptor> = {
   },
 };
 
+type SkillCommand = 'list' | 'info' | 'validate' | 'create' | 'install' | 'uninstall' | 'enable' | 'disable';
+
+const SKILL_COMMAND_OPTIONS: Record<SkillCommand, Set<string>> = {
+  list: new Set(),
+  info: new Set(),
+  validate: new Set(),
+  create: new Set(),
+  install: new Set(),
+  uninstall: new Set(),
+  enable: new Set(),
+  disable: new Set(),
+};
+
+interface SkillCommandDescriptor {
+  name: string;
+  description: string;
+  commandOptions: Set<string>;
+  run: (
+    context: CliRuntimeContext,
+    options: SkillCommandOptions,
+  ) => Promise<CliStatusCode>;
+}
+
+const SKILL_COMMANDS: Record<SkillCommand, SkillCommandDescriptor> = {
+  list: {
+    name: 'list',
+    description: 'List all discovered skills',
+    commandOptions: SKILL_COMMAND_OPTIONS.list,
+    run: runSkillListCommand,
+  },
+  info: {
+    name: 'info',
+    description: 'Show detailed skill information',
+    commandOptions: SKILL_COMMAND_OPTIONS.info,
+    run: runSkillInfoCommand,
+  },
+  validate: {
+    name: 'validate',
+    description: 'Validate all discovered skills',
+    commandOptions: SKILL_COMMAND_OPTIONS.validate,
+    run: runSkillValidateCommand,
+  },
+  create: {
+    name: 'create',
+    description: 'Scaffold a new skill in ~/.agenc/skills/',
+    commandOptions: SKILL_COMMAND_OPTIONS.create,
+    run: runSkillCreateCommand,
+  },
+  install: {
+    name: 'install',
+    description: 'Install a skill from URL or local path',
+    commandOptions: SKILL_COMMAND_OPTIONS.install,
+    run: runSkillInstallCommand,
+  },
+  uninstall: {
+    name: 'uninstall',
+    description: 'Remove a user-level skill',
+    commandOptions: SKILL_COMMAND_OPTIONS.uninstall,
+    run: runSkillUninstallCommand,
+  },
+  enable: {
+    name: 'enable',
+    description: 'Enable a disabled skill',
+    commandOptions: SKILL_COMMAND_OPTIONS.enable,
+    run: runSkillEnableCommand,
+  },
+  disable: {
+    name: 'disable',
+    description: 'Disable a skill',
+    commandOptions: SKILL_COMMAND_OPTIONS.disable,
+    run: runSkillDisableCommand,
+  },
+};
+
+function validateSkillCommand(name: string): name is SkillCommand {
+  return name === 'list' || name === 'info' || name === 'validate'
+    || name === 'create' || name === 'install' || name === 'uninstall'
+    || name === 'enable' || name === 'disable';
+}
+
 const ERROR_CODES = {
   MISSING_ROOT_COMMAND: 'MISSING_ROOT_COMMAND',
   UNKNOWN_COMMAND: 'UNKNOWN_COMMAND',
@@ -258,6 +362,8 @@ const ERROR_CODES = {
   MISSING_REQUIRED_OPTION: 'MISSING_REQUIRED_OPTION',
   CONFIG_PARSE_ERROR: 'CONFIG_PARSE_ERROR',
   MISSING_TARGET: 'MISSING_TARGET',
+  MISSING_SKILL_COMMAND: 'MISSING_SKILL_COMMAND',
+  UNKNOWN_SKILL_COMMAND: 'UNKNOWN_SKILL_COMMAND',
   INTERNAL_ERROR: 'INTERNAL_ERROR',
 } as const;
 
@@ -283,6 +389,8 @@ function buildHelp(): string {
     'service install [--help] [options]',
     'replay [--help] <command> [options]',
     'plugin [--help] <command> [options]',
+    'jobs [--help] <command> [options]',
+    'skill [--help] <command> [options]',
     '',
     'Bootstrap commands:',
     '  onboard   Generate a runtime config file and run sanity checks',
@@ -301,6 +409,22 @@ function buildHelp(): string {
     '  backfill   Backfill replay timeline from on-chain history',
     '  compare    Compare replay projection against local trace',
     '  incident   Reconstruct incident timeline and summarize',
+    '',
+    'Jobs subcommands:',
+    '  list                               List scheduled jobs',
+    '  run <jobName>                      Trigger a scheduled job immediately',
+    '  enable <jobName>                   Enable a scheduled job',
+    '  disable <jobName>                  Disable a scheduled job',
+    '',
+    'Skill subcommands:',
+    '  list                               List all discovered skills',
+    '  info <name>                        Show detailed skill information',
+    '  validate                           Validate all discovered skills',
+    '  create <name>                      Scaffold a new skill in ~/.agenc/skills/',
+    '  install <url-or-path>              Install a skill from URL or local path',
+    '  uninstall <name>                   Remove a user-level skill',
+    '  enable <name>                      Enable a disabled skill',
+    '  disable <name>                     Disable a skill',
     '',
     'Plugin subcommands:',
     '  list                               List registered plugins',
@@ -394,6 +518,14 @@ function buildHelp(): string {
     '  agenc-runtime plugin install --manifest ./plugin.json --precedence workspace --slot llm',
     '  agenc-runtime plugin disable memory.plugin',
     '  agenc-runtime plugin list',
+    '  agenc-runtime skill list',
+    '  agenc-runtime skill info my-skill',
+    '  agenc-runtime skill validate',
+    '  agenc-runtime skill create my-new-skill',
+    '  agenc-runtime skill install ./path/to/skill.md',
+    '  agenc-runtime skill uninstall my-skill',
+    '  agenc-runtime skill enable my-skill',
+    '  agenc-runtime skill disable my-skill',
   ].join('\n');
 }
 
@@ -1217,6 +1349,109 @@ function normalizeAndValidatePluginCommand(
   };
 }
 
+interface SkillParseReport {
+  command: 'skill';
+  skillCommand: SkillCommand;
+  global: {
+    help: boolean;
+    strictMode: boolean;
+    outputFormat: CliOutputFormat;
+    role?: OperatorRole;
+    rpcUrl?: string;
+    programId?: string;
+    storeType: 'memory' | 'sqlite';
+    sqlitePath?: string;
+    traceId?: string;
+    idempotencyWindow: number;
+  };
+  options: SkillCommandOptions;
+  outputFormat: CliOutputFormat;
+}
+
+function normalizeAndValidateSkillCommand(
+  parsed: ParsedArgv,
+): SkillParseReport {
+  const configPath = resolveConfigPath(parsed.flags);
+  let fileConfig: CliFileConfig;
+  try {
+    fileConfig = loadFileConfig(configPath);
+  } catch (error) {
+    throw createCliError(`failed to parse config file ${configPath}: ${error instanceof Error ? error.message : String(error)}`, ERROR_CODES.CONFIG_PARSE_ERROR);
+  }
+
+  const envConfig = readEnvironmentConfig();
+
+  const skillCommand = parsed.positional[1] as string | undefined;
+  if (!skillCommand) {
+    throw createCliError('missing skill subcommand', ERROR_CODES.MISSING_SKILL_COMMAND);
+  }
+  if (!validateSkillCommand(skillCommand)) {
+    throw createCliError(`unknown skill command: ${skillCommand}`, ERROR_CODES.UNKNOWN_SKILL_COMMAND);
+  }
+
+  validateUnknownStandaloneOptions(parsed.flags, SKILL_COMMAND_OPTIONS[skillCommand]);
+
+  const global = normalizeGlobalFlags(parsed.flags, fileConfig, envConfig);
+
+  const base: BaseCliOptions = {
+    help: global.help,
+    outputFormat: global.outputFormat,
+    strictMode: global.strictMode,
+    role: global.role,
+    rpcUrl: global.rpcUrl,
+    programId: global.programId,
+    storeType: global.storeType,
+    sqlitePath: global.sqlitePath,
+    traceId: global.traceId,
+    idempotencyWindow: global.idempotencyWindow,
+  };
+
+  let options: SkillCommandOptions;
+
+  if (skillCommand === 'info' || skillCommand === 'enable' || skillCommand === 'disable' || skillCommand === 'uninstall' || skillCommand === 'create') {
+    const target = parsed.positional[2];
+    if (!target) {
+      throw createCliError(`skill ${skillCommand} requires a name argument`, ERROR_CODES.MISSING_TARGET);
+    }
+    if (skillCommand === 'info') {
+      options = { ...base, skillName: target } as SkillInfoOptions;
+    } else if (skillCommand === 'create') {
+      options = { ...base, skillName: target } as SkillCreateOptions;
+    } else if (skillCommand === 'uninstall') {
+      options = { ...base, skillName: target } as SkillUninstallOptions;
+    } else {
+      options = { ...base, skillName: target } as SkillToggleOptions;
+    }
+  } else if (skillCommand === 'install') {
+    const source = parsed.positional[2];
+    if (!source) {
+      throw createCliError('skill install requires a source argument', ERROR_CODES.MISSING_TARGET);
+    }
+    options = { ...base, source } as SkillInstallOptions;
+  } else {
+    options = { ...base };
+  }
+
+  return {
+    command: 'skill',
+    skillCommand,
+    global: {
+      help: base.help,
+      strictMode: base.strictMode,
+      outputFormat: base.outputFormat,
+      role: base.role,
+      rpcUrl: base.rpcUrl,
+      programId: base.programId,
+      storeType: base.storeType,
+      sqlitePath: base.sqlitePath,
+      traceId: base.traceId,
+      idempotencyWindow: base.idempotencyWindow,
+    },
+    options,
+    outputFormat: base.outputFormat,
+  };
+}
+
 export async function runCli(options: CliRunOptions = {}): Promise<CliStatusCode> {
   const argv = options.argv ?? process.argv.slice(2);
   const stdout = options.stdout ?? process.stdout;
@@ -1474,6 +1709,89 @@ export async function runCli(options: CliRunOptions = {}): Promise<CliStatusCode
       const payload = buildErrorPayload(error);
       context.error(payload);
       return payload.code === ERROR_CODES.INVALID_OPTION ? 2 : 1;
+    }
+  }
+
+  if (parsed.positional[0] === 'jobs') {
+    try {
+      validateUnknownStandaloneOptions(parsed.flags, JOBS_COMMAND_OPTIONS);
+      const subcommand = parsed.positional[1] as string | undefined;
+
+      if (!subcommand) {
+        throw createCliError('missing jobs subcommand (list | run | enable | disable)', ERROR_CODES.MISSING_PLUGIN_COMMAND);
+      }
+
+      const scheduler = new CronScheduler();
+
+      if (subcommand === 'list') {
+        return await runJobsListCommand(context, scheduler);
+      }
+
+      const jobName = parsed.positional[2] as string | undefined;
+
+      if (subcommand === 'run') {
+        if (!jobName) {
+          throw createCliError('jobs run requires a job name', ERROR_CODES.MISSING_TARGET);
+        }
+        return await runJobsRunCommand(context, scheduler, jobName);
+      }
+
+      if (subcommand === 'enable') {
+        if (!jobName) {
+          throw createCliError('jobs enable requires a job name', ERROR_CODES.MISSING_TARGET);
+        }
+        return await runJobsEnableCommand(context, scheduler, jobName);
+      }
+
+      if (subcommand === 'disable') {
+        if (!jobName) {
+          throw createCliError('jobs disable requires a job name', ERROR_CODES.MISSING_TARGET);
+        }
+        return await runJobsDisableCommand(context, scheduler, jobName);
+      }
+
+      throw createCliError(`unknown jobs subcommand: ${subcommand}`, ERROR_CODES.UNKNOWN_PLUGIN_COMMAND);
+    } catch (error) {
+      const payload = buildErrorPayload(error);
+      context.error(payload);
+      return payload.code === ERROR_CODES.INVALID_OPTION
+        || payload.code === ERROR_CODES.MISSING_PLUGIN_COMMAND
+        || payload.code === ERROR_CODES.UNKNOWN_PLUGIN_COMMAND
+        || payload.code === ERROR_CODES.MISSING_TARGET
+        ? 2
+        : 1;
+    }
+  }
+
+  if (parsed.positional[0] === 'skill') {
+    let skillReport: SkillParseReport;
+    try {
+      skillReport = normalizeAndValidateSkillCommand(parsed);
+    } catch (error) {
+      const payload = buildErrorPayload(error);
+      context.error(payload);
+      return 2;
+    }
+
+    const skillContext = createContext(
+      stdout,
+      stderr,
+      skillReport.outputFormat,
+      normalizeLogLevel(parsed.flags['log-level']),
+    );
+
+    if (skillReport.global.help) {
+      skillContext.output(buildHelp());
+      return 0;
+    }
+
+    const skillDescriptor = SKILL_COMMANDS[skillReport.skillCommand];
+    try {
+      return await skillDescriptor.run(skillContext, skillReport.options);
+    } catch (error) {
+      const payload = buildErrorPayload(error);
+      skillContext.error(payload);
+      return 1;
     }
   }
 
