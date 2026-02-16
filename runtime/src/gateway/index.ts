@@ -29,6 +29,7 @@ export {
   SubAgentSpawnError,
   SubAgentTimeoutError,
   SubAgentNotFoundError,
+  GatewayAuthError,
 } from './errors.js';
 
 export {
@@ -43,6 +44,20 @@ export {
 } from './config-watcher.js';
 
 export { Gateway, type GatewayOptions } from './gateway.js';
+
+// Remote access (Phase 11 — Issue #1102)
+export { createToken, verifyToken } from './jwt.js';
+export { RemoteGatewayClient } from './remote.js';
+export type {
+  GatewayAuthConfig,
+  JWTPayload,
+  RemoteGatewayConfig,
+  RemoteGatewayState,
+  RemoteGatewayEvents,
+  RemoteChatMessage,
+  OfflineQueueEntry,
+  PushNotification,
+} from './remote-types.js';
 
 export type {
   GatewayMessage,

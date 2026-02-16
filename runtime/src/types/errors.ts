@@ -198,6 +198,8 @@ export const RuntimeErrorCodes = {
   SKILL_SUBSCRIPTION_ERROR: 'SKILL_SUBSCRIPTION_ERROR',
   /** Skill revenue share computation failed */
   SKILL_REVENUE_ERROR: 'SKILL_REVENUE_ERROR',
+  /** Remote Gateway authentication failed */
+  REMOTE_AUTH_ERROR: 'REMOTE_AUTH_ERROR',
 } as const;
 
 /** Union type of all runtime error code values */

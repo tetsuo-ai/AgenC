@@ -28,6 +28,7 @@ import {
   GatewayValidationError,
   GatewayConnectionError,
 } from './errors.js';
+import { verifyToken } from './jwt.js';
 import {
   ConfigWatcher,
   diffGatewayConfig,
@@ -79,6 +80,7 @@ export class Gateway {
   private readonly listeners = new Map<GatewayEvent, Set<GatewayEventHandler>>();
   private clientCounter = 0;
   private readonly wsClients = new Map<string, WsWebSocket>();
+  private readonly authenticatedClients = new Set<string>();
   private webChatHandler: WebChatHandler | null = null;
 
   constructor(config: GatewayConfig, options?: GatewayOptions) {
@@ -303,9 +305,23 @@ export class Gateway {
 
     this.wss.on('connection', (...args: unknown[]) => {
       const socket = args[0] as WsWebSocket;
+      const request = args[1] as { socket?: { remoteAddress?: string } } | undefined;
       const clientId = `client_${++this.clientCounter}`;
       this.wsClients.set(clientId, socket);
       this.logger.debug(`Control plane client connected: ${clientId}`);
+
+      // Auto-authenticate local connections
+      const remoteAddress = request?.socket?.remoteAddress;
+      const authSecret = this._config.auth?.secret;
+      const localBypass = this._config.auth?.localBypass !== false;
+      const isLocal = !remoteAddress
+        || remoteAddress === '127.0.0.1'
+        || remoteAddress === '::1'
+        || remoteAddress === '::ffff:127.0.0.1';
+
+      if (!authSecret || (isLocal && localBypass)) {
+        this.authenticatedClients.add(clientId);
+      }
 
       socket.on('message', (data: unknown) => {
         this.handleControlMessage(clientId, socket, data);
@@ -313,12 +329,14 @@ export class Gateway {
 
       socket.on('close', () => {
         this.wsClients.delete(clientId);
+        this.authenticatedClients.delete(clientId);
         this.logger.debug(`Control plane client disconnected: ${clientId}`);
       });
 
       socket.on('error', (err: unknown) => {
         this.logger.error(`WebSocket error for ${clientId}:`, err);
         this.wsClients.delete(clientId);
+        this.authenticatedClients.delete(clientId);
       });
     });
 
@@ -341,6 +359,7 @@ export class Gateway {
         }
         this.wsClients.delete(id);
       }
+      this.authenticatedClients.clear();
 
       if (!this.wss) {
         resolve();
@@ -379,10 +398,51 @@ export class Gateway {
     // Sanitize id: only echo back if it's a string
     const id = typeof msg.id === 'string' ? msg.id : undefined;
 
+    // Auth guard: if auth is configured and client is not authenticated,
+    // only allow 'auth' and 'ping' messages
+    if (
+      this._config.auth?.secret &&
+      !this.authenticatedClients.has(clientId) &&
+      msg.type !== 'auth' &&
+      msg.type !== 'ping'
+    ) {
+      this.sendResponse(socket, { type: 'error', error: 'Authentication required', id });
+      return;
+    }
+
     switch (msg.type) {
       case 'ping':
         this.sendResponse(socket, { type: 'pong', id });
         break;
+
+      case 'auth': {
+        const authSecret = this._config.auth?.secret;
+        if (!authSecret) {
+          // No auth configured — auto-accept
+          this.authenticatedClients.add(clientId);
+          this.sendResponse(socket, { type: 'auth', payload: { authenticated: true }, id });
+          break;
+        }
+        const token = isRecord(msg.payload) ? String(msg.payload.token ?? '') : '';
+        if (!token) {
+          this.sendResponse(socket, { type: 'auth', error: 'Missing token', id });
+          socket.close();
+          break;
+        }
+        const payload = verifyToken(authSecret, token);
+        if (!payload) {
+          this.sendResponse(socket, { type: 'auth', error: 'Invalid or expired token', id });
+          socket.close();
+          break;
+        }
+        this.authenticatedClients.add(clientId);
+        this.sendResponse(socket, {
+          type: 'auth',
+          payload: { authenticated: true, sub: payload.sub },
+          id,
+        });
+        break;
+      }
 
       case 'status':
         this.sendResponse(socket, {

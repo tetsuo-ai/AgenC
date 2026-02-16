@@ -7,6 +7,8 @@
  * @module
  */
 
+import type { GatewayAuthConfig } from './remote-types.js';
+
 // ============================================================================
 // Gateway Configuration
 // ============================================================================
@@ -61,6 +63,7 @@ export interface GatewayConfig {
   memory?: GatewayMemoryConfig;
   channels?: Record<string, GatewayChannelConfig>;
   logging?: GatewayLoggingConfig;
+  auth?: GatewayAuthConfig;
 }
 
 // ============================================================================
@@ -104,7 +107,7 @@ export interface GatewayEventSubscription {
 // Control Plane Messages
 // ============================================================================
 
-export type ControlMessageType = 'ping' | 'status' | 'reload' | 'channels' | 'sessions' | 'sessions.kill';
+export type ControlMessageType = 'ping' | 'status' | 'reload' | 'channels' | 'sessions' | 'sessions.kill' | 'auth';
 
 export interface ControlMessage {
   type: ControlMessageType;

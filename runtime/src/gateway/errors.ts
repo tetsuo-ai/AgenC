@@ -94,3 +94,10 @@ export class SubAgentNotFoundError extends RuntimeError {
     this.sessionId = sessionId;
   }
 }
+
+export class GatewayAuthError extends RuntimeError {
+  constructor(message: string) {
+    super(message, RuntimeErrorCodes.REMOTE_AUTH_ERROR);
+    this.name = 'GatewayAuthError';
+  }
+}
