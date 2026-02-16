@@ -211,6 +211,63 @@ describe('MarkdownSkillInjector', () => {
       expect(result2).toContain('<skill name="inference-skill">');
     });
 
+    it('requires ALL capability bits, not just any overlap', async () => {
+      const skill = makeSkill({
+        name: 'multi-cap',
+        description: 'Needs compute and inference',
+        metadata: {
+          requires: { binaries: [], env: [], channels: [], os: [] },
+          install: [],
+          tags: ['multi'],
+          requiredCapabilities: '0x03', // COMPUTE | INFERENCE = 3
+        },
+      });
+
+      // Agent has only INFERENCE (2n) — missing COMPUTE → excluded
+      const injector1 = makeInjector([makeDiscovered(skill)], {
+        agentCapabilities: 2n,
+        logger: silentLogger,
+      });
+      const result1 = await injector1.inject('/skill multi-cap', 'session-1');
+      expect(result1).toBeUndefined();
+
+      // Agent has both COMPUTE | INFERENCE (3n) → included
+      const injector2 = makeInjector([makeDiscovered(skill)], {
+        agentCapabilities: 3n,
+        logger: silentLogger,
+      });
+      const result2 = await injector2.inject('/skill multi-cap', 'session-1');
+      expect(result2).toContain('<skill name="multi-cap">');
+
+      // Agent has COMPUTE | INFERENCE | STORAGE (7n) — superset → included
+      const injector3 = makeInjector([makeDiscovered(skill)], {
+        agentCapabilities: 7n,
+        logger: silentLogger,
+      });
+      const result3 = await injector3.inject('/skill multi-cap', 'session-1');
+      expect(result3).toContain('<skill name="multi-cap">');
+    });
+
+    it('handles hex requiredCapabilities strings', async () => {
+      const skill = makeSkill({
+        name: 'hex-skill',
+        description: 'Hex caps skill',
+        metadata: {
+          requires: { binaries: [], env: [], channels: [], os: [] },
+          install: [],
+          tags: ['hex'],
+          requiredCapabilities: '0xFF', // all 8 lower bits
+        },
+      });
+
+      const injector = makeInjector([makeDiscovered(skill)], {
+        agentCapabilities: 0xFFn,
+        logger: silentLogger,
+      });
+      const result = await injector.inject('/skill hex-skill', 'session-1');
+      expect(result).toContain('<skill name="hex-skill">');
+    });
+
     it('skills with no requiredCapabilities always pass filter', async () => {
       const skill = makeSkill({
         name: 'basic',

@@ -14,7 +14,6 @@ import type { SkillInjector } from '../../llm/chat-executor.js';
 import type { MarkdownSkill } from './types.js';
 import type { DiscoveredSkill } from './discovery.js';
 import { SkillDiscovery } from './discovery.js';
-import { hasCapability } from '../../agent/capabilities.js';
 
 // ============================================================================
 // Types
@@ -127,7 +126,7 @@ function formatSkillBlock(skill: MarkdownSkill): string {
   return `<skill name="${skill.name}">\n${skill.body.trim()}\n</skill>`;
 }
 
-/** Check if a skill's required capabilities are met by the agent. */
+/** Check if a skill's required capabilities are ALL met by the agent. */
 function meetsCapabilities(skill: MarkdownSkill, agentCaps: bigint): boolean {
   const required = skill.metadata.requiredCapabilities;
   if (!required) return true;
@@ -135,7 +134,7 @@ function meetsCapabilities(skill: MarkdownSkill, agentCaps: bigint): boolean {
   try {
     const requiredBigint = BigInt(required);
     if (requiredBigint === 0n) return true;
-    return hasCapability(agentCaps, requiredBigint);
+    return (agentCaps & requiredBigint) === requiredBigint;
   } catch {
     // Invalid bigint string — skip the skill
     return false;
