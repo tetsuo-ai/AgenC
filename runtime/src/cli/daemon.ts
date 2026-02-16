@@ -145,10 +145,28 @@ async function runDaemonized(
     return 1;
   }
 
+  // Track early child exit so we can report crashes instead of waiting for timeout
+  let childExited = false;
+  let childExitCode: number | null = null;
+  child.on('exit', (code) => {
+    childExited = true;
+    childExitCode = code;
+  });
+
   // Poll for PID file to confirm startup
   const deadline = Date.now() + STARTUP_POLL_TIMEOUT_MS;
   while (Date.now() < deadline) {
     await sleep(STARTUP_POLL_INTERVAL_MS);
+
+    if (childExited) {
+      context.error({
+        status: 'error',
+        command: 'start',
+        message: `Daemon exited during startup (code ${childExitCode})`,
+      });
+      return 1;
+    }
+
     if (await pidFileExists(options.pidPath)) {
       const info = await readPidFile(options.pidPath);
       if (info !== null) {
@@ -347,6 +365,11 @@ async function queryControlPlane(port: number): Promise<unknown> {
       }
     });
 
+    ws.on('close', () => {
+      clearTimeout(timeout);
+      resolvePromise(null);
+    });
+
     ws.on('error', () => {
       clearTimeout(timeout);
       rejectPromise(new Error('Control plane connection failed'));
@@ -367,7 +390,9 @@ export async function runServiceInstallCommand(
   const execStart = `node ${daemonEntry} --config ${configPath} --foreground`;
 
   if (options.macos) {
-    const plist = generateLaunchdPlist({ execStart });
+    const plist = generateLaunchdPlist({
+      programArguments: ['node', daemonEntry, '--config', configPath, '--foreground'],
+    });
     context.output({
       status: 'ok',
       command: 'service.install',

@@ -388,7 +388,7 @@ describe('Service templates', () => {
 
   it('launchd template contains required fields', () => {
     const plist = generateLaunchdPlist({
-      execStart: 'node /usr/lib/agenc/daemon.js --config /etc/agenc.json --foreground',
+      programArguments: ['node', '/usr/lib/agenc/daemon.js', '--config', '/etc/agenc.json', '--foreground'],
     });
 
     expect(plist).toContain('<?xml version');
@@ -403,9 +403,17 @@ describe('Service templates', () => {
 
   it('launchd template uses custom label', () => {
     const plist = generateLaunchdPlist({
-      execStart: 'node daemon.js',
+      programArguments: ['node', 'daemon.js'],
       label: 'com.custom.daemon',
     });
     expect(plist).toContain('com.custom.daemon');
+  });
+
+  it('launchd template handles paths with spaces', () => {
+    const plist = generateLaunchdPlist({
+      programArguments: ['node', '/path with spaces/daemon.js', '--config', '/my config/file.json'],
+    });
+    expect(plist).toContain('<string>/path with spaces/daemon.js</string>');
+    expect(plist).toContain('<string>/my config/file.json</string>');
   });
 });

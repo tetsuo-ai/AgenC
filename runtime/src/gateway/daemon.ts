@@ -330,14 +330,13 @@ function escapeXml(str: string): string {
 }
 
 export function generateLaunchdPlist(options: {
-  execStart: string;
+  programArguments: string[];
   label?: string;
   logDir?: string;
 }): string {
   const label = escapeXml(options.label ?? 'ai.agenc.gateway');
   const logDir = options.logDir ?? join(homedir(), '.agenc', 'logs');
-  const args = options.execStart.split(' ');
-  const programArgs = args
+  const programArgs = options.programArguments
     .map((arg) => `    <string>${escapeXml(arg)}</string>`)
     .join('\n');
 

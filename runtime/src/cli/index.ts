@@ -186,8 +186,9 @@ const ONBOARD_COMMAND_OPTIONS = new Set(['non-interactive', 'force']);
 const HEALTH_COMMAND_OPTIONS = new Set(['non-interactive', 'deep']);
 const DOCTOR_COMMAND_OPTIONS = new Set(['non-interactive', 'deep', 'fix']);
 
-const START_COMMAND_OPTIONS = new Set(['foreground', 'pid-path']);
+const START_COMMAND_OPTIONS = new Set(['foreground', 'pid-path', 'log-level']);
 const STOP_COMMAND_OPTIONS = new Set(['pid-path', 'timeout']);
+const RESTART_COMMAND_OPTIONS = new Set([...START_COMMAND_OPTIONS, ...STOP_COMMAND_OPTIONS]);
 const STATUS_COMMAND_OPTIONS = new Set(['pid-path', 'port']);
 const SERVICE_COMMAND_OPTIONS = new Set(['macos']);
 
@@ -1418,7 +1419,7 @@ export async function runCli(options: CliRunOptions = {}): Promise<CliStatusCode
 
   if (parsed.positional[0] === 'restart') {
     try {
-      validateUnknownStandaloneOptions(parsed.flags, START_COMMAND_OPTIONS);
+      validateUnknownStandaloneOptions(parsed.flags, RESTART_COMMAND_OPTIONS);
       const configPath = parseOptionalString(parsed.flags.config)
         ?? process.env.AGENC_CONFIG
         ?? getDefaultConfigPath();
