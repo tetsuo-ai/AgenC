@@ -1425,6 +1425,14 @@ export {
   DiscordChannel,
   type DiscordChannelConfig,
   type DiscordIntentName,
+  SlackChannel,
+  type SlackChannelConfig,
+  WhatsAppChannel,
+  type WhatsAppChannelConfig,
+  SignalChannel,
+  type SignalChannelConfig,
+  MatrixChannel,
+  type MatrixChannelConfig,
 } from './channels/index.js';
 
 // Governance Operations (Phase 10)
