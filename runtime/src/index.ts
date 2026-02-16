@@ -448,6 +448,11 @@ export {
   type DiscoveredSkill,
   type MissingRequirement,
   SkillDiscovery,
+  // OpenClaw compatibility bridge
+  detectNamespace,
+  convertOpenClawSkill,
+  mapOpenClawMetadata,
+  importSkill,
   // Remote skill registry client (Phase 6.1)
   type SkillListing,
   type SkillListingEntry,
