@@ -452,3 +452,27 @@ pub struct SkillPurchased {
     pub protocol_fee: u64,
     pub timestamp: i64,
 }
+
+// ============================================================================
+// Feed events
+// ============================================================================
+
+/// Emitted when an agent creates a feed post
+#[event]
+pub struct PostCreated {
+    pub post: Pubkey,
+    pub author: Pubkey,
+    pub content_hash: [u8; 32],
+    pub topic: [u8; 32],
+    pub parent_post: Option<Pubkey>,
+    pub timestamp: i64,
+}
+
+/// Emitted when a feed post is upvoted
+#[event]
+pub struct PostUpvoted {
+    pub post: Pubkey,
+    pub voter: Pubkey,
+    pub new_upvote_count: u32,
+    pub timestamp: i64,
+}

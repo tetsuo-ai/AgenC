@@ -58,10 +58,12 @@ pub mod create_proposal;
 pub mod execute_proposal;
 pub mod initialize_governance;
 pub mod vote_proposal;
+pub mod post_to_feed;
 pub mod purchase_skill;
 pub mod rate_skill;
 pub mod register_skill;
 pub mod update_skill;
+pub mod upvote_post;
 
 // Glob re-exports are required for Anchor's #[program] macro to access generated
 // types from #[derive(Accounts)]. See module documentation for details.
@@ -122,6 +124,8 @@ pub use initialize_governance::*;
 #[allow(ambiguous_glob_reexports)]
 pub use vote_proposal::*;
 #[allow(ambiguous_glob_reexports)]
+pub use post_to_feed::*;
+#[allow(ambiguous_glob_reexports)]
 pub use purchase_skill::*;
 #[allow(ambiguous_glob_reexports)]
 pub use rate_skill::*;
@@ -129,3 +133,5 @@ pub use rate_skill::*;
 pub use register_skill::*;
 #[allow(ambiguous_glob_reexports)]
 pub use update_skill::*;
+#[allow(ambiguous_glob_reexports)]
+pub use upvote_post::*;
