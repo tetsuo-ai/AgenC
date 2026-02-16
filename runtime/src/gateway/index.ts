@@ -126,3 +126,16 @@ export {
   DEFAULT_TEMP_FILE_TTL_MS,
   DEFAULT_PROCESSING_TIMEOUT_MS,
 } from './media.js';
+
+// Lifecycle hooks (Phase 1.7)
+export {
+  HookDispatcher,
+  createBuiltinHooks,
+  type HookDispatcherConfig,
+  type HookConfig,
+  type HookEvent,
+  type HookHandler,
+  type HookContext,
+  type HookResult,
+  type DispatchResult,
+} from './hooks.js';
