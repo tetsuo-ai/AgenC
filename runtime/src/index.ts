@@ -1213,6 +1213,22 @@ export {
   type TaskBidBookState,
   type WeightedScoringBreakdown,
   type TaskBidSelection,
+  ServiceMarketplace,
+  type ServiceRequestStatus,
+  type ServiceRequest,
+  type ServiceBid,
+  type ServiceRequestRecord,
+  type ServiceRequestSnapshot,
+  type CreateServiceRequestInput,
+  type BidOnServiceInput,
+  type AcceptServiceBidInput,
+  type StartServiceInput,
+  type CompleteServiceInput,
+  type CancelServiceInput,
+  type DisputeServiceInput,
+  type ResolveServiceDisputeInput,
+  type ListServiceRequestsInput,
+  type ServiceMarketplaceConfig,
 } from './marketplace/index.js';
 
 // Connection Manager
