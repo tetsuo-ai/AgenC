@@ -1222,6 +1222,14 @@ export {
   type CompactionResult,
   type SessionInfo,
   type Summarizer,
+  // Slash commands (Phase 1.5)
+  SlashCommandRegistry,
+  createDefaultCommands,
+  type SlashCommandDef,
+  type SlashCommandContext,
+  type SlashCommandHandler,
+  type ParsedCommand,
+  type SlashCommandRegistryConfig,
 } from './gateway/index.js';
 
 // Agent Builder (Phase 10)
