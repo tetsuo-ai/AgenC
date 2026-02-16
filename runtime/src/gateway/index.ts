@@ -111,3 +111,18 @@ export {
   type ParsedCommand,
   type SlashCommandRegistryConfig,
 } from './commands.js';
+
+// Media pipeline (Phase 1.12)
+export type { MediaPipelineConfig, MediaProcessingResult, TranscriptionProvider, ImageDescriptionProvider, MediaLogger } from './media.js';
+export {
+  MediaPipeline,
+  NoopTranscriptionProvider,
+  NoopImageDescriptionProvider,
+  defaultMediaPipelineConfig,
+  isAudioMime,
+  isImageMime,
+  DEFAULT_MAX_ATTACHMENT_BYTES,
+  DEFAULT_TEMP_DIR,
+  DEFAULT_TEMP_FILE_TTL_MS,
+  DEFAULT_PROCESSING_TIMEOUT_MS,
+} from './media.js';
