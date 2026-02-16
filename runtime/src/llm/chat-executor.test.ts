@@ -1,0 +1,675 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { ChatExecutor, ChatBudgetExceededError } from './chat-executor.js';
+import type { ChatExecuteParams, ChatExecutorConfig } from './chat-executor.js';
+import type { LLMProvider, LLMResponse, LLMMessage, StreamProgressCallback } from './types.js';
+import type { GatewayMessage } from '../gateway/message.js';
+import {
+  LLMTimeoutError,
+  LLMServerError,
+  LLMRateLimitError,
+  LLMAuthenticationError,
+  LLMProviderError,
+} from './errors.js';
+
+// ============================================================================
+// Test helpers
+// ============================================================================
+
+function mockResponse(overrides: Partial<LLMResponse> = {}): LLMResponse {
+  return {
+    content: 'mock response',
+    toolCalls: [],
+    usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
+    model: 'mock-model',
+    finishReason: 'stop',
+    ...overrides,
+  };
+}
+
+function createMockProvider(name = 'primary', overrides: Partial<LLMProvider> = {}): LLMProvider {
+  return {
+    name,
+    chat: vi.fn<[LLMMessage[]], Promise<LLMResponse>>().mockResolvedValue(mockResponse()),
+    chatStream: vi.fn<[LLMMessage[], StreamProgressCallback], Promise<LLMResponse>>().mockResolvedValue(mockResponse()),
+    healthCheck: vi.fn<[], Promise<boolean>>().mockResolvedValue(true),
+    ...overrides,
+  };
+}
+
+function createMessage(content = 'hello'): GatewayMessage {
+  return {
+    id: 'msg-1',
+    channel: 'test',
+    senderId: 'user-1',
+    senderName: 'Test User',
+    sessionId: 'session-1',
+    content,
+    timestamp: Date.now(),
+    scope: 'dm',
+  };
+}
+
+function createParams(overrides: Partial<ChatExecuteParams> = {}): ChatExecuteParams {
+  return {
+    message: createMessage(),
+    history: [],
+    systemPrompt: 'You are a helpful assistant.',
+    sessionId: 'session-1',
+    ...overrides,
+  };
+}
+
+// ============================================================================
+// Tests
+// ============================================================================
+
+describe('ChatExecutor', () => {
+  // --------------------------------------------------------------------------
+  // Basic operation
+  // --------------------------------------------------------------------------
+
+  describe('basic operation', () => {
+    it('primary provider returns response with correct result shape', async () => {
+      const provider = createMockProvider();
+      const executor = new ChatExecutor({ providers: [provider] });
+
+      const result = await executor.execute(createParams());
+
+      expect(result.content).toBe('mock response');
+      expect(result.provider).toBe('primary');
+      expect(result.usedFallback).toBe(false);
+      expect(result.toolCalls).toEqual([]);
+      expect(result.tokenUsage).toEqual({ promptTokens: 10, completionTokens: 5, totalTokens: 15 });
+      expect(result.durationMs).toBeGreaterThanOrEqual(0);
+    });
+
+    it('includes system prompt as first message', async () => {
+      const provider = createMockProvider();
+      const executor = new ChatExecutor({ providers: [provider] });
+
+      await executor.execute(createParams({ systemPrompt: 'Be helpful.' }));
+
+      const messages = (provider.chat as ReturnType<typeof vi.fn>).mock.calls[0][0] as LLMMessage[];
+      expect(messages[0]).toEqual({ role: 'system', content: 'Be helpful.' });
+    });
+
+    it('uses chatStream when onStreamChunk provided', async () => {
+      const onStreamChunk = vi.fn();
+      const provider = createMockProvider();
+      const executor = new ChatExecutor({ providers: [provider], onStreamChunk });
+
+      await executor.execute(createParams());
+
+      expect(provider.chatStream).toHaveBeenCalledOnce();
+      expect(provider.chat).not.toHaveBeenCalled();
+    });
+
+    it('usedFallback is false when primary succeeds', async () => {
+      const primary = createMockProvider('primary');
+      const secondary = createMockProvider('secondary');
+      const executor = new ChatExecutor({ providers: [primary, secondary] });
+
+      const result = await executor.execute(createParams());
+
+      expect(result.usedFallback).toBe(false);
+      expect(result.provider).toBe('primary');
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // Fallback
+  // --------------------------------------------------------------------------
+
+  describe('fallback', () => {
+    it('falls back to secondary on LLMTimeoutError', async () => {
+      const primary = createMockProvider('primary', {
+        chat: vi.fn().mockRejectedValue(new LLMTimeoutError('primary', 5000)),
+      });
+      const secondary = createMockProvider('secondary');
+      const executor = new ChatExecutor({ providers: [primary, secondary] });
+
+      const result = await executor.execute(createParams());
+
+      expect(result.provider).toBe('secondary');
+      expect(result.usedFallback).toBe(true);
+    });
+
+    it('falls back to secondary on LLMServerError', async () => {
+      const primary = createMockProvider('primary', {
+        chat: vi.fn().mockRejectedValue(new LLMServerError('primary', 500, 'Internal error')),
+      });
+      const secondary = createMockProvider('secondary');
+      const executor = new ChatExecutor({ providers: [primary, secondary] });
+
+      const result = await executor.execute(createParams());
+
+      expect(result.provider).toBe('secondary');
+      expect(result.usedFallback).toBe(true);
+    });
+
+    it('falls back to secondary on LLMRateLimitError', async () => {
+      const primary = createMockProvider('primary', {
+        chat: vi.fn().mockRejectedValue(new LLMRateLimitError('primary', 5000)),
+      });
+      const secondary = createMockProvider('secondary');
+      const executor = new ChatExecutor({ providers: [primary, secondary] });
+
+      const result = await executor.execute(createParams());
+
+      expect(result.provider).toBe('secondary');
+      expect(result.usedFallback).toBe(true);
+    });
+
+    it('does NOT fall back on LLMAuthenticationError', async () => {
+      const primary = createMockProvider('primary', {
+        chat: vi.fn().mockRejectedValue(new LLMAuthenticationError('primary', 401)),
+      });
+      const secondary = createMockProvider('secondary');
+      const executor = new ChatExecutor({ providers: [primary, secondary] });
+
+      await expect(executor.execute(createParams())).rejects.toThrow(LLMAuthenticationError);
+      expect(secondary.chat).not.toHaveBeenCalled();
+    });
+
+    it('does NOT fall back on LLMProviderError (non-transient)', async () => {
+      const primary = createMockProvider('primary', {
+        chat: vi.fn().mockRejectedValue(new LLMProviderError('primary', 'Bad request', 400)),
+      });
+      const secondary = createMockProvider('secondary');
+      const executor = new ChatExecutor({ providers: [primary, secondary] });
+
+      await expect(executor.execute(createParams())).rejects.toThrow(LLMProviderError);
+      expect(secondary.chat).not.toHaveBeenCalled();
+    });
+
+    it('usedFallback is true when fallback used', async () => {
+      const primary = createMockProvider('primary', {
+        chat: vi.fn().mockRejectedValue(new LLMTimeoutError('primary', 5000)),
+      });
+      const secondary = createMockProvider('secondary');
+      const executor = new ChatExecutor({ providers: [primary, secondary] });
+
+      const result = await executor.execute(createParams());
+
+      expect(result.usedFallback).toBe(true);
+    });
+
+    it('all providers fail — throws last error', async () => {
+      const primary = createMockProvider('primary', {
+        chat: vi.fn().mockRejectedValue(new LLMServerError('primary', 500, 'down')),
+      });
+      const secondary = createMockProvider('secondary', {
+        chat: vi.fn().mockRejectedValue(new LLMServerError('secondary', 503, 'overloaded')),
+      });
+      const executor = new ChatExecutor({ providers: [primary, secondary] });
+
+      await expect(executor.execute(createParams())).rejects.toThrow('overloaded');
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // Cooldown
+  // --------------------------------------------------------------------------
+
+  describe('cooldown', () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+
+    it('failed provider skipped on next call within cooldown', async () => {
+      const primary = createMockProvider('primary', {
+        chat: vi.fn().mockRejectedValue(new LLMServerError('primary', 500, 'down')),
+      });
+      const secondary = createMockProvider('secondary');
+      const executor = new ChatExecutor({
+        providers: [primary, secondary],
+        providerCooldownMs: 10_000,
+      });
+
+      // First call — primary fails, secondary succeeds
+      await executor.execute(createParams());
+      expect(primary.chat).toHaveBeenCalledOnce();
+
+      // Second call — primary should be skipped (in cooldown)
+      vi.advanceTimersByTime(1_000);
+      await executor.execute(createParams());
+
+      // Primary still called only once total (the initial failure)
+      expect(primary.chat).toHaveBeenCalledOnce();
+      expect(secondary.chat).toHaveBeenCalledTimes(2);
+
+      vi.useRealTimers();
+    });
+
+    it('provider retried after cooldown expires', async () => {
+      let primaryCallCount = 0;
+      const primary = createMockProvider('primary', {
+        chat: vi.fn().mockImplementation(() => {
+          primaryCallCount++;
+          if (primaryCallCount === 1) {
+            return Promise.reject(new LLMServerError('primary', 500, 'down'));
+          }
+          return Promise.resolve(mockResponse());
+        }),
+      });
+      const secondary = createMockProvider('secondary');
+      const executor = new ChatExecutor({
+        providers: [primary, secondary],
+        providerCooldownMs: 10_000,
+      });
+
+      // First call — primary fails
+      await executor.execute(createParams());
+
+      // Advance past cooldown
+      vi.advanceTimersByTime(11_000);
+
+      // Second call — primary retried and succeeds
+      const result = await executor.execute(createParams());
+      expect(result.provider).toBe('primary');
+      expect(result.usedFallback).toBe(false);
+
+      vi.useRealTimers();
+    });
+
+    it('uses retryAfterMs from LLMRateLimitError when available', async () => {
+      const primary = createMockProvider('primary', {
+        chat: vi.fn()
+          .mockRejectedValueOnce(new LLMRateLimitError('primary', 30_000))
+          .mockResolvedValue(mockResponse()),
+      });
+      const secondary = createMockProvider('secondary');
+      const executor = new ChatExecutor({
+        providers: [primary, secondary],
+        providerCooldownMs: 10_000,
+      });
+
+      await executor.execute(createParams());
+
+      // Advance 15s — still within the 30s retryAfter cooldown
+      vi.advanceTimersByTime(15_000);
+      await executor.execute(createParams());
+      expect(primary.chat).toHaveBeenCalledOnce(); // still skipped
+
+      // Advance past 30s total
+      vi.advanceTimersByTime(16_000);
+      await executor.execute(createParams());
+      expect(primary.chat).toHaveBeenCalledTimes(2); // retried
+
+      vi.useRealTimers();
+    });
+
+    it('all providers in cooldown throws descriptive error', async () => {
+      const primary = createMockProvider('primary', {
+        chat: vi.fn().mockRejectedValue(new LLMServerError('primary', 500, 'down')),
+      });
+      const secondary = createMockProvider('secondary', {
+        chat: vi.fn().mockRejectedValue(new LLMServerError('secondary', 503, 'overloaded')),
+      });
+      const executor = new ChatExecutor({
+        providers: [primary, secondary],
+        providerCooldownMs: 60_000,
+      });
+
+      // First call — both fail, both enter cooldown
+      await expect(executor.execute(createParams())).rejects.toThrow('overloaded');
+
+      // Second call — both in cooldown, no provider tried
+      vi.advanceTimersByTime(1_000);
+      await expect(executor.execute(createParams())).rejects.toThrow('All providers are in cooldown');
+
+      vi.useRealTimers();
+    });
+
+    it('linear backoff capped at maxCooldownMs', async () => {
+      const primary = createMockProvider('primary', {
+        chat: vi.fn().mockRejectedValue(new LLMServerError('primary', 500, 'down')),
+      });
+      const secondary = createMockProvider('secondary');
+      const executor = new ChatExecutor({
+        providers: [primary, secondary],
+        providerCooldownMs: 100_000,
+        maxCooldownMs: 200_000,
+      });
+
+      // Failure 1: cooldown = min(100_000 * 1, 200_000) = 100_000
+      await executor.execute(createParams());
+
+      // Failure 2: cooldown = min(100_000 * 2, 200_000) = 200_000
+      vi.advanceTimersByTime(100_001);
+      await executor.execute(createParams());
+
+      // Failure 3: cooldown = min(100_000 * 3, 200_000) = 200_000 (capped)
+      vi.advanceTimersByTime(200_001);
+      await executor.execute(createParams());
+
+      // After 200_001ms primary should be retried (cap held at 200_000)
+      vi.advanceTimersByTime(200_001);
+      // Primary fails again, but the point is it was tried (not skipped forever)
+      await executor.execute(createParams());
+      expect(primary.chat).toHaveBeenCalledTimes(4);
+
+      vi.useRealTimers();
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // Tool loop
+  // --------------------------------------------------------------------------
+
+  describe('tool loop', () => {
+    it('single tool call round executes correctly', async () => {
+      const toolHandler = vi.fn().mockResolvedValue('tool result');
+      const provider = createMockProvider('primary', {
+        chat: vi.fn()
+          .mockResolvedValueOnce(mockResponse({
+            content: '',
+            finishReason: 'tool_calls',
+            toolCalls: [{ id: 'tc-1', name: 'search', arguments: '{"query":"test"}' }],
+          }))
+          .mockResolvedValueOnce(mockResponse({ content: 'final answer' })),
+      });
+
+      const executor = new ChatExecutor({ providers: [provider], toolHandler });
+      const result = await executor.execute(createParams());
+
+      expect(result.content).toBe('final answer');
+      expect(result.toolCalls).toHaveLength(1);
+      expect(result.toolCalls[0].name).toBe('search');
+      expect(result.toolCalls[0].args).toEqual({ query: 'test' });
+      expect(result.toolCalls[0].result).toBe('tool result');
+      expect(result.toolCalls[0].isError).toBe(false);
+      expect(result.toolCalls[0].durationMs).toBeGreaterThanOrEqual(0);
+      expect(toolHandler).toHaveBeenCalledWith('search', { query: 'test' });
+    });
+
+    it('multi-round tool calls chain with context', async () => {
+      const toolHandler = vi.fn()
+        .mockResolvedValueOnce('result-1')
+        .mockResolvedValueOnce('result-2');
+
+      const provider = createMockProvider('primary', {
+        chat: vi.fn()
+          .mockResolvedValueOnce(mockResponse({
+            content: '',
+            finishReason: 'tool_calls',
+            toolCalls: [{ id: 'tc-1', name: 'tool-a', arguments: '{}' }],
+          }))
+          .mockResolvedValueOnce(mockResponse({
+            content: '',
+            finishReason: 'tool_calls',
+            toolCalls: [{ id: 'tc-2', name: 'tool-b', arguments: '{}' }],
+          }))
+          .mockResolvedValueOnce(mockResponse({ content: 'done' })),
+      });
+
+      const executor = new ChatExecutor({ providers: [provider], toolHandler });
+      const result = await executor.execute(createParams());
+
+      expect(result.content).toBe('done');
+      expect(result.toolCalls).toHaveLength(2);
+      expect(provider.chat).toHaveBeenCalledTimes(3);
+    });
+
+    it('maxToolRounds enforced — stops after limit', async () => {
+      const toolHandler = vi.fn().mockResolvedValue('ok');
+      const provider = createMockProvider('primary', {
+        chat: vi.fn().mockResolvedValue(mockResponse({
+          content: 'looping',
+          finishReason: 'tool_calls',
+          toolCalls: [{ id: 'tc-1', name: 'tool', arguments: '{}' }],
+        })),
+      });
+
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler,
+        maxToolRounds: 3,
+      });
+      const result = await executor.execute(createParams());
+
+      // 1 initial + 3 rounds = 4 LLM calls
+      expect(provider.chat).toHaveBeenCalledTimes(4);
+      expect(result.toolCalls).toHaveLength(3);
+    });
+
+    it('allowedTools rejects disallowed tool name', async () => {
+      const toolHandler = vi.fn().mockResolvedValue('should not be called');
+      const provider = createMockProvider('primary', {
+        chat: vi.fn()
+          .mockResolvedValueOnce(mockResponse({
+            content: '',
+            finishReason: 'tool_calls',
+            toolCalls: [{ id: 'tc-1', name: 'dangerous_tool', arguments: '{}' }],
+          }))
+          .mockResolvedValueOnce(mockResponse({ content: 'rejected' })),
+      });
+
+      const executor = new ChatExecutor({
+        providers: [provider],
+        toolHandler,
+        allowedTools: ['safe_tool'],
+      });
+      const result = await executor.execute(createParams());
+
+      expect(toolHandler).not.toHaveBeenCalled();
+      expect(result.toolCalls[0].isError).toBe(true);
+      expect(result.toolCalls[0].result).toContain('not permitted');
+    });
+
+    it('invalid JSON args handled gracefully', async () => {
+      const toolHandler = vi.fn();
+      const provider = createMockProvider('primary', {
+        chat: vi.fn()
+          .mockResolvedValueOnce(mockResponse({
+            content: '',
+            finishReason: 'tool_calls',
+            toolCalls: [{ id: 'tc-1', name: 'tool', arguments: 'not-json' }],
+          }))
+          .mockResolvedValueOnce(mockResponse({ content: 'handled' })),
+      });
+
+      const executor = new ChatExecutor({ providers: [provider], toolHandler });
+      const result = await executor.execute(createParams());
+
+      expect(toolHandler).not.toHaveBeenCalled();
+      expect(result.toolCalls[0].isError).toBe(true);
+      expect(result.toolCalls[0].result).toContain('Invalid tool arguments');
+    });
+
+    it('ToolCallRecord includes name, args, result, isError, durationMs', async () => {
+      const toolHandler = vi.fn().mockResolvedValue('result-data');
+      const provider = createMockProvider('primary', {
+        chat: vi.fn()
+          .mockResolvedValueOnce(mockResponse({
+            content: '',
+            finishReason: 'tool_calls',
+            toolCalls: [{ id: 'tc-1', name: 'fetch', arguments: '{"url":"https://example.com"}' }],
+          }))
+          .mockResolvedValueOnce(mockResponse({ content: 'done' })),
+      });
+
+      const executor = new ChatExecutor({ providers: [provider], toolHandler });
+      const result = await executor.execute(createParams());
+
+      const record = result.toolCalls[0];
+      expect(record).toEqual({
+        name: 'fetch',
+        args: { url: 'https://example.com' },
+        result: 'result-data',
+        isError: false,
+        durationMs: expect.any(Number),
+      });
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // Token budget
+  // --------------------------------------------------------------------------
+
+  describe('token budget', () => {
+    it('throws ChatBudgetExceededError when budget exceeded', async () => {
+      const provider = createMockProvider('primary', {
+        chat: vi.fn().mockResolvedValue(mockResponse({
+          usage: { promptTokens: 500, completionTokens: 500, totalTokens: 1000 },
+        })),
+      });
+      const executor = new ChatExecutor({
+        providers: [provider],
+        sessionTokenBudget: 1500,
+      });
+
+      // First call: 1000 tokens used
+      await executor.execute(createParams());
+
+      // Second call: would be at 1000 + more, but 1000 < 1500 so this passes
+      await executor.execute(createParams());
+
+      // Third call: now at 2000 >= 1500, should throw
+      await expect(executor.execute(createParams())).rejects.toThrow(ChatBudgetExceededError);
+    });
+
+    it('accumulates across multiple executions; resetSessionTokens clears', async () => {
+      const provider = createMockProvider('primary', {
+        chat: vi.fn().mockResolvedValue(mockResponse({
+          usage: { promptTokens: 50, completionTokens: 50, totalTokens: 100 },
+        })),
+      });
+      const executor = new ChatExecutor({
+        providers: [provider],
+        sessionTokenBudget: 500,
+      });
+
+      await executor.execute(createParams());
+      expect(executor.getSessionTokenUsage('session-1')).toBe(100);
+
+      await executor.execute(createParams());
+      expect(executor.getSessionTokenUsage('session-1')).toBe(200);
+
+      executor.resetSessionTokens('session-1');
+      expect(executor.getSessionTokenUsage('session-1')).toBe(0);
+
+      // Can use again after reset
+      await executor.execute(createParams());
+      expect(executor.getSessionTokenUsage('session-1')).toBe(100);
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // Injection
+  // --------------------------------------------------------------------------
+
+  describe('injection', () => {
+    it('skillInjector.inject() result appears in messages', async () => {
+      const skillInjector = {
+        inject: vi.fn().mockResolvedValue('Skill context: you can search'),
+      };
+      const provider = createMockProvider();
+      const executor = new ChatExecutor({
+        providers: [provider],
+        skillInjector,
+      });
+
+      await executor.execute(createParams());
+
+      const messages = (provider.chat as ReturnType<typeof vi.fn>).mock.calls[0][0] as LLMMessage[];
+      expect(messages[1]).toEqual({
+        role: 'system',
+        content: 'Skill context: you can search',
+      });
+    });
+
+    it('skillInjector failure is non-blocking', async () => {
+      const skillInjector = {
+        inject: vi.fn().mockRejectedValue(new Error('injection failed')),
+      };
+      const provider = createMockProvider();
+      const executor = new ChatExecutor({
+        providers: [provider],
+        skillInjector,
+      });
+
+      const result = await executor.execute(createParams());
+
+      expect(result.content).toBe('mock response');
+      const messages = (provider.chat as ReturnType<typeof vi.fn>).mock.calls[0][0] as LLMMessage[];
+      // Only system prompt + user message (no skill context)
+      expect(messages).toHaveLength(2);
+    });
+
+    it('memoryRetriever failure is non-blocking', async () => {
+      const memoryRetriever = {
+        retrieve: vi.fn().mockRejectedValue(new Error('retrieval failed')),
+      };
+      const provider = createMockProvider();
+      const executor = new ChatExecutor({
+        providers: [provider],
+        memoryRetriever,
+      });
+
+      const result = await executor.execute(createParams());
+
+      expect(result.content).toBe('mock response');
+      const messages = (provider.chat as ReturnType<typeof vi.fn>).mock.calls[0][0] as LLMMessage[];
+      expect(messages).toHaveLength(2);
+    });
+
+    it('memoryRetriever.retrieve() result appears in messages', async () => {
+      const memoryRetriever = {
+        retrieve: vi.fn().mockResolvedValue('Memory: user prefers short answers'),
+      };
+      const provider = createMockProvider();
+      const executor = new ChatExecutor({
+        providers: [provider],
+        memoryRetriever,
+      });
+
+      await executor.execute(createParams());
+
+      const messages = (provider.chat as ReturnType<typeof vi.fn>).mock.calls[0][0] as LLMMessage[];
+      expect(messages[1]).toEqual({
+        role: 'system',
+        content: 'Memory: user prefers short answers',
+      });
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // Edge cases
+  // --------------------------------------------------------------------------
+
+  describe('edge cases', () => {
+    it('empty history works (first message in session)', async () => {
+      const provider = createMockProvider();
+      const executor = new ChatExecutor({ providers: [provider] });
+
+      const result = await executor.execute(createParams({ history: [] }));
+
+      expect(result.content).toBe('mock response');
+      const messages = (provider.chat as ReturnType<typeof vi.fn>).mock.calls[0][0] as LLMMessage[];
+      // system prompt + user message only
+      expect(messages).toHaveLength(2);
+      expect(messages[0].role).toBe('system');
+      expect(messages[1].role).toBe('user');
+    });
+
+    it('constructor throws if providers is empty', () => {
+      expect(() => new ChatExecutor({ providers: [] })).toThrow(
+        'ChatExecutor requires at least one provider',
+      );
+    });
+
+    it('negative cooldown values are clamped to zero', async () => {
+      const provider = createMockProvider();
+      const executor = new ChatExecutor({
+        providers: [provider],
+        providerCooldownMs: -1000,
+        maxCooldownMs: -500,
+      });
+
+      // Should work without errors — negative values clamped to 0
+      const result = await executor.execute(createParams());
+      expect(result.content).toBe('mock response');
+    });
+  });
+});
