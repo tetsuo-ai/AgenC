@@ -1322,6 +1322,7 @@ export {
   TelegramChannel,
   ChannelConnectionError,
   type TelegramChannelConfig,
+  type TelegramWebhookConfig,
 } from './channels/index.js';
 
 // Agent Builder (Phase 10)

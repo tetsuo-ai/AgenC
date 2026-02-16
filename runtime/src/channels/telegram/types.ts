@@ -8,12 +8,15 @@
 // Configuration
 // ============================================================================
 
-/** Webhook mode configuration for receiving Telegram updates via HTTP. */
+/**
+ * Webhook mode configuration for receiving Telegram updates via HTTP.
+ *
+ * The HTTP server port is managed by the Gateway's WebhookRouter, not by
+ * this plugin — only the public URL and path are needed here.
+ */
 export interface TelegramWebhookConfig {
   /** Public URL where Telegram will send updates. */
   readonly url: string;
-  /** Local port for the webhook HTTP server. */
-  readonly port: number;
   /** URL path for the webhook endpoint (default: '/update'). */
   readonly path?: string;
   /** Secret token validated via X-Telegram-Bot-Api-Secret-Token header. */

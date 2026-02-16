@@ -116,7 +116,7 @@ describe('TelegramChannel', () => {
   // --------------------------------------------------------------------------
   it('start() in webhook mode calls setWebhook with correct URL', async () => {
     const ctx = makeContext({
-      webhook: { url: 'https://example.com', port: 8443, secretToken: 'secret123' },
+      webhook: { url: 'https://example.com', secretToken: 'secret123' },
     });
     await plugin.initialize(ctx);
     await plugin.start();
@@ -506,6 +506,73 @@ describe('TelegramChannel', () => {
     expect(msg.attachments[0].url).toContain('docs/small.pdf');
 
     await plugin.stop();
+  });
+
+  // --------------------------------------------------------------------------
+  // 19. send() with audio attachment calls sendVoice
+  // --------------------------------------------------------------------------
+  it('send() with audio attachment calls sendVoice', async () => {
+    const ctx = makeContext();
+    await plugin.initialize(ctx);
+
+    const update = makeUpdate();
+    mockApi.getUpdates.mockResolvedValueOnce([update]);
+    await plugin.start();
+    await vi.advanceTimersByTimeAsync(50);
+
+    const onMessage = ctx.onMessage as ReturnType<typeof vi.fn>;
+    const sessionId = onMessage.mock.calls[0][0].sessionId;
+
+    await plugin.send({
+      sessionId,
+      content: '',
+      attachments: [{ type: 'audio', mimeType: 'audio/ogg', url: 'https://example.com/voice.ogg' }],
+    });
+
+    expect(mockApi.sendVoice).toHaveBeenCalledWith(789, 'https://example.com/voice.ogg');
+
+    await plugin.stop();
+  });
+
+  // --------------------------------------------------------------------------
+  // 20. send() with content + attachments sends both
+  // --------------------------------------------------------------------------
+  it('send() with content and attachments sends text then attachment', async () => {
+    const ctx = makeContext();
+    await plugin.initialize(ctx);
+
+    const update = makeUpdate();
+    mockApi.getUpdates.mockResolvedValueOnce([update]);
+    await plugin.start();
+    await vi.advanceTimersByTimeAsync(50);
+
+    const onMessage = ctx.onMessage as ReturnType<typeof vi.fn>;
+    const sessionId = onMessage.mock.calls[0][0].sessionId;
+
+    // Advance time so rate limiter allows the sends
+    await vi.advanceTimersByTimeAsync(2000);
+
+    await plugin.send({
+      sessionId,
+      content: 'check this out',
+      attachments: [{ type: 'image', mimeType: 'image/png', url: 'https://example.com/img.png' }],
+    });
+
+    expect(mockApi.sendMessage).toHaveBeenCalledWith(789, 'check this out');
+    expect(mockApi.sendPhoto).toHaveBeenCalledWith(789, 'https://example.com/img.png');
+
+    await plugin.stop();
+  });
+
+  // --------------------------------------------------------------------------
+  // 21. initialize() throws on missing botToken
+  // --------------------------------------------------------------------------
+  it('initialize() throws on missing botToken', async () => {
+    const ctx = makeContext();
+    // Override config to omit botToken
+    ctx.config = {} as Readonly<Record<string, unknown>>;
+
+    await expect(plugin.initialize(ctx)).rejects.toThrow(/botToken/);
   });
 
   // --------------------------------------------------------------------------

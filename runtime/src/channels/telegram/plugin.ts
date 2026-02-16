@@ -8,6 +8,8 @@
  * @module
  */
 
+import { timingSafeEqual } from 'node:crypto';
+
 import { BaseChannelPlugin } from '../../gateway/channel.js';
 import type { ChannelContext, WebhookRouter } from '../../gateway/channel.js';
 import type { OutboundMessage } from '../../gateway/message.js';
@@ -66,6 +68,7 @@ export class TelegramChannel extends BaseChannelPlugin {
   private pollingActive = false;
   private updateOffset = 0;
   private pollingTimer: ReturnType<typeof setTimeout> | undefined;
+  private pollingPromise: Promise<void> | undefined;
 
   // -- Health --
   private healthy = true;
@@ -126,7 +129,7 @@ export class TelegramChannel extends BaseChannelPlugin {
       this.context.logger.info(`Telegram webhook set: ${fullUrl}`);
     } else {
       this.pollingActive = true;
-      void this.pollUpdates();
+      this.pollingPromise = this.pollUpdates();
       this.context.logger.info('Telegram long-polling started');
     }
   }
@@ -139,6 +142,12 @@ export class TelegramChannel extends BaseChannelPlugin {
       this.pollingTimer = undefined;
     }
 
+    // Await any in-flight polling request before tearing down
+    if (this.pollingPromise) {
+      await this.pollingPromise;
+      this.pollingPromise = undefined;
+    }
+
     if (this.config.webhook && this.bot) {
       try {
         await this.api.deleteWebhook();
@@ -149,6 +158,10 @@ export class TelegramChannel extends BaseChannelPlugin {
 
     this.chatBuckets.clear();
     this.sessionToChatId.clear();
+    this.healthy = true;
+    this.bot = undefined;
+    this.globalBucket.tokens = GLOBAL_RATE_LIMIT;
+    this.globalBucket.lastRefill = Date.now();
   }
 
   // --------------------------------------------------------------------------
@@ -215,10 +228,15 @@ export class TelegramChannel extends BaseChannelPlugin {
 
   registerWebhooks(router: WebhookRouter): void {
     router.post('/update', async (req) => {
-      // Validate secret token if configured
+      // Validate secret token if configured (timing-safe to prevent oracle attacks)
       if (this.config.webhook?.secretToken) {
+        const expected = this.config.webhook.secretToken;
         const header = req.headers['x-telegram-bot-api-secret-token'];
-        if (header !== this.config.webhook.secretToken) {
+        if (
+          typeof header !== 'string' ||
+          header.length !== expected.length ||
+          !timingSafeEqual(Buffer.from(header), Buffer.from(expected))
+        ) {
           return { status: 403 };
         }
       }
@@ -257,7 +275,9 @@ export class TelegramChannel extends BaseChannelPlugin {
     }
 
     if (this.pollingActive) {
-      this.pollingTimer = setTimeout(() => void this.pollUpdates(), this.config.pollingIntervalMs);
+      this.pollingTimer = setTimeout(() => {
+        this.pollingPromise = this.pollUpdates();
+      }, this.config.pollingIntervalMs);
     }
   }
 
@@ -268,7 +288,10 @@ export class TelegramChannel extends BaseChannelPlugin {
   private async handleUpdate(update: unknown): Promise<void> {
     const u = update as Record<string, unknown>;
 
-    // Only handle plain messages — skip edited_message, channel_post, callback_query
+    // Only handle plain messages — skip edited_message, channel_post, callback_query.
+    // Within messages, only text/voice/photo/document are processed; video, sticker,
+    // animation, audio, and other media types are silently dropped (delivered as empty
+    // content with no attachments).
     if (u.edited_message || u.channel_post || u.callback_query) return;
 
     const message = u.message as Record<string, unknown> | undefined;
@@ -389,6 +412,14 @@ export class TelegramChannel extends BaseChannelPlugin {
   // File URL
   // --------------------------------------------------------------------------
 
+  /**
+   * Resolves a Telegram file ID to a download URL.
+   *
+   * **Security note:** The returned URL embeds the bot token
+   * (`https://api.telegram.org/file/bot<token>/...`). This is inherent to
+   * the Telegram Bot API — treat these URLs as sensitive and avoid logging
+   * or persisting them in user-visible contexts.
+   */
   private async getFileUrl(
     fileId: string,
     metadata: Record<string, unknown>,
