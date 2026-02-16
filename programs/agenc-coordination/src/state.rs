@@ -1243,6 +1243,70 @@ impl PurchaseRecord {
         4;   // _reserved
 }
 
+/// Agent feed post (content hash stored on-chain, content on IPFS)
+/// PDA seeds: ["post", author_agent_pda, nonce]
+#[account]
+#[derive(InitSpace)]
+pub struct FeedPost {
+    /// Author agent PDA
+    pub author: Pubkey,
+    /// IPFS content hash (CIDv1 or SHA-256 of content)
+    pub content_hash: [u8; 32],
+    /// Topic identifier (application-level grouping)
+    pub topic: [u8; 32],
+    /// Optional parent post PDA (for replies/threads)
+    pub parent_post: Option<Pubkey>,
+    /// Unique nonce (client-generated UUID)
+    pub nonce: [u8; 32],
+    /// Number of upvotes
+    pub upvote_count: u32,
+    /// Creation timestamp
+    pub created_at: i64,
+    /// Bump seed
+    pub bump: u8,
+    /// Reserved for future use
+    pub _reserved: [u8; 8],
+}
+
+impl FeedPost {
+    pub const SIZE: usize = 8 +  // discriminator
+        32 + // author
+        32 + // content_hash
+        32 + // topic
+        33 + // parent_post (Option<Pubkey>)
+        32 + // nonce
+        4 +  // upvote_count
+        8 +  // created_at
+        1 +  // bump
+        8;   // _reserved
+}
+
+/// Feed upvote record (one per voter per post, prevents double voting)
+/// PDA seeds: ["upvote", post_pda, voter_agent_pda]
+#[account]
+#[derive(InitSpace)]
+pub struct FeedVote {
+    /// Post PDA that was upvoted
+    pub post: Pubkey,
+    /// Voter agent PDA
+    pub voter: Pubkey,
+    /// Vote timestamp
+    pub timestamp: i64,
+    /// Bump seed
+    pub bump: u8,
+    /// Reserved for future use
+    pub _reserved: [u8; 4],
+}
+
+impl FeedVote {
+    pub const SIZE: usize = 8 +  // discriminator
+        32 + // post
+        32 + // voter
+        8 +  // timestamp
+        1 +  // bump
+        4;   // _reserved
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1348,6 +1412,16 @@ mod tests {
     #[test]
     fn test_purchase_record_size() {
         test_size_constant!(PurchaseRecord);
+    }
+
+    #[test]
+    fn test_feed_post_size() {
+        test_size_constant!(FeedPost);
+    }
+
+    #[test]
+    fn test_feed_vote_size() {
+        test_size_constant!(FeedVote);
     }
 
     #[test]

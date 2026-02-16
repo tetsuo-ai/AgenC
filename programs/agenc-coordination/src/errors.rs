@@ -536,4 +536,17 @@ pub enum CoordinationError {
 
     #[msg("Cannot purchase own skill")]
     SkillSelfPurchase,
+
+    // Feed errors (sequential from enum position)
+    #[msg("Feed content hash cannot be all zeros")]
+    FeedInvalidContentHash,
+
+    #[msg("Feed topic cannot be all zeros")]
+    FeedInvalidTopic,
+
+    #[msg("Feed post not found")]
+    FeedPostNotFound,
+
+    #[msg("Cannot upvote own post")]
+    FeedSelfUpvote,
 }
