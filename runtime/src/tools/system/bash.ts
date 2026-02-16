@@ -16,6 +16,7 @@ import { safeStringify } from '../types.js';
 import type { BashToolConfig, BashToolInput, BashExecutionResult } from './types.js';
 import {
   DEFAULT_DENY_LIST,
+  DEFAULT_DENY_PREFIXES,
   DEFAULT_TIMEOUT_MS,
   DEFAULT_MAX_OUTPUT_BYTES,
 } from './types.js';
@@ -44,6 +45,15 @@ function buildDenySet(configDenyList?: readonly string[]): Set<string> {
 }
 
 /**
+ * Check if a command basename matches any deny prefix.
+ * Catches version-specific binaries like python3.11, pypy3, nodejs18, etc.
+ */
+function matchesDenyPrefix(base: string): boolean {
+  const lower = base.toLowerCase();
+  return DEFAULT_DENY_PREFIXES.some((prefix) => lower.startsWith(prefix));
+}
+
+/**
  * Build a minimal environment for spawned processes.
  * Only exposes PATH by default to prevent secret exfiltration.
  */
@@ -61,7 +71,8 @@ function buildEnv(configEnv?: Record<string, string>): Record<string, string> {
  * Rules:
  * 1. Deny list is checked first (deny takes precedence over allow)
  * 2. Both the raw command and its basename are checked against the deny set
- * 3. If an allow list is provided, the command must appear in it
+ * 3. Deny prefixes catch version-specific binaries (e.g. python3.11, pypy3)
+ * 4. If an allow list is provided, the command must appear in it
  *
  * @param command - The command string to check
  * @param denySet - Set of denied command names
@@ -75,9 +86,14 @@ export function isCommandAllowed(
 ): { allowed: true } | { allowed: false; reason: string } {
   const base = basename(command);
 
-  // Deny list takes precedence
+  // Exact deny list takes precedence
   if (denySet.has(command) || denySet.has(base)) {
     return { allowed: false, reason: `Command "${command}" is denied` };
+  }
+
+  // Prefix deny list catches version-specific binaries (python3.11, pypy3, etc.)
+  if (matchesDenyPrefix(base)) {
+    return { allowed: false, reason: `Command "${command}" is denied (matches deny prefix)` };
   }
 
   // Allow list check
@@ -101,9 +117,11 @@ export function createBashTool(config?: BashToolConfig): Tool {
     : null;
   const defaultCwd = config?.cwd ?? process.cwd();
   const defaultTimeout = config?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const maxTimeoutMs = config?.maxTimeoutMs ?? defaultTimeout;
   const maxOutputBytes = config?.maxOutputBytes ?? DEFAULT_MAX_OUTPUT_BYTES;
   const env = buildEnv(config?.env);
   const logger: Logger = config?.logger ?? silentLogger;
+  const lockCwd = config?.lockCwd ?? false;
 
   return {
     name: 'system.bash',
@@ -165,8 +183,17 @@ export function createBashTool(config?: BashToolConfig): Tool {
         }
       }
 
-      const cwd = input.cwd ?? defaultCwd;
-      const timeout = input.timeoutMs ?? defaultTimeout;
+      // Apply cwd — reject per-call override if lockCwd is enabled
+      let cwd = defaultCwd;
+      if (input.cwd !== undefined) {
+        if (lockCwd) {
+          return errorResult('Per-call cwd override is disabled (lockCwd is enabled)');
+        }
+        cwd = input.cwd;
+      }
+
+      // Apply timeout — cap at maxTimeoutMs to prevent LLM from setting arbitrarily high values
+      const timeout = Math.min(input.timeoutMs ?? defaultTimeout, maxTimeoutMs);
 
       logger.debug(`Bash tool executing: ${command} ${args.join(' ')}`);
       const startTime = Date.now();

@@ -18,6 +18,8 @@ export interface BashToolConfig {
   readonly cwd?: string;
   /** Command timeout in ms (default: 30_000) */
   readonly timeoutMs?: number;
+  /** Maximum timeout the LLM can request per-call in ms. Caps per-call timeoutMs overrides. */
+  readonly maxTimeoutMs?: number;
   /** Allowed command prefixes (empty = allow all) */
   readonly allowList?: readonly string[];
   /** Blocked command prefixes (merged with DEFAULT_DENY_LIST) */
@@ -28,6 +30,8 @@ export interface BashToolConfig {
   readonly env?: Record<string, string>;
   /** Logger for execution events and security denials */
   readonly logger?: Logger;
+  /** Lock working directory — reject per-call cwd overrides from LLM (default: false) */
+  readonly lockCwd?: boolean;
 }
 
 /**
@@ -79,6 +83,8 @@ export const DEFAULT_DENY_LIST: readonly string[] = [
   'dash',
   'csh',
   'fish',
+  'ksh',
+  'tcsh',
   // Privilege escalation
   'sudo',
   'su',
@@ -91,22 +97,70 @@ export const DEFAULT_DENY_LIST: readonly string[] = [
   'nc',
   'netcat',
   'ncat',
+  'socat',
   // Download-and-execute vectors
   'curl',
   'wget',
+  // Network access / data exfiltration
+  'ssh',
+  'scp',
+  'sftp',
+  'rsync',
+  'telnet',
   // Script interpreters (can bypass all restrictions)
   'python',
   'python3',
   'node',
+  'nodejs',
   'perl',
   'ruby',
-  // Environment exfiltration
+  'php',
+  'lua',
+  'deno',
+  'bun',
+  'tclsh',
+  // Command execution wrappers
+  'xargs',
   'env',
+  'nohup',
+  // Dangerous text processing (can write files / execute commands)
+  'awk',
+  'gawk',
+  'nawk',
+  // Environment exfiltration
   'printenv',
   // Permission changes
   'chmod',
   'chown',
   'chgrp',
+  // File writing via non-obvious tools
+  'tee',
+  'install',
+  // Process inspection / debugging
+  'strace',
+  'ltrace',
+  'gdb',
+  // Filesystem manipulation
+  'mount',
+  'umount',
+  // Scheduled execution
+  'crontab',
+  'at',
+];
+
+/**
+ * Deny list prefixes for version-specific interpreter binaries.
+ * E.g. "python3.11", "python3.12", "pypy3", "nodejs18".
+ * Checked via `basename.startsWith(prefix)` in addition to exact deny set matches.
+ */
+export const DEFAULT_DENY_PREFIXES: readonly string[] = [
+  'python',
+  'pypy',
+  'ruby',
+  'perl',
+  'php',
+  'lua',
+  'node',
 ];
 
 export const DEFAULT_TIMEOUT_MS = 30_000;

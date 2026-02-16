@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { createBashTool, isCommandAllowed } from './bash.js';
-import { DEFAULT_DENY_LIST } from './types.js';
+import { DEFAULT_DENY_LIST, DEFAULT_DENY_PREFIXES } from './types.js';
 import type { Logger } from '../../utils/logger.js';
 
 // Mock execFile from node:child_process
@@ -204,7 +204,90 @@ describe('system.bash tool', () => {
   it('blocks python, node, perl, ruby interpreters', async () => {
     const tool = createBashTool();
 
-    for (const cmd of ['python', 'python3', 'node', 'perl', 'ruby']) {
+    for (const cmd of ['python', 'python3', 'node', 'nodejs', 'perl', 'ruby', 'php', 'lua', 'deno', 'bun', 'tclsh']) {
+      const result = await tool.execute({ command: cmd });
+      expect(result.isError).toBe(true);
+      expect(parseContent(result).error).toContain('denied');
+    }
+  });
+
+  // ---- Version-specific interpreter prevention (prefix matching) ----
+
+  it('blocks version-specific python binaries via prefix matching', async () => {
+    const tool = createBashTool();
+
+    for (const cmd of ['python3.11', 'python3.12', 'python2.7', 'pypy3', 'pypy']) {
+      const result = await tool.execute({ command: cmd });
+      expect(result.isError).toBe(true);
+      expect(parseContent(result).error).toContain('denied');
+    }
+
+    expect(mockExecFile).not.toHaveBeenCalled();
+  });
+
+  it('blocks version-specific node/ruby/perl/php/lua via prefix matching', async () => {
+    const tool = createBashTool();
+
+    for (const cmd of ['nodejs18', 'ruby3.2', 'perl5.38', 'php8.2', 'lua5.4']) {
+      const result = await tool.execute({ command: cmd });
+      expect(result.isError).toBe(true);
+      expect(parseContent(result).error).toContain('denied');
+    }
+
+    expect(mockExecFile).not.toHaveBeenCalled();
+  });
+
+  it('blocks absolute-path version-specific binaries via prefix matching', async () => {
+    const tool = createBashTool();
+
+    const result = await tool.execute({ command: '/usr/bin/python3.11' });
+    expect(result.isError).toBe(true);
+    expect(parseContent(result).error).toContain('denied');
+    expect(mockExecFile).not.toHaveBeenCalled();
+  });
+
+  // ---- Command execution wrapper prevention ----
+
+  it('blocks xargs, nohup, and awk', async () => {
+    const tool = createBashTool();
+
+    for (const cmd of ['xargs', 'nohup', 'awk', 'gawk', 'nawk']) {
+      const result = await tool.execute({ command: cmd });
+      expect(result.isError).toBe(true);
+      expect(parseContent(result).error).toContain('denied');
+    }
+  });
+
+  // ---- Network access prevention ----
+
+  it('blocks ssh, scp, sftp, rsync, telnet, socat', async () => {
+    const tool = createBashTool();
+
+    for (const cmd of ['ssh', 'scp', 'sftp', 'rsync', 'telnet', 'socat']) {
+      const result = await tool.execute({ command: cmd });
+      expect(result.isError).toBe(true);
+      expect(parseContent(result).error).toContain('denied');
+    }
+  });
+
+  // ---- File writing / system tools prevention ----
+
+  it('blocks tee, install, mount, crontab, at', async () => {
+    const tool = createBashTool();
+
+    for (const cmd of ['tee', 'install', 'mount', 'umount', 'crontab', 'at']) {
+      const result = await tool.execute({ command: cmd });
+      expect(result.isError).toBe(true);
+      expect(parseContent(result).error).toContain('denied');
+    }
+  });
+
+  // ---- Debugging tool prevention ----
+
+  it('blocks strace, ltrace, gdb', async () => {
+    const tool = createBashTool();
+
+    for (const cmd of ['strace', 'ltrace', 'gdb']) {
       const result = await tool.execute({ command: cmd });
       expect(result.isError).toBe(true);
       expect(parseContent(result).error).toContain('denied');
@@ -293,6 +376,25 @@ describe('system.bash tool', () => {
     expect(opts.cwd).toBe('/var/log');
   });
 
+  it('rejects per-call cwd override when lockCwd is enabled', async () => {
+    const tool = createBashTool({ cwd: '/home/test', lockCwd: true });
+
+    const result = await tool.execute({ command: 'ls', cwd: '/var/log' });
+    expect(result.isError).toBe(true);
+    expect(parseContent(result).error).toContain('lockCwd');
+    expect(mockExecFile).not.toHaveBeenCalled();
+  });
+
+  it('allows execution with default cwd when lockCwd is enabled and no per-call override', async () => {
+    const tool = createBashTool({ cwd: '/home/test', lockCwd: true });
+    mockSuccess();
+
+    await tool.execute({ command: 'ls' });
+
+    const opts = mockExecFile.mock.calls[0][2] as Record<string, unknown>;
+    expect(opts.cwd).toBe('/home/test');
+  });
+
   // ---- Timeout ----
 
   it('enforces timeout on execFile error with killed flag', async () => {
@@ -315,14 +417,35 @@ describe('system.bash tool', () => {
     expect(opts.timeout).toBe(30_000);
   });
 
-  it('uses per-call timeout override', async () => {
-    const tool = createBashTool({ timeoutMs: 5000 });
+  it('uses per-call timeout override when within maxTimeoutMs', async () => {
+    const tool = createBashTool({ timeoutMs: 5000, maxTimeoutMs: 15000 });
     mockSuccess();
 
     await tool.execute({ command: 'ls', timeoutMs: 10000 });
 
     const opts = mockExecFile.mock.calls[0][2] as Record<string, unknown>;
     expect(opts.timeout).toBe(10000);
+  });
+
+  it('caps per-call timeout at maxTimeoutMs', async () => {
+    const tool = createBashTool({ timeoutMs: 5000, maxTimeoutMs: 8000 });
+    mockSuccess();
+
+    await tool.execute({ command: 'ls', timeoutMs: 60000 });
+
+    const opts = mockExecFile.mock.calls[0][2] as Record<string, unknown>;
+    expect(opts.timeout).toBe(8000);
+  });
+
+  it('caps default timeout at maxTimeoutMs when maxTimeoutMs equals timeoutMs', async () => {
+    const tool = createBashTool({ timeoutMs: 5000 });
+    mockSuccess();
+
+    // maxTimeoutMs defaults to timeoutMs, so per-call override beyond it is capped
+    await tool.execute({ command: 'ls', timeoutMs: 60000 });
+
+    const opts = mockExecFile.mock.calls[0][2] as Record<string, unknown>;
+    expect(opts.timeout).toBe(5000);
   });
 
   // ---- Output truncation ----
@@ -376,6 +499,14 @@ describe('system.bash tool', () => {
     const result = await tool.execute({ command: 'ls', args: 'not-an-array' as unknown as string[] });
     expect(result.isError).toBe(true);
     expect(parseContent(result).error).toContain('array of strings');
+  });
+
+  it('returns error for non-string elements in args array', async () => {
+    const tool = createBashTool();
+
+    const result = await tool.execute({ command: 'ls', args: ['ok', 123 as unknown as string] });
+    expect(result.isError).toBe(true);
+    expect(parseContent(result).error).toContain('must be a string');
   });
 
   // ---- Schema ----
@@ -484,5 +615,31 @@ describe('isCommandAllowed', () => {
     const bothSet = new Set(['rm', 'ls']);
     const result = isCommandAllowed('rm', new Set(['rm']), bothSet);
     expect(result.allowed).toBe(false);
+  });
+
+  it('denies version-specific python via prefix matching', () => {
+    const result = isCommandAllowed('python3.11', new Set(), null);
+    expect(result.allowed).toBe(false);
+    expect((result as { reason: string }).reason).toContain('deny prefix');
+  });
+
+  it('denies pypy3 via prefix matching', () => {
+    const result = isCommandAllowed('pypy3', new Set(), null);
+    expect(result.allowed).toBe(false);
+  });
+
+  it('denies absolute path to version-specific binary via prefix matching', () => {
+    const result = isCommandAllowed('/usr/bin/ruby3.2', new Set(), null);
+    expect(result.allowed).toBe(false);
+  });
+
+  it('allows commands that do not match any deny prefix', () => {
+    const result = isCommandAllowed('git', new Set(), null);
+    expect(result.allowed).toBe(true);
+  });
+
+  it('allows ls even though it starts with "l" (no prefix match)', () => {
+    const result = isCommandAllowed('ls', new Set(), null);
+    expect(result.allowed).toBe(true);
   });
 });

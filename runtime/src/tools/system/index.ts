@@ -31,6 +31,7 @@ export {
   type BashToolInput,
   type BashExecutionResult,
   DEFAULT_DENY_LIST,
+  DEFAULT_DENY_PREFIXES,
   DEFAULT_TIMEOUT_MS,
   DEFAULT_MAX_OUTPUT_BYTES,
 } from './types.js';
