@@ -1116,6 +1116,133 @@ impl GovernanceVote {
         8;   // _reserved
 }
 
+// ============================================================================
+// Skill Registry
+// ============================================================================
+
+/// Skill registration account
+/// PDA seeds: ["skill", author_agent_pda, skill_id]
+#[account]
+#[derive(InitSpace)]
+pub struct SkillRegistration {
+    /// Author's agent PDA
+    pub author: Pubkey,
+    /// Unique skill identifier
+    pub skill_id: [u8; 32],
+    /// Skill display name
+    pub name: [u8; 32],
+    /// Content hash (IPFS CID, Arweave tx, etc.)
+    pub content_hash: [u8; 32],
+    /// Price in lamports (SOL) or token smallest units
+    pub price: u64,
+    /// Optional SPL token mint for price denomination (None = SOL)
+    pub price_mint: Option<Pubkey>,
+    /// Tags for discovery (encoded by client)
+    pub tags: [u8; 64],
+    /// Sum of reputation-weighted ratings
+    pub total_rating: u64,
+    /// Number of ratings received
+    pub rating_count: u32,
+    /// Number of purchases
+    pub download_count: u32,
+    /// Content version (monotonically increasing)
+    pub version: u8,
+    /// Whether the skill is currently active
+    pub is_active: bool,
+    /// Creation timestamp
+    pub created_at: i64,
+    /// Last update timestamp
+    pub updated_at: i64,
+    /// Bump seed
+    pub bump: u8,
+    /// Reserved for future use
+    pub _reserved: [u8; 8],
+}
+
+impl SkillRegistration {
+    pub const SIZE: usize = 8 +  // discriminator
+        32 + // author
+        32 + // skill_id
+        32 + // name
+        32 + // content_hash
+        8 +  // price
+        33 + // price_mint (Option<Pubkey>)
+        64 + // tags
+        8 +  // total_rating
+        4 +  // rating_count
+        4 +  // download_count
+        1 +  // version
+        1 +  // is_active
+        8 +  // created_at
+        8 +  // updated_at
+        1 +  // bump
+        8;   // _reserved
+}
+
+/// Skill rating record (one per rater per skill)
+/// PDA seeds: ["skill_rating", skill_pda, rater_agent_pda]
+#[account]
+#[derive(InitSpace)]
+pub struct SkillRating {
+    /// Skill being rated
+    pub skill: Pubkey,
+    /// Rater's agent PDA
+    pub rater: Pubkey,
+    /// Rating value (1-5)
+    pub rating: u8,
+    /// Optional review content hash
+    pub review_hash: Option<[u8; 32]>,
+    /// Rater's reputation at time of rating
+    pub rater_reputation: u16,
+    /// Rating timestamp
+    pub timestamp: i64,
+    /// Bump seed
+    pub bump: u8,
+    /// Reserved for future use
+    pub _reserved: [u8; 4],
+}
+
+impl SkillRating {
+    pub const SIZE: usize = 8 +  // discriminator
+        32 + // skill
+        32 + // rater
+        1 +  // rating
+        33 + // review_hash (Option<[u8;32]>)
+        2 +  // rater_reputation
+        8 +  // timestamp
+        1 +  // bump
+        4;   // _reserved
+}
+
+/// Purchase record (one per buyer per skill, prevents double purchase)
+/// PDA seeds: ["skill_purchase", skill_pda, buyer_agent_pda]
+#[account]
+#[derive(InitSpace)]
+pub struct PurchaseRecord {
+    /// Skill purchased
+    pub skill: Pubkey,
+    /// Buyer's agent PDA
+    pub buyer: Pubkey,
+    /// Price paid at time of purchase
+    pub price_paid: u64,
+    /// Purchase timestamp
+    pub timestamp: i64,
+    /// Bump seed
+    pub bump: u8,
+    /// Reserved for future use
+    pub _reserved: [u8; 4],
+}
+
+impl PurchaseRecord {
+    pub const SIZE: usize = 8 +  // discriminator
+        32 + // skill
+        32 + // buyer
+        8 +  // price_paid
+        8 +  // timestamp
+        1 +  // bump
+        4;   // _reserved
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1206,6 +1333,21 @@ mod tests {
     #[test]
     fn test_governance_vote_size() {
         test_size_constant!(GovernanceVote);
+    }
+
+    #[test]
+    fn test_skill_registration_size() {
+        test_size_constant!(SkillRegistration);
+    }
+
+    #[test]
+    fn test_skill_rating_size() {
+        test_size_constant!(SkillRating);
+    }
+
+    #[test]
+    fn test_purchase_record_size() {
+        test_size_constant!(PurchaseRecord);
     }
 
     #[test]
