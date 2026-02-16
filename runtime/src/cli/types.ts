@@ -84,6 +84,13 @@ export interface SkillInstallOptions extends BaseCliOptions { source: string; }
 export interface SkillUninstallOptions extends BaseCliOptions { skillName: string; }
 export interface SkillToggleOptions extends BaseCliOptions { skillName: string; }
 
+export interface RegistrySearchOptions extends BaseCliOptions { query: string; tags?: string[]; limit?: number; }
+export interface RegistryInstallOptions extends BaseCliOptions { skillId: string; }
+export interface RegistryPublishOptions extends BaseCliOptions { skillPath: string; tags?: string[]; priceLamports?: string; }
+export interface RegistryRateOptions extends BaseCliOptions { skillId: string; rating: number; review?: string; }
+export interface RegistryVerifyOptions extends BaseCliOptions { skillId: string; localPath?: string; }
+export interface RegistryImportOpenclawOptions extends BaseCliOptions { source: string; }
+
 export type SkillCommandOptions =
   | SkillListOptions
   | SkillInfoOptions
@@ -91,7 +98,13 @@ export type SkillCommandOptions =
   | SkillCreateOptions
   | SkillInstallOptions
   | SkillUninstallOptions
-  | SkillToggleOptions;
+  | SkillToggleOptions
+  | RegistrySearchOptions
+  | RegistryInstallOptions
+  | RegistryPublishOptions
+  | RegistryRateOptions
+  | RegistryVerifyOptions
+  | RegistryImportOpenclawOptions;
 
 export interface CliUsage {
   command: string;

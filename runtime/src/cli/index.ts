@@ -30,6 +30,12 @@ import {
   SkillInstallOptions,
   SkillUninstallOptions,
   SkillToggleOptions,
+  RegistrySearchOptions,
+  RegistryInstallOptions,
+  RegistryPublishOptions,
+  RegistryRateOptions,
+  RegistryVerifyOptions,
+  RegistryImportOpenclawOptions,
 } from './types.js';
 import { validateConfigStrict } from '../types/config-migration.js';
 import { runSecurityCommand } from './security.js';
@@ -43,6 +49,14 @@ import {
   runSkillEnableCommand,
   runSkillDisableCommand,
 } from './skills-cli.js';
+import {
+  runRegistrySearchCommand,
+  runRegistryInstallCommand,
+  runRegistryPublishCommand,
+  runRegistryRateCommand,
+  runRegistryVerifyCommand,
+  runImportOpenclawCommand,
+} from './registry-cli.js';
 import { runOnboardCommand } from './onboard.js';
 import { runDoctorCommand, runHealthCommand } from './health.js';
 import {
@@ -289,7 +303,8 @@ const PLUGIN_COMMANDS: Record<PluginCommand, PluginCommandDescriptor> = {
   },
 };
 
-type SkillCommand = 'list' | 'info' | 'validate' | 'create' | 'install' | 'uninstall' | 'enable' | 'disable';
+type SkillCommand = 'list' | 'info' | 'validate' | 'create' | 'install' | 'uninstall' | 'enable' | 'disable'
+  | 'search' | 'registry-install' | 'publish' | 'rate' | 'verify' | 'import-openclaw';
 
 const SKILL_COMMAND_OPTIONS: Record<SkillCommand, Set<string>> = {
   list: new Set(),
@@ -300,6 +315,12 @@ const SKILL_COMMAND_OPTIONS: Record<SkillCommand, Set<string>> = {
   uninstall: new Set(),
   enable: new Set(),
   disable: new Set(),
+  search: new Set(['tags', 'limit']),
+  'registry-install': new Set(),
+  publish: new Set(['tags', 'price']),
+  rate: new Set(['review']),
+  verify: new Set(['path']),
+  'import-openclaw': new Set(),
 };
 
 interface SkillCommandDescriptor {
@@ -361,12 +382,50 @@ const SKILL_COMMANDS: Record<SkillCommand, SkillCommandDescriptor> = {
     commandOptions: SKILL_COMMAND_OPTIONS.disable,
     run: runSkillDisableCommand,
   },
+  search: {
+    name: 'search',
+    description: 'Search the on-chain skill registry',
+    commandOptions: SKILL_COMMAND_OPTIONS.search,
+    run: runRegistrySearchCommand as SkillCommandDescriptor['run'],
+  },
+  'registry-install': {
+    name: 'registry-install',
+    description: 'Install a skill from the on-chain registry',
+    commandOptions: SKILL_COMMAND_OPTIONS['registry-install'],
+    run: runRegistryInstallCommand as SkillCommandDescriptor['run'],
+  },
+  publish: {
+    name: 'publish',
+    description: 'Publish a skill to the on-chain registry',
+    commandOptions: SKILL_COMMAND_OPTIONS.publish,
+    run: runRegistryPublishCommand as SkillCommandDescriptor['run'],
+  },
+  rate: {
+    name: 'rate',
+    description: 'Rate a skill in the on-chain registry',
+    commandOptions: SKILL_COMMAND_OPTIONS.rate,
+    run: runRegistryRateCommand as SkillCommandDescriptor['run'],
+  },
+  verify: {
+    name: 'verify',
+    description: 'Verify a skill content hash against the on-chain registry',
+    commandOptions: SKILL_COMMAND_OPTIONS.verify,
+    run: runRegistryVerifyCommand as SkillCommandDescriptor['run'],
+  },
+  'import-openclaw': {
+    name: 'import-openclaw',
+    description: 'Import an OpenClaw skill and convert to AgenC format',
+    commandOptions: SKILL_COMMAND_OPTIONS['import-openclaw'],
+    run: runImportOpenclawCommand as SkillCommandDescriptor['run'],
+  },
 };
 
 function validateSkillCommand(name: string): name is SkillCommand {
   return name === 'list' || name === 'info' || name === 'validate'
     || name === 'create' || name === 'install' || name === 'uninstall'
-    || name === 'enable' || name === 'disable';
+    || name === 'enable' || name === 'disable'
+    || name === 'search' || name === 'registry-install' || name === 'publish'
+    || name === 'rate' || name === 'verify' || name === 'import-openclaw';
 }
 
 const ERROR_CODES = {
@@ -462,6 +521,12 @@ function buildHelp(): string {
     '  uninstall <name>                   Remove a user-level skill',
     '  enable <name>                      Enable a disabled skill',
     '  disable <name>                     Disable a skill',
+    '  search <query> [--tags t1,t2] [--limit N]  Search on-chain skill registry',
+    '  registry-install <skill-id>        Install a skill from the on-chain registry',
+    '  publish <path> [--tags t1,t2] [--price N]  Publish a skill to the on-chain registry',
+    '  rate <skill-id> <1-5> [--review "text"]    Rate a skill in the on-chain registry',
+    '  verify <skill-id> [--path <file>]  Verify skill hash against on-chain registry',
+    '  import-openclaw <path-or-url>      Import an OpenClaw skill to AgenC format',
     '',
     'Plugin subcommands:',
     '  list                               List registered plugins',
@@ -583,6 +648,12 @@ function buildHelp(): string {
     '  agenc-runtime skill uninstall my-skill',
     '  agenc-runtime skill enable my-skill',
     '  agenc-runtime skill disable my-skill',
+    '  agenc-runtime skill search "defi swap" --tags defi,swap --limit 5',
+    '  agenc-runtime skill registry-install my-skill-id',
+    '  agenc-runtime skill publish ./skills/my-skill.md --tags defi --price 1000000',
+    '  agenc-runtime skill rate my-skill-id 5 --review "Great skill!"',
+    '  agenc-runtime skill verify my-skill-id --path ./local-skill.md',
+    '  agenc-runtime skill import-openclaw ./openclaw-skill.md',
   ].join('\n');
 }
 
@@ -1485,6 +1556,60 @@ function normalizeAndValidateSkillCommand(
       throw createCliError('skill install requires a source argument', ERROR_CODES.MISSING_TARGET);
     }
     options = { ...base, source } as SkillInstallOptions;
+  } else if (skillCommand === 'search') {
+    const query = parsed.positional[2];
+    if (!query) {
+      throw createCliError('skill search requires a query argument', ERROR_CODES.MISSING_TARGET);
+    }
+    const tagsRaw = parsed.flags.tags;
+    const tags = typeof tagsRaw === 'string' ? tagsRaw.split(',').map((t) => t.trim()).filter(Boolean) : undefined;
+    const limitRaw = parsed.flags.limit;
+    const limit = typeof limitRaw === 'number' ? limitRaw
+      : typeof limitRaw === 'string' ? Number.parseInt(limitRaw, 10)
+      : undefined;
+    options = { ...base, query, tags, limit } as RegistrySearchOptions;
+  } else if (skillCommand === 'registry-install') {
+    const skillId = parsed.positional[2];
+    if (!skillId) {
+      throw createCliError('skill registry-install requires a skill-id argument', ERROR_CODES.MISSING_TARGET);
+    }
+    options = { ...base, skillId } as RegistryInstallOptions;
+  } else if (skillCommand === 'publish') {
+    const skillPath = parsed.positional[2];
+    if (!skillPath) {
+      throw createCliError('skill publish requires a path argument', ERROR_CODES.MISSING_TARGET);
+    }
+    const tagsRaw = parsed.flags.tags;
+    const tags = typeof tagsRaw === 'string' ? tagsRaw.split(',').map((t) => t.trim()).filter(Boolean) : undefined;
+    const priceLamports = typeof parsed.flags.price === 'string' ? parsed.flags.price
+      : typeof parsed.flags.price === 'number' ? String(parsed.flags.price)
+      : undefined;
+    options = { ...base, skillPath, tags, priceLamports } as RegistryPublishOptions;
+  } else if (skillCommand === 'rate') {
+    const skillId = parsed.positional[2];
+    const ratingRaw = parsed.positional[3];
+    if (!skillId || !ratingRaw) {
+      throw createCliError('skill rate requires <skill-id> <rating> arguments', ERROR_CODES.MISSING_TARGET);
+    }
+    const rating = Number.parseInt(ratingRaw, 10);
+    if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
+      throw createCliError('rating must be an integer between 1 and 5', ERROR_CODES.INVALID_VALUE);
+    }
+    const review = typeof parsed.flags.review === 'string' ? parsed.flags.review : undefined;
+    options = { ...base, skillId, rating, review } as RegistryRateOptions;
+  } else if (skillCommand === 'verify') {
+    const skillId = parsed.positional[2];
+    if (!skillId) {
+      throw createCliError('skill verify requires a skill-id argument', ERROR_CODES.MISSING_TARGET);
+    }
+    const localPath = typeof parsed.flags.path === 'string' ? parsed.flags.path : undefined;
+    options = { ...base, skillId, localPath } as RegistryVerifyOptions;
+  } else if (skillCommand === 'import-openclaw') {
+    const source = parsed.positional[2];
+    if (!source) {
+      throw createCliError('skill import-openclaw requires a source argument', ERROR_CODES.MISSING_TARGET);
+    }
+    options = { ...base, source } as RegistryImportOpenclawOptions;
   } else {
     options = { ...base };
   }
