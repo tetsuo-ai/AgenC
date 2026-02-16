@@ -392,6 +392,61 @@
       "args": []
     },
     {
+      "name": "cancel_proposal",
+      "docs": [
+        "Cancel a governance proposal before any votes are cast.",
+        "Only the proposer's authority can cancel."
+      ],
+      "discriminator": [
+        106,
+        74,
+        128,
+        146,
+        19,
+        65,
+        39,
+        23
+      ],
+      "accounts": [
+        {
+          "name": "proposal",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  112,
+                  111,
+                  115,
+                  97,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "proposal.proposer",
+                "account": "Proposal"
+              },
+              {
+                "kind": "account",
+                "path": "proposal.nonce",
+                "account": "Proposal"
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "signer": true
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "cancel_task",
       "docs": [
         "Cancel an unclaimed or expired task and reclaim funds."
@@ -1394,6 +1449,172 @@
       ]
     },
     {
+      "name": "create_proposal",
+      "docs": [
+        "Create a governance proposal.",
+        "Proposer must be an active agent with sufficient stake."
+      ],
+      "discriminator": [
+        132,
+        116,
+        68,
+        174,
+        216,
+        160,
+        198,
+        22
+      ],
+      "accounts": [
+        {
+          "name": "proposal",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  112,
+                  111,
+                  115,
+                  97,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "proposer"
+              },
+              {
+                "kind": "arg",
+                "path": "nonce"
+              }
+            ]
+          }
+        },
+        {
+          "name": "proposer",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  103,
+                  101,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "proposer.agent_id",
+                "account": "AgentRegistration"
+              }
+            ]
+          }
+        },
+        {
+          "name": "protocol_config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "governance_config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  111,
+                  118,
+                  101,
+                  114,
+                  110,
+                  97,
+                  110,
+                  99,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "proposer"
+          ]
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "nonce",
+          "type": "u64"
+        },
+        {
+          "name": "proposal_type",
+          "type": "u8"
+        },
+        {
+          "name": "title_hash",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "description_hash",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "payload",
+          "type": {
+            "array": [
+              "u8",
+              64
+            ]
+          }
+        },
+        {
+          "name": "voting_period",
+          "type": "i64"
+        }
+      ]
+    },
+    {
       "name": "create_task",
       "docs": [
         "Create a new task with requirements and optional reward.",
@@ -1710,6 +1931,127 @@
           "relations": [
             "agent"
           ]
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "execute_proposal",
+      "docs": [
+        "Execute an approved governance proposal after voting period ends.",
+        "Permissionless — anyone can call after quorum + majority is met."
+      ],
+      "discriminator": [
+        186,
+        60,
+        116,
+        133,
+        108,
+        128,
+        111,
+        28
+      ],
+      "accounts": [
+        {
+          "name": "proposal",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  112,
+                  111,
+                  115,
+                  97,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "proposal.proposer",
+                "account": "Proposal"
+              },
+              {
+                "kind": "account",
+                "path": "proposal.nonce",
+                "account": "Proposal"
+              }
+            ]
+          }
+        },
+        {
+          "name": "protocol_config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "governance_config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  111,
+                  118,
+                  101,
+                  114,
+                  110,
+                  97,
+                  110,
+                  99,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "executor",
+          "docs": [
+            "Executor can be anyone (permissionless after voting ends)"
+          ],
+          "signer": true
+        },
+        {
+          "name": "treasury",
+          "docs": [
+            "Must be a program-owned PDA matching protocol_config.treasury."
+          ],
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "recipient",
+          "docs": [
+            "Validated from proposal payload in handler."
+          ],
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
         }
       ],
       "args": []
@@ -2074,6 +2416,99 @@
         }
       ],
       "args": []
+    },
+    {
+      "name": "initialize_governance",
+      "docs": [
+        "Initialize governance configuration.",
+        "Must be called by the protocol authority."
+      ],
+      "discriminator": [
+        171,
+        87,
+        101,
+        237,
+        27,
+        107,
+        201,
+        57
+      ],
+      "accounts": [
+        {
+          "name": "governance_config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  111,
+                  118,
+                  101,
+                  114,
+                  110,
+                  97,
+                  110,
+                  99,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "protocol_config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "voting_period",
+          "type": "i64"
+        },
+        {
+          "name": "execution_delay",
+          "type": "i64"
+        },
+        {
+          "name": "quorum_bps",
+          "type": "u16"
+        },
+        {
+          "name": "approval_threshold_bps",
+          "type": "u16"
+        },
+        {
+          "name": "min_proposal_stake",
+          "type": "u64"
+        }
+      ]
     },
     {
       "name": "initialize_protocol",
@@ -3521,6 +3956,152 @@
           "type": "bool"
         }
       ]
+    },
+    {
+      "name": "vote_proposal",
+      "docs": [
+        "Vote on a governance proposal.",
+        "Voter must be an active agent. Double voting prevented by PDA uniqueness."
+      ],
+      "discriminator": [
+        247,
+        104,
+        114,
+        240,
+        237,
+        41,
+        200,
+        36
+      ],
+      "accounts": [
+        {
+          "name": "proposal",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  112,
+                  111,
+                  115,
+                  97,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "proposal.proposer",
+                "account": "Proposal"
+              },
+              {
+                "kind": "account",
+                "path": "proposal.nonce",
+                "account": "Proposal"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vote",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  111,
+                  118,
+                  101,
+                  114,
+                  110,
+                  97,
+                  110,
+                  99,
+                  101,
+                  95,
+                  118,
+                  111,
+                  116,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "proposal"
+              },
+              {
+                "kind": "account",
+                "path": "voter"
+              }
+            ]
+          }
+        },
+        {
+          "name": "voter",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  103,
+                  101,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "voter.agent_id",
+                "account": "AgentRegistration"
+              }
+            ]
+          }
+        },
+        {
+          "name": "protocol_config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "voter"
+          ]
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "approve",
+          "type": "bool"
+        }
+      ]
     }
   ],
   "accounts": [
@@ -3590,6 +4171,32 @@
       ]
     },
     {
+      "name": "GovernanceConfig",
+      "discriminator": [
+        81,
+        63,
+        124,
+        107,
+        210,
+        100,
+        145,
+        70
+      ]
+    },
+    {
+      "name": "GovernanceVote",
+      "discriminator": [
+        157,
+        104,
+        16,
+        111,
+        208,
+        31,
+        53,
+        132
+      ]
+    },
+    {
       "name": "Nullifier",
       "discriminator": [
         18,
@@ -3600,6 +4207,19 @@
         158,
         187,
         133
+      ]
+    },
+    {
+      "name": "Proposal",
+      "discriminator": [
+        26,
+        94,
+        189,
+        187,
+        116,
+        136,
+        53,
+        33
       ]
     },
     {
@@ -3865,6 +4485,32 @@
       ]
     },
     {
+      "name": "GovernanceInitialized",
+      "discriminator": [
+        41,
+        187,
+        103,
+        26,
+        42,
+        44,
+        30,
+        15
+      ]
+    },
+    {
+      "name": "GovernanceVoteCast",
+      "discriminator": [
+        223,
+        253,
+        198,
+        94,
+        141,
+        151,
+        78,
+        57
+      ]
+    },
+    {
       "name": "MigrationCompleted",
       "discriminator": [
         223,
@@ -3875,6 +4521,45 @@
         249,
         6,
         241
+      ]
+    },
+    {
+      "name": "ProposalCancelled",
+      "discriminator": [
+        253,
+        59,
+        104,
+        46,
+        129,
+        78,
+        9,
+        14
+      ]
+    },
+    {
+      "name": "ProposalCreated",
+      "discriminator": [
+        186,
+        8,
+        160,
+        108,
+        81,
+        13,
+        51,
+        206
+      ]
+    },
+    {
+      "name": "ProposalExecuted",
+      "discriminator": [
+        92,
+        213,
+        189,
+        201,
+        101,
+        83,
+        111,
+        83
       ]
     },
     {
@@ -4782,6 +5467,76 @@
       "code": 6146,
       "name": "TokenTransferFailed",
       "msg": "SPL token transfer CPI failed"
+    },
+    {
+      "code": 6147,
+      "name": "ProposalNotActive",
+      "msg": "Proposal is not active"
+    },
+    {
+      "code": 6148,
+      "name": "ProposalVotingNotEnded",
+      "msg": "Voting period has not ended"
+    },
+    {
+      "code": 6149,
+      "name": "ProposalVotingEnded",
+      "msg": "Voting period has ended"
+    },
+    {
+      "code": 6150,
+      "name": "ProposalAlreadyExecuted",
+      "msg": "Proposal has already been executed"
+    },
+    {
+      "code": 6151,
+      "name": "ProposalInsufficientQuorum",
+      "msg": "Insufficient quorum for proposal execution"
+    },
+    {
+      "code": 6152,
+      "name": "ProposalNotApproved",
+      "msg": "Proposal did not achieve majority"
+    },
+    {
+      "code": 6153,
+      "name": "ProposalUnauthorizedCancel",
+      "msg": "Only the proposer can cancel this proposal"
+    },
+    {
+      "code": 6154,
+      "name": "ProposalInsufficientStake",
+      "msg": "Insufficient stake to create a proposal"
+    },
+    {
+      "code": 6155,
+      "name": "InvalidProposalPayload",
+      "msg": "Invalid proposal payload"
+    },
+    {
+      "code": 6156,
+      "name": "InvalidProposalType",
+      "msg": "Invalid proposal type"
+    },
+    {
+      "code": 6157,
+      "name": "TreasuryInsufficientBalance",
+      "msg": "Treasury spend amount exceeds available balance"
+    },
+    {
+      "code": 6158,
+      "name": "TimelockNotElapsed",
+      "msg": "Execution timelock has not elapsed"
+    },
+    {
+      "code": 6159,
+      "name": "InvalidGovernanceParam",
+      "msg": "Invalid governance configuration parameter"
+    },
+    {
+      "code": 6160,
+      "name": "TreasuryNotProgramOwned",
+      "msg": "Treasury must be a program-owned PDA"
     }
   ],
   "types": [
@@ -5985,6 +6740,226 @@
       }
     },
     {
+      "name": "GovernanceConfig",
+      "docs": [
+        "Governance configuration account",
+        "PDA seeds: [\"governance\"]"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "authority",
+            "docs": [
+              "Protocol authority (must match ProtocolConfig.authority at init time)"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "min_proposal_stake",
+            "docs": [
+              "Minimum stake required to create a proposal"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "voting_period",
+            "docs": [
+              "Voting period in seconds for new proposals"
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "execution_delay",
+            "docs": [
+              "Execution delay after voting ends (timelock) in seconds"
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "quorum_bps",
+            "docs": [
+              "Quorum in basis points of total agents' stake"
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "approval_threshold_bps",
+            "docs": [
+              "Approval threshold in basis points (e.g., 5000 = simple majority)"
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "total_proposals",
+            "docs": [
+              "Total proposals created (monotonic counter)"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "bump",
+            "docs": [
+              "Bump seed"
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "_reserved",
+            "docs": [
+              "Reserved for future use"
+            ],
+            "type": {
+              "array": [
+                "u8",
+                64
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "GovernanceInitialized",
+      "docs": [
+        "Emitted when governance configuration is initialized"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "voting_period",
+            "type": "i64"
+          },
+          {
+            "name": "execution_delay",
+            "type": "i64"
+          },
+          {
+            "name": "quorum_bps",
+            "type": "u16"
+          },
+          {
+            "name": "approval_threshold_bps",
+            "type": "u16"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "GovernanceVote",
+      "docs": [
+        "Governance vote record",
+        "PDA seeds: [\"governance_vote\", proposal, voter]"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "proposal",
+            "docs": [
+              "Proposal being voted on"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "voter",
+            "docs": [
+              "Voter (agent PDA)"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "approved",
+            "docs": [
+              "Vote (true = approve, false = reject)"
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "voted_at",
+            "docs": [
+              "Vote timestamp"
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "vote_weight",
+            "docs": [
+              "Voter's effective vote weight (reputation * stake, capped)"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "bump",
+            "docs": [
+              "Bump seed"
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "_reserved",
+            "docs": [
+              "Reserved for future use"
+            ],
+            "type": {
+              "array": [
+                "u8",
+                8
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "GovernanceVoteCast",
+      "docs": [
+        "Emitted when a vote is cast on a governance proposal"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "proposal",
+            "type": "pubkey"
+          },
+          {
+            "name": "voter",
+            "type": "pubkey"
+          },
+          {
+            "name": "approved",
+            "type": "bool"
+          },
+          {
+            "name": "vote_weight",
+            "type": "u64"
+          },
+          {
+            "name": "votes_for",
+            "type": "u64"
+          },
+          {
+            "name": "votes_against",
+            "type": "u64"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
       "name": "MigrationCompleted",
       "docs": [
         "Emitted when protocol migration is completed"
@@ -6113,6 +7088,325 @@
                 32
               ]
             }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Proposal",
+      "docs": [
+        "Governance proposal account",
+        "PDA seeds: [\"proposal\", proposer, nonce]"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "proposer",
+            "docs": [
+              "Proposer's agent PDA"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "proposer_authority",
+            "docs": [
+              "Proposer's authority wallet"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "nonce",
+            "docs": [
+              "Monotonic nonce per proposer (allows multiple proposals)"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "proposal_type",
+            "docs": [
+              "Proposal type"
+            ],
+            "type": {
+              "defined": {
+                "name": "ProposalType"
+              }
+            }
+          },
+          {
+            "name": "title_hash",
+            "docs": [
+              "Title hash (SHA256 of title string)"
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "description_hash",
+            "docs": [
+              "Description hash (SHA256 of description/URI)"
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "payload",
+            "docs": [
+              "Type-specific payload (64 bytes)",
+              "FeeChange: new fee bps as u16 LE in bytes [0..2], rest zero",
+              "TreasurySpend: recipient Pubkey [0..32] + amount u64 LE [32..40], rest zero",
+              "ProtocolUpgrade: reserved for future parameter batch changes"
+            ],
+            "type": {
+              "array": [
+                "u8",
+                64
+              ]
+            }
+          },
+          {
+            "name": "status",
+            "docs": [
+              "Current status"
+            ],
+            "type": {
+              "defined": {
+                "name": "ProposalStatus"
+              }
+            }
+          },
+          {
+            "name": "created_at",
+            "docs": [
+              "Creation timestamp"
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "voting_deadline",
+            "docs": [
+              "Voting deadline (no new votes accepted after this)"
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "execution_after",
+            "docs": [
+              "Earliest timestamp at which the proposal can be executed (timelock)"
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "executed_at",
+            "docs": [
+              "Execution timestamp (0 if not executed)"
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "votes_for",
+            "docs": [
+              "Total stake-weighted votes for approval"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "votes_against",
+            "docs": [
+              "Total stake-weighted votes against"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "total_voters",
+            "docs": [
+              "Number of individual voters"
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "quorum",
+            "docs": [
+              "Required quorum (minimum total stake-weighted votes)"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "bump",
+            "docs": [
+              "Bump seed"
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "_reserved",
+            "docs": [
+              "Reserved for future use"
+            ],
+            "type": {
+              "array": [
+                "u8",
+                64
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "ProposalCancelled",
+      "docs": [
+        "Emitted when a governance proposal is cancelled"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "proposal",
+            "type": "pubkey"
+          },
+          {
+            "name": "proposer",
+            "type": "pubkey"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ProposalCreated",
+      "docs": [
+        "Emitted when a governance proposal is created"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "proposer",
+            "type": "pubkey"
+          },
+          {
+            "name": "proposal_type",
+            "type": "u8"
+          },
+          {
+            "name": "title_hash",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "voting_deadline",
+            "type": "i64"
+          },
+          {
+            "name": "quorum",
+            "type": "u64"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ProposalExecuted",
+      "docs": [
+        "Emitted when a governance proposal is executed"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "proposal",
+            "type": "pubkey"
+          },
+          {
+            "name": "proposal_type",
+            "type": "u8"
+          },
+          {
+            "name": "votes_for",
+            "type": "u64"
+          },
+          {
+            "name": "votes_against",
+            "type": "u64"
+          },
+          {
+            "name": "total_voters",
+            "type": "u16"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ProposalStatus",
+      "docs": [
+        "Governance proposal status"
+      ],
+      "repr": {
+        "kind": "rust"
+      },
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Active"
+          },
+          {
+            "name": "Executed"
+          },
+          {
+            "name": "Defeated"
+          },
+          {
+            "name": "Cancelled"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ProposalType",
+      "docs": [
+        "Governance proposal type"
+      ],
+      "repr": {
+        "kind": "rust"
+      },
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "ProtocolUpgrade"
+          },
+          {
+            "name": "FeeChange"
+          },
+          {
+            "name": "TreasurySpend"
+          },
+          {
+            "name": "RateLimitChange"
           }
         ]
       }

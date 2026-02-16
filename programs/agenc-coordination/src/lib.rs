@@ -366,4 +366,65 @@ pub mod agenc_coordination {
     pub fn update_min_version(ctx: Context<UpdateMinVersion>, new_min_version: u8) -> Result<()> {
         instructions::migrate::update_min_version_handler(ctx, new_min_version)
     }
+
+    /// Initialize governance configuration.
+    /// Must be called by the protocol authority.
+    pub fn initialize_governance(
+        ctx: Context<InitializeGovernance>,
+        voting_period: i64,
+        execution_delay: i64,
+        quorum_bps: u16,
+        approval_threshold_bps: u16,
+        min_proposal_stake: u64,
+    ) -> Result<()> {
+        instructions::initialize_governance::handler(
+            ctx,
+            voting_period,
+            execution_delay,
+            quorum_bps,
+            approval_threshold_bps,
+            min_proposal_stake,
+        )
+    }
+
+    /// Create a governance proposal.
+    /// Proposer must be an active agent with sufficient stake.
+    #[allow(clippy::too_many_arguments)]
+    pub fn create_proposal(
+        ctx: Context<CreateProposal>,
+        nonce: u64,
+        proposal_type: u8,
+        title_hash: [u8; 32],
+        description_hash: [u8; 32],
+        payload: [u8; 64],
+        voting_period: i64,
+    ) -> Result<()> {
+        instructions::create_proposal::handler(
+            ctx,
+            nonce,
+            proposal_type,
+            title_hash,
+            description_hash,
+            payload,
+            voting_period,
+        )
+    }
+
+    /// Vote on a governance proposal.
+    /// Voter must be an active agent. Double voting prevented by PDA uniqueness.
+    pub fn vote_proposal(ctx: Context<VoteProposal>, approve: bool) -> Result<()> {
+        instructions::vote_proposal::handler(ctx, approve)
+    }
+
+    /// Execute an approved governance proposal after voting period ends.
+    /// Permissionless — anyone can call after quorum + majority is met.
+    pub fn execute_proposal(ctx: Context<ExecuteProposal>) -> Result<()> {
+        instructions::execute_proposal::handler(ctx)
+    }
+
+    /// Cancel a governance proposal before any votes are cast.
+    /// Only the proposer's authority can cancel.
+    pub fn cancel_proposal(ctx: Context<CancelProposal>) -> Result<()> {
+        instructions::cancel_proposal::handler(ctx)
+    }
 }

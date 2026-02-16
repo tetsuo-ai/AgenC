@@ -234,7 +234,6 @@ export {
 export type {
   HeartbeatConfig,
   HeartbeatAction,
-  HeartbeatContext,
   HeartbeatResult,
   HeartbeatRunSummary,
   HeartbeatSchedulerOptions,
