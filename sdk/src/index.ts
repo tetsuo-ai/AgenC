@@ -262,5 +262,18 @@ export {
   LogLevel,
 } from './logger';
 
+export {
+  ProposalType,
+  ProposalStatus,
+  deriveGovernanceConfigPda,
+  deriveProposalPda,
+  deriveGovernanceVotePda,
+  RECOMMENDED_CU_INITIALIZE_GOVERNANCE,
+  RECOMMENDED_CU_CREATE_PROPOSAL,
+  RECOMMENDED_CU_VOTE_PROPOSAL,
+  RECOMMENDED_CU_EXECUTE_PROPOSAL,
+  RECOMMENDED_CU_CANCEL_PROPOSAL,
+} from './governance';
+
 // Version info
 export const VERSION = '1.3.0';
