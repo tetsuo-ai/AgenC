@@ -401,3 +401,54 @@ pub struct ReputationChanged {
     pub reason: u8,
     pub timestamp: i64,
 }
+
+// ============================================================================
+// Skill registry events
+// ============================================================================
+
+/// Emitted when a new skill is registered
+#[event]
+pub struct SkillRegistered {
+    pub skill: Pubkey,
+    pub author: Pubkey,
+    pub skill_id: [u8; 32],
+    pub name: [u8; 32],
+    pub content_hash: [u8; 32],
+    pub price: u64,
+    pub price_mint: Option<Pubkey>,
+    pub timestamp: i64,
+}
+
+/// Emitted when a skill is updated by its author
+#[event]
+pub struct SkillUpdated {
+    pub skill: Pubkey,
+    pub author: Pubkey,
+    pub content_hash: [u8; 32],
+    pub price: u64,
+    pub version: u8,
+    pub timestamp: i64,
+}
+
+/// Emitted when a skill is rated by another agent
+#[event]
+pub struct SkillRated {
+    pub skill: Pubkey,
+    pub rater: Pubkey,
+    pub rating: u8,
+    pub rater_reputation: u16,
+    pub new_total_rating: u64,
+    pub new_rating_count: u32,
+    pub timestamp: i64,
+}
+
+/// Emitted when a skill is purchased
+#[event]
+pub struct SkillPurchased {
+    pub skill: Pubkey,
+    pub buyer: Pubkey,
+    pub author: Pubkey,
+    pub price_paid: u64,
+    pub protocol_fee: u64,
+    pub timestamp: i64,
+}

@@ -56,3 +56,11 @@ export {
   type AuditTrailStore,
   type AuditTrailVerification,
 } from './audit-trail.js';
+
+export {
+  ToolPolicyEvaluator,
+  type ToolPermissionPolicy,
+  type ToolPolicyConditions,
+  type ToolPolicyContext,
+  type ToolPolicyDecision,
+} from './tool-policy.js';

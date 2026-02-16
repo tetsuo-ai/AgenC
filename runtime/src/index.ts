@@ -448,6 +448,11 @@ export {
   type DiscoveredSkill,
   type MissingRequirement,
   SkillDiscovery,
+  // OpenClaw compatibility bridge
+  detectNamespace,
+  convertOpenClawSkill,
+  mapOpenClawMetadata,
+  importSkill,
   // Remote skill registry client (Phase 6.1)
   type SkillListing,
   type SkillListingEntry,
@@ -805,6 +810,11 @@ export {
   type AuditTrailEntry,
   type AuditTrailStore,
   type AuditTrailVerification,
+  ToolPolicyEvaluator,
+  type ToolPermissionPolicy,
+  type ToolPolicyConditions,
+  type ToolPolicyContext,
+  type ToolPolicyDecision,
 } from './policy/index.js';
 
 // Tool System (Phase 5)
@@ -924,6 +934,13 @@ export {
   createEmbeddingProvider,
   cosineSimilarity,
   normalizeVector,
+  // Vector store
+  InMemoryVectorStore,
+  type InMemoryVectorStoreConfig,
+  type VectorMemoryBackend,
+  type VectorSearchOptions,
+  type HybridSearchOptions,
+  type ScoredMemoryEntry,
   // Memory graph
   MemoryGraph,
   type ProvenanceSourceType,
@@ -1285,6 +1302,11 @@ export {
   type ToolPolicy,
   type WorkspaceTemplate,
   type WorkspaceConfigJson,
+  // Session isolation (Phase 7.3)
+  SessionIsolationManager,
+  type IsolatedSessionContext,
+  type SessionIsolationManagerConfig,
+  type AuthState,
   // Slash commands (Phase 1.5)
   SlashCommandRegistry,
   createDefaultCommands,
@@ -1373,6 +1395,18 @@ export {
   type PendingLink,
   type IdentityResolverConfig,
   type IdentityStore,
+  // Execution sandboxing (Phase 4.5)
+  SandboxManager,
+  SandboxExecutionError,
+  SandboxUnavailableError,
+  defaultSandboxConfig,
+  checkDockerAvailable,
+  type SandboxConfig,
+  type SandboxResult,
+  type SandboxExecuteOptions,
+  type SandboxMode,
+  type SandboxScope,
+  type WorkspaceAccessMode,
 } from './gateway/index.js';
 
 // Channel Plugins (Phase 1.5)
