@@ -192,6 +192,7 @@ describe('isProcessAlive', () => {
   });
 
   it('returns false for non-existent PID', () => {
+    // PID well above Linux PID_MAX (typically 4194304) — guaranteed ESRCH
     expect(isProcessAlive(99999999)).toBe(false);
   });
 });
@@ -382,6 +383,7 @@ describe('Service templates', () => {
     expect(unit).toContain('Type=simple');
     expect(unit).toContain('Restart=on-failure');
     expect(unit).toContain('RestartSec=10s');
+    expect(unit).toContain('TimeoutStopSec=35s');
     expect(unit).toContain('ExecStart=node /usr/lib/agenc/daemon.js --config /etc/agenc.json --foreground');
     expect(unit).not.toContain('WatchdogSec');
   });

@@ -187,7 +187,7 @@ const ONBOARD_COMMAND_OPTIONS = new Set(['non-interactive', 'force']);
 const HEALTH_COMMAND_OPTIONS = new Set(['non-interactive', 'deep']);
 const DOCTOR_COMMAND_OPTIONS = new Set(['non-interactive', 'deep', 'fix']);
 
-const START_COMMAND_OPTIONS = new Set(['foreground', 'pid-path', 'log-level']);
+const START_COMMAND_OPTIONS = new Set(['foreground', 'pid-path']);
 const STOP_COMMAND_OPTIONS = new Set(['pid-path', 'timeout']);
 const RESTART_COMMAND_OPTIONS = new Set([...START_COMMAND_OPTIONS, ...STOP_COMMAND_OPTIONS]);
 const STATUS_COMMAND_OPTIONS = new Set(['pid-path', 'port']);
@@ -338,6 +338,7 @@ function buildHelp(): string {
     '      --fix                                 Attempt automatic remediation where possible',
     '',
     'start options:',
+    '      --config <path>                           Gateway config file path',
     '      --foreground                              Run in foreground (systemd/Docker mode)',
     '      --pid-path <path>                         Custom PID file path',
     '',

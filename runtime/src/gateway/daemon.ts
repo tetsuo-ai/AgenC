@@ -302,6 +302,7 @@ export function generateSystemdUnit(options: {
     `ExecStart=${options.execStart}`,
     'Restart=on-failure',
     'RestartSec=10s',
+    'TimeoutStopSec=35s',
     'Environment=NODE_ENV=production',
   ];
   if (options.user) {
@@ -348,10 +349,7 @@ export function generateLaunchdPlist(options: {
     programArgs,
     '  </array>',
     '  <key>KeepAlive</key>',
-    '  <dict>',
-    '    <key>SuccessfulExit</key>',
-    '    <false/>',
-    '  </dict>',
+    '  <true/>',
     '  <key>StandardOutPath</key>',
     `  <string>${escapeXml(join(logDir, 'agenc-stdout.log'))}</string>`,
     '  <key>StandardErrorPath</key>',

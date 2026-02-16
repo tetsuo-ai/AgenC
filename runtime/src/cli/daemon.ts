@@ -335,9 +335,10 @@ export async function runStatusCommand(
 
 async function queryControlPlane(port: number): Promise<unknown> {
   // Dynamic import to handle missing ws dependency
-  let WsConstructor: new (url: string) => import('ws');
+  type WsLike = { on(e: string, h: (...a: unknown[]) => void): void; send(d: string): void; close(): void };
+  let WsConstructor: new (url: string) => WsLike;
   try {
-    const wsModule = await import('ws') as { default: new (url: string) => import('ws') };
+    const wsModule = await import('ws') as { default: new (url: string) => WsLike };
     WsConstructor = wsModule.default;
   } catch {
     return null;
@@ -363,7 +364,7 @@ async function queryControlPlane(port: number): Promise<unknown> {
       ws.send(JSON.stringify({ type: 'status' }));
     });
 
-    ws.on('message', (data: Buffer | string) => {
+    ws.on('message', (data: unknown) => {
       try {
         const parsed = JSON.parse(String(data));
         ws.close();
