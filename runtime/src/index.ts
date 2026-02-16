@@ -934,6 +934,13 @@ export {
   createEmbeddingProvider,
   cosineSimilarity,
   normalizeVector,
+  // Vector store
+  InMemoryVectorStore,
+  type InMemoryVectorStoreConfig,
+  type VectorMemoryBackend,
+  type VectorSearchOptions,
+  type HybridSearchOptions,
+  type ScoredMemoryEntry,
   // Memory graph
   MemoryGraph,
   type ProvenanceSourceType,
