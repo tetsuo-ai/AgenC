@@ -1317,5 +1317,13 @@ export {
   type ReactionEvent,
 } from './gateway/index.js';
 
+// Channel Plugins (Phase 1.5)
+export {
+  TelegramChannel,
+  ChannelConnectionError,
+  type TelegramChannelConfig,
+  type TelegramWebhookConfig,
+} from './channels/index.js';
+
 // Agent Builder (Phase 10)
 export { AgentBuilder, BuiltAgent } from './builder.js';
