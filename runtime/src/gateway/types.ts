@@ -104,11 +104,12 @@ export interface GatewayEventSubscription {
 // Control Plane Messages
 // ============================================================================
 
-export type ControlMessageType = 'ping' | 'status' | 'reload' | 'channels';
+export type ControlMessageType = 'ping' | 'status' | 'reload' | 'channels' | 'sessions' | 'sessions.kill';
 
 export interface ControlMessage {
   type: ControlMessageType;
   id?: string;
+  payload?: unknown;
 }
 
 export interface ControlResponse {
