@@ -18,6 +18,7 @@
 import type { PublicKey } from '@solana/web3.js';
 import type { Logger } from '../utils/logger.js';
 import { silentLogger } from '../utils/logger.js';
+import { sleep } from '../utils/async.js';
 import type { TaskOperations } from './operations.js';
 import type { TaskDiscovery, TaskDiscoveryResult } from './discovery.js';
 import type {
@@ -1150,10 +1151,6 @@ export class TaskExecutor {
 // ============================================================================
 // Helpers
 // ============================================================================
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
 
 /**
  * Compute the backoff delay for a given retry attempt.

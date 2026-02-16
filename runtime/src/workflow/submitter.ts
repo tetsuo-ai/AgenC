@@ -14,6 +14,7 @@ import anchor, { type Program } from '@coral-xyz/anchor';
 import type { AgencCoordination } from '../types/agenc_coordination.js';
 import type { Logger } from '../utils/logger.js';
 import { silentLogger } from '../utils/logger.js';
+import { sleep } from '../utils/async.js';
 import { generateAgentId, toAnchorBytes } from '../utils/encoding.js';
 import { findAgentPda, findProtocolPda } from '../agent/pda.js';
 import { findTaskPda, findEscrowPda } from '../task/pda.js';
@@ -331,8 +332,4 @@ export class DAGSubmitter {
       }
     }
   }
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
