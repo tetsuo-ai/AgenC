@@ -1304,6 +1304,16 @@ export {
   type HookContext,
   type HookResult,
   type DispatchResult,
+  // Cron scheduling (Phase 2.3)
+  parseCron,
+  cronMatches,
+  nextCronMatch,
+  CronScheduler,
+  type CronSchedule,
+  type CronSchedulerConfig,
+  type ScheduledJob,
+  type HeartbeatActionDef,
+  type HeartbeatContext,
   // Channel plugin (Phase 1.5)
   PluginCatalog,
   WebhookRouter,
