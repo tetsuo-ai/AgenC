@@ -66,6 +66,13 @@ import {
   type PluginSlot,
 } from '../skills/catalog.js';
 import {
+  runJobsListCommand,
+  runJobsRunCommand,
+  runJobsEnableCommand,
+  runJobsDisableCommand,
+} from './jobs.js';
+import { CronScheduler } from '../gateway/scheduler.js';
+import {
   createOnChainReplayBackfillFetcher,
   createReplayStore,
   parseLocalTrajectoryFile,
@@ -208,6 +215,7 @@ const STOP_COMMAND_OPTIONS = new Set(['pid-path', 'timeout']);
 const RESTART_COMMAND_OPTIONS = new Set([...START_COMMAND_OPTIONS, ...STOP_COMMAND_OPTIONS]);
 const STATUS_COMMAND_OPTIONS = new Set(['pid-path', 'port']);
 const SERVICE_COMMAND_OPTIONS = new Set(['macos']);
+const JOBS_COMMAND_OPTIONS = new Set<string>([]);
 
 const COMMANDS: Record<ReplayCommand, CliCommandDescriptor> = {
   backfill: {
@@ -381,6 +389,7 @@ function buildHelp(): string {
     'service install [--help] [options]',
     'replay [--help] <command> [options]',
     'plugin [--help] <command> [options]',
+    'jobs [--help] <command> [options]',
     'skill [--help] <command> [options]',
     '',
     'Bootstrap commands:',
@@ -400,6 +409,12 @@ function buildHelp(): string {
     '  backfill   Backfill replay timeline from on-chain history',
     '  compare    Compare replay projection against local trace',
     '  incident   Reconstruct incident timeline and summarize',
+    '',
+    'Jobs subcommands:',
+    '  list                               List scheduled jobs',
+    '  run <jobName>                      Trigger a scheduled job immediately',
+    '  enable <jobName>                   Enable a scheduled job',
+    '  disable <jobName>                  Disable a scheduled job',
     '',
     'Skill subcommands:',
     '  list                               List all discovered skills',
@@ -1694,6 +1709,57 @@ export async function runCli(options: CliRunOptions = {}): Promise<CliStatusCode
       const payload = buildErrorPayload(error);
       context.error(payload);
       return payload.code === ERROR_CODES.INVALID_OPTION ? 2 : 1;
+    }
+  }
+
+  if (parsed.positional[0] === 'jobs') {
+    try {
+      validateUnknownStandaloneOptions(parsed.flags, JOBS_COMMAND_OPTIONS);
+      const subcommand = parsed.positional[1] as string | undefined;
+
+      if (!subcommand) {
+        throw createCliError('missing jobs subcommand (list | run | enable | disable)', ERROR_CODES.MISSING_PLUGIN_COMMAND);
+      }
+
+      const scheduler = new CronScheduler();
+
+      if (subcommand === 'list') {
+        return await runJobsListCommand(context, scheduler);
+      }
+
+      const jobName = parsed.positional[2] as string | undefined;
+
+      if (subcommand === 'run') {
+        if (!jobName) {
+          throw createCliError('jobs run requires a job name', ERROR_CODES.MISSING_TARGET);
+        }
+        return await runJobsRunCommand(context, scheduler, jobName);
+      }
+
+      if (subcommand === 'enable') {
+        if (!jobName) {
+          throw createCliError('jobs enable requires a job name', ERROR_CODES.MISSING_TARGET);
+        }
+        return await runJobsEnableCommand(context, scheduler, jobName);
+      }
+
+      if (subcommand === 'disable') {
+        if (!jobName) {
+          throw createCliError('jobs disable requires a job name', ERROR_CODES.MISSING_TARGET);
+        }
+        return await runJobsDisableCommand(context, scheduler, jobName);
+      }
+
+      throw createCliError(`unknown jobs subcommand: ${subcommand}`, ERROR_CODES.UNKNOWN_PLUGIN_COMMAND);
+    } catch (error) {
+      const payload = buildErrorPayload(error);
+      context.error(payload);
+      return payload.code === ERROR_CODES.INVALID_OPTION
+        || payload.code === ERROR_CODES.MISSING_PLUGIN_COMMAND
+        || payload.code === ERROR_CODES.UNKNOWN_PLUGIN_COMMAND
+        || payload.code === ERROR_CODES.MISSING_TARGET
+        ? 2
+        : 1;
     }
   }
 

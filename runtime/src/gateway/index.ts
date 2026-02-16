@@ -158,6 +158,19 @@ export {
   type DispatchResult,
 } from './hooks.js';
 
+// Cron scheduling (Phase 2.3)
+export {
+  parseCron,
+  cronMatches,
+  nextCronMatch,
+  CronScheduler,
+  type CronSchedule,
+  type CronSchedulerConfig,
+  type ScheduledJob,
+  type HeartbeatActionDef,
+  type HeartbeatContext,
+} from './scheduler.js';
+
 // Approval policies (Phase 5)
 export type {
   ApprovalPolicyConfig,
