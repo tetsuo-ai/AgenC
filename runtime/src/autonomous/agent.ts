@@ -25,6 +25,7 @@ import {
   type SpeculationConfig,
 } from './types.js';
 import { Logger, createLogger, silentLogger } from '../utils/logger.js';
+import { sleep as sleepUtil } from '../utils/async.js';
 import { createProgram } from '../idl.js';
 import { findClaimPda, findEscrowPda } from '../task/pda.js';
 import { findProtocolPda } from '../agent/pda.js';
@@ -351,7 +352,7 @@ export class AutonomousAgent extends AgentRuntime {
       this.autonomousLogger.info(`Waiting for ${this.activeTasks.size} active tasks to complete...`);
       const timeout = Date.now() + SHUTDOWN_TIMEOUT_MS;
       while (this.activeTasks.size > 0 && Date.now() < timeout) {
-        await this.sleep(1000);
+        await sleepUtil(1000);
       }
       if (this.activeTasks.size > 0) {
         this.autonomousLogger.warn(`${this.activeTasks.size} tasks did not complete in time`);
@@ -1151,7 +1152,7 @@ export class AutonomousAgent extends AgentRuntime {
         if (attempt < this.maxRetries) {
           const delay = this.retryDelayMs * Math.pow(2, attempt - 1); // Exponential backoff
           this.autonomousLogger.warn(`${operation} failed (attempt ${attempt}/${this.maxRetries}), retrying in ${delay}ms...`);
-          await this.sleep(delay);
+          await sleepUtil(delay);
         }
       }
     }
@@ -1421,10 +1422,6 @@ export class AutonomousAgent extends AgentRuntime {
     if (this.completionTimes.length === 0) return 0;
     const sum = this.completionTimes.reduce((a, b) => a + b, 0);
     return Math.round(sum / this.completionTimes.length);
-  }
-
-  private sleep(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
   // ==========================================================================

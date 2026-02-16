@@ -112,6 +112,24 @@ export {
   type SlashCommandRegistryConfig,
 } from './commands.js';
 
+// Daemon lifecycle (Phase 2.4)
+export {
+  DaemonManager,
+  getDefaultPidPath,
+  writePidFile,
+  readPidFile,
+  removePidFile,
+  pidFileExists,
+  isProcessAlive,
+  checkStalePid,
+  generateSystemdUnit,
+  generateLaunchdPlist,
+  type DaemonManagerConfig,
+  type DaemonStatus,
+  type PidFileInfo,
+  type StalePidResult,
+} from './daemon.js';
+
 // Media pipeline (Phase 1.12)
 export type { MediaPipelineConfig, MediaProcessingResult, TranscriptionProvider, ImageDescriptionProvider, MediaLogger } from './media.js';
 export {
