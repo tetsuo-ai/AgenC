@@ -89,3 +89,13 @@ export {
   type StructuredMemoryEntry,
   type EntityExtractor,
 } from './structured.js';
+
+// Semantic memory retriever (Phase 5.5)
+export {
+  SemanticMemoryRetriever,
+  computeRetrievalScore,
+  estimateTokens as estimateMemoryTokens,
+  type SemanticMemoryRetrieverConfig,
+  type RetrievalResult,
+  type ScoredRetrievalEntry,
+} from './retriever.js';
