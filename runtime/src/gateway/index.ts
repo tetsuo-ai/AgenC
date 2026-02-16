@@ -66,6 +66,14 @@ export {
   scaffoldWorkspace,
 } from './workspace-files.js';
 
+// Personality templates (Phase 5.6)
+export type { PersonalityTemplate } from './personality.js';
+export {
+  loadPersonalityTemplate,
+  listPersonalityTemplates,
+  mergePersonality,
+} from './personality.js';
+
 // Session management (Phase 1.6)
 export type {
   SessionScope,
