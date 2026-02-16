@@ -103,3 +103,18 @@ export {
   estimateTokens,
   scoreRelevance,
 } from './markdown/index.js';
+
+// Remote skill registry client (Phase 6.1)
+export {
+  type SkillListing,
+  type SkillListingEntry,
+  type SkillRegistryClient,
+  type SkillRegistryClientConfig,
+  type SearchOptions,
+  OnChainSkillRegistryClient,
+  SkillRegistryNotFoundError,
+  SkillDownloadError,
+  SkillVerificationError,
+  SkillPublishError,
+  SKILL_REGISTRY_PROGRAM_ID,
+} from './registry/index.js';

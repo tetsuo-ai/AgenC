@@ -63,6 +63,7 @@ function createPrivateResult(): PrivateTaskExecutionResult {
     constraintHash: new Uint8Array(32).fill(4),
     outputCommitment: new Uint8Array(32).fill(5),
     expectedBinding: new Uint8Array(32).fill(6),
+    nullifier: new Uint8Array(32).fill(7),
   };
 }
 

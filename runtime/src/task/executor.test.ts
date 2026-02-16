@@ -1040,6 +1040,7 @@ describe('TaskExecutor', () => {
         constraintHash: new Uint8Array(32).fill(1),
         outputCommitment: new Uint8Array(32).fill(2),
         expectedBinding: new Uint8Array(32).fill(3),
+        nullifier: new Uint8Array(32).fill(4),
       });
 
       const config = createExecutorConfig({
@@ -1101,6 +1102,7 @@ describe('TaskExecutor', () => {
         constraintHash: new Uint8Array(32),
         outputCommitment: new Uint8Array(32),
         expectedBinding: new Uint8Array(32),
+        nullifier: new Uint8Array(32),
       };
 
       expect(isPrivateExecutionResult(publicResult)).toBe(false);
