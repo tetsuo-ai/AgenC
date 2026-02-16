@@ -194,6 +194,12 @@ export const RuntimeErrorCodes = {
   COLLABORATION_RESPONSE_ERROR: 'COLLABORATION_RESPONSE_ERROR',
   /** Team formation from collaboration failed */
   COLLABORATION_FORMATION_ERROR: 'COLLABORATION_FORMATION_ERROR',
+  /** Skill subscription lifecycle operation failed */
+  SKILL_SUBSCRIPTION_ERROR: 'SKILL_SUBSCRIPTION_ERROR',
+  /** Skill revenue share computation failed */
+  SKILL_REVENUE_ERROR: 'SKILL_REVENUE_ERROR',
+  /** Remote Gateway authentication failed */
+  REMOTE_AUTH_ERROR: 'REMOTE_AUTH_ERROR',
   /** Reputation staking operation failed */
   REPUTATION_STAKE_ERROR: 'REPUTATION_STAKE_ERROR',
   /** Reputation delegation operation failed */

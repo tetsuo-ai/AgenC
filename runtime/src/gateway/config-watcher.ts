@@ -130,6 +130,27 @@ export function validateGatewayConfig(obj: unknown): ValidationResult {
     }
   }
 
+  // auth (optional)
+  if (obj.auth !== undefined) {
+    if (!isRecord(obj.auth)) {
+      errors.push('auth must be an object');
+    } else {
+      if (obj.auth.secret !== undefined) {
+        if (typeof obj.auth.secret !== 'string') {
+          errors.push('auth.secret must be a string');
+        } else if (obj.auth.secret.length < 32) {
+          errors.push('auth.secret must be at least 32 characters');
+        }
+      }
+      if (obj.auth.expirySeconds !== undefined && typeof obj.auth.expirySeconds !== 'number') {
+        errors.push('auth.expirySeconds must be a number');
+      }
+      if (obj.auth.localBypass !== undefined && typeof obj.auth.localBypass !== 'boolean') {
+        errors.push('auth.localBypass must be a boolean');
+      }
+    }
+  }
+
   return validationResult(errors);
 }
 

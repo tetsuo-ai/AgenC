@@ -1,0 +1,24 @@
+{
+  "expo": {
+    "name": "AgenC Mobile",
+    "slug": "agenc-mobile",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "scheme": "agenc",
+    "splash": {
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "ai.tetsuo.agenc"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#ffffff"
+      },
+      "package": "ai.tetsuo.agenc"
+    }
+  }
+}
