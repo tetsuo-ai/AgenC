@@ -77,7 +77,13 @@ export interface HookConfig {
   readonly handlers?: ReadonlyArray<{
     readonly event: HookEvent;
     readonly name: string;
+    /** Whether this is a built-in handler or a user script. */
+    readonly type: 'builtin' | 'script';
+    /** Built-in handler name or path to user script. */
+    readonly handler: string;
     readonly priority?: number;
+    /** Whether this hook is enabled (default: true). */
+    readonly enabled?: boolean;
   }>;
 }
 
@@ -184,6 +190,10 @@ export class HookDispatcher {
    * Returns a DispatchResult with the final payload and completion status.
    * If a handler returns `{ continue: false }`, the chain is aborted and
    * `completed` will be false.
+   *
+   * Note: The spec defines this as `Promise<boolean>`. This implementation
+   * returns `DispatchResult` instead — an intentional deviation that provides
+   * richer information (handlers run, abort source, transformed payload).
    */
   async dispatch(
     event: HookEvent,
