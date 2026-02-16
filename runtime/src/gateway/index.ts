@@ -100,3 +100,14 @@ export {
   WORKSPACE_ID_PATTERN,
   MEMORY_NAMESPACE_PREFIX,
 } from './workspace.js';
+
+// Slash commands (Phase 1.5)
+export {
+  SlashCommandRegistry,
+  createDefaultCommands,
+  type SlashCommandDef,
+  type SlashCommandContext,
+  type SlashCommandHandler,
+  type ParsedCommand,
+  type SlashCommandRegistryConfig,
+} from './commands.js';

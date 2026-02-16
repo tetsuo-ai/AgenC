@@ -118,6 +118,8 @@ export const RuntimeErrorCodes = {
   GATEWAY_LIFECYCLE_ERROR: 'GATEWAY_LIFECYCLE_ERROR',
   /** Workspace configuration validation failed */
   WORKSPACE_VALIDATION_ERROR: 'WORKSPACE_VALIDATION_ERROR',
+  /** Chat session token budget exceeded */
+  CHAT_BUDGET_EXCEEDED: 'CHAT_BUDGET_EXCEEDED',
 } as const;
 
 /** Union type of all runtime error code values */
