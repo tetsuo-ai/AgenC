@@ -853,6 +853,7 @@ export {
   createBashTool,
   type BashToolConfig,
   type BashToolInput,
+  type BashExecutionResult,
   DEFAULT_DENY_LIST,
   DEFAULT_TIMEOUT_MS,
   DEFAULT_MAX_OUTPUT_BYTES,

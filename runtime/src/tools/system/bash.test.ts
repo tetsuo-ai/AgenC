@@ -1,6 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { createBashTool } from './bash.js';
+import { createBashTool, isCommandAllowed } from './bash.js';
 import { DEFAULT_DENY_LIST } from './types.js';
+import type { Logger } from '../../utils/logger.js';
 
 // Mock execFile from node:child_process
 vi.mock('node:child_process', () => ({
@@ -30,6 +31,15 @@ function mockError(error: Partial<Error & { killed?: boolean; code?: unknown }>,
     (callback as Function)(err, stdout, stderr);
     return {} as ReturnType<typeof execFile>;
   });
+}
+
+function createMockLogger(): Logger {
+  return {
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+  };
 }
 
 describe('system.bash tool', () => {
@@ -66,6 +76,17 @@ describe('system.bash tool', () => {
     expect((opts as Record<string, unknown>).shell).toBe(false);
   });
 
+  it('returns durationMs and truncated fields', async () => {
+    const tool = createBashTool();
+    mockSuccess('hello');
+
+    const result = await tool.execute({ command: 'echo' });
+    const parsed = parseContent(result);
+
+    expect(typeof parsed.durationMs).toBe('number');
+    expect(parsed.truncated).toBe(false);
+  });
+
   // ---- Deny list ----
 
   it('rejects command on default deny list', async () => {
@@ -82,9 +103,9 @@ describe('system.bash tool', () => {
   });
 
   it('rejects command on custom deny list', async () => {
-    const tool = createBashTool({ denyList: ['curl', 'wget'] });
+    const tool = createBashTool({ denyList: ['custom-bad'] });
 
-    const result = await tool.execute({ command: 'curl' });
+    const result = await tool.execute({ command: 'custom-bad' });
     expect(result.isError).toBe(true);
     expect(parseContent(result).error).toContain('denied');
   });
@@ -99,6 +120,95 @@ describe('system.bash tool', () => {
     // Custom deny list also works
     const result2 = await tool.execute({ command: 'custom-bad' });
     expect(result2.isError).toBe(true);
+  });
+
+  // ---- Deny list: absolute path bypass prevention ----
+
+  it('blocks /bin/rm via basename check', async () => {
+    const tool = createBashTool();
+
+    const result = await tool.execute({ command: '/bin/rm', args: ['-rf', '/'] });
+    expect(result.isError).toBe(true);
+    expect(parseContent(result).error).toContain('denied');
+    expect(mockExecFile).not.toHaveBeenCalled();
+  });
+
+  it('blocks /usr/bin/bash via basename check', async () => {
+    const tool = createBashTool();
+
+    const result = await tool.execute({ command: '/usr/bin/bash', args: ['-c', 'echo test'] });
+    expect(result.isError).toBe(true);
+    expect(parseContent(result).error).toContain('denied');
+  });
+
+  it('blocks /usr/local/bin/python3 via basename check', async () => {
+    const tool = createBashTool();
+
+    const result = await tool.execute({ command: '/usr/local/bin/python3' });
+    expect(result.isError).toBe(true);
+    expect(parseContent(result).error).toContain('denied');
+  });
+
+  // ---- Shell re-invocation prevention ----
+
+  it('blocks bash, sh, zsh, dash shell invocation', async () => {
+    const tool = createBashTool();
+
+    for (const shell of ['bash', 'sh', 'zsh', 'dash']) {
+      const result = await tool.execute({ command: shell, args: ['-c', 'echo test'] });
+      expect(result.isError).toBe(true);
+      expect(parseContent(result).error).toContain('denied');
+    }
+
+    expect(mockExecFile).not.toHaveBeenCalled();
+  });
+
+  // ---- Privilege escalation prevention ----
+
+  it('blocks sudo and su', async () => {
+    const tool = createBashTool();
+
+    for (const cmd of ['sudo', 'su']) {
+      const result = await tool.execute({ command: cmd, args: ['ls'] });
+      expect(result.isError).toBe(true);
+      expect(parseContent(result).error).toContain('denied');
+    }
+  });
+
+  // ---- Download-and-execute prevention ----
+
+  it('blocks curl and wget', async () => {
+    const tool = createBashTool();
+
+    for (const cmd of ['curl', 'wget']) {
+      const result = await tool.execute({ command: cmd, args: ['https://example.com'] });
+      expect(result.isError).toBe(true);
+      expect(parseContent(result).error).toContain('denied');
+    }
+  });
+
+  // ---- Environment exfiltration prevention ----
+
+  it('blocks env and printenv', async () => {
+    const tool = createBashTool();
+
+    for (const cmd of ['env', 'printenv']) {
+      const result = await tool.execute({ command: cmd });
+      expect(result.isError).toBe(true);
+      expect(parseContent(result).error).toContain('denied');
+    }
+  });
+
+  // ---- Script interpreter prevention ----
+
+  it('blocks python, node, perl, ruby interpreters', async () => {
+    const tool = createBashTool();
+
+    for (const cmd of ['python', 'python3', 'node', 'perl', 'ruby']) {
+      const result = await tool.execute({ command: cmd });
+      expect(result.isError).toBe(true);
+      expect(parseContent(result).error).toContain('denied');
+    }
   });
 
   // ---- Allow list ----
@@ -118,6 +228,47 @@ describe('system.bash tool', () => {
     const result = await tool.execute({ command: 'git' });
     expect(result.isError).toBe(true);
     expect(parseContent(result).error).toContain('not in the allow list');
+  });
+
+  // ---- Deny-over-allow precedence ----
+
+  it('deny list takes precedence over allow list', async () => {
+    const tool = createBashTool({ allowList: ['rm', 'ls'], denyList: [] });
+
+    const result = await tool.execute({ command: 'rm' });
+    expect(result.isError).toBe(true);
+    expect(parseContent(result).error).toContain('denied');
+    expect(mockExecFile).not.toHaveBeenCalled();
+  });
+
+  // ---- Environment control ----
+
+  it('passes minimal environment by default (PATH + HOME only)', async () => {
+    const tool = createBashTool();
+    mockSuccess();
+
+    await tool.execute({ command: 'ls' });
+
+    const opts = mockExecFile.mock.calls[0][2] as Record<string, unknown>;
+    const passedEnv = opts.env as Record<string, string>;
+    expect(passedEnv).toBeDefined();
+    expect(passedEnv.PATH).toBeDefined();
+    expect(passedEnv.HOME).toBeDefined();
+    // Should NOT contain arbitrary env vars from parent process
+    const keys = Object.keys(passedEnv);
+    expect(keys.length).toBeLessThanOrEqual(2);
+  });
+
+  it('uses custom env when provided in config', async () => {
+    const tool = createBashTool({ env: { PATH: '/custom/path', CUSTOM_VAR: 'value' } });
+    mockSuccess();
+
+    await tool.execute({ command: 'ls' });
+
+    const opts = mockExecFile.mock.calls[0][2] as Record<string, unknown>;
+    const passedEnv = opts.env as Record<string, string>;
+    expect(passedEnv.PATH).toBe('/custom/path');
+    expect(passedEnv.CUSTOM_VAR).toBe('value');
   });
 
   // ---- Working directory ----
@@ -176,7 +327,7 @@ describe('system.bash tool', () => {
 
   // ---- Output truncation ----
 
-  it('truncates stdout exceeding maxOutputBytes', async () => {
+  it('truncates stdout exceeding maxOutputBytes and sets truncated flag', async () => {
     const tool = createBashTool({ maxOutputBytes: 20 });
     const longOutput = 'a'.repeat(100);
     mockSuccess(longOutput);
@@ -186,6 +337,7 @@ describe('system.bash tool', () => {
     const stdout = parsed.stdout as string;
     expect(stdout).toContain('[truncated]');
     expect(stdout.length).toBeLessThan(longOutput.length);
+    expect(parsed.truncated).toBe(true);
   });
 
   it('truncates stderr exceeding maxOutputBytes', async () => {
@@ -254,5 +406,83 @@ describe('system.bash tool', () => {
     const parsed = parseContent(result);
     expect(parsed.exitCode).toBe(127);
     expect(parsed.timedOut).toBe(false);
+  });
+
+  // ---- Logging ----
+
+  it('logs denials via warn', async () => {
+    const logger = createMockLogger();
+    const tool = createBashTool({ logger });
+
+    await tool.execute({ command: 'rm', args: ['-rf', '/'] });
+
+    expect(logger.warn).toHaveBeenCalledOnce();
+    expect((logger.warn as ReturnType<typeof vi.fn>).mock.calls[0][0]).toContain('denied');
+  });
+
+  it('logs successful execution via debug', async () => {
+    const logger = createMockLogger();
+    const tool = createBashTool({ logger });
+    mockSuccess('ok');
+
+    await tool.execute({ command: 'echo', args: ['ok'] });
+
+    expect(logger.debug).toHaveBeenCalled();
+    const debugCalls = (logger.debug as ReturnType<typeof vi.fn>).mock.calls.map((c: unknown[]) => c[0] as string);
+    expect(debugCalls.some((msg: string) => msg.includes('success'))).toBe(true);
+  });
+
+  it('logs timeout via warn', async () => {
+    const logger = createMockLogger();
+    const tool = createBashTool({ logger, timeoutMs: 100 });
+    mockError({ message: 'timed out', killed: true });
+
+    await tool.execute({ command: 'sleep', args: ['60'] });
+
+    expect(logger.warn).toHaveBeenCalledOnce();
+    expect((logger.warn as ReturnType<typeof vi.fn>).mock.calls[0][0]).toContain('timed out');
+  });
+});
+
+// ---- isCommandAllowed standalone function tests ----
+
+describe('isCommandAllowed', () => {
+  const denySet = new Set(['rm', 'bash', 'sudo']);
+  const allowSet = new Set(['ls', 'cat', 'git']);
+
+  it('allows command not in deny list and no allow list', () => {
+    const result = isCommandAllowed('ls', denySet, null);
+    expect(result.allowed).toBe(true);
+  });
+
+  it('denies command in deny list', () => {
+    const result = isCommandAllowed('rm', denySet, null);
+    expect(result.allowed).toBe(false);
+  });
+
+  it('denies command by basename when given absolute path', () => {
+    const result = isCommandAllowed('/bin/rm', denySet, null);
+    expect(result.allowed).toBe(false);
+  });
+
+  it('denies /usr/bin/bash by basename', () => {
+    const result = isCommandAllowed('/usr/bin/bash', denySet, null);
+    expect(result.allowed).toBe(false);
+  });
+
+  it('allows command on allow list', () => {
+    const result = isCommandAllowed('git', denySet, allowSet);
+    expect(result.allowed).toBe(true);
+  });
+
+  it('denies command not on allow list', () => {
+    const result = isCommandAllowed('python', denySet, allowSet);
+    expect(result.allowed).toBe(false);
+  });
+
+  it('deny list takes precedence over allow list', () => {
+    const bothSet = new Set(['rm', 'ls']);
+    const result = isCommandAllowed('rm', new Set(['rm']), bothSet);
+    expect(result.allowed).toBe(false);
   });
 });

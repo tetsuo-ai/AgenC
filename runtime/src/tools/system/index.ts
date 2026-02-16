@@ -24,11 +24,12 @@ export {
   type BrowserToolConfig,
 } from './browser.js';
 
-export { createBashTool } from './bash.js';
+export { createBashTool, isCommandAllowed } from './bash.js';
 
 export {
   type BashToolConfig,
   type BashToolInput,
+  type BashExecutionResult,
   DEFAULT_DENY_LIST,
   DEFAULT_TIMEOUT_MS,
   DEFAULT_MAX_OUTPUT_BYTES,
