@@ -468,4 +468,38 @@ pub enum CoordinationError {
 
     #[msg("SPL token transfer CPI failed")]
     TokenTransferFailed,
+
+    // Governance errors (7900-7999)
+    #[msg("Proposal is not active")]
+    ProposalNotActive,
+
+    #[msg("Voting period has not ended")]
+    ProposalVotingNotEnded,
+
+    #[msg("Voting period has ended")]
+    ProposalVotingEnded,
+
+    #[msg("Proposal has already been executed")]
+    ProposalAlreadyExecuted,
+
+    #[msg("Insufficient quorum for proposal execution")]
+    ProposalInsufficientQuorum,
+
+    #[msg("Proposal did not achieve majority")]
+    ProposalNotApproved,
+
+    #[msg("Only the proposer can cancel this proposal")]
+    ProposalUnauthorizedCancel,
+
+    #[msg("Insufficient stake to create a proposal")]
+    ProposalInsufficientStake,
+
+    #[msg("Invalid proposal payload")]
+    InvalidProposalPayload,
+
+    #[msg("Invalid proposal type")]
+    InvalidProposalType,
+
+    #[msg("Treasury spend amount exceeds available balance")]
+    TreasuryInsufficientBalance,
 }

@@ -1317,5 +1317,39 @@ export {
   type ReactionEvent,
 } from './gateway/index.js';
 
+// Governance Operations (Phase 10)
+export {
+  // Enums
+  ProposalType,
+  ProposalStatus,
+  // Constants
+  PROPOSAL_STATUS_OFFSET,
+  // Functions
+  parseOnChainProposal,
+  parseOnChainGovernanceVote,
+  proposalStatusToString,
+  // PDA derivation
+  deriveProposalPda,
+  findProposalPda,
+  deriveGovernanceVotePda,
+  findGovernanceVotePda,
+  // Error classes
+  GovernanceProposalNotFoundError,
+  GovernanceVoteError,
+  GovernanceExecutionError,
+  // Operations class
+  GovernanceOperations,
+  // Types
+  type OnChainProposal,
+  type OnChainGovernanceVote,
+  type CreateProposalParams,
+  type VoteProposalParams,
+  type ExecuteProposalParams,
+  type ProposalResult,
+  type GovernanceVoteResult,
+  type ProposalWithVotes,
+  type GovernanceOpsConfig,
+} from './governance/index.js';
+
 // Agent Builder (Phase 10)
 export { AgentBuilder, BuiltAgent } from './builder.js';

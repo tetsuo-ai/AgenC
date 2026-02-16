@@ -120,13 +120,19 @@ export const RuntimeErrorCodes = {
   WORKSPACE_VALIDATION_ERROR: 'WORKSPACE_VALIDATION_ERROR',
   /** Chat session token budget exceeded */
   CHAT_BUDGET_EXCEEDED: 'CHAT_BUDGET_EXCEEDED',
+  /** Governance proposal not found */
+  GOVERNANCE_PROPOSAL_NOT_FOUND: 'GOVERNANCE_PROPOSAL_NOT_FOUND',
+  /** Governance vote operation failed */
+  GOVERNANCE_VOTE_ERROR: 'GOVERNANCE_VOTE_ERROR',
+  /** Governance proposal execution failed */
+  GOVERNANCE_EXECUTION_ERROR: 'GOVERNANCE_EXECUTION_ERROR',
 } as const;
 
 /** Union type of all runtime error code values */
 export type RuntimeErrorCode = (typeof RuntimeErrorCodes)[keyof typeof RuntimeErrorCodes];
 
 // ============================================================================
-// Anchor Error Codes (147 codes: 6000-6146)
+// Anchor Error Codes (158 codes: 6000-6157)
 // ============================================================================
 
 /**
@@ -468,6 +474,30 @@ export const AnchorErrorCodes = {
   InvalidTokenMint: 6145,
   /** SPL token transfer CPI failed */
   TokenTransferFailed: 6146,
+
+  // Governance errors (6147-6157)
+  /** Proposal is not active */
+  ProposalNotActive: 6147,
+  /** Voting period has not ended */
+  ProposalVotingNotEnded: 6148,
+  /** Voting period has ended */
+  ProposalVotingEnded: 6149,
+  /** Proposal has already been executed */
+  ProposalAlreadyExecuted: 6150,
+  /** Insufficient quorum for proposal execution */
+  ProposalInsufficientQuorum: 6151,
+  /** Proposal did not achieve majority */
+  ProposalNotApproved: 6152,
+  /** Only the proposer can cancel this proposal */
+  ProposalUnauthorizedCancel: 6153,
+  /** Insufficient stake to create a proposal */
+  ProposalInsufficientStake: 6154,
+  /** Invalid proposal payload */
+  InvalidProposalPayload: 6155,
+  /** Invalid proposal type */
+  InvalidProposalType: 6156,
+  /** Treasury spend amount exceeds available balance */
+  TreasuryInsufficientBalance: 6157,
 } as const;
 
 /** Union type of all Anchor error code values */
@@ -649,6 +679,18 @@ const AnchorErrorMessages: Record<AnchorErrorCode, string> = {
   6144: 'Token escrow ATA does not match expected derivation',
   6145: 'Provided mint does not match task\'s reward_mint',
   6146: 'SPL token transfer CPI failed',
+  // Governance errors (6147-6157)
+  6147: 'Proposal is not active',
+  6148: 'Voting period has not ended',
+  6149: 'Voting period has ended',
+  6150: 'Proposal has already been executed',
+  6151: 'Insufficient quorum for proposal execution',
+  6152: 'Proposal did not achieve majority',
+  6153: 'Only the proposer can cancel this proposal',
+  6154: 'Insufficient stake to create a proposal',
+  6155: 'Invalid proposal payload',
+  6156: 'Invalid proposal type',
+  6157: 'Treasury spend amount exceeds available balance',
 };
 
 // ============================================================================
@@ -1296,7 +1338,7 @@ export function parseAnchorError(error: unknown): ParsedAnchorError | null {
   }
 
   // Validate code is in our known range
-  if (code === undefined || code < 6000 || code > 6146) {
+  if (code === undefined || code < 6000 || code > 6157) {
     return null;
   }
 

@@ -366,4 +366,39 @@ pub mod agenc_coordination {
     pub fn update_min_version(ctx: Context<UpdateMinVersion>, new_min_version: u8) -> Result<()> {
         instructions::migrate::update_min_version_handler(ctx, new_min_version)
     }
+
+    /// Create a governance proposal.
+    /// Proposer must be an active agent with sufficient stake.
+    #[allow(clippy::too_many_arguments)]
+    pub fn create_proposal(
+        ctx: Context<CreateProposal>,
+        nonce: u64,
+        proposal_type: u8,
+        title_hash: [u8; 32],
+        description_hash: [u8; 32],
+        payload: [u8; 64],
+        voting_period: i64,
+    ) -> Result<()> {
+        instructions::create_proposal::handler(
+            ctx,
+            nonce,
+            proposal_type,
+            title_hash,
+            description_hash,
+            payload,
+            voting_period,
+        )
+    }
+
+    /// Vote on a governance proposal.
+    /// Voter must be an active agent. Double voting prevented by PDA uniqueness.
+    pub fn vote_proposal(ctx: Context<VoteProposal>, approve: bool) -> Result<()> {
+        instructions::vote_proposal::handler(ctx, approve)
+    }
+
+    /// Execute an approved governance proposal after voting period ends.
+    /// Permissionless — anyone can call after quorum + majority is met.
+    pub fn execute_proposal(ctx: Context<ExecuteProposal>) -> Result<()> {
+        instructions::execute_proposal::handler(ctx)
+    }
 }

@@ -324,6 +324,52 @@ pub struct ProtocolFeeUpdated {
     pub timestamp: i64,
 }
 
+// ============================================================================
+// Governance events
+// ============================================================================
+
+/// Emitted when a governance proposal is created
+#[event]
+pub struct ProposalCreated {
+    pub proposer: Pubkey,
+    pub proposal_type: u8,
+    pub title_hash: [u8; 32],
+    pub voting_deadline: i64,
+    pub quorum: u64,
+    pub timestamp: i64,
+}
+
+/// Emitted when a vote is cast on a governance proposal
+#[event]
+pub struct GovernanceVoteCast {
+    pub proposal: Pubkey,
+    pub voter: Pubkey,
+    pub approved: bool,
+    pub vote_weight: u64,
+    pub votes_for: u64,
+    pub votes_against: u64,
+    pub timestamp: i64,
+}
+
+/// Emitted when a governance proposal is executed
+#[event]
+pub struct ProposalExecuted {
+    pub proposal: Pubkey,
+    pub proposal_type: u8,
+    pub votes_for: u64,
+    pub votes_against: u64,
+    pub total_voters: u16,
+    pub timestamp: i64,
+}
+
+/// Emitted when a governance proposal is cancelled
+#[event]
+pub struct ProposalCancelled {
+    pub proposal: Pubkey,
+    pub proposer: Pubkey,
+    pub timestamp: i64,
+}
+
 /// Reason codes for reputation changes
 pub mod reputation_reason {
     /// Reputation increased from task completion

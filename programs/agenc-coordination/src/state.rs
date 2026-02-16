@@ -932,6 +932,129 @@ impl Nullifier {
         1;   // bump
 }
 
+// ============================================================================
+// Governance
+// ============================================================================
+
+/// Governance proposal type
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Default, InitSpace)]
+#[repr(u8)]
+pub enum ProposalType {
+    /// Change protocol parameters (fee tiers, thresholds)
+    #[default]
+    ProtocolUpgrade = 0,
+    /// Change protocol fee
+    FeeChange = 1,
+    /// Transfer lamports from treasury
+    TreasurySpend = 2,
+}
+
+/// Governance proposal status
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Default, InitSpace)]
+#[repr(u8)]
+pub enum ProposalStatus {
+    /// Proposal is accepting votes
+    #[default]
+    Active = 0,
+    /// Proposal passed and was executed
+    Executed = 1,
+    /// Proposal failed to reach quorum or majority
+    Defeated = 2,
+    /// Proposal was cancelled by proposer
+    Cancelled = 3,
+}
+
+/// Governance proposal account
+/// PDA seeds: ["proposal", proposer, nonce]
+#[account]
+#[derive(InitSpace)]
+pub struct Proposal {
+    /// Proposer's agent PDA
+    pub proposer: Pubkey,
+    /// Proposer's authority wallet
+    pub proposer_authority: Pubkey,
+    /// Monotonic nonce per proposer (allows multiple proposals)
+    pub nonce: u64,
+    /// Proposal type
+    pub proposal_type: ProposalType,
+    /// Title hash (SHA256 of title string)
+    pub title_hash: [u8; 32],
+    /// Description hash (SHA256 of description/URI)
+    pub description_hash: [u8; 32],
+    /// Type-specific payload (64 bytes)
+    /// FeeChange: new fee bps as u16 LE in bytes [0..2], rest zero
+    /// TreasurySpend: recipient Pubkey [0..32] + amount u64 LE [32..40], rest zero
+    /// ProtocolUpgrade: reserved for future parameter batch changes
+    pub payload: [u8; 64],
+    /// Current status
+    pub status: ProposalStatus,
+    /// Creation timestamp
+    pub created_at: i64,
+    /// Voting deadline (no new votes accepted after this)
+    pub voting_deadline: i64,
+    /// Execution timestamp (0 if not executed)
+    pub executed_at: i64,
+    /// Total stake-weighted votes for approval
+    pub votes_for: u64,
+    /// Total stake-weighted votes against
+    pub votes_against: u64,
+    /// Number of individual voters
+    pub total_voters: u16,
+    /// Required quorum (minimum total stake-weighted votes)
+    pub quorum: u64,
+    /// Bump seed
+    pub bump: u8,
+}
+
+impl Proposal {
+    pub const SIZE: usize = 8 +  // discriminator
+        32 + // proposer
+        32 + // proposer_authority
+        8 +  // nonce
+        1 +  // proposal_type
+        32 + // title_hash
+        32 + // description_hash
+        64 + // payload
+        1 +  // status
+        8 +  // created_at
+        8 +  // voting_deadline
+        8 +  // executed_at
+        8 +  // votes_for
+        8 +  // votes_against
+        2 +  // total_voters
+        8 +  // quorum
+        1;   // bump
+}
+
+/// Governance vote record
+/// PDA seeds: ["governance_vote", proposal, voter]
+#[account]
+#[derive(Default, InitSpace)]
+pub struct GovernanceVote {
+    /// Proposal being voted on
+    pub proposal: Pubkey,
+    /// Voter (agent PDA)
+    pub voter: Pubkey,
+    /// Vote (true = approve, false = reject)
+    pub approved: bool,
+    /// Vote timestamp
+    pub voted_at: i64,
+    /// Voter's effective vote weight (reputation * stake, capped)
+    pub vote_weight: u64,
+    /// Bump seed
+    pub bump: u8,
+}
+
+impl GovernanceVote {
+    pub const SIZE: usize = 8 +  // discriminator
+        32 + // proposal
+        32 + // voter
+        1 +  // approved
+        8 +  // voted_at
+        8 +  // vote_weight
+        1;   // bump
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1007,6 +1130,16 @@ mod tests {
     #[test]
     fn test_nullifier_size() {
         test_size_constant!(Nullifier);
+    }
+
+    #[test]
+    fn test_proposal_size() {
+        test_size_constant!(Proposal);
+    }
+
+    #[test]
+    fn test_governance_vote_size() {
+        test_size_constant!(GovernanceVote);
     }
 
     #[test]
