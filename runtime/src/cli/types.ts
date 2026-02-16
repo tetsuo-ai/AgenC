@@ -148,6 +148,30 @@ export interface SecurityOptions extends BaseCliOptions {
   fix?: boolean;
 }
 
+export type CliStatusCode = 0 | 1 | 2;
+
+export interface DaemonStartOptions {
+  configPath: string;
+  pidPath?: string;
+  foreground?: boolean;
+  logLevel?: string;
+}
+
+export interface DaemonStopOptions {
+  pidPath?: string;
+  timeout?: number;
+}
+
+export interface DaemonStatusOptions {
+  pidPath?: string;
+  controlPlanePort?: number;
+}
+
+export interface ServiceInstallOptions {
+  configPath?: string;
+  macos?: boolean;
+}
+
 export interface CliValidationError extends Error {
   code: string;
 }
