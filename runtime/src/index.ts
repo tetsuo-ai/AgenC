@@ -894,6 +894,14 @@ export {
   // Redis backend
   RedisBackend,
   type RedisBackendConfig,
+  // Embeddings
+  type EmbeddingProvider,
+  OpenAIEmbeddingProvider,
+  OllamaEmbeddingProvider,
+  NoopEmbeddingProvider,
+  createEmbeddingProvider,
+  cosineSimilarity,
+  normalizeVector,
   // Memory graph
   MemoryGraph,
   type ProvenanceSourceType,

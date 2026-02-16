@@ -43,6 +43,17 @@ export { SqliteBackend, type SqliteBackendConfig } from './sqlite/index.js';
 // Redis backend (optional ioredis)
 export { RedisBackend, type RedisBackendConfig } from './redis/index.js';
 
+// Embeddings (Phase 5.1)
+export {
+  type EmbeddingProvider,
+  OpenAIEmbeddingProvider,
+  OllamaEmbeddingProvider,
+  NoopEmbeddingProvider,
+  createEmbeddingProvider,
+  cosineSimilarity,
+  normalizeVector,
+} from './embeddings.js';
+
 // Provenance-aware graph layer
 export {
   MemoryGraph,
@@ -58,3 +69,13 @@ export {
   type MemoryGraphConfig,
   type CompactOptions,
 } from './graph.js';
+
+// Structured memory (daily logs, curated facts, entity extraction)
+export {
+  formatLogDate,
+  DailyLogManager,
+  CuratedMemoryManager,
+  NoopEntityExtractor,
+  type StructuredMemoryEntry,
+  type EntityExtractor,
+} from './structured.js';

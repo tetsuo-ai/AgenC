@@ -120,6 +120,12 @@ export const RuntimeErrorCodes = {
   WORKSPACE_VALIDATION_ERROR: 'WORKSPACE_VALIDATION_ERROR',
   /** Chat session token budget exceeded */
   CHAT_BUDGET_EXCEEDED: 'CHAT_BUDGET_EXCEEDED',
+  /** Heartbeat scheduler invalid lifecycle state transition */
+  HEARTBEAT_STATE_ERROR: 'HEARTBEAT_STATE_ERROR',
+  /** Heartbeat action execution failed */
+  HEARTBEAT_ACTION_FAILED: 'HEARTBEAT_ACTION_FAILED',
+  /** Heartbeat action exceeded timeout */
+  HEARTBEAT_TIMEOUT: 'HEARTBEAT_TIMEOUT',
 } as const;
 
 /** Union type of all runtime error code values */
