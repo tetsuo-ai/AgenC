@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtemp, rm, writeFile, utimes } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -341,18 +341,28 @@ describe('setTranscriptionProvider', () => {
 // ============================================================================
 
 describe('timeout', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('enforced on slow provider', async () => {
     const pipeline = new MediaPipeline(
-      makeConfig({ tempDir, processingTimeoutMs: 10 }),
+      makeConfig({ tempDir, processingTimeoutMs: 50 }),
     );
     const slowProvider: TranscriptionProvider = {
       transcribe() {
-        return new Promise((resolve) => setTimeout(() => resolve('late'), 200));
+        return new Promise((resolve) => setTimeout(() => resolve('late'), 10_000));
       },
     };
     pipeline.setTranscriptionProvider(slowProvider);
 
-    const result = await pipeline.process(makeAttachment());
+    const resultPromise = pipeline.process(makeAttachment());
+    await vi.advanceTimersByTimeAsync(50);
+    const result = await resultPromise;
     expect(result.success).toBe(false);
     expect(result.error).toContain('aborted');
   });

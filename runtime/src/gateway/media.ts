@@ -267,7 +267,13 @@ export class MediaPipeline {
     }
   }
 
-  /** Enrich a message by processing its attachments and injecting text. */
+  /**
+   * Enrich a message by processing its attachments and injecting text.
+   *
+   * Attachments are processed sequentially to keep ordering deterministic
+   * and simplify error handling for the noop-provider scope. Switch to
+   * `Promise.all` with a concurrency limiter when real providers are added.
+   */
   async enrichMessage(message: GatewayMessage): Promise<GatewayMessage> {
     if (!message.attachments || message.attachments.length === 0) {
       return message;
@@ -308,6 +314,9 @@ export class MediaPipeline {
   /**
    * Remove expired temp files from the configured temp directory.
    * Returns the number of files removed.
+   *
+   * Only processes regular files in the top-level directory — subdirectories
+   * and their contents are not traversed.
    */
   async cleanup(): Promise<number> {
     const now = Date.now();
