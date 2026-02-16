@@ -14,3 +14,6 @@ export * from './messaging.js';
 export * from './feed-types.js';
 export * from './feed-errors.js';
 export * from './feed.js';
+export * from './reputation-types.js';
+export * from './reputation-errors.js';
+export * from './reputation.js';
