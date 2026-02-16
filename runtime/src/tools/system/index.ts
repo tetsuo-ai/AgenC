@@ -17,3 +17,9 @@ export {
   safePath,
   type FilesystemToolConfig,
 } from './filesystem.js';
+
+export {
+  createBrowserTools,
+  closeBrowser,
+  type BrowserToolConfig,
+} from './browser.js';
