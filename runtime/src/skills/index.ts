@@ -96,4 +96,10 @@ export {
   type DiscoveredSkill,
   type MissingRequirement,
   SkillDiscovery,
+  // Skill injection (Phase 3.3)
+  type SkillInjectorConfig,
+  type InjectionResult,
+  MarkdownSkillInjector,
+  estimateTokens,
+  scoreRelevance,
 } from './markdown/index.js';
