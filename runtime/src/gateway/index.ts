@@ -91,7 +91,7 @@ export type {
 export { SessionManager, deriveSessionId } from './session.js';
 
 // Agent workspace model (Phase 7.1)
-export type { AgentWorkspace, ToolPolicy, PersonalityTemplate, WorkspaceConfigJson } from './workspace.js';
+export type { AgentWorkspace, ToolPolicy, WorkspaceTemplate, WorkspaceConfigJson } from './workspace.js';
 export {
   WorkspaceManager,
   WorkspaceValidationError,

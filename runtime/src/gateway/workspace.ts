@@ -41,8 +41,8 @@ export interface ToolPolicy {
   readonly reason?: string;
 }
 
-/** Minimal stub for workspace creation input. Extended by Phase 5.6 (#1083). */
-export interface PersonalityTemplate {
+/** Workspace creation input. Uses PersonalityTemplate names from Phase 5.6 for file content. */
+export interface WorkspaceTemplate {
   readonly name?: string;
   readonly files?: Partial<WorkspaceFiles>;
   readonly skills?: readonly string[];
@@ -286,7 +286,7 @@ export class WorkspaceManager {
 
   async createWorkspace(
     id: string,
-    template?: PersonalityTemplate,
+    template?: WorkspaceTemplate,
   ): Promise<AgentWorkspace> {
     validateWorkspaceId(id);
 

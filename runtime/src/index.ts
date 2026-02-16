@@ -1231,7 +1231,7 @@ export {
   MEMORY_NAMESPACE_PREFIX,
   type AgentWorkspace,
   type ToolPolicy,
-  type PersonalityTemplate,
+  type WorkspaceTemplate,
   type WorkspaceConfigJson,
 } from './gateway/index.js';
 
