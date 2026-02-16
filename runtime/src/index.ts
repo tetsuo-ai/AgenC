@@ -1217,6 +1217,16 @@ export {
   type CompactionResult,
   type SessionInfo,
   type Summarizer,
+  // Media pipeline (Phase 1.12)
+  MediaPipeline,
+  NoopTranscriptionProvider,
+  NoopImageDescriptionProvider,
+  defaultMediaPipelineConfig,
+  type MediaPipelineConfig,
+  type MediaProcessingResult,
+  type TranscriptionProvider,
+  type ImageDescriptionProvider,
+  type MediaLogger,
 } from './gateway/index.js';
 
 // Agent Builder (Phase 10)

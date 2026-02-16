@@ -202,6 +202,23 @@ describe('enrichMessage', () => {
     expect(enriched.content).toContain('[Image description: Image text]');
   });
 
+  it('empty content becomes enrichment directly (voice-only)', async () => {
+    const pipeline = new MediaPipeline(makeConfig({ tempDir }));
+    pipeline.setTranscriptionProvider({
+      async transcribe() {
+        return 'Voice message text';
+      },
+    });
+
+    const msg = makeMessage({
+      content: '',
+      attachments: [makeAttachment()],
+    });
+    const enriched = await pipeline.enrichMessage(msg);
+    expect(enriched.content).toBe('[Voice transcription: Voice message text]');
+    expect(enriched.content.startsWith('\n')).toBe(false);
+  });
+
   it('skips audio when autoTranscribeVoice is false', async () => {
     const pipeline = new MediaPipeline(
       makeConfig({ tempDir, autoTranscribeVoice: false }),
