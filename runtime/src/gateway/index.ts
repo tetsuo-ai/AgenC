@@ -176,3 +176,21 @@ export {
   type WebhookHandler,
   type ReactionEvent,
 } from './channel.js';
+
+// Heartbeat scheduler (Phase 2.1)
+export type {
+  HeartbeatConfig,
+  HeartbeatAction,
+  HeartbeatContext,
+  HeartbeatResult,
+  HeartbeatRunSummary,
+  HeartbeatSchedulerOptions,
+} from './heartbeat.js';
+
+export {
+  HeartbeatScheduler,
+  HeartbeatStateError,
+  HeartbeatActionError,
+  HeartbeatTimeoutError,
+  defaultHeartbeatConfig,
+} from './heartbeat.js';
