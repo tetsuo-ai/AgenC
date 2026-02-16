@@ -19,7 +19,12 @@ export {
   SkillDownloadError,
   SkillVerificationError,
   SkillPublishError,
+  SkillPurchaseError,
 } from './errors.js';
+
+// Payment flow
+export type { SkillPurchaseConfig, PurchaseResult, OnChainPurchaseRecord } from './payment.js';
+export { SkillPurchaseManager } from './payment.js';
 
 // Client implementation and constants
 export {

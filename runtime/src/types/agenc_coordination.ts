@@ -2874,6 +2874,366 @@ export type AgencCoordination = {
       ]
     },
     {
+      "name": "purchaseSkill",
+      "docs": [
+        "Purchase a skill (SOL or SPL token).",
+        "Protocol fee is deducted and sent to treasury."
+      ],
+      "discriminator": [
+        70,
+        41,
+        105,
+        156,
+        159,
+        169,
+        215,
+        188
+      ],
+      "accounts": [
+        {
+          "name": "skill",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  107,
+                  105,
+                  108,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "skill.author",
+                "account": "skillRegistration"
+              },
+              {
+                "kind": "account",
+                "path": "skill.skill_id",
+                "account": "skillRegistration"
+              }
+            ]
+          }
+        },
+        {
+          "name": "purchaseRecord",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  107,
+                  105,
+                  108,
+                  108,
+                  95,
+                  112,
+                  117,
+                  114,
+                  99,
+                  104,
+                  97,
+                  115,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "skill"
+              },
+              {
+                "kind": "account",
+                "path": "buyer"
+              }
+            ]
+          }
+        },
+        {
+          "name": "buyer",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  103,
+                  101,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "buyer.agent_id",
+                "account": "agentRegistration"
+              }
+            ]
+          }
+        },
+        {
+          "name": "authorAgent",
+          "docs": [
+            "Skill author's agent registration"
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  103,
+                  101,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "author_agent.agent_id",
+                "account": "agentRegistration"
+              }
+            ]
+          }
+        },
+        {
+          "name": "authorWallet",
+          "writable": true
+        },
+        {
+          "name": "protocolConfig",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury",
+          "writable": true
+        },
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "buyer"
+          ]
+        },
+        {
+          "name": "systemProgram",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "priceMint",
+          "docs": [
+            "SPL token mint for price denomination (optional)"
+          ],
+          "optional": true
+        },
+        {
+          "name": "buyerTokenAccount",
+          "docs": [
+            "Buyer's token account (optional)"
+          ],
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "authorTokenAccount",
+          "docs": [
+            "Author's token account (optional)"
+          ],
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "treasuryTokenAccount",
+          "docs": [
+            "Treasury's token account (optional)"
+          ],
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "tokenProgram",
+          "docs": [
+            "SPL Token program (optional)"
+          ],
+          "optional": true,
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "rateSkill",
+      "docs": [
+        "Rate a skill (1-5, reputation-weighted).",
+        "One rating per agent per skill, enforced by PDA uniqueness."
+      ],
+      "discriminator": [
+        44,
+        124,
+        30,
+        253,
+        90,
+        244,
+        174,
+        75
+      ],
+      "accounts": [
+        {
+          "name": "skill",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  107,
+                  105,
+                  108,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "skill.author",
+                "account": "skillRegistration"
+              },
+              {
+                "kind": "account",
+                "path": "skill.skill_id",
+                "account": "skillRegistration"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ratingAccount",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  107,
+                  105,
+                  108,
+                  108,
+                  95,
+                  114,
+                  97,
+                  116,
+                  105,
+                  110,
+                  103
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "skill"
+              },
+              {
+                "kind": "account",
+                "path": "rater"
+              }
+            ]
+          }
+        },
+        {
+          "name": "rater",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  103,
+                  101,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "rater.agent_id",
+                "account": "agentRegistration"
+              }
+            ]
+          }
+        },
+        {
+          "name": "protocolConfig",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "rater"
+          ]
+        },
+        {
+          "name": "systemProgram",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "rating",
+          "type": "u8"
+        },
+        {
+          "name": "reviewHash",
+          "type": {
+            "option": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
       "name": "registerAgent",
       "docs": [
         "Register a new agent on-chain with its capabilities and metadata.",
@@ -2977,6 +3337,153 @@ export type AgencCoordination = {
         {
           "name": "stakeAmount",
           "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "registerSkill",
+      "docs": [
+        "Register a new skill on-chain.",
+        "Author must be an active agent."
+      ],
+      "discriminator": [
+        166,
+        249,
+        255,
+        189,
+        192,
+        197,
+        102,
+        2
+      ],
+      "accounts": [
+        {
+          "name": "skill",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  107,
+                  105,
+                  108,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "author"
+              },
+              {
+                "kind": "arg",
+                "path": "skillId"
+              }
+            ]
+          }
+        },
+        {
+          "name": "author",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  103,
+                  101,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "author.agent_id",
+                "account": "agentRegistration"
+              }
+            ]
+          }
+        },
+        {
+          "name": "protocolConfig",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "author"
+          ]
+        },
+        {
+          "name": "systemProgram",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "skillId",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "name",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "contentHash",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "price",
+          "type": "u64"
+        },
+        {
+          "name": "priceMint",
+          "type": {
+            "option": "pubkey"
+          }
+        },
+        {
+          "name": "tags",
+          "type": {
+            "array": [
+              "u8",
+              64
+            ]
+          }
         }
       ]
     },
@@ -3576,6 +4083,133 @@ export type AgencCoordination = {
         {
           "name": "minStakeForDispute",
           "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "updateSkill",
+      "docs": [
+        "Update a skill's content, price, tags, or active status.",
+        "Only the skill author can update."
+      ],
+      "discriminator": [
+        116,
+        142,
+        164,
+        86,
+        9,
+        27,
+        112,
+        227
+      ],
+      "accounts": [
+        {
+          "name": "skill",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  107,
+                  105,
+                  108,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "author"
+              },
+              {
+                "kind": "account",
+                "path": "skill.skill_id",
+                "account": "skillRegistration"
+              }
+            ]
+          }
+        },
+        {
+          "name": "author",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  103,
+                  101,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "author.agent_id",
+                "account": "agentRegistration"
+              }
+            ]
+          }
+        },
+        {
+          "name": "protocolConfig",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "signer": true,
+          "relations": [
+            "author"
+          ]
+        }
+      ],
+      "args": [
+        {
+          "name": "contentHash",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "price",
+          "type": "u64"
+        },
+        {
+          "name": "tags",
+          "type": {
+            "option": {
+              "array": [
+                "u8",
+                64
+              ]
+            }
+          }
+        },
+        {
+          "name": "isActive",
+          "type": {
+            "option": "bool"
+          }
         }
       ]
     },
@@ -4248,6 +4882,45 @@ export type AgencCoordination = {
       ]
     },
     {
+      "name": "purchaseRecord",
+      "discriminator": [
+        239,
+        38,
+        40,
+        199,
+        4,
+        96,
+        209,
+        2
+      ]
+    },
+    {
+      "name": "skillRating",
+      "discriminator": [
+        107,
+        74,
+        49,
+        243,
+        139,
+        30,
+        9,
+        244
+      ]
+    },
+    {
+      "name": "skillRegistration",
+      "discriminator": [
+        195,
+        23,
+        19,
+        205,
+        215,
+        225,
+        192,
+        254
+      ]
+    },
+    {
       "name": "task",
       "discriminator": [
         79,
@@ -4663,6 +5336,58 @@ export type AgencCoordination = {
         162,
         10,
         30
+      ]
+    },
+    {
+      "name": "skillPurchased",
+      "discriminator": [
+        90,
+        255,
+        155,
+        123,
+        29,
+        16,
+        39,
+        75
+      ]
+    },
+    {
+      "name": "skillRated",
+      "discriminator": [
+        90,
+        85,
+        214,
+        124,
+        228,
+        179,
+        112,
+        13
+      ]
+    },
+    {
+      "name": "skillRegistered",
+      "discriminator": [
+        222,
+        131,
+        204,
+        34,
+        182,
+        68,
+        239,
+        64
+      ]
+    },
+    {
+      "name": "skillUpdated",
+      "discriminator": [
+        168,
+        10,
+        44,
+        211,
+        219,
+        5,
+        98,
+        98
       ]
     },
     {
@@ -5549,6 +6274,46 @@ export type AgencCoordination = {
       "code": 6160,
       "name": "treasuryNotProgramOwned",
       "msg": "Treasury must be a program-owned PDA"
+    },
+    {
+      "code": 6161,
+      "name": "skillInvalidId",
+      "msg": "Skill ID cannot be all zeros"
+    },
+    {
+      "code": 6162,
+      "name": "skillInvalidName",
+      "msg": "Skill name cannot be all zeros"
+    },
+    {
+      "code": 6163,
+      "name": "skillInvalidContentHash",
+      "msg": "Skill content hash cannot be all zeros"
+    },
+    {
+      "code": 6164,
+      "name": "skillNotActive",
+      "msg": "Skill is not active"
+    },
+    {
+      "code": 6165,
+      "name": "skillInvalidRating",
+      "msg": "Rating must be between 1 and 5"
+    },
+    {
+      "code": 6166,
+      "name": "skillSelfRating",
+      "msg": "Cannot rate own skill"
+    },
+    {
+      "code": 6167,
+      "name": "skillUnauthorizedUpdate",
+      "msg": "Only the skill author can update this skill"
+    },
+    {
+      "code": 6168,
+      "name": "skillSelfPurchase",
+      "msg": "Cannot purchase own skill"
     }
   ],
   "types": [
@@ -7736,6 +8501,65 @@ export type AgencCoordination = {
       }
     },
     {
+      "name": "purchaseRecord",
+      "docs": [
+        "Purchase record (one per buyer per skill, prevents double purchase)",
+        "PDA seeds: [\"skill_purchase\", skill_pda, buyer_agent_pda]"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "skill",
+            "docs": [
+              "Skill purchased"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "buyer",
+            "docs": [
+              "Buyer's agent PDA"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "pricePaid",
+            "docs": [
+              "Price paid at time of purchase"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "timestamp",
+            "docs": [
+              "Purchase timestamp"
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "bump",
+            "docs": [
+              "Bump seed"
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "reserved",
+            "docs": [
+              "Reserved for future use"
+            ],
+            "type": {
+              "array": [
+                "u8",
+                4
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
       "name": "rateLimitHit",
       "docs": [
         "Emitted when a rate limit is hit"
@@ -7908,6 +8732,411 @@ export type AgencCoordination = {
           {
             "name": "protocolFee",
             "type": "u64"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "skillPurchased",
+      "docs": [
+        "Emitted when a skill is purchased"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "skill",
+            "type": "pubkey"
+          },
+          {
+            "name": "buyer",
+            "type": "pubkey"
+          },
+          {
+            "name": "author",
+            "type": "pubkey"
+          },
+          {
+            "name": "pricePaid",
+            "type": "u64"
+          },
+          {
+            "name": "protocolFee",
+            "type": "u64"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "skillRated",
+      "docs": [
+        "Emitted when a skill is rated by another agent"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "skill",
+            "type": "pubkey"
+          },
+          {
+            "name": "rater",
+            "type": "pubkey"
+          },
+          {
+            "name": "rating",
+            "type": "u8"
+          },
+          {
+            "name": "raterReputation",
+            "type": "u16"
+          },
+          {
+            "name": "newTotalRating",
+            "type": "u64"
+          },
+          {
+            "name": "newRatingCount",
+            "type": "u32"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "skillRating",
+      "docs": [
+        "Skill rating record (one per rater per skill)",
+        "PDA seeds: [\"skill_rating\", skill_pda, rater_agent_pda]"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "skill",
+            "docs": [
+              "Skill being rated"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "rater",
+            "docs": [
+              "Rater's agent PDA"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "rating",
+            "docs": [
+              "Rating value (1-5)"
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "reviewHash",
+            "docs": [
+              "Optional review content hash"
+            ],
+            "type": {
+              "option": {
+                "array": [
+                  "u8",
+                  32
+                ]
+              }
+            }
+          },
+          {
+            "name": "raterReputation",
+            "docs": [
+              "Rater's reputation at time of rating"
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "timestamp",
+            "docs": [
+              "Rating timestamp"
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "bump",
+            "docs": [
+              "Bump seed"
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "reserved",
+            "docs": [
+              "Reserved for future use"
+            ],
+            "type": {
+              "array": [
+                "u8",
+                4
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "skillRegistered",
+      "docs": [
+        "Emitted when a new skill is registered"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "skill",
+            "type": "pubkey"
+          },
+          {
+            "name": "author",
+            "type": "pubkey"
+          },
+          {
+            "name": "skillId",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "name",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "contentHash",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "price",
+            "type": "u64"
+          },
+          {
+            "name": "priceMint",
+            "type": {
+              "option": "pubkey"
+            }
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "skillRegistration",
+      "docs": [
+        "Skill registration account",
+        "PDA seeds: [\"skill\", author_agent_pda, skill_id]"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "author",
+            "docs": [
+              "Author's agent PDA"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "skillId",
+            "docs": [
+              "Unique skill identifier"
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "name",
+            "docs": [
+              "Skill display name"
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "contentHash",
+            "docs": [
+              "Content hash (IPFS CID, Arweave tx, etc.)"
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "price",
+            "docs": [
+              "Price in lamports (SOL) or token smallest units"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "priceMint",
+            "docs": [
+              "Optional SPL token mint for price denomination (None = SOL)"
+            ],
+            "type": {
+              "option": "pubkey"
+            }
+          },
+          {
+            "name": "tags",
+            "docs": [
+              "Tags for discovery (encoded by client)"
+            ],
+            "type": {
+              "array": [
+                "u8",
+                64
+              ]
+            }
+          },
+          {
+            "name": "totalRating",
+            "docs": [
+              "Sum of reputation-weighted ratings"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "ratingCount",
+            "docs": [
+              "Number of ratings received"
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "downloadCount",
+            "docs": [
+              "Number of purchases"
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "version",
+            "docs": [
+              "Content version (monotonically increasing)"
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "isActive",
+            "docs": [
+              "Whether the skill is currently active"
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "createdAt",
+            "docs": [
+              "Creation timestamp"
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "updatedAt",
+            "docs": [
+              "Last update timestamp"
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "bump",
+            "docs": [
+              "Bump seed"
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "reserved",
+            "docs": [
+              "Reserved for future use"
+            ],
+            "type": {
+              "array": [
+                "u8",
+                8
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "skillUpdated",
+      "docs": [
+        "Emitted when a skill is updated by its author"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "skill",
+            "type": "pubkey"
+          },
+          {
+            "name": "author",
+            "type": "pubkey"
+          },
+          {
+            "name": "contentHash",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "price",
+            "type": "u64"
+          },
+          {
+            "name": "version",
+            "type": "u8"
           },
           {
             "name": "timestamp",
