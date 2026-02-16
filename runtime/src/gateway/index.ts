@@ -17,6 +17,7 @@ export type {
   ControlResponse,
   ChannelHandle,
   ConfigDiff,
+  WebChatHandler,
 } from './types.js';
 
 export {
