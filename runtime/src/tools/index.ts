@@ -67,4 +67,14 @@ export {
   createBrowserTools,
   closeBrowser,
   type BrowserToolConfig,
+  // Bash
+  createBashTool,
+  isCommandAllowed,
+  type BashToolConfig,
+  type BashToolInput,
+  type BashExecutionResult,
+  DEFAULT_DENY_LIST,
+  DEFAULT_DENY_PREFIXES,
+  DEFAULT_TIMEOUT_MS,
+  DEFAULT_MAX_OUTPUT_BYTES,
 } from './system/index.js';
