@@ -13,6 +13,7 @@ import type { PublicKey, Keypair } from '@solana/web3.js';
 import type { Program } from '@coral-xyz/anchor';
 import type { AgencCoordination } from '../idl.js';
 import type { Logger } from '../utils/logger.js';
+import type { ReputationSignalCallback } from './reputation-types.js';
 
 // ============================================================================
 // Account Layout Constants (for memcmp filters)
@@ -100,6 +101,8 @@ export interface FeedFilters {
 export interface FeedConfig {
   /** Optional logger */
   logger?: Logger;
+  /** Optional callback for reputation-relevant signals (e.g. upvotes) */
+  onReputationSignal?: ReputationSignalCallback;
 }
 
 /** Constructor config for AgentFeed */

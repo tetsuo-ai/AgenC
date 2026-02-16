@@ -17,6 +17,7 @@ import type { EventSubscription, ReputationChangedEvent, EventCallback } from '.
 import { subscribeToReputationChanged } from '../events/protocol.js';
 import type { AgentProfile } from './types.js';
 import type { FeedPost } from './feed-types.js';
+import type { AgentMessage } from './messaging-types.js';
 import type {
   ReputationWeights,
   SocialSignals,
@@ -58,6 +59,7 @@ interface ResolvedWeights {
 export class ReputationScorer {
   private readonly program: Program<AgencCoordination>;
   private readonly weights: ResolvedWeights;
+  private readonly maxHistoryEntries: number;
   private readonly logger?: Logger;
   private readonly history: ReputationChangeRecord[] = [];
   private subscription: EventSubscription | null = null;
@@ -66,6 +68,7 @@ export class ReputationScorer {
     this.program = config.program;
     this.logger = config.logger;
     this.weights = ReputationScorer.resolveWeights(config.weights);
+    this.maxHistoryEntries = config.maxHistoryEntries ?? 0;
   }
 
   // ==========================================================================
@@ -74,44 +77,75 @@ export class ReputationScorer {
 
   /**
    * Score a post based on its upvote count.
+   *
+   * @param postId - Identifier for the post (e.g. PDA base58).
+   * @param upvotes - Current upvote count.
    * @returns Reputation points earned by the post author.
    */
-  scorePost(upvotes: number): number {
+  scorePost(postId: string, upvotes: number): number {
     if (upvotes < 0) {
       throw new ReputationScoringError('upvote count cannot be negative');
     }
+    void postId; // retained for logging / downstream tracking
     return upvotes * this.weights.upvoteWeight + this.weights.postWeight;
   }
 
   /**
-   * Score a completed collaboration for each participant.
-   * @param participantCount - Number of agents in the collaboration.
-   * @returns Reputation points earned per participant.
+   * Score a completed collaboration, splitting reputation among participants.
+   *
+   * Each participant receives `collaborationWeight / participantCount` points
+   * (at least 1 point each).
+   *
+   * @param taskId - Task identifier for the collaboration.
+   * @param participants - Array of participant agent IDs (32-byte Uint8Array).
+   * @returns Map of participant base58 key → reputation delta.
    */
-  scoreCollaboration(participantCount: number): number {
-    if (participantCount < 1) {
-      throw new ReputationScoringError('participant count must be >= 1');
+  scoreCollaboration(
+    taskId: string,
+    participants: Uint8Array[],
+  ): Map<string, number> {
+    if (participants.length < 1) {
+      throw new ReputationScoringError('participants array must not be empty');
     }
-    return this.weights.collaborationWeight;
+    void taskId; // retained for logging / downstream tracking
+    const perParticipant = Math.max(
+      1,
+      Math.floor(this.weights.collaborationWeight / participants.length),
+    );
+    const result = new Map<string, number>();
+    for (const p of participants) {
+      // Use hex encoding for Uint8Array keys (deterministic, no import needed)
+      const key = Array.from(p)
+        .map((b) => b.toString(16).padStart(2, '0'))
+        .join('');
+      result.set(key, perParticipant);
+    }
+    return result;
   }
 
   /**
    * Score a sent message.
+   *
+   * @param message - The agent message that was sent.
    * @returns Reputation points earned.
    */
-  scoreMessage(): number {
+  scoreMessage(message: AgentMessage): number {
+    void message; // retained for future content-quality scoring
     return this.weights.messageWeight;
   }
 
   /**
    * Compute a spam penalty.
+   *
+   * @param agentId - The offending agent's ID (32-byte Uint8Array).
    * @param severity - Severity multiplier (1 = normal, higher = worse).
    * @returns Negative reputation delta.
    */
-  penalizeSpam(severity: number): number {
+  penalizeSpam(agentId: Uint8Array, severity: number): number {
     if (severity < 0) {
       throw new ReputationScoringError('severity cannot be negative');
     }
+    void agentId; // retained for logging / downstream tracking
     return -(this.weights.spamPenaltyBase * severity);
   }
 
@@ -234,6 +268,10 @@ export class ReputationScorer {
         reason: event.reason as ReputationReasonValue,
         timestamp: event.timestamp,
       });
+      // Evict oldest entries when capacity is exceeded
+      if (this.maxHistoryEntries > 0 && this.history.length > this.maxHistoryEntries) {
+        this.history.splice(0, this.history.length - this.maxHistoryEntries);
+      }
       this.logger?.debug?.(
         `ReputationChanged: rep ${event.oldReputation} → ${event.newReputation} (reason=${event.reason})`,
       );

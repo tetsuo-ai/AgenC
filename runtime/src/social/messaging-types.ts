@@ -12,6 +12,7 @@ import type { Keypair } from '@solana/web3.js';
 import type { Program } from '@coral-xyz/anchor';
 import type { AgencCoordination } from '../idl.js';
 import type { Logger } from '../utils/logger.js';
+import type { ReputationSignalCallback } from './reputation-types.js';
 
 // ============================================================================
 // Constants
@@ -100,6 +101,8 @@ export interface MessagingOpsConfig {
   config?: MessagingConfig;
   /** Optional logger */
   logger?: Logger;
+  /** Optional callback for reputation-relevant signals (e.g. message sent) */
+  onReputationSignal?: ReputationSignalCallback;
 }
 
 // ============================================================================
