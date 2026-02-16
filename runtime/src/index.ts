@@ -1373,6 +1373,18 @@ export {
   type PendingLink,
   type IdentityResolverConfig,
   type IdentityStore,
+  // Execution sandboxing (Phase 4.5)
+  SandboxManager,
+  SandboxExecutionError,
+  SandboxUnavailableError,
+  defaultSandboxConfig,
+  checkDockerAvailable,
+  type SandboxConfig,
+  type SandboxResult,
+  type SandboxExecuteOptions,
+  type SandboxMode,
+  type SandboxScope,
+  type WorkspaceAccessMode,
 } from './gateway/index.js';
 
 // Channel Plugins (Phase 1.5)

@@ -150,6 +150,10 @@ export const RuntimeErrorCodes = {
   SKILL_VERIFICATION_ERROR: 'SKILL_VERIFICATION_ERROR',
   /** Skill publish operation failed */
   SKILL_PUBLISH_ERROR: 'SKILL_PUBLISH_ERROR',
+  /** Docker sandbox command execution failed */
+  SANDBOX_EXECUTION_ERROR: 'SANDBOX_EXECUTION_ERROR',
+  /** Docker daemon is not available or not running */
+  SANDBOX_UNAVAILABLE: 'SANDBOX_UNAVAILABLE',
 } as const;
 
 /** Union type of all runtime error code values */
