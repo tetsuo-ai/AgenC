@@ -1514,6 +1514,36 @@ export {
   type ProfileCacheConfig,
 } from './social/index.js';
 
+// Social / Messaging (Phase 8.2)
+export {
+  // Types
+  type AgentMessage,
+  type MessageMode,
+  type MessagingConfig,
+  type MessageHandler,
+  type PeerResolver,
+  type OffChainEnvelope,
+  type MessagingOpsConfig,
+  // Constants
+  MSG_MAGIC,
+  MSG_CONTENT_MAX_ONCHAIN,
+  // Encoding helpers
+  encodeMessageStateKey,
+  decodeMessageStateKey,
+  encodeMessageStateValue,
+  decodeMessageStateValue,
+  // Crypto
+  signAgentMessage,
+  verifyAgentSignature,
+  buildSigningPayload,
+  // Error classes
+  MessagingSendError,
+  MessagingConnectionError,
+  MessagingSignatureError,
+  // Operations class
+  AgentMessaging,
+} from './social/index.js';
+
 // Agent Builder (Phase 10)
 export { AgentBuilder, BuiltAgent } from './builder.js';
 

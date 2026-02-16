@@ -172,6 +172,12 @@ export const RuntimeErrorCodes = {
   SUB_AGENT_TIMEOUT: 'SUB_AGENT_TIMEOUT',
   /** Sub-agent session ID not found */
   SUB_AGENT_NOT_FOUND: 'SUB_AGENT_NOT_FOUND',
+  /** Messaging send failed (on-chain tx or off-chain delivery) */
+  MESSAGING_SEND_ERROR: 'MESSAGING_SEND_ERROR',
+  /** Messaging off-chain connection failed */
+  MESSAGING_CONNECTION_ERROR: 'MESSAGING_CONNECTION_ERROR',
+  /** Messaging Ed25519 signature verification failed */
+  MESSAGING_SIGNATURE_ERROR: 'MESSAGING_SIGNATURE_ERROR',
 } as const;
 
 /** Union type of all runtime error code values */
