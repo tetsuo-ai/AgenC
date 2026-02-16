@@ -1302,6 +1302,11 @@ export {
   type ToolPolicy,
   type WorkspaceTemplate,
   type WorkspaceConfigJson,
+  // Routing rules (Phase 7.2)
+  MessageRouter,
+  RoutingValidationError,
+  type RoutingMatch,
+  type RoutingRule,
   // Session isolation (Phase 7.3)
   SessionIsolationManager,
   type IsolatedSessionContext,
