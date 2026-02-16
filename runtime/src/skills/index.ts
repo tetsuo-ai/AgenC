@@ -129,3 +129,32 @@ export {
   type PurchaseResult,
   type OnChainPurchaseRecord,
 } from './registry/index.js';
+
+// Monetization (Phase 10.2)
+export {
+  SkillMonetizationManager,
+  computeRevenueShare,
+  SkillUsageTracker,
+  SkillSubscriptionError,
+  SkillRevenueError,
+  type SubscriptionModel,
+  type SubscriptionRecord,
+  type SubscriptionResult,
+  type SubscribeParams,
+  type SubscriptionPeriod,
+  type SubscriptionStatus,
+  type RevenueShareInput,
+  type RevenueShareResult,
+  type SkillUsageEvent,
+  type SkillAnalytics,
+  type AgentUsageSummary,
+  type SkillMonetizationConfig,
+  DEVELOPER_REVENUE_BPS,
+  PROTOCOL_REVENUE_BPS,
+  REVENUE_BPS_DENOMINATOR,
+  MIN_SUBSCRIPTION_DURATION_SECS,
+  SECONDS_PER_MONTH,
+  SECONDS_PER_YEAR,
+  DEFAULT_TRIAL_SECS,
+  MAX_ANALYTICS_ENTRIES_PER_SKILL,
+} from './monetization/index.js';
