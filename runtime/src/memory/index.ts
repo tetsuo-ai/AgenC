@@ -90,6 +90,14 @@ export {
   type EntityExtractor,
 } from './structured.js';
 
+// Memory ingestion (Phase 5.4)
+export {
+  MemoryIngestionEngine,
+  createIngestionHooks,
+  type IngestionConfig,
+  type SessionEndResult,
+} from './ingestion.js';
+
 // Semantic memory retriever (Phase 5.5)
 export {
   SemanticMemoryRetriever,
