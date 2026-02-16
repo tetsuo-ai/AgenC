@@ -1462,3 +1462,23 @@ export {
 
 // Agent Builder (Phase 10)
 export { AgentBuilder, BuiltAgent } from './builder.js';
+
+// Cross-Protocol Bridges (Phase 10)
+export {
+  // Types
+  type LangChainTool,
+  type LangChainBridgeConfig,
+  type X402PaymentRequest,
+  type X402PaymentResponse,
+  type X402BridgeConfig,
+  type FarcasterPostParams,
+  type FarcasterPostResult,
+  type FarcasterBridgeConfig,
+  // Error classes
+  BridgeError,
+  BridgePaymentError,
+  // Bridge classes
+  LangChainBridge,
+  X402Bridge,
+  FarcasterBridge,
+} from './bridges/index.js';
