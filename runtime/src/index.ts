@@ -465,6 +465,12 @@ export {
   SkillVerificationError,
   SkillPublishError,
   SKILL_REGISTRY_PROGRAM_ID,
+  // Payment flow (Phase 6.2)
+  SkillPurchaseManager,
+  SkillPurchaseError,
+  type SkillPurchaseConfig,
+  type PurchaseResult,
+  type OnChainPurchaseRecord,
 } from './skills/index.js';
 
 // LLM Adapters (Phase 4)

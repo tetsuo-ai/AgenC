@@ -150,6 +150,8 @@ export const RuntimeErrorCodes = {
   SKILL_VERIFICATION_ERROR: 'SKILL_VERIFICATION_ERROR',
   /** Skill publish operation failed */
   SKILL_PUBLISH_ERROR: 'SKILL_PUBLISH_ERROR',
+  /** Skill purchase operation failed */
+  SKILL_PURCHASE_ERROR: 'SKILL_PURCHASE_ERROR',
   /** Docker sandbox command execution failed */
   SANDBOX_EXECUTION_ERROR: 'SANDBOX_EXECUTION_ERROR',
   /** Docker daemon is not available or not running */
@@ -160,7 +162,7 @@ export const RuntimeErrorCodes = {
 export type RuntimeErrorCode = (typeof RuntimeErrorCodes)[keyof typeof RuntimeErrorCodes];
 
 // ============================================================================
-// Anchor Error Codes (161 codes: 6000-6160)
+// Anchor Error Codes (169 codes: 6000-6168)
 // ============================================================================
 
 /**
@@ -532,6 +534,24 @@ export const AnchorErrorCodes = {
   InvalidGovernanceParam: 6159,
   /** Treasury must be a program-owned PDA */
   TreasuryNotProgramOwned: 6160,
+
+  // Skill registry errors (6161-6168)
+  /** Skill ID cannot be all zeros */
+  SkillInvalidId: 6161,
+  /** Skill name cannot be all zeros */
+  SkillInvalidName: 6162,
+  /** Skill content hash cannot be all zeros */
+  SkillInvalidContentHash: 6163,
+  /** Skill is not active */
+  SkillNotActive: 6164,
+  /** Rating must be between 1 and 5 */
+  SkillInvalidRating: 6165,
+  /** Cannot rate own skill */
+  SkillSelfRating: 6166,
+  /** Only the skill author can update this skill */
+  SkillUnauthorizedUpdate: 6167,
+  /** Cannot purchase own skill */
+  SkillSelfPurchase: 6168,
 } as const;
 
 /** Union type of all Anchor error code values */
@@ -728,6 +748,15 @@ const AnchorErrorMessages: Record<AnchorErrorCode, string> = {
   6158: 'Execution timelock has not elapsed',
   6159: 'Invalid governance configuration parameter',
   6160: 'Treasury must be a program-owned PDA',
+  // Skill registry errors (6161-6168)
+  6161: 'Skill ID cannot be all zeros',
+  6162: 'Skill name cannot be all zeros',
+  6163: 'Skill content hash cannot be all zeros',
+  6164: 'Skill is not active',
+  6165: 'Rating must be between 1 and 5',
+  6166: 'Cannot rate own skill',
+  6167: 'Only the skill author can update this skill',
+  6168: 'Cannot purchase own skill',
 };
 
 // ============================================================================
@@ -1375,7 +1404,7 @@ export function parseAnchorError(error: unknown): ParsedAnchorError | null {
   }
 
   // Validate code is in our known range
-  if (code === undefined || code < 6000 || code > 6160) {
+  if (code === undefined || code < 6000 || code > 6168) {
     return null;
   }
 
