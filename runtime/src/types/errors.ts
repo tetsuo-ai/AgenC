@@ -154,6 +154,8 @@ export const RuntimeErrorCodes = {
   SANDBOX_EXECUTION_ERROR: 'SANDBOX_EXECUTION_ERROR',
   /** Docker daemon is not available or not running */
   SANDBOX_UNAVAILABLE: 'SANDBOX_UNAVAILABLE',
+  /** Agent discovery query failed */
+  DISCOVERY_ERROR: 'DISCOVERY_ERROR',
   /** Sub-agent spawning or setup failed */
   SUB_AGENT_SPAWN_ERROR: 'SUB_AGENT_SPAWN_ERROR',
   /** Sub-agent execution exceeded configured timeout */

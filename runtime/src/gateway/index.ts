@@ -254,6 +254,20 @@ export {
   defaultHeartbeatConfig,
 } from './heartbeat.js';
 
+// Heartbeat actions (Phase 2.2)
+export {
+  createTaskScanAction,
+  createSummaryAction,
+  createPortfolioAction,
+  createPollingAction,
+  createDefaultHeartbeatActions,
+  type TaskScanActionConfig,
+  type SummaryActionConfig,
+  type PortfolioActionConfig,
+  type PollingActionConfig,
+  type DefaultHeartbeatActionsConfig,
+} from './heartbeat-actions.js';
+
 // Execution sandboxing (Phase 4.5)
 export type {
   SandboxConfig,

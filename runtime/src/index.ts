@@ -954,6 +954,13 @@ export {
   type MemoryGraphResult,
   type MemoryGraphConfig,
   type CompactOptions,
+  // Semantic memory retriever
+  SemanticMemoryRetriever,
+  computeRetrievalScore,
+  estimateMemoryTokens,
+  type SemanticMemoryRetrieverConfig,
+  type RetrievalResult,
+  type ScoredRetrievalEntry,
 } from './memory/index.js';
 
 // Dispute Operations (Phase 8)
@@ -1431,6 +1438,14 @@ export {
   DiscordChannel,
   type DiscordChannelConfig,
   type DiscordIntentName,
+  SlackChannel,
+  type SlackChannelConfig,
+  WhatsAppChannel,
+  type WhatsAppChannelConfig,
+  SignalChannel,
+  type SignalChannelConfig,
+  MatrixChannel,
+  type MatrixChannelConfig,
 } from './channels/index.js';
 
 // Governance Operations (Phase 10)
@@ -1472,6 +1487,21 @@ export {
   type ProposalWithVotes,
   type GovernanceOpsConfig,
 } from './governance/index.js';
+
+// Social module (Phase 8.1)
+export {
+  AgentDiscovery,
+  ProfileCache,
+  AgentDiscoveryError,
+  AGENT_STATUS_OFFSET,
+  agentStateToProfile,
+  type AgentProfile,
+  type AgentSearchFilters,
+  type AgentSortField,
+  type SortOrder,
+  type DiscoveryConfig,
+  type ProfileCacheConfig,
+} from './social/index.js';
 
 // Agent Builder (Phase 10)
 export { AgentBuilder, BuiltAgent } from './builder.js';
