@@ -61,6 +61,7 @@ export interface GatewayConfig {
   memory?: GatewayMemoryConfig;
   channels?: Record<string, GatewayChannelConfig>;
   logging?: GatewayLoggingConfig;
+  personality?: import('./personality/types.js').PersonalityConfig;
 }
 
 // ============================================================================

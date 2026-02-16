@@ -35,6 +35,7 @@ obj/
 !runtime/idl/*.json
 !runtime/src/replay/alert-schema-lockfile.json
 !docs/api-baseline/*.json
+!examples/personalities/*.json
 id.json
 deploy/
 keys/

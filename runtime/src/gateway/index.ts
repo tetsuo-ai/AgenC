@@ -66,6 +66,22 @@ export {
   scaffoldWorkspace,
 } from './workspace-files.js';
 
+// Personality (Phase 3.6)
+export type {
+  CommunicationStyle,
+  Tone,
+  Trait,
+  ResponsePreferences,
+  PersonalityConfig,
+} from './personality/index.js';
+
+export {
+  formatPersonality,
+  getDefaultPersonalityPath,
+  validatePersonalityConfig,
+  PersonalityLoader,
+} from './personality/index.js';
+
 // Session management (Phase 1.6)
 export type {
   SessionScope,

@@ -167,6 +167,8 @@ export function getDefaultWorkspacePath(): string {
 // ============================================================================
 
 export interface AssembleSystemPromptOptions {
+  /** Formatted personality prompt, prepended before workspace files. */
+  readonly personalityPrompt?: string;
   /** Extra context appended after all workspace files. */
   readonly additionalContext?: string;
   /** Maximum total character length (truncated with trailing `…`). */
@@ -186,6 +188,10 @@ export function assembleSystemPrompt(
   options?: AssembleSystemPromptOptions,
 ): string {
   const sections: string[] = [];
+
+  if (options?.personalityPrompt) {
+    sections.push(options.personalityPrompt.trim());
+  }
 
   const ordered: (string | undefined)[] = [
     files.agent,

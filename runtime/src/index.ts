@@ -1204,6 +1204,16 @@ export {
   type WorkspaceValidation,
   type WorkspaceFileName,
   type AssembleSystemPromptOptions,
+  // Personality (Phase 3.6)
+  formatPersonality,
+  getDefaultPersonalityPath,
+  validatePersonalityConfig,
+  PersonalityLoader,
+  type CommunicationStyle,
+  type Tone,
+  type Trait,
+  type ResponsePreferences,
+  type PersonalityConfig,
   // Session management (Phase 1.6)
   SessionManager,
   deriveSessionId,
