@@ -176,3 +176,13 @@ export {
   type WebhookHandler,
   type ReactionEvent,
 } from './channel.js';
+
+// Cross-channel identity linking (Phase 1.9)
+export type {
+  LinkedAccount,
+  IdentityLink,
+  PendingLink,
+  IdentityResolverConfig,
+} from './identity.js';
+
+export { IdentityResolver } from './identity.js';

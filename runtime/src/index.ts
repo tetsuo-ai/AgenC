@@ -1315,6 +1315,12 @@ export {
   type WebhookResponse,
   type WebhookHandler,
   type ReactionEvent,
+  // Cross-channel identity linking (Phase 1.9)
+  IdentityResolver,
+  type LinkedAccount,
+  type IdentityLink,
+  type PendingLink,
+  type IdentityResolverConfig,
 } from './gateway/index.js';
 
 // Agent Builder (Phase 10)
