@@ -1299,6 +1299,22 @@ export {
   type HookContext,
   type HookResult,
   type DispatchResult,
+  // Channel plugin (Phase 1.5)
+  PluginCatalog,
+  WebhookRouter,
+  BaseChannelPlugin,
+  ChannelNameInvalidError,
+  ChannelAlreadyRegisteredError,
+  ChannelNotFoundError,
+  type ChannelPlugin,
+  type ChannelContext,
+  type PluginCatalogConfig,
+  type WebhookRoute,
+  type WebhookMethod,
+  type WebhookRequest,
+  type WebhookResponse,
+  type WebhookHandler,
+  type ReactionEvent,
 } from './gateway/index.js';
 
 // Agent Builder (Phase 10)

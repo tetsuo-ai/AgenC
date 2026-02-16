@@ -157,3 +157,22 @@ export {
   type HookResult,
   type DispatchResult,
 } from './hooks.js';
+
+// Channel plugin (Phase 1.5)
+export {
+  PluginCatalog,
+  WebhookRouter,
+  BaseChannelPlugin,
+  ChannelNameInvalidError,
+  ChannelAlreadyRegisteredError,
+  ChannelNotFoundError,
+  type ChannelPlugin,
+  type ChannelContext,
+  type PluginCatalogConfig,
+  type WebhookRoute,
+  type WebhookMethod,
+  type WebhookRequest,
+  type WebhookResponse,
+  type WebhookHandler,
+  type ReactionEvent,
+} from './channel.js';
