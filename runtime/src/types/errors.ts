@@ -116,6 +116,8 @@ export const RuntimeErrorCodes = {
   GATEWAY_STATE_ERROR: 'GATEWAY_STATE_ERROR',
   /** Gateway start/stop lifecycle failure */
   GATEWAY_LIFECYCLE_ERROR: 'GATEWAY_LIFECYCLE_ERROR',
+  /** Workspace configuration validation failed */
+  WORKSPACE_VALIDATION_ERROR: 'WORKSPACE_VALIDATION_ERROR',
   /** Chat session token budget exceeded */
   CHAT_BUDGET_EXCEEDED: 'CHAT_BUDGET_EXCEEDED',
 } as const;
