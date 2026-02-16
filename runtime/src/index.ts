@@ -1605,6 +1605,25 @@ export {
   ReputationScorer,
 } from './social/index.js';
 
+// Social / Collaboration (Phase 8.5)
+export {
+  type CollaborationRequest,
+  type CollaborationRequestState,
+  type CollaborationRequestStatus,
+  type CollaborationResponse,
+  type CollaborationRequestMetadata,
+  type CollaborationConfig,
+  type CollaborationOpsConfig,
+  COLLABORATION_TOPIC,
+  MAX_TITLE_LENGTH,
+  MAX_DESCRIPTION_LENGTH,
+  MAX_COLLABORATION_MEMBERS,
+  CollaborationRequestError,
+  CollaborationResponseError,
+  CollaborationFormationError,
+  CollaborationProtocol,
+} from './social/index.js';
+
 // Agent Builder (Phase 10)
 export { AgentBuilder, BuiltAgent } from './builder.js';
 
