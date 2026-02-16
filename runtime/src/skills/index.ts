@@ -102,6 +102,11 @@ export {
   MarkdownSkillInjector,
   estimateTokens,
   scoreRelevance,
+  // OpenClaw compatibility bridge
+  detectNamespace,
+  convertOpenClawSkill,
+  mapOpenClawMetadata,
+  importSkill,
 } from './markdown/index.js';
 
 // Remote skill registry client (Phase 6.1)
