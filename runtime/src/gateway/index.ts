@@ -104,6 +104,10 @@ export {
   MEMORY_NAMESPACE_PREFIX,
 } from './workspace.js';
 
+// Routing rules (Phase 7.2)
+export type { RoutingMatch, RoutingRule } from './routing.js';
+export { MessageRouter, RoutingValidationError } from './routing.js';
+
 // Session isolation (Phase 7.3)
 export type { IsolatedSessionContext, SessionIsolationManagerConfig, AuthState } from './session-isolation.js';
 export { SessionIsolationManager } from './session-isolation.js';
