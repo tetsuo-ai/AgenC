@@ -602,6 +602,8 @@ export interface PrivateTaskExecutionResult {
   outputCommitment: Uint8Array;
   /** Expected binding (32 bytes) */
   expectedBinding: Uint8Array;
+  /** Nullifier to prevent proof/knowledge reuse (32 bytes) */
+  nullifier: Uint8Array;
 }
 
 /**

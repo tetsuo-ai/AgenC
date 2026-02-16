@@ -448,6 +448,18 @@ export {
   type DiscoveredSkill,
   type MissingRequirement,
   SkillDiscovery,
+  // Remote skill registry client (Phase 6.1)
+  type SkillListing,
+  type SkillListingEntry,
+  type SkillRegistryClient,
+  type SkillRegistryClientConfig,
+  type SearchOptions,
+  OnChainSkillRegistryClient,
+  SkillRegistryNotFoundError,
+  SkillDownloadError,
+  SkillVerificationError,
+  SkillPublishError,
+  SKILL_REGISTRY_PROGRAM_ID,
 } from './skills/index.js';
 
 // LLM Adapters (Phase 4)

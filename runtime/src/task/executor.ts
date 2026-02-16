@@ -1125,6 +1125,7 @@ export class TaskExecutor {
           result.constraintHash,
           result.outputCommitment,
           result.expectedBinding,
+          result.nullifier,
         );
       } else {
         completeResult = await this.operations.completeTask(
