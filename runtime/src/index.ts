@@ -1323,6 +1323,9 @@ export {
   ChannelConnectionError,
   type TelegramChannelConfig,
   type TelegramWebhookConfig,
+  DiscordChannel,
+  type DiscordChannelConfig,
+  type DiscordIntentName,
 } from './channels/index.js';
 
 // Agent Builder (Phase 10)
