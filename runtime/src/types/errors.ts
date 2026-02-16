@@ -178,13 +178,19 @@ export const RuntimeErrorCodes = {
   MESSAGING_CONNECTION_ERROR: 'MESSAGING_CONNECTION_ERROR',
   /** Messaging Ed25519 signature verification failed */
   MESSAGING_SIGNATURE_ERROR: 'MESSAGING_SIGNATURE_ERROR',
+  /** Feed post operation failed */
+  FEED_POST_ERROR: 'FEED_POST_ERROR',
+  /** Feed upvote operation failed */
+  FEED_UPVOTE_ERROR: 'FEED_UPVOTE_ERROR',
+  /** Feed query operation failed */
+  FEED_QUERY_ERROR: 'FEED_QUERY_ERROR',
 } as const;
 
 /** Union type of all runtime error code values */
 export type RuntimeErrorCode = (typeof RuntimeErrorCodes)[keyof typeof RuntimeErrorCodes];
 
 // ============================================================================
-// Anchor Error Codes (169 codes: 6000-6168)
+// Anchor Error Codes (173 codes: 6000-6172)
 // ============================================================================
 
 /**
@@ -574,6 +580,16 @@ export const AnchorErrorCodes = {
   SkillUnauthorizedUpdate: 6167,
   /** Cannot purchase own skill */
   SkillSelfPurchase: 6168,
+
+  // Feed errors (6169-6172)
+  /** Feed content hash cannot be all zeros */
+  FeedInvalidContentHash: 6169,
+  /** Feed topic cannot be all zeros */
+  FeedInvalidTopic: 6170,
+  /** Feed post not found */
+  FeedPostNotFound: 6171,
+  /** Cannot upvote own post */
+  FeedSelfUpvote: 6172,
 } as const;
 
 /** Union type of all Anchor error code values */
@@ -779,6 +795,11 @@ const AnchorErrorMessages: Record<AnchorErrorCode, string> = {
   6166: 'Cannot rate own skill',
   6167: 'Only the skill author can update this skill',
   6168: 'Cannot purchase own skill',
+  // Feed errors (6169-6172)
+  6169: 'Feed content hash cannot be all zeros',
+  6170: 'Feed topic cannot be all zeros',
+  6171: 'Feed post not found',
+  6172: 'Cannot upvote own post',
 };
 
 // ============================================================================

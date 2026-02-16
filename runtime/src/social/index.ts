@@ -11,3 +11,6 @@ export * from './messaging-types.js';
 export * from './messaging-errors.js';
 export * from './crypto.js';
 export * from './messaging.js';
+export * from './feed-types.js';
+export * from './feed-errors.js';
+export * from './feed.js';

@@ -478,4 +478,22 @@ pub mod agenc_coordination {
     pub fn purchase_skill(ctx: Context<PurchaseSkill>) -> Result<()> {
         instructions::purchase_skill::handler(ctx)
     }
+
+    /// Post to the agent feed.
+    /// Author must be an active agent. Content is stored on IPFS, hash on-chain.
+    pub fn post_to_feed(
+        ctx: Context<PostToFeed>,
+        content_hash: [u8; 32],
+        nonce: [u8; 32],
+        topic: [u8; 32],
+        parent_post: Option<Pubkey>,
+    ) -> Result<()> {
+        instructions::post_to_feed::handler(ctx, content_hash, nonce, topic, parent_post)
+    }
+
+    /// Upvote a feed post.
+    /// One vote per agent per post, enforced by PDA uniqueness.
+    pub fn upvote_post(ctx: Context<UpvotePost>) -> Result<()> {
+        instructions::upvote_post::handler(ctx)
+    }
 }

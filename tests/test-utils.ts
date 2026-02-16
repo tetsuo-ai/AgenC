@@ -465,6 +465,40 @@ export function deriveGovernanceVotePda(
 }
 
 // ============================================================================
+// Feed PDA Derivation Functions
+// ============================================================================
+
+/**
+ * Derive a feed post PDA from author agent PDA and nonce.
+ * Seeds: ["post", author_agent_pda, nonce]
+ */
+export function deriveFeedPostPda(
+  authorPda: PublicKey,
+  nonce: Buffer | Uint8Array,
+  programId: PublicKey
+): PublicKey {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("post"), authorPda.toBuffer(), Buffer.from(nonce)],
+    programId
+  )[0];
+}
+
+/**
+ * Derive a feed vote PDA from post PDA and voter agent PDA.
+ * Seeds: ["upvote", post_pda, voter_agent_pda]
+ */
+export function deriveFeedVotePda(
+  postPda: PublicKey,
+  voterPda: PublicKey,
+  programId: PublicKey
+): PublicKey {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("upvote"), postPda.toBuffer(), voterPda.toBuffer()],
+    programId
+  )[0];
+}
+
+// ============================================================================
 // Assertion Helpers
 // ============================================================================
 

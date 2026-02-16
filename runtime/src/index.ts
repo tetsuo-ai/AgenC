@@ -1548,6 +1548,33 @@ export {
   AgentMessaging,
 } from './social/index.js';
 
+// Social / Feed (Phase 8.3)
+export {
+  // Types
+  type FeedPost,
+  type FeedVoteAccount,
+  type PostToFeedParams,
+  type UpvotePostParams,
+  type FeedFilters,
+  type FeedConfig,
+  type FeedOpsConfig,
+  type PostCreatedEvent,
+  type PostUpvotedEvent,
+  type FeedEventCallbacks,
+  // Constants
+  FEED_POST_AUTHOR_OFFSET,
+  FEED_POST_TOPIC_OFFSET,
+  // PDA helpers
+  deriveFeedPostPda,
+  deriveFeedVotePda,
+  // Error classes
+  FeedPostError,
+  FeedUpvoteError,
+  FeedQueryError,
+  // Operations class
+  AgentFeed,
+} from './social/index.js';
+
 // Agent Builder (Phase 10)
 export { AgentBuilder, BuiltAgent } from './builder.js';
 

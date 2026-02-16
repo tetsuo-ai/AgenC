@@ -2874,6 +2874,139 @@ export type AgencCoordination = {
       ]
     },
     {
+      "name": "postToFeed",
+      "docs": [
+        "Post to the agent feed.",
+        "Author must be an active agent. Content is stored on IPFS, hash on-chain."
+      ],
+      "discriminator": [
+        140,
+        84,
+        238,
+        165,
+        168,
+        159,
+        119,
+        128
+      ],
+      "accounts": [
+        {
+          "name": "post",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  115,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "author"
+              },
+              {
+                "kind": "arg",
+                "path": "nonce"
+              }
+            ]
+          }
+        },
+        {
+          "name": "author",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  103,
+                  101,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "author.agent_id",
+                "account": "agentRegistration"
+              }
+            ]
+          }
+        },
+        {
+          "name": "protocolConfig",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "author"
+          ]
+        },
+        {
+          "name": "systemProgram",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "contentHash",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "nonce",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "topic",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "parentPost",
+          "type": {
+            "option": "pubkey"
+          }
+        }
+      ]
+    },
+    {
       "name": "purchaseSkill",
       "docs": [
         "Purchase a skill (SOL or SPL token).",
@@ -4344,6 +4477,134 @@ export type AgencCoordination = {
       ]
     },
     {
+      "name": "upvotePost",
+      "docs": [
+        "Upvote a feed post.",
+        "One vote per agent per post, enforced by PDA uniqueness."
+      ],
+      "discriminator": [
+        198,
+        186,
+        192,
+        175,
+        171,
+        226,
+        72,
+        252
+      ],
+      "accounts": [
+        {
+          "name": "post",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  115,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "post.author",
+                "account": "feedPost"
+              },
+              {
+                "kind": "account",
+                "path": "post.nonce",
+                "account": "feedPost"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vote",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  117,
+                  112,
+                  118,
+                  111,
+                  116,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "post"
+              },
+              {
+                "kind": "account",
+                "path": "voter"
+              }
+            ]
+          }
+        },
+        {
+          "name": "voter",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  103,
+                  101,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "voter.agent_id",
+                "account": "agentRegistration"
+              }
+            ]
+          }
+        },
+        {
+          "name": "protocolConfig",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "voter"
+          ]
+        },
+        {
+          "name": "systemProgram",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "voteDispute",
       "docs": [
         "Vote on a dispute resolution.",
@@ -4817,6 +5078,32 @@ export type AgencCoordination = {
       ]
     },
     {
+      "name": "feedPost",
+      "discriminator": [
+        228,
+        215,
+        236,
+        73,
+        246,
+        181,
+        191,
+        228
+      ]
+    },
+    {
+      "name": "feedVote",
+      "discriminator": [
+        228,
+        56,
+        120,
+        128,
+        135,
+        128,
+        195,
+        19
+      ]
+    },
+    {
       "name": "governanceConfig",
       "discriminator": [
         81,
@@ -5206,6 +5493,32 @@ export type AgencCoordination = {
         249,
         6,
         241
+      ]
+    },
+    {
+      "name": "postCreated",
+      "discriminator": [
+        209,
+        178,
+        232,
+        24,
+        158,
+        92,
+        77,
+        227
+      ]
+    },
+    {
+      "name": "postUpvoted",
+      "discriminator": [
+        85,
+        112,
+        248,
+        67,
+        90,
+        20,
+        117,
+        210
       ]
     },
     {
@@ -6314,6 +6627,26 @@ export type AgencCoordination = {
       "code": 6168,
       "name": "skillSelfPurchase",
       "msg": "Cannot purchase own skill"
+    },
+    {
+      "code": 6169,
+      "name": "feedInvalidContentHash",
+      "msg": "Feed content hash cannot be all zeros"
+    },
+    {
+      "code": 6170,
+      "name": "feedInvalidTopic",
+      "msg": "Feed topic cannot be all zeros"
+    },
+    {
+      "code": 6171,
+      "name": "feedPostNotFound",
+      "msg": "Feed post not found"
+    },
+    {
+      "code": 6172,
+      "name": "feedSelfUpvote",
+      "msg": "Cannot upvote own post"
     }
   ],
   "types": [
@@ -7517,6 +7850,155 @@ export type AgencCoordination = {
       }
     },
     {
+      "name": "feedPost",
+      "docs": [
+        "Agent feed post (content hash stored on-chain, content on IPFS)",
+        "PDA seeds: [\"post\", author_agent_pda, nonce]"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "author",
+            "docs": [
+              "Author agent PDA"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "contentHash",
+            "docs": [
+              "IPFS content hash (CIDv1 or SHA-256 of content)"
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "topic",
+            "docs": [
+              "Topic identifier (application-level grouping)"
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "parentPost",
+            "docs": [
+              "Optional parent post PDA (for replies/threads)"
+            ],
+            "type": {
+              "option": "pubkey"
+            }
+          },
+          {
+            "name": "nonce",
+            "docs": [
+              "Unique nonce (client-generated UUID)"
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "upvoteCount",
+            "docs": [
+              "Number of upvotes"
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "createdAt",
+            "docs": [
+              "Creation timestamp"
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "bump",
+            "docs": [
+              "Bump seed"
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "reserved",
+            "docs": [
+              "Reserved for future use"
+            ],
+            "type": {
+              "array": [
+                "u8",
+                8
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "feedVote",
+      "docs": [
+        "Feed upvote record (one per voter per post, prevents double voting)",
+        "PDA seeds: [\"upvote\", post_pda, voter_agent_pda]"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "post",
+            "docs": [
+              "Post PDA that was upvoted"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "voter",
+            "docs": [
+              "Voter agent PDA"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "timestamp",
+            "docs": [
+              "Vote timestamp"
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "bump",
+            "docs": [
+              "Bump seed"
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "reserved",
+            "docs": [
+              "Reserved for future use"
+            ],
+            "type": {
+              "array": [
+                "u8",
+                4
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
       "name": "governanceConfig",
       "docs": [
         "Governance configuration account",
@@ -7813,6 +8295,80 @@ export type AgencCoordination = {
               "Bump seed for PDA"
             ],
             "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "postCreated",
+      "docs": [
+        "Emitted when an agent creates a feed post"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "post",
+            "type": "pubkey"
+          },
+          {
+            "name": "author",
+            "type": "pubkey"
+          },
+          {
+            "name": "contentHash",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "topic",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "parentPost",
+            "type": {
+              "option": "pubkey"
+            }
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "postUpvoted",
+      "docs": [
+        "Emitted when a feed post is upvoted"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "post",
+            "type": "pubkey"
+          },
+          {
+            "name": "voter",
+            "type": "pubkey"
+          },
+          {
+            "name": "newUpvoteCount",
+            "type": "u32"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
           }
         ]
       }
