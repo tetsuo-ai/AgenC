@@ -38,3 +38,18 @@ export class GatewayLifecycleError extends RuntimeError {
     this.name = 'GatewayLifecycleError';
   }
 }
+
+export class WorkspaceValidationError extends RuntimeError {
+  public readonly field: string;
+  public readonly reason: string;
+
+  constructor(field: string, reason: string) {
+    super(
+      `Workspace validation failed: ${field} — ${reason}`,
+      RuntimeErrorCodes.WORKSPACE_VALIDATION_ERROR,
+    );
+    this.name = 'WorkspaceValidationError';
+    this.field = field;
+    this.reason = reason;
+  }
+}

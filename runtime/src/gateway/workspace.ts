@@ -19,7 +19,7 @@ import type { SessionConfig } from './session.js';
 import type { CapabilityName } from '../agent/capabilities.js';
 import { parseCapabilities } from '../agent/capabilities.js';
 import { isRecord } from '../utils/type-guards.js';
-import { RuntimeError, RuntimeErrorCodes } from '../types/errors.js';
+import { WorkspaceValidationError } from './errors.js';
 
 // ============================================================================
 // Constants
@@ -74,24 +74,8 @@ export interface AgentWorkspace {
   readonly toolPermissions?: readonly ToolPolicy[];
 }
 
-// ============================================================================
-// Error class
-// ============================================================================
-
-export class WorkspaceValidationError extends RuntimeError {
-  public readonly field: string;
-  public readonly reason: string;
-
-  constructor(field: string, reason: string) {
-    super(
-      `Workspace validation failed: ${field} — ${reason}`,
-      RuntimeErrorCodes.WORKSPACE_VALIDATION_ERROR,
-    );
-    this.name = 'WorkspaceValidationError';
-    this.field = field;
-    this.reason = reason;
-  }
-}
+// Re-export error class from canonical location
+export { WorkspaceValidationError } from './errors.js';
 
 // ============================================================================
 // Validation helpers (internal — not exported from barrel)
@@ -137,6 +121,18 @@ function validateWorkspaceConfig(raw: unknown): string[] {
       errors.push('llm must be an object');
     } else if (raw.llm.provider !== undefined && !VALID_LLM_PROVIDERS.has(raw.llm.provider as string)) {
       errors.push(`llm.provider must be one of: ${[...VALID_LLM_PROVIDERS].join(', ')}`);
+    }
+  }
+
+  if (raw.memoryNamespace !== undefined) {
+    if (typeof raw.memoryNamespace !== 'string' || raw.memoryNamespace.length === 0) {
+      errors.push('memoryNamespace must be a non-empty string');
+    }
+  }
+
+  if (raw.session !== undefined) {
+    if (!isRecord(raw.session)) {
+      errors.push('session must be an object');
     }
   }
 
@@ -298,7 +294,10 @@ export class WorkspaceManager {
       throw new WorkspaceValidationError('id', `Workspace already exists: ${id}`);
     } catch (err) {
       if (err instanceof WorkspaceValidationError) throw err;
-      // ENOENT = doesn't exist yet, proceed
+      // Only ENOENT means "doesn't exist yet" — re-throw anything else (e.g. EACCES)
+      if (!(err instanceof Error && 'code' in err && (err as NodeJS.ErrnoException).code === 'ENOENT')) {
+        throw err;
+      }
     }
 
     await mkdir(workspacePath, { recursive: true });

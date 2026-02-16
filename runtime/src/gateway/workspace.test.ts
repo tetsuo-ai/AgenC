@@ -221,6 +221,32 @@ describe('invalid workspace config handling', () => {
     await expect(manager.load('bad-caps')).rejects.toThrow(WorkspaceValidationError);
   });
 
+  it('invalid session config throws', async () => {
+    const dir = join(tmpDir, 'bad-session');
+    await mkdir(dir, { recursive: true });
+    await writeFile(
+      join(dir, WORKSPACE_CONFIG_FILE),
+      JSON.stringify({ session: 'not-an-object' }),
+      'utf-8',
+    );
+
+    await expect(manager.load('bad-session')).rejects.toThrow(WorkspaceValidationError);
+    await expect(manager.load('bad-session')).rejects.toThrow('session must be an object');
+  });
+
+  it('empty memoryNamespace throws', async () => {
+    const dir = join(tmpDir, 'bad-ns');
+    await mkdir(dir, { recursive: true });
+    await writeFile(
+      join(dir, WORKSPACE_CONFIG_FILE),
+      JSON.stringify({ memoryNamespace: '' }),
+      'utf-8',
+    );
+
+    await expect(manager.load('bad-ns')).rejects.toThrow(WorkspaceValidationError);
+    await expect(manager.load('bad-ns')).rejects.toThrow('memoryNamespace must be a non-empty string');
+  });
+
   it('invalid workspace ID throws', async () => {
     // Uppercase
     await expect(manager.load('INVALID')).rejects.toThrow(WorkspaceValidationError);
