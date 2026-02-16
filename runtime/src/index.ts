@@ -1317,10 +1317,17 @@ export {
   type ReactionEvent,
   // Cross-channel identity linking (Phase 1.9)
   IdentityResolver,
-  type LinkedAccount,
+  InMemoryIdentityStore,
+  IdentityLinkExpiredError,
+  IdentityLinkNotFoundError,
+  IdentitySelfLinkError,
+  IdentitySignatureError,
+  IdentityValidationError,
+  type IdentityAccount,
   type IdentityLink,
   type PendingLink,
   type IdentityResolverConfig,
+  type IdentityStore,
 } from './gateway/index.js';
 
 // Agent Builder (Phase 10)

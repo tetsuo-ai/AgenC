@@ -1,288 +1,643 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { IdentityResolver } from './identity.js';
+import { Keypair } from '@solana/web3.js';
+import { sign } from 'node:crypto';
+import {
+  IdentityResolver,
+  InMemoryIdentityStore,
+  IdentityLinkExpiredError,
+  IdentityLinkNotFoundError,
+  IdentitySelfLinkError,
+  IdentitySignatureError,
+  IdentityValidationError,
+} from './identity.js';
 import type { IdentityLink } from './identity.js';
+
+// ============================================================================
+// Test Setup
+// ============================================================================
 
 describe('IdentityResolver', () => {
   let resolver: IdentityResolver;
 
   beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1700000000000);
     resolver = new IdentityResolver();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   // ---- register ----
 
-  it('register creates a new identity for an unlinked account', () => {
-    const identity = resolver.register('telegram', 'user123', 'Alice');
+  describe('register', () => {
+    it('creates a new identity for an unlinked account', async () => {
+      const identity = await resolver.register('telegram', 'user123', 'Alice');
 
-    expect(identity.identityId).toBeDefined();
-    expect(identity.accounts).toHaveLength(1);
-    expect(identity.accounts[0].channel).toBe('telegram');
-    expect(identity.accounts[0].senderId).toBe('user123');
-    expect(identity.accounts[0].displayName).toBe('Alice');
-    expect(identity.createdAt).toBeGreaterThan(0);
-    expect(resolver.identityCount).toBe(1);
-  });
+      expect(identity.identityId).toBeDefined();
+      expect(identity.accounts).toHaveLength(1);
+      expect(identity.accounts[0].channel).toBe('telegram');
+      expect(identity.accounts[0].senderId).toBe('user123');
+      expect(identity.accounts[0].displayName).toBe('Alice');
+      expect(identity.createdAt).toBe(1700000000000);
+    });
 
-  it('register returns existing identity if account is already linked', () => {
-    const first = resolver.register('telegram', 'user123', 'Alice');
-    const second = resolver.register('telegram', 'user123', 'Alice');
+    it('returns existing identity if account is already linked', async () => {
+      const first = await resolver.register('telegram', 'user123', 'Alice');
+      const second = await resolver.register('telegram', 'user123', 'Alice');
 
-    expect(second.identityId).toBe(first.identityId);
-    expect(resolver.identityCount).toBe(1);
+      expect(second.identityId).toBe(first.identityId);
+    });
+
+    it('rejects empty channel', async () => {
+      await expect(resolver.register('', 'user1', 'Alice')).rejects.toThrow(IdentityValidationError);
+    });
+
+    it('rejects empty senderId', async () => {
+      await expect(resolver.register('telegram', '', 'Alice')).rejects.toThrow(IdentityValidationError);
+    });
+
+    it('rejects null bytes in channel', async () => {
+      await expect(resolver.register('tele\x00gram', 'user1', 'Alice')).rejects.toThrow(IdentityValidationError);
+    });
+
+    it('rejects null bytes in senderId', async () => {
+      await expect(resolver.register('telegram', 'user\x001', 'Alice')).rejects.toThrow(IdentityValidationError);
+    });
+
+    it('rejects oversized channel', async () => {
+      const longChannel = 'a'.repeat(65);
+      await expect(resolver.register(longChannel, 'user1', 'Alice')).rejects.toThrow(IdentityValidationError);
+    });
+
+    it('rejects oversized senderId', async () => {
+      const longId = 'a'.repeat(257);
+      await expect(resolver.register('telegram', longId, 'Alice')).rejects.toThrow(IdentityValidationError);
+    });
+
+    it('rejects when max identities reached', async () => {
+      const resolver = new IdentityResolver({ maxIdentities: 2 });
+      await resolver.register('telegram', 'user1', 'Alice');
+      await resolver.register('discord', 'user2', 'Bob');
+      await expect(resolver.register('slack', 'user3', 'Charlie')).rejects.toThrow(IdentityValidationError);
+    });
   });
 
   // ---- resolve ----
 
-  it('resolve returns identityId for a registered account', () => {
-    const identity = resolver.register('discord', 'user456', 'Bob');
-    const resolved = resolver.resolve('discord', 'user456');
+  describe('resolve', () => {
+    it('returns identityId for a registered account', async () => {
+      const identity = await resolver.register('discord', 'user456', 'Bob');
+      const resolved = await resolver.resolve('discord', 'user456');
 
-    expect(resolved).toBe(identity.identityId);
-  });
+      expect(resolved).toBe(identity.identityId);
+    });
 
-  it('resolve returns undefined for an unregistered account', () => {
-    expect(resolver.resolve('telegram', 'unknown')).toBeUndefined();
+    it('returns undefined for an unregistered account', async () => {
+      expect(await resolver.resolve('telegram', 'unknown')).toBeUndefined();
+    });
   });
 
   // ---- getIdentity / getIdentityByAccount ----
 
-  it('getIdentity returns identity by ID', () => {
-    const identity = resolver.register('telegram', 'user1', 'Alice');
-    const found = resolver.getIdentity(identity.identityId);
+  describe('getIdentity', () => {
+    it('returns identity by ID', async () => {
+      const identity = await resolver.register('telegram', 'user1', 'Alice');
+      const found = await resolver.getIdentity(identity.identityId);
 
-    expect(found).toBeDefined();
-    expect(found!.identityId).toBe(identity.identityId);
+      expect(found).toBeDefined();
+      expect(found!.identityId).toBe(identity.identityId);
+    });
+
+    it('returns undefined for unknown ID', async () => {
+      expect(await resolver.getIdentity('nonexistent')).toBeUndefined();
+    });
   });
 
-  it('getIdentityByAccount returns identity for a linked account', () => {
-    resolver.register('telegram', 'user1', 'Alice');
-    const found = resolver.getIdentityByAccount('telegram', 'user1');
+  describe('getIdentityByAccount', () => {
+    it('returns identity for a linked account', async () => {
+      await resolver.register('telegram', 'user1', 'Alice');
+      const found = await resolver.getIdentityByAccount('telegram', 'user1');
 
-    expect(found).toBeDefined();
-    expect(found!.accounts[0].senderId).toBe('user1');
+      expect(found).toBeDefined();
+      expect(found!.accounts[0].senderId).toBe('user1');
+    });
+
+    it('returns undefined for unlinked account', async () => {
+      expect(await resolver.getIdentityByAccount('telegram', 'nope')).toBeUndefined();
+    });
   });
 
-  it('getIdentityByAccount returns undefined for unlinked account', () => {
-    expect(resolver.getIdentityByAccount('telegram', 'nope')).toBeUndefined();
+  // ---- requestLink + confirmLink ----
+
+  describe('requestLink', () => {
+    it('returns a 6-character alphanumeric uppercase code', async () => {
+      await resolver.register('telegram', 'user1', 'Alice');
+      const code = await resolver.requestLink('telegram', 'user1', 'Alice');
+
+      expect(code).toHaveLength(6);
+      expect(code).toMatch(/^[A-Z0-9]{6}$/);
+    });
+
+    it('auto-registers account if not already registered', async () => {
+      const code = await resolver.requestLink('telegram', 'user1', 'Alice');
+
+      expect(code).toBeDefined();
+      expect(await resolver.resolve('telegram', 'user1')).toBeDefined();
+    });
+
+    it('rejects when pending link limit reached', async () => {
+      const resolver = new IdentityResolver({ maxPendingLinksPerIdentity: 2 });
+      await resolver.register('telegram', 'user1', 'Alice');
+      await resolver.requestLink('telegram', 'user1', 'Alice');
+      await resolver.requestLink('telegram', 'user1', 'Alice');
+
+      await expect(resolver.requestLink('telegram', 'user1', 'Alice')).rejects.toThrow(IdentityValidationError);
+    });
   });
 
-  // ---- initLink + completeLink ----
+  describe('confirmLink', () => {
+    it('merges two accounts into one identity', async () => {
+      await resolver.register('telegram', 'user1', 'Alice');
+      const code = await resolver.requestLink('telegram', 'user1', 'Alice');
 
-  it('initLink returns a 6-character uppercase code', () => {
-    resolver.register('telegram', 'user1', 'Alice');
-    const code = resolver.initLink('telegram', 'user1', 'Alice');
+      const merged = await resolver.confirmLink(code, 'discord', 'user2', 'Alice_Discord');
 
-    expect(code).toHaveLength(6);
-    expect(code).toBe(code.toUpperCase());
-  });
+      expect(merged.accounts).toHaveLength(2);
+      expect(merged.accounts.some((a) => a.channel === 'telegram')).toBe(true);
+      expect(merged.accounts.some((a) => a.channel === 'discord')).toBe(true);
 
-  it('initLink auto-registers account if not already registered', () => {
-    const code = resolver.initLink('telegram', 'user1', 'Alice');
+      // Both accounts resolve to the same identity
+      const id1 = await resolver.resolve('telegram', 'user1');
+      const id2 = await resolver.resolve('discord', 'user2');
+      expect(id1).toBe(id2);
+    });
 
-    expect(code).toBeDefined();
-    expect(resolver.identityCount).toBe(1);
-    expect(resolver.resolve('telegram', 'user1')).toBeDefined();
-  });
+    it('throws IdentityLinkNotFoundError for invalid code', async () => {
+      await expect(
+        resolver.confirmLink('BADCOD', 'discord', 'user2', 'Bob'),
+      ).rejects.toThrow(IdentityLinkNotFoundError);
+    });
 
-  it('completeLink merges two accounts into one identity', () => {
-    resolver.register('telegram', 'user1', 'Alice');
-    const code = resolver.initLink('telegram', 'user1', 'Alice');
+    it('throws IdentityLinkExpiredError for expired code', async () => {
+      const resolver = new IdentityResolver({ pendingLinkTtlMs: 1000 });
+      await resolver.register('telegram', 'user1', 'Alice');
+      const code = await resolver.requestLink('telegram', 'user1', 'Alice');
 
-    const merged = resolver.completeLink(code, 'discord', 'user2', 'Alice_Discord');
+      vi.advanceTimersByTime(2000);
 
-    expect(merged).not.toBeNull();
-    expect(merged!.accounts).toHaveLength(2);
-    expect(merged!.accounts.some((a) => a.channel === 'telegram')).toBe(true);
-    expect(merged!.accounts.some((a) => a.channel === 'discord')).toBe(true);
+      await expect(
+        resolver.confirmLink(code, 'discord', 'user2', 'Bob'),
+      ).rejects.toThrow(IdentityLinkExpiredError);
+    });
 
-    // Both accounts resolve to the same identity
-    const id1 = resolver.resolve('telegram', 'user1');
-    const id2 = resolver.resolve('discord', 'user2');
-    expect(id1).toBe(id2);
-  });
+    it('throws IdentitySelfLinkError for same channel + sender', async () => {
+      await resolver.register('telegram', 'user1', 'Alice');
+      const code = await resolver.requestLink('telegram', 'user1', 'Alice');
 
-  it('completeLink returns null for invalid code', () => {
-    const result = resolver.completeLink('BADCODE', 'discord', 'user2', 'Bob');
-    expect(result).toBeNull();
-  });
+      await expect(
+        resolver.confirmLink(code, 'telegram', 'user1', 'Alice'),
+      ).rejects.toThrow(IdentitySelfLinkError);
+    });
 
-  it('completeLink returns null for expired code', () => {
-    const resolver = new IdentityResolver({ pendingLinkTtlMs: 1 });
-    resolver.register('telegram', 'user1', 'Alice');
-    const code = resolver.initLink('telegram', 'user1', 'Alice');
+    it('merges identities when completing account already has identity', async () => {
+      // Register two separate identities
+      await resolver.register('telegram', 'user1', 'Alice');
+      await resolver.register('discord', 'user2', 'Alice_Discord');
 
-    // Force expiration by overriding Date.now
-    const originalNow = Date.now;
-    Date.now = () => originalNow() + 1000;
+      const id1Before = await resolver.resolve('telegram', 'user1');
+      const id2Before = await resolver.resolve('discord', 'user2');
+      expect(id1Before).not.toBe(id2Before);
 
-    const result = resolver.completeLink(code, 'discord', 'user2', 'Bob');
-    expect(result).toBeNull();
+      // Link them
+      const code = await resolver.requestLink('telegram', 'user1', 'Alice');
+      const merged = await resolver.confirmLink(code, 'discord', 'user2', 'Alice_Discord');
 
-    Date.now = originalNow;
-  });
+      expect(merged.accounts).toHaveLength(2);
 
-  it('completeLink prevents self-linking (same channel + sender)', () => {
-    resolver.register('telegram', 'user1', 'Alice');
-    const code = resolver.initLink('telegram', 'user1', 'Alice');
+      // Both now resolve to the same identity (the initiator's)
+      const id1After = await resolver.resolve('telegram', 'user1');
+      const id2After = await resolver.resolve('discord', 'user2');
+      expect(id1After).toBe(id2After);
+      expect(id1After).toBe(id1Before);
+    });
 
-    const result = resolver.completeLink(code, 'telegram', 'user1', 'Alice');
-    expect(result).toBeNull();
-  });
+    it('returns existing identity when already linked to same', async () => {
+      await resolver.register('telegram', 'user1', 'Alice');
+      const code1 = await resolver.requestLink('telegram', 'user1', 'Alice');
+      await resolver.confirmLink(code1, 'discord', 'user2', 'Alice_Discord');
 
-  it('completeLink merges identities when completing account already has identity', () => {
-    // Register two separate identities
-    resolver.register('telegram', 'user1', 'Alice');
-    resolver.register('discord', 'user2', 'Alice_Discord');
+      // Try linking again
+      const code2 = await resolver.requestLink('telegram', 'user1', 'Alice');
+      const result = await resolver.confirmLink(code2, 'discord', 'user2', 'Alice_Discord');
 
-    const id1Before = resolver.resolve('telegram', 'user1');
-    const id2Before = resolver.resolve('discord', 'user2');
-    expect(id1Before).not.toBe(id2Before);
+      expect(result.accounts).toHaveLength(2);
+    });
 
-    // Link them
-    const code = resolver.initLink('telegram', 'user1', 'Alice');
-    const merged = resolver.completeLink(code, 'discord', 'user2', 'Alice_Discord');
+    it('merge path preserves new displayName', async () => {
+      await resolver.register('telegram', 'user1', 'Alice');
+      await resolver.register('discord', 'user2', 'OldName');
 
-    expect(merged).not.toBeNull();
-    expect(merged!.accounts).toHaveLength(2);
+      const code = await resolver.requestLink('telegram', 'user1', 'Alice');
+      const merged = await resolver.confirmLink(code, 'discord', 'user2', 'NewName');
 
-    // Both now resolve to the same identity (the initiator's)
-    const id1After = resolver.resolve('telegram', 'user1');
-    const id2After = resolver.resolve('discord', 'user2');
-    expect(id1After).toBe(id2After);
-    expect(id1After).toBe(id1Before);
+      const discordAccount = merged.accounts.find((a) => a.channel === 'discord');
+      expect(discordAccount!.displayName).toBe('NewName');
+    });
 
-    // Old identity removed
-    expect(resolver.identityCount).toBe(1);
-  });
+    it('enforces attempt limit', async () => {
+      const resolver = new IdentityResolver({ maxConfirmLinkAttempts: 3 });
 
-  it('completeLink returns existing identity when already linked to same', () => {
-    resolver.register('telegram', 'user1', 'Alice');
-    const code1 = resolver.initLink('telegram', 'user1', 'Alice');
-    resolver.completeLink(code1, 'discord', 'user2', 'Alice_Discord');
+      // 3 failed attempts
+      for (let i = 0; i < 3; i++) {
+        await expect(
+          resolver.confirmLink('BADCOD', 'discord', 'user2', 'Bob'),
+        ).rejects.toThrow(IdentityLinkNotFoundError);
+      }
 
-    // Try linking again
-    const code2 = resolver.initLink('telegram', 'user1', 'Alice');
-    const result = resolver.completeLink(code2, 'discord', 'user2', 'Alice_Discord');
+      // 4th attempt should be blocked
+      await expect(
+        resolver.confirmLink('BADCOD', 'discord', 'user2', 'Bob'),
+      ).rejects.toThrow(IdentityValidationError);
+    });
 
-    expect(result).not.toBeNull();
-    expect(result!.accounts).toHaveLength(2);
+    it('resets attempt counter on success', async () => {
+      const resolver = new IdentityResolver({ maxConfirmLinkAttempts: 3 });
+
+      // 2 failed attempts
+      await expect(resolver.confirmLink('BADCOD', 'discord', 'user2', 'Bob')).rejects.toThrow();
+      await expect(resolver.confirmLink('BADCO2', 'discord', 'user2', 'Bob')).rejects.toThrow();
+
+      // Successful link resets
+      await resolver.register('telegram', 'user1', 'Alice');
+      const code = await resolver.requestLink('telegram', 'user1', 'Alice');
+      await resolver.confirmLink(code, 'discord', 'user2', 'Bob');
+
+      // Should be able to fail again (counter reset)
+      await expect(resolver.confirmLink('BADCO3', 'discord', 'user2', 'Bob')).rejects.toThrow(
+        IdentityLinkNotFoundError,
+      );
+    });
   });
 
   // ---- unlink ----
 
-  it('unlink removes an account from its identity', () => {
-    resolver.register('telegram', 'user1', 'Alice');
-    const code = resolver.initLink('telegram', 'user1', 'Alice');
-    resolver.completeLink(code, 'discord', 'user2', 'Alice_Discord');
+  describe('unlink', () => {
+    it('removes an account from its identity', async () => {
+      await resolver.register('telegram', 'user1', 'Alice');
+      const code = await resolver.requestLink('telegram', 'user1', 'Alice');
+      await resolver.confirmLink(code, 'discord', 'user2', 'Alice_Discord');
 
-    const unlinked = resolver.unlink('discord', 'user2');
-    expect(unlinked).toBe(true);
-    expect(resolver.resolve('discord', 'user2')).toBeUndefined();
+      const unlinked = await resolver.unlink('discord', 'user2');
+      expect(unlinked).toBe(true);
+      expect(await resolver.resolve('discord', 'user2')).toBeUndefined();
 
-    // Telegram account still linked
-    const identity = resolver.getIdentityByAccount('telegram', 'user1');
-    expect(identity).toBeDefined();
-    expect(identity!.accounts).toHaveLength(1);
-  });
+      // Telegram account still linked
+      const identity = await resolver.getIdentityByAccount('telegram', 'user1');
+      expect(identity).toBeDefined();
+      expect(identity!.accounts).toHaveLength(1);
+    });
 
-  it('unlink removes identity entirely when last account is unlinked', () => {
-    resolver.register('telegram', 'user1', 'Alice');
+    it('removes identity entirely when last account is unlinked', async () => {
+      await resolver.register('telegram', 'user1', 'Alice');
 
-    const unlinked = resolver.unlink('telegram', 'user1');
-    expect(unlinked).toBe(true);
-    expect(resolver.identityCount).toBe(0);
-  });
+      const unlinked = await resolver.unlink('telegram', 'user1');
+      expect(unlinked).toBe(true);
+      const all = await resolver.listIdentities();
+      expect(all).toHaveLength(0);
+    });
 
-  it('unlink returns false for unregistered account', () => {
-    expect(resolver.unlink('telegram', 'nonexistent')).toBe(false);
+    it('returns false for unregistered account', async () => {
+      expect(await resolver.unlink('telegram', 'nonexistent')).toBe(false);
+    });
   });
 
   // ---- setAgentPubkey ----
 
-  it('setAgentPubkey sets on-chain pubkey for identity', () => {
-    const identity = resolver.register('telegram', 'user1', 'Alice');
-    const result = resolver.setAgentPubkey(identity.identityId, 'SomeSolanaPublicKey123');
+  describe('setAgentPubkey', () => {
+    it('sets on-chain pubkey for identity', async () => {
+      const identity = await resolver.register('telegram', 'user1', 'Alice');
+      const result = await resolver.setAgentPubkey(identity.identityId, 'SomeSolanaPublicKey123');
 
-    expect(result).toBe(true);
-    const updated = resolver.getIdentity(identity.identityId);
-    expect(updated!.agentPubkey).toBe('SomeSolanaPublicKey123');
+      expect(result).toBe(true);
+      const updated = await resolver.getIdentity(identity.identityId);
+      expect(updated!.agentPubkey).toBe('SomeSolanaPublicKey123');
+    });
+
+    it('returns false for unknown identity', async () => {
+      expect(await resolver.setAgentPubkey('nonexistent', 'key')).toBe(false);
+    });
   });
 
-  it('setAgentPubkey returns false for unknown identity', () => {
-    expect(resolver.setAgentPubkey('nonexistent', 'key')).toBe(false);
+  // ---- linkViaSolana ----
+
+  describe('linkViaSolana', () => {
+    it('links identity with valid ed25519 signature', async () => {
+      const identity = await resolver.register('telegram', 'user1', 'Alice');
+      const keypair = Keypair.generate();
+      const message = Buffer.from('link-identity:' + identity.identityId);
+
+      // Sign with node:crypto ed25519
+      const { createPrivateKey } = await import('node:crypto');
+      const privateKey = createPrivateKey({
+        key: Buffer.concat([
+          Buffer.from('302e020100300506032b657004220420', 'hex'),
+          Buffer.from(keypair.secretKey.slice(0, 32)),
+        ]),
+        format: 'der',
+        type: 'pkcs8',
+      });
+      const signature = sign(null, message, privateKey);
+
+      const linked = await resolver.linkViaSolana(
+        identity.identityId,
+        keypair.publicKey.toBase58(),
+        message,
+        signature,
+      );
+
+      expect(linked.agentPubkey).toBe(keypair.publicKey.toBase58());
+    });
+
+    it('throws IdentitySignatureError for invalid signature', async () => {
+      const identity = await resolver.register('telegram', 'user1', 'Alice');
+      const keypair = Keypair.generate();
+      const message = Buffer.from('link-identity:test');
+      const badSignature = Buffer.alloc(64);
+
+      await expect(
+        resolver.linkViaSolana(
+          identity.identityId,
+          keypair.publicKey.toBase58(),
+          message,
+          badSignature,
+        ),
+      ).rejects.toThrow(IdentitySignatureError);
+    });
+
+    it('throws IdentitySignatureError for invalid public key', async () => {
+      const identity = await resolver.register('telegram', 'user1', 'Alice');
+
+      await expect(
+        resolver.linkViaSolana(
+          identity.identityId,
+          'not-a-valid-pubkey',
+          Buffer.from('test'),
+          Buffer.alloc(64),
+        ),
+      ).rejects.toThrow(IdentitySignatureError);
+    });
+
+    it('throws IdentityValidationError for unknown identity', async () => {
+      const keypair = Keypair.generate();
+      await expect(
+        resolver.linkViaSolana(
+          'nonexistent',
+          keypair.publicKey.toBase58(),
+          Buffer.from('test'),
+          Buffer.alloc(64),
+        ),
+      ).rejects.toThrow(IdentityValidationError);
+    });
   });
 
   // ---- setPreferences ----
 
-  it('setPreferences merges preferences for identity', () => {
-    const identity = resolver.register('telegram', 'user1', 'Alice');
-    resolver.setPreferences(identity.identityId, { theme: 'dark' });
-    resolver.setPreferences(identity.identityId, { language: 'en' });
+  describe('setPreferences', () => {
+    it('merges preferences for identity', async () => {
+      const identity = await resolver.register('telegram', 'user1', 'Alice');
+      await resolver.setPreferences(identity.identityId, { theme: 'dark' });
+      await resolver.setPreferences(identity.identityId, { language: 'en' });
 
-    const updated = resolver.getIdentity(identity.identityId);
-    expect(updated!.preferences).toEqual({ theme: 'dark', language: 'en' });
-  });
+      const updated = await resolver.getIdentity(identity.identityId);
+      expect(updated!.preferences).toEqual({ theme: 'dark', language: 'en' });
+    });
 
-  it('setPreferences returns false for unknown identity', () => {
-    expect(resolver.setPreferences('nonexistent', {})).toBe(false);
+    it('returns false for unknown identity', async () => {
+      expect(await resolver.setPreferences('nonexistent', {})).toBe(false);
+    });
   });
 
   // ---- purgeExpired ----
 
-  it('purgeExpired removes expired pending links', () => {
-    const resolver = new IdentityResolver({ pendingLinkTtlMs: 1 });
-    resolver.register('telegram', 'user1', 'Alice');
-    resolver.initLink('telegram', 'user1', 'Alice');
+  describe('purgeExpired', () => {
+    it('removes expired pending links', async () => {
+      const resolver = new IdentityResolver({ pendingLinkTtlMs: 1000 });
+      await resolver.register('telegram', 'user1', 'Alice');
+      await resolver.requestLink('telegram', 'user1', 'Alice');
 
-    // Force expiration
-    const originalNow = Date.now;
-    Date.now = () => originalNow() + 1000;
+      vi.advanceTimersByTime(2000);
 
-    const purged = resolver.purgeExpired();
-    expect(purged).toBe(1);
-    expect(resolver.pendingCount).toBe(0);
+      const purged = await resolver.purgeExpired();
+      expect(purged).toBe(1);
+    });
 
-    Date.now = originalNow;
-  });
+    it('does not remove active links', async () => {
+      await resolver.register('telegram', 'user1', 'Alice');
+      await resolver.requestLink('telegram', 'user1', 'Alice');
 
-  it('purgeExpired does not remove active links', () => {
-    resolver.register('telegram', 'user1', 'Alice');
-    resolver.initLink('telegram', 'user1', 'Alice');
-
-    const purged = resolver.purgeExpired();
-    expect(purged).toBe(0);
-    expect(resolver.pendingCount).toBe(1);
+      const purged = await resolver.purgeExpired();
+      expect(purged).toBe(0);
+    });
   });
 
   // ---- listIdentities ----
 
-  it('listIdentities returns all registered identities', () => {
-    resolver.register('telegram', 'user1', 'Alice');
-    resolver.register('discord', 'user2', 'Bob');
+  describe('listIdentities', () => {
+    it('returns all registered identities', async () => {
+      await resolver.register('telegram', 'user1', 'Alice');
+      await resolver.register('discord', 'user2', 'Bob');
 
-    const list = resolver.listIdentities();
-    expect(list).toHaveLength(2);
+      const list = await resolver.listIdentities();
+      expect(list).toHaveLength(2);
+    });
   });
 
   // ---- multi-channel linking (3+ channels) ----
 
-  it('supports linking 3+ channels to a single identity', () => {
-    resolver.register('telegram', 'user1', 'Alice');
+  describe('multi-channel linking', () => {
+    it('supports linking 3+ channels to a single identity', async () => {
+      await resolver.register('telegram', 'user1', 'Alice');
 
-    const code1 = resolver.initLink('telegram', 'user1', 'Alice');
-    resolver.completeLink(code1, 'discord', 'user2', 'Alice_Discord');
+      const code1 = await resolver.requestLink('telegram', 'user1', 'Alice');
+      await resolver.confirmLink(code1, 'discord', 'user2', 'Alice_Discord');
 
-    const code2 = resolver.initLink('telegram', 'user1', 'Alice');
-    resolver.completeLink(code2, 'slack', 'user3', 'Alice_Slack');
+      const code2 = await resolver.requestLink('telegram', 'user1', 'Alice');
+      await resolver.confirmLink(code2, 'slack', 'user3', 'Alice_Slack');
 
-    const identity = resolver.getIdentityByAccount('telegram', 'user1');
-    expect(identity!.accounts).toHaveLength(3);
+      const identity = await resolver.getIdentityByAccount('telegram', 'user1');
+      expect(identity!.accounts).toHaveLength(3);
 
-    // All three resolve to same identity
-    const id1 = resolver.resolve('telegram', 'user1');
-    const id2 = resolver.resolve('discord', 'user2');
-    const id3 = resolver.resolve('slack', 'user3');
-    expect(id1).toBe(id2);
-    expect(id2).toBe(id3);
+      // All three resolve to same identity
+      const id1 = await resolver.resolve('telegram', 'user1');
+      const id2 = await resolver.resolve('discord', 'user2');
+      const id3 = await resolver.resolve('slack', 'user3');
+      expect(id1).toBe(id2);
+      expect(id2).toBe(id3);
+    });
+  });
+});
+
+// ============================================================================
+// Error Class Tests
+// ============================================================================
+
+describe('Identity Errors', () => {
+  it('IdentityLinkExpiredError has correct name and fields', () => {
+    const err = new IdentityLinkExpiredError('ABC123');
+    expect(err.name).toBe('IdentityLinkExpiredError');
+    expect(err.linkCode).toBe('ABC123');
+    expect(err.message).toContain('ABC123');
+  });
+
+  it('IdentityLinkNotFoundError has correct name and fields', () => {
+    const err = new IdentityLinkNotFoundError('XYZ789');
+    expect(err.name).toBe('IdentityLinkNotFoundError');
+    expect(err.linkCode).toBe('XYZ789');
+    expect(err.message).toContain('XYZ789');
+  });
+
+  it('IdentitySelfLinkError has correct name and fields', () => {
+    const err = new IdentitySelfLinkError('telegram', 'user1');
+    expect(err.name).toBe('IdentitySelfLinkError');
+    expect(err.channel).toBe('telegram');
+    expect(err.senderId).toBe('user1');
+  });
+
+  it('IdentitySignatureError has correct name and fields', () => {
+    const err = new IdentitySignatureError('SomePubkey', 'bad sig');
+    expect(err.name).toBe('IdentitySignatureError');
+    expect(err.publicKey).toBe('SomePubkey');
+    expect(err.reason).toBe('bad sig');
+  });
+
+  it('IdentityValidationError has correct name and fields', () => {
+    const err = new IdentityValidationError('channel', 'too long');
+    expect(err.name).toBe('IdentityValidationError');
+    expect(err.field).toBe('channel');
+    expect(err.reason).toBe('too long');
+  });
+});
+
+// ============================================================================
+// InMemoryIdentityStore Tests
+// ============================================================================
+
+describe('InMemoryIdentityStore', () => {
+  let store: InMemoryIdentityStore;
+
+  beforeEach(() => {
+    store = new InMemoryIdentityStore();
+  });
+
+  it('saves and loads identity', async () => {
+    const identity: IdentityLink = {
+      identityId: 'test-id',
+      accounts: [{ channel: 'telegram', senderId: 'user1', displayName: 'Alice', linkedAt: 1000 }],
+      preferences: {},
+      createdAt: 1000,
+    };
+
+    await store.saveIdentity(identity);
+    const loaded = await store.loadIdentity('test-id');
+    expect(loaded).toEqual(identity);
+  });
+
+  it('findByAccount returns identity ID', async () => {
+    const identity: IdentityLink = {
+      identityId: 'test-id',
+      accounts: [{ channel: 'telegram', senderId: 'user1', displayName: 'Alice', linkedAt: 1000 }],
+      preferences: {},
+      createdAt: 1000,
+    };
+
+    await store.saveIdentity(identity);
+    expect(await store.findByAccount('telegram', 'user1')).toBe('test-id');
+    expect(await store.findByAccount('telegram', 'unknown')).toBeUndefined();
+  });
+
+  it('deleteIdentity removes identity and index', async () => {
+    const identity: IdentityLink = {
+      identityId: 'test-id',
+      accounts: [{ channel: 'telegram', senderId: 'user1', displayName: 'Alice', linkedAt: 1000 }],
+      preferences: {},
+      createdAt: 1000,
+    };
+
+    await store.saveIdentity(identity);
+    expect(await store.deleteIdentity('test-id')).toBe(true);
+    expect(await store.loadIdentity('test-id')).toBeUndefined();
+    expect(await store.findByAccount('telegram', 'user1')).toBeUndefined();
+  });
+
+  it('listAll returns all identities', async () => {
+    await store.saveIdentity({
+      identityId: 'id1',
+      accounts: [{ channel: 'telegram', senderId: 'u1', displayName: 'A', linkedAt: 1000 }],
+      preferences: {},
+      createdAt: 1000,
+    });
+    await store.saveIdentity({
+      identityId: 'id2',
+      accounts: [{ channel: 'discord', senderId: 'u2', displayName: 'B', linkedAt: 1000 }],
+      preferences: {},
+      createdAt: 1000,
+    });
+
+    const all = await store.listAll();
+    expect(all).toHaveLength(2);
+  });
+
+  it('countIdentities returns correct count', async () => {
+    expect(await store.countIdentities()).toBe(0);
+    await store.saveIdentity({
+      identityId: 'id1',
+      accounts: [{ channel: 'telegram', senderId: 'u1', displayName: 'A', linkedAt: 1000 }],
+      preferences: {},
+      createdAt: 1000,
+    });
+    expect(await store.countIdentities()).toBe(1);
+  });
+
+  it('saves and loads pending links', async () => {
+    const pending = { code: 'ABC123', fromChannel: 'telegram', fromSenderId: 'u1', fromDisplayName: 'A', expiresAt: 9999 };
+    await store.savePendingLink(pending);
+    expect(await store.loadPendingLink('ABC123')).toEqual(pending);
+  });
+
+  it('listExpiredPendingLinks returns only expired codes', async () => {
+    await store.savePendingLink({ code: 'A', fromChannel: 'c', fromSenderId: 's', fromDisplayName: 'd', expiresAt: 500 });
+    await store.savePendingLink({ code: 'B', fromChannel: 'c', fromSenderId: 's', fromDisplayName: 'd', expiresAt: 9999 });
+
+    const expired = await store.listExpiredPendingLinks(1000);
+    expect(expired).toEqual(['A']);
+  });
+
+  it('saveIdentity cleans up stale account index entries on update', async () => {
+    const identity: IdentityLink = {
+      identityId: 'test-id',
+      accounts: [
+        { channel: 'telegram', senderId: 'u1', displayName: 'A', linkedAt: 1000 },
+        { channel: 'discord', senderId: 'u2', displayName: 'B', linkedAt: 1000 },
+      ],
+      preferences: {},
+      createdAt: 1000,
+    };
+
+    await store.saveIdentity(identity);
+    expect(await store.findByAccount('telegram', 'u1')).toBe('test-id');
+    expect(await store.findByAccount('discord', 'u2')).toBe('test-id');
+
+    // Update identity with one account removed (simulates unlink)
+    const updated: IdentityLink = {
+      ...identity,
+      accounts: [{ channel: 'telegram', senderId: 'u1', displayName: 'A', linkedAt: 1000 }],
+    };
+    await store.saveIdentity(updated);
+
+    // Removed account should no longer resolve
+    expect(await store.findByAccount('telegram', 'u1')).toBe('test-id');
+    expect(await store.findByAccount('discord', 'u2')).toBeUndefined();
   });
 });
