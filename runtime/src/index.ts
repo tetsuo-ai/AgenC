@@ -1317,6 +1317,17 @@ export {
   type ReactionEvent,
 } from './gateway/index.js';
 
+// Channel Plugins (Phase 1.5)
+export {
+  TelegramChannel,
+  ChannelConnectionError,
+  type TelegramChannelConfig,
+  type TelegramWebhookConfig,
+  DiscordChannel,
+  type DiscordChannelConfig,
+  type DiscordIntentName,
+} from './channels/index.js';
+
 // Governance Operations (Phase 10)
 export {
   // Enums
