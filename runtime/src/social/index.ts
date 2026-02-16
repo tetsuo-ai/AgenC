@@ -17,3 +17,6 @@ export * from './feed.js';
 export * from './reputation-types.js';
 export * from './reputation-errors.js';
 export * from './reputation.js';
+export * from './collaboration-types.js';
+export * from './collaboration-errors.js';
+export * from './collaboration.js';

@@ -188,6 +188,12 @@ export const RuntimeErrorCodes = {
   REPUTATION_SCORING_ERROR: 'REPUTATION_SCORING_ERROR',
   /** Reputation event tracking or history query failed */
   REPUTATION_TRACKING_ERROR: 'REPUTATION_TRACKING_ERROR',
+  /** Collaboration request creation or retrieval failed */
+  COLLABORATION_REQUEST_ERROR: 'COLLABORATION_REQUEST_ERROR',
+  /** Collaboration response send or processing failed */
+  COLLABORATION_RESPONSE_ERROR: 'COLLABORATION_RESPONSE_ERROR',
+  /** Team formation from collaboration failed */
+  COLLABORATION_FORMATION_ERROR: 'COLLABORATION_FORMATION_ERROR',
 } as const;
 
 /** Union type of all runtime error code values */
