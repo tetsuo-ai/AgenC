@@ -465,16 +465,33 @@ export {
   type StreamProgressCallback,
   type ToolHandler,
   // Error classes
+  LLMAuthenticationError,
   LLMProviderError,
   LLMRateLimitError,
   LLMResponseConversionError,
+  LLMServerError,
   LLMToolCallError,
   LLMTimeoutError,
+  mapLLMError,
   // Response converter
   responseToOutput,
+  // Utilities
+  validateToolCall,
   // LLM Task Executor
   LLMTaskExecutor,
   type LLMTaskExecutorConfig,
+  // Fallback provider
+  FallbackLLMProvider,
+  type FallbackChainConfig,
+  // Chat Executor (Phase 1.11)
+  ChatExecutor,
+  ChatBudgetExceededError,
+  type ChatExecutorConfig,
+  type ChatExecuteParams,
+  type ChatExecutorResult,
+  type ToolCallRecord,
+  type SkillInjector,
+  type MemoryRetriever,
   // Provider adapters
   GrokProvider,
   type GrokProviderConfig,
@@ -1204,6 +1221,11 @@ export {
   type WorkspaceValidation,
   type WorkspaceFileName,
   type AssembleSystemPromptOptions,
+  // Personality templates (Phase 5.6)
+  loadPersonalityTemplate,
+  listPersonalityTemplates,
+  mergePersonality,
+  type PersonalityTemplate,
   // Session management (Phase 1.6)
   SessionManager,
   deriveSessionId,
@@ -1217,6 +1239,25 @@ export {
   type CompactionResult,
   type SessionInfo,
   type Summarizer,
+  // Agent workspace model (Phase 7.1)
+  WorkspaceManager,
+  WorkspaceValidationError,
+  WORKSPACE_CONFIG_FILE,
+  DEFAULT_WORKSPACE_ID,
+  WORKSPACE_ID_PATTERN,
+  MEMORY_NAMESPACE_PREFIX,
+  type AgentWorkspace,
+  type ToolPolicy,
+  type WorkspaceTemplate,
+  type WorkspaceConfigJson,
+  // Slash commands (Phase 1.5)
+  SlashCommandRegistry,
+  createDefaultCommands,
+  type SlashCommandDef,
+  type SlashCommandContext,
+  type SlashCommandHandler,
+  type ParsedCommand,
+  type SlashCommandRegistryConfig,
   // Media pipeline (Phase 1.12)
   MediaPipeline,
   NoopTranscriptionProvider,

@@ -24,6 +24,7 @@ export {
   GatewayConnectionError,
   GatewayStateError,
   GatewayLifecycleError,
+  WorkspaceValidationError,
 } from './errors.js';
 
 export {
@@ -66,6 +67,14 @@ export {
   scaffoldWorkspace,
 } from './workspace-files.js';
 
+// Personality templates (Phase 5.6)
+export type { PersonalityTemplate } from './personality.js';
+export {
+  loadPersonalityTemplate,
+  listPersonalityTemplates,
+  mergePersonality,
+} from './personality.js';
+
 // Session management (Phase 1.6)
 export type {
   SessionScope,
@@ -81,6 +90,27 @@ export type {
 } from './session.js';
 
 export { SessionManager, deriveSessionId } from './session.js';
+
+// Agent workspace model (Phase 7.1)
+export type { AgentWorkspace, ToolPolicy, WorkspaceTemplate, WorkspaceConfigJson } from './workspace.js';
+export {
+  WorkspaceManager,
+  WORKSPACE_CONFIG_FILE,
+  DEFAULT_WORKSPACE_ID,
+  WORKSPACE_ID_PATTERN,
+  MEMORY_NAMESPACE_PREFIX,
+} from './workspace.js';
+
+// Slash commands (Phase 1.5)
+export {
+  SlashCommandRegistry,
+  createDefaultCommands,
+  type SlashCommandDef,
+  type SlashCommandContext,
+  type SlashCommandHandler,
+  type ParsedCommand,
+  type SlashCommandRegistryConfig,
+} from './commands.js';
 
 // Media pipeline (Phase 1.12)
 export type { MediaPipelineConfig, MediaProcessingResult, TranscriptionProvider, ImageDescriptionProvider, MediaLogger } from './media.js';
