@@ -89,7 +89,7 @@ export class WebhookRouter {
     return [...this._routes];
   }
 
-  /** Internal route access for aggregation (avoids copy). */
+  /** @internal Route access for PluginCatalog aggregation (avoids copy). */
   get routesInternal(): ReadonlyArray<WebhookRoute> {
     return this._routes;
   }
@@ -288,20 +288,22 @@ export class PluginCatalog {
 
     await plugin.initialize(context);
 
-    // Only store context after successful initialization
+    // Only store context after successful initialization.
+    // Everything from here through start() is wrapped in a single
+    // try/catch so any failure cleans up all partial state.
     this.contexts.set(name, context);
 
-    if (plugin.registerWebhooks) {
-      const router = new WebhookRouter(name);
-      plugin.registerWebhooks(router);
-      this.webhookRouters.set(name, router);
-      this.logger.info(`Channel "${name}" registered ${router.routesInternal.length} webhook route(s)`);
-    }
-
     try {
+      if (plugin.registerWebhooks) {
+        const router = new WebhookRouter(name);
+        plugin.registerWebhooks(router);
+        this.webhookRouters.set(name, router);
+        this.logger.info(`Channel "${name}" registered ${router.routesInternal.length} webhook route(s)`);
+      }
+
       await plugin.start();
     } catch (err) {
-      // Clean up partial state if start() fails
+      // Clean up partial state if registerWebhooks() or start() fails
       this.contexts.delete(name);
       this.webhookRouters.delete(name);
       throw err;
