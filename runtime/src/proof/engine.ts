@@ -123,6 +123,7 @@ export class ProofEngine implements ProofGenerator {
       constraintHash: new Uint8Array(sdkResult.constraintHash),
       outputCommitment: new Uint8Array(sdkResult.outputCommitment),
       expectedBinding: new Uint8Array(sdkResult.expectedBinding),
+      nullifier: new Uint8Array(sdkResult.nullifier),
       proofSize: sdkResult.proofSize,
       generationTimeMs,
       fromCache: false,

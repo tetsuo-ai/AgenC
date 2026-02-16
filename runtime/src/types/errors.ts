@@ -126,6 +126,30 @@ export const RuntimeErrorCodes = {
   GOVERNANCE_VOTE_ERROR: 'GOVERNANCE_VOTE_ERROR',
   /** Governance proposal execution failed */
   GOVERNANCE_EXECUTION_ERROR: 'GOVERNANCE_EXECUTION_ERROR',
+  /** Identity link code has expired */
+  IDENTITY_LINK_EXPIRED: 'IDENTITY_LINK_EXPIRED',
+  /** Identity link code not found */
+  IDENTITY_LINK_NOT_FOUND: 'IDENTITY_LINK_NOT_FOUND',
+  /** Cannot link an account to itself */
+  IDENTITY_SELF_LINK: 'IDENTITY_SELF_LINK',
+  /** Ed25519 signature verification failed for identity linking */
+  IDENTITY_SIGNATURE_INVALID: 'IDENTITY_SIGNATURE_INVALID',
+  /** Identity input validation failed */
+  IDENTITY_VALIDATION_ERROR: 'IDENTITY_VALIDATION_ERROR',
+  /** Heartbeat scheduler invalid lifecycle state transition */
+  HEARTBEAT_STATE_ERROR: 'HEARTBEAT_STATE_ERROR',
+  /** Heartbeat action execution failed */
+  HEARTBEAT_ACTION_FAILED: 'HEARTBEAT_ACTION_FAILED',
+  /** Heartbeat action exceeded timeout */
+  HEARTBEAT_TIMEOUT: 'HEARTBEAT_TIMEOUT',
+  /** Skill not found in on-chain registry */
+  SKILL_REGISTRY_NOT_FOUND: 'SKILL_REGISTRY_NOT_FOUND',
+  /** Skill download from content gateway failed */
+  SKILL_DOWNLOAD_ERROR: 'SKILL_DOWNLOAD_ERROR',
+  /** Skill content hash verification failed */
+  SKILL_VERIFICATION_ERROR: 'SKILL_VERIFICATION_ERROR',
+  /** Skill publish operation failed */
+  SKILL_PUBLISH_ERROR: 'SKILL_PUBLISH_ERROR',
 } as const;
 
 /** Union type of all runtime error code values */

@@ -448,6 +448,18 @@ export {
   type DiscoveredSkill,
   type MissingRequirement,
   SkillDiscovery,
+  // Remote skill registry client (Phase 6.1)
+  type SkillListing,
+  type SkillListingEntry,
+  type SkillRegistryClient,
+  type SkillRegistryClientConfig,
+  type SearchOptions,
+  OnChainSkillRegistryClient,
+  SkillRegistryNotFoundError,
+  SkillDownloadError,
+  SkillVerificationError,
+  SkillPublishError,
+  SKILL_REGISTRY_PROGRAM_ID,
 } from './skills/index.js';
 
 // LLM Adapters (Phase 4)
@@ -832,6 +844,11 @@ export {
   isDomainAllowed,
   type HttpToolConfig,
   type HttpResponse,
+  // System tools (Filesystem)
+  createFilesystemTools,
+  isPathAllowed,
+  safePath,
+  type FilesystemToolConfig,
 } from './tools/index.js';
 
 // ZK Proof Engine (Phase 7)
@@ -889,6 +906,14 @@ export {
   // Redis backend
   RedisBackend,
   type RedisBackendConfig,
+  // Embeddings
+  type EmbeddingProvider,
+  OpenAIEmbeddingProvider,
+  OllamaEmbeddingProvider,
+  NoopEmbeddingProvider,
+  createEmbeddingProvider,
+  cosineSimilarity,
+  normalizeVector,
   // Memory graph
   MemoryGraph,
   type ProvenanceSourceType,
@@ -1299,6 +1324,16 @@ export {
   type HookContext,
   type HookResult,
   type DispatchResult,
+  // Cron scheduling (Phase 2.3)
+  parseCron,
+  cronMatches,
+  nextCronMatch,
+  CronScheduler,
+  type CronSchedule,
+  type CronSchedulerConfig,
+  type ScheduledJob,
+  type HeartbeatActionDef,
+  type HeartbeatContext,
   // Channel plugin (Phase 1.5)
   PluginCatalog,
   WebhookRouter,
@@ -1315,6 +1350,19 @@ export {
   type WebhookResponse,
   type WebhookHandler,
   type ReactionEvent,
+  // Cross-channel identity linking (Phase 1.9)
+  IdentityResolver,
+  InMemoryIdentityStore,
+  IdentityLinkExpiredError,
+  IdentityLinkNotFoundError,
+  IdentitySelfLinkError,
+  IdentitySignatureError,
+  IdentityValidationError,
+  type IdentityAccount,
+  type IdentityLink,
+  type PendingLink,
+  type IdentityResolverConfig,
+  type IdentityStore,
 } from './gateway/index.js';
 
 // Channel Plugins (Phase 1.5)

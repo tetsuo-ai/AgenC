@@ -158,6 +158,40 @@ export {
   type DispatchResult,
 } from './hooks.js';
 
+// Cron scheduling (Phase 2.3)
+export {
+  parseCron,
+  cronMatches,
+  nextCronMatch,
+  CronScheduler,
+  type CronSchedule,
+  type CronSchedulerConfig,
+  type ScheduledJob,
+  type HeartbeatActionDef,
+  type HeartbeatContext,
+} from './scheduler.js';
+
+// Approval policies (Phase 5)
+export type {
+  ApprovalPolicyConfig,
+  ApprovalRule,
+  ApprovalConditions,
+  ElevatedModeConfig,
+  ApprovalRequest,
+  ApprovalResponse,
+  ApprovalDisposition,
+  ApprovalEngineConfig,
+  ApprovalResponseHandler,
+} from './approvals.js';
+
+export {
+  ApprovalEngine,
+  DEFAULT_APPROVAL_RULES,
+  createApprovalGateHook,
+  globMatch,
+  extractAmount,
+} from './approvals.js';
+
 // Channel plugin (Phase 1.5)
 export {
   PluginCatalog,
@@ -176,3 +210,39 @@ export {
   type WebhookHandler,
   type ReactionEvent,
 } from './channel.js';
+
+// Cross-channel identity linking (Phase 1.9)
+export type {
+  IdentityAccount,
+  IdentityLink,
+  PendingLink,
+  IdentityResolverConfig,
+  IdentityStore,
+} from './identity.js';
+
+export {
+  IdentityResolver,
+  InMemoryIdentityStore,
+  IdentityLinkExpiredError,
+  IdentityLinkNotFoundError,
+  IdentitySelfLinkError,
+  IdentitySignatureError,
+  IdentityValidationError,
+} from './identity.js';
+
+// Heartbeat scheduler (Phase 2.1)
+export type {
+  HeartbeatConfig,
+  HeartbeatAction,
+  HeartbeatResult,
+  HeartbeatRunSummary,
+  HeartbeatSchedulerOptions,
+} from './heartbeat.js';
+
+export {
+  HeartbeatScheduler,
+  HeartbeatStateError,
+  HeartbeatActionError,
+  HeartbeatTimeoutError,
+  defaultHeartbeatConfig,
+} from './heartbeat.js';

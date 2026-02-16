@@ -192,15 +192,12 @@ export class ToolRegistry {
 }
 
 function inferToolAccess(toolName: string): 'read' | 'write' {
-  const name = toolName.toLowerCase();
-  if (
-    name.includes('.get')
-    || name.includes('.list')
-    || name.includes('.query')
-    || name.includes('.inspect')
-    || name.includes('.status')
-  ) {
-    return 'read';
-  }
+  // Extract action segment (last dot-separated part), e.g. "system.readFile" → "readfile"
+  const action = (toolName.split('.').pop() ?? toolName).toLowerCase();
+  // Exact match for standalone read actions
+  if (action === 'stat' || action === 'status') return 'read';
+  // Prefix match for compound read actions (getTask, listDir, readFile, queryBalance, etc.)
+  const readPrefixes = ['get', 'list', 'query', 'inspect', 'read'];
+  if (readPrefixes.some((p) => action.startsWith(p))) return 'read';
   return 'write';
 }

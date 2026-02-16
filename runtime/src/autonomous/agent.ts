@@ -1281,7 +1281,7 @@ export class AutonomousAgent extends AgentRuntime {
     this.autonomousLogger.info('Generating ZK proof...');
     const proofStartTime = Date.now();
 
-    let proofResult: { proof: Uint8Array; constraintHash: Uint8Array; outputCommitment: Uint8Array; expectedBinding: Uint8Array; proofSize: number };
+    let proofResult: { proof: Uint8Array; constraintHash: Uint8Array; outputCommitment: Uint8Array; expectedBinding: Uint8Array; nullifier: Uint8Array; proofSize: number };
     if (this.proofEngine) {
       const salt = this.proofEngine.generateSalt();
       proofResult = await this.proofEngine.generate({
@@ -1326,7 +1326,7 @@ export class AutonomousAgent extends AgentRuntime {
         constraintHash: toAnchorBytes(proofResult.constraintHash),
         outputCommitment: toAnchorBytes(proofResult.outputCommitment),
         expectedBinding: toAnchorBytes(proofResult.expectedBinding),
-        nullifier: Array.from(new Uint8Array(32)),
+        nullifier: toAnchorBytes(proofResult.nullifier),
       })
       .accountsPartial({
         task: task.pda,

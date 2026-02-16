@@ -442,7 +442,7 @@ export class TaskOperations {
    * @param constraintHash - 32-byte constraint hash
    * @param outputCommitment - 32-byte output commitment
    * @param expectedBinding - 32-byte expected binding
-   * @param nullifier - 32-byte nullifier (prevents proof reuse)
+   * @param nullifier - 32-byte nullifier to prevent proof reuse
    * @returns Completion result with signature
    */
   async completeTaskPrivate(
@@ -452,15 +452,17 @@ export class TaskOperations {
     constraintHash: Uint8Array,
     outputCommitment: Uint8Array,
     expectedBinding: Uint8Array,
-    nullifier?: Uint8Array,
+    nullifier: Uint8Array,
   ): Promise<CompleteResult> {
     // Input validation (#963)
     validateByteLength(proofData, 256, 'proofData');
     validateByteLength(constraintHash, 32, 'constraintHash');
     validateByteLength(outputCommitment, 32, 'outputCommitment');
     validateByteLength(expectedBinding, 32, 'expectedBinding');
+    validateByteLength(nullifier, 32, 'nullifier');
     validateNonZeroBytes(outputCommitment, 'outputCommitment');
     validateNonZeroBytes(expectedBinding, 'expectedBinding');
+    validateNonZeroBytes(nullifier, 'nullifier');
 
     const workerPda = this.getAgentPda();
     const { address: claimPda } = deriveClaimPda(taskPda, workerPda, this.program.programId);
@@ -486,7 +488,7 @@ export class TaskOperations {
         constraintHash: toAnchorBytes(constraintHash),
         outputCommitment: toAnchorBytes(outputCommitment),
         expectedBinding: toAnchorBytes(expectedBinding),
-        nullifier: nullifier ? toAnchorBytes(nullifier) : Array.from(new Uint8Array(32)),
+        nullifier: toAnchorBytes(nullifier),
       };
 
       const signature = await this.program.methods
