@@ -154,6 +154,8 @@ export const RuntimeErrorCodes = {
   SANDBOX_EXECUTION_ERROR: 'SANDBOX_EXECUTION_ERROR',
   /** Docker daemon is not available or not running */
   SANDBOX_UNAVAILABLE: 'SANDBOX_UNAVAILABLE',
+  /** Agent discovery query failed */
+  DISCOVERY_ERROR: 'DISCOVERY_ERROR',
 } as const;
 
 /** Union type of all runtime error code values */
