@@ -1462,3 +1462,34 @@ export {
 
 // Agent Builder (Phase 10)
 export { AgentBuilder, BuiltAgent } from './builder.js';
+
+// Voice Support (Phase 9.3)
+export {
+  // Types
+  type AudioFormat,
+  type STTOptions,
+  type TranscriptionSegment,
+  type TranscriptionResult,
+  type SpeechToTextProvider,
+  type TTSOptions,
+  type SynthesisResult,
+  type VoiceInfo,
+  type TextToSpeechProvider,
+  type STTConfig,
+  type TTSConfig,
+  type VoiceConfig,
+  // Error classes
+  VoiceTranscriptionError,
+  VoiceSynthesisError,
+  // STT providers
+  WhisperAPIProvider,
+  toTranscriptionProvider,
+  type WhisperAPIProviderConfig,
+  // TTS providers
+  ElevenLabsProvider,
+  OpenAITTSProvider,
+  EdgeTTSProvider,
+  type ElevenLabsProviderConfig,
+  type OpenAITTSProviderConfig,
+  type EdgeTTSProviderConfig,
+} from './voice/index.js';
