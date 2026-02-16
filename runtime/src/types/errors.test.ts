@@ -50,23 +50,23 @@ describe('RuntimeErrorCodes', () => {
     expect(RuntimeErrorCodes.MARKETPLACE_MATCHING_ERROR).toBe('MARKETPLACE_MATCHING_ERROR');
   });
 
-  it('has exactly 81 error codes', () => {
-    expect(Object.keys(RuntimeErrorCodes)).toHaveLength(81);
+  it('has exactly 86 error codes', () => {
+    expect(Object.keys(RuntimeErrorCodes)).toHaveLength(86);
   });
 });
 
 describe('AnchorErrorCodes', () => {
-  it('has exactly 169 error codes (6000-6168)', () => {
-    expect(Object.keys(AnchorErrorCodes)).toHaveLength(169);
+  it('has exactly 173 error codes (6000-6172)', () => {
+    expect(Object.keys(AnchorErrorCodes)).toHaveLength(173);
   });
 
-  it('has codes in range 6000-6168', () => {
+  it('has codes in range 6000-6172', () => {
     const codes = Object.values(AnchorErrorCodes);
     const minCode = Math.min(...codes);
     const maxCode = Math.max(...codes);
 
     expect(minCode).toBe(6000);
-    expect(maxCode).toBe(6168);
+    expect(maxCode).toBe(6172);
   });
 
   it('has sequential codes (no gaps)', () => {
@@ -563,7 +563,7 @@ describe('parseAnchorError', () => {
 
   it('returns null for code outside range', () => {
     expect(parseAnchorError({ code: 5999 })).toBeNull();
-    expect(parseAnchorError({ code: 6169 })).toBeNull();
+    expect(parseAnchorError({ code: 6173 })).toBeNull();
   });
 
   it('returns null for null/undefined', () => {
@@ -603,12 +603,12 @@ describe('getAnchorErrorName', () => {
 
   it('returns undefined for invalid code', () => {
     expect(getAnchorErrorName(5999)).toBeUndefined();
-    expect(getAnchorErrorName(6169)).toBeUndefined();
+    expect(getAnchorErrorName(6173)).toBeUndefined();
     expect(getAnchorErrorName(0)).toBeUndefined();
   });
 
-  it('returns name for all 169 codes', () => {
-    for (let code = 6000; code <= 6168; code++) {
+  it('returns name for all 173 codes', () => {
+    for (let code = 6000; code <= 6172; code++) {
       const name = getAnchorErrorName(code);
       expect(name).toBeDefined();
       expect(typeof name).toBe('string');
