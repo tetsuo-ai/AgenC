@@ -4,15 +4,13 @@
  * @module
  */
 
-import type { CliRuntimeContext, GatewayCommandOptions, SessionsKillOptions } from './types.js';
+import type { CliRuntimeContext, CliStatusCode, GatewayCommandOptions, SessionsKillOptions } from './types.js';
 import type { GatewayConfig } from '../gateway/types.js';
 import {
   getDefaultConfigPath,
   loadGatewayConfig,
 } from '../gateway/config-watcher.js';
 import { queryControlPlane } from './gateway-commands.js';
-
-type CliStatusCode = 0 | 1 | 2;
 
 // ============================================================================
 // sessions list

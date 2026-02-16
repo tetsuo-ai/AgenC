@@ -189,10 +189,17 @@ async function promptUser(question: string, defaultValue: string): Promise<strin
 export async function runSetupWizard(options?: {
   configPath?: string;
   nonInteractive?: boolean;
+  force?: boolean;
 }): Promise<WizardResult> {
   const configPath = options?.configPath ?? getDefaultConfigPath();
   const workspacePath = join(dirname(configPath), 'workspace');
   const nonInteractive = options?.nonInteractive ?? false;
+  const force = options?.force ?? false;
+
+  // Check for existing config — refuse to overwrite without --force
+  if (existsSync(configPath) && !force) {
+    throw new Error(`Config file already exists at ${configPath}. Use --force to overwrite.`);
+  }
 
   let answers: Record<string, string> = {};
 

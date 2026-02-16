@@ -7,7 +7,7 @@
  * @module
  */
 
-import type { CliRuntimeContext, GatewayCommandOptions, ConfigInitOptions, LogsOptions } from './types.js';
+import type { CliRuntimeContext, CliStatusCode, GatewayCommandOptions, ConfigInitOptions, LogsOptions } from './types.js';
 import type { GatewayConfig, ControlResponse } from '../gateway/types.js';
 import {
   getDefaultConfigPath,
@@ -15,8 +15,6 @@ import {
   validateGatewayConfig,
 } from '../gateway/config-watcher.js';
 import { runSetupWizard } from './wizard.js';
-
-type CliStatusCode = 0 | 1 | 2;
 
 // ============================================================================
 // gateway start (stub)
@@ -145,6 +143,7 @@ export async function runConfigInitCommand(
   const result = await runSetupWizard({
     configPath: options.configPath ?? getDefaultConfigPath(),
     nonInteractive: options.nonInteractive,
+    force: options.force,
   });
 
   context.output({
@@ -203,6 +202,27 @@ export async function runConfigValidateCommand(
 // config show
 // ============================================================================
 
+/** Fields that are redacted in `config show` output to prevent credential leakage. */
+const SENSITIVE_CONFIG_FIELDS = new Set(['apiKey', 'secretKey', 'token', 'password', 'secret']);
+
+function redactSensitiveFields(obj: unknown): unknown {
+  if (obj === null || obj === undefined || typeof obj !== 'object') {
+    return obj;
+  }
+  if (Array.isArray(obj)) {
+    return obj.map(redactSensitiveFields);
+  }
+  const result: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(obj as Record<string, unknown>)) {
+    if (SENSITIVE_CONFIG_FIELDS.has(key) && typeof value === 'string') {
+      result[key] = '[REDACTED]';
+    } else {
+      result[key] = redactSensitiveFields(value);
+    }
+  }
+  return result;
+}
+
 export async function runConfigShowCommand(
   context: CliRuntimeContext,
   options: GatewayCommandOptions,
@@ -225,7 +245,7 @@ export async function runConfigShowCommand(
     status: 'ok',
     command: 'config.show',
     configPath,
-    config,
+    config: redactSensitiveFields(config),
   });
   return 0;
 }

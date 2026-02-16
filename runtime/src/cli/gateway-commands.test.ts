@@ -404,4 +404,67 @@ describe('gateway cli commands', () => {
     expect(code).toBe(1);
     expect(errors.length).toBeGreaterThan(0);
   });
+
+  // ---- --force flag tests ----
+
+  it('config init without --force refuses to overwrite existing config', async () => {
+    const configPath = join(workspace, 'existing-config.json');
+    writeFileSync(configPath, JSON.stringify({ gateway: { port: 1234 } }), 'utf-8');
+
+    const { stdout, stderr } = makeStreams();
+    const code = await runCli({
+      argv: ['config', 'init', '--non-interactive', '--config-path', configPath],
+      stdout,
+      stderr,
+    });
+
+    expect(code).toBe(1);
+    // Original config should be preserved
+    const preserved = JSON.parse(readFileSync(configPath, 'utf-8'));
+    expect(preserved.gateway.port).toBe(1234);
+  });
+
+  it('config init with --force overwrites existing config', async () => {
+    const configPath = join(workspace, 'force-config.json');
+    writeFileSync(configPath, JSON.stringify({ gateway: { port: 1234 } }), 'utf-8');
+
+    const { stdout, stderr } = makeStreams();
+    const code = await runCli({
+      argv: ['config', 'init', '--non-interactive', '--force', '--config-path', configPath],
+      stdout,
+      stderr,
+    });
+
+    expect(code).toBe(0);
+    const written = JSON.parse(readFileSync(configPath, 'utf-8'));
+    // Should be a fresh config, not the old one
+    expect(written.gateway.port).toBe(9099);
+  });
+
+  // ---- config show redaction tests ----
+
+  it('config show redacts API keys and sensitive fields', async () => {
+    const configPath = join(workspace, 'secret-config.json');
+    const config = makeValidConfig({
+      llm: { provider: 'anthropic', apiKey: 'sk-ant-super-secret-key' },
+    });
+    writeGatewayConfig(configPath, config);
+
+    const { context, outputs } = createContextCapture();
+    const code = await runConfigShowCommand(context, {
+      help: false,
+      outputFormat: 'json',
+      strictMode: false,
+      storeType: 'memory',
+      idempotencyWindow: 900,
+      configPath,
+    });
+
+    expect(code).toBe(0);
+    const payload = outputs[0] as Record<string, unknown>;
+    const cfg = payload.config as Record<string, unknown>;
+    const llm = cfg.llm as Record<string, unknown>;
+    expect(llm.apiKey).toBe('[REDACTED]');
+    expect(llm.provider).toBe('anthropic');
+  });
 });
