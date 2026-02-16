@@ -63,4 +63,8 @@ export {
   isPathAllowed,
   safePath,
   type FilesystemToolConfig,
+  // Browser
+  createBrowserTools,
+  closeBrowser,
+  type BrowserToolConfig,
 } from './system/index.js';
