@@ -70,6 +70,16 @@ export {
   type CompactOptions,
 } from './graph.js';
 
+// Vector store (Phase 5.2)
+export {
+  InMemoryVectorStore,
+  type InMemoryVectorStoreConfig,
+  type VectorMemoryBackend,
+  type VectorSearchOptions,
+  type HybridSearchOptions,
+  type ScoredMemoryEntry,
+} from './vector-store.js';
+
 // Structured memory (daily logs, curated facts, entity extraction)
 export {
   formatLogDate,
