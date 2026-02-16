@@ -156,6 +156,22 @@ export const RuntimeErrorCodes = {
   SANDBOX_EXECUTION_ERROR: 'SANDBOX_EXECUTION_ERROR',
   /** Docker daemon is not available or not running */
   SANDBOX_UNAVAILABLE: 'SANDBOX_UNAVAILABLE',
+  /** Agent discovery query failed */
+  DISCOVERY_ERROR: 'DISCOVERY_ERROR',
+  /** Speech-to-text transcription failed */
+  VOICE_TRANSCRIPTION_ERROR: 'VOICE_TRANSCRIPTION_ERROR',
+  /** Text-to-speech synthesis failed */
+  VOICE_SYNTHESIS_ERROR: 'VOICE_SYNTHESIS_ERROR',
+  /** Cross-protocol bridge operation failed */
+  BRIDGE_ERROR: 'BRIDGE_ERROR',
+  /** x402 payment transfer failed */
+  BRIDGE_PAYMENT_ERROR: 'BRIDGE_PAYMENT_ERROR',
+  /** Sub-agent spawning or setup failed */
+  SUB_AGENT_SPAWN_ERROR: 'SUB_AGENT_SPAWN_ERROR',
+  /** Sub-agent execution exceeded configured timeout */
+  SUB_AGENT_TIMEOUT: 'SUB_AGENT_TIMEOUT',
+  /** Sub-agent session ID not found */
+  SUB_AGENT_NOT_FOUND: 'SUB_AGENT_NOT_FOUND',
 } as const;
 
 /** Union type of all runtime error code values */

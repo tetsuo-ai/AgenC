@@ -960,6 +960,13 @@ export {
   type MemoryGraphResult,
   type MemoryGraphConfig,
   type CompactOptions,
+  // Semantic memory retriever
+  SemanticMemoryRetriever,
+  computeRetrievalScore,
+  estimateMemoryTokens,
+  type SemanticMemoryRetrieverConfig,
+  type RetrievalResult,
+  type ScoredRetrievalEntry,
 } from './memory/index.js';
 
 // Dispute Operations (Phase 8)
@@ -1413,6 +1420,19 @@ export {
   type SandboxMode,
   type SandboxScope,
   type WorkspaceAccessMode,
+  // Sub-agent spawning (Phase 7.4)
+  SubAgentManager,
+  SubAgentSpawnError,
+  SubAgentTimeoutError,
+  SubAgentNotFoundError,
+  DEFAULT_SUB_AGENT_TIMEOUT_MS,
+  MAX_CONCURRENT_SUB_AGENTS,
+  SUB_AGENT_SESSION_PREFIX,
+  type SubAgentConfig,
+  type SubAgentResult,
+  type SubAgentManagerConfig,
+  type SubAgentStatus,
+  type SubAgentInfo,
 } from './gateway/index.js';
 
 // Channel Plugins (Phase 1.5)
@@ -1424,6 +1444,14 @@ export {
   DiscordChannel,
   type DiscordChannelConfig,
   type DiscordIntentName,
+  SlackChannel,
+  type SlackChannelConfig,
+  WhatsAppChannel,
+  type WhatsAppChannelConfig,
+  SignalChannel,
+  type SignalChannelConfig,
+  MatrixChannel,
+  type MatrixChannelConfig,
 } from './channels/index.js';
 
 // Governance Operations (Phase 10)
@@ -1466,5 +1494,72 @@ export {
   type GovernanceOpsConfig,
 } from './governance/index.js';
 
+// Social module (Phase 8.1)
+export {
+  AgentDiscovery,
+  ProfileCache,
+  AgentDiscoveryError,
+  AGENT_STATUS_OFFSET,
+  agentStateToProfile,
+  type AgentProfile,
+  type AgentSearchFilters,
+  type AgentSortField,
+  type SortOrder,
+  type DiscoveryConfig,
+  type ProfileCacheConfig,
+} from './social/index.js';
+
 // Agent Builder (Phase 10)
 export { AgentBuilder, BuiltAgent } from './builder.js';
+
+
+// Voice Support (Phase 9.3)
+export {
+  // Types
+  type AudioFormat,
+  type STTOptions,
+  type TranscriptionSegment,
+  type TranscriptionResult,
+  type SpeechToTextProvider,
+  type TTSOptions,
+  type SynthesisResult,
+  type VoiceInfo,
+  type TextToSpeechProvider,
+  type STTConfig,
+  type TTSConfig,
+  type VoiceConfig,
+  // Error classes
+  VoiceTranscriptionError,
+  VoiceSynthesisError,
+  // STT providers
+  WhisperAPIProvider,
+  toTranscriptionProvider,
+  type WhisperAPIProviderConfig,
+  // TTS providers
+  ElevenLabsProvider,
+  OpenAITTSProvider,
+  EdgeTTSProvider,
+  type ElevenLabsProviderConfig,
+  type OpenAITTSProviderConfig,
+  type EdgeTTSProviderConfig,
+} from './voice/index.js';
+
+// Cross-Protocol Bridges (Phase 10)
+export {
+  // Types
+  type LangChainTool,
+  type LangChainBridgeConfig,
+  type X402PaymentRequest,
+  type X402PaymentResponse,
+  type X402BridgeConfig,
+  type FarcasterPostParams,
+  type FarcasterPostResult,
+  type FarcasterBridgeConfig,
+  // Error classes
+  BridgeError,
+  BridgePaymentError,
+  // Bridge classes
+  LangChainBridge,
+  X402Bridge,
+  FarcasterBridge,
+} from './bridges/index.js';
