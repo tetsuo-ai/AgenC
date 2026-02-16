@@ -50,8 +50,8 @@ describe('RuntimeErrorCodes', () => {
     expect(RuntimeErrorCodes.MARKETPLACE_MATCHING_ERROR).toBe('MARKETPLACE_MATCHING_ERROR');
   });
 
-  it('has exactly 71 error codes', () => {
-    expect(Object.keys(RuntimeErrorCodes)).toHaveLength(71);
+  it('has exactly 72 error codes', () => {
+    expect(Object.keys(RuntimeErrorCodes)).toHaveLength(72);
   });
 });
 
