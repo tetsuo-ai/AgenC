@@ -395,27 +395,64 @@ describe('HookDispatcher', () => {
     });
   });
 
-  describe('handlerCount getter', () => {
-    it('returns 0 when no handlers registered', () => {
-      expect(dispatcher.handlerCount).toBe(0);
+  describe('duplicate name guard', () => {
+    it('rejects duplicate (event, name) pair and returns false', () => {
+      const first = dispatcher.on(makeHandler('gateway:startup', 'boot'));
+      const duplicate = dispatcher.on(makeHandler('gateway:startup', 'boot'));
+
+      expect(first).toBe(true);
+      expect(duplicate).toBe(false);
+      expect(dispatcher.getHandlerCount('gateway:startup')).toBe(1);
     });
 
-    it('returns total handler count across all events', () => {
-      dispatcher.on(makeHandler('gateway:startup', 'a'));
-      dispatcher.on(makeHandler('gateway:shutdown', 'b'));
-      dispatcher.on(makeHandler('message:inbound', 'c'));
-      dispatcher.on(makeHandler('message:inbound', 'd'));
+    it('allows same name on different events', () => {
+      dispatcher.on(makeHandler('gateway:startup', 'audit'));
+      dispatcher.on(makeHandler('gateway:shutdown', 'audit'));
 
-      expect(dispatcher.handlerCount).toBe(4);
+      expect(dispatcher.getHandlerCount('gateway:startup')).toBe(1);
+      expect(dispatcher.getHandlerCount('gateway:shutdown')).toBe(1);
     });
+  });
 
-    it('decreases when handlers are removed', () => {
-      dispatcher.on(makeHandler('gateway:startup', 'a'));
-      dispatcher.on(makeHandler('gateway:startup', 'b'));
+  describe('reentrancy safety', () => {
+    it('handler registered during dispatch does not run in current cycle', async () => {
+      const order: string[] = [];
 
-      dispatcher.off('gateway:startup', 'a');
+      dispatcher.on({
+        event: 'message:inbound',
+        name: 'registerer',
+        priority: 10,
+        handler: async () => {
+          order.push('registerer');
+          // Register a new handler during dispatch
+          dispatcher.on({
+            event: 'message:inbound',
+            name: 'late-addition',
+            priority: 1, // Would be first if not snapshotted
+            handler: async () => {
+              order.push('late-addition');
+              return { continue: true };
+            },
+          });
+          return { continue: true };
+        },
+      });
+      dispatcher.on({
+        event: 'message:inbound',
+        name: 'existing',
+        priority: 20,
+        handler: async () => {
+          order.push('existing');
+          return { continue: true };
+        },
+      });
 
-      expect(dispatcher.handlerCount).toBe(1);
+      const result = await dispatcher.dispatch('message:inbound', {});
+
+      expect(order).toEqual(['registerer', 'existing']);
+      expect(result.handlersRun).toBe(2);
+      // The late-addition handler IS registered for future dispatches
+      expect(dispatcher.getHandlerCount('message:inbound')).toBe(3);
     });
   });
 
@@ -482,7 +519,7 @@ describe('HookDispatcher', () => {
         dispatcher.on(hook);
       }
 
-      expect(dispatcher.handlerCount).toBe(4);
+      expect(dispatcher.getHandlerCount()).toBe(4);
       expect(dispatcher.hasHandlers('message:inbound')).toBe(true);
       expect(dispatcher.hasHandlers('tool:after')).toBe(true);
       expect(dispatcher.hasHandlers('gateway:startup')).toBe(true);

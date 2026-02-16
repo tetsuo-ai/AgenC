@@ -137,12 +137,19 @@ export class HookDispatcher {
     this.now = config?.now ?? Date.now;
   }
 
-  /** Register a hook handler. */
-  on(handler: HookHandler): void {
+  /** Register a hook handler. Rejects duplicate (event, name) pairs. */
+  on(handler: HookHandler): boolean {
     let list = this.handlers.get(handler.event);
     if (!list) {
       list = [];
       this.handlers.set(handler.event, list);
+    }
+
+    if (list.some((h) => h.name === handler.name)) {
+      this.logger.warn(
+        `Hook "${handler.name}" already registered for ${handler.event} — skipping duplicate`,
+      );
+      return false;
     }
 
     list.push(handler);
@@ -154,6 +161,7 @@ export class HookDispatcher {
     this.logger.debug(
       `Hook registered: "${handler.name}" for ${handler.event} (priority: ${handler.priority ?? DEFAULT_PRIORITY})`,
     );
+    return true;
   }
 
   /** Remove a hook handler by event and name. */
@@ -207,7 +215,9 @@ export class HookDispatcher {
     let currentPayload = { ...payload };
     let handlersRun = 0;
 
-    for (const handler of list) {
+    // Snapshot to prevent reentrancy issues if a handler calls on()/off()
+    const snapshot = [...list];
+    for (const handler of snapshot) {
       const context: HookContext = {
         event,
         payload: currentPayload,
@@ -264,18 +274,9 @@ export class HookDispatcher {
     return total;
   }
 
-  /** Total number of registered handlers across all events. */
-  get handlerCount(): number {
-    let total = 0;
-    for (const list of this.handlers.values()) {
-      total += list.length;
-    }
-    return total;
-  }
-
-  /** Get all handlers registered for a specific event. */
+  /** Get all handlers registered for a specific event (returns a shallow copy). */
   getHandlers(event: HookEvent): readonly HookHandler[] {
-    return this.handlers.get(event) ?? [];
+    return [...(this.handlers.get(event) ?? [])];
   }
 
   /** List all registered handler names, grouped by event. */
