@@ -85,3 +85,23 @@ export class SkillPublishError extends RuntimeError {
     this.reason = reason;
   }
 }
+
+/**
+ * Error thrown when purchasing a skill from the registry fails.
+ */
+export class SkillPurchaseError extends RuntimeError {
+  /** The ID of the skill that failed to purchase */
+  public readonly skillId: string;
+  /** The reason the purchase failed */
+  public readonly reason: string;
+
+  constructor(skillId: string, reason: string) {
+    super(
+      `Failed to purchase skill "${skillId}": ${reason}`,
+      RuntimeErrorCodes.SKILL_PURCHASE_ERROR,
+    );
+    this.name = 'SkillPurchaseError';
+    this.skillId = skillId;
+    this.reason = reason;
+  }
+}
