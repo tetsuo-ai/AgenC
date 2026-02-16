@@ -160,6 +160,12 @@ export const RuntimeErrorCodes = {
   BRIDGE_ERROR: 'BRIDGE_ERROR',
   /** x402 payment transfer failed */
   BRIDGE_PAYMENT_ERROR: 'BRIDGE_PAYMENT_ERROR',
+  /** Sub-agent spawning or setup failed */
+  SUB_AGENT_SPAWN_ERROR: 'SUB_AGENT_SPAWN_ERROR',
+  /** Sub-agent execution exceeded configured timeout */
+  SUB_AGENT_TIMEOUT: 'SUB_AGENT_TIMEOUT',
+  /** Sub-agent session ID not found */
+  SUB_AGENT_NOT_FOUND: 'SUB_AGENT_NOT_FOUND',
 } as const;
 
 /** Union type of all runtime error code values */

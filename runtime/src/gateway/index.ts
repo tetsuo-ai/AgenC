@@ -25,6 +25,9 @@ export {
   GatewayStateError,
   GatewayLifecycleError,
   WorkspaceValidationError,
+  SubAgentSpawnError,
+  SubAgentTimeoutError,
+  SubAgentNotFoundError,
 } from './errors.js';
 
 export {
@@ -282,3 +285,19 @@ export {
   defaultSandboxConfig,
   checkDockerAvailable,
 } from './sandbox.js';
+
+// Sub-agent spawning (Phase 7.4)
+export type {
+  SubAgentConfig,
+  SubAgentResult,
+  SubAgentManagerConfig,
+  SubAgentStatus,
+  SubAgentInfo,
+} from './sub-agent.js';
+
+export {
+  SubAgentManager,
+  DEFAULT_SUB_AGENT_TIMEOUT_MS,
+  MAX_CONCURRENT_SUB_AGENTS,
+  SUB_AGENT_SESSION_PREFIX,
+} from './sub-agent.js';
