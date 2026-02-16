@@ -12,12 +12,20 @@ import {
 } from './config-watcher.js';
 import type { GatewayConfig, ChannelHandle } from './types.js';
 import { silentLogger } from '../utils/logger.js';
+import { createToken } from './jwt.js';
 
 // Mock ws module so tests don't need a real WebSocket server
+// We track registered handlers to simulate client connections in auth tests
+let wssConnectionHandler: ((...args: unknown[]) => void) | null = null;
+
 vi.mock('ws', () => {
   const mockClients = new Set();
   const MockWebSocketServer = vi.fn().mockImplementation(() => ({
-    on: vi.fn(),
+    on: vi.fn((event: string, handler: (...args: unknown[]) => void) => {
+      if (event === 'connection') {
+        wssConnectionHandler = handler;
+      }
+    }),
     close: vi.fn((cb?: (err?: Error) => void) => cb?.()),
     clients: mockClients,
   }));
@@ -228,6 +236,271 @@ describe('Gateway', () => {
       await gateway.stop();
 
       expect(handler).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('auth', () => {
+    const AUTH_SECRET = 'test-secret-that-is-at-least-32-chars!!';
+
+    function createMockSocket() {
+      const handlers = new Map<string, (...args: unknown[]) => void>();
+      return {
+        send: vi.fn(),
+        close: vi.fn(),
+        on: vi.fn((event: string, handler: (...args: unknown[]) => void) => {
+          handlers.set(event, handler);
+        }),
+        readyState: 1,
+        _handlers: handlers,
+        simulateMessage(data: unknown) {
+          const h = handlers.get('message');
+          if (h) h(typeof data === 'string' ? data : JSON.stringify(data));
+        },
+        simulateClose() {
+          const h = handlers.get('close');
+          if (h) h();
+        },
+      };
+    }
+
+    it('no auth config allows all messages', async () => {
+      // Default config has no auth — all messages should work
+      await gateway.start();
+
+      const mockSocket = createMockSocket();
+      const mockRequest = { socket: { remoteAddress: '192.168.1.100' } };
+      wssConnectionHandler!(mockSocket, mockRequest);
+
+      mockSocket.simulateMessage({ type: 'status' });
+
+      expect(mockSocket.send).toHaveBeenCalled();
+      const response = JSON.parse(mockSocket.send.mock.calls[0][0]);
+      expect(response.type).toBe('status');
+    });
+
+    it('auth config rejects unauthenticated non-local client', async () => {
+      const authGw = new Gateway(
+        makeConfig({ auth: { secret: AUTH_SECRET } }),
+        { logger: silentLogger },
+      );
+      await authGw.start();
+
+      const mockSocket = createMockSocket();
+      const mockRequest = { socket: { remoteAddress: '192.168.1.100' } };
+      wssConnectionHandler!(mockSocket, mockRequest);
+
+      mockSocket.simulateMessage({ type: 'status' });
+
+      expect(mockSocket.send).toHaveBeenCalled();
+      const response = JSON.parse(mockSocket.send.mock.calls[0][0]);
+      expect(response.type).toBe('error');
+      expect(response.error).toBe('Authentication required');
+
+      await authGw.stop();
+    });
+
+    it('auth config allows ping before authentication', async () => {
+      const authGw = new Gateway(
+        makeConfig({ auth: { secret: AUTH_SECRET } }),
+        { logger: silentLogger },
+      );
+      await authGw.start();
+
+      const mockSocket = createMockSocket();
+      const mockRequest = { socket: { remoteAddress: '192.168.1.100' } };
+      wssConnectionHandler!(mockSocket, mockRequest);
+
+      mockSocket.simulateMessage({ type: 'ping' });
+
+      const response = JSON.parse(mockSocket.send.mock.calls[0][0]);
+      expect(response.type).toBe('pong');
+
+      await authGw.stop();
+    });
+
+    it('authenticates with valid token', async () => {
+      const authGw = new Gateway(
+        makeConfig({ auth: { secret: AUTH_SECRET } }),
+        { logger: silentLogger },
+      );
+      await authGw.start();
+
+      const mockSocket = createMockSocket();
+      const mockRequest = { socket: { remoteAddress: '192.168.1.100' } };
+      wssConnectionHandler!(mockSocket, mockRequest);
+
+      const token = createToken(AUTH_SECRET, 'agent_001');
+      mockSocket.simulateMessage({ type: 'auth', payload: { token } });
+
+      const authResponse = JSON.parse(mockSocket.send.mock.calls[0][0]);
+      expect(authResponse.type).toBe('auth');
+      expect(authResponse.payload.authenticated).toBe(true);
+      expect(authResponse.payload.sub).toBe('agent_001');
+
+      // Now status should work
+      mockSocket.simulateMessage({ type: 'status' });
+      const statusResponse = JSON.parse(mockSocket.send.mock.calls[1][0]);
+      expect(statusResponse.type).toBe('status');
+
+      await authGw.stop();
+    });
+
+    it('rejects invalid token and closes socket', async () => {
+      const authGw = new Gateway(
+        makeConfig({ auth: { secret: AUTH_SECRET } }),
+        { logger: silentLogger },
+      );
+      await authGw.start();
+
+      const mockSocket = createMockSocket();
+      const mockRequest = { socket: { remoteAddress: '192.168.1.100' } };
+      wssConnectionHandler!(mockSocket, mockRequest);
+
+      mockSocket.simulateMessage({ type: 'auth', payload: { token: 'invalid.token.here' } });
+
+      const response = JSON.parse(mockSocket.send.mock.calls[0][0]);
+      expect(response.type).toBe('auth');
+      expect(response.error).toBe('Invalid or expired token');
+      expect(mockSocket.close).toHaveBeenCalled();
+
+      await authGw.stop();
+    });
+
+    it('rejects auth with missing token and closes socket', async () => {
+      const authGw = new Gateway(
+        makeConfig({ auth: { secret: AUTH_SECRET } }),
+        { logger: silentLogger },
+      );
+      await authGw.start();
+
+      const mockSocket = createMockSocket();
+      const mockRequest = { socket: { remoteAddress: '192.168.1.100' } };
+      wssConnectionHandler!(mockSocket, mockRequest);
+
+      mockSocket.simulateMessage({ type: 'auth', payload: {} });
+
+      const response = JSON.parse(mockSocket.send.mock.calls[0][0]);
+      expect(response.type).toBe('auth');
+      expect(response.error).toBe('Missing token');
+      expect(mockSocket.close).toHaveBeenCalled();
+
+      await authGw.stop();
+    });
+
+    it('auto-authenticates local connection (127.0.0.1)', async () => {
+      const authGw = new Gateway(
+        makeConfig({ auth: { secret: AUTH_SECRET } }),
+        { logger: silentLogger },
+      );
+      await authGw.start();
+
+      const mockSocket = createMockSocket();
+      const mockRequest = { socket: { remoteAddress: '127.0.0.1' } };
+      wssConnectionHandler!(mockSocket, mockRequest);
+
+      // Should be auto-authenticated — status should work immediately
+      mockSocket.simulateMessage({ type: 'status' });
+      const response = JSON.parse(mockSocket.send.mock.calls[0][0]);
+      expect(response.type).toBe('status');
+
+      await authGw.stop();
+    });
+
+    it('auto-authenticates local connection (::1)', async () => {
+      const authGw = new Gateway(
+        makeConfig({ auth: { secret: AUTH_SECRET } }),
+        { logger: silentLogger },
+      );
+      await authGw.start();
+
+      const mockSocket = createMockSocket();
+      const mockRequest = { socket: { remoteAddress: '::1' } };
+      wssConnectionHandler!(mockSocket, mockRequest);
+
+      mockSocket.simulateMessage({ type: 'status' });
+      const response = JSON.parse(mockSocket.send.mock.calls[0][0]);
+      expect(response.type).toBe('status');
+
+      await authGw.stop();
+    });
+
+    it('auto-authenticates local connection (::ffff:127.0.0.1)', async () => {
+      const authGw = new Gateway(
+        makeConfig({ auth: { secret: AUTH_SECRET } }),
+        { logger: silentLogger },
+      );
+      await authGw.start();
+
+      const mockSocket = createMockSocket();
+      const mockRequest = { socket: { remoteAddress: '::ffff:127.0.0.1' } };
+      wssConnectionHandler!(mockSocket, mockRequest);
+
+      mockSocket.simulateMessage({ type: 'status' });
+      const response = JSON.parse(mockSocket.send.mock.calls[0][0]);
+      expect(response.type).toBe('status');
+
+      await authGw.stop();
+    });
+
+    it('auto-authenticates unix socket (undefined remoteAddress)', async () => {
+      const authGw = new Gateway(
+        makeConfig({ auth: { secret: AUTH_SECRET } }),
+        { logger: silentLogger },
+      );
+      await authGw.start();
+
+      const mockSocket = createMockSocket();
+      wssConnectionHandler!(mockSocket, undefined);
+
+      mockSocket.simulateMessage({ type: 'status' });
+      const response = JSON.parse(mockSocket.send.mock.calls[0][0]);
+      expect(response.type).toBe('status');
+
+      await authGw.stop();
+    });
+
+    it('local bypass disabled requires auth even for localhost', async () => {
+      const authGw = new Gateway(
+        makeConfig({ auth: { secret: AUTH_SECRET, localBypass: false } }),
+        { logger: silentLogger },
+      );
+      await authGw.start();
+
+      const mockSocket = createMockSocket();
+      const mockRequest = { socket: { remoteAddress: '127.0.0.1' } };
+      wssConnectionHandler!(mockSocket, mockRequest);
+
+      // Should NOT be auto-authenticated
+      mockSocket.simulateMessage({ type: 'status' });
+      const response = JSON.parse(mockSocket.send.mock.calls[0][0]);
+      expect(response.type).toBe('error');
+      expect(response.error).toBe('Authentication required');
+
+      await authGw.stop();
+    });
+
+    it('cleanup on disconnect removes from authenticatedClients', async () => {
+      const authGw = new Gateway(
+        makeConfig({ auth: { secret: AUTH_SECRET } }),
+        { logger: silentLogger },
+      );
+      await authGw.start();
+
+      const mockSocket = createMockSocket();
+      const mockRequest = { socket: { remoteAddress: '127.0.0.1' } };
+      wssConnectionHandler!(mockSocket, mockRequest);
+
+      // Verify authenticated
+      mockSocket.simulateMessage({ type: 'status' });
+      expect(JSON.parse(mockSocket.send.mock.calls[0][0]).type).toBe('status');
+
+      // Disconnect
+      mockSocket.simulateClose();
+
+      // Status should show one fewer client
+      expect(authGw.getStatus().activeSessions).toBe(0);
+
+      await authGw.stop();
     });
   });
 });
