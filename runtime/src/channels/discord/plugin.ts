@@ -189,7 +189,12 @@ export class DiscordChannel extends BaseChannelPlugin {
 
     const chunks = splitMessage(message.content);
     for (const chunk of chunks) {
-      await channel.send({ content: chunk });
+      try {
+        await channel.send({ content: chunk });
+      } catch (err) {
+        this.context.logger.error(`Failed to send message to ${message.sessionId}: ${errorMessage(err)}`);
+        return;
+      }
     }
   }
 
@@ -488,7 +493,7 @@ export class DiscordChannel extends BaseChannelPlugin {
       try {
         return await this.client.channels.fetch(channelId);
       } catch (err) {
-        this.context.logger.debug(`Failed to fetch DM channel ${channelId}:`, err);
+        this.context.logger.debug(`Failed to fetch DM channel ${channelId}: ${errorMessage(err)}`);
         return null;
       }
     }
@@ -500,7 +505,7 @@ export class DiscordChannel extends BaseChannelPlugin {
       try {
         return await this.client.channels.fetch(channelId);
       } catch (err) {
-        this.context.logger.debug(`Failed to fetch guild channel ${channelId}:`, err);
+        this.context.logger.debug(`Failed to fetch guild channel ${channelId}: ${errorMessage(err)}`);
         return null;
       }
     }

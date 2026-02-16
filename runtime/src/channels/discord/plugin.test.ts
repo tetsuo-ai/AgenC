@@ -580,7 +580,26 @@ describe('DiscordChannel', () => {
     );
   });
 
-  // 25. Handler errors are caught and logged, not silently swallowed
+  // 25. send() logs error and stops on channel.send() failure
+  it('send() catches channel.send() failure and logs error', async () => {
+    const mockSend = vi.fn()
+      .mockRejectedValueOnce(new Error('Rate limited'));
+    mockChannelsFetch.mockResolvedValue({ id: 'chan-100', send: mockSend });
+
+    const ctx = makeContext();
+    const plugin = await startedPlugin({}, ctx);
+
+    await plugin.send({
+      sessionId: 'discord:guild-1:chan-100:user-2',
+      content: 'hello',
+    });
+
+    expect(ctx.logger.error).toHaveBeenCalledWith(
+      expect.stringContaining('Rate limited'),
+    );
+  });
+
+  // 27. Handler errors are caught and logged, not silently swallowed
   it('logs errors from event handlers instead of swallowing', async () => {
     const ctx = makeContext();
     (ctx.onMessage as any).mockRejectedValueOnce(new Error('downstream failure'));
@@ -598,7 +617,7 @@ describe('DiscordChannel', () => {
     });
   });
 
-  // 26. Global command registration fallback when no guilds in cache
+  // 28. Global command registration fallback when no guilds in cache
   it('falls back to global command registration when guild cache empty', async () => {
     // Clear guild cache
     mockGuildsCache.clear();
