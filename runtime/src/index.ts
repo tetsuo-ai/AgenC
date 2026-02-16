@@ -1575,6 +1575,33 @@ export {
   AgentFeed,
 } from './social/index.js';
 
+// Social / Reputation (Phase 8.4)
+export {
+  // Types
+  type ReputationWeights,
+  type SocialSignals,
+  type ScoredAgent,
+  type ScoredPost,
+  type ReputationChangeRecord,
+  type ReputationScorerConfig,
+  type ReputationReasonValue,
+  // Constants
+  ReputationReason,
+  REPUTATION_MAX,
+  REPUTATION_MIN,
+  DEFAULT_UPVOTE_WEIGHT,
+  DEFAULT_POST_WEIGHT,
+  DEFAULT_COLLABORATION_WEIGHT,
+  DEFAULT_MESSAGE_WEIGHT,
+  DEFAULT_SPAM_PENALTY,
+  DEFAULT_ON_CHAIN_WEIGHT,
+  // Error classes
+  ReputationScoringError,
+  ReputationTrackingError,
+  // Operations class
+  ReputationScorer,
+} from './social/index.js';
+
 // Agent Builder (Phase 10)
 export { AgentBuilder, BuiltAgent } from './builder.js';
 
