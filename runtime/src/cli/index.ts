@@ -90,6 +90,7 @@ import {
 } from '../policy/audit-trail.js';
 import type { PluginManifest } from '../skills/manifest.js';
 import { bigintReplacer, safeStringify } from '../tools/types.js';
+import { runSkillCommand } from './skills-cli.js';
 
 interface CliRunOptions {
   argv?: string[];
@@ -193,6 +194,8 @@ const RESTART_COMMAND_OPTIONS = new Set([...START_COMMAND_OPTIONS, ...STOP_COMMA
 const STATUS_COMMAND_OPTIONS = new Set(['pid-path', 'port']);
 const SERVICE_COMMAND_OPTIONS = new Set(['macos']);
 
+const SKILL_COMMAND_OPTIONS = new Set(['tier', 'available', 'description']);
+
 const COMMANDS: Record<ReplayCommand, CliCommandDescriptor> = {
   backfill: {
     name: 'backfill',
@@ -258,6 +261,8 @@ const ERROR_CODES = {
   MISSING_REQUIRED_OPTION: 'MISSING_REQUIRED_OPTION',
   CONFIG_PARSE_ERROR: 'CONFIG_PARSE_ERROR',
   MISSING_TARGET: 'MISSING_TARGET',
+  MISSING_SKILL_COMMAND: 'MISSING_SKILL_COMMAND',
+  UNKNOWN_SKILL_COMMAND: 'UNKNOWN_SKILL_COMMAND',
   INTERNAL_ERROR: 'INTERNAL_ERROR',
 } as const;
 
@@ -281,6 +286,7 @@ function buildHelp(): string {
     'restart [--help] [options]',
     'status [--help] [options]',
     'service install [--help] [options]',
+    'skill [--help] <command> [options]',
     'replay [--help] <command> [options]',
     'plugin [--help] <command> [options]',
     '',
@@ -301,6 +307,13 @@ function buildHelp(): string {
     '  backfill   Backfill replay timeline from on-chain history',
     '  compare    Compare replay projection against local trace',
     '  incident   Reconstruct incident timeline and summarize',
+    '',
+    'Skill subcommands:',
+    '  list [--tier <tier>] [--available]    List discovered skills',
+    '  info <name>                           Show skill details',
+    '  validate [name]                       Validate skill(s)',
+    '  create <name> [--description <desc>]  Scaffold a new SKILL.md',
+    '  install <path>                        Install a SKILL.md to user directory',
     '',
     'Plugin subcommands:',
     '  list                               List registered plugins',
@@ -371,6 +384,11 @@ function buildHelp(): string {
     '      --from-slot <slot>                    Replay incident from slot',
     '      --to-slot <slot>                      Replay incident to slot',
     '',
+    'skill options:',
+    '      --tier agent|user|project|builtin    Filter by discovery tier',
+    '      --available                           Show only available skills',
+    '      --description <desc>                  Description for skill create',
+    '',
     'plugin options:',
     '      --manifest <path>                     Plugin manifest path (install/reload)',
     '      --precedence workspace|user|builtin  Plugin installation precedence',
@@ -394,6 +412,12 @@ function buildHelp(): string {
     '  agenc-runtime plugin install --manifest ./plugin.json --precedence workspace --slot llm',
     '  agenc-runtime plugin disable memory.plugin',
     '  agenc-runtime plugin list',
+    '  agenc-runtime skill list',
+    '  agenc-runtime skill list --tier builtin --available',
+    '  agenc-runtime skill info solana',
+    '  agenc-runtime skill validate',
+    '  agenc-runtime skill create my-skill --description "My custom skill"',
+    '  agenc-runtime skill install ./path/to/SKILL.md',
   ].join('\n');
 }
 
@@ -1474,6 +1498,25 @@ export async function runCli(options: CliRunOptions = {}): Promise<CliStatusCode
       const payload = buildErrorPayload(error);
       context.error(payload);
       return payload.code === ERROR_CODES.INVALID_OPTION ? 2 : 1;
+    }
+  }
+
+  if (parsed.positional[0] === 'skill') {
+    try {
+      validateUnknownStandaloneOptions(parsed.flags, SKILL_COMMAND_OPTIONS);
+      return await runSkillCommand(
+        context,
+        parsed.positional[1],
+        parsed.positional.slice(2),
+        parsed.flags,
+      );
+    } catch (error) {
+      const payload = buildErrorPayload(error);
+      context.error(payload);
+      const isUsageError = payload.code === ERROR_CODES.INVALID_OPTION
+        || payload.code === ERROR_CODES.MISSING_SKILL_COMMAND
+        || payload.code === ERROR_CODES.UNKNOWN_SKILL_COMMAND;
+      return isUsageError ? 2 : 1;
     }
   }
 

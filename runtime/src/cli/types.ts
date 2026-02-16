@@ -175,3 +175,30 @@ export interface ServiceInstallOptions {
 export interface CliValidationError extends Error {
   code: string;
 }
+
+export interface SkillListOptions {
+  outputFormat: CliOutputFormat;
+  tier?: string;
+  available?: boolean;
+}
+
+export interface SkillInfoOptions {
+  outputFormat: CliOutputFormat;
+  name: string;
+}
+
+export interface SkillValidateOptions {
+  outputFormat: CliOutputFormat;
+  name?: string;
+}
+
+export interface SkillCreateOptions {
+  outputFormat: CliOutputFormat;
+  name: string;
+  description?: string;
+}
+
+export interface SkillInstallCopyOptions {
+  outputFormat: CliOutputFormat;
+  sourcePath: string;
+}
