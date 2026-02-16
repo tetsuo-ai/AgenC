@@ -141,7 +141,7 @@ describe('runtime cli foundation', () => {
   });
 
   it('returns a machine-readable error payload for unknown root command', async () => {
-    const result = await runCliCapture(['status']);
+    const result = await runCliCapture(['nonexistent-command']);
 
     expect(result.code).toBe(2);
     const payload = JSON.parse(result.stderr.trim()) as { status: string; code: string; message: string };

@@ -5,6 +5,7 @@ import * as tasks from '../tasks';
 import * as disputes from '../disputes';
 import * as protocol from '../protocol';
 import * as state from '../state';
+import * as governance from '../governance';
 import { COORDINATION_ERROR_MAP, decodeError } from '../errors';
 
 const idl = JSON.parse(
@@ -40,6 +41,11 @@ const EXPECTED_INSTRUCTIONS = [
   'update_rate_limits',
   'migrate_protocol',
   'update_min_version',
+  'initialize_governance',
+  'create_proposal',
+  'vote_proposal',
+  'execute_proposal',
+  'cancel_proposal',
 ] as const;
 
 describe('IDL instruction alignment', () => {
@@ -56,6 +62,7 @@ describe('IDL instruction alignment', () => {
       ...Object.keys(disputes),
       ...Object.keys(protocol),
       ...Object.keys(state),
+      ...Object.keys(governance),
     ]);
 
     for (const instructionName of EXPECTED_INSTRUCTIONS) {

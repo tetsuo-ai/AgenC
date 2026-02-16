@@ -268,11 +268,22 @@ export {
   deriveGovernanceConfigPda,
   deriveProposalPda,
   deriveGovernanceVotePda,
+  initializeGovernance,
+  createProposal,
+  voteProposal,
+  executeProposal,
+  cancelProposal,
+  getProposal,
   RECOMMENDED_CU_INITIALIZE_GOVERNANCE,
   RECOMMENDED_CU_CREATE_PROPOSAL,
   RECOMMENDED_CU_VOTE_PROPOSAL,
   RECOMMENDED_CU_EXECUTE_PROPOSAL,
   RECOMMENDED_CU_CANCEL_PROPOSAL,
+} from './governance';
+export type {
+  InitializeGovernanceParams,
+  CreateProposalParams,
+  ProposalState,
 } from './governance';
 
 // Version info
