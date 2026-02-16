@@ -192,6 +192,22 @@ describe('PluginCatalog', () => {
       expect(plugin.start).toHaveBeenCalledTimes(2);
     });
 
+    it('cleans up if start() throws', async () => {
+      const plugin = makePluginWithWebhooks('telegram');
+      (plugin.start as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('start failed'));
+      catalog.register(plugin);
+
+      await expect(
+        catalog.activate('telegram', vi.fn()),
+      ).rejects.toThrow('start failed');
+
+      // Context and webhooks should be cleaned up — no half-activated state
+      expect(catalog.getWebhookRoutes('telegram')).toHaveLength(0);
+      // Subsequent deactivate should not call stop()
+      await catalog.deactivate('telegram');
+      expect(plugin.stop).not.toHaveBeenCalled();
+    });
+
     it('cleans up if initialize() throws', async () => {
       const plugin = makePlugin('telegram');
       (plugin.initialize as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('init failed'));

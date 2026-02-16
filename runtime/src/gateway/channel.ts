@@ -16,8 +16,6 @@ import type { SlashCommandContext } from './commands.js';
 import type { HookDispatcher } from './hooks.js';
 import { RuntimeError, RuntimeErrorCodes } from '../types/errors.js';
 
-// Re-export for consumers importing from channel.js directly
-export type { SlashCommandContext } from './commands.js';
 
 // ============================================================================
 // Webhook Router
@@ -129,7 +127,11 @@ export interface ChannelContext {
   readonly logger: Logger;
   /** Channel-specific config from gateway config. */
   readonly config: Readonly<Record<string, unknown>>;
-  /** Hook dispatcher for lifecycle events. Typed as HookDispatcher when hooks module is loaded. */
+  /**
+   * Hook dispatcher for lifecycle events.
+   * Optional because activate() does not wire hooks yet — will become
+   * required once the gateway wires HookDispatcher into ChannelContext.
+   */
   readonly hooks?: HookDispatcher;
 }
 
@@ -260,8 +262,8 @@ export class PluginCatalog {
    * webhooks, then calls `start()`. If the plugin is already active,
    * it is deactivated first (idempotent re-activation).
    *
-   * If `initialize()` throws, the context is cleaned up and the error
-   * is re-thrown — no partial activation state is left behind.
+   * If `initialize()` or `start()` throws, any partial state (context,
+   * webhook routes) is cleaned up before re-throwing.
    */
   async activate(
     name: string,
@@ -284,12 +286,7 @@ export class PluginCatalog {
       config: channelConfig,
     };
 
-    try {
-      await plugin.initialize(context);
-    } catch (err) {
-      // Don't leave partial state if initialize() fails
-      throw err;
-    }
+    await plugin.initialize(context);
 
     // Only store context after successful initialization
     this.contexts.set(name, context);
@@ -301,7 +298,14 @@ export class PluginCatalog {
       this.logger.info(`Channel "${name}" registered ${router.routesInternal.length} webhook route(s)`);
     }
 
-    await plugin.start();
+    try {
+      await plugin.start();
+    } catch (err) {
+      // Clean up partial state if start() fails
+      this.contexts.delete(name);
+      this.webhookRouters.delete(name);
+      throw err;
+    }
     this.logger.info(`Channel "${name}" activated`);
   }
 
@@ -380,9 +384,8 @@ export class PluginCatalog {
   }
 
   /**
-   * Get health status for all active channels.
-   * Only reports plugins that have been activated (have a stored context).
-   * Includes an `active` flag for clarity.
+   * Get health status for all registered channels.
+   * The `active` flag distinguishes activated plugins from those only registered.
    */
   getHealthStatus(): ReadonlyArray<{ name: string; healthy: boolean; active: boolean }> {
     return Array.from(this.plugins.entries()).map(([name, plugin]) => ({
