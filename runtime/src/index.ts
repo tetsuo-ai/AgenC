@@ -1678,3 +1678,37 @@ export {
   X402Bridge,
   FarcasterBridge,
 } from './bridges/index.js';
+
+// Reputation Economy (Phase 10.3)
+export {
+  // PDA helpers
+  deriveReputationStakePda,
+  findReputationStakePda,
+  deriveReputationDelegationPda,
+  findReputationDelegationPda,
+  // Types
+  type OnChainReputationStake,
+  type OnChainReputationDelegation,
+  type ReputationStakeParams,
+  type WithdrawStakeParams,
+  type ReputationDelegationParams,
+  type StakeResult,
+  type DelegationResult,
+  type WithdrawResult,
+  type RevokeResult,
+  type PortableReputationProof,
+  type ReputationEconomyOpsConfig,
+  // Constants
+  REPUTATION_STAKING_COOLDOWN_SECONDS,
+  MIN_DELEGATION_AMOUNT,
+  // Parse functions
+  parseOnChainReputationStake,
+  parseOnChainReputationDelegation,
+  // Error classes
+  ReputationStakeError,
+  ReputationDelegationError,
+  ReputationWithdrawError,
+  ReputationPortabilityError,
+  // Operations
+  ReputationEconomyOperations,
+} from './reputation/index.js';

@@ -1876,6 +1876,95 @@ export type AgencCoordination = {
       ]
     },
     {
+      "name": "delegateReputation",
+      "docs": [
+        "Delegate reputation points to a trusted peer.",
+        "One delegation per (delegator, delegatee) pair."
+      ],
+      "discriminator": [
+        195,
+        86,
+        46,
+        27,
+        29,
+        166,
+        147,
+        66
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "delegatorAgent"
+          ]
+        },
+        {
+          "name": "delegatorAgent"
+        },
+        {
+          "name": "delegateeAgent"
+        },
+        {
+          "name": "delegation",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  112,
+                  117,
+                  116,
+                  97,
+                  116,
+                  105,
+                  111,
+                  110,
+                  95,
+                  100,
+                  101,
+                  108,
+                  101,
+                  103,
+                  97,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "delegatorAgent"
+              },
+              {
+                "kind": "account",
+                "path": "delegateeAgent"
+              }
+            ]
+          }
+        },
+        {
+          "name": "systemProgram",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u16"
+        },
+        {
+          "name": "expiresAt",
+          "type": "i64"
+        }
+      ]
+    },
+    {
       "name": "deregisterAgent",
       "docs": [
         "Deregister an agent and reclaim rent.",
@@ -3842,6 +3931,153 @@ export type AgencCoordination = {
       "args": []
     },
     {
+      "name": "revokeDelegation",
+      "docs": [
+        "Revoke a reputation delegation and close the account.",
+        "Rent is returned to the delegator's authority."
+      ],
+      "discriminator": [
+        188,
+        92,
+        135,
+        67,
+        160,
+        181,
+        54,
+        62
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "delegatorAgent"
+          ]
+        },
+        {
+          "name": "delegatorAgent"
+        },
+        {
+          "name": "delegation",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  112,
+                  117,
+                  116,
+                  97,
+                  116,
+                  105,
+                  111,
+                  110,
+                  95,
+                  100,
+                  101,
+                  108,
+                  101,
+                  103,
+                  97,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "delegatorAgent"
+              },
+              {
+                "kind": "account",
+                "path": "delegation.delegatee",
+                "account": "reputationDelegation"
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "stakeReputation",
+      "docs": [
+        "Stake SOL on agent reputation.",
+        "Creates or adds to an existing reputation stake account."
+      ],
+      "discriminator": [
+        104,
+        250,
+        157,
+        87,
+        16,
+        190,
+        180,
+        238
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "agent"
+          ]
+        },
+        {
+          "name": "agent"
+        },
+        {
+          "name": "reputationStake",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  112,
+                  117,
+                  116,
+                  97,
+                  116,
+                  105,
+                  111,
+                  110,
+                  95,
+                  115,
+                  116,
+                  97,
+                  107,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "agent"
+              }
+            ]
+          }
+        },
+        {
+          "name": "systemProgram",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
       "name": "suspendAgent",
       "docs": [
         "Suspend an agent (protocol authority only, fix #819).",
@@ -5009,6 +5245,75 @@ export type AgencCoordination = {
           "type": "bool"
         }
       ]
+    },
+    {
+      "name": "withdrawReputationStake",
+      "docs": [
+        "Withdraw SOL from reputation stake after cooldown period.",
+        "Agent must have no pending disputes as defendant."
+      ],
+      "discriminator": [
+        234,
+        37,
+        157,
+        236,
+        80,
+        222,
+        40,
+        233
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "agent"
+          ]
+        },
+        {
+          "name": "agent"
+        },
+        {
+          "name": "reputationStake",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  112,
+                  117,
+                  116,
+                  97,
+                  116,
+                  105,
+                  111,
+                  110,
+                  95,
+                  115,
+                  116,
+                  97,
+                  107,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "agent"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
     }
   ],
   "accounts": [
@@ -5179,6 +5484,32 @@ export type AgencCoordination = {
         96,
         209,
         2
+      ]
+    },
+    {
+      "name": "reputationDelegation",
+      "discriminator": [
+        247,
+        166,
+        224,
+        123,
+        62,
+        95,
+        198,
+        71
+      ]
+    },
+    {
+      "name": "reputationStake",
+      "discriminator": [
+        226,
+        12,
+        248,
+        110,
+        109,
+        108,
+        99,
+        212
       ]
     },
     {
@@ -5636,6 +5967,58 @@ export type AgencCoordination = {
         39,
         92,
         250
+      ]
+    },
+    {
+      "name": "reputationDelegated",
+      "discriminator": [
+        143,
+        11,
+        134,
+        202,
+        135,
+        97,
+        121,
+        223
+      ]
+    },
+    {
+      "name": "reputationDelegationRevoked",
+      "discriminator": [
+        130,
+        130,
+        191,
+        20,
+        81,
+        88,
+        109,
+        152
+      ]
+    },
+    {
+      "name": "reputationStakeWithdrawn",
+      "discriminator": [
+        189,
+        97,
+        237,
+        131,
+        201,
+        190,
+        121,
+        43
+      ]
+    },
+    {
+      "name": "reputationStaked",
+      "discriminator": [
+        12,
+        70,
+        73,
+        125,
+        30,
+        125,
+        6,
+        10
       ]
     },
     {
@@ -6647,6 +7030,46 @@ export type AgencCoordination = {
       "code": 6172,
       "name": "feedSelfUpvote",
       "msg": "Cannot upvote own post"
+    },
+    {
+      "code": 6173,
+      "name": "reputationStakeAmountTooLow",
+      "msg": "Reputation stake amount must be greater than zero"
+    },
+    {
+      "code": 6174,
+      "name": "reputationStakeLocked",
+      "msg": "Reputation stake is locked: withdrawal before cooldown"
+    },
+    {
+      "code": 6175,
+      "name": "reputationStakeInsufficientBalance",
+      "msg": "Reputation stake has insufficient balance for withdrawal"
+    },
+    {
+      "code": 6176,
+      "name": "reputationDelegationAmountInvalid",
+      "msg": "Reputation delegation amount invalid: must be > 0, <= 10000, and >= MIN_DELEGATION_AMOUNT"
+    },
+    {
+      "code": 6177,
+      "name": "reputationCannotDelegateSelf",
+      "msg": "Cannot delegate reputation to self"
+    },
+    {
+      "code": 6178,
+      "name": "reputationDelegationExpired",
+      "msg": "Reputation delegation has expired"
+    },
+    {
+      "code": 6179,
+      "name": "reputationAgentNotActive",
+      "msg": "Agent must be Active to participate in reputation economy"
+    },
+    {
+      "code": 6180,
+      "name": "reputationDisputesPending",
+      "msg": "Agent has pending disputes as defendant: cannot withdraw stake"
     }
   ],
   "types": [
@@ -9229,6 +9652,257 @@ export type AgencCoordination = {
               "Reason: 0=completion, 1=dispute_slash, 2=decay"
             ],
             "type": "u8"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "reputationDelegated",
+      "docs": [
+        "Emitted when an agent delegates reputation to a peer"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "delegator",
+            "type": "pubkey"
+          },
+          {
+            "name": "delegatee",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u16"
+          },
+          {
+            "name": "expiresAt",
+            "type": "i64"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "reputationDelegation",
+      "docs": [
+        "Reputation delegation — agent delegates reputation points to a trusted peer.",
+        "One delegation per (delegator, delegatee) pair. Revoke-and-redelegate pattern.",
+        "PDA seeds: [\"reputation_delegation\", delegator_pda, delegatee_pda]"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "delegator",
+            "docs": [
+              "Delegator agent PDA"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "delegatee",
+            "docs": [
+              "Delegatee agent PDA"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "docs": [
+              "Reputation points delegated (0-10000 scale)"
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "expiresAt",
+            "docs": [
+              "Expiration timestamp (0 = no expiry)"
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "createdAt",
+            "docs": [
+              "Delegation creation timestamp"
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "bump",
+            "docs": [
+              "Bump seed for PDA"
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "reserved",
+            "docs": [
+              "Reserved for future use"
+            ],
+            "type": {
+              "array": [
+                "u8",
+                8
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "reputationDelegationRevoked",
+      "docs": [
+        "Emitted when a reputation delegation is revoked"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "delegator",
+            "type": "pubkey"
+          },
+          {
+            "name": "delegatee",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u16"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "reputationStake",
+      "docs": [
+        "Reputation stake account — agent stakes SOL on their reputation.",
+        "SOL is stored as excess lamports on the PDA (same pattern as agent registration stake).",
+        "Account is never closed to preserve slash_count history (prevents reset exploit).",
+        "PDA seeds: [\"reputation_stake\", agent_pda]"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "agent",
+            "docs": [
+              "Agent PDA this stake belongs to"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "stakedAmount",
+            "docs": [
+              "SOL lamports currently staked"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "lockedUntil",
+            "docs": [
+              "Timestamp before which withdrawals are blocked"
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "slashCount",
+            "docs": [
+              "Historical count of slashes applied"
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "createdAt",
+            "docs": [
+              "Account creation timestamp"
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "bump",
+            "docs": [
+              "Bump seed for PDA"
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "reserved",
+            "docs": [
+              "Reserved for future use"
+            ],
+            "type": {
+              "array": [
+                "u8",
+                8
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "reputationStakeWithdrawn",
+      "docs": [
+        "Emitted when an agent withdraws staked SOL"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "agent",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "remainingStaked",
+            "type": "u64"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "reputationStaked",
+      "docs": [
+        "Emitted when an agent stakes SOL on their reputation"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "agent",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "totalStaked",
+            "type": "u64"
+          },
+          {
+            "name": "lockedUntil",
+            "type": "i64"
           },
           {
             "name": "timestamp",

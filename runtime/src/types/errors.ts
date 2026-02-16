@@ -194,6 +194,14 @@ export const RuntimeErrorCodes = {
   COLLABORATION_RESPONSE_ERROR: 'COLLABORATION_RESPONSE_ERROR',
   /** Team formation from collaboration failed */
   COLLABORATION_FORMATION_ERROR: 'COLLABORATION_FORMATION_ERROR',
+  /** Reputation staking operation failed */
+  REPUTATION_STAKE_ERROR: 'REPUTATION_STAKE_ERROR',
+  /** Reputation delegation operation failed */
+  REPUTATION_DELEGATION_ERROR: 'REPUTATION_DELEGATION_ERROR',
+  /** Reputation withdrawal operation failed */
+  REPUTATION_WITHDRAW_ERROR: 'REPUTATION_WITHDRAW_ERROR',
+  /** Reputation portability proof operation failed */
+  REPUTATION_PORTABILITY_ERROR: 'REPUTATION_PORTABILITY_ERROR',
 } as const;
 
 /** Union type of all runtime error code values */
