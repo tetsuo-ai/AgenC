@@ -5,8 +5,8 @@
  * Each template returns a complete {@link WorkspaceFiles} object ready
  * for use with {@link assembleSystemPrompt}.
  *
- * Template source files live in `./templates/*.md` for readability;
- * content is embedded here as constants so it ships with the bundle.
+ * Content is embedded as constants so it ships with the bundle
+ * without runtime filesystem reads.
  *
  * @module
  */
@@ -388,17 +388,11 @@ export function mergePersonality(
   base: WorkspaceFiles,
   overrides: Partial<WorkspaceFiles>,
 ): WorkspaceFiles {
-  return {
-    agent: overrides.agent ?? base.agent,
-    soul: overrides.soul ?? base.soul,
-    user: overrides.user ?? base.user,
-    tools: overrides.tools ?? base.tools,
-    heartbeat: overrides.heartbeat ?? base.heartbeat,
-    boot: overrides.boot ?? base.boot,
-    identity: overrides.identity ?? base.identity,
-    memory: overrides.memory ?? base.memory,
-    capabilities: overrides.capabilities ?? base.capabilities,
-    policy: overrides.policy ?? base.policy,
-    reputation: overrides.reputation ?? base.reputation,
-  };
+  const result = { ...base };
+  for (const [key, value] of Object.entries(overrides)) {
+    if (value !== undefined) {
+      (result as Record<string, unknown>)[key] = value;
+    }
+  }
+  return result;
 }
