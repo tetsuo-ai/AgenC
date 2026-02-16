@@ -1,0 +1,26 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-tetsuo-950 text-tetsuo-100 font-mono antialiased;
+  }
+
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-tetsuo-950;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-tetsuo-700 rounded-full;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-tetsuo-600;
+  }
+}
