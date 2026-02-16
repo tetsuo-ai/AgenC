@@ -1290,6 +1290,11 @@ export {
   type ToolPolicy,
   type WorkspaceTemplate,
   type WorkspaceConfigJson,
+  // Session isolation (Phase 7.3)
+  SessionIsolationManager,
+  type IsolatedSessionContext,
+  type SessionIsolationManagerConfig,
+  type AuthState,
   // Slash commands (Phase 1.5)
   SlashCommandRegistry,
   createDefaultCommands,
