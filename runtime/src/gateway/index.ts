@@ -211,6 +211,25 @@ export {
   type ReactionEvent,
 } from './channel.js';
 
+// Cross-channel identity linking (Phase 1.9)
+export type {
+  IdentityAccount,
+  IdentityLink,
+  PendingLink,
+  IdentityResolverConfig,
+  IdentityStore,
+} from './identity.js';
+
+export {
+  IdentityResolver,
+  InMemoryIdentityStore,
+  IdentityLinkExpiredError,
+  IdentityLinkNotFoundError,
+  IdentitySelfLinkError,
+  IdentitySignatureError,
+  IdentityValidationError,
+} from './identity.js';
+
 // Heartbeat scheduler (Phase 2.1)
 export type {
   HeartbeatConfig,
