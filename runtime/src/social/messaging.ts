@@ -348,6 +348,9 @@ export class AgentMessaging {
   // Private: On-Chain Send
   // ==========================================================================
 
+  /** Max retries on nonce collision (VersionMismatch with expected_version=0) */
+  private static readonly MAX_NONCE_RETRIES = 3;
+
   private async sendOnChain(recipient: PublicKey, content: string): Promise<AgentMessage> {
     // Validate content byte length
     const contentBytes = new TextEncoder().encode(content);
@@ -361,63 +364,81 @@ export class AgentMessaging {
       );
     }
 
-    const currentNonce = this.nextNonce();
-    const stateKey = encodeMessageStateKey(recipient, currentNonce);
-    const stateValue = encodeMessageStateValue(content);
-
-    // Derive state PDA: ["state", authority, state_key]
     const authority = this.wallet.publicKey;
-    const [statePda] = PublicKey.findProgramAddressSync(
-      [Buffer.from('state'), authority.toBuffer(), Buffer.from(stateKey)],
-      this.program.programId,
-    );
+    let lastError: unknown;
 
-    // Sign the message payload for offline verification
-    const payload = buildSigningPayload(authority, recipient, currentNonce, content);
-    const signature = signAgentMessage(this.wallet, payload);
+    // Retry on nonce collision (VersionMismatch = state PDA already exists)
+    for (let attempt = 0; attempt <= AgentMessaging.MAX_NONCE_RETRIES; attempt++) {
+      const currentNonce = this.nextNonce();
+      const stateKey = encodeMessageStateKey(recipient, currentNonce);
+      const stateValue = encodeMessageStateValue(content);
 
-    try {
-      await this.program.methods
-        .updateState(
-          Array.from(stateKey) as unknown as number[],
-          Array.from(stateValue) as unknown as number[],
-          new BN(0), // expected_version = 0 (new account)
-        )
-        .accountsPartial({
-          state: statePda,
-          agent: this.agentPda,
-          authority,
-          protocolConfig: this.protocolPda,
-          systemProgram: SystemProgram.programId,
-        })
-        .rpc();
-    } catch (err) {
-      if (isAnchorError(err, AnchorErrorCodes.RateLimitExceeded)) {
+      // Derive state PDA: ["state", authority, state_key]
+      const [statePda] = PublicKey.findProgramAddressSync(
+        [Buffer.from('state'), authority.toBuffer(), Buffer.from(stateKey)],
+        this.program.programId,
+      );
+
+      // Sign the message payload for offline verification
+      const payload = buildSigningPayload(authority, recipient, currentNonce, content);
+      const signature = signAgentMessage(this.wallet, payload);
+
+      try {
+        await this.program.methods
+          .updateState(
+            Array.from(stateKey) as unknown as number[],
+            Array.from(stateValue) as unknown as number[],
+            new BN(0), // expected_version = 0 (new account)
+          )
+          .accountsPartial({
+            state: statePda,
+            agent: this.agentPda,
+            authority,
+            protocolConfig: this.protocolPda,
+            systemProgram: SystemProgram.programId,
+          })
+          .rpc();
+
+        const message: AgentMessage = {
+          id: `${authority.toBase58()}:${currentNonce}`,
+          sender: authority,
+          recipient,
+          content,
+          mode: 'on-chain',
+          signature,
+          timestamp: Math.floor(Date.now() / 1000),
+          nonce: currentNonce,
+          onChain: true,
+        };
+
+        this.logger.info(`On-chain message sent to ${recipient.toBase58()} (nonce: ${currentNonce})`);
+        return message;
+      } catch (err) {
+        if (isAnchorError(err, AnchorErrorCodes.RateLimitExceeded)) {
+          throw new MessagingSendError(
+            recipient.toBase58(),
+            'Rate limit exceeded — on-chain messaging is throttled by state_update_cooldown (~60s)',
+          );
+        }
+        // Retry on VersionMismatch (nonce collision — state PDA already exists)
+        if (isAnchorError(err, AnchorErrorCodes.VersionMismatch)) {
+          this.logger.warn(
+            `Nonce collision (VersionMismatch) on attempt ${attempt + 1}, retrying with new nonce`,
+          );
+          lastError = err;
+          continue;
+        }
         throw new MessagingSendError(
           recipient.toBase58(),
-          'Rate limit exceeded — on-chain messaging is throttled by state_update_cooldown (~60s)',
+          `On-chain send failed: ${err instanceof Error ? err.message : String(err)}`,
         );
       }
-      throw new MessagingSendError(
-        recipient.toBase58(),
-        `On-chain send failed: ${err instanceof Error ? err.message : String(err)}`,
-      );
     }
 
-    const message: AgentMessage = {
-      id: `${authority.toBase58()}:${currentNonce}`,
-      sender: authority,
-      recipient,
-      content,
-      mode: 'on-chain',
-      signature,
-      timestamp: Math.floor(Date.now() / 1000),
-      nonce: currentNonce,
-      onChain: true,
-    };
-
-    this.logger.info(`On-chain message sent to ${recipient.toBase58()} (nonce: ${currentNonce})`);
-    return message;
+    throw new MessagingSendError(
+      recipient.toBase58(),
+      `On-chain send failed after ${AgentMessaging.MAX_NONCE_RETRIES + 1} nonce collision retries: ${lastError instanceof Error ? lastError.message : String(lastError)}`,
+    );
   }
 
   // ==========================================================================
@@ -461,8 +482,30 @@ export class AgentMessaging {
       signature: Buffer.from(signature).toString('base64'),
     };
 
-    // Send via WebSocket
-    await this.sendWebSocket(endpoint, JSON.stringify(envelope));
+    // Send via WebSocket with retries
+    let lastWsError: unknown;
+    for (let attempt = 0; attempt <= this.config.offChainRetries; attempt++) {
+      try {
+        await this.sendWebSocket(endpoint, JSON.stringify(envelope));
+        lastWsError = undefined;
+        break;
+      } catch (err) {
+        lastWsError = err;
+        if (attempt < this.config.offChainRetries) {
+          this.logger.warn(
+            `Off-chain send attempt ${attempt + 1} failed, retrying (${this.config.offChainRetries - attempt} left)`,
+          );
+        }
+      }
+    }
+    if (lastWsError) {
+      throw lastWsError instanceof MessagingConnectionError
+        ? lastWsError
+        : new MessagingConnectionError(
+            endpoint,
+            lastWsError instanceof Error ? lastWsError.message : String(lastWsError),
+          );
+    }
 
     const message: AgentMessage = {
       id: `${authority.toBase58()}:${currentNonce}`,

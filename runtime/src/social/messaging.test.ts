@@ -446,6 +446,48 @@ describe('AgentMessaging — on-chain send', () => {
     ).rejects.toThrow(/rate limit/i);
   });
 
+  it('retries on VersionMismatch (nonce collision)', async () => {
+    const rpcMock = vi.fn()
+      .mockRejectedValueOnce(anchorError(AnchorErrorCodes.VersionMismatch))
+      .mockResolvedValueOnce('mock-signature');
+    const methodBuilder = {
+      accountsPartial: vi.fn().mockReturnThis(),
+      rpc: rpcMock,
+    };
+    const program = createMockProgram({
+      methods: { updateState: vi.fn().mockReturnValue(methodBuilder) },
+    });
+
+    const wallet = Keypair.generate();
+    const agentId = generateAgentId(wallet.publicKey);
+    const messaging = new AgentMessaging({ program, agentId, wallet, config: { defaultMode: 'on-chain' } });
+
+    const msg = await messaging.send(randomPubkey(), 'retry test', 'on-chain');
+    expect(msg.onChain).toBe(true);
+    expect(rpcMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('throws after max nonce collision retries', async () => {
+    const rpcMock = vi.fn().mockRejectedValue(anchorError(AnchorErrorCodes.VersionMismatch));
+    const methodBuilder = {
+      accountsPartial: vi.fn().mockReturnThis(),
+      rpc: rpcMock,
+    };
+    const program = createMockProgram({
+      methods: { updateState: vi.fn().mockReturnValue(methodBuilder) },
+    });
+
+    const wallet = Keypair.generate();
+    const agentId = generateAgentId(wallet.publicKey);
+    const messaging = new AgentMessaging({ program, agentId, wallet, config: { defaultMode: 'on-chain' } });
+
+    await expect(
+      messaging.send(randomPubkey(), 'fail', 'on-chain'),
+    ).rejects.toThrow(/nonce collision/i);
+    // 1 initial + 3 retries = 4 total
+    expect(rpcMock).toHaveBeenCalledTimes(4);
+  });
+
   it('increments nonce on each send', async () => {
     const { messaging, program } = createTestMessaging();
     const recipient = randomPubkey();
