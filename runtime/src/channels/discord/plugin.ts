@@ -31,6 +31,9 @@ const DEFAULT_INTENTS: readonly DiscordIntentName[] = [
   'DirectMessages',
 ];
 
+/** Discord channel type values for thread detection (10=AnnouncementThread, 11=PublicThread, 12=PrivateThread). */
+const THREAD_CHANNEL_TYPES = new Set([10, 11, 12]);
+
 // ============================================================================
 // Discord.js type shims (loaded lazily)
 // ============================================================================
@@ -67,6 +70,7 @@ interface DiscordReaction {
 
 interface DiscordUser {
   id: string;
+  username?: string;
 }
 
 interface DiscordInteraction {
@@ -86,6 +90,12 @@ interface DiscordTextChannel {
   send: (opts: unknown) => Promise<unknown>;
 }
 
+interface SlashCommandOption {
+  setName: (name: string) => SlashCommandOption;
+  setDescription: (desc: string) => SlashCommandOption;
+  setRequired: (required: boolean) => SlashCommandOption;
+}
+
 interface DiscordJsModule {
   Client: new (opts: { intents: number[] }) => DiscordClient;
   GatewayIntentBits: Record<string, number>;
@@ -94,11 +104,14 @@ interface DiscordJsModule {
     setToken: (token: string) => unknown;
     put: (route: string, opts: { body: unknown[] }) => Promise<unknown>;
   };
-  Routes: { applicationGuildCommands: (appId: string, guildId: string) => string };
+  Routes: {
+    applicationGuildCommands: (appId: string, guildId: string) => string;
+    applicationCommands: (appId: string) => string;
+  };
   SlashCommandBuilder: new () => {
     setName: (name: string) => unknown;
     setDescription: (desc: string) => unknown;
-    addStringOption: (fn: (opt: unknown) => unknown) => unknown;
+    addStringOption: (fn: (opt: SlashCommandOption) => SlashCommandOption) => unknown;
     toJSON: () => unknown;
   };
 }
@@ -130,7 +143,6 @@ export class DiscordChannel extends BaseChannelPlugin {
       (msg) => new GatewayConnectionError(msg),
       (m) => m as unknown as DiscordJsModule,
     );
-
     const intents = this.resolveIntents(mod);
     const client = new mod.Client({ intents });
     this.client = client;
@@ -138,7 +150,6 @@ export class DiscordChannel extends BaseChannelPlugin {
     try {
       this.wireEventHandlers(client, mod);
       await client.login(this.config.botToken);
-      await this.registerSlashCommands(mod);
     } catch (err) {
       // Clean up partially-initialized client on failure
       client.destroy();
@@ -165,7 +176,10 @@ export class DiscordChannel extends BaseChannelPlugin {
   // --------------------------------------------------------------------------
 
   async send(message: OutboundMessage): Promise<void> {
-    if (!this.client) return;
+    if (!this.client) {
+      this.context.logger.warn(`Cannot send message: Discord client is not connected`);
+      return;
+    }
 
     const channel = await this.resolveChannel(message.sessionId);
     if (!channel) {
@@ -198,22 +212,55 @@ export class DiscordChannel extends BaseChannelPlugin {
     client.on('ready', () => {
       this.healthy = true;
       this.context.logger.info('Discord bot connected');
+      // Register slash commands once the client is ready and guild cache is populated
+      this.registerSlashCommands(mod).catch((err) => {
+        this.context.logger.error(
+          `Failed to register slash commands: ${errorMessage(err)}`,
+        );
+      });
+    });
+
+    client.on('error', (err: unknown) => {
+      this.context.logger.error(`Discord client error: ${errorMessage(err)}`);
+    });
+
+    client.on('shardDisconnect', () => {
+      this.healthy = false;
+      this.context.logger.warn('Discord shard disconnected');
+    });
+
+    client.on('shardReconnecting', () => {
+      this.healthy = false;
+      this.context.logger.info('Discord shard reconnecting');
+    });
+
+    client.on('shardReady', () => {
+      this.healthy = true;
+      this.context.logger.info('Discord shard ready');
     });
 
     client.on('messageCreate', (msg: unknown) => {
-      void this.handleMessageCreate(msg as DiscordMessage, mod);
+      this.handleMessageCreate(msg as DiscordMessage, mod).catch((err) => {
+        this.context.logger.error(`Error handling messageCreate: ${errorMessage(err)}`);
+      });
     });
 
     client.on('messageReactionAdd', (reaction: unknown, user: unknown) => {
-      void this.handleReactionEvent(reaction as DiscordReaction, user as DiscordUser, true);
+      this.handleReactionEvent(reaction as DiscordReaction, user as DiscordUser, true).catch((err) => {
+        this.context.logger.error(`Error handling messageReactionAdd: ${errorMessage(err)}`);
+      });
     });
 
     client.on('messageReactionRemove', (reaction: unknown, user: unknown) => {
-      void this.handleReactionEvent(reaction as DiscordReaction, user as DiscordUser, false);
+      this.handleReactionEvent(reaction as DiscordReaction, user as DiscordUser, false).catch((err) => {
+        this.context.logger.error(`Error handling messageReactionRemove: ${errorMessage(err)}`);
+      });
     });
 
     client.on('interactionCreate', (interaction: unknown) => {
-      void this.handleInteraction(interaction as DiscordInteraction);
+      this.handleInteraction(interaction as DiscordInteraction).catch((err) => {
+        this.context.logger.error(`Error handling interactionCreate: ${errorMessage(err)}`);
+      });
     });
   }
 
@@ -225,12 +272,13 @@ export class DiscordChannel extends BaseChannelPlugin {
     if (msg.author.bot) return;
 
     const isDM = msg.channel.type === mod.ChannelType.DM;
+    const isThread = THREAD_CHANNEL_TYPES.has(msg.channel.type);
 
     if (isDM && this.config.allowDMs === false) return;
     if (!isDM && !this.isAllowed(msg.guildId, msg.channelId)) return;
 
     const sessionId = buildSessionId(isDM, msg.author.id, msg.guildId, msg.channelId);
-    const scope: MessageScope = isDM ? 'dm' : 'group';
+    const scope: MessageScope = isDM ? 'dm' : isThread ? 'thread' : 'group';
 
     // Store DM channel mapping for send()
     if (isDM) {
@@ -275,7 +323,7 @@ export class DiscordChannel extends BaseChannelPlugin {
     const gateway = createGatewayMessage({
       channel: this.name,
       senderId: user.id,
-      senderName: 'unknown',
+      senderName: user.username ?? 'unknown',
       sessionId,
       content: '',
       metadata: {
@@ -338,7 +386,7 @@ export class DiscordChannel extends BaseChannelPlugin {
     const askCmd = new mod.SlashCommandBuilder();
     askCmd.setName('ask');
     askCmd.setDescription('Ask the agent a question');
-    askCmd.addStringOption((opt: any) =>
+    askCmd.addStringOption((opt: SlashCommandOption) =>
       opt.setName('input').setDescription('Your question or message').setRequired(true),
     );
     commands.push(askCmd.toJSON());
@@ -355,9 +403,9 @@ export class DiscordChannel extends BaseChannelPlugin {
     taskCmd.setDescription('Show current task status');
     commands.push(taskCmd.toJSON());
 
-    // Register guild-scoped (instant propagation)
+    // Register guild-scoped for each cached guild (instant propagation)
     const guilds = this.client?.guilds?.cache;
-    if (guilds) {
+    if (guilds && guilds.size > 0) {
       for (const [guildId] of guilds) {
         try {
           await rest.put(
@@ -365,8 +413,22 @@ export class DiscordChannel extends BaseChannelPlugin {
             { body: commands },
           );
         } catch (err) {
-          this.context.logger.error(`Failed to register commands in guild ${guildId}:`, err);
+          this.context.logger.error(
+            `Failed to register commands in guild ${guildId}: ${errorMessage(err)}`,
+          );
         }
+      }
+    } else {
+      // Fallback: register globally if no guilds in cache
+      try {
+        await rest.put(
+          mod.Routes.applicationCommands(this.config.applicationId),
+          { body: commands },
+        );
+      } catch (err) {
+        this.context.logger.error(
+          `Failed to register global commands: ${errorMessage(err)}`,
+        );
       }
     }
   }
@@ -467,6 +529,12 @@ function buildSessionId(
   return `${SESSION_PREFIX}:${guildId}:${channelId}:${userId}`;
 }
 
+/** Extract a safe error message string without leaking sensitive data. */
+function errorMessage(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  return String(err);
+}
+
 // ============================================================================
 // Message splitting
 // ============================================================================
@@ -503,5 +571,5 @@ function splitMessage(content: string): string[] {
     }
   }
 
-  return chunks;
+  return chunks.filter((c) => c.length > 0);
 }

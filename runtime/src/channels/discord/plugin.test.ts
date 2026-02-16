@@ -40,17 +40,19 @@ vi.mock('discord.js', () => {
     REST: class MockREST {
       setToken = mockRestSetToken;
       put = mockRestPut;
-      constructor(_opts: any) {}
+      constructor(_opts: unknown) {}
     },
     Routes: {
       applicationGuildCommands: (appId: string, guildId: string) =>
         `/applications/${appId}/guilds/${guildId}/commands`,
+      applicationCommands: (appId: string) =>
+        `/applications/${appId}/commands`,
     },
     SlashCommandBuilder: class MockSlashCommandBuilder {
       private data: Record<string, unknown> = {};
       setName(name: string) { this.data.name = name; return this; }
       setDescription(desc: string) { this.data.description = desc; return this; }
-      addStringOption(fn: (opt: any) => any) {
+      addStringOption(fn: (opt: unknown) => unknown) {
         const opt = {
           setName(n: string) { opt._name = n; return opt; },
           setDescription(d: string) { opt._desc = d; return opt; },
@@ -213,8 +215,8 @@ describe('DiscordChannel', () => {
     expect(gateway.scope).toBe('group');
   });
 
-  // 6. Thread message → session ID discord:<guildId>:<threadId>:<userId>
-  it('thread message produces correct session ID', async () => {
+  // 6. Thread message → scope 'thread' and correct session ID
+  it('thread message produces scope "thread" and correct session ID', async () => {
     const ctx = makeContext();
     await startedPlugin({}, ctx);
 
@@ -223,6 +225,7 @@ describe('DiscordChannel', () => {
 
     const gateway = (ctx.onMessage as any).mock.calls[0][0];
     expect(gateway.sessionId).toBe('discord:guild-1:thread-200:user-3');
+    expect(gateway.scope).toBe('thread');
   });
 
   // 7. allowedGuilds filter rejects unauthorized guild
@@ -284,7 +287,7 @@ describe('DiscordChannel', () => {
     expect(mockSend.mock.calls[1][0].content).toBe(paragraph);
   });
 
-  // 11. Reaction events forwarded as GatewayMessage with reaction metadata
+  // 11. Reaction events forwarded with metadata, senderName from user object
   it('forwards reaction events with metadata', async () => {
     const ctx = makeContext();
     await startedPlugin({}, ctx);
@@ -295,7 +298,7 @@ describe('DiscordChannel', () => {
         emoji: { name: '\u{1F44D}', id: null },
         message: { id: 'target-msg-1', channelId: 'chan-100', guildId: 'guild-1' },
       },
-      { id: 'user-5' },
+      { id: 'user-5', username: 'frank' },
     );
 
     expect(ctx.onMessage).toHaveBeenCalledOnce();
@@ -304,10 +307,28 @@ describe('DiscordChannel', () => {
     expect(gateway.metadata.emoji).toBe('\u{1F44D}');
     expect(gateway.metadata.reactionAdded).toBe(true);
     expect(gateway.metadata.targetMessageId).toBe('target-msg-1');
+    expect(gateway.senderName).toBe('frank');
+  });
+
+  // 12. Reaction senderName falls back to 'unknown' when username absent
+  it('reaction senderName falls back to "unknown"', async () => {
+    const ctx = makeContext();
+    await startedPlugin({}, ctx);
+
+    const handler = getHandler('messageReactionAdd');
+    await handler!(
+      {
+        emoji: { name: 'fire', id: null },
+        message: { id: 'msg-99', channelId: 'chan-100', guildId: 'guild-1' },
+      },
+      { id: 'user-6' }, // no username field
+    );
+
+    const gateway = (ctx.onMessage as any).mock.calls[0][0];
     expect(gateway.senderName).toBe('unknown');
   });
 
-  // 12. Image attachment normalized with type: 'image', correct mimeType
+  // 13. Image attachment normalized with type: 'image', correct mimeType
   it('normalizes image attachments correctly', async () => {
     const ctx = makeContext();
     await startedPlugin({}, ctx);
@@ -332,7 +353,7 @@ describe('DiscordChannel', () => {
     expect(gateway.attachments[0].sizeBytes).toBe(1024);
   });
 
-  // 13. isHealthy() returns false before start, true when healthy flag set
+  // 14. isHealthy() returns false before start, true when healthy flag set
   it('isHealthy() reflects connection state', async () => {
     const plugin = new DiscordChannel({
       botToken: 'tok',
@@ -353,7 +374,7 @@ describe('DiscordChannel', () => {
     expect(plugin.isHealthy()).toBe(true);
   });
 
-  // 14. allowDMs: false blocks DM messages
+  // 15. allowDMs: false blocks DM messages
   it('blocks DM messages when allowDMs is false', async () => {
     const ctx = makeContext();
     await startedPlugin({ allowDMs: false }, ctx);
@@ -364,11 +385,19 @@ describe('DiscordChannel', () => {
     expect(ctx.onMessage).not.toHaveBeenCalled();
   });
 
-  // 15. Slash commands registered via REST API during start()
-  it('registers slash commands via REST API', async () => {
+  // 16. Slash commands registered via ready handler
+  it('registers slash commands on ready event', async () => {
     await startedPlugin();
 
-    expect(mockRestSetToken).toHaveBeenCalledWith('tok');
+    // Trigger ready event — this is where registerSlashCommands is called
+    const readyHandler = getHandler('ready');
+    readyHandler!();
+
+    // Allow async registration to complete
+    await vi.waitFor(() => {
+      expect(mockRestSetToken).toHaveBeenCalledWith('tok');
+    });
+
     expect(mockRestPut).toHaveBeenCalledWith(
       '/applications/app-1/guilds/guild-1/commands',
       expect.objectContaining({
@@ -381,7 +410,7 @@ describe('DiscordChannel', () => {
     );
   });
 
-  // 16. Oversized attachments are filtered during normalization
+  // 17. Oversized attachments are filtered during normalization
   it('filters oversized attachments', async () => {
     const ctx = makeContext();
     await startedPlugin({ maxAttachmentBytes: 1000 }, ctx);
@@ -409,7 +438,7 @@ describe('DiscordChannel', () => {
     expect(gateway.attachments[0].filename).toBe('small.txt');
   });
 
-  // 17. /ask interaction forwards user input as regular message
+  // 18. /ask interaction forwards user input as regular message
   it('handles /ask interaction by forwarding input as message', async () => {
     const ctx = makeContext();
     await startedPlugin({}, ctx);
@@ -433,7 +462,7 @@ describe('DiscordChannel', () => {
     expect(gateway.sessionId).toBe('discord:guild-1:chan-100:user-10');
   });
 
-  // 18. /status interaction forwards as slash command message
+  // 19. /status interaction forwards as slash command message
   it('handles /status interaction by forwarding as /status command', async () => {
     const ctx = makeContext();
     await startedPlugin({}, ctx);
@@ -457,7 +486,7 @@ describe('DiscordChannel', () => {
     expect(gateway.scope).toBe('dm');
   });
 
-  // 19. stop() clears sessionChannels map
+  // 20. stop() clears sessionChannels map
   it('stop() clears session channel mappings', async () => {
     const ctx = makeContext();
     const plugin = await startedPlugin({}, ctx);
@@ -485,7 +514,7 @@ describe('DiscordChannel', () => {
     expect(mockChannelsFetch).not.toHaveBeenCalled();
   });
 
-  // 20. start() cleans up client on login failure
+  // 21. start() cleans up client on login failure
   it('cleans up client if login fails', async () => {
     mockLogin.mockRejectedValueOnce(new Error('Invalid token'));
 
@@ -498,5 +527,100 @@ describe('DiscordChannel', () => {
     await expect(plugin.start()).rejects.toThrow('Invalid token');
     expect(mockDestroy).toHaveBeenCalledOnce();
     expect(plugin.isHealthy()).toBe(false);
+  });
+
+  // 22. error event handler logs errors without crashing
+  it('handles client error events', async () => {
+    const ctx = makeContext();
+    await startedPlugin({}, ctx);
+
+    const handler = getHandler('error');
+    expect(handler).toBeDefined();
+    handler!(new Error('WebSocket error'));
+
+    expect(ctx.logger.error).toHaveBeenCalledWith(
+      expect.stringContaining('Discord client error: WebSocket error'),
+    );
+  });
+
+  // 23. shardDisconnect sets healthy to false
+  it('shardDisconnect sets healthy to false', async () => {
+    const plugin = await startedPlugin();
+
+    // Set healthy via ready
+    const readyHandler = getHandler('ready');
+    readyHandler!();
+    expect(plugin.isHealthy()).toBe(true);
+
+    // Disconnect
+    const disconnectHandler = getHandler('shardDisconnect');
+    disconnectHandler!();
+    expect(plugin.isHealthy()).toBe(false);
+
+    // Reconnect via shardReady
+    const shardReadyHandler = getHandler('shardReady');
+    shardReadyHandler!();
+    expect(plugin.isHealthy()).toBe(true);
+  });
+
+  // 24. send() warns when client is null
+  it('send() warns when client is not connected', async () => {
+    const ctx = makeContext();
+    const plugin = new DiscordChannel({
+      botToken: 'tok',
+      applicationId: 'app-1',
+    });
+    await plugin.initialize(ctx);
+
+    // Don't start — client is null
+    await plugin.send({ sessionId: 'discord:dm:user-1', content: 'hello' });
+
+    expect(ctx.logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('Discord client is not connected'),
+    );
+  });
+
+  // 25. Handler errors are caught and logged, not silently swallowed
+  it('logs errors from event handlers instead of swallowing', async () => {
+    const ctx = makeContext();
+    (ctx.onMessage as any).mockRejectedValueOnce(new Error('downstream failure'));
+    await startedPlugin({}, ctx);
+
+    const handler = getHandler('messageCreate');
+    // This should not throw — error is caught and logged
+    await handler!(makeDMMessage());
+
+    // Wait for the .catch to fire
+    await vi.waitFor(() => {
+      expect(ctx.logger.error).toHaveBeenCalledWith(
+        expect.stringContaining('Error handling messageCreate: downstream failure'),
+      );
+    });
+  });
+
+  // 26. Global command registration fallback when no guilds in cache
+  it('falls back to global command registration when guild cache empty', async () => {
+    // Clear guild cache
+    mockGuildsCache.clear();
+
+    await startedPlugin();
+
+    // Trigger ready to fire registerSlashCommands
+    const readyHandler = getHandler('ready');
+    readyHandler!();
+
+    await vi.waitFor(() => {
+      expect(mockRestPut).toHaveBeenCalledWith(
+        '/applications/app-1/commands',
+        expect.objectContaining({
+          body: expect.arrayContaining([
+            expect.objectContaining({ name: 'ask' }),
+          ]),
+        }),
+      );
+    });
+
+    // Restore for other tests
+    mockGuildsCache.set('guild-1', { id: 'guild-1' });
   });
 });
