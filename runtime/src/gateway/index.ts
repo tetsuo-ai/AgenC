@@ -101,6 +101,10 @@ export {
   MEMORY_NAMESPACE_PREFIX,
 } from './workspace.js';
 
+// Session isolation (Phase 7.3)
+export type { IsolatedSessionContext, SessionIsolationManagerConfig, AuthState } from './session-isolation.js';
+export { SessionIsolationManager } from './session-isolation.js';
+
 // Slash commands (Phase 1.5)
 export {
   SlashCommandRegistry,
