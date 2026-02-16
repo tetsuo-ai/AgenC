@@ -469,7 +469,7 @@ pub enum CoordinationError {
     #[msg("SPL token transfer CPI failed")]
     TokenTransferFailed,
 
-    // Governance errors (7900-7999)
+    // Governance errors (sequential from enum position)
     #[msg("Proposal is not active")]
     ProposalNotActive,
 
@@ -502,4 +502,13 @@ pub enum CoordinationError {
 
     #[msg("Treasury spend amount exceeds available balance")]
     TreasuryInsufficientBalance,
+
+    #[msg("Execution timelock has not elapsed")]
+    TimelockNotElapsed,
+
+    #[msg("Invalid governance configuration parameter")]
+    InvalidGovernanceParam,
+
+    #[msg("Treasury must be a program-owned PDA")]
+    TreasuryNotProgramOwned,
 }

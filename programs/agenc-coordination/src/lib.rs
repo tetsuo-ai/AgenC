@@ -367,6 +367,26 @@ pub mod agenc_coordination {
         instructions::migrate::update_min_version_handler(ctx, new_min_version)
     }
 
+    /// Initialize governance configuration.
+    /// Must be called by the protocol authority.
+    pub fn initialize_governance(
+        ctx: Context<InitializeGovernance>,
+        voting_period: i64,
+        execution_delay: i64,
+        quorum_bps: u16,
+        approval_threshold_bps: u16,
+        min_proposal_stake: u64,
+    ) -> Result<()> {
+        instructions::initialize_governance::handler(
+            ctx,
+            voting_period,
+            execution_delay,
+            quorum_bps,
+            approval_threshold_bps,
+            min_proposal_stake,
+        )
+    }
+
     /// Create a governance proposal.
     /// Proposer must be an active agent with sufficient stake.
     #[allow(clippy::too_many_arguments)]
@@ -400,5 +420,11 @@ pub mod agenc_coordination {
     /// Permissionless — anyone can call after quorum + majority is met.
     pub fn execute_proposal(ctx: Context<ExecuteProposal>) -> Result<()> {
         instructions::execute_proposal::handler(ctx)
+    }
+
+    /// Cancel a governance proposal before any votes are cast.
+    /// Only the proposer's authority can cancel.
+    pub fn cancel_proposal(ctx: Context<CancelProposal>) -> Result<()> {
+        instructions::cancel_proposal::handler(ctx)
     }
 }

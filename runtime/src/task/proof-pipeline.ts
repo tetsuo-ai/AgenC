@@ -650,6 +650,7 @@ export class ProofPipeline {
           privateResult.constraintHash,
           privateResult.outputCommitment,
           privateResult.expectedBinding,
+          privateResult.nullifier,
         );
       } else {
         const publicResult = job.executionResult as TaskExecutionResult;

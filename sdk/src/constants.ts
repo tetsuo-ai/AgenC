@@ -186,4 +186,5 @@ export const SEEDS = {
   NULLIFIER: Buffer.from('nullifier'),
   PROPOSAL: Buffer.from('proposal'),
   GOVERNANCE_VOTE: Buffer.from('governance_vote'),
+  GOVERNANCE: Buffer.from('governance'),
 } as const;

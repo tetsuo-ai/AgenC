@@ -11,6 +11,25 @@ import type { PdaWithBump } from '../utils/pda.js';
 export type { PdaWithBump } from '../utils/pda.js';
 
 /**
+ * Derives the governance config PDA and bump seed.
+ * Seeds: ["governance"]
+ */
+export function deriveGovernanceConfigPda(
+  programId: PublicKey = PROGRAM_ID,
+): PdaWithBump {
+  return derivePda([SEEDS.GOVERNANCE], programId);
+}
+
+/**
+ * Finds the governance config PDA address (without bump).
+ */
+export function findGovernanceConfigPda(
+  programId: PublicKey = PROGRAM_ID,
+): PublicKey {
+  return deriveGovernanceConfigPda(programId).address;
+}
+
+/**
  * Derives the proposal PDA and bump seed.
  * Seeds: ["proposal", proposer_agent_pda, nonce_le_bytes]
  */

@@ -1322,10 +1322,11 @@ export class AutonomousAgent extends AgentRuntime {
 
     const tx = await this.program.methods
       .completeTaskPrivate(new anchor.BN(0), {
-        proofData: toAnchorBytes(proofResult.proof),
+        proofData: Buffer.from(proofResult.proof),
         constraintHash: toAnchorBytes(proofResult.constraintHash),
         outputCommitment: toAnchorBytes(proofResult.outputCommitment),
         expectedBinding: toAnchorBytes(proofResult.expectedBinding),
+        nullifier: Array.from(new Uint8Array(32)),
       })
       .accountsPartial({
         task: task.pda,

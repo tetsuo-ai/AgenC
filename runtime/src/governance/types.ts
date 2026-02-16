@@ -15,6 +15,7 @@ export enum ProposalType {
   ProtocolUpgrade = 0,
   FeeChange = 1,
   TreasurySpend = 2,
+  RateLimitChange = 3,
 }
 
 export enum ProposalStatus {
@@ -52,6 +53,7 @@ export interface OnChainProposal {
   status: ProposalStatus;
   createdAt: number;
   votingDeadline: number;
+  executionAfter: number;
   executedAt: number;
   votesFor: bigint;
   votesAgainst: bigint;
@@ -93,6 +95,50 @@ export interface ExecuteProposalParams {
   recipientPubkey?: PublicKey;
 }
 
+export interface CancelProposalParams {
+  proposalPda: PublicKey;
+}
+
+export interface InitializeGovernanceParams {
+  votingPeriod: number;
+  executionDelay: number;
+  quorumBps: number;
+  approvalThresholdBps: number;
+  minProposalStake: bigint;
+}
+
+// ============================================================================
+// GovernanceConfig On-Chain Interface
+// ============================================================================
+
+export interface OnChainGovernanceConfig {
+  authority: PublicKey;
+  minProposalStake: bigint;
+  votingPeriod: number;
+  executionDelay: number;
+  quorumBps: number;
+  approvalThresholdBps: number;
+  totalProposals: bigint;
+  bump: number;
+}
+
+export function parseOnChainGovernanceConfig(raw: Record<string, unknown>): OnChainGovernanceConfig {
+  const r = raw as Record<string, any>;
+  return {
+    authority: r.authority,
+    minProposalStake: toBNBigint(r.minProposalStake),
+    votingPeriod: toBNNumber(r.votingPeriod),
+    executionDelay: toBNNumber(r.executionDelay),
+    quorumBps: typeof r.quorumBps === 'number' ? r.quorumBps : Number(r.quorumBps),
+    approvalThresholdBps:
+      typeof r.approvalThresholdBps === 'number'
+        ? r.approvalThresholdBps
+        : Number(r.approvalThresholdBps),
+    totalProposals: toBNBigint(r.totalProposals),
+    bump: typeof r.bump === 'number' ? r.bump : Number(r.bump),
+  };
+}
+
 // ============================================================================
 // Result Types
 // ============================================================================
@@ -129,6 +175,7 @@ export function parseOnChainProposal(raw: Record<string, unknown>): OnChainPropo
     status: parseProposalStatus(r.status),
     createdAt: toBNNumber(r.createdAt),
     votingDeadline: toBNNumber(r.votingDeadline),
+    executionAfter: toBNNumber(r.executionAfter),
     executedAt: toBNNumber(r.executedAt),
     votesFor: toBNBigint(r.votesFor),
     votesAgainst: toBNBigint(r.votesAgainst),
@@ -188,6 +235,7 @@ function parseProposalType(val: unknown): ProposalType {
     if ('protocolUpgrade' in val) return ProposalType.ProtocolUpgrade;
     if ('feeChange' in val) return ProposalType.FeeChange;
     if ('treasurySpend' in val) return ProposalType.TreasurySpend;
+    if ('rateLimitChange' in val) return ProposalType.RateLimitChange;
   }
   return Number(val) as ProposalType;
 }

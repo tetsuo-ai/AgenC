@@ -936,6 +936,56 @@ impl Nullifier {
 // Governance
 // ============================================================================
 
+/// Governance configuration account
+/// PDA seeds: ["governance"]
+#[account]
+#[derive(InitSpace)]
+pub struct GovernanceConfig {
+    /// Protocol authority (must match ProtocolConfig.authority at init time)
+    pub authority: Pubkey,
+    /// Minimum stake required to create a proposal
+    pub min_proposal_stake: u64,
+    /// Voting period in seconds for new proposals
+    pub voting_period: i64,
+    /// Execution delay after voting ends (timelock) in seconds
+    pub execution_delay: i64,
+    /// Quorum in basis points of total agents' stake
+    pub quorum_bps: u16,
+    /// Approval threshold in basis points (e.g., 5000 = simple majority)
+    pub approval_threshold_bps: u16,
+    /// Total proposals created (monotonic counter)
+    pub total_proposals: u64,
+    /// Bump seed
+    pub bump: u8,
+    /// Reserved for future use
+    pub _reserved: [u8; 64],
+}
+
+impl GovernanceConfig {
+    pub const SIZE: usize = 8 +  // discriminator
+        32 + // authority
+        8 +  // min_proposal_stake
+        8 +  // voting_period
+        8 +  // execution_delay
+        2 +  // quorum_bps
+        2 +  // approval_threshold_bps
+        8 +  // total_proposals
+        1 +  // bump
+        64;  // _reserved
+
+    /// Default voting period: 3 days
+    pub const DEFAULT_VOTING_PERIOD: i64 = 3 * 24 * 60 * 60;
+
+    /// Maximum voting period: 7 days
+    pub const MAX_VOTING_PERIOD: i64 = 7 * 24 * 60 * 60;
+
+    /// Default execution delay: 1 day
+    pub const DEFAULT_EXECUTION_DELAY: i64 = 24 * 60 * 60;
+
+    /// Maximum execution delay: 7 days
+    pub const MAX_EXECUTION_DELAY: i64 = 7 * 24 * 60 * 60;
+}
+
 /// Governance proposal type
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Default, InitSpace)]
 #[repr(u8)]
@@ -947,6 +997,8 @@ pub enum ProposalType {
     FeeChange = 1,
     /// Transfer lamports from treasury
     TreasurySpend = 2,
+    /// Change rate limit parameters
+    RateLimitChange = 3,
 }
 
 /// Governance proposal status
@@ -992,6 +1044,8 @@ pub struct Proposal {
     pub created_at: i64,
     /// Voting deadline (no new votes accepted after this)
     pub voting_deadline: i64,
+    /// Earliest timestamp at which the proposal can be executed (timelock)
+    pub execution_after: i64,
     /// Execution timestamp (0 if not executed)
     pub executed_at: i64,
     /// Total stake-weighted votes for approval
@@ -1004,6 +1058,8 @@ pub struct Proposal {
     pub quorum: u64,
     /// Bump seed
     pub bump: u8,
+    /// Reserved for future use
+    pub _reserved: [u8; 64],
 }
 
 impl Proposal {
@@ -1018,12 +1074,14 @@ impl Proposal {
         1 +  // status
         8 +  // created_at
         8 +  // voting_deadline
+        8 +  // execution_after
         8 +  // executed_at
         8 +  // votes_for
         8 +  // votes_against
         2 +  // total_voters
         8 +  // quorum
-        1;   // bump
+        1 +  // bump
+        64;  // _reserved
 }
 
 /// Governance vote record
@@ -1043,6 +1101,8 @@ pub struct GovernanceVote {
     pub vote_weight: u64,
     /// Bump seed
     pub bump: u8,
+    /// Reserved for future use
+    pub _reserved: [u8; 8],
 }
 
 impl GovernanceVote {
@@ -1052,7 +1112,8 @@ impl GovernanceVote {
         1 +  // approved
         8 +  // voted_at
         8 +  // vote_weight
-        1;   // bump
+        1 +  // bump
+        8;   // _reserved
 }
 
 #[cfg(test)]
@@ -1130,6 +1191,11 @@ mod tests {
     #[test]
     fn test_nullifier_size() {
         test_size_constant!(Nullifier);
+    }
+
+    #[test]
+    fn test_governance_config_size() {
+        test_size_constant!(GovernanceConfig);
     }
 
     #[test]

@@ -1338,12 +1338,15 @@ export {
   // Functions
   parseOnChainProposal,
   parseOnChainGovernanceVote,
+  parseOnChainGovernanceConfig,
   proposalStatusToString,
   // PDA derivation
   deriveProposalPda,
   findProposalPda,
   deriveGovernanceVotePda,
   findGovernanceVotePda,
+  deriveGovernanceConfigPda,
+  findGovernanceConfigPda,
   // Error classes
   GovernanceProposalNotFoundError,
   GovernanceVoteError,
@@ -1353,9 +1356,12 @@ export {
   // Types
   type OnChainProposal,
   type OnChainGovernanceVote,
+  type OnChainGovernanceConfig,
   type CreateProposalParams,
   type VoteProposalParams,
   type ExecuteProposalParams,
+  type CancelProposalParams,
+  type InitializeGovernanceParams,
   type ProposalResult,
   type GovernanceVoteResult,
   type ProposalWithVotes,

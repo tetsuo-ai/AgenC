@@ -95,6 +95,7 @@ pub fn handler(ctx: Context<VoteProposal>, approve: bool) -> Result<()> {
     vote.voted_at = clock.unix_timestamp;
     vote.vote_weight = vote_weight;
     vote.bump = ctx.bumps.vote;
+    vote._reserved = [0u8; 8];
 
     // Update proposal vote counts
     if approve {

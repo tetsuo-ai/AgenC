@@ -11,7 +11,7 @@
     "test": "npm run build:sdk && npm run build:runtime && npm run test --prefix sdk && npm run test --prefix runtime",
     "typecheck": "npm run typecheck --prefix sdk && npm run typecheck --prefix runtime && npm run typecheck --prefix mcp",
     "test:anchor": "ts-mocha -p ./tsconfig.json -t 1000000 tests/**/*.ts",
-    "test:fast": "ts-mocha -p ./tsconfig.json -t 60000 tests/test_1.ts tests/dispute-slash-logic.ts tests/spl-token-tasks.ts tests/lifecycle-guards.ts",
+    "test:fast": "ts-mocha -p ./tsconfig.json -t 60000 tests/test_1.ts tests/dispute-slash-logic.ts tests/spl-token-tasks.ts tests/lifecycle-guards.ts tests/governance.ts",
     "test:fixtures": "cd runtime && npx vitest run src/eval/replay.test.ts src/eval/replay-comparison.test.ts --reporter=verbose",
     "demo": "npx tsx demo/private_task_demo.ts",
     "demo:mainnet": "HELIUS_API_KEY=$HELIUS_API_KEY npx tsx demo/private_task_demo.ts"

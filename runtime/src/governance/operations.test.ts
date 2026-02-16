@@ -4,12 +4,13 @@ import { GovernanceOperations } from './operations.js';
 import {
   parseOnChainProposal,
   parseOnChainGovernanceVote,
+  parseOnChainGovernanceConfig,
   proposalStatusToString,
   ProposalStatus,
   ProposalType,
   PROPOSAL_STATUS_OFFSET,
 } from './types.js';
-import { deriveProposalPda, deriveGovernanceVotePda, findProposalPda, findGovernanceVotePda } from './pda.js';
+import { deriveProposalPda, deriveGovernanceVotePda, deriveGovernanceConfigPda, findProposalPda, findGovernanceVotePda, findGovernanceConfigPda } from './pda.js';
 import { GovernanceProposalNotFoundError, GovernanceVoteError, GovernanceExecutionError } from './errors.js';
 import { PROGRAM_ID } from '@agenc/sdk';
 
@@ -37,6 +38,7 @@ function mockRawProposal(overrides: Record<string, any> = {}): Record<string, an
     status: { active: {} },
     createdAt: { toNumber: () => 1700000000 },
     votingDeadline: { toNumber: () => 1700259200 },
+    executionAfter: { toNumber: () => 1700345600 },
     executedAt: { toNumber: () => 0 },
     votesFor: { toString: () => '100' },
     votesAgainst: { toString: () => '50' },
@@ -81,11 +83,16 @@ function createMockProgram(overrides: Record<string, any> = {}) {
         fetchNullable: vi.fn(),
         all: vi.fn().mockResolvedValue([]),
       },
+      governanceConfig: {
+        fetchNullable: vi.fn(),
+      },
     },
     methods: {
       createProposal: vi.fn().mockReturnValue(methodBuilder),
       voteProposal: vi.fn().mockReturnValue(methodBuilder),
       executeProposal: vi.fn().mockReturnValue(methodBuilder),
+      cancelProposal: vi.fn().mockReturnValue(methodBuilder),
+      initializeGovernance: vi.fn().mockReturnValue(methodBuilder),
     },
     ...overrides,
   };
@@ -144,6 +151,7 @@ describe('parseOnChainProposal', () => {
     expect(parsed.votesAgainst).toBe(50n);
     expect(parsed.totalVoters).toBe(3);
     expect(parsed.createdAt).toBe(1700000000);
+    expect(parsed.executionAfter).toBe(1700345600);
     expect(parsed.executedAt).toBe(0);
     expect(parsed.quorum).toBe(200n);
     expect(parsed.bump).toBe(255);
@@ -153,6 +161,7 @@ describe('parseOnChainProposal', () => {
     expect(parseOnChainProposal(mockRawProposal({ proposalType: { protocolUpgrade: {} } })).proposalType).toBe(ProposalType.ProtocolUpgrade);
     expect(parseOnChainProposal(mockRawProposal({ proposalType: { feeChange: {} } })).proposalType).toBe(ProposalType.FeeChange);
     expect(parseOnChainProposal(mockRawProposal({ proposalType: { treasurySpend: {} } })).proposalType).toBe(ProposalType.TreasurySpend);
+    expect(parseOnChainProposal(mockRawProposal({ proposalType: { rateLimitChange: {} } })).proposalType).toBe(ProposalType.RateLimitChange);
   });
 
   it('parses all proposal statuses', () => {
@@ -373,6 +382,144 @@ describe('Governance Errors', () => {
     expect(err.name).toBe('GovernanceExecutionError');
     expect(err.proposalPda).toBe('pda2');
     expect(err.reason).toBe('no quorum');
+  });
+});
+
+// ============================================================================
+// GovernanceConfig PDA Tests
+// ============================================================================
+
+describe('GovernanceConfig PDA', () => {
+  it('derives deterministic governance config PDA', () => {
+    const pda1 = deriveGovernanceConfigPda();
+    const pda2 = deriveGovernanceConfigPda();
+    expect(pda1.address.toBase58()).toBe(pda2.address.toBase58());
+  });
+
+  it('findGovernanceConfigPda returns address only', () => {
+    const addr = findGovernanceConfigPda();
+    expect(addr).toBeInstanceOf(PublicKey);
+  });
+});
+
+// ============================================================================
+// parseOnChainGovernanceConfig Tests
+// ============================================================================
+
+describe('parseOnChainGovernanceConfig', () => {
+  it('parses raw governance config data', () => {
+    const authority = randomPubkey();
+    const raw = {
+      authority,
+      minProposalStake: { toString: () => '1000000000' },
+      votingPeriod: { toNumber: () => 259200 },
+      executionDelay: { toNumber: () => 86400 },
+      quorumBps: 1000,
+      approvalThresholdBps: 5000,
+      totalProposals: { toString: () => '5' },
+      bump: 253,
+    };
+    const parsed = parseOnChainGovernanceConfig(raw);
+    expect(parsed.authority).toBe(authority);
+    expect(parsed.minProposalStake).toBe(1000000000n);
+    expect(parsed.votingPeriod).toBe(259200);
+    expect(parsed.executionDelay).toBe(86400);
+    expect(parsed.quorumBps).toBe(1000);
+    expect(parsed.approvalThresholdBps).toBe(5000);
+    expect(parsed.totalProposals).toBe(5n);
+    expect(parsed.bump).toBe(253);
+  });
+});
+
+// ============================================================================
+// GovernanceOperations: initializeGovernance, cancelProposal, fetchGovernanceConfig
+// ============================================================================
+
+describe('GovernanceOperations extended methods', () => {
+  let mockProgram: ReturnType<typeof createMockProgram>;
+  let ops: GovernanceOperations;
+  const agentId = randomBytes(32);
+
+  beforeEach(() => {
+    mockProgram = createMockProgram();
+    ops = new GovernanceOperations({ program: mockProgram as any, agentId });
+  });
+
+  describe('initializeGovernance', () => {
+    it('sends initializeGovernance transaction', async () => {
+      const result = await ops.initializeGovernance({
+        votingPeriod: 259200,
+        executionDelay: 86400,
+        quorumBps: 1000,
+        approvalThresholdBps: 5000,
+        minProposalStake: 1_000_000_000n,
+      });
+      expect(result.transactionSignature).toBe('mock-signature');
+      expect(result.governanceConfigPda).toBeInstanceOf(PublicKey);
+      expect(mockProgram.methods.initializeGovernance).toHaveBeenCalledWith(
+        259200, 86400, 1000, 5000, 1_000_000_000n,
+      );
+    });
+  });
+
+  describe('cancelProposal', () => {
+    it('cancels a proposal', async () => {
+      const proposalPda = randomPubkey();
+      const result = await ops.cancelProposal({ proposalPda });
+      expect(result.transactionSignature).toBe('mock-signature');
+      expect(result.proposalPda).toBe(proposalPda);
+      expect(mockProgram.methods.cancelProposal).toHaveBeenCalled();
+    });
+
+    it('maps ProposalNotActive to GovernanceProposalNotFoundError', async () => {
+      const rpcMock = vi.fn().mockRejectedValue(
+        Object.assign(new Error(), { error: { errorCode: { code: 'ProposalNotActive', number: 6147 } } }),
+      );
+      mockProgram.methods.cancelProposal.mockReturnValue({
+        accountsPartial: vi.fn().mockReturnValue({ rpc: rpcMock }),
+      });
+      await expect(
+        ops.cancelProposal({ proposalPda: randomPubkey() }),
+      ).rejects.toThrow(GovernanceProposalNotFoundError);
+    });
+
+    it('maps ProposalUnauthorizedCancel to GovernanceExecutionError', async () => {
+      const rpcMock = vi.fn().mockRejectedValue(
+        Object.assign(new Error(), { error: { errorCode: { code: 'ProposalUnauthorizedCancel', number: 6153 } } }),
+      );
+      mockProgram.methods.cancelProposal.mockReturnValue({
+        accountsPartial: vi.fn().mockReturnValue({ rpc: rpcMock }),
+      });
+      await expect(
+        ops.cancelProposal({ proposalPda: randomPubkey() }),
+      ).rejects.toThrow(GovernanceExecutionError);
+    });
+  });
+
+  describe('fetchGovernanceConfig', () => {
+    it('returns parsed governance config', async () => {
+      const authority = randomPubkey();
+      mockProgram.account.governanceConfig.fetchNullable.mockResolvedValue({
+        authority,
+        minProposalStake: { toString: () => '1000000000' },
+        votingPeriod: { toNumber: () => 259200 },
+        executionDelay: { toNumber: () => 86400 },
+        quorumBps: 1000,
+        approvalThresholdBps: 5000,
+        totalProposals: { toString: () => '0' },
+        bump: 253,
+      });
+      const config = await ops.fetchGovernanceConfig();
+      expect(config).not.toBeNull();
+      expect(config!.authority).toBe(authority);
+      expect(config!.votingPeriod).toBe(259200);
+    });
+
+    it('returns null when not initialized', async () => {
+      mockProgram.account.governanceConfig.fetchNullable.mockResolvedValue(null);
+      const config = await ops.fetchGovernanceConfig();
+      expect(config).toBeNull();
+    });
   });
 });
 

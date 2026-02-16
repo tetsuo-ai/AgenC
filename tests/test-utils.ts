@@ -403,6 +403,68 @@ export function returnWorkerToPool(worker: PooledWorker): void {
 }
 
 // ============================================================================
+// Proposal Type Constants (matches program ProposalType enum)
+// ============================================================================
+
+export const PROPOSAL_TYPE_PROTOCOL_UPGRADE = 0;
+export const PROPOSAL_TYPE_FEE_CHANGE = 1;
+export const PROPOSAL_TYPE_TREASURY_SPEND = 2;
+export const PROPOSAL_TYPE_RATE_LIMIT_CHANGE = 3;
+
+// ============================================================================
+// Proposal Status Constants (matches program ProposalStatus enum)
+// ============================================================================
+
+export const PROPOSAL_STATUS_ACTIVE = 0;
+export const PROPOSAL_STATUS_EXECUTED = 1;
+export const PROPOSAL_STATUS_DEFEATED = 2;
+export const PROPOSAL_STATUS_CANCELLED = 3;
+
+// ============================================================================
+// Governance PDA Derivation Functions
+// ============================================================================
+
+/**
+ * Derive the governance config PDA (singleton).
+ */
+export function deriveGovernanceConfigPda(programId: PublicKey): PublicKey {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("governance")],
+    programId
+  )[0];
+}
+
+/**
+ * Derive a proposal PDA from proposer agent PDA and nonce.
+ */
+export function deriveProposalPda(
+  proposerAgentPda: PublicKey,
+  nonce: number | bigint,
+  programId: PublicKey
+): PublicKey {
+  const nonceBuffer = Buffer.alloc(8);
+  nonceBuffer.writeBigUInt64LE(BigInt(nonce));
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("proposal"), proposerAgentPda.toBuffer(), nonceBuffer],
+    programId
+  )[0];
+}
+
+/**
+ * Derive a governance vote PDA from proposal PDA and voter agent PDA.
+ */
+export function deriveGovernanceVotePda(
+  proposalPda: PublicKey,
+  voterAgentPda: PublicKey,
+  programId: PublicKey
+): PublicKey {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("governance_vote"), proposalPda.toBuffer(), voterAgentPda.toBuffer()],
+    programId
+  )[0];
+}
+
+// ============================================================================
 // Assertion Helpers
 // ============================================================================
 

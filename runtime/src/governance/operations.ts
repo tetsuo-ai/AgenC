@@ -1,8 +1,8 @@
 /**
  * GovernanceOperations - On-chain governance query and transaction operations.
  *
- * Provides methods for creating proposals, voting, executing, and querying
- * governance state from the chain.
+ * Provides methods for creating proposals, voting, executing, cancelling,
+ * and querying governance state from the chain.
  *
  * @module
  */
@@ -15,9 +15,12 @@ import { silentLogger } from '../utils/logger.js';
 import type {
   OnChainProposal,
   OnChainGovernanceVote,
+  OnChainGovernanceConfig,
   CreateProposalParams,
   VoteProposalParams,
   ExecuteProposalParams,
+  CancelProposalParams,
+  InitializeGovernanceParams,
   ProposalResult,
   GovernanceVoteResult,
   ProposalWithVotes,
@@ -25,13 +28,18 @@ import type {
 import {
   parseOnChainProposal,
   parseOnChainGovernanceVote,
+  parseOnChainGovernanceConfig,
   ProposalStatus,
   PROPOSAL_STATUS_OFFSET,
 } from './types.js';
-import { deriveProposalPda, deriveGovernanceVotePda } from './pda.js';
+import { deriveProposalPda, deriveGovernanceVotePda, findGovernanceConfigPda } from './pda.js';
 import { findAgentPda, findProtocolPda } from '../agent/pda.js';
 import { isAnchorError, AnchorErrorCodes } from '../types/errors.js';
-import { GovernanceVoteError, GovernanceExecutionError } from './errors.js';
+import {
+  GovernanceVoteError,
+  GovernanceExecutionError,
+  GovernanceProposalNotFoundError,
+} from './errors.js';
 import { encodeStatusByte, queryWithFallback } from '../utils/query.js';
 
 // ============================================================================
@@ -54,6 +62,7 @@ export class GovernanceOperations {
   private readonly logger: Logger;
   private readonly agentPda: PublicKey;
   private readonly protocolPda: PublicKey;
+  private readonly governanceConfigPda: PublicKey;
 
   constructor(config: GovernanceOpsConfig) {
     this.program = config.program;
@@ -61,11 +70,25 @@ export class GovernanceOperations {
     this.logger = config.logger ?? silentLogger;
     this.agentPda = findAgentPda(this.agentId, this.program.programId);
     this.protocolPda = findProtocolPda(this.program.programId);
+    this.governanceConfigPda = findGovernanceConfigPda(this.program.programId);
   }
 
   // ==========================================================================
   // Query Operations
   // ==========================================================================
+
+  async fetchGovernanceConfig(): Promise<OnChainGovernanceConfig | null> {
+    try {
+      const raw = await (this.program.account as any).governanceConfig.fetchNullable(
+        this.governanceConfigPda,
+      );
+      if (!raw) return null;
+      return parseOnChainGovernanceConfig(raw as Record<string, unknown>);
+    } catch (err) {
+      this.logger.error(`Failed to fetch governance config: ${err}`);
+      throw err;
+    }
+  }
 
   async fetchProposal(proposalPda: PublicKey): Promise<OnChainProposal | null> {
     try {
@@ -149,6 +172,31 @@ export class GovernanceOperations {
   // Transaction Operations
   // ==========================================================================
 
+  async initializeGovernance(
+    params: InitializeGovernanceParams,
+  ): Promise<{ governanceConfigPda: PublicKey; transactionSignature: string }> {
+    this.logger.info('Initializing governance configuration');
+
+    const signature = await (this.program.methods as any)
+      .initializeGovernance(
+        params.votingPeriod,
+        params.executionDelay,
+        params.quorumBps,
+        params.approvalThresholdBps,
+        params.minProposalStake,
+      )
+      .accountsPartial({
+        governanceConfig: this.governanceConfigPda,
+        protocolConfig: this.protocolPda,
+        authority: this.program.provider.publicKey,
+        systemProgram: SystemProgram.programId,
+      })
+      .rpc();
+
+    this.logger.info(`Governance initialized: ${signature}`);
+    return { governanceConfigPda: this.governanceConfigPda, transactionSignature: signature };
+  }
+
   async createProposal(params: CreateProposalParams): Promise<ProposalResult> {
     const { address: proposalPda } = deriveProposalPda(
       this.agentPda,
@@ -174,6 +222,7 @@ export class GovernanceOperations {
         proposal: proposalPda,
         proposer: this.agentPda,
         protocolConfig: this.protocolPda,
+        governanceConfig: this.governanceConfigPda,
         authority: this.program.provider.publicKey,
         systemProgram: SystemProgram.programId,
       })
@@ -231,6 +280,7 @@ export class GovernanceOperations {
         .accountsPartial({
           proposal: params.proposalPda,
           protocolConfig: this.protocolPda,
+          governanceConfig: this.governanceConfigPda,
           executor: this.program.provider.publicKey,
           treasury: params.treasuryPubkey ?? null,
           recipient: params.recipientPubkey ?? null,
@@ -248,13 +298,37 @@ export class GovernanceOperations {
       if (isAnchorError(err, AnchorErrorCodes.ProposalVotingNotEnded)) {
         throw new GovernanceExecutionError(pda, 'Voting period has not ended');
       }
-      if (isAnchorError(err, AnchorErrorCodes.ProposalInsufficientQuorum)) {
-        throw new GovernanceExecutionError(pda, 'Insufficient quorum');
-      }
-      if (isAnchorError(err, AnchorErrorCodes.ProposalNotApproved)) {
-        throw new GovernanceExecutionError(pda, 'Proposal did not achieve majority');
+      if (isAnchorError(err, AnchorErrorCodes.TimelockNotElapsed)) {
+        throw new GovernanceExecutionError(pda, 'Execution timelock has not elapsed');
       }
       this.logger.error(`Failed to execute proposal: ${err}`);
+      throw err;
+    }
+  }
+
+  async cancelProposal(params: CancelProposalParams): Promise<ProposalResult> {
+    this.logger.info(`Cancelling proposal ${params.proposalPda.toBase58()}`);
+
+    try {
+      const signature = await (this.program.methods as any)
+        .cancelProposal()
+        .accountsPartial({
+          proposal: params.proposalPda,
+          authority: this.program.provider.publicKey,
+        })
+        .rpc();
+
+      this.logger.info(`Proposal cancelled: ${signature}`);
+      return { proposalPda: params.proposalPda, transactionSignature: signature };
+    } catch (err) {
+      const pda = params.proposalPda.toBase58();
+      if (isAnchorError(err, AnchorErrorCodes.ProposalNotActive)) {
+        throw new GovernanceProposalNotFoundError(pda);
+      }
+      if (isAnchorError(err, AnchorErrorCodes.ProposalUnauthorizedCancel)) {
+        throw new GovernanceExecutionError(pda, 'Only the proposer can cancel');
+      }
+      this.logger.error(`Failed to cancel proposal: ${err}`);
       throw err;
     }
   }

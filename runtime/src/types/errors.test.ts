@@ -56,17 +56,17 @@ describe('RuntimeErrorCodes', () => {
 });
 
 describe('AnchorErrorCodes', () => {
-  it('has exactly 158 error codes (6000-6157)', () => {
-    expect(Object.keys(AnchorErrorCodes)).toHaveLength(158);
+  it('has exactly 161 error codes (6000-6160)', () => {
+    expect(Object.keys(AnchorErrorCodes)).toHaveLength(161);
   });
 
-  it('has codes in range 6000-6157', () => {
+  it('has codes in range 6000-6160', () => {
     const codes = Object.values(AnchorErrorCodes);
     const minCode = Math.min(...codes);
     const maxCode = Math.max(...codes);
 
     expect(minCode).toBe(6000);
-    expect(maxCode).toBe(6157);
+    expect(maxCode).toBe(6160);
   });
 
   it('has sequential codes (no gaps)', () => {
@@ -563,7 +563,7 @@ describe('parseAnchorError', () => {
 
   it('returns null for code outside range', () => {
     expect(parseAnchorError({ code: 5999 })).toBeNull();
-    expect(parseAnchorError({ code: 6158 })).toBeNull();
+    expect(parseAnchorError({ code: 6161 })).toBeNull();
   });
 
   it('returns null for null/undefined', () => {
@@ -603,12 +603,12 @@ describe('getAnchorErrorName', () => {
 
   it('returns undefined for invalid code', () => {
     expect(getAnchorErrorName(5999)).toBeUndefined();
-    expect(getAnchorErrorName(6158)).toBeUndefined();
+    expect(getAnchorErrorName(6161)).toBeUndefined();
     expect(getAnchorErrorName(0)).toBeUndefined();
   });
 
-  it('returns name for all 158 codes', () => {
-    for (let code = 6000; code <= 6157; code++) {
+  it('returns name for all 161 codes', () => {
+    for (let code = 6000; code <= 6160; code++) {
       const name = getAnchorErrorName(code);
       expect(name).toBeDefined();
       expect(typeof name).toBe('string');

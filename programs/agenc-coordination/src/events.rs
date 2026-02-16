@@ -328,6 +328,17 @@ pub struct ProtocolFeeUpdated {
 // Governance events
 // ============================================================================
 
+/// Emitted when governance configuration is initialized
+#[event]
+pub struct GovernanceInitialized {
+    pub authority: Pubkey,
+    pub voting_period: i64,
+    pub execution_delay: i64,
+    pub quorum_bps: u16,
+    pub approval_threshold_bps: u16,
+    pub timestamp: i64,
+}
+
 /// Emitted when a governance proposal is created
 #[event]
 pub struct ProposalCreated {

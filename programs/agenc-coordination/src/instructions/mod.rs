@@ -53,9 +53,11 @@ pub mod update_protocol_fee;
 pub mod update_rate_limits;
 pub mod update_state;
 pub mod vote_dispute;
+pub mod cancel_proposal;
 pub mod create_proposal;
-pub mod vote_proposal;
 pub mod execute_proposal;
+pub mod initialize_governance;
+pub mod vote_proposal;
 
 // Glob re-exports are required for Anchor's #[program] macro to access generated
 // types from #[derive(Accounts)]. See module documentation for details.
@@ -106,8 +108,12 @@ pub use update_state::*;
 #[allow(ambiguous_glob_reexports)]
 pub use vote_dispute::*;
 #[allow(ambiguous_glob_reexports)]
+pub use cancel_proposal::*;
+#[allow(ambiguous_glob_reexports)]
 pub use create_proposal::*;
 #[allow(ambiguous_glob_reexports)]
-pub use vote_proposal::*;
-#[allow(ambiguous_glob_reexports)]
 pub use execute_proposal::*;
+#[allow(ambiguous_glob_reexports)]
+pub use initialize_governance::*;
+#[allow(ambiguous_glob_reexports)]
+pub use vote_proposal::*;

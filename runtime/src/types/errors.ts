@@ -132,7 +132,7 @@ export const RuntimeErrorCodes = {
 export type RuntimeErrorCode = (typeof RuntimeErrorCodes)[keyof typeof RuntimeErrorCodes];
 
 // ============================================================================
-// Anchor Error Codes (158 codes: 6000-6157)
+// Anchor Error Codes (161 codes: 6000-6160)
 // ============================================================================
 
 /**
@@ -475,7 +475,7 @@ export const AnchorErrorCodes = {
   /** SPL token transfer CPI failed */
   TokenTransferFailed: 6146,
 
-  // Governance errors (6147-6157)
+  // Governance errors (6147-6160)
   /** Proposal is not active */
   ProposalNotActive: 6147,
   /** Voting period has not ended */
@@ -498,6 +498,12 @@ export const AnchorErrorCodes = {
   InvalidProposalType: 6156,
   /** Treasury spend amount exceeds available balance */
   TreasuryInsufficientBalance: 6157,
+  /** Execution timelock has not elapsed */
+  TimelockNotElapsed: 6158,
+  /** Invalid governance configuration parameter */
+  InvalidGovernanceParam: 6159,
+  /** Treasury must be a program-owned PDA */
+  TreasuryNotProgramOwned: 6160,
 } as const;
 
 /** Union type of all Anchor error code values */
@@ -679,7 +685,7 @@ const AnchorErrorMessages: Record<AnchorErrorCode, string> = {
   6144: 'Token escrow ATA does not match expected derivation',
   6145: 'Provided mint does not match task\'s reward_mint',
   6146: 'SPL token transfer CPI failed',
-  // Governance errors (6147-6157)
+  // Governance errors (6147-6160)
   6147: 'Proposal is not active',
   6148: 'Voting period has not ended',
   6149: 'Voting period has ended',
@@ -691,6 +697,9 @@ const AnchorErrorMessages: Record<AnchorErrorCode, string> = {
   6155: 'Invalid proposal payload',
   6156: 'Invalid proposal type',
   6157: 'Treasury spend amount exceeds available balance',
+  6158: 'Execution timelock has not elapsed',
+  6159: 'Invalid governance configuration parameter',
+  6160: 'Treasury must be a program-owned PDA',
 };
 
 // ============================================================================
@@ -1338,7 +1347,7 @@ export function parseAnchorError(error: unknown): ParsedAnchorError | null {
   }
 
   // Validate code is in our known range
-  if (code === undefined || code < 6000 || code > 6157) {
+  if (code === undefined || code < 6000 || code > 6160) {
     return null;
   }
 

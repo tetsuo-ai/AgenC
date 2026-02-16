@@ -442,6 +442,7 @@ export class TaskOperations {
    * @param constraintHash - 32-byte constraint hash
    * @param outputCommitment - 32-byte output commitment
    * @param expectedBinding - 32-byte expected binding
+   * @param nullifier - 32-byte nullifier (prevents proof reuse)
    * @returns Completion result with signature
    */
   async completeTaskPrivate(
@@ -451,6 +452,7 @@ export class TaskOperations {
     constraintHash: Uint8Array,
     outputCommitment: Uint8Array,
     expectedBinding: Uint8Array,
+    nullifier?: Uint8Array,
   ): Promise<CompleteResult> {
     // Input validation (#963)
     validateByteLength(proofData, 256, 'proofData');
@@ -484,6 +486,7 @@ export class TaskOperations {
         constraintHash: toAnchorBytes(constraintHash),
         outputCommitment: toAnchorBytes(outputCommitment),
         expectedBinding: toAnchorBytes(expectedBinding),
+        nullifier: nullifier ? toAnchorBytes(nullifier) : Array.from(new Uint8Array(32)),
       };
 
       const signature = await this.program.methods
