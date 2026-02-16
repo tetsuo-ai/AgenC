@@ -63,11 +63,6 @@ circuits/**/*.vk
 circuits/**/*.ccs
 circuits/**/*.gz
 
-# Claude Code (local AI assistant config)
-.claude/*
-CLAUDE.md
-.mcp.json
-
 # Codex (local AI assistant config)
 .codex/
 CODEX.md
