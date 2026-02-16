@@ -63,3 +63,25 @@ export type {
   WeightedScoringBreakdown,
   TaskBidSelection,
 } from './types.js';
+
+export {
+  ServiceMarketplace,
+} from './service-marketplace.js';
+
+export type {
+  ServiceRequestStatus,
+  ServiceRequest,
+  ServiceBid,
+  ServiceRequestRecord,
+  ServiceRequestSnapshot,
+  CreateServiceRequestInput,
+  BidOnServiceInput,
+  AcceptServiceBidInput,
+  StartServiceInput,
+  CompleteServiceInput,
+  CancelServiceInput,
+  DisputeServiceInput,
+  ResolveServiceDisputeInput,
+  ListServiceRequestsInput,
+  ServiceMarketplaceConfig,
+} from './types.js';
