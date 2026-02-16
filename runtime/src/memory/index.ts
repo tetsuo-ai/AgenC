@@ -58,3 +58,13 @@ export {
   type MemoryGraphConfig,
   type CompactOptions,
 } from './graph.js';
+
+// Structured memory (daily logs, curated facts, entity extraction)
+export {
+  formatLogDate,
+  DailyLogManager,
+  CuratedMemoryManager,
+  NoopEntityExtractor,
+  type StructuredMemoryEntry,
+  type EntityExtractor,
+} from './structured.js';
