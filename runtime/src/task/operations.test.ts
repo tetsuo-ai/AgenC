@@ -559,6 +559,7 @@ describe('TaskOperations', () => {
       const constraintHash = new Uint8Array(32).fill(0x02);
       const outputCommitment = new Uint8Array(32).fill(0x03);
       const expectedBinding = new Uint8Array(32).fill(0x04);
+      const nullifier = new Uint8Array(32).fill(0x05);
 
       const result = await ops.completeTaskPrivate(
         taskPda,
@@ -567,6 +568,7 @@ describe('TaskOperations', () => {
         constraintHash,
         outputCommitment,
         expectedBinding,
+        nullifier,
       );
 
       expect(result.success).toBe(true);
@@ -588,6 +590,7 @@ describe('TaskOperations', () => {
           new Uint8Array(32).fill(0x02),
           new Uint8Array(32).fill(0x03),
           new Uint8Array(32).fill(0x04),
+          new Uint8Array(32).fill(0x05),
         ),
       ).rejects.toThrow(TaskSubmissionError);
     });
@@ -676,6 +679,7 @@ describe('TaskOperations', () => {
           new Uint8Array(32).fill(1),
           new Uint8Array(32).fill(1),
           new Uint8Array(32).fill(1),
+          new Uint8Array(32).fill(1),
         )
       ).rejects.toThrow('expected 256 bytes');
     });
@@ -688,6 +692,7 @@ describe('TaskOperations', () => {
           new Uint8Array(32).fill(1),
           new Uint8Array(32),
           new Uint8Array(32).fill(1),
+          new Uint8Array(32).fill(1),
         )
       ).rejects.toThrow('cannot be all zeros');
     });
@@ -697,6 +702,20 @@ describe('TaskOperations', () => {
         ops.completeTaskPrivate(
           taskPda, mockTask,
           new Uint8Array(256).fill(1),
+          new Uint8Array(32).fill(1),
+          new Uint8Array(32).fill(1),
+          new Uint8Array(32),
+          new Uint8Array(32).fill(1),
+        )
+      ).rejects.toThrow('cannot be all zeros');
+    });
+
+    it('completeTaskPrivate rejects all-zero nullifier', async () => {
+      await expect(
+        ops.completeTaskPrivate(
+          taskPda, mockTask,
+          new Uint8Array(256).fill(1),
+          new Uint8Array(32).fill(1),
           new Uint8Array(32).fill(1),
           new Uint8Array(32).fill(1),
           new Uint8Array(32),

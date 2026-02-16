@@ -79,6 +79,7 @@ export interface HashResult {
   constraintHash: bigint;
   outputCommitment: bigint;
   expectedBinding: bigint;
+  nullifier: bigint;
 }
 
 /**
@@ -97,6 +98,7 @@ export interface ProofResult {
   constraintHash: Buffer;
   outputCommitment: Buffer;
   expectedBinding: Buffer;
+  nullifier: Buffer;
   proofSize: number;
   generationTime: number;
 }
@@ -191,6 +193,23 @@ export function computeExpectedBinding(
 }
 
 /**
+ * Compute the nullifier to prevent proof/knowledge reuse across tasks.
+ *
+ * Preliminary: uses Poseidon(constraint_hash, agent_pubkey_field) as a
+ * stand-in until the ZK circuit is updated with a dedicated agent_secret
+ * witness input (Phase 6.2).
+ *
+ * @param constraintHash - The constraint hash
+ * @param agentPubkey - Agent's public key
+ * @returns The nullifier value
+ */
+export function computeNullifier(constraintHash: bigint, agentPubkey: PublicKey): bigint {
+  const ch = ((constraintHash % FIELD_MODULUS) + FIELD_MODULUS) % FIELD_MODULUS;
+  const agentField = pubkeyToField(agentPubkey);
+  return poseidon2([ch, agentField]);
+}
+
+/**
  * Compute all hashes needed for proof generation.
  *
  * @param taskPda - Task PDA (used as task_id)
@@ -208,11 +227,13 @@ export function computeHashes(
   const constraintHash = computeConstraintHash(output);
   const outputCommitment = computeCommitment(constraintHash, salt);
   const expectedBinding = computeExpectedBinding(taskPda, agentPubkey, outputCommitment);
+  const nullifier = computeNullifier(constraintHash, agentPubkey);
 
   return {
     constraintHash,
     outputCommitment,
     expectedBinding,
+    nullifier,
   };
 }
 
@@ -339,6 +360,7 @@ export async function generateProof(params: ProofGenerationParams): Promise<Proo
     constraintHash: bigintToBytes32(hashes.constraintHash),
     outputCommitment: bigintToBytes32(hashes.outputCommitment),
     expectedBinding: bigintToBytes32(hashes.expectedBinding),
+    nullifier: bigintToBytes32(hashes.nullifier),
     proofSize: proofBuffer.length,
     generationTime: Date.now() - startTime,
   };

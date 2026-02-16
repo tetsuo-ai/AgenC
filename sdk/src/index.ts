@@ -28,6 +28,7 @@ export {
   computeExpectedBinding,
   computeConstraintHash,
   computeCommitment,
+  computeNullifier,
   // Types
   ProofGenerationParams,
   ProofResult,

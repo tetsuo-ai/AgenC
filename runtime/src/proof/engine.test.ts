@@ -12,6 +12,7 @@ vi.mock('@agenc/sdk', () => {
       constraintHash: mockHash,
       outputCommitment: Buffer.alloc(32, 0xef),
       expectedBinding: Buffer.alloc(32, 0x12),
+      nullifier: Buffer.alloc(32, 0x34),
       proofSize: 256,
       generationTime: 42,
     }),
@@ -20,6 +21,7 @@ vi.mock('@agenc/sdk', () => {
       constraintHash: 123n,
       outputCommitment: 456n,
       expectedBinding: 789n,
+      nullifier: 101112n,
     }),
     generateSalt: vi.fn().mockReturnValue(999n),
     checkToolsAvailable: vi.fn().mockReturnValue({
@@ -132,6 +134,8 @@ describe('ProofEngine', () => {
       expect(result.constraintHash.length).toBe(32);
       expect(result.outputCommitment).toBeInstanceOf(Uint8Array);
       expect(result.expectedBinding).toBeInstanceOf(Uint8Array);
+      expect(result.nullifier).toBeInstanceOf(Uint8Array);
+      expect(result.nullifier.length).toBe(32);
       expect(result.proofSize).toBe(256);
       expect(result.fromCache).toBe(false);
       expect(result.verified).toBe(false);
@@ -349,6 +353,7 @@ describe('ProofEngine', () => {
       expect(result.constraintHash).toBe(123n);
       expect(result.outputCommitment).toBe(456n);
       expect(result.expectedBinding).toBe(789n);
+      expect(result.nullifier).toBe(101112n);
     });
   });
 
@@ -451,6 +456,7 @@ describe('ProofEngine', () => {
           constraintHash: new Uint8Array(32),
           outputCommitment: new Uint8Array(32),
           expectedBinding: new Uint8Array(32),
+          nullifier: new Uint8Array(32),
         },
       );
       expect(result).toBe(proof);
@@ -469,6 +475,7 @@ describe('ProofCache', () => {
       constraintHash: new Uint8Array(32).fill(0x02),
       outputCommitment: new Uint8Array(32).fill(0x03),
       expectedBinding: new Uint8Array(32).fill(0x04),
+      nullifier: new Uint8Array(32).fill(0x05),
       proofSize: 256,
       generationTimeMs: 100,
       fromCache: false,

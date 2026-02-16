@@ -16,6 +16,7 @@ import {
   computeConstraintHash,
   computeCommitment,
   computeHashes,
+  computeNullifier,
   generateSalt,
   FIELD_MODULUS,
 } from '../proofs';
@@ -258,6 +259,8 @@ describe('proofs', () => {
       expect(result.outputCommitment).toBeLessThan(FIELD_MODULUS);
       expect(result.expectedBinding).toBeGreaterThanOrEqual(0n);
       expect(result.expectedBinding).toBeLessThan(FIELD_MODULUS);
+      expect(result.nullifier).toBeGreaterThanOrEqual(0n);
+      expect(result.nullifier).toBeLessThan(FIELD_MODULUS);
     });
 
     it('produces consistent results with individual functions', () => {
@@ -276,6 +279,50 @@ describe('proofs', () => {
       expect(result.constraintHash).toBe(constraintHash);
       expect(result.outputCommitment).toBe(outputCommitment);
       expect(result.expectedBinding).toBe(expectedBinding);
+      expect(result.nullifier).toBe(computeNullifier(constraintHash, agentPubkey));
+    });
+  });
+
+  describe('computeNullifier', () => {
+    it('computes a valid field element', () => {
+      const agentPubkey = Keypair.generate().publicKey;
+      const constraintHash = computeConstraintHash([1n, 2n, 3n, 4n]);
+      const nullifier = computeNullifier(constraintHash, agentPubkey);
+
+      expect(nullifier).toBeGreaterThanOrEqual(0n);
+      expect(nullifier).toBeLessThan(FIELD_MODULUS);
+    });
+
+    it('is deterministic for the same inputs', () => {
+      const agentPubkey = Keypair.generate().publicKey;
+      const constraintHash = computeConstraintHash([1n, 2n, 3n, 4n]);
+
+      const n1 = computeNullifier(constraintHash, agentPubkey);
+      const n2 = computeNullifier(constraintHash, agentPubkey);
+
+      expect(n1).toBe(n2);
+    });
+
+    it('differs for different agents', () => {
+      const agent1 = Keypair.generate().publicKey;
+      const agent2 = Keypair.generate().publicKey;
+      const constraintHash = computeConstraintHash([1n, 2n, 3n, 4n]);
+
+      const n1 = computeNullifier(constraintHash, agent1);
+      const n2 = computeNullifier(constraintHash, agent2);
+
+      expect(n1).not.toBe(n2);
+    });
+
+    it('differs for different constraint hashes', () => {
+      const agentPubkey = Keypair.generate().publicKey;
+      const ch1 = computeConstraintHash([1n, 2n, 3n, 4n]);
+      const ch2 = computeConstraintHash([5n, 6n, 7n, 8n]);
+
+      const n1 = computeNullifier(ch1, agentPubkey);
+      const n2 = computeNullifier(ch2, agentPubkey);
+
+      expect(n1).not.toBe(n2);
     });
   });
 
