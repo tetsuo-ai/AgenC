@@ -37,6 +37,7 @@ import {
   runServiceInstallCommand,
 } from './daemon.js';
 import { getDefaultConfigPath } from '../gateway/config-watcher.js';
+import { getDefaultPidPath } from '../gateway/daemon.js';
 import type {
   DaemonStartOptions,
   DaemonStopOptions,
@@ -1388,9 +1389,10 @@ export async function runCli(options: CliRunOptions = {}): Promise<CliStatusCode
       const configPath = parseOptionalString(parsed.flags.config)
         ?? process.env.AGENC_CONFIG
         ?? getDefaultConfigPath();
+      const pidPath = parseOptionalString(parsed.flags['pid-path']) ?? getDefaultPidPath();
       const startOpts: DaemonStartOptions = {
         configPath,
-        pidPath: parseOptionalString(parsed.flags['pid-path']),
+        pidPath,
         foreground: normalizeBool(parsed.flags.foreground, false),
         logLevel: parseOptionalString(parsed.flags['log-level']),
       };
@@ -1405,8 +1407,9 @@ export async function runCli(options: CliRunOptions = {}): Promise<CliStatusCode
   if (parsed.positional[0] === 'stop') {
     try {
       validateUnknownStandaloneOptions(parsed.flags, STOP_COMMAND_OPTIONS);
+      const pidPath = parseOptionalString(parsed.flags['pid-path']) ?? getDefaultPidPath();
       const stopOpts: DaemonStopOptions = {
-        pidPath: parseOptionalString(parsed.flags['pid-path']),
+        pidPath,
         timeout: parseIntValue(parsed.flags.timeout),
       };
       return await runStopCommand(context, stopOpts);
@@ -1423,14 +1426,15 @@ export async function runCli(options: CliRunOptions = {}): Promise<CliStatusCode
       const configPath = parseOptionalString(parsed.flags.config)
         ?? process.env.AGENC_CONFIG
         ?? getDefaultConfigPath();
+      const pidPath = parseOptionalString(parsed.flags['pid-path']) ?? getDefaultPidPath();
       const startOpts: DaemonStartOptions = {
         configPath,
-        pidPath: parseOptionalString(parsed.flags['pid-path']),
+        pidPath,
         foreground: normalizeBool(parsed.flags.foreground, false),
         logLevel: parseOptionalString(parsed.flags['log-level']),
       };
       const stopOpts: DaemonStopOptions = {
-        pidPath: parseOptionalString(parsed.flags['pid-path']),
+        pidPath,
         timeout: parseIntValue(parsed.flags.timeout),
       };
       return await runRestartCommand(context, startOpts, stopOpts);
@@ -1444,8 +1448,9 @@ export async function runCli(options: CliRunOptions = {}): Promise<CliStatusCode
   if (parsed.positional[0] === 'status') {
     try {
       validateUnknownStandaloneOptions(parsed.flags, STATUS_COMMAND_OPTIONS);
+      const pidPath = parseOptionalString(parsed.flags['pid-path']) ?? getDefaultPidPath();
       const statusOpts: DaemonStatusOptions = {
-        pidPath: parseOptionalString(parsed.flags['pid-path']),
+        pidPath,
         controlPlanePort: parseIntValue(parsed.flags.port),
       };
       return await runStatusCommand(context, statusOpts);

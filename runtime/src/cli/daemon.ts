@@ -28,12 +28,13 @@ import type {
 
 const STARTUP_POLL_INTERVAL_MS = 200;
 const STARTUP_POLL_TIMEOUT_MS = 3_000;
-const STOP_POLL_INTERVAL_MS = 500;
+const STOP_POLL_INTERVAL_MS = 200;
 const DEFAULT_STOP_TIMEOUT_MS = 30_000;
 const CONTROL_PLANE_TIMEOUT_MS = 3_000;
 
 function getDaemonEntryPath(): string {
-  // __filename is native in CJS; tsup injects a shim for ESM output
+  // Requires tsup's __filename shim when built as ESM (see tsup.config).
+  // Running source directly with tsx/ts-node also provides __filename.
   return resolve(dirname(__filename), '..', 'bin', 'daemon.js');
 }
 
@@ -100,11 +101,11 @@ async function runForeground(
       pid: process.pid,
     });
 
-    // Block until the process is terminated by signal
-    await new Promise<void>(() => {
-      // Intentionally never resolves — signals handle exit
-    });
-    return 0;
+    // Block until terminated: DaemonManager.setupSignalHandlers() registers
+    // SIGTERM/SIGINT handlers that call stop() then process.exit(), so this
+    // promise intentionally never resolves.
+    await new Promise<void>(() => {});
+    return 0; // Unreachable — process.exit() is called by signal handlers above
   } catch (error) {
     context.error({
       status: 'error',
@@ -229,10 +230,9 @@ export async function runStopCommand(
     return 0;
   }
 
-  // Poll until process exits
+  // Poll until process exits — immediate first check, then periodic
   const deadline = Date.now() + timeout;
   while (Date.now() < deadline) {
-    await sleep(STOP_POLL_INTERVAL_MS);
     if (!isProcessAlive(pid)) {
       await removePidFile(options.pidPath);
       context.output({
@@ -243,6 +243,7 @@ export async function runStopCommand(
       });
       return 0;
     }
+    await sleep(STOP_POLL_INTERVAL_MS);
   }
 
   // Timeout: force kill
@@ -261,7 +262,7 @@ export async function runStopCommand(
     wasRunning: true,
     forced: true,
   });
-  return 1;
+  return 0;
 }
 
 // ============================================================================
@@ -344,9 +345,18 @@ async function queryControlPlane(port: number): Promise<unknown> {
 
   return new Promise((resolvePromise, rejectPromise) => {
     const ws = new WsConstructor(`ws://127.0.0.1:${port}`);
-    const timeout = setTimeout(() => {
+    let settled = false;
+
+    const settle = (fn: (v: unknown) => void, val: unknown) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      fn(val);
+    };
+
+    const timer = setTimeout(() => {
       ws.close();
-      rejectPromise(new Error('Control plane connection timeout'));
+      settle(rejectPromise, new Error('Control plane connection timeout'));
     }, CONTROL_PLANE_TIMEOUT_MS);
 
     ws.on('open', () => {
@@ -354,25 +364,22 @@ async function queryControlPlane(port: number): Promise<unknown> {
     });
 
     ws.on('message', (data: Buffer | string) => {
-      clearTimeout(timeout);
       try {
         const parsed = JSON.parse(String(data));
         ws.close();
-        resolvePromise(parsed?.payload ?? parsed);
+        settle(resolvePromise, parsed?.payload ?? parsed);
       } catch {
         ws.close();
-        resolvePromise(null);
+        settle(resolvePromise, null);
       }
     });
 
     ws.on('close', () => {
-      clearTimeout(timeout);
-      resolvePromise(null);
+      settle(resolvePromise, null);
     });
 
     ws.on('error', () => {
-      clearTimeout(timeout);
-      rejectPromise(new Error('Control plane connection failed'));
+      settle(rejectPromise, new Error('Control plane connection failed'));
     });
   });
 }

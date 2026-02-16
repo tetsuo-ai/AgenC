@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm, readFile, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, readFile, writeFile, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -83,6 +83,14 @@ describe('PID file operations', () => {
     const raw = await readFile(pidPath, 'utf-8');
     const parsed = JSON.parse(raw);
     expect(parsed).toEqual(info);
+  });
+
+  it('writePidFile creates file with 0o600 permissions', async () => {
+    const pidPath = join(tempDir, 'perms.pid');
+    await writePidFile({ pid: 1, port: 80, configPath: '/c' }, pidPath);
+    const st = await stat(pidPath);
+    // eslint-disable-next-line no-bitwise
+    expect(st.mode & 0o777).toBe(0o600);
   });
 
   it('writePidFile creates parent directories', async () => {

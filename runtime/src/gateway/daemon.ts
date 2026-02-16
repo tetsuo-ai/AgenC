@@ -46,19 +46,17 @@ export function getDefaultPidPath(): string {
 
 export async function writePidFile(
   info: PidFileInfo,
-  pidPath?: string,
+  pidPath: string,
 ): Promise<void> {
-  const target = pidPath ?? getDefaultPidPath();
-  await mkdir(dirname(target), { recursive: true });
-  await writeFile(target, JSON.stringify(info), { mode: 0o644 });
+  await mkdir(dirname(pidPath), { recursive: true });
+  await writeFile(pidPath, JSON.stringify(info), { mode: 0o600 });
 }
 
 export async function readPidFile(
-  pidPath?: string,
+  pidPath: string,
 ): Promise<PidFileInfo | null> {
-  const target = pidPath ?? getDefaultPidPath();
   try {
-    const raw = await readFile(target, 'utf-8');
+    const raw = await readFile(pidPath, 'utf-8');
     const parsed = JSON.parse(raw) as unknown;
     if (
       typeof parsed === 'object'
@@ -78,10 +76,9 @@ export async function readPidFile(
   }
 }
 
-export async function removePidFile(pidPath?: string): Promise<void> {
-  const target = pidPath ?? getDefaultPidPath();
+export async function removePidFile(pidPath: string): Promise<void> {
   try {
-    await unlink(target);
+    await unlink(pidPath);
   } catch (error: unknown) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
       throw error;
@@ -89,10 +86,9 @@ export async function removePidFile(pidPath?: string): Promise<void> {
   }
 }
 
-export async function pidFileExists(pidPath?: string): Promise<boolean> {
-  const target = pidPath ?? getDefaultPidPath();
+export async function pidFileExists(pidPath: string): Promise<boolean> {
   try {
-    await access(target, constants.F_OK);
+    await access(pidPath, constants.F_OK);
     return true;
   } catch {
     return false;
@@ -112,7 +108,7 @@ export function isProcessAlive(pid: number): boolean {
   }
 }
 
-export async function checkStalePid(pidPath?: string): Promise<StalePidResult> {
+export async function checkStalePid(pidPath: string): Promise<StalePidResult> {
   const info = await readPidFile(pidPath);
   if (info === null) {
     return { status: 'none' };
@@ -148,12 +144,12 @@ export class DaemonManager {
   private signalHandlersRegistered = false;
   private signalHandlerRefs: { signal: string; handler: () => void }[] = [];
   private readonly configPath: string;
-  private readonly pidPath: string | undefined;
+  private readonly pidPath: string;
   private readonly logger: Logger;
 
   constructor(config: DaemonManagerConfig) {
     this.configPath = config.configPath;
-    this.pidPath = config.pidPath;
+    this.pidPath = config.pidPath ?? getDefaultPidPath();
     this.logger = config.logger ?? silentLogger;
   }
 

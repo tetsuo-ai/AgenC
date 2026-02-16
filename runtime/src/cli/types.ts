@@ -152,18 +152,18 @@ export type CliStatusCode = 0 | 1 | 2;
 
 export interface DaemonStartOptions {
   configPath: string;
-  pidPath?: string;
+  pidPath: string;
   foreground?: boolean;
   logLevel?: string;
 }
 
 export interface DaemonStopOptions {
-  pidPath?: string;
+  pidPath: string;
   timeout?: number;
 }
 
 export interface DaemonStatusOptions {
-  pidPath?: string;
+  pidPath: string;
   controlPlanePort?: number;
 }
 
