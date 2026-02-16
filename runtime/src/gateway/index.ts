@@ -246,3 +246,21 @@ export {
   HeartbeatTimeoutError,
   defaultHeartbeatConfig,
 } from './heartbeat.js';
+
+// Execution sandboxing (Phase 4.5)
+export type {
+  SandboxConfig,
+  SandboxResult,
+  SandboxExecuteOptions,
+  SandboxMode,
+  SandboxScope,
+  WorkspaceAccessMode,
+} from './sandbox.js';
+
+export {
+  SandboxManager,
+  SandboxExecutionError,
+  SandboxUnavailableError,
+  defaultSandboxConfig,
+  checkDockerAvailable,
+} from './sandbox.js';
