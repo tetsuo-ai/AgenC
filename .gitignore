@@ -29,6 +29,7 @@ obj/
 
 # Keys (CRITICAL - never commit private keys)
 *.json
+!.mcp.json
 !Anchor.toml
 !package.json
 !tsconfig.json
