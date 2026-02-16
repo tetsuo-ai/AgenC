@@ -24,6 +24,7 @@ export {
   GatewayConnectionError,
   GatewayStateError,
   GatewayLifecycleError,
+  WorkspaceValidationError,
 } from './errors.js';
 
 export {
@@ -89,6 +90,16 @@ export type {
 } from './session.js';
 
 export { SessionManager, deriveSessionId } from './session.js';
+
+// Agent workspace model (Phase 7.1)
+export type { AgentWorkspace, ToolPolicy, WorkspaceTemplate, WorkspaceConfigJson } from './workspace.js';
+export {
+  WorkspaceManager,
+  WORKSPACE_CONFIG_FILE,
+  DEFAULT_WORKSPACE_ID,
+  WORKSPACE_ID_PATTERN,
+  MEMORY_NAMESPACE_PREFIX,
+} from './workspace.js';
 
 // Slash commands (Phase 1.5)
 export {

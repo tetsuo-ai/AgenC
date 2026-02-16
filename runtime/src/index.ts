@@ -1239,6 +1239,17 @@ export {
   type CompactionResult,
   type SessionInfo,
   type Summarizer,
+  // Agent workspace model (Phase 7.1)
+  WorkspaceManager,
+  WorkspaceValidationError,
+  WORKSPACE_CONFIG_FILE,
+  DEFAULT_WORKSPACE_ID,
+  WORKSPACE_ID_PATTERN,
+  MEMORY_NAMESPACE_PREFIX,
+  type AgentWorkspace,
+  type ToolPolicy,
+  type WorkspaceTemplate,
+  type WorkspaceConfigJson,
   // Slash commands (Phase 1.5)
   SlashCommandRegistry,
   createDefaultCommands,
