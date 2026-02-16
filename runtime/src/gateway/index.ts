@@ -158,6 +158,27 @@ export {
   type DispatchResult,
 } from './hooks.js';
 
+// Approval policies (Phase 5)
+export type {
+  ApprovalPolicyConfig,
+  ApprovalRule,
+  ApprovalConditions,
+  ElevatedModeConfig,
+  ApprovalRequest,
+  ApprovalResponse,
+  ApprovalDisposition,
+  ApprovalEngineConfig,
+  ApprovalResponseHandler,
+} from './approvals.js';
+
+export {
+  ApprovalEngine,
+  DEFAULT_APPROVAL_RULES,
+  createApprovalGateHook,
+  globMatch,
+  extractAmount,
+} from './approvals.js';
+
 // Channel plugin (Phase 1.5)
 export {
   PluginCatalog,
