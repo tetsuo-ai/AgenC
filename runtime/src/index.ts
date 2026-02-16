@@ -1204,6 +1204,11 @@ export {
   type WorkspaceValidation,
   type WorkspaceFileName,
   type AssembleSystemPromptOptions,
+  // Personality templates (Phase 5.6)
+  loadPersonalityTemplate,
+  listPersonalityTemplates,
+  mergePersonality,
+  type PersonalityTemplate,
   // Session management (Phase 1.6)
   SessionManager,
   deriveSessionId,
