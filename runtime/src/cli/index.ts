@@ -9,6 +9,7 @@ import {
   CliOutputFormat,
   CliParseReport,
   CliRuntimeContext,
+  CliStatusCode,
   CliValidationError,
   ParsedArgv,
   PluginInstallOptions,
@@ -28,6 +29,21 @@ import { validateConfigStrict } from '../types/config-migration.js';
 import { runSecurityCommand } from './security.js';
 import { runOnboardCommand } from './onboard.js';
 import { runDoctorCommand, runHealthCommand } from './health.js';
+import {
+  runStartCommand,
+  runStopCommand,
+  runRestartCommand,
+  runStatusCommand,
+  runServiceInstallCommand,
+} from './daemon.js';
+import { getDefaultConfigPath } from '../gateway/config-watcher.js';
+import { getDefaultPidPath } from '../gateway/daemon.js';
+import type {
+  DaemonStartOptions,
+  DaemonStopOptions,
+  DaemonStatusOptions,
+  ServiceInstallOptions,
+} from './types.js';
 import {
   PluginCatalog,
   type PluginPrecedence,
@@ -121,8 +137,6 @@ interface PluginCommandDescriptor {
 type ReplayCommand = 'backfill' | 'compare' | 'incident';
 type PluginCommand = 'list' | 'install' | 'disable' | 'enable' | 'reload';
 
-type CliStatusCode = 0 | 1 | 2;
-
 type CliCommandOptions =
   | ReplayBackfillOptions
   | ReplayCompareOptions
@@ -172,6 +186,12 @@ const PLUGIN_COMMAND_OPTIONS: Record<PluginCommand, Set<string>> = {
 const ONBOARD_COMMAND_OPTIONS = new Set(['non-interactive', 'force']);
 const HEALTH_COMMAND_OPTIONS = new Set(['non-interactive', 'deep']);
 const DOCTOR_COMMAND_OPTIONS = new Set(['non-interactive', 'deep', 'fix']);
+
+const START_COMMAND_OPTIONS = new Set(['foreground', 'pid-path']);
+const STOP_COMMAND_OPTIONS = new Set(['pid-path', 'timeout']);
+const RESTART_COMMAND_OPTIONS = new Set([...START_COMMAND_OPTIONS, ...STOP_COMMAND_OPTIONS]);
+const STATUS_COMMAND_OPTIONS = new Set(['pid-path', 'port']);
+const SERVICE_COMMAND_OPTIONS = new Set(['macos']);
 
 const COMMANDS: Record<ReplayCommand, CliCommandDescriptor> = {
   backfill: {
@@ -256,6 +276,11 @@ function buildHelp(): string {
     'health [--help] [options]',
     'doctor [--help] [options]',
     'doctor security [--help] [options]',
+    'start [--help] [options]',
+    'stop [--help] [options]',
+    'restart [--help] [options]',
+    'status [--help] [options]',
+    'service install [--help] [options]',
     'replay [--help] <command> [options]',
     'plugin [--help] <command> [options]',
     '',
@@ -264,6 +289,13 @@ function buildHelp(): string {
     '  health    Report RPC, store, wallet, and config status',
     '  doctor    Run all health checks and provide remediation guidance',
     '  doctor security  Security posture checks',
+    '',
+    'Daemon commands:',
+    '  start     Start the gateway daemon',
+    '  stop      Stop the gateway daemon',
+    '  restart   Restart the gateway daemon',
+    '  status    Show daemon status',
+    '  service install  Generate systemd/launchd service template',
     '',
     'Replay subcommands:',
     '  backfill   Backfill replay timeline from on-chain history',
@@ -305,6 +337,22 @@ function buildHelp(): string {
     '      --deep                                Run extended checks (latency, store integrity)',
     '      --fix                                 Attempt automatic remediation where possible',
     '',
+    'start options:',
+    '      --config <path>                           Gateway config file path',
+    '      --foreground                              Run in foreground (systemd/Docker mode)',
+    '      --pid-path <path>                         Custom PID file path',
+    '',
+    'stop options:',
+    '      --pid-path <path>                         Custom PID file path',
+    '      --timeout <ms>                            Shutdown timeout in ms (default: 30000)',
+    '',
+    'status options:',
+    '      --pid-path <path>                         Custom PID file path',
+    '      --port <port>                             Override control plane port',
+    '',
+    'service install options:',
+    '      --macos                                   Generate launchd plist instead of systemd unit',
+    '',
     'backfill options:',
     '      --to-slot <slot>                      Highest slot to scan (required)',
     '      --page-size <size>                    Number of events per page',
@@ -329,6 +377,13 @@ function buildHelp(): string {
     '      --slot memory|llm|proof|telemetry|custom Plugin slot claim',
     '',
     'Examples:',
+    '  agenc-runtime start --config ~/.agenc/config.json',
+    '  agenc-runtime start --foreground --config ~/.agenc/config.json',
+    '  agenc-runtime stop',
+    '  agenc-runtime restart --config ~/.agenc/config.json',
+    '  agenc-runtime status',
+    '  agenc-runtime service install',
+    '  agenc-runtime service install --macos',
     '  agenc-runtime onboard --force',
     '  agenc-runtime health --deep',
     '  agenc-runtime doctor --deep --fix',
@@ -1325,6 +1380,100 @@ export async function runCli(options: CliRunOptions = {}): Promise<CliStatusCode
         ? 2
         : 1;
       return isUsageError;
+    }
+  }
+
+  // Daemon commands: start, stop, restart, status, service install
+  if (parsed.positional[0] === 'start') {
+    try {
+      validateUnknownStandaloneOptions(parsed.flags, START_COMMAND_OPTIONS);
+      const configPath = parseOptionalString(parsed.flags.config)
+        ?? process.env.AGENC_CONFIG
+        ?? getDefaultConfigPath();
+      const pidPath = parseOptionalString(parsed.flags['pid-path']) ?? getDefaultPidPath();
+      const startOpts: DaemonStartOptions = {
+        configPath,
+        pidPath,
+        foreground: normalizeBool(parsed.flags.foreground, false),
+        logLevel: parseOptionalString(parsed.flags['log-level']),
+      };
+      return await runStartCommand(context, startOpts);
+    } catch (error) {
+      const payload = buildErrorPayload(error);
+      context.error(payload);
+      return payload.code === ERROR_CODES.INVALID_OPTION ? 2 : 1;
+    }
+  }
+
+  if (parsed.positional[0] === 'stop') {
+    try {
+      validateUnknownStandaloneOptions(parsed.flags, STOP_COMMAND_OPTIONS);
+      const pidPath = parseOptionalString(parsed.flags['pid-path']) ?? getDefaultPidPath();
+      const stopOpts: DaemonStopOptions = {
+        pidPath,
+        timeout: parseIntValue(parsed.flags.timeout),
+      };
+      return await runStopCommand(context, stopOpts);
+    } catch (error) {
+      const payload = buildErrorPayload(error);
+      context.error(payload);
+      return payload.code === ERROR_CODES.INVALID_OPTION ? 2 : 1;
+    }
+  }
+
+  if (parsed.positional[0] === 'restart') {
+    try {
+      validateUnknownStandaloneOptions(parsed.flags, RESTART_COMMAND_OPTIONS);
+      const configPath = parseOptionalString(parsed.flags.config)
+        ?? process.env.AGENC_CONFIG
+        ?? getDefaultConfigPath();
+      const pidPath = parseOptionalString(parsed.flags['pid-path']) ?? getDefaultPidPath();
+      const startOpts: DaemonStartOptions = {
+        configPath,
+        pidPath,
+        foreground: normalizeBool(parsed.flags.foreground, false),
+        logLevel: parseOptionalString(parsed.flags['log-level']),
+      };
+      const stopOpts: DaemonStopOptions = {
+        pidPath,
+        timeout: parseIntValue(parsed.flags.timeout),
+      };
+      return await runRestartCommand(context, startOpts, stopOpts);
+    } catch (error) {
+      const payload = buildErrorPayload(error);
+      context.error(payload);
+      return payload.code === ERROR_CODES.INVALID_OPTION ? 2 : 1;
+    }
+  }
+
+  if (parsed.positional[0] === 'status') {
+    try {
+      validateUnknownStandaloneOptions(parsed.flags, STATUS_COMMAND_OPTIONS);
+      const pidPath = parseOptionalString(parsed.flags['pid-path']) ?? getDefaultPidPath();
+      const statusOpts: DaemonStatusOptions = {
+        pidPath,
+        controlPlanePort: parseIntValue(parsed.flags.port),
+      };
+      return await runStatusCommand(context, statusOpts);
+    } catch (error) {
+      const payload = buildErrorPayload(error);
+      context.error(payload);
+      return payload.code === ERROR_CODES.INVALID_OPTION ? 2 : 1;
+    }
+  }
+
+  if (parsed.positional[0] === 'service' && parsed.positional[1] === 'install') {
+    try {
+      validateUnknownStandaloneOptions(parsed.flags, SERVICE_COMMAND_OPTIONS);
+      const serviceOpts: ServiceInstallOptions = {
+        configPath: parseOptionalString(parsed.flags.config),
+        macos: normalizeBool(parsed.flags.macos, false),
+      };
+      return await runServiceInstallCommand(context, serviceOpts);
+    } catch (error) {
+      const payload = buildErrorPayload(error);
+      context.error(payload);
+      return payload.code === ERROR_CODES.INVALID_OPTION ? 2 : 1;
     }
   }
 
