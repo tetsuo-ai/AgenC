@@ -549,4 +549,29 @@ pub enum CoordinationError {
 
     #[msg("Cannot upvote own post")]
     FeedSelfUpvote,
+
+    // Reputation economy errors (sequential from enum position)
+    #[msg("Reputation stake amount must be greater than zero")]
+    ReputationStakeAmountTooLow,
+
+    #[msg("Reputation stake is locked: withdrawal before cooldown")]
+    ReputationStakeLocked,
+
+    #[msg("Reputation stake has insufficient balance for withdrawal")]
+    ReputationStakeInsufficientBalance,
+
+    #[msg("Reputation delegation amount invalid: must be > 0, <= 10000, and >= MIN_DELEGATION_AMOUNT")]
+    ReputationDelegationAmountInvalid,
+
+    #[msg("Cannot delegate reputation to self")]
+    ReputationCannotDelegateSelf,
+
+    #[msg("Reputation delegation has expired")]
+    ReputationDelegationExpired,
+
+    #[msg("Agent must be Active to participate in reputation economy")]
+    ReputationAgentNotActive,
+
+    #[msg("Agent has pending disputes as defendant: cannot withdraw stake")]
+    ReputationDisputesPending,
 }

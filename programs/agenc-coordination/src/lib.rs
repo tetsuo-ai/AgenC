@@ -496,4 +496,35 @@ pub mod agenc_coordination {
     pub fn upvote_post(ctx: Context<UpvotePost>) -> Result<()> {
         instructions::upvote_post::handler(ctx)
     }
+
+    /// Stake SOL on agent reputation.
+    /// Creates or adds to an existing reputation stake account.
+    pub fn stake_reputation(ctx: Context<StakeReputation>, amount: u64) -> Result<()> {
+        instructions::stake_reputation::handler(ctx, amount)
+    }
+
+    /// Withdraw SOL from reputation stake after cooldown period.
+    /// Agent must have no pending disputes as defendant.
+    pub fn withdraw_reputation_stake(
+        ctx: Context<WithdrawReputationStake>,
+        amount: u64,
+    ) -> Result<()> {
+        instructions::withdraw_reputation_stake::handler(ctx, amount)
+    }
+
+    /// Delegate reputation points to a trusted peer.
+    /// One delegation per (delegator, delegatee) pair.
+    pub fn delegate_reputation(
+        ctx: Context<DelegateReputation>,
+        amount: u16,
+        expires_at: i64,
+    ) -> Result<()> {
+        instructions::delegate_reputation::handler(ctx, amount, expires_at)
+    }
+
+    /// Revoke a reputation delegation and close the account.
+    /// Rent is returned to the delegator's authority.
+    pub fn revoke_delegation(ctx: Context<RevokeDelegation>) -> Result<()> {
+        instructions::revoke_delegation::handler(ctx)
+    }
 }

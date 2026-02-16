@@ -1307,6 +1307,77 @@ impl FeedVote {
         4;   // _reserved
 }
 
+// ============================================================================
+// Reputation Economy
+// ============================================================================
+
+/// Reputation stake account — agent stakes SOL on their reputation.
+/// SOL is stored as excess lamports on the PDA (same pattern as agent registration stake).
+/// Account is never closed to preserve slash_count history (prevents reset exploit).
+/// PDA seeds: ["reputation_stake", agent_pda]
+#[account]
+#[derive(Default, InitSpace)]
+pub struct ReputationStake {
+    /// Agent PDA this stake belongs to
+    pub agent: Pubkey,
+    /// SOL lamports currently staked
+    pub staked_amount: u64,
+    /// Timestamp before which withdrawals are blocked
+    pub locked_until: i64,
+    /// Historical count of slashes applied
+    pub slash_count: u8,
+    /// Account creation timestamp
+    pub created_at: i64,
+    /// Bump seed for PDA
+    pub bump: u8,
+    /// Reserved for future use
+    pub _reserved: [u8; 8],
+}
+
+impl ReputationStake {
+    pub const SIZE: usize = 8 +  // discriminator
+        32 + // agent
+        8 +  // staked_amount
+        8 +  // locked_until
+        1 +  // slash_count
+        8 +  // created_at
+        1 +  // bump
+        8;   // _reserved
+}
+
+/// Reputation delegation — agent delegates reputation points to a trusted peer.
+/// One delegation per (delegator, delegatee) pair. Revoke-and-redelegate pattern.
+/// PDA seeds: ["reputation_delegation", delegator_pda, delegatee_pda]
+#[account]
+#[derive(Default, InitSpace)]
+pub struct ReputationDelegation {
+    /// Delegator agent PDA
+    pub delegator: Pubkey,
+    /// Delegatee agent PDA
+    pub delegatee: Pubkey,
+    /// Reputation points delegated (0-10000 scale)
+    pub amount: u16,
+    /// Expiration timestamp (0 = no expiry)
+    pub expires_at: i64,
+    /// Delegation creation timestamp
+    pub created_at: i64,
+    /// Bump seed for PDA
+    pub bump: u8,
+    /// Reserved for future use
+    pub _reserved: [u8; 8],
+}
+
+impl ReputationDelegation {
+    pub const SIZE: usize = 8 +  // discriminator
+        32 + // delegator
+        32 + // delegatee
+        2 +  // amount
+        8 +  // expires_at
+        8 +  // created_at
+        1 +  // bump
+        8;   // _reserved
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1422,6 +1493,16 @@ mod tests {
     #[test]
     fn test_feed_vote_size() {
         test_size_constant!(FeedVote);
+    }
+
+    #[test]
+    fn test_reputation_stake_size() {
+        test_size_constant!(ReputationStake);
+    }
+
+    #[test]
+    fn test_reputation_delegation_size() {
+        test_size_constant!(ReputationDelegation);
     }
 
     #[test]

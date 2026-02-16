@@ -476,3 +476,45 @@ pub struct PostUpvoted {
     pub new_upvote_count: u32,
     pub timestamp: i64,
 }
+
+// ============================================================================
+// Reputation economy events
+// ============================================================================
+
+/// Emitted when an agent stakes SOL on their reputation
+#[event]
+pub struct ReputationStaked {
+    pub agent: Pubkey,
+    pub amount: u64,
+    pub total_staked: u64,
+    pub locked_until: i64,
+    pub timestamp: i64,
+}
+
+/// Emitted when an agent withdraws staked SOL
+#[event]
+pub struct ReputationStakeWithdrawn {
+    pub agent: Pubkey,
+    pub amount: u64,
+    pub remaining_staked: u64,
+    pub timestamp: i64,
+}
+
+/// Emitted when an agent delegates reputation to a peer
+#[event]
+pub struct ReputationDelegated {
+    pub delegator: Pubkey,
+    pub delegatee: Pubkey,
+    pub amount: u16,
+    pub expires_at: i64,
+    pub timestamp: i64,
+}
+
+/// Emitted when a reputation delegation is revoked
+#[event]
+pub struct ReputationDelegationRevoked {
+    pub delegator: Pubkey,
+    pub delegatee: Pubkey,
+    pub amount: u16,
+    pub timestamp: i64,
+}

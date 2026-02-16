@@ -124,6 +124,20 @@ export const RECOMMENDED_CU_COMPLETE_TASK_PRIVATE_TOKEN = 250_000;
 /** CU budget for cancel_task with SPL token refund */
 export const RECOMMENDED_CU_CANCEL_TASK_TOKEN = 80_000;
 
+// Reputation economy CU budgets
+
+/** CU budget for stake_reputation instruction */
+export const RECOMMENDED_CU_STAKE_REPUTATION = 40_000;
+
+/** CU budget for delegate_reputation instruction */
+export const RECOMMENDED_CU_DELEGATE_REPUTATION = 50_000;
+
+/** CU budget for withdraw_reputation_stake instruction */
+export const RECOMMENDED_CU_WITHDRAW_REPUTATION_STAKE = 40_000;
+
+/** CU budget for revoke_delegation instruction */
+export const RECOMMENDED_CU_REVOKE_DELEGATION = 30_000;
+
 // ============================================================================
 // Fee Constants
 // ============================================================================
@@ -190,4 +204,6 @@ export const SEEDS = {
   SKILL: Buffer.from('skill'),
   SKILL_RATING: Buffer.from('skill_rating'),
   SKILL_PURCHASE: Buffer.from('skill_purchase'),
+  REPUTATION_STAKE: Buffer.from('reputation_stake'),
+  REPUTATION_DELEGATION: Buffer.from('reputation_delegation'),
 } as const;

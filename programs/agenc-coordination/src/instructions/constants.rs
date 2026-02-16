@@ -67,3 +67,13 @@ pub const ZK_PROOF_C_SIZE: usize = 64;
 
 /// Minimum number of voters required for dispute resolution
 pub const MIN_VOTERS_FOR_RESOLUTION: usize = 3;
+
+// ============================================================================
+// Reputation Economy Constants
+// ============================================================================
+
+/// Cooldown period before staked SOL can be withdrawn (7 days in seconds)
+pub const REPUTATION_STAKING_COOLDOWN: i64 = 7 * 24 * 60 * 60;
+
+/// Minimum delegation amount in reputation points (1% of max reputation)
+pub const MIN_DELEGATION_AMOUNT: u16 = 100;
