@@ -132,6 +132,23 @@ export interface ChannelHandle {
 }
 
 // ============================================================================
+// WebChat Handler
+// ============================================================================
+
+/**
+ * Delegate interface for routing dotted-namespace WebSocket messages
+ * from the Gateway to the WebChat channel plugin.
+ */
+export interface WebChatHandler {
+  handleMessage(
+    clientId: string,
+    type: string,
+    msg: ControlMessage,
+    send: (response: ControlResponse) => void,
+  ): void;
+}
+
+// ============================================================================
 // Config Diff
 // ============================================================================
 

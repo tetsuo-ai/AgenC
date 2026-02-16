@@ -20,6 +20,7 @@ import type {
   ControlResponse,
   ChannelHandle,
   ConfigDiff,
+  WebChatHandler,
 } from './types.js';
 import {
   GatewayStateError,
@@ -78,6 +79,7 @@ export class Gateway {
   private readonly listeners = new Map<GatewayEvent, Set<GatewayEventHandler>>();
   private clientCounter = 0;
   private readonly wsClients = new Map<string, WsWebSocket>();
+  private webChatHandler: WebChatHandler | null = null;
 
   constructor(config: GatewayConfig, options?: GatewayOptions) {
     this._config = config;
@@ -173,6 +175,18 @@ export class Gateway {
       activeSessions: this.wsClients.size,
       controlPlanePort: this._config.gateway.port,
     });
+  }
+
+  // --------------------------------------------------------------------------
+  // WebChat Handler
+  // --------------------------------------------------------------------------
+
+  /**
+   * Set (or clear) the WebChat handler for routing dotted-namespace
+   * messages from the WS control plane to the WebChat channel plugin.
+   */
+  setWebChatHandler(handler: WebChatHandler | null): void {
+    this.webChatHandler = handler;
   }
 
   // --------------------------------------------------------------------------
@@ -344,7 +358,7 @@ export class Gateway {
   }
 
   private handleControlMessage(
-    _clientId: string,
+    clientId: string,
     socket: WsWebSocket,
     rawData: unknown,
   ): void {
@@ -444,12 +458,25 @@ export class Gateway {
         break;
       }
 
-      default:
-        this.sendResponse(socket, {
-          type: 'error',
-          error: `Unknown message type: ${msg.type}`,
-          id,
-        });
+      default: {
+        // msg.type is narrowed to `never` here by exhaustive switch,
+        // but at runtime unknown types arrive as plain strings.
+        const rawType = msg.type as string;
+        if (rawType.includes('.') && this.webChatHandler) {
+          this.webChatHandler.handleMessage(
+            clientId,
+            rawType,
+            msg,
+            (response) => this.sendResponse(socket, response),
+          );
+        } else {
+          this.sendResponse(socket, {
+            type: 'error',
+            error: `Unknown message type: ${rawType}`,
+            id,
+          });
+        }
+      }
     }
   }
 

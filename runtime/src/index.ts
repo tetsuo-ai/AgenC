@@ -1251,6 +1251,7 @@ export {
   type ConfigDiff,
   type ConfigReloadCallback,
   type ConfigErrorCallback,
+  type WebChatHandler,
   // Message types (Phase 1.2)
   createGatewayMessage,
   createOutboundMessage,
@@ -1418,6 +1419,9 @@ export {
   DiscordChannel,
   type DiscordChannelConfig,
   type DiscordIntentName,
+  WebChatChannel,
+  type WebChatChannelConfig,
+  type WebChatDeps,
 } from './channels/index.js';
 
 // Governance Operations (Phase 10)
