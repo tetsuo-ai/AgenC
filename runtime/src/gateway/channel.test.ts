@@ -53,6 +53,17 @@ describe('WebhookRouter', () => {
     expect(router.routes[2].method).toBe('PUT');
   });
 
+  it('routes getter returns a shallow copy (does not leak internal array)', () => {
+    const router = new WebhookRouter('test');
+    router.post('/hook', async () => ({ status: 200 }));
+
+    const first = router.routes;
+    const second = router.routes;
+
+    expect(first).toEqual(second);
+    expect(first).not.toBe(second); // different array references
+  });
+
   it('handlers are callable', async () => {
     const router = new WebhookRouter('test');
     router.post('/hook', async (req) => ({
@@ -167,6 +178,19 @@ describe('PluginCatalog', () => {
       expect(routes[1].path).toBe('/webhooks/telegram/verify');
     });
 
+    it('deactivates before re-activating an already active plugin', async () => {
+      const plugin = makePlugin('telegram');
+      catalog.register(plugin);
+      await catalog.activate('telegram', vi.fn());
+
+      // Activate again — should stop then re-init
+      await catalog.activate('telegram', vi.fn());
+
+      expect(plugin.stop).toHaveBeenCalledTimes(1);
+      expect(plugin.initialize).toHaveBeenCalledTimes(2);
+      expect(plugin.start).toHaveBeenCalledTimes(2);
+    });
+
     it('context.onMessage forwards messages', async () => {
       const plugin = makePlugin('telegram');
       const onMessage = vi.fn().mockResolvedValue(undefined);
@@ -207,6 +231,15 @@ describe('PluginCatalog', () => {
 
     it('is a no-op for unregistered plugins', async () => {
       await catalog.deactivate('nonexistent'); // should not throw
+    });
+
+    it('is a no-op for registered but never-activated plugins', async () => {
+      const plugin = makePlugin('telegram');
+      catalog.register(plugin);
+
+      await catalog.deactivate('telegram');
+
+      expect(plugin.stop).not.toHaveBeenCalled();
     });
 
     it('handles stop() errors gracefully', async () => {

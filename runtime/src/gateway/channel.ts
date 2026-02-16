@@ -81,9 +81,9 @@ export class WebhookRouter {
     this.route('GET', path, handler);
   }
 
-  /** All registered routes. */
+  /** All registered routes (returns a shallow copy). */
   get routes(): ReadonlyArray<WebhookRoute> {
-    return this._routes;
+    return [...this._routes];
   }
 }
 
@@ -258,6 +258,11 @@ export class PluginCatalog {
       throw new ChannelNotFoundError(name);
     }
 
+    // Deactivate first if already active (idempotent re-activation)
+    if (this.contexts.has(name)) {
+      await this.deactivate(name);
+    }
+
     const context: ChannelContext = {
       onMessage,
       logger: this.logger,
@@ -284,6 +289,9 @@ export class PluginCatalog {
   async deactivate(name: string): Promise<void> {
     const plugin = this.plugins.get(name);
     if (!plugin) return;
+
+    // Skip if plugin was never activated
+    if (!this.contexts.has(name)) return;
 
     try {
       await plugin.stop();

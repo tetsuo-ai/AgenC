@@ -1254,6 +1254,7 @@ export {
   SlashCommandRegistry,
   createDefaultCommands,
   type SlashCommandDef,
+  type SlashCommandContext,
   type SlashCommandHandler,
   type ParsedCommand,
   type SlashCommandRegistryConfig,
