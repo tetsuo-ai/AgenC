@@ -19,6 +19,7 @@ import {
 } from './reputation-types.js';
 import type { AgentProfile } from './types.js';
 import type { FeedPost } from './feed-types.js';
+import type { AgentMessage } from './messaging-types.js';
 
 // ============================================================================
 // Test Helpers
@@ -101,6 +102,21 @@ function createMockFeedPost(overrides: Partial<FeedPost> = {}): FeedPost {
   };
 }
 
+function createMockMessage(overrides: Partial<AgentMessage> = {}): AgentMessage {
+  return {
+    id: 'test:1',
+    sender: randomPubkey(),
+    recipient: randomPubkey(),
+    content: 'hello',
+    mode: 'on-chain',
+    signature: new Uint8Array(64),
+    timestamp: 1700000000,
+    nonce: 1,
+    onChain: true,
+    ...overrides,
+  };
+}
+
 function zeroSignals(): SocialSignals {
   return {
     postsAuthored: 0,
@@ -174,42 +190,77 @@ describe('ReputationScorer — signal scoring', () => {
 
   describe('scorePost', () => {
     it('returns upvoteWeight * upvotes + postWeight', () => {
-      expect(scorer.scorePost(0)).toBe(DEFAULT_POST_WEIGHT);
-      expect(scorer.scorePost(1)).toBe(DEFAULT_UPVOTE_WEIGHT + DEFAULT_POST_WEIGHT);
-      expect(scorer.scorePost(10)).toBe(10 * DEFAULT_UPVOTE_WEIGHT + DEFAULT_POST_WEIGHT);
+      expect(scorer.scorePost('post1', 0)).toBe(DEFAULT_POST_WEIGHT);
+      expect(scorer.scorePost('post1', 1)).toBe(DEFAULT_UPVOTE_WEIGHT + DEFAULT_POST_WEIGHT);
+      expect(scorer.scorePost('post1', 10)).toBe(10 * DEFAULT_UPVOTE_WEIGHT + DEFAULT_POST_WEIGHT);
+    });
+
+    it('accepts postId for identification', () => {
+      const a = scorer.scorePost('postA', 5);
+      const b = scorer.scorePost('postB', 5);
+      expect(a).toBe(b);
     });
 
     it('throws on negative upvotes', () => {
-      expect(() => scorer.scorePost(-1)).toThrow(ReputationScoringError);
+      expect(() => scorer.scorePost('post1', -1)).toThrow(ReputationScoringError);
     });
   });
 
   describe('scoreCollaboration', () => {
-    it('returns collaborationWeight', () => {
-      expect(scorer.scoreCollaboration(1)).toBe(DEFAULT_COLLABORATION_WEIGHT);
-      expect(scorer.scoreCollaboration(5)).toBe(DEFAULT_COLLABORATION_WEIGHT);
+    it('returns a map splitting reputation among participants', () => {
+      const p1 = randomBytes32();
+      const result = scorer.scoreCollaboration('task1', [p1]);
+      expect(result).toBeInstanceOf(Map);
+      expect(result.size).toBe(1);
+      const value = [...result.values()][0];
+      expect(value).toBe(DEFAULT_COLLABORATION_WEIGHT);
     });
 
-    it('throws on zero participants', () => {
-      expect(() => scorer.scoreCollaboration(0)).toThrow(ReputationScoringError);
+    it('splits reputation equally among multiple participants', () => {
+      const participants = [randomBytes32(), randomBytes32(), randomBytes32()];
+      const result = scorer.scoreCollaboration('task1', participants);
+      expect(result.size).toBe(3);
+      const perParticipant = Math.floor(DEFAULT_COLLABORATION_WEIGHT / 3);
+      for (const delta of result.values()) {
+        expect(delta).toBe(perParticipant);
+      }
+    });
+
+    it('guarantees at least 1 point per participant', () => {
+      // 10 / 20 = 0.5 → floored to 0 → clamped to 1
+      const participants = Array.from({ length: 20 }, () => randomBytes32());
+      const result = scorer.scoreCollaboration('task1', participants);
+      for (const delta of result.values()) {
+        expect(delta).toBeGreaterThanOrEqual(1);
+      }
+    });
+
+    it('throws on empty participants', () => {
+      expect(() => scorer.scoreCollaboration('task1', [])).toThrow(ReputationScoringError);
     });
   });
 
   describe('scoreMessage', () => {
     it('returns messageWeight', () => {
-      expect(scorer.scoreMessage()).toBe(DEFAULT_MESSAGE_WEIGHT);
+      expect(scorer.scoreMessage(createMockMessage())).toBe(DEFAULT_MESSAGE_WEIGHT);
+    });
+
+    it('accepts AgentMessage for identification', () => {
+      const msg = createMockMessage({ content: 'test' });
+      expect(scorer.scoreMessage(msg)).toBe(DEFAULT_MESSAGE_WEIGHT);
     });
   });
 
   describe('penalizeSpam', () => {
     it('returns negative spamPenaltyBase * severity', () => {
-      expect(scorer.penalizeSpam(1)).toBe(-DEFAULT_SPAM_PENALTY);
-      expect(scorer.penalizeSpam(2)).toBe(-2 * DEFAULT_SPAM_PENALTY);
-      expect(scorer.penalizeSpam(0)).toBe(-0);
+      const agentId = randomBytes32();
+      expect(scorer.penalizeSpam(agentId, 1)).toBe(-DEFAULT_SPAM_PENALTY);
+      expect(scorer.penalizeSpam(agentId, 2)).toBe(-2 * DEFAULT_SPAM_PENALTY);
+      expect(scorer.penalizeSpam(agentId, 0)).toBe(-0);
     });
 
     it('throws on negative severity', () => {
-      expect(() => scorer.penalizeSpam(-1)).toThrow(ReputationScoringError);
+      expect(() => scorer.penalizeSpam(randomBytes32(), -1)).toThrow(ReputationScoringError);
     });
   });
 });
@@ -230,10 +281,11 @@ describe('ReputationScorer — custom weights', () => {
       },
     });
 
-    expect(scorer.scorePost(5)).toBe(5 * 10 + 3);
-    expect(scorer.scoreCollaboration(1)).toBe(20);
-    expect(scorer.scoreMessage()).toBe(2);
-    expect(scorer.penalizeSpam(1)).toBe(-100);
+    expect(scorer.scorePost('p1', 5)).toBe(5 * 10 + 3);
+    const collab = scorer.scoreCollaboration('t1', [randomBytes32()]);
+    expect([...collab.values()][0]).toBe(20);
+    expect(scorer.scoreMessage(createMockMessage())).toBe(2);
+    expect(scorer.penalizeSpam(randomBytes32(), 1)).toBe(-100);
   });
 
   it('clamps onChainWeight to [0,1]', () => {
@@ -622,5 +674,54 @@ describe('ReputationScorer — edge cases', () => {
     const ranked = scorer.rankPosts(posts, reputationMap);
     expect(ranked).toHaveLength(1);
     expect(ranked[0].score).toBeGreaterThanOrEqual(0);
+  });
+});
+
+// ============================================================================
+// History Capacity Limit
+// ============================================================================
+
+describe('ReputationScorer — maxHistoryEntries', () => {
+  it('evicts oldest entries when capacity is exceeded', () => {
+    const program = createMockProgram();
+    const scorer = new ReputationScorer({ program, maxHistoryEntries: 3 });
+    scorer.startTracking();
+
+    const agentId = Array.from(randomBytes32());
+    for (let i = 0; i < 5; i++) {
+      program._emit('reputationChanged', {
+        agentId,
+        oldReputation: 5000 + i * 100,
+        newReputation: 5100 + i * 100,
+        reason: 0,
+        timestamp: { toNumber: () => 1700000000 + i },
+      }, 100 + i, `sig${i}`);
+    }
+
+    // Only the 3 most recent should remain
+    expect(scorer.historySize).toBe(3);
+    const history = scorer.getHistory();
+    // History is newest-first
+    expect(history[0].timestamp).toBe(1700000004);
+    expect(history[2].timestamp).toBe(1700000002);
+  });
+
+  it('does not evict when maxHistoryEntries is 0 (unlimited)', () => {
+    const program = createMockProgram();
+    const scorer = new ReputationScorer({ program, maxHistoryEntries: 0 });
+    scorer.startTracking();
+
+    const agentId = Array.from(randomBytes32());
+    for (let i = 0; i < 10; i++) {
+      program._emit('reputationChanged', {
+        agentId,
+        oldReputation: i,
+        newReputation: i + 1,
+        reason: 0,
+        timestamp: { toNumber: () => 1700000000 + i },
+      }, 100 + i, `sig${i}`);
+    }
+
+    expect(scorer.historySize).toBe(10);
   });
 });

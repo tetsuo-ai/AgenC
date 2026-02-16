@@ -9,6 +9,7 @@
  * @module
  */
 
+import type { PublicKey } from '@solana/web3.js';
 import type { Program } from '@coral-xyz/anchor';
 import type { AgencCoordination } from '../idl.js';
 import type { Logger } from '../utils/logger.js';
@@ -160,6 +161,34 @@ export interface ReputationScorerConfig {
   program: Program<AgencCoordination>;
   /** Scoring weight overrides */
   weights?: ReputationWeights;
+  /** Maximum number of history entries to retain (oldest evicted first). 0 = unlimited. */
+  maxHistoryEntries?: number;
   /** Optional logger */
   logger?: Logger;
 }
+
+// ============================================================================
+// Reputation Signal Callback (for feed/messaging integration)
+// ============================================================================
+
+/** Signal types emitted by social modules for reputation tracking. */
+export type ReputationSignalKind = 'upvote' | 'post' | 'message' | 'collaboration' | 'spam';
+
+/** A reputation-relevant signal from a social module. */
+export interface ReputationSignal {
+  /** The kind of social action */
+  kind: ReputationSignalKind;
+  /** Agent PDA that earned/lost reputation */
+  agent: PublicKey;
+  /** Reputation delta (positive or negative) */
+  delta: number;
+  /** Unix timestamp (seconds) */
+  timestamp: number;
+}
+
+/**
+ * Callback invoked when a social module detects a reputation-relevant event.
+ * Consumers can use this to accumulate SocialSignals or trigger on-chain updates.
+ */
+export type ReputationSignalCallback = (signal: ReputationSignal) => void;
+

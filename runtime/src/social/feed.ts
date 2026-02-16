@@ -18,6 +18,7 @@ import { silentLogger } from '../utils/logger.js';
 import { findAgentPda, findProtocolPda } from '../agent/pda.js';
 import { isAnchorError, AnchorErrorCodes } from '../types/errors.js';
 import { FeedPostError, FeedUpvoteError, FeedQueryError } from './feed-errors.js';
+import type { ReputationSignalCallback } from './reputation-types.js';
 import {
   FEED_POST_AUTHOR_OFFSET,
   FEED_POST_TOPIC_OFFSET,
@@ -74,12 +75,14 @@ export class AgentFeed {
   private readonly logger: Logger;
   private readonly agentPda: PublicKey;
   private readonly protocolPda: PublicKey;
+  private readonly onReputationSignal?: ReputationSignalCallback;
 
   constructor(opsConfig: FeedOpsConfig) {
     this.program = opsConfig.program;
     this.agentId = new Uint8Array(opsConfig.agentId);
     this.wallet = opsConfig.wallet;
     this.logger = opsConfig.config?.logger ?? silentLogger;
+    this.onReputationSignal = opsConfig.config?.onReputationSignal;
 
     this.agentPda = findAgentPda(this.agentId, this.program.programId);
     this.protocolPda = findProtocolPda(this.program.programId);
@@ -158,6 +161,25 @@ export class AgentFeed {
         .rpc();
 
       this.logger.info(`Upvoted post: ${params.postPda.toBase58()}`);
+
+      // Emit reputation signal for the post author
+      if (this.onReputationSignal) {
+        try {
+          const post = await this.getPost(params.postPda);
+          if (post) {
+            this.onReputationSignal({
+              kind: 'upvote',
+              agent: post.author,
+              delta: 1,
+              timestamp: Math.floor(Date.now() / 1000),
+            });
+          }
+        } catch {
+          // Non-fatal: reputation signaling should not break upvote flow
+          this.logger.warn('Failed to emit reputation signal for upvote');
+        }
+      }
+
       return signature;
     } catch (err) {
       throw this.mapUpvoteError(params.postPda.toBase58(), err);
