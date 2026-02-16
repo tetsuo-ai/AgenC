@@ -52,6 +52,13 @@ import {
   runStatusCommand,
   runServiceInstallCommand,
 } from './daemon.js';
+import {
+  runConfigInitCommand,
+  runConfigValidateCommand,
+  runConfigShowCommand,
+} from './wizard.js';
+import { runSessionsListCommand, runSessionsKillCommand } from './sessions.js';
+import { runLogsCommand } from './logs.js';
 import { getDefaultConfigPath } from '../gateway/config-watcher.js';
 import { getDefaultPidPath } from '../gateway/daemon.js';
 import type {
@@ -59,6 +66,12 @@ import type {
   DaemonStopOptions,
   DaemonStatusOptions,
   ServiceInstallOptions,
+  WizardOptions,
+  ConfigValidateOptions,
+  ConfigShowOptions,
+  SessionsListOptions,
+  SessionsKillOptions,
+  LogsOptions,
 } from './types.js';
 import {
   PluginCatalog,
@@ -217,6 +230,12 @@ const STATUS_COMMAND_OPTIONS = new Set(['pid-path', 'port']);
 const SERVICE_COMMAND_OPTIONS = new Set(['macos']);
 const JOBS_COMMAND_OPTIONS = new Set<string>([]);
 
+const CONFIG_INIT_OPTIONS = new Set(['non-interactive', 'force']);
+const CONFIG_VALIDATE_OPTIONS = new Set<string>([]);
+const CONFIG_SHOW_OPTIONS = new Set<string>([]);
+const SESSIONS_OPTIONS = new Set(['pid-path', 'port']);
+const LOGS_OPTIONS = new Set(['pid-path', 'session', 'lines']);
+
 const COMMANDS: Record<ReplayCommand, CliCommandDescriptor> = {
   backfill: {
     name: 'backfill',
@@ -364,6 +383,9 @@ const ERROR_CODES = {
   MISSING_TARGET: 'MISSING_TARGET',
   MISSING_SKILL_COMMAND: 'MISSING_SKILL_COMMAND',
   UNKNOWN_SKILL_COMMAND: 'UNKNOWN_SKILL_COMMAND',
+  MISSING_SESSION_ID: 'MISSING_SESSION_ID',
+  MISSING_CONFIG_COMMAND: 'MISSING_CONFIG_COMMAND',
+  UNKNOWN_CONFIG_COMMAND: 'UNKNOWN_CONFIG_COMMAND',
   INTERNAL_ERROR: 'INTERNAL_ERROR',
 } as const;
 
@@ -382,11 +404,14 @@ function buildHelp(): string {
     'health [--help] [options]',
     'doctor [--help] [options]',
     'doctor security [--help] [options]',
+    'config <init|validate|show> [--help] [options]',
     'start [--help] [options]',
     'stop [--help] [options]',
     'restart [--help] [options]',
     'status [--help] [options]',
     'service install [--help] [options]',
+    'sessions <list|kill> [--help] [options]',
+    'logs [--help] [options]',
     'replay [--help] <command> [options]',
     'plugin [--help] <command> [options]',
     'jobs [--help] <command> [options]',
@@ -398,12 +423,24 @@ function buildHelp(): string {
     '  doctor    Run all health checks and provide remediation guidance',
     '  doctor security  Security posture checks',
     '',
+    'Config commands:',
+    '  config init      Generate gateway config and scaffold workspace',
+    '  config validate  Validate an existing gateway config file',
+    '  config show      Display the loaded gateway config',
+    '',
     'Daemon commands:',
     '  start     Start the gateway daemon',
     '  stop      Stop the gateway daemon',
     '  restart   Restart the gateway daemon',
     '  status    Show daemon status',
     '  service install  Generate systemd/launchd service template',
+    '',
+    'Session commands:',
+    '  sessions list              List active control plane sessions',
+    '  sessions kill <sessionId>  Disconnect a control plane session',
+    '',
+    'Log commands:',
+    '  logs                       Show daemon log viewing instructions',
     '',
     'Replay subcommands:',
     '  backfill   Backfill replay timeline from on-chain history',
@@ -495,6 +532,19 @@ function buildHelp(): string {
     '      --from-slot <slot>                    Replay incident from slot',
     '      --to-slot <slot>                      Replay incident to slot',
     '',
+    'config init options:',
+    '      --non-interactive                     Skip interactive prompts (CI-friendly)',
+    '      --force                               Overwrite existing config file',
+    '',
+    'sessions options:',
+    '      --pid-path <path>                         Custom PID file path',
+    '      --port <port>                             Override control plane port',
+    '',
+    'logs options:',
+    '      --pid-path <path>                         Custom PID file path',
+    '      --session <id>                            Filter by session ID',
+    '      --lines <n>                               Number of recent log lines (used in journalctl hint)',
+    '',
     'plugin options:',
     '      --manifest <path>                     Plugin manifest path (install/reload)',
     '      --precedence workspace|user|builtin  Plugin installation precedence',
@@ -508,6 +558,13 @@ function buildHelp(): string {
     '  agenc-runtime status',
     '  agenc-runtime service install',
     '  agenc-runtime service install --macos',
+    '  agenc-runtime config init',
+    '  agenc-runtime config init --force',
+    '  agenc-runtime config validate --config ~/.agenc/config.json',
+    '  agenc-runtime config show',
+    '  agenc-runtime sessions list',
+    '  agenc-runtime sessions kill client_1',
+    '  agenc-runtime logs',
     '  agenc-runtime onboard --force',
     '  agenc-runtime health --deep',
     '  agenc-runtime doctor --deep --fix',
@@ -1705,6 +1762,149 @@ export async function runCli(options: CliRunOptions = {}): Promise<CliStatusCode
         macos: normalizeBool(parsed.flags.macos, false),
       };
       return await runServiceInstallCommand(context, serviceOpts);
+    } catch (error) {
+      const payload = buildErrorPayload(error);
+      context.error(payload);
+      return payload.code === ERROR_CODES.INVALID_OPTION ? 2 : 1;
+    }
+  }
+
+  // Config commands: config init, config validate, config show
+  if (parsed.positional[0] === 'config') {
+    try {
+      const subcommand = parsed.positional[1] as string | undefined;
+      if (!subcommand) {
+        throw createCliError('missing config subcommand (init | validate | show)', ERROR_CODES.MISSING_CONFIG_COMMAND);
+      }
+
+      const configPath = parseOptionalString(parsed.flags.config)
+        ?? process.env.AGENC_CONFIG
+        ?? getDefaultConfigPath();
+
+      if (subcommand === 'init') {
+        validateUnknownStandaloneOptions(parsed.flags, CONFIG_INIT_OPTIONS);
+        const configPathForInit = resolveConfigPath(parsed.flags);
+        let fileConfig: CliFileConfig;
+        try {
+          fileConfig = loadFileConfig(configPathForInit);
+        } catch {
+          fileConfig = {};
+        }
+        const envConfig = readEnvironmentConfig();
+        const global = normalizeGlobalFlags(parsed.flags, fileConfig, envConfig);
+        const wizardOpts: WizardOptions = {
+          ...global,
+          configPath,
+          nonInteractive: normalizeBool(parsed.flags['non-interactive'], false),
+          force: normalizeBool(parsed.flags.force, false),
+        };
+        return await runConfigInitCommand(context, wizardOpts);
+      }
+
+      if (subcommand === 'validate') {
+        validateUnknownStandaloneOptions(parsed.flags, CONFIG_VALIDATE_OPTIONS);
+        const configPathForValidate = resolveConfigPath(parsed.flags);
+        let fileConfig: CliFileConfig;
+        try {
+          fileConfig = loadFileConfig(configPathForValidate);
+        } catch {
+          fileConfig = {};
+        }
+        const envConfig = readEnvironmentConfig();
+        const global = normalizeGlobalFlags(parsed.flags, fileConfig, envConfig);
+        const validateOpts: ConfigValidateOptions = {
+          ...global,
+          configPath,
+        };
+        return await runConfigValidateCommand(context, validateOpts);
+      }
+
+      if (subcommand === 'show') {
+        validateUnknownStandaloneOptions(parsed.flags, CONFIG_SHOW_OPTIONS);
+        const configPathForShow = resolveConfigPath(parsed.flags);
+        let fileConfig: CliFileConfig;
+        try {
+          fileConfig = loadFileConfig(configPathForShow);
+        } catch {
+          fileConfig = {};
+        }
+        const envConfig = readEnvironmentConfig();
+        const global = normalizeGlobalFlags(parsed.flags, fileConfig, envConfig);
+        const showOpts: ConfigShowOptions = {
+          ...global,
+          configPath,
+        };
+        return await runConfigShowCommand(context, showOpts);
+      }
+
+      throw createCliError(`unknown config subcommand: ${subcommand}`, ERROR_CODES.UNKNOWN_CONFIG_COMMAND);
+    } catch (error) {
+      const payload = buildErrorPayload(error);
+      context.error(payload);
+      return payload.code === ERROR_CODES.INVALID_OPTION
+        || payload.code === ERROR_CODES.MISSING_CONFIG_COMMAND
+        || payload.code === ERROR_CODES.UNKNOWN_CONFIG_COMMAND
+        ? 2
+        : 1;
+    }
+  }
+
+  // Session commands: sessions list, sessions kill
+  if (parsed.positional[0] === 'sessions') {
+    try {
+      const subcommand = parsed.positional[1] as string | undefined;
+      if (!subcommand) {
+        throw createCliError('missing sessions subcommand (list | kill)', ERROR_CODES.MISSING_ROOT_COMMAND);
+      }
+
+      validateUnknownStandaloneOptions(parsed.flags, SESSIONS_OPTIONS);
+      const pidPath = parseOptionalString(parsed.flags['pid-path']) ?? getDefaultPidPath();
+
+      if (subcommand === 'list') {
+        const sessionsOpts: SessionsListOptions = {
+          pidPath,
+          controlPlanePort: parseIntValue(parsed.flags.port),
+        };
+        return await runSessionsListCommand(context, sessionsOpts);
+      }
+
+      if (subcommand === 'kill') {
+        const sessionId = parsed.positional[2] as string | undefined;
+        if (!sessionId) {
+          throw createCliError('sessions kill requires a session ID argument', ERROR_CODES.MISSING_SESSION_ID);
+        }
+        const killOpts: SessionsKillOptions = {
+          pidPath,
+          sessionId,
+          controlPlanePort: parseIntValue(parsed.flags.port),
+        };
+        return await runSessionsKillCommand(context, killOpts);
+      }
+
+      throw createCliError(`unknown sessions subcommand: ${subcommand}`, ERROR_CODES.UNKNOWN_COMMAND);
+    } catch (error) {
+      const payload = buildErrorPayload(error);
+      context.error(payload);
+      return payload.code === ERROR_CODES.INVALID_OPTION
+        || payload.code === ERROR_CODES.MISSING_SESSION_ID
+        || payload.code === ERROR_CODES.MISSING_ROOT_COMMAND
+        || payload.code === ERROR_CODES.UNKNOWN_COMMAND
+        ? 2
+        : 1;
+    }
+  }
+
+  // Logs command
+  if (parsed.positional[0] === 'logs') {
+    try {
+      validateUnknownStandaloneOptions(parsed.flags, LOGS_OPTIONS);
+      const pidPath = parseOptionalString(parsed.flags['pid-path']) ?? getDefaultPidPath();
+      const logsOpts: LogsOptions = {
+        pidPath,
+        sessionId: parseOptionalString(parsed.flags.session),
+        lines: parseIntValue(parsed.flags.lines),
+      };
+      return await runLogsCommand(context, logsOpts);
     } catch (error) {
       const payload = buildErrorPayload(error);
       context.error(payload);
