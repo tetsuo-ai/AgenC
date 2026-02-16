@@ -33,6 +33,7 @@ import {
   validateGatewayConfig,
   loadGatewayConfig,
 } from './config-watcher.js';
+import { isRecord } from '../utils/type-guards.js';
 
 // ============================================================================
 // WebSocket type shims (loaded lazily)
@@ -400,6 +401,48 @@ export class Gateway {
           id,
         });
         break;
+
+      case 'sessions':
+        this.sendResponse(socket, {
+          type: 'sessions',
+          payload: [...this.wsClients.keys()].map((clientId) => ({
+            id: clientId,
+            connected: true,
+          })),
+          id,
+        });
+        break;
+
+      case 'sessions.kill': {
+        const targetId = isRecord(msg.payload) ? String(msg.payload.sessionId ?? '') : '';
+        if (!targetId) {
+          this.sendResponse(socket, {
+            type: 'sessions.kill',
+            error: 'Missing sessionId in payload',
+            id,
+          });
+          break;
+        }
+        const target = this.wsClients.get(targetId);
+        if (!target) {
+          this.sendResponse(socket, {
+            type: 'sessions.kill',
+            error: `Session '${targetId}' not found`,
+            id,
+          });
+          break;
+        }
+        // Send response before closing — if the target is the requesting
+        // client, the close() call would prevent delivery.
+        this.sendResponse(socket, {
+          type: 'sessions.kill',
+          payload: { killed: targetId },
+          id,
+        });
+        target.close();
+        this.wsClients.delete(targetId);
+        break;
+      }
 
       default:
         this.sendResponse(socket, {

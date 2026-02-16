@@ -189,6 +189,38 @@ export interface ServiceInstallOptions {
   macos?: boolean;
 }
 
+export interface WizardOptions extends BaseCliOptions {
+  nonInteractive?: boolean;
+  force?: boolean;
+  configPath?: string;
+}
+
+export interface ConfigValidateOptions extends BaseCliOptions {
+  configPath?: string;
+}
+
+export interface ConfigShowOptions extends BaseCliOptions {
+  configPath?: string;
+}
+
+export interface SessionsListOptions {
+  pidPath: string;
+  controlPlanePort?: number;
+}
+
+export interface SessionsKillOptions {
+  pidPath: string;
+  sessionId: string;
+  controlPlanePort?: number;
+}
+
+export interface LogsOptions {
+  pidPath: string;
+  sessionId?: string;
+  follow?: boolean;
+  lines?: number;
+}
+
 export interface CliValidationError extends Error {
   code: string;
 }
