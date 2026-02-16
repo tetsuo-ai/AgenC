@@ -954,6 +954,13 @@ export {
   type MemoryGraphResult,
   type MemoryGraphConfig,
   type CompactOptions,
+  // Semantic memory retriever
+  SemanticMemoryRetriever,
+  computeRetrievalScore,
+  estimateMemoryTokens,
+  type SemanticMemoryRetrieverConfig,
+  type RetrievalResult,
+  type ScoredRetrievalEntry,
 } from './memory/index.js';
 
 // Dispute Operations (Phase 8)
