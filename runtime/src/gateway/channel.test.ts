@@ -3,6 +3,7 @@ import {
   PluginCatalog,
   WebhookRouter,
   BaseChannelPlugin,
+  ChannelNameInvalidError,
   ChannelAlreadyRegisteredError,
   ChannelNotFoundError,
 } from './channel.js';
@@ -107,6 +108,14 @@ describe('PluginCatalog', () => {
       expect(() => catalog.register(makePlugin('telegram'))).toThrow(
         ChannelAlreadyRegisteredError,
       );
+    });
+
+    it('throws on empty plugin name', () => {
+      expect(() => catalog.register(makePlugin(''))).toThrow(ChannelNameInvalidError);
+    });
+
+    it('throws on whitespace-only plugin name', () => {
+      expect(() => catalog.register(makePlugin('  '))).toThrow(ChannelNameInvalidError);
     });
   });
 
@@ -362,6 +371,16 @@ describe('PluginCatalog', () => {
       const tg = status.find((s) => s.name === 'telegram');
       expect(tg?.active).toBe(true);
     });
+
+    it('reports active: false after deactivation', async () => {
+      catalog.register(makePlugin('telegram', true));
+      await catalog.activate('telegram', vi.fn());
+      await catalog.deactivate('telegram');
+
+      const status = catalog.getHealthStatus();
+      const tg = status.find((s) => s.name === 'telegram');
+      expect(tg?.active).toBe(false);
+    });
   });
 
   describe('stopAll', () => {
@@ -392,6 +411,53 @@ describe('PluginCatalog', () => {
 
       expect(tg.stop).toHaveBeenCalledTimes(1);
       expect(dc.stop).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('optional methods', () => {
+    it('plugin with handleReaction receives events', async () => {
+      const handleReaction = vi.fn().mockResolvedValue(undefined);
+      const plugin: ChannelPlugin = {
+        ...makePlugin('telegram'),
+        handleReaction,
+      };
+      catalog.register(plugin);
+      await catalog.activate('telegram', vi.fn());
+
+      const event: ReactionEvent = {
+        channel: 'telegram',
+        senderId: 'user-1',
+        messageId: 'msg-1',
+        emoji: '👍',
+        added: true,
+      };
+
+      await plugin.handleReaction!(event);
+
+      expect(handleReaction).toHaveBeenCalledWith(event);
+    });
+
+    it('plugin with handleSlashCommand receives commands', async () => {
+      const handleSlashCommand = vi.fn().mockResolvedValue(undefined);
+      const plugin: ChannelPlugin = {
+        ...makePlugin('discord'),
+        handleSlashCommand,
+      };
+      catalog.register(plugin);
+      await catalog.activate('discord', vi.fn());
+
+      const ctx: SlashCommandContext = {
+        args: 'grok-3',
+        argv: ['grok-3'],
+        sessionId: 'session-1',
+        senderId: 'user-1',
+        channel: 'discord',
+        reply: vi.fn().mockResolvedValue(undefined),
+      };
+
+      await plugin.handleSlashCommand!('model', 'grok-3', ctx);
+
+      expect(handleSlashCommand).toHaveBeenCalledWith('model', 'grok-3', ctx);
     });
   });
 });

@@ -248,6 +248,9 @@ export class PluginCatalog {
    * Register a channel plugin. Throws if a plugin with the same name exists.
    */
   register(plugin: ChannelPlugin): void {
+    if (!plugin.name || !plugin.name.trim()) {
+      throw new ChannelNameInvalidError(plugin.name);
+    }
     if (this.plugins.has(plugin.name)) {
       throw new ChannelAlreadyRegisteredError(plugin.name);
     }
@@ -408,6 +411,19 @@ export class PluginCatalog {
 // ============================================================================
 // Errors
 // ============================================================================
+
+export class ChannelNameInvalidError extends RuntimeError {
+  public readonly channelName: string;
+
+  constructor(channelName: string) {
+    super(
+      `Channel name must be a non-empty string, got "${channelName}"`,
+      RuntimeErrorCodes.GATEWAY_VALIDATION_ERROR,
+    );
+    this.name = 'ChannelNameInvalidError';
+    this.channelName = channelName;
+  }
+}
 
 export class ChannelAlreadyRegisteredError extends RuntimeError {
   public readonly channelName: string;

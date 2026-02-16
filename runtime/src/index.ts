@@ -1303,6 +1303,7 @@ export {
   PluginCatalog,
   WebhookRouter,
   BaseChannelPlugin,
+  ChannelNameInvalidError,
   ChannelAlreadyRegisteredError,
   ChannelNotFoundError,
   type ChannelPlugin,
