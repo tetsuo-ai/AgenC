@@ -839,7 +839,7 @@ export {
   type SerializedTask,
   type SerializedAgent,
   type SerializedProtocolConfig,
-  // System tools (HTTP)
+  // System tools
   createHttpTools,
   isDomainAllowed,
   type HttpToolConfig,
@@ -849,6 +849,13 @@ export {
   isPathAllowed,
   safePath,
   type FilesystemToolConfig,
+  // Bash
+  createBashTool,
+  type BashToolConfig,
+  type BashToolInput,
+  DEFAULT_DENY_LIST,
+  DEFAULT_TIMEOUT_MS,
+  DEFAULT_MAX_OUTPUT_BYTES,
 } from './tools/index.js';
 
 // ZK Proof Engine (Phase 7)

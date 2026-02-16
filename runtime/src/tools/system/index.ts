@@ -23,3 +23,13 @@ export {
   closeBrowser,
   type BrowserToolConfig,
 } from './browser.js';
+
+export { createBashTool } from './bash.js';
+
+export {
+  type BashToolConfig,
+  type BashToolInput,
+  DEFAULT_DENY_LIST,
+  DEFAULT_TIMEOUT_MS,
+  DEFAULT_MAX_OUTPUT_BYTES,
+} from './types.js';
