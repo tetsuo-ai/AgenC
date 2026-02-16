@@ -184,6 +184,10 @@ export const RuntimeErrorCodes = {
   FEED_UPVOTE_ERROR: 'FEED_UPVOTE_ERROR',
   /** Feed query operation failed */
   FEED_QUERY_ERROR: 'FEED_QUERY_ERROR',
+  /** Reputation scoring computation failed */
+  REPUTATION_SCORING_ERROR: 'REPUTATION_SCORING_ERROR',
+  /** Reputation event tracking or history query failed */
+  REPUTATION_TRACKING_ERROR: 'REPUTATION_TRACKING_ERROR',
 } as const;
 
 /** Union type of all runtime error code values */
@@ -1447,7 +1451,7 @@ export function parseAnchorError(error: unknown): ParsedAnchorError | null {
   }
 
   // Validate code is in our known range
-  if (code === undefined || code < 6000 || code > 6168) {
+  if (code === undefined || code < 6000 || code > 6172) {
     return null;
   }
 
