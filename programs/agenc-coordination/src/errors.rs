@@ -511,4 +511,29 @@ pub enum CoordinationError {
 
     #[msg("Treasury must be a program-owned PDA")]
     TreasuryNotProgramOwned,
+
+    // Skill registry errors (sequential from enum position)
+    #[msg("Skill ID cannot be all zeros")]
+    SkillInvalidId,
+
+    #[msg("Skill name cannot be all zeros")]
+    SkillInvalidName,
+
+    #[msg("Skill content hash cannot be all zeros")]
+    SkillInvalidContentHash,
+
+    #[msg("Skill is not active")]
+    SkillNotActive,
+
+    #[msg("Rating must be between 1 and 5")]
+    SkillInvalidRating,
+
+    #[msg("Cannot rate own skill")]
+    SkillSelfRating,
+
+    #[msg("Only the skill author can update this skill")]
+    SkillUnauthorizedUpdate,
+
+    #[msg("Cannot purchase own skill")]
+    SkillSelfPurchase,
 }
