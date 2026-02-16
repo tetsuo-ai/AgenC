@@ -76,6 +76,23 @@ export interface PluginReloadOptions extends BaseCliOptions {
   manifestPath?: string;
 }
 
+export interface SkillListOptions extends BaseCliOptions {}
+export interface SkillInfoOptions extends BaseCliOptions { skillName: string; }
+export interface SkillValidateOptions extends BaseCliOptions {}
+export interface SkillCreateOptions extends BaseCliOptions { skillName: string; }
+export interface SkillInstallOptions extends BaseCliOptions { source: string; }
+export interface SkillUninstallOptions extends BaseCliOptions { skillName: string; }
+export interface SkillToggleOptions extends BaseCliOptions { skillName: string; }
+
+export type SkillCommandOptions =
+  | SkillListOptions
+  | SkillInfoOptions
+  | SkillValidateOptions
+  | SkillCreateOptions
+  | SkillInstallOptions
+  | SkillUninstallOptions
+  | SkillToggleOptions;
+
 export interface CliUsage {
   command: string;
   description: string;
