@@ -1460,5 +1460,20 @@ export {
   type GovernanceOpsConfig,
 } from './governance/index.js';
 
+// Social module (Phase 8.1)
+export {
+  AgentDiscovery,
+  ProfileCache,
+  AgentDiscoveryError,
+  AGENT_STATUS_OFFSET,
+  agentStateToProfile,
+  type AgentProfile,
+  type AgentSearchFilters,
+  type AgentSortField,
+  type SortOrder,
+  type DiscoveryConfig,
+  type ProfileCacheConfig,
+} from './social/index.js';
+
 // Agent Builder (Phase 10)
 export { AgentBuilder, BuiltAgent } from './builder.js';
