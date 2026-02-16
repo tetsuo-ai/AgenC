@@ -7,7 +7,6 @@
  * @module
  */
 
-import { WebSocket } from 'ws';
 import type { CliRuntimeContext, GatewayCommandOptions, ConfigInitOptions, LogsOptions } from './types.js';
 import type { GatewayConfig, ControlResponse } from '../gateway/types.js';
 import {
@@ -251,11 +250,12 @@ export async function runLogsCommand(
 // Control plane query helper (shared — also imported by sessions.ts)
 // ============================================================================
 
-export function queryControlPlane(
+export async function queryControlPlane(
   wsUrl: string,
   message: { type: string; id?: string },
   timeoutMs = 5000,
 ): Promise<ControlResponse> {
+  const { WebSocket } = await import('ws');
   return new Promise<ControlResponse>((resolve, reject) => {
     const ws = new WebSocket(wsUrl);
     const timer = setTimeout(() => {
