@@ -1338,6 +1338,19 @@ export {
   type WebhookResponse,
   type WebhookHandler,
   type ReactionEvent,
+  // Cross-channel identity linking (Phase 1.9)
+  IdentityResolver,
+  InMemoryIdentityStore,
+  IdentityLinkExpiredError,
+  IdentityLinkNotFoundError,
+  IdentitySelfLinkError,
+  IdentitySignatureError,
+  IdentityValidationError,
+  type IdentityAccount,
+  type IdentityLink,
+  type PendingLink,
+  type IdentityResolverConfig,
+  type IdentityStore,
 } from './gateway/index.js';
 
 // Channel Plugins (Phase 1.5)

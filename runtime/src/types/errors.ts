@@ -120,6 +120,16 @@ export const RuntimeErrorCodes = {
   WORKSPACE_VALIDATION_ERROR: 'WORKSPACE_VALIDATION_ERROR',
   /** Chat session token budget exceeded */
   CHAT_BUDGET_EXCEEDED: 'CHAT_BUDGET_EXCEEDED',
+  /** Identity link code has expired */
+  IDENTITY_LINK_EXPIRED: 'IDENTITY_LINK_EXPIRED',
+  /** Identity link code not found */
+  IDENTITY_LINK_NOT_FOUND: 'IDENTITY_LINK_NOT_FOUND',
+  /** Cannot link an account to itself */
+  IDENTITY_SELF_LINK: 'IDENTITY_SELF_LINK',
+  /** Ed25519 signature verification failed for identity linking */
+  IDENTITY_SIGNATURE_INVALID: 'IDENTITY_SIGNATURE_INVALID',
+  /** Identity input validation failed */
+  IDENTITY_VALIDATION_ERROR: 'IDENTITY_VALIDATION_ERROR',
   /** Heartbeat scheduler invalid lifecycle state transition */
   HEARTBEAT_STATE_ERROR: 'HEARTBEAT_STATE_ERROR',
   /** Heartbeat action execution failed */
