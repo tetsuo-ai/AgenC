@@ -1,5 +1,5 @@
 /**
- * Full AgenC coordination-program error map (6000-6146).
+ * Full AgenC coordination-program error map (6000-6160).
  */
 
 export type ErrorCategory =
@@ -22,7 +22,8 @@ export type ErrorCategory =
   | 'bond'
   | 'reputation'
   | 'security'
-  | 'token';
+  | 'token'
+  | 'governance';
 
 export interface CoordinationErrorEntry {
   name: string;
@@ -182,6 +183,20 @@ export const COORDINATION_ERROR_MAP: Record<number, CoordinationErrorEntry> = {
   6144: { name: 'InvalidTokenEscrow', message: 'Token escrow ATA does not match expected derivation', category: 'token' },
   6145: { name: 'InvalidTokenMint', message: 'Provided mint does not match task\'s reward_mint', category: 'token' },
   6146: { name: 'TokenTransferFailed', message: 'SPL token transfer CPI failed', category: 'token' },
+  6147: { name: 'ProposalNotActive', message: 'Proposal is not active', category: 'governance' },
+  6148: { name: 'ProposalVotingNotEnded', message: 'Voting period has not ended', category: 'governance' },
+  6149: { name: 'ProposalVotingEnded', message: 'Voting period has ended', category: 'governance' },
+  6150: { name: 'ProposalAlreadyExecuted', message: 'Proposal has already been executed', category: 'governance' },
+  6151: { name: 'ProposalInsufficientQuorum', message: 'Insufficient quorum for proposal execution', category: 'governance' },
+  6152: { name: 'ProposalNotApproved', message: 'Proposal did not achieve majority', category: 'governance' },
+  6153: { name: 'ProposalUnauthorizedCancel', message: 'Only the proposer can cancel this proposal', category: 'governance' },
+  6154: { name: 'ProposalInsufficientStake', message: 'Insufficient stake to create a proposal', category: 'governance' },
+  6155: { name: 'InvalidProposalPayload', message: 'Invalid proposal payload', category: 'governance' },
+  6156: { name: 'InvalidProposalType', message: 'Invalid proposal type', category: 'governance' },
+  6157: { name: 'TreasuryInsufficientBalance', message: 'Treasury spend amount exceeds available balance', category: 'governance' },
+  6158: { name: 'TimelockNotElapsed', message: 'Execution timelock has not elapsed', category: 'governance' },
+  6159: { name: 'InvalidGovernanceParam', message: 'Invalid governance configuration parameter', category: 'governance' },
+  6160: { name: 'TreasuryNotProgramOwned', message: 'Treasury must be a program-owned PDA', category: 'governance' },
 };
 
 export interface DecodedError extends CoordinationErrorEntry {
