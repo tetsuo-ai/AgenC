@@ -10,3 +10,10 @@ export {
   type HttpToolConfig,
   type HttpResponse,
 } from './http.js';
+
+export {
+  createFilesystemTools,
+  isPathAllowed,
+  safePath,
+  type FilesystemToolConfig,
+} from './filesystem.js';
