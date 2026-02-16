@@ -127,8 +127,8 @@ export interface SlashCommandContext {
   readonly channel: string;
   /** The user who invoked the command. */
   readonly senderId: string;
-  /** The original message ID. */
-  readonly messageId: string;
+  /** Session ID for routing replies to the correct conversation. */
+  readonly sessionId: string;
   /** Reply helper — sends a response back to the channel. */
   readonly reply: (content: string) => Promise<void>;
 }

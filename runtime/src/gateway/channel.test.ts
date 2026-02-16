@@ -336,13 +336,13 @@ describe('SlashCommandContext', () => {
     const ctx: SlashCommandContext = {
       channel: 'telegram',
       senderId: 'user-1',
-      messageId: 'msg-123',
+      sessionId: 'session-123',
       reply: vi.fn().mockResolvedValue(undefined),
     };
 
     expect(ctx.channel).toBe('telegram');
     expect(ctx.senderId).toBe('user-1');
-    expect(ctx.messageId).toBe('msg-123');
+    expect(ctx.sessionId).toBe('session-123');
     expect(typeof ctx.reply).toBe('function');
   });
 });
