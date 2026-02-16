@@ -12,7 +12,12 @@
 import type { Logger } from '../utils/logger.js';
 import { silentLogger } from '../utils/logger.js';
 import type { GatewayMessage, OutboundMessage } from './message.js';
+import type { SlashCommandContext } from './commands.js';
+import type { HookDispatcher } from './hooks.js';
 import { RuntimeError, RuntimeErrorCodes } from '../types/errors.js';
+
+// Re-export for consumers importing from channel.js directly
+export type { SlashCommandContext } from './commands.js';
 
 // ============================================================================
 // Webhook Router
@@ -85,6 +90,11 @@ export class WebhookRouter {
   get routes(): ReadonlyArray<WebhookRoute> {
     return [...this._routes];
   }
+
+  /** Internal route access for aggregation (avoids copy). */
+  get routesInternal(): ReadonlyArray<WebhookRoute> {
+    return this._routes;
+  }
 }
 
 // ============================================================================
@@ -103,6 +113,8 @@ export interface ReactionEvent {
   readonly emoji: string;
   /** True if the reaction was added, false if removed. */
   readonly added: boolean;
+  /** Timestamp of the reaction event (ms since epoch). */
+  readonly timestamp?: number;
 }
 
 // ============================================================================
@@ -113,24 +125,12 @@ export interface ReactionEvent {
 export interface ChannelContext {
   /** Callback to deliver inbound messages to the Gateway. */
   readonly onMessage: (message: GatewayMessage) => Promise<void>;
-  /** Logger scoped to this channel. */
+  /** Logger instance (shared across plugins — not channel-scoped). */
   readonly logger: Logger;
   /** Channel-specific config from gateway config. */
   readonly config: Readonly<Record<string, unknown>>;
-  /** Hook dispatcher for lifecycle events (available after Phase 1.7). */
-  readonly hooks?: unknown;
-}
-
-/** Context provided when handling a slash command from a channel. */
-export interface SlashCommandContext {
-  /** Channel that received the command. */
-  readonly channel: string;
-  /** The user who invoked the command. */
-  readonly senderId: string;
-  /** Session ID for routing replies to the correct conversation. */
-  readonly sessionId: string;
-  /** Reply helper — sends a response back to the channel. */
-  readonly reply: (content: string) => Promise<void>;
+  /** Hook dispatcher for lifecycle events. Typed as HookDispatcher when hooks module is loaded. */
+  readonly hooks?: HookDispatcher;
 }
 
 // ============================================================================
@@ -186,14 +186,25 @@ export interface ChannelPlugin {
  *
  * Subclasses must implement `name`, `start()`, `stop()`, and `send()`.
  * `initialize()` stores context by default; `isHealthy()` returns true.
+ *
+ * Context is only available after `initialize()` has been called.
+ * Accessing it before initialization throws an error.
  */
 export abstract class BaseChannelPlugin implements ChannelPlugin {
-  protected context!: ChannelContext;
+  private _context: ChannelContext | undefined;
 
   abstract readonly name: string;
 
+  /** Access the channel context. Throws if called before initialize(). */
+  protected get context(): ChannelContext {
+    if (!this._context) {
+      throw new Error(`Channel "${this.name}" context accessed before initialize()`);
+    }
+    return this._context;
+  }
+
   async initialize(context: ChannelContext): Promise<void> {
-    this.context = context;
+    this._context = context;
   }
 
   abstract start(): Promise<void>;
@@ -246,7 +257,11 @@ export class PluginCatalog {
    * Initialize and start a registered plugin.
    *
    * Creates a ChannelContext, calls `initialize()`, optionally registers
-   * webhooks, then calls `start()`.
+   * webhooks, then calls `start()`. If the plugin is already active,
+   * it is deactivated first (idempotent re-activation).
+   *
+   * If `initialize()` throws, the context is cleaned up and the error
+   * is re-thrown — no partial activation state is left behind.
    */
   async activate(
     name: string,
@@ -269,14 +284,21 @@ export class PluginCatalog {
       config: channelConfig,
     };
 
+    try {
+      await plugin.initialize(context);
+    } catch (err) {
+      // Don't leave partial state if initialize() fails
+      throw err;
+    }
+
+    // Only store context after successful initialization
     this.contexts.set(name, context);
-    await plugin.initialize(context);
 
     if (plugin.registerWebhooks) {
       const router = new WebhookRouter(name);
       plugin.registerWebhooks(router);
       this.webhookRouters.set(name, router);
-      this.logger.info(`Channel "${name}" registered ${router.routes.length} webhook route(s)`);
+      this.logger.info(`Channel "${name}" registered ${router.routesInternal.length} webhook route(s)`);
     }
 
     await plugin.start();
@@ -284,7 +306,8 @@ export class PluginCatalog {
   }
 
   /**
-   * Stop and remove a channel plugin.
+   * Stop an active channel plugin and clean up its context/webhooks.
+   * No-op if the plugin is not registered or was never activated.
    */
   async deactivate(name: string): Promise<void> {
     const plugin = this.plugins.get(name);
@@ -346,29 +369,34 @@ export class PluginCatalog {
   /** Get webhook routes for a specific channel, or all channels. */
   getWebhookRoutes(channelName?: string): ReadonlyArray<WebhookRoute> {
     if (channelName) {
-      return this.webhookRouters.get(channelName)?.routes ?? [];
+      const router = this.webhookRouters.get(channelName);
+      return router ? [...router.routesInternal] : [];
     }
     const allRoutes: WebhookRoute[] = [];
     for (const router of this.webhookRouters.values()) {
-      allRoutes.push(...router.routes);
+      allRoutes.push(...router.routesInternal);
     }
     return allRoutes;
   }
 
-  /** Get health status for all active channels. */
-  getHealthStatus(): ReadonlyArray<{ name: string; healthy: boolean }> {
+  /**
+   * Get health status for all active channels.
+   * Only reports plugins that have been activated (have a stored context).
+   * Includes an `active` flag for clarity.
+   */
+  getHealthStatus(): ReadonlyArray<{ name: string; healthy: boolean; active: boolean }> {
     return Array.from(this.plugins.entries()).map(([name, plugin]) => ({
       name,
       healthy: plugin.isHealthy(),
+      active: this.contexts.has(name),
     }));
   }
 
-  /** Stop all active plugins. */
+  /** Stop all active plugins concurrently. One failure does not block others. */
   async stopAll(): Promise<void> {
-    const names = Array.from(this.plugins.keys());
-    for (const name of names) {
-      await this.deactivate(name);
-    }
+    await Promise.allSettled(
+      Array.from(this.plugins.keys()).map((name) => this.deactivate(name)),
+    );
   }
 }
 

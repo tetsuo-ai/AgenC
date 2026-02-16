@@ -6,7 +6,8 @@ import {
   ChannelAlreadyRegisteredError,
   ChannelNotFoundError,
 } from './channel.js';
-import type { ChannelPlugin, ChannelContext, SlashCommandContext, ReactionEvent } from './channel.js';
+import type { ChannelPlugin, ChannelContext, ReactionEvent } from './channel.js';
+import type { SlashCommandContext } from './commands.js';
 import type { GatewayMessage, OutboundMessage } from './message.js';
 import { silentLogger } from '../utils/logger.js';
 
@@ -191,6 +192,22 @@ describe('PluginCatalog', () => {
       expect(plugin.start).toHaveBeenCalledTimes(2);
     });
 
+    it('cleans up if initialize() throws', async () => {
+      const plugin = makePlugin('telegram');
+      (plugin.initialize as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('init failed'));
+      catalog.register(plugin);
+
+      await expect(
+        catalog.activate('telegram', vi.fn()),
+      ).rejects.toThrow('init failed');
+
+      // Plugin should NOT be considered active — deactivate should be a no-op
+      expect(plugin.start).not.toHaveBeenCalled();
+      // Subsequent deactivate should not call stop()
+      await catalog.deactivate('telegram');
+      expect(plugin.stop).not.toHaveBeenCalled();
+    });
+
     it('context.onMessage forwards messages', async () => {
       const plugin = makePlugin('telegram');
       const onMessage = vi.fn().mockResolvedValue(undefined);
@@ -287,7 +304,7 @@ describe('PluginCatalog', () => {
   });
 
   describe('getHealthStatus', () => {
-    it('reports health for all plugins', () => {
+    it('reports health with active flag for all plugins', () => {
       catalog.register(makePlugin('telegram', true));
       catalog.register(makePlugin('discord', false));
 
@@ -297,12 +314,23 @@ describe('PluginCatalog', () => {
       const tg = status.find((s) => s.name === 'telegram');
       const dc = status.find((s) => s.name === 'discord');
       expect(tg?.healthy).toBe(true);
+      expect(tg?.active).toBe(false);
       expect(dc?.healthy).toBe(false);
+      expect(dc?.active).toBe(false);
+    });
+
+    it('reports active: true for activated plugins', async () => {
+      catalog.register(makePlugin('telegram', true));
+      await catalog.activate('telegram', vi.fn());
+
+      const status = catalog.getHealthStatus();
+      const tg = status.find((s) => s.name === 'telegram');
+      expect(tg?.active).toBe(true);
     });
   });
 
   describe('stopAll', () => {
-    it('stops all active plugins', async () => {
+    it('stops all active plugins concurrently', async () => {
       const tg = makePlugin('telegram');
       const dc = makePlugin('discord');
       catalog.register(tg);
@@ -311,6 +339,21 @@ describe('PluginCatalog', () => {
       await catalog.activate('discord', vi.fn());
 
       await catalog.stopAll();
+
+      expect(tg.stop).toHaveBeenCalledTimes(1);
+      expect(dc.stop).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not block on one plugin failure', async () => {
+      const tg = makePlugin('telegram');
+      const dc = makePlugin('discord');
+      (tg.stop as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('tg stop failed'));
+      catalog.register(tg);
+      catalog.register(dc);
+      await catalog.activate('telegram', vi.fn());
+      await catalog.activate('discord', vi.fn());
+
+      await catalog.stopAll(); // should not throw
 
       expect(tg.stop).toHaveBeenCalledTimes(1);
       expect(dc.stop).toHaveBeenCalledTimes(1);
@@ -324,6 +367,11 @@ describe('BaseChannelPlugin', () => {
     start = vi.fn().mockResolvedValue(undefined);
     stop = vi.fn().mockResolvedValue(undefined);
     send = vi.fn().mockResolvedValue(undefined);
+
+    // Expose protected getter for testing
+    getContext(): ChannelContext {
+      return this.context;
+    }
   }
 
   it('initialize stores context', async () => {
@@ -336,8 +384,13 @@ describe('BaseChannelPlugin', () => {
 
     await plugin.initialize(ctx);
 
-    // Context is stored as protected field — verify via isHealthy default
-    expect(plugin.isHealthy()).toBe(true);
+    expect(plugin.getContext()).toBe(ctx);
+  });
+
+  it('throws when context accessed before initialize()', () => {
+    const plugin = new TestPlugin();
+
+    expect(() => plugin.getContext()).toThrow('context accessed before initialize()');
   });
 
   it('isHealthy defaults to true', () => {
@@ -367,6 +420,8 @@ describe('BaseChannelPlugin', () => {
 describe('SlashCommandContext', () => {
   it('has required fields', () => {
     const ctx: SlashCommandContext = {
+      args: 'model gpt-4',
+      argv: ['model', 'gpt-4'],
       channel: 'telegram',
       senderId: 'user-1',
       sessionId: 'session-123',
@@ -376,6 +431,7 @@ describe('SlashCommandContext', () => {
     expect(ctx.channel).toBe('telegram');
     expect(ctx.senderId).toBe('user-1');
     expect(ctx.sessionId).toBe('session-123');
+    expect(ctx.args).toBe('model gpt-4');
     expect(typeof ctx.reply).toBe('function');
   });
 });
@@ -400,5 +456,18 @@ describe('ReactionEvent', () => {
 
     expect(addEvent.added).toBe(true);
     expect(removeEvent.added).toBe(false);
+  });
+
+  it('supports optional timestamp', () => {
+    const event: ReactionEvent = {
+      channel: 'discord',
+      senderId: 'user-1',
+      messageId: 'msg-1',
+      emoji: '👍',
+      added: true,
+      timestamp: 1700000000000,
+    };
+
+    expect(event.timestamp).toBe(1700000000000);
   });
 });
