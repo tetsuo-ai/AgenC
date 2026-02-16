@@ -1493,6 +1493,7 @@ export {
 // Agent Builder (Phase 10)
 export { AgentBuilder, BuiltAgent } from './builder.js';
 
+
 // Voice Support (Phase 9.3)
 export {
   // Types
@@ -1523,3 +1524,23 @@ export {
   type OpenAITTSProviderConfig,
   type EdgeTTSProviderConfig,
 } from './voice/index.js';
+
+// Cross-Protocol Bridges (Phase 10)
+export {
+  // Types
+  type LangChainTool,
+  type LangChainBridgeConfig,
+  type X402PaymentRequest,
+  type X402PaymentResponse,
+  type X402BridgeConfig,
+  type FarcasterPostParams,
+  type FarcasterPostResult,
+  type FarcasterBridgeConfig,
+  // Error classes
+  BridgeError,
+  BridgePaymentError,
+  // Bridge classes
+  LangChainBridge,
+  X402Bridge,
+  FarcasterBridge,
+} from './bridges/index.js';
