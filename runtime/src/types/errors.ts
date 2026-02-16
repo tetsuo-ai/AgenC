@@ -154,6 +154,10 @@ export const RuntimeErrorCodes = {
   SANDBOX_EXECUTION_ERROR: 'SANDBOX_EXECUTION_ERROR',
   /** Docker daemon is not available or not running */
   SANDBOX_UNAVAILABLE: 'SANDBOX_UNAVAILABLE',
+  /** Speech-to-text transcription failed */
+  VOICE_TRANSCRIPTION_ERROR: 'VOICE_TRANSCRIPTION_ERROR',
+  /** Text-to-speech synthesis failed */
+  VOICE_SYNTHESIS_ERROR: 'VOICE_SYNTHESIS_ERROR',
 } as const;
 
 /** Union type of all runtime error code values */
