@@ -25,6 +25,9 @@ export {
   GatewayStateError,
   GatewayLifecycleError,
   WorkspaceValidationError,
+  SubAgentSpawnError,
+  SubAgentTimeoutError,
+  SubAgentNotFoundError,
 } from './errors.js';
 
 export {
@@ -251,6 +254,20 @@ export {
   defaultHeartbeatConfig,
 } from './heartbeat.js';
 
+// Heartbeat actions (Phase 2.2)
+export {
+  createTaskScanAction,
+  createSummaryAction,
+  createPortfolioAction,
+  createPollingAction,
+  createDefaultHeartbeatActions,
+  type TaskScanActionConfig,
+  type SummaryActionConfig,
+  type PortfolioActionConfig,
+  type PollingActionConfig,
+  type DefaultHeartbeatActionsConfig,
+} from './heartbeat-actions.js';
+
 // Execution sandboxing (Phase 4.5)
 export type {
   SandboxConfig,
@@ -268,3 +285,19 @@ export {
   defaultSandboxConfig,
   checkDockerAvailable,
 } from './sandbox.js';
+
+// Sub-agent spawning (Phase 7.4)
+export type {
+  SubAgentConfig,
+  SubAgentResult,
+  SubAgentManagerConfig,
+  SubAgentStatus,
+  SubAgentInfo,
+} from './sub-agent.js';
+
+export {
+  SubAgentManager,
+  DEFAULT_SUB_AGENT_TIMEOUT_MS,
+  MAX_CONCURRENT_SUB_AGENTS,
+  SUB_AGENT_SESSION_PREFIX,
+} from './sub-agent.js';
