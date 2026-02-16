@@ -1481,6 +1481,19 @@ export {
   type SubAgentManagerConfig,
   type SubAgentStatus,
   type SubAgentInfo,
+  // Remote access (Issue #1102)
+  RemoteGatewayClient,
+  createToken,
+  verifyToken,
+  GatewayAuthError,
+  type GatewayAuthConfig,
+  type JWTPayload,
+  type RemoteGatewayConfig,
+  type RemoteGatewayState,
+  type RemoteGatewayEvents,
+  type RemoteChatMessage,
+  type OfflineQueueEntry,
+  type PushNotification,
 } from './gateway/index.js';
 
 // Channel Plugins (Phase 1.5)
