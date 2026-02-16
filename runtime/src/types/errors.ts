@@ -156,6 +156,10 @@ export const RuntimeErrorCodes = {
   SANDBOX_UNAVAILABLE: 'SANDBOX_UNAVAILABLE',
   /** Agent discovery query failed */
   DISCOVERY_ERROR: 'DISCOVERY_ERROR',
+  /** Cross-protocol bridge operation failed */
+  BRIDGE_ERROR: 'BRIDGE_ERROR',
+  /** x402 payment transfer failed */
+  BRIDGE_PAYMENT_ERROR: 'BRIDGE_PAYMENT_ERROR',
   /** Sub-agent spawning or setup failed */
   SUB_AGENT_SPAWN_ERROR: 'SUB_AGENT_SPAWN_ERROR',
   /** Sub-agent execution exceeded configured timeout */
