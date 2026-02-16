@@ -1585,6 +1585,9 @@ export {
   type ReputationChangeRecord,
   type ReputationScorerConfig,
   type ReputationReasonValue,
+  type ReputationSignalKind,
+  type ReputationSignal,
+  type ReputationSignalCallback,
   // Constants
   ReputationReason,
   REPUTATION_MAX,

@@ -19,6 +19,7 @@ import { isAnchorError, AnchorErrorCodes } from '../types/errors.js';
 import { ensureLazyModule } from '../utils/lazy-import.js';
 import { signAgentMessage, verifyAgentSignature, buildSigningPayload } from './crypto.js';
 import { MessagingSendError, MessagingConnectionError } from './messaging-errors.js';
+import type { ReputationSignalCallback } from './reputation-types.js';
 import {
   MSG_MAGIC,
   MSG_CONTENT_MAX_ONCHAIN,
@@ -98,6 +99,7 @@ export class AgentMessaging {
   private readonly handlers: Set<MessageHandler> = new Set();
   private wss: WsWebSocketServer | null = null;
   private disposed = false;
+  private readonly onReputationSignal?: ReputationSignalCallback;
 
   constructor(opsConfig: MessagingOpsConfig) {
     this.program = opsConfig.program;
@@ -105,6 +107,7 @@ export class AgentMessaging {
     this.wallet = opsConfig.wallet;
     this.logger = opsConfig.logger ?? silentLogger;
     this.discovery = opsConfig.discovery ?? createDefaultPeerResolver(this.program);
+    this.onReputationSignal = opsConfig.onReputationSignal;
 
     this.config = {
       defaultMode: opsConfig.config?.defaultMode ?? 'auto',
@@ -144,16 +147,32 @@ export class AgentMessaging {
 
     const effectiveMode = mode ?? this.config.defaultMode;
 
+    let message: AgentMessage;
     switch (effectiveMode) {
       case 'on-chain':
-        return this.sendOnChain(recipient, content);
+        message = await this.sendOnChain(recipient, content);
+        break;
       case 'off-chain':
-        return this.sendOffChain(recipient, content);
+        message = await this.sendOffChain(recipient, content);
+        break;
       case 'auto':
-        return this.sendAuto(recipient, content);
+        message = await this.sendAuto(recipient, content);
+        break;
       default:
         throw new MessagingSendError(recipient.toBase58(), `Unknown mode: ${effectiveMode}`);
     }
+
+    // Emit reputation signal for the sender
+    if (this.onReputationSignal) {
+      this.onReputationSignal({
+        kind: 'message',
+        agent: this.agentPda,
+        delta: 1,
+        timestamp: message.timestamp,
+      });
+    }
+
+    return message;
   }
 
   /**
