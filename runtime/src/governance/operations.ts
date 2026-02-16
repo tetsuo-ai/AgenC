@@ -301,6 +301,12 @@ export class GovernanceOperations {
       if (isAnchorError(err, AnchorErrorCodes.TimelockNotElapsed)) {
         throw new GovernanceExecutionError(pda, 'Execution timelock has not elapsed');
       }
+      if (isAnchorError(err, AnchorErrorCodes.ProposalInsufficientQuorum)) {
+        throw new GovernanceExecutionError(pda, 'Insufficient quorum for proposal execution');
+      }
+      if (isAnchorError(err, AnchorErrorCodes.ProposalNotApproved)) {
+        throw new GovernanceExecutionError(pda, 'Proposal did not achieve majority');
+      }
       this.logger.error(`Failed to execute proposal: ${err}`);
       throw err;
     }
