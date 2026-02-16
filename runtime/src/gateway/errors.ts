@@ -53,3 +53,44 @@ export class WorkspaceValidationError extends RuntimeError {
     this.reason = reason;
   }
 }
+
+export class SubAgentSpawnError extends RuntimeError {
+  public readonly parentSessionId: string;
+
+  constructor(parentSessionId: string, reason: string) {
+    super(
+      `Failed to spawn sub-agent for session "${parentSessionId}": ${reason}`,
+      RuntimeErrorCodes.SUB_AGENT_SPAWN_ERROR,
+    );
+    this.name = 'SubAgentSpawnError';
+    this.parentSessionId = parentSessionId;
+  }
+}
+
+export class SubAgentTimeoutError extends RuntimeError {
+  public readonly sessionId: string;
+  public readonly timeoutMs: number;
+
+  constructor(sessionId: string, timeoutMs: number) {
+    super(
+      `Sub-agent "${sessionId}" timed out after ${timeoutMs}ms`,
+      RuntimeErrorCodes.SUB_AGENT_TIMEOUT,
+    );
+    this.name = 'SubAgentTimeoutError';
+    this.sessionId = sessionId;
+    this.timeoutMs = timeoutMs;
+  }
+}
+
+export class SubAgentNotFoundError extends RuntimeError {
+  public readonly sessionId: string;
+
+  constructor(sessionId: string) {
+    super(
+      `Sub-agent "${sessionId}" not found`,
+      RuntimeErrorCodes.SUB_AGENT_NOT_FOUND,
+    );
+    this.name = 'SubAgentNotFoundError';
+    this.sessionId = sessionId;
+  }
+}

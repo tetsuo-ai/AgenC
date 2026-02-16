@@ -1407,6 +1407,19 @@ export {
   type SandboxMode,
   type SandboxScope,
   type WorkspaceAccessMode,
+  // Sub-agent spawning (Phase 7.4)
+  SubAgentManager,
+  SubAgentSpawnError,
+  SubAgentTimeoutError,
+  SubAgentNotFoundError,
+  DEFAULT_SUB_AGENT_TIMEOUT_MS,
+  MAX_CONCURRENT_SUB_AGENTS,
+  SUB_AGENT_SESSION_PREFIX,
+  type SubAgentConfig,
+  type SubAgentResult,
+  type SubAgentManagerConfig,
+  type SubAgentStatus,
+  type SubAgentInfo,
 } from './gateway/index.js';
 
 // Channel Plugins (Phase 1.5)
