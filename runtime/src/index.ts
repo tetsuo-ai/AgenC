@@ -815,6 +815,11 @@ export {
   isDomainAllowed,
   type HttpToolConfig,
   type HttpResponse,
+  // System tools (Filesystem)
+  createFilesystemTools,
+  isPathAllowed,
+  safePath,
+  type FilesystemToolConfig,
 } from './tools/index.js';
 
 // ZK Proof Engine (Phase 7)

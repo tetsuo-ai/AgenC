@@ -51,10 +51,16 @@ export {
   type SerializedProtocolConfig,
 } from './agenc/index.js';
 
-// System tools (HTTP)
+// System tools
 export {
+  // HTTP
   createHttpTools,
   isDomainAllowed,
   type HttpToolConfig,
   type HttpResponse,
+  // Filesystem
+  createFilesystemTools,
+  isPathAllowed,
+  safePath,
+  type FilesystemToolConfig,
 } from './system/index.js';
