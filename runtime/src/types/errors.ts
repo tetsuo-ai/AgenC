@@ -154,6 +154,8 @@ export const RuntimeErrorCodes = {
   SANDBOX_EXECUTION_ERROR: 'SANDBOX_EXECUTION_ERROR',
   /** Docker daemon is not available or not running */
   SANDBOX_UNAVAILABLE: 'SANDBOX_UNAVAILABLE',
+  /** Agent discovery query failed */
+  DISCOVERY_ERROR: 'DISCOVERY_ERROR',
   /** Speech-to-text transcription failed */
   VOICE_TRANSCRIPTION_ERROR: 'VOICE_TRANSCRIPTION_ERROR',
   /** Text-to-speech synthesis failed */
