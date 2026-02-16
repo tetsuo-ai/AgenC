@@ -805,6 +805,11 @@ export {
   type AuditTrailEntry,
   type AuditTrailStore,
   type AuditTrailVerification,
+  ToolPolicyEvaluator,
+  type ToolPermissionPolicy,
+  type ToolPolicyConditions,
+  type ToolPolicyContext,
+  type ToolPolicyDecision,
 } from './policy/index.js';
 
 // Tool System (Phase 5)
