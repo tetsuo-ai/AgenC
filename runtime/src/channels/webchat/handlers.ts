@@ -3,12 +3,13 @@
  *
  * Each handler processes a specific dotted-namespace message type
  * (e.g. 'status.get', 'skills.list') and returns structured data
- * from the Gateway's available APIs.
+ * from the Gateway's subsystems.
  *
- * For MVP, these are read-only proxies querying Gateway status/config.
- * Full subsystem integration (SkillRegistry, TaskOperations, MemoryBackend)
- * requires those subsystems to be wired into the Gateway — beyond this
- * issue's scope.
+ * Handlers that need async operations (memory, approvals) return
+ * void | Promise<void> — the plugin awaits the result.
+ *
+ * Events handlers (events.subscribe/unsubscribe) are handled directly
+ * in the plugin because they need clientId for per-client tracking.
  *
  * @module
  */
@@ -17,6 +18,9 @@ import type { ControlResponse } from '../../gateway/types.js';
 import type { WebChatDeps } from './types.js';
 
 export type SendFn = (response: ControlResponse) => void;
+
+const SOLANA_NOT_CONFIGURED =
+  'On-chain task operations require Solana connection — configure connection.rpcUrl in config';
 
 // ============================================================================
 // Status handlers
@@ -57,26 +61,36 @@ export function handleSkillsList(
 }
 
 export function handleSkillsToggle(
-  _deps: WebChatDeps,
+  deps: WebChatDeps,
   payload: Record<string, unknown> | undefined,
   id: string | undefined,
   send: SendFn,
 ): void {
-  const skillName = (payload as Record<string, unknown> | undefined)?.skillName;
+  const skillName = payload?.skillName;
   if (!skillName || typeof skillName !== 'string') {
     send({ type: 'error', error: 'Missing skillName in payload', id });
     return;
   }
-  // MVP: Acknowledge but don't actually toggle
+  const enabled = payload?.enabled;
+  if (typeof enabled !== 'boolean') {
+    send({ type: 'error', error: 'Missing enabled (boolean) in payload', id });
+    return;
+  }
+  if (!deps.skillToggle) {
+    send({ type: 'error', error: 'Skill toggle not available', id });
+    return;
+  }
+  deps.skillToggle(skillName, enabled);
+  // Re-send updated skill list
   send({
     type: 'skills.list',
-    payload: [],
+    payload: deps.skills ?? [],
     id,
   });
 }
 
 // ============================================================================
-// Tasks handlers
+// Tasks handlers (informative stubs — require Solana connection)
 // ============================================================================
 
 export function handleTasksList(
@@ -85,12 +99,7 @@ export function handleTasksList(
   id: string | undefined,
   send: SendFn,
 ): void {
-  // MVP: Return empty list — full TaskOperations integration pending
-  send({
-    type: 'tasks.list',
-    payload: [],
-    id,
-  });
+  send({ type: 'error', error: SOLANA_NOT_CONFIGURED, id });
 }
 
 export function handleTasksCreate(
@@ -99,17 +108,12 @@ export function handleTasksCreate(
   id: string | undefined,
   send: SendFn,
 ): void {
-  const params = (payload as Record<string, unknown> | undefined)?.params;
+  const params = payload?.params;
   if (!params || typeof params !== 'object') {
     send({ type: 'error', error: 'Missing params in payload', id });
     return;
   }
-  // MVP: Acknowledge
-  send({
-    type: 'tasks.list',
-    payload: [],
-    id,
-  });
+  send({ type: 'error', error: SOLANA_NOT_CONFIGURED, id });
 }
 
 export function handleTasksCancel(
@@ -118,54 +122,99 @@ export function handleTasksCancel(
   id: string | undefined,
   send: SendFn,
 ): void {
-  const taskId = (payload as Record<string, unknown> | undefined)?.taskId;
+  const taskId = payload?.taskId;
   if (!taskId || typeof taskId !== 'string') {
     send({ type: 'error', error: 'Missing taskId in payload', id });
     return;
   }
-  // MVP: Acknowledge
-  send({
-    type: 'tasks.list',
-    payload: [],
-    id,
-  });
+  send({ type: 'error', error: SOLANA_NOT_CONFIGURED, id });
 }
 
 // ============================================================================
 // Memory handlers
 // ============================================================================
 
-export function handleMemorySearch(
-  _deps: WebChatDeps,
+export async function handleMemorySearch(
+  deps: WebChatDeps,
   payload: Record<string, unknown> | undefined,
   id: string | undefined,
   send: SendFn,
-): void {
-  const query = (payload as Record<string, unknown> | undefined)?.query;
+): Promise<void> {
+  const query = payload?.query;
   if (!query || typeof query !== 'string') {
     send({ type: 'error', error: 'Missing query in payload', id });
     return;
   }
-  // MVP: Return empty results
-  send({
-    type: 'memory.results',
-    payload: [],
-    id,
-  });
+  if (!deps.memoryBackend) {
+    send({ type: 'error', error: 'Memory backend not configured', id });
+    return;
+  }
+  try {
+    // Search across sessions matching the query as a prefix, or fall back to
+    // querying all sessions for entries containing the search string.
+    const sessions = await deps.memoryBackend.listSessions(query);
+    let entries: Array<{ content: string; timestamp: number; role: string }> = [];
+
+    if (sessions.length > 0) {
+      // Gather recent entries from matching sessions
+      for (const sid of sessions.slice(0, 10)) {
+        const thread = await deps.memoryBackend.getThread(sid, 20);
+        entries.push(
+          ...thread.map((e) => ({ content: e.content, timestamp: e.timestamp, role: e.role })),
+        );
+      }
+    } else {
+      // Fall back: list all sessions and search entry content
+      const allSessions = await deps.memoryBackend.listSessions();
+      for (const sid of allSessions.slice(0, 20)) {
+        const thread = await deps.memoryBackend.getThread(sid, 50);
+        const matching = thread.filter((e) =>
+          e.content.toLowerCase().includes(query.toLowerCase()),
+        );
+        entries.push(
+          ...matching.map((e) => ({ content: e.content, timestamp: e.timestamp, role: e.role })),
+        );
+      }
+    }
+
+    // Sort by timestamp descending, limit to 50
+    entries.sort((a, b) => b.timestamp - a.timestamp);
+    entries = entries.slice(0, 50);
+
+    send({ type: 'memory.results', payload: entries, id });
+  } catch (err) {
+    send({ type: 'error', error: `Memory search failed: ${(err as Error).message}`, id });
+  }
 }
 
-export function handleMemorySessions(
-  _deps: WebChatDeps,
-  _payload: Record<string, unknown> | undefined,
+export async function handleMemorySessions(
+  deps: WebChatDeps,
+  payload: Record<string, unknown> | undefined,
   id: string | undefined,
   send: SendFn,
-): void {
-  // MVP: Return empty sessions
-  send({
-    type: 'memory.sessions',
-    payload: [],
-    id,
-  });
+): Promise<void> {
+  if (!deps.memoryBackend) {
+    send({ type: 'error', error: 'Memory backend not configured', id });
+    return;
+  }
+  try {
+    const limit = typeof payload?.limit === 'number' ? payload.limit : 50;
+    const sessions = await deps.memoryBackend.listSessions();
+    const results: Array<{ id: string; messageCount: number; lastActiveAt: number }> = [];
+
+    for (const sid of sessions.slice(0, limit)) {
+      const thread = await deps.memoryBackend.getThread(sid);
+      results.push({
+        id: sid,
+        messageCount: thread.length,
+        lastActiveAt: thread.length > 0 ? thread[thread.length - 1].timestamp : 0,
+      });
+    }
+
+    send({ type: 'memory.sessions', payload: results, id });
+  } catch (err) {
+    send({ type: 'error', error: `Memory sessions failed: ${(err as Error).message}`, id });
+  }
 }
 
 // ============================================================================
@@ -173,13 +222,13 @@ export function handleMemorySessions(
 // ============================================================================
 
 export function handleApprovalRespond(
-  _deps: WebChatDeps,
+  deps: WebChatDeps,
   payload: Record<string, unknown> | undefined,
   id: string | undefined,
   send: SendFn,
 ): void {
-  const requestId = (payload as Record<string, unknown> | undefined)?.requestId;
-  const approved = (payload as Record<string, unknown> | undefined)?.approved;
+  const requestId = payload?.requestId;
+  const approved = payload?.approved;
   if (!requestId || typeof requestId !== 'string') {
     send({ type: 'error', error: 'Missing requestId in payload', id });
     return;
@@ -188,42 +237,17 @@ export function handleApprovalRespond(
     send({ type: 'error', error: 'Missing approved (boolean) in payload', id });
     return;
   }
-  // MVP: Acknowledge
+  if (!deps.approvalEngine) {
+    send({ type: 'error', error: 'Approval engine not configured', id });
+    return;
+  }
+  deps.approvalEngine.resolve(requestId, {
+    requestId,
+    disposition: approved ? 'yes' : 'no',
+  });
   send({
-    type: 'approval.respond' as string,
+    type: 'approval.respond',
     payload: { requestId, approved, acknowledged: true },
-    id,
-  });
-}
-
-// ============================================================================
-// Events handlers
-// ============================================================================
-
-export function handleEventsSubscribe(
-  _deps: WebChatDeps,
-  _payload: Record<string, unknown> | undefined,
-  id: string | undefined,
-  send: SendFn,
-): void {
-  // MVP: Acknowledge subscription
-  send({
-    type: 'events.subscribed' as string,
-    payload: { active: true },
-    id,
-  });
-}
-
-export function handleEventsUnsubscribe(
-  _deps: WebChatDeps,
-  _payload: Record<string, unknown> | undefined,
-  id: string | undefined,
-  send: SendFn,
-): void {
-  // MVP: Acknowledge unsubscription
-  send({
-    type: 'events.unsubscribed' as string,
-    payload: { active: false },
     id,
   });
 }
@@ -237,7 +261,7 @@ export type HandlerFn = (
   payload: Record<string, unknown> | undefined,
   id: string | undefined,
   send: SendFn,
-) => void;
+) => void | Promise<void>;
 
 /** Map of dotted-namespace message types to their handler functions. */
 export const HANDLER_MAP: Readonly<Record<string, HandlerFn>> = {
@@ -250,6 +274,4 @@ export const HANDLER_MAP: Readonly<Record<string, HandlerFn>> = {
   'memory.search': handleMemorySearch,
   'memory.sessions': handleMemorySessions,
   'approval.respond': handleApprovalRespond,
-  'events.subscribe': handleEventsSubscribe,
-  'events.unsubscribe': handleEventsUnsubscribe,
 };

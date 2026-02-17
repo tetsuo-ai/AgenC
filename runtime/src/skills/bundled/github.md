@@ -8,6 +8,8 @@ metadata:
       binaries:
         - gh
         - git
+      env:
+        - GITHUB_TOKEN
     install:
       - type: brew
         package: gh

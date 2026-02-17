@@ -32,6 +32,8 @@ export interface BashToolConfig {
   readonly logger?: Logger;
   /** Lock working directory — reject per-call cwd overrides from LLM (default: false) */
   readonly lockCwd?: boolean;
+  /** Disable all deny lists (default + config). Use for trusted daemon environments. (default: false) */
+  readonly unrestricted?: boolean;
 }
 
 /**

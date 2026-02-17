@@ -385,7 +385,7 @@ describe('WebChatChannel', () => {
       );
     });
 
-    it('should handle tasks.list', () => {
+    it('should handle tasks.list with informative error (no Solana connection)', () => {
       const send = vi.fn<(response: ControlResponse) => void>();
 
       channel.handleMessage(
@@ -396,11 +396,14 @@ describe('WebChatChannel', () => {
       );
 
       expect(send).toHaveBeenCalledWith(
-        expect.objectContaining({ type: 'tasks.list', payload: [] }),
+        expect.objectContaining({
+          type: 'error',
+          error: expect.stringContaining('Solana connection'),
+        }),
       );
     });
 
-    it('should handle memory.sessions', () => {
+    it('should handle memory.sessions with error when no backend', () => {
       const send = vi.fn<(response: ControlResponse) => void>();
 
       channel.handleMessage(
@@ -410,8 +413,12 @@ describe('WebChatChannel', () => {
         send,
       );
 
+      // No memoryBackend in deps → error
       expect(send).toHaveBeenCalledWith(
-        expect.objectContaining({ type: 'memory.sessions', payload: [] }),
+        expect.objectContaining({
+          type: 'error',
+          error: 'Memory backend not configured',
+        }),
       );
     });
 
