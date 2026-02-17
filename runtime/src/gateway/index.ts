@@ -8,6 +8,7 @@ export type {
   GatewayLoggingConfig,
   GatewayBindConfig,
   GatewayVoiceConfig,
+  GatewayTelemetryConfig,
   GatewayState,
   GatewayStatus,
   GatewayEvent,

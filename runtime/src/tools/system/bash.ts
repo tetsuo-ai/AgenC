@@ -111,8 +111,9 @@ export function isCommandAllowed(
  * @returns A Tool instance that executes bash commands securely
  */
 export function createBashTool(config?: BashToolConfig): Tool {
-  const denySet = buildDenySet(config?.denyList);
-  const allowSet = config?.allowList && config.allowList.length > 0
+  const unrestricted = config?.unrestricted ?? false;
+  const denySet = unrestricted ? new Set<string>() : buildDenySet(config?.denyList);
+  const allowSet = !unrestricted && config?.allowList && config.allowList.length > 0
     ? new Set<string>(config.allowList)
     : null;
   const defaultCwd = config?.cwd ?? process.cwd();
@@ -162,11 +163,13 @@ export function createBashTool(config?: BashToolConfig): Tool {
 
       const command = input.command.trim();
 
-      // Check deny/allow lists
-      const check = isCommandAllowed(command, denySet, allowSet);
-      if (!check.allowed) {
-        logger.warn(`Bash tool denied: ${check.reason}`);
-        return errorResult(check.reason);
+      // Check deny/allow lists (skipped in unrestricted mode)
+      if (!unrestricted) {
+        const check = isCommandAllowed(command, denySet, allowSet);
+        if (!check.allowed) {
+          logger.warn(`Bash tool denied: ${check.reason}`);
+          return errorResult(check.reason);
+        }
       }
 
       // Validate args

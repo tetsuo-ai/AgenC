@@ -1296,6 +1296,7 @@ export {
   type GatewayLoggingConfig,
   type GatewayBindConfig,
   type GatewayVoiceConfig,
+  type GatewayTelemetryConfig,
   type GatewayState,
   type GatewayStatus,
   type GatewayEvent,
