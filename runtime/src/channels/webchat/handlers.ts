@@ -44,16 +44,14 @@ export function handleStatusGet(
 // ============================================================================
 
 export function handleSkillsList(
-  _deps: WebChatDeps,
+  deps: WebChatDeps,
   _payload: Record<string, unknown> | undefined,
   id: string | undefined,
   send: SendFn,
 ): void {
-  // MVP: Return empty list — full skill registry integration requires
-  // SkillRegistry to be wired into the Gateway.
   send({
     type: 'skills.list',
-    payload: [],
+    payload: deps.skills ?? [],
     id,
   });
 }
