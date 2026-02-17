@@ -7,6 +7,7 @@ export type {
   GatewayConnectionConfig,
   GatewayLoggingConfig,
   GatewayBindConfig,
+  GatewayVoiceConfig,
   GatewayState,
   GatewayStatus,
   GatewayEvent,
@@ -156,6 +157,9 @@ export {
   type PidFileInfo,
   type StalePidResult,
 } from './daemon.js';
+
+// Voice Bridge (xAI Realtime)
+export { VoiceBridge, type VoiceBridgeConfig } from './voice-bridge.js';
 
 // Media pipeline (Phase 1.12)
 export type { MediaPipelineConfig, MediaProcessingResult, TranscriptionProvider, ImageDescriptionProvider, MediaLogger } from './media.js';

@@ -137,6 +137,15 @@ export interface WSMessage {
 }
 
 // ============================================================================
+// Voice
+// Keep in sync with runtime/src/channels/webchat/types.ts voice protocol types
+// ============================================================================
+
+export type VoiceState = 'inactive' | 'connecting' | 'listening' | 'speaking' | 'processing';
+
+export type VoiceMode = 'vad' | 'push-to-talk';
+
+// ============================================================================
 // Navigation
 // ============================================================================
 

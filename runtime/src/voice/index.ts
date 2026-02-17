@@ -17,6 +17,7 @@ export type {
   TextToSpeechProvider,
   STTConfig,
   TTSConfig,
+  RealtimeVoiceConfig,
   VoiceConfig,
 } from './types.js';
 
@@ -42,3 +43,18 @@ export {
   type OpenAITTSProviderConfig,
   type EdgeTTSProviderConfig,
 } from './tts.js';
+
+// Realtime voice (xAI Realtime API)
+export {
+  XaiRealtimeClient,
+  VoiceRealtimeError,
+  type XaiVoice,
+  type XaiAudioFormat,
+  type VadConfig,
+  type VoiceTool,
+  type VoiceSessionConfig,
+  type ClientEvent as VoiceClientEvent,
+  type ServerEvent as VoiceServerEvent,
+  type VoiceSessionCallbacks,
+  type XaiRealtimeClientConfig,
+} from './realtime/index.js';

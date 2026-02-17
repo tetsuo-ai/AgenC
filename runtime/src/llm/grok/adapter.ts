@@ -23,7 +23,7 @@ import { ensureLazyImport } from '../lazy-import.js';
 import { withTimeout } from '../timeout.js';
 
 const DEFAULT_BASE_URL = 'https://api.x.ai/v1';
-const DEFAULT_MODEL = 'grok-3';
+const DEFAULT_MODEL = 'grok-4-1-fast-reasoning';
 
 export class GrokProvider implements LLMProvider {
   readonly name = 'grok';

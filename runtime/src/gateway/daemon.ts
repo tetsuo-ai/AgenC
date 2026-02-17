@@ -29,6 +29,7 @@ import { createBashTool } from '../tools/system/bash.js';
 import { createHttpTools } from '../tools/system/http.js';
 import { SkillDiscovery } from '../skills/markdown/discovery.js';
 import type { DiscoveredSkill } from '../skills/markdown/discovery.js';
+import { VoiceBridge } from './voice-bridge.js';
 
 // ============================================================================
 // PID File Types
@@ -150,6 +151,7 @@ export interface DaemonStatus {
 export class DaemonManager {
   private gateway: Gateway | null = null;
   private _webChatChannel: WebChatChannel | null = null;
+  private _voiceBridge: VoiceBridge | null = null;
   private shutdownInProgress = false;
   private startedAt = 0;
   private signalHandlersRegistered = false;
@@ -264,13 +266,33 @@ export class DaemonManager {
     const MAX_HISTORY = 50;
     const MAX_SESSIONS = 100;
 
-    const webChat = new WebChatChannel(
-      { gateway: { getStatus: () => gateway.getStatus(), config }, skills: skillList },
-    );
-
     const systemPrompt = config.agent?.name
       ? `You are ${config.agent.name}, an AI agent on the AgenC protocol. Be helpful, concise, and use your tools when appropriate.`
       : 'You are an AI agent on the AgenC protocol. Be helpful, concise, and use your tools when appropriate.';
+
+    // Create voice bridge if Grok provider + API key available
+    let voiceBridge: VoiceBridge | undefined;
+    if (
+      config.llm?.provider === 'grok'
+      && config.llm.apiKey
+      && config.voice?.enabled !== false
+    ) {
+      voiceBridge = new VoiceBridge({
+        apiKey: config.llm.apiKey,
+        tools: llmTools,
+        toolHandler: registry.createToolHandler(),
+        systemPrompt,
+        voice: config.voice?.voice ?? 'Ara',
+        model: config.llm.model ?? 'grok-4-1-fast-reasoning',
+        mode: config.voice?.mode ?? 'vad',
+        logger: this.logger,
+      });
+      this._voiceBridge = voiceBridge;
+    }
+
+    const webChat = new WebChatChannel(
+      { gateway: { getStatus: () => gateway.getStatus(), config }, skills: skillList, voiceBridge },
+    );
 
     const onMessage = async (msg: GatewayMessage): Promise<void> => {
       if (!msg.content.trim()) return;
@@ -339,7 +361,8 @@ export class DaemonManager {
     this.logger.info(
       `WebChat wired` +
       (llm ? ` with ${llm.name} LLM` : ' (no LLM)') +
-      `, ${toolCount} tools, ${skillCount} skills`,
+      `, ${toolCount} tools, ${skillCount} skills` +
+      (voiceBridge ? ', voice enabled' : ''),
     );
   }
 
@@ -356,7 +379,7 @@ export class DaemonManager {
         const { GrokProvider } = await import('../llm/grok/adapter.js');
         return new GrokProvider({
           apiKey: apiKey ?? '',
-          model: model ?? 'grok-3',
+          model: model ?? 'grok-4-1-fast-reasoning',
           baseURL: baseUrl,
           tools,
         });
@@ -411,6 +434,11 @@ export class DaemonManager {
     this.shutdownInProgress = true;
 
     try {
+      // Stop voice sessions before WebChat channel
+      if (this._voiceBridge !== null) {
+        await this._voiceBridge.stopAll();
+        this._voiceBridge = null;
+      }
       // Stop WebChat channel before gateway
       if (this._webChatChannel !== null) {
         await this._webChatChannel.stop();
