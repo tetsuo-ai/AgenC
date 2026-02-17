@@ -1,11 +1,26 @@
 import { useCallback, useRef, useState } from 'react';
+import type { VoiceState, VoiceMode } from '../../types';
+import { VoiceButton } from './VoiceButton';
 
 interface ChatInputProps {
   onSend: (content: string) => void;
   disabled?: boolean;
+  voiceState?: VoiceState;
+  voiceMode?: VoiceMode;
+  onVoiceToggle?: () => void;
+  onPushToTalkStart?: () => void;
+  onPushToTalkStop?: () => void;
 }
 
-export function ChatInput({ onSend, disabled }: ChatInputProps) {
+export function ChatInput({
+  onSend,
+  disabled,
+  voiceState = 'inactive',
+  voiceMode = 'vad',
+  onVoiceToggle,
+  onPushToTalkStart,
+  onPushToTalkStop,
+}: ChatInputProps) {
   const [value, setValue] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -52,6 +67,16 @@ export function ChatInput({ onSend, disabled }: ChatInputProps) {
         rows={1}
         className="flex-1 bg-tetsuo-800 text-tetsuo-100 border border-tetsuo-600 rounded-lg px-4 py-2.5 text-sm resize-none focus:outline-none focus:border-accent placeholder:text-tetsuo-500 disabled:opacity-50"
       />
+      {onVoiceToggle && (
+        <VoiceButton
+          voiceState={voiceState}
+          mode={voiceMode}
+          onToggle={onVoiceToggle}
+          onPushToTalkStart={onPushToTalkStart}
+          onPushToTalkStop={onPushToTalkStop}
+          disabled={disabled}
+        />
+      )}
       <button
         onClick={handleSubmit}
         disabled={disabled || !value.trim()}

@@ -2,6 +2,7 @@ import { useCallback, useState } from 'react';
 import type { ViewId, WSMessage, ApprovalRequest } from './types';
 import { useWebSocket } from './hooks/useWebSocket';
 import { useChat } from './hooks/useChat';
+import { useVoice } from './hooks/useVoice';
 import { useAgentStatus } from './hooks/useAgentStatus';
 import { useSkills } from './hooks/useSkills';
 import { useTasks } from './hooks/useTasks';
@@ -35,6 +36,7 @@ export default function App() {
 
   // Hooks (all include handleMessage for routing WS messages)
   const chat = useChat({ send }) as WithHandler<ReturnType<typeof useChat>>;
+  const voice = useVoice({ send });
   const agentStatus = useAgentStatus({ send, connected }) as WithHandler<ReturnType<typeof useAgentStatus>>;
   const skills = useSkills({ send }) as WithHandler<ReturnType<typeof useSkills>>;
   const tasks = useTasks({ send }) as WithHandler<ReturnType<typeof useTasks>>;
@@ -42,9 +44,19 @@ export default function App() {
   const approvals = useApprovals({ send }) as WithHandler<ReturnType<typeof useApprovals>>;
   const activityFeed = useActivityFeed({ send, connected }) as WithHandler<ReturnType<typeof useActivityFeed>>;
 
+  // Voice toggle — start or stop voice session
+  const handleVoiceToggle = useCallback(() => {
+    if (voice.isVoiceActive) {
+      voice.stopVoice();
+    } else {
+      void voice.startVoice();
+    }
+  }, [voice]);
+
   // Central message router — dispatches to appropriate hook handler
   function handleWSMessage(msg: WSMessage) {
     chat.handleMessage(msg);
+    voice.handleMessage(msg);
     agentStatus.handleMessage(msg);
     skills.handleMessage(msg);
     tasks.handleMessage(msg);
@@ -93,6 +105,13 @@ export default function App() {
                 isTyping={chat.isTyping}
                 onSend={chat.sendMessage}
                 connected={connected}
+                voiceState={voice.voiceState}
+                voiceTranscript={voice.transcript}
+                voiceMode={voice.mode}
+                onVoiceToggle={handleVoiceToggle}
+                onVoiceModeChange={voice.setMode}
+                onPushToTalkStart={voice.pushToTalkStart}
+                onPushToTalkStop={voice.pushToTalkStop}
               />
             )}
             {currentView === 'status' && (

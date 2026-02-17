@@ -44,6 +44,8 @@ export interface WebChatDeps {
   };
   /** Optional skill listing for skills.list handler. */
   skills?: ReadonlyArray<{ name: string; description: string; enabled: boolean }>;
+  /** Optional voice bridge for real-time voice sessions. */
+  voiceBridge?: import('../../gateway/voice-bridge.js').VoiceBridge;
 }
 
 // ============================================================================
@@ -269,5 +271,31 @@ export interface EventsEventResponse {
 export interface ErrorResponse {
   type: 'error';
   error: string;
+  id?: string;
+}
+
+// ============================================================================
+// Voice WebSocket Protocol — Client → Server
+// Keep in sync with web/src/types.ts voice types
+// ============================================================================
+
+export interface VoiceStartRequest {
+  type: 'voice.start';
+  id?: string;
+}
+
+export interface VoiceAudioRequest {
+  type: 'voice.audio';
+  audio: string; // base64-encoded PCM
+  id?: string;
+}
+
+export interface VoiceCommitRequest {
+  type: 'voice.commit';
+  id?: string;
+}
+
+export interface VoiceStopRequest {
+  type: 'voice.stop';
   id?: string;
 }

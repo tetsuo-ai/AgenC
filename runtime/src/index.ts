@@ -261,6 +261,8 @@ export {
   bigintsToProofHash,
   proofHashToBigints,
   toAnchorBytes,
+  uint8ToBase64,
+  base64ToUint8,
 } from './utils/index.js';
 
 // Validation utilities
@@ -1293,6 +1295,7 @@ export {
   type GatewayConnectionConfig,
   type GatewayLoggingConfig,
   type GatewayBindConfig,
+  type GatewayVoiceConfig,
   type GatewayState,
   type GatewayStatus,
   type GatewayEvent,
@@ -1391,6 +1394,9 @@ export {
   type DaemonStatus,
   type PidFileInfo,
   type StalePidResult,
+  // Voice Bridge (xAI Realtime)
+  VoiceBridge,
+  type VoiceBridgeConfig,
   // Media pipeline (Phase 1.12)
   MediaPipeline,
   NoopTranscriptionProvider,
@@ -1697,6 +1703,7 @@ export {
   type TextToSpeechProvider,
   type STTConfig,
   type TTSConfig,
+  type RealtimeVoiceConfig,
   type VoiceConfig,
   // Error classes
   VoiceTranscriptionError,
@@ -1712,6 +1719,18 @@ export {
   type ElevenLabsProviderConfig,
   type OpenAITTSProviderConfig,
   type EdgeTTSProviderConfig,
+  // Realtime voice (xAI Realtime API)
+  XaiRealtimeClient,
+  VoiceRealtimeError,
+  type XaiVoice,
+  type XaiAudioFormat,
+  type VadConfig,
+  type VoiceTool,
+  type VoiceSessionConfig,
+  type VoiceClientEvent,
+  type VoiceServerEvent,
+  type VoiceSessionCallbacks,
+  type XaiRealtimeClientConfig,
 } from './voice/index.js';
 
 // Cross-Protocol Bridges (Phase 10)
