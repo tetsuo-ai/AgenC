@@ -162,6 +162,8 @@ export const RuntimeErrorCodes = {
   VOICE_TRANSCRIPTION_ERROR: 'VOICE_TRANSCRIPTION_ERROR',
   /** Text-to-speech synthesis failed */
   VOICE_SYNTHESIS_ERROR: 'VOICE_SYNTHESIS_ERROR',
+  /** Real-time voice session error (xAI Realtime API) */
+  VOICE_REALTIME_ERROR: 'VOICE_REALTIME_ERROR',
   /** Cross-protocol bridge operation failed */
   BRIDGE_ERROR: 'BRIDGE_ERROR',
   /** x402 payment transfer failed */

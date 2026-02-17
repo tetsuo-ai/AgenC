@@ -34,7 +34,7 @@ function makeCompletion(overrides: Record<string, any> = {}) {
       },
     ],
     usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
-    model: 'grok-3',
+    model: 'grok-4-1-fast-reasoning',
     ...overrides,
   };
 }
@@ -57,7 +57,7 @@ describe('GrokProvider', () => {
 
     expect(mockCreate).toHaveBeenCalledOnce();
     const params = mockCreate.mock.calls[0][0];
-    expect(params.model).toBe('grok-3');
+    expect(params.model).toBe('grok-4-1-fast-reasoning');
     expect(params.messages).toEqual([
       { role: 'system', content: 'You are helpful.' },
       { role: 'user', content: 'Hello' },

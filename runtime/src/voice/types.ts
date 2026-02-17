@@ -106,9 +106,18 @@ export interface TTSConfig {
   readonly model?: string;
 }
 
+/** xAI Realtime voice provider configuration. */
+export interface RealtimeVoiceConfig {
+  readonly provider: 'xai-realtime';
+  readonly apiKey: string;
+  readonly voice?: 'Ara' | 'Rex' | 'Sal' | 'Eve' | 'Leo';
+  readonly model?: string;
+}
+
 /** Combined voice configuration. */
 export interface VoiceConfig {
   readonly stt?: STTConfig;
   readonly tts?: TTSConfig;
   readonly autoTts?: boolean;
+  readonly realtime?: RealtimeVoiceConfig;
 }
