@@ -137,6 +137,12 @@ export class WebChatChannel extends BaseChannelPlugin implements WebChatHandler 
     const id = typeof msg.id === 'string' ? msg.id : undefined;
     const payload = msg.payload as Record<string, unknown> | undefined;
 
+    // Voice messages are routed to the voice bridge
+    if (type.startsWith('voice.')) {
+      this.handleVoiceMessage(clientId, type, payload, id, send);
+      return;
+    }
+
     // Chat messages are special — they go through the Gateway's message pipeline
     if (type === 'chat.message') {
       this.handleChatMessage(clientId, payload, id, send);
@@ -166,6 +172,45 @@ export class WebChatChannel extends BaseChannelPlugin implements WebChatHandler 
     }
 
     send({ type: 'error', error: `Unknown webchat message type: ${type}`, id });
+  }
+
+  // --------------------------------------------------------------------------
+  // Voice message handling
+  // --------------------------------------------------------------------------
+
+  private handleVoiceMessage(
+    clientId: string,
+    type: string,
+    payload: Record<string, unknown> | undefined,
+    id: string | undefined,
+    send: SendFn,
+  ): void {
+    const bridge = this.deps.voiceBridge;
+    if (!bridge) {
+      send({ type: 'error', error: 'Voice not available — no LLM provider with voice support configured', id });
+      return;
+    }
+
+    switch (type) {
+      case 'voice.start':
+        void bridge.startSession(clientId, send);
+        break;
+      case 'voice.audio': {
+        const audio = payload?.audio;
+        if (typeof audio === 'string') {
+          bridge.sendAudio(clientId, audio);
+        }
+        break;
+      }
+      case 'voice.commit':
+        bridge.commitAudio(clientId);
+        break;
+      case 'voice.stop':
+        void bridge.stopSession(clientId);
+        break;
+      default:
+        send({ type: 'error', error: `Unknown voice message type: ${type}`, id });
+    }
   }
 
   // --------------------------------------------------------------------------
@@ -320,6 +365,11 @@ export class WebChatChannel extends BaseChannelPlugin implements WebChatHandler 
    * when a WS client disconnects.
    */
   removeClient(clientId: string): void {
+    // Stop any active voice session for this client
+    if (this.deps.voiceBridge?.hasSession(clientId)) {
+      void this.deps.voiceBridge.stopSession(clientId);
+    }
+
     const sessionId = this.clientSessions.get(clientId);
     if (sessionId) {
       this.sessionClients.delete(sessionId);

@@ -55,6 +55,12 @@ export interface GatewayBindConfig {
   bind?: string;
 }
 
+export interface GatewayVoiceConfig {
+  enabled?: boolean;
+  voice?: 'Ara' | 'Rex' | 'Sal' | 'Eve' | 'Leo';
+  mode?: 'vad' | 'push-to-talk';
+}
+
 export interface GatewayConfig {
   gateway: GatewayBindConfig;
   agent: GatewayAgentConfig;
@@ -64,6 +70,7 @@ export interface GatewayConfig {
   channels?: Record<string, GatewayChannelConfig>;
   logging?: GatewayLoggingConfig;
   auth?: GatewayAuthConfig;
+  voice?: GatewayVoiceConfig;
 }
 
 // ============================================================================

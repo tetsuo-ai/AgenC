@@ -21,6 +21,8 @@ export {
   proofHashToBigints,
   toAnchorBytes,
   toUint8Array,
+  uint8ToBase64,
+  base64ToUint8,
 } from './encoding.js';
 
 export { PdaWithBump, derivePda, validateIdLength } from './pda.js';

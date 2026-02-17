@@ -313,6 +313,41 @@ export function toAnchorBytes(bytes: Uint8Array): number[] {
 }
 
 // ============================================================================
+// Base64 ↔ Uint8Array conversion
+// ============================================================================
+
+/**
+ * Encode a Uint8Array to a base64 string.
+ * Uses Node.js Buffer when available, falls back to btoa for browsers.
+ */
+export function uint8ToBase64(data: Uint8Array): string {
+  if (typeof Buffer !== 'undefined') {
+    return Buffer.from(data).toString('base64');
+  }
+  let binary = '';
+  for (let i = 0; i < data.length; i++) {
+    binary += String.fromCharCode(data[i]);
+  }
+  return btoa(binary);
+}
+
+/**
+ * Decode a base64 string to a Uint8Array.
+ * Uses Node.js Buffer when available, falls back to atob for browsers.
+ */
+export function base64ToUint8(base64: string): Uint8Array {
+  if (typeof Buffer !== 'undefined') {
+    return new Uint8Array(Buffer.from(base64, 'base64'));
+  }
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+}
+
+// ============================================================================
 // Array → Uint8Array conversion
 // ============================================================================
 
