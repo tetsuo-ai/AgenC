@@ -47,6 +47,8 @@ export class WebChatChannel extends BaseChannelPlugin implements WebChatHandler 
   private readonly clientSenders = new Map<string, SendFn>();
   // sessionId → chat history for resume support
   private readonly sessionHistory = new Map<string, Array<{ content: string; sender: 'user' | 'agent'; timestamp: number }>>();
+  // clientIds that have subscribed to real-time events
+  private readonly eventSubscribers = new Set<string>();
 
   private healthy = true;
 
@@ -73,12 +75,29 @@ export class WebChatChannel extends BaseChannelPlugin implements WebChatHandler 
     this.sessionClients.clear();
     this.clientSenders.clear();
     this.sessionHistory.clear();
+    this.eventSubscribers.clear();
     this.healthy = false;
     this.context.logger.info('WebChat channel stopped');
   }
 
   override isHealthy(): boolean {
     return this.healthy;
+  }
+
+  // --------------------------------------------------------------------------
+  // Push to session (daemon → specific WS client by sessionId)
+  // --------------------------------------------------------------------------
+
+  /**
+   * Push a message to a specific session's WS client. Used by the daemon to
+   * send tool events, typing indicators, and approval requests mid-execution.
+   */
+  pushToSession(sessionId: string, response: ControlResponse): void {
+    const clientId = this.sessionClients.get(sessionId);
+    if (!clientId) return;
+    const send = this.clientSenders.get(clientId);
+    if (!send) return;
+    send(response);
   }
 
   // --------------------------------------------------------------------------
@@ -143,6 +162,12 @@ export class WebChatChannel extends BaseChannelPlugin implements WebChatHandler 
       return;
     }
 
+    // Event subscriptions need clientId — handled here, not in HANDLER_MAP
+    if (type.startsWith('events.')) {
+      this.handleEventMessage(clientId, type, id, send);
+      return;
+    }
+
     // Chat messages are special — they go through the Gateway's message pipeline
     if (type === 'chat.message') {
       this.handleChatMessage(clientId, payload, id, send);
@@ -164,10 +189,16 @@ export class WebChatChannel extends BaseChannelPlugin implements WebChatHandler 
       return;
     }
 
-    // Delegate to subsystem handlers
+    // Delegate to subsystem handlers (may be async)
     const handler = HANDLER_MAP[type];
     if (handler) {
-      handler(this.deps, payload, id, send);
+      const result = handler(this.deps, payload, id, send);
+      if (result instanceof Promise) {
+        result.catch((err) => {
+          this.context.logger.warn?.('WebChat handler error:', err);
+          send({ type: 'error', error: `Handler error: ${(err as Error).message}`, id });
+        });
+      }
       return;
     }
 
@@ -307,13 +338,51 @@ export class WebChatChannel extends BaseChannelPlugin implements WebChatHandler 
     this.sessionClients.set(targetSessionId, clientId);
 
     send({
-      type: 'chat.resumed' as string,
+      type: 'chat.resumed',
       payload: {
         sessionId: targetSessionId,
         messageCount: history.length,
       },
       id,
     });
+  }
+
+  // --------------------------------------------------------------------------
+  // Event subscription handling
+  // --------------------------------------------------------------------------
+
+  private handleEventMessage(
+    clientId: string,
+    type: string,
+    id: string | undefined,
+    send: SendFn,
+  ): void {
+    switch (type) {
+      case 'events.subscribe':
+        this.eventSubscribers.add(clientId);
+        send({ type: 'events.subscribed', payload: { active: true }, id });
+        break;
+      case 'events.unsubscribe':
+        this.eventSubscribers.delete(clientId);
+        send({ type: 'events.unsubscribed', payload: { active: false }, id });
+        break;
+      default:
+        send({ type: 'error', error: `Unknown events message type: ${type}`, id });
+    }
+  }
+
+  /**
+   * Broadcast an event to all subscribed WS clients.
+   */
+  broadcastEvent(eventType: string, data: Record<string, unknown>): void {
+    const response: ControlResponse = {
+      type: 'events.event',
+      payload: { eventType, data, timestamp: Date.now() },
+    };
+    for (const clientId of this.eventSubscribers) {
+      const send = this.clientSenders.get(clientId);
+      send?.(response);
+    }
   }
 
   // --------------------------------------------------------------------------
@@ -369,6 +438,9 @@ export class WebChatChannel extends BaseChannelPlugin implements WebChatHandler 
     if (this.deps.voiceBridge?.hasSession(clientId)) {
       void this.deps.voiceBridge.stopSession(clientId);
     }
+
+    // Remove from event subscribers
+    this.eventSubscribers.delete(clientId);
 
     const sessionId = this.clientSessions.get(clientId);
     if (sessionId) {
