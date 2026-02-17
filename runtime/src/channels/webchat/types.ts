@@ -42,6 +42,8 @@ export interface WebChatDeps {
     getStatus(): { state: string; uptimeMs: number; channels: string[]; activeSessions: number; controlPlanePort: number };
     config: { agent?: { name?: string } };
   };
+  /** Optional skill listing for skills.list handler. */
+  skills?: ReadonlyArray<{ name: string; description: string; enabled: boolean }>;
 }
 
 // ============================================================================
