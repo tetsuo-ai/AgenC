@@ -635,6 +635,85 @@ describe('ChatExecutor', () => {
   });
 
   // --------------------------------------------------------------------------
+  // Per-call streaming
+  // --------------------------------------------------------------------------
+
+  describe('per-call streaming', () => {
+    it('per-call callback overrides constructor callback', async () => {
+      const constructorCallback = vi.fn();
+      const perCallCallback = vi.fn();
+      const provider = createMockProvider();
+      const executor = new ChatExecutor({
+        providers: [provider],
+        onStreamChunk: constructorCallback,
+      });
+
+      await executor.execute(createParams({ onStreamChunk: perCallCallback }));
+
+      expect(provider.chatStream).toHaveBeenCalledWith(expect.any(Array), perCallCallback);
+      expect(provider.chat).not.toHaveBeenCalled();
+    });
+
+    it('per-call callback used when no constructor callback set', async () => {
+      const perCallCallback = vi.fn();
+      const provider = createMockProvider();
+      const executor = new ChatExecutor({ providers: [provider] });
+
+      await executor.execute(createParams({ onStreamChunk: perCallCallback }));
+
+      expect(provider.chatStream).toHaveBeenCalledWith(expect.any(Array), perCallCallback);
+      expect(provider.chat).not.toHaveBeenCalled();
+    });
+
+    it('constructor callback used when per-call not provided', async () => {
+      const constructorCallback = vi.fn();
+      const provider = createMockProvider();
+      const executor = new ChatExecutor({
+        providers: [provider],
+        onStreamChunk: constructorCallback,
+      });
+
+      await executor.execute(createParams());
+
+      expect(provider.chatStream).toHaveBeenCalledWith(expect.any(Array), constructorCallback);
+      expect(provider.chat).not.toHaveBeenCalled();
+    });
+
+    it('no streaming when neither callback set', async () => {
+      const provider = createMockProvider();
+      const executor = new ChatExecutor({ providers: [provider] });
+
+      await executor.execute(createParams());
+
+      expect(provider.chat).toHaveBeenCalledOnce();
+      expect(provider.chatStream).not.toHaveBeenCalled();
+    });
+
+    it('per-call streaming persists through multi-round tool loop', async () => {
+      const perCallCallback = vi.fn();
+      const toolHandler = vi.fn().mockResolvedValue('tool result');
+      const provider = createMockProvider('primary', {
+        chatStream: vi.fn<[LLMMessage[], StreamProgressCallback], Promise<LLMResponse>>()
+          .mockResolvedValueOnce(mockResponse({
+            content: '',
+            finishReason: 'tool_calls',
+            toolCalls: [{ id: 'tc-1', name: 'search', arguments: '{"q":"test"}' }],
+          }))
+          .mockResolvedValueOnce(mockResponse({ content: 'final' })),
+      });
+
+      const executor = new ChatExecutor({ providers: [provider], toolHandler });
+      const result = await executor.execute(createParams({ onStreamChunk: perCallCallback }));
+
+      expect(result.content).toBe('final');
+      expect(provider.chatStream).toHaveBeenCalledTimes(2);
+      // Both calls used the same per-call callback
+      expect(provider.chatStream).toHaveBeenNthCalledWith(1, expect.any(Array), perCallCallback);
+      expect(provider.chatStream).toHaveBeenNthCalledWith(2, expect.any(Array), perCallCallback);
+    });
+  });
+
+  // --------------------------------------------------------------------------
   // Edge cases
   // --------------------------------------------------------------------------
 

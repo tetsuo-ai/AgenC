@@ -247,6 +247,9 @@ describe('DaemonManager', () => {
   beforeEach(async () => {
     tempDir = await mkdtemp(join(tmpdir(), 'agenc-dm-test-'));
     vi.clearAllMocks();
+    // Skip wireWebChat to avoid heavy LLM/tool/skill dependency chain —
+    // these tests cover daemon lifecycle (PID files, start/stop), not WebChat wiring.
+    vi.spyOn(DaemonManager.prototype as any, 'wireWebChat').mockResolvedValue(undefined);
   });
 
   afterEach(async () => {

@@ -83,6 +83,10 @@ export interface ChatExecuteParams {
   readonly history: readonly LLMMessage[];
   readonly systemPrompt: string;
   readonly sessionId: string;
+  /** Per-call tool handler — overrides the constructor handler for this call. */
+  readonly toolHandler?: ToolHandler;
+  /** Per-call stream callback — overrides the constructor callback for this call. */
+  readonly onStreamChunk?: StreamProgressCallback;
 }
 
 /** Result returned from ChatExecutor.execute(). */
@@ -181,6 +185,8 @@ export class ChatExecutor {
    */
   async execute(params: ChatExecuteParams): Promise<ChatExecutorResult> {
     const { message, history, systemPrompt, sessionId } = params;
+    const activeToolHandler = params.toolHandler ?? this.toolHandler;
+    const activeStreamCallback = params.onStreamChunk ?? this.onStreamChunk;
     const startTime = Date.now();
 
     // Pre-check token budget
@@ -226,7 +232,7 @@ export class ChatExecutor {
     const cumulativeUsage: LLMUsage = { promptTokens: 0, completionTokens: 0, totalTokens: 0 };
     const allToolCalls: ToolCallRecord[] = [];
 
-    let { response, providerName, usedFallback } = await this.callWithFallback(messages);
+    let { response, providerName, usedFallback } = await this.callWithFallback(messages, activeStreamCallback);
     this.accumulateUsage(cumulativeUsage, response.usage);
 
     // Tool call loop
@@ -234,7 +240,7 @@ export class ChatExecutor {
     while (
       response.finishReason === 'tool_calls' &&
       response.toolCalls.length > 0 &&
-      this.toolHandler &&
+      activeToolHandler &&
       rounds < this.maxToolRounds
     ) {
       rounds++;
@@ -295,7 +301,7 @@ export class ChatExecutor {
         let result: string;
         let isError = false;
         try {
-          result = await this.toolHandler(toolCall.name, args);
+          result = await activeToolHandler!(toolCall.name, args);
         } catch (toolErr) {
           result = JSON.stringify({ error: (toolErr as Error).message });
           isError = true;
@@ -319,7 +325,7 @@ export class ChatExecutor {
       }
 
       // Re-call LLM
-      const next = await this.callWithFallback(messages);
+      const next = await this.callWithFallback(messages, activeStreamCallback);
       response = next.response;
       providerName = next.providerName;
       if (next.usedFallback) usedFallback = true;
@@ -363,7 +369,10 @@ export class ChatExecutor {
   // Private helpers
   // --------------------------------------------------------------------------
 
-  private async callWithFallback(messages: LLMMessage[]): Promise<FallbackResult> {
+  private async callWithFallback(
+    messages: LLMMessage[],
+    onStreamChunk?: StreamProgressCallback,
+  ): Promise<FallbackResult> {
     let lastError: Error | undefined;
     const now = Date.now();
 
@@ -377,8 +386,8 @@ export class ChatExecutor {
 
       try {
         let response: LLMResponse;
-        if (this.onStreamChunk) {
-          response = await provider.chatStream(messages, this.onStreamChunk);
+        if (onStreamChunk) {
+          response = await provider.chatStream(messages, onStreamChunk);
         } else {
           response = await provider.chat(messages);
         }

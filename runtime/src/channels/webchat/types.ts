@@ -7,27 +7,8 @@
  * @module
  */
 
-import type { ControlMessage, ControlResponse } from '../../gateway/types.js';
-
-// ============================================================================
-// WebChatHandler Interface
-// ============================================================================
-
-/**
- * Delegate interface for routing dotted-namespace WebSocket messages
- * from the Gateway to the WebChat channel plugin.
- *
- * The Gateway's handleControlMessage default case delegates to this
- * handler for any message type containing a dot (e.g. 'chat.message').
- */
-export interface WebChatHandler {
-  handleMessage(
-    clientId: string,
-    type: string,
-    msg: ControlMessage,
-    send: (response: ControlResponse) => void,
-  ): void;
-}
+// Re-export the canonical WebChatHandler from gateway/types to avoid duplication
+export type { WebChatHandler } from '../../gateway/types.js';
 
 // ============================================================================
 // WebChatDeps (dependency injection)
@@ -46,6 +27,12 @@ export interface WebChatDeps {
   skills?: ReadonlyArray<{ name: string; description: string; enabled: boolean }>;
   /** Optional voice bridge for real-time voice sessions. */
   voiceBridge?: import('../../gateway/voice-bridge.js').VoiceBridge;
+  /** Optional memory backend for memory.search / memory.sessions handlers. */
+  memoryBackend?: import('../../memory/types.js').MemoryBackend;
+  /** Optional approval engine for approval.respond handler. */
+  approvalEngine?: import('../../gateway/approvals.js').ApprovalEngine;
+  /** Optional callback to toggle a skill's enabled state. */
+  skillToggle?: (name: string, enabled: boolean) => void;
 }
 
 // ============================================================================
@@ -197,6 +184,18 @@ export interface ToolResultResponse {
   result: string;
   durationMs: number;
   isError?: boolean;
+}
+
+export interface ChatStreamResponse {
+  type: 'chat.stream';
+  content: string;
+  done: boolean;
+}
+
+export interface AgentStatusResponse {
+  type: 'agent.status';
+  phase: 'thinking' | 'tool_call' | 'generating' | 'idle';
+  detail?: string;
 }
 
 export interface StatusUpdateResponse {

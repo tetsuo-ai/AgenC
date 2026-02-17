@@ -18,12 +18,26 @@ export interface GatewayLLMConfig {
   apiKey?: string;
   model?: string;
   baseUrl?: string;
+  /** Maximum token budget per session. 0 or undefined = unlimited. */
+  sessionTokenBudget?: number;
+  /** Additional LLM providers for fallback (tried in order after primary fails). */
+  fallback?: GatewayLLMConfig[];
 }
 
 export interface GatewayMemoryConfig {
   backend: 'memory' | 'sqlite' | 'redis';
+  /** SQLite: database file path. Default: ~/.agenc/memory.db */
   dbPath?: string;
+  /** Redis: connection URL (e.g. 'redis://localhost:6379') */
   url?: string;
+  /** Redis: host. Default: 'localhost'. Ignored when url is set. */
+  host?: string;
+  /** Redis: port. Default: 6379. Ignored when url is set. */
+  port?: number;
+  /** Redis: password */
+  password?: string;
+  /** AES-256-GCM encryption key for content at rest (hex-encoded, 64 hex chars = 32 bytes). */
+  encryptionKey?: string;
 }
 
 export interface GatewayChannelConfig {
@@ -61,6 +75,13 @@ export interface GatewayVoiceConfig {
   mode?: 'vad' | 'push-to-talk';
 }
 
+export interface GatewayTelemetryConfig {
+  /** Enable metrics collection. Default: true. */
+  enabled?: boolean;
+  /** Auto-flush interval in ms. 0 = manual only. Default: 60000. */
+  flushIntervalMs?: number;
+}
+
 export interface GatewayConfig {
   gateway: GatewayBindConfig;
   agent: GatewayAgentConfig;
@@ -71,6 +92,7 @@ export interface GatewayConfig {
   logging?: GatewayLoggingConfig;
   auth?: GatewayAuthConfig;
   voice?: GatewayVoiceConfig;
+  telemetry?: GatewayTelemetryConfig;
 }
 
 // ============================================================================
