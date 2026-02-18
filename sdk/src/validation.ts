@@ -30,13 +30,14 @@ export function validateCircuitPath(circuitPath: string): void {
   if (path.isAbsolute(circuitPath)) {
     throw new Error('Security: Absolute circuit paths are not allowed');
   }
-  // Normalize and check for traversal attempts
+  // Normalize and check for traversal attempts (both / and \ separators)
   const normalized = path.normalize(circuitPath);
-  if (normalized.startsWith('..') || normalized.includes('../')) {
+  if (normalized.startsWith('..') || normalized.includes('../') || normalized.includes('..\\')) {
     throw new Error('Security: Path traversal in circuit path is not allowed');
   }
-  // Check for shell metacharacters that could enable command injection
-  const dangerousChars = /[;&|`$(){}[\]<>!]/;
+  // Check for shell metacharacters that could enable command injection.
+  // Includes backslash to prevent Windows-style escape sequences in shell contexts.
+  const dangerousChars = /[;&|`$(){}[\]<>!\\]/;
   if (dangerousChars.test(circuitPath)) {
     throw new Error('Security: Circuit path contains disallowed characters');
   }

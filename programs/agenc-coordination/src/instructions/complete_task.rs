@@ -137,6 +137,14 @@ pub fn handler(
     // Shared validation: status, transition, deadline, claim, competitive guard
     validate_completion_prereqs(task, claim, &clock)?;
 
+    // CRITICAL: Private tasks MUST use complete_task_private (ZK proof verification).
+    // Without this guard, an attacker could bypass ZK proof requirements by calling
+    // the public completion path on a task with a non-zero constraint_hash.
+    require!(
+        task.constraint_hash == [0u8; HASH_SIZE],
+        CoordinationError::PrivateTaskRequiresZkProof
+    );
+
     // Build optional token payment accounts
     let token_accounts = if task.reward_mint.is_some() {
         require!(

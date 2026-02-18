@@ -228,14 +228,19 @@ export function computeExpectedBinding(
 /**
  * Compute the nullifier to prevent proof/knowledge reuse across tasks.
  *
- * Compatibility helper: derives `agent_secret` from agent public key field.
- * New proof generation should pass `agentSecret` explicitly where possible.
+ * @deprecated Use computeNullifierFromAgentSecret instead. This function uses
+ * pubkeyToField(agentPubkey) as the secret, making nullifiers predictable by
+ * anyone who knows the agent's public key (which is always public).
  *
  * @param constraintHash - The constraint hash
  * @param agentPubkey - Agent's public key
  * @returns The nullifier value
  */
 export function computeNullifier(constraintHash: bigint, agentPubkey: PublicKey): bigint {
+  console.warn(
+    'DEPRECATED: computeNullifier() uses public key as agent_secret, producing predictable nullifiers. ' +
+    'Use computeNullifierFromAgentSecret() with a private secret instead.'
+  );
   const ch = normalizeFieldElement(constraintHash);
   const agentField = pubkeyToField(agentPubkey);
   return poseidon2([ch, agentField]);
@@ -266,6 +271,13 @@ export function computeHashes(
   const constraintHash = computeConstraintHash(output);
   const outputCommitment = computeCommitmentFromOutput(output, salt);
   const expectedBinding = computeExpectedBinding(taskPda, agentPubkey, outputCommitment);
+  if (agentSecret === undefined) {
+    console.warn(
+      'SECURITY WARNING: agentSecret not provided to computeHashes(). Falling back to ' +
+      'pubkeyToField(agentPubkey), which makes the nullifier predictable by anyone. ' +
+      'Pass an explicit agentSecret for production use.'
+    );
+  }
   const effectiveAgentSecret = agentSecret ?? pubkeyToField(agentPubkey);
   const nullifier = computeNullifierFromAgentSecret(constraintHash, effectiveAgentSecret);
 
@@ -323,9 +335,30 @@ function convertProofToSolanaFormat(proof: {
   pi_b: string[][];
   pi_c: string[];
 }): Buffer {
-  // Helper to convert a decimal string to 32-byte big-endian buffer
+  // Validate proof structure before conversion
+  if (!proof.pi_a || proof.pi_a.length < 2) {
+    throw new Error('Invalid proof: pi_a must have at least 2 elements');
+  }
+  if (!proof.pi_b || proof.pi_b.length < 2
+    || !proof.pi_b[0] || proof.pi_b[0].length < 2
+    || !proof.pi_b[1] || proof.pi_b[1].length < 2) {
+    throw new Error('Invalid proof: pi_b must be a 2x2 array');
+  }
+  if (!proof.pi_c || proof.pi_c.length < 2) {
+    throw new Error('Invalid proof: pi_c must have at least 2 elements');
+  }
+
+  // Helper to convert a decimal string to 32-byte big-endian buffer with bounds checking
   const toBe32 = (val: string): Buffer => {
     const bi = BigInt(val);
+    if (bi < 0n) {
+      throw new Error(`Proof coordinate is negative: ${val}`);
+    }
+    // BN254 base field modulus (coordinates must be < p)
+    const BN254_P = 21888242871839275222246405745257275088696311157297823662689037894645226208583n;
+    if (bi >= BN254_P) {
+      throw new Error(`Proof coordinate exceeds BN254 field modulus: ${val}`);
+    }
     const hex = bi.toString(16).padStart(64, '0');
     return Buffer.from(hex, 'hex');
   };
@@ -366,6 +399,13 @@ export async function generateProof(params: ProofGenerationParams): Promise<Proo
 
   const startTime = Date.now();
 
+  if (params.agentSecret === undefined) {
+    console.warn(
+      'SECURITY WARNING: agentSecret not provided to generateProof(). Falling back to ' +
+      'pubkeyToField(agentPubkey), which makes the nullifier predictable by anyone. ' +
+      'Pass an explicit agentSecret for production use.'
+    );
+  }
   const agentSecret = params.agentSecret ?? pubkeyToField(params.agentPubkey);
 
   // Step 1: Compute hashes using poseidon-lite
@@ -468,7 +508,15 @@ export async function verifyProofLocally(
 
   try {
     return await snarkjs.groth16.verify(vkey, signals, snarkjsProof);
-  } catch {
+  } catch (err) {
+    // Rethrow configuration/file errors so callers know verification itself broke.
+    // Only suppress snarkjs internal verification failures (proof math didn't check out).
+    if (err instanceof Error
+      && !err.message.includes('Invalid proof')
+      && !err.message.includes('Verification')
+      && !err.message.includes('pairing')) {
+      throw err;
+    }
     return false;
   }
 }
@@ -486,12 +534,14 @@ export interface ToolsStatus {
 export function checkToolsAvailable(): ToolsStatus {
   const result: ToolsStatus = { snarkjs: false };
 
-  // snarkjs is a node module, check if it's importable
+  // snarkjs is a node module, check if it's importable.
+  // Uses globalThis.require or module.require to avoid Function() constructor (indirect eval).
   try {
-    const requireFactory = Function('return typeof require !== "undefined" ? require : null') as () => ((id: string) => unknown) | null;
-    const localRequire = requireFactory();
-    if (localRequire) {
-      const snarkjsPkg = localRequire('snarkjs/package.json') as { version?: string };
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const nodeRequire: ((id: string) => unknown) | undefined =
+      typeof require !== 'undefined' ? require : undefined;
+    if (nodeRequire) {
+      const snarkjsPkg = nodeRequire('snarkjs/package.json') as { version?: string };
       result.snarkjs = true;
       if (typeof snarkjsPkg.version === 'string') {
         result.snarkjsVersion = snarkjsPkg.version;

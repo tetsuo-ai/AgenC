@@ -709,39 +709,47 @@ export async function completeTaskPrivateWithPreflight(
     throw new Error('Nullifier already submitted in this session');
   }
 
+  // SECURITY FIX: Mark nullifier as used BEFORE submission to prevent concurrent
+  // duplicate submissions. On failure, remove it to allow retry.
+  options.nullifierCache?.markUsed(proof.nullifier);
+
   const shouldRunPreflight = options.runProofSubmissionPreflight ?? true;
   let preflightResult: ProofSubmissionPreflightResult | undefined;
 
-  if (shouldRunPreflight) {
-    const workerAgentPda = deriveAgentPda(workerAgentId, program.programId);
-    preflightResult = await runProofSubmissionPreflight(connection, program, {
-      taskPda,
-      workerAgentPda,
-      proof,
-      proofGeneratedAtMs: options.proofGeneratedAtMs,
-      maxProofAgeMs: options.maxProofAgeMs,
-    });
+  try {
+    if (shouldRunPreflight) {
+      const workerAgentPda = deriveAgentPda(workerAgentId, program.programId);
+      preflightResult = await runProofSubmissionPreflight(connection, program, {
+        taskPda,
+        workerAgentPda,
+        proof,
+        proofGeneratedAtMs: options.proofGeneratedAtMs,
+        maxProofAgeMs: options.maxProofAgeMs,
+      });
 
-    if (!preflightResult.valid) {
-      throw new ProofSubmissionPreflightError(preflightResult);
+      if (!preflightResult.valid) {
+        throw new ProofSubmissionPreflightError(preflightResult);
+      }
     }
+
+    const result = await completeTaskPrivate(
+      connection,
+      program,
+      worker,
+      workerAgentId,
+      taskPda,
+      proof,
+    );
+
+    return {
+      ...result,
+      preflightResult,
+    };
+  } catch (err) {
+    // Rollback: allow retry with same nullifier after failure
+    options.nullifierCache?.remove(proof.nullifier);
+    throw err;
   }
-
-  const result = await completeTaskPrivate(
-    connection,
-    program,
-    worker,
-    workerAgentId,
-    taskPda,
-    proof,
-  );
-
-  options.nullifierCache?.markUsed(proof.nullifier);
-
-  return {
-    ...result,
-    preflightResult,
-  };
 }
 
 /**

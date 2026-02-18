@@ -16,6 +16,7 @@ import {
   checkToolsAvailable as sdkCheckToolsAvailable,
 } from '@agenc/sdk';
 import type { HashResult, ToolsStatus } from '@agenc/sdk';
+import type { PublicKey } from '@solana/web3.js';
 import type { ProofGenerator } from '../task/proof-pipeline.js';
 import type { OnChainTask, TaskExecutionResult, PrivateTaskExecutionResult } from '../task/types.js';
 import type { Logger } from '../utils/logger.js';
@@ -32,6 +33,36 @@ import { ProofCache } from './cache.js';
 import { ProofGenerationError, ProofVerificationError } from './errors.js';
 
 const DEFAULT_CIRCUIT_PATH = './circuits-circom/task_completion';
+
+/**
+ * Build the 67-element public signals array for local ZK proof verification.
+ * Format: 32 task bytes + 32 agent bytes + constraintHash + outputCommitment + expectedBinding
+ * Each byte of task/agent key becomes a separate bigint field element.
+ */
+function buildPublicSignals(
+  taskPda: PublicKey,
+  agentPubkey: PublicKey,
+  hashes: HashResult,
+): bigint[] {
+  const signals: bigint[] = [];
+
+  // 32 task bytes as individual field elements
+  for (const byte of taskPda.toBytes()) {
+    signals.push(BigInt(byte));
+  }
+
+  // 32 agent bytes as individual field elements
+  for (const byte of agentPubkey.toBytes()) {
+    signals.push(BigInt(byte));
+  }
+
+  // 3 scalar field elements
+  signals.push(hashes.constraintHash);
+  signals.push(hashes.outputCommitment);
+  signals.push(hashes.expectedBinding);
+
+  return signals; // length = 67
+}
 
 /**
  * ProofEngine wraps the SDK's ZK proof functions with caching,
@@ -138,9 +169,17 @@ export class ProofEngine implements ProofGenerator {
     if (this.verifyAfterGeneration) {
       this._verificationsPerformed++;
       try {
+        // SECURITY FIX: Build the actual 67-element public signals array.
+        // Previously passed empty [], making verification always pass trivially.
+        const verifyHashes = sdkComputeHashes(
+          inputs.taskPda, inputs.agentPubkey, inputs.output, inputs.salt,
+        );
+        const publicSignals = buildPublicSignals(
+          inputs.taskPda, inputs.agentPubkey, verifyHashes,
+        );
         const valid = await sdkVerifyProofLocally(
           sdkResult.proof,
-          [],
+          publicSignals,
           this.circuitPath,
         );
         if (!valid) {

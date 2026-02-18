@@ -4,6 +4,7 @@
  * @module
  */
 
+import { createHash } from 'crypto';
 import type { EngineProofResult, ProofCacheConfig, ProofInputs } from './types.js';
 
 /** Default TTL: 5 minutes */
@@ -20,10 +21,18 @@ interface CacheEntry {
 /**
  * Derive a deterministic cache key from proof inputs.
  *
- * Format: `taskPda.toBase58()|agentPubkey.toBase58()|output[0]|output[1]|output[2]|output[3]|salt`
+ * SECURITY: Uses SHA-256 hash of inputs instead of plaintext concatenation
+ * to avoid leaking secret output values and salt in memory-inspectable strings.
  */
 export function deriveCacheKey(inputs: ProofInputs): string {
-  return `${inputs.taskPda.toBase58()}|${inputs.agentPubkey.toBase58()}|${inputs.output.join('|')}|${inputs.salt}`;
+  const hasher = createHash('sha256');
+  hasher.update(inputs.taskPda.toBytes());
+  hasher.update(inputs.agentPubkey.toBytes());
+  for (const o of inputs.output) {
+    hasher.update(o.toString());
+  }
+  hasher.update(inputs.salt.toString());
+  return hasher.digest('hex');
 }
 
 /**

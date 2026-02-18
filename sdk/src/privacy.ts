@@ -9,6 +9,7 @@ import { validateCircuitPath } from './validation';
 import {
   computeConstraintHash as computeConstraintHashFromProofs,
   computeCommitment as computeCommitmentFromProofs,
+  computeCommitmentFromOutput as computeCommitmentFromOutputProofs,
   FIELD_MODULUS,
 } from './proofs';
 import { createLogger, type Logger } from './logger';
@@ -86,6 +87,16 @@ export interface WithdrawResult {
     [key: string]: unknown; // Allow additional properties from PrivacyCash
 }
 
+/**
+ * @deprecated The Noir/Sunspot proof path is deprecated and non-functional with the current
+ * on-chain program. Use generateProof() from @agenc/sdk/proofs (snarkjs/Circom) and
+ * completeTaskPrivate() from @agenc/sdk/tasks for ZK proof generation and submission.
+ *
+ * SECURITY ISSUES IN THIS CLASS (preserved for reference, do not use in production):
+ * - buildCompleteTaskPrivateTx uses wrong PDA seeds (missing creator) and wrong proof struct fields
+ * - generateTaskCompletionProof writes secrets to disk (Prover.toml) without guaranteed cleanup
+ * - Non-atomic withdrawal: Privacy Cash withdrawal is decoupled from on-chain proof verification
+ */
 export class AgenCPrivacyClient {
     private connection: Connection;
     private program: Program;
@@ -270,40 +281,47 @@ export class AgenCPrivacyClient {
             salt: salt.toString(),
         });
 
+        // SECURITY: Write Prover.toml containing secret salt/output to disk,
+        // then ensure it is always deleted even if proof generation fails.
         const proverPath = path.join(this.circuitPath, 'Prover.toml');
         fs.writeFileSync(proverPath, proverToml);
 
-        // Security: Execute with timeouts and confined cwd to prevent runaway processes
         try {
-            execSync('nargo execute', { cwd: this.circuitPath, stdio: 'pipe', timeout: NARGO_EXECUTE_TIMEOUT_MS });
-        } catch (e) {
-            throw new Error(`Noir circuit execution failed (nargo execute): ${(e as Error).message}`);
-        }
+            // Security: Execute with timeouts and confined cwd to prevent runaway processes
+            try {
+                execSync('nargo execute', { cwd: this.circuitPath, stdio: 'pipe', timeout: NARGO_EXECUTE_TIMEOUT_MS });
+            } catch (e) {
+                throw new Error(`Noir circuit execution failed (nargo execute): ${(e as Error).message}`);
+            }
 
-        // Generate proof using Sunspot
-        try {
-            execSync('sunspot prove target/task_completion.ccs target/task_completion.pk target/task_completion.gz -o target/task_completion.proof',
-                { cwd: this.circuitPath, stdio: 'pipe', timeout: SUNSPOT_PROVE_TIMEOUT_MS });
-        } catch (e) {
-            throw new Error(`Proof generation failed (sunspot prove): ${(e as Error).message}`);
-        }
+            // Generate proof using Sunspot
+            try {
+                execSync('sunspot prove target/task_completion.ccs target/task_completion.pk target/task_completion.gz -o target/task_completion.proof',
+                    { cwd: this.circuitPath, stdio: 'pipe', timeout: SUNSPOT_PROVE_TIMEOUT_MS });
+            } catch (e) {
+                throw new Error(`Proof generation failed (sunspot prove): ${(e as Error).message}`);
+            }
 
-        // Read proof and public witness
-        let zkProof: Buffer;
-        let publicWitness: Buffer;
-        try {
-            zkProof = fs.readFileSync(
-                path.join(this.circuitPath, 'target/task_completion.proof')
-            );
-            // Note: Use .gz extension to match the actual witness file (not .pw)
-            publicWitness = fs.readFileSync(
-                path.join(this.circuitPath, 'target/task_completion.gz')
-            );
-        } catch (e) {
-            throw new Error(`Failed to read proof output files: ${(e as Error).message}`);
-        }
+            // Read proof and public witness
+            let zkProof: Buffer;
+            let publicWitness: Buffer;
+            try {
+                zkProof = fs.readFileSync(
+                    path.join(this.circuitPath, 'target/task_completion.proof')
+                );
+                // Note: Use .gz extension to match the actual witness file (not .pw)
+                publicWitness = fs.readFileSync(
+                    path.join(this.circuitPath, 'target/task_completion.gz')
+                );
+            } catch (e) {
+                throw new Error(`Failed to read proof output files: ${(e as Error).message}`);
+            }
 
-        return { zkProof, publicWitness };
+            return { zkProof, publicWitness };
+        } finally {
+            // SECURITY: Always delete Prover.toml to avoid leaving secrets on disk
+            try { fs.unlinkSync(proverPath); } catch { /* ignore cleanup errors */ }
+        }
     }
     
     /**
@@ -355,17 +373,16 @@ export class AgenCPrivacyClient {
      * Compute Poseidon commitment for output.
      *
      * Uses poseidon-lite which is compatible with circomlib's Poseidon implementation.
-     * The commitment is: poseidon2(constraintHash, salt)
+     * Matches circuit.circom: output_commitment = Poseidon(output[0..3], salt)
      *
      * @param output - The task output (4 field elements)
      * @param salt - Random salt for hiding the output
      * @returns The output commitment
      */
     private async computeCommitment(output: bigint[], salt: bigint): Promise<bigint> {
-        // First compute the constraint hash from output
-        const constraintHash = computeConstraintHashFromProofs(output);
-        // Then compute commitment = poseidon2(constraintHash, salt)
-        return computeCommitmentFromProofs(constraintHash, salt);
+        // SECURITY FIX: Use poseidon5(output[0..3], salt) to match the Circom circuit.
+        // Previously used legacy poseidon2(constraintHash, salt) which does not match.
+        return computeCommitmentFromOutputProofs(output, salt);
     }
     
     /**
