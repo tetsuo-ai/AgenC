@@ -15,8 +15,10 @@ import {
   computeExpectedBinding,
   computeConstraintHash,
   computeCommitment,
+  computeCommitmentFromOutput,
   computeHashes,
   computeNullifier,
+  computeNullifierFromAgentSecret,
   generateSalt,
   FIELD_MODULUS,
 } from '../proofs';
@@ -273,13 +275,15 @@ describe('proofs', () => {
 
       // Verify against individual function calls
       const constraintHash = computeConstraintHash(output);
-      const outputCommitment = computeCommitment(constraintHash, salt);
+      // computeHashes uses computeCommitmentFromOutput (poseidon5), not the legacy computeCommitment
+      const outputCommitment = computeCommitmentFromOutput(output, salt);
       const expectedBinding = computeExpectedBinding(taskPda, agentPubkey, outputCommitment);
 
       expect(result.constraintHash).toBe(constraintHash);
       expect(result.outputCommitment).toBe(outputCommitment);
       expect(result.expectedBinding).toBe(expectedBinding);
-      expect(result.nullifier).toBe(computeNullifier(constraintHash, agentPubkey));
+      // computeHashes falls back to pubkeyToField when no agentSecret provided
+      expect(result.nullifier).toBe(computeNullifierFromAgentSecret(constraintHash, pubkeyToField(agentPubkey)));
     });
   });
 
