@@ -8,7 +8,6 @@ import { HASH_SIZE, NARGO_EXECUTE_TIMEOUT_MS, SUNSPOT_PROVE_TIMEOUT_MS } from '.
 import { validateCircuitPath } from './validation';
 import {
   computeConstraintHash as computeConstraintHashFromProofs,
-  computeCommitment as computeCommitmentFromProofs,
   computeCommitmentFromOutput as computeCommitmentFromOutputProofs,
   FIELD_MODULUS,
 } from './proofs';
@@ -468,20 +467,4 @@ export function computeConstraintHash(expectedOutput: bigint[]): Buffer {
     return Buffer.from(hex, 'hex');
 }
 
-/**
- * Compute output commitment from constraint hash and salt.
- *
- * Uses poseidon-lite (poseidon2) which is compatible with circomlib.
- * The commitment hides the output while binding to the constraint.
- *
- * @param constraintHash - The constraint hash (as bigint)
- * @param salt - Random salt for hiding
- * @returns The output commitment as a 32-byte Buffer
- */
-export function computeOutputCommitment(constraintHash: bigint, salt: bigint): Buffer {
-    const commitment = computeCommitmentFromProofs(constraintHash, salt);
-    // Convert bigint to 32-byte big-endian buffer
-    const hex = commitment.toString(16).padStart(HASH_SIZE * 2, '0');
-    return Buffer.from(hex, 'hex');
-}
 

@@ -47,8 +47,9 @@
 //! The witness format matches Circom's public input encoding:
 //! - Each byte of task_id and agent_pubkey becomes a separate field element
 //! - Field elements are 32 bytes big-endian (BN254 scalar field)
-//! - Total: 32 (task bytes) + 32 (agent bytes) + 3 (constraint_hash, output_commitment, expected_binding) = 67 public inputs
-//! - Note: The nullifier is NOT a public input to the verifier
+//! - Total: 32 (task bytes) + 32 (agent bytes) + 3 (constraint_hash, output_commitment, expected_binding) + 1 (nullifier) = 68 public inputs
+//! - The nullifier IS a public input: the Groth16 verifier cryptographically verifies
+//!   that the submitted nullifier matches the circuit-computed value
 
 use crate::errors::CoordinationError;
 use crate::instructions::completion_helpers::TokenPaymentAccounts;
@@ -263,10 +264,6 @@ pub fn complete_task_private(
     // automatically reject the transaction with AccountAlreadyInitialized error.
     // This keeps replay protection verifier-bound without extra runtime checks.
 
-    // TODO(#zk-hardening): Nullifier remains circuit-output-only today. When circuit and
-    // verifying key rotation are scheduled, add a verified binding between nullifier and
-    // public inputs so nullifier semantics can be enforced directly on-chain.
-
     verify_zk_proof(&proof, task.key(), worker.authority)?;
 
     // Initialize the replay-protection account.
@@ -375,9 +372,9 @@ fn append_pubkey_as_field_elements(
 }
 
 /// Build public inputs array for groth16-solana verification.
-/// Format: 67 field elements, each 32 bytes big-endian.
-/// Note: The nullifier is NOT included as a public input to the ZK verifier.
-/// On-chain replay protection is keyed by verifier-bound `expected_binding`.
+/// Format: 68 field elements, each 32 bytes big-endian.
+/// The nullifier IS included as a public input — the Groth16 verifier cryptographically
+/// verifies that the submitted nullifier matches the circuit-computed value.
 fn build_public_inputs(
     task_key: &Pubkey,
     agent: &Pubkey,
@@ -399,6 +396,9 @@ fn build_public_inputs(
 
     // Public input 66: expected_binding
     inputs[66] = proof.expected_binding;
+
+    // Public input 67: nullifier (circuit output — cryptographically verified by Groth16)
+    inputs[67] = proof.nullifier;
 
     inputs
 }

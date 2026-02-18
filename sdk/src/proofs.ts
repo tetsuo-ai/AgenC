@@ -193,18 +193,6 @@ export function computeCommitmentFromOutput(output: bigint[], salt: bigint): big
 }
 
 /**
- * Legacy commitment helper.
- *
- * NOTE: This helper is retained for API compatibility with older callers.
- * New proof generation uses `computeCommitmentFromOutput` to match circuit semantics.
- */
-export function computeCommitment(constraintHash: bigint, salt: bigint): bigint {
-  const ch = normalizeFieldElement(constraintHash);
-  const s = normalizeFieldElement(salt);
-  return poseidon2([ch, s]);
-}
-
-/**
  * Compute the expected binding for proof verification.
  * Binding = hash(hash(task_id, agent_pubkey), output_commitment)
  *
@@ -223,27 +211,6 @@ export function computeExpectedBinding(
   const binding = poseidon2([taskField, agentField]);
   const commitment = ((outputCommitment % FIELD_MODULUS) + FIELD_MODULUS) % FIELD_MODULUS;
   return poseidon2([binding, commitment]);
-}
-
-/**
- * Compute the nullifier to prevent proof/knowledge reuse across tasks.
- *
- * @deprecated Use computeNullifierFromAgentSecret instead. This function uses
- * pubkeyToField(agentPubkey) as the secret, making nullifiers predictable by
- * anyone who knows the agent's public key (which is always public).
- *
- * @param constraintHash - The constraint hash
- * @param agentPubkey - Agent's public key
- * @returns The nullifier value
- */
-export function computeNullifier(constraintHash: bigint, agentPubkey: PublicKey): bigint {
-  console.warn(
-    'DEPRECATED: computeNullifier() uses public key as agent_secret, producing predictable nullifiers. ' +
-    'Use computeNullifierFromAgentSecret() with a private secret instead.'
-  );
-  const ch = normalizeFieldElement(constraintHash);
-  const agentField = pubkeyToField(agentPubkey);
-  return poseidon2([ch, agentField]);
 }
 
 export function computeNullifierFromAgentSecret(constraintHash: bigint, agentSecret: bigint): bigint {
@@ -318,7 +285,6 @@ function buildWitnessInput(
     output_commitment: hashes.outputCommitment.toString(),
     expected_binding: hashes.expectedBinding.toString(),
     output_values: outputValues,
-    output: outputValues, // Legacy alias for older circuit artifacts.
     salt: normalizedSalt.toString(),
     agent_secret: normalizedAgentSecret.toString(),
   };
@@ -509,13 +475,18 @@ export async function verifyProofLocally(
   try {
     return await snarkjs.groth16.verify(vkey, signals, snarkjsProof);
   } catch (err) {
-    // Rethrow configuration/file errors so callers know verification itself broke.
-    // Only suppress snarkjs internal verification failures (proof math didn't check out).
-    if (err instanceof Error
-      && !err.message.includes('Invalid proof')
-      && !err.message.includes('Verification')
-      && !err.message.includes('pairing')) {
-      throw err;
+    // Only suppress snarkjs proof-math failures. Rethrow all other errors
+    // (file errors, config errors, etc.) so callers know verification is broken.
+    if (err instanceof Error) {
+      const msg = err.message.toLowerCase();
+      // snarkjs proof-math error patterns (narrowly scoped to avoid masking setup errors)
+      const isProofMathFailure =
+        msg.includes('invalid proof')
+        || msg.includes('proof is not valid')
+        || msg.includes('pairing check failed');
+      if (!isProofMathFailure) {
+        throw err;
+      }
     }
     return false;
   }
