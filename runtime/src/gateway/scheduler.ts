@@ -48,6 +48,10 @@ interface MutableJob {
   action: HeartbeatActionDef;
 }
 
+const MS_PER_MINUTE = 60_000;
+const MS_PER_DAY = 86_400_000;
+const MAX_LOOKAHEAD_DAYS = 366;
+
 // ---------------------------------------------------------------------------
 // Cron parser
 // ---------------------------------------------------------------------------
@@ -195,12 +199,12 @@ export function nextCronMatch(schedule: CronSchedule, after?: Date): Date {
   const start = after ? new Date(after.getTime()) : new Date();
   // Round up to the next minute boundary
   start.setSeconds(0, 0);
-  start.setTime(start.getTime() + 60_000);
+  start.setTime(start.getTime() + MS_PER_MINUTE);
 
   const candidate = new Date(start.getTime());
 
-  for (let dayOffset = 0; dayOffset < 366; dayOffset++) {
-    candidate.setTime(start.getTime() + dayOffset * 86_400_000);
+  for (let dayOffset = 0; dayOffset < MAX_LOOKAHEAD_DAYS; dayOffset++) {
+    candidate.setTime(start.getTime() + dayOffset * MS_PER_DAY);
     candidate.setHours(0, 0, 0, 0);
 
     // Check month
@@ -250,7 +254,7 @@ export function nextCronMatch(schedule: CronSchedule, after?: Date): Date {
     }
   }
 
-  throw new Error('no matching cron time found within 366 days');
+  throw new Error(`no matching cron time found within ${MAX_LOOKAHEAD_DAYS} days`);
 }
 
 // ---------------------------------------------------------------------------
@@ -272,8 +276,16 @@ export class CronScheduler {
       throw new Error(`job "${name}" already exists`);
     }
 
-    const schedule = parseCron(cron);
-    const nextRun = nextCronMatch(schedule).getTime();
+    let schedule: CronSchedule;
+    let nextRun: number;
+    try {
+      schedule = parseCron(cron);
+      nextRun = nextCronMatch(schedule).getTime();
+    } catch (error) {
+      throw new Error(
+        `failed to schedule job "${name}" with cron "${cron}": ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
 
     this.jobs.set(name, {
       name,
@@ -301,8 +313,17 @@ export class CronScheduler {
     const job = this.jobs.get(name);
     if (!job) return false;
 
+    let nextRun: number;
+    try {
+      nextRun = nextCronMatch(job.schedule).getTime();
+    } catch (error) {
+      throw new Error(
+        `failed to enable job "${name}": ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+
     job.enabled = true;
-    job.nextRun = nextCronMatch(job.schedule).getTime();
+    job.nextRun = nextRun;
     this.logger.debug(`enabled job "${name}"`);
     return true;
   }
@@ -321,7 +342,7 @@ export class CronScheduler {
 
     this.timer = setInterval(() => {
       this.tick();
-    }, 60_000);
+    }, MS_PER_MINUTE);
 
     this.logger.info('cron scheduler started');
   }
@@ -413,7 +434,14 @@ export class CronScheduler {
         .then(() => {
           if (mutableJob) {
             mutableJob.lastRun = Date.now();
-            mutableJob.nextRun = nextCronMatch(mutableJob.schedule).getTime();
+            try {
+              mutableJob.nextRun = nextCronMatch(mutableJob.schedule).getTime();
+            } catch (error) {
+              mutableJob.enabled = false;
+              this.logger.error(
+                `job "${job.name}" produced invalid next run and was disabled: ${error instanceof Error ? error.message : String(error)}`,
+              );
+            }
           }
         })
         .catch((error: unknown) => {

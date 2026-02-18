@@ -1,28 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { Keypair } from '@solana/web3.js';
 import { InMemoryBackend } from '../memory/in-memory/backend.js';
 import { MemoryGraph } from '../memory/graph.js';
-import { TaskStatus, type Task } from './types.js';
 import type { GeneratedExecutionCandidate } from './candidate-generator.js';
 import { detectCandidateInconsistencies } from './inconsistency-detector.js';
-
-function makeTask(overrides: Partial<Task> = {}): Task {
-  return {
-    pda: Keypair.generate().publicKey,
-    taskId: new Uint8Array(32).fill(1),
-    creator: Keypair.generate().publicKey,
-    requiredCapabilities: 1n,
-    reward: 100n,
-    description: new Uint8Array(64),
-    constraintHash: new Uint8Array(32),
-    deadline: 0,
-    maxWorkers: 1,
-    currentClaims: 0,
-    status: TaskStatus.Open,
-    rewardMint: null,
-    ...overrides,
-  };
-}
+import { createTask as makeTask } from './test-utils.js';
 
 function candidate(id: string, output: bigint[]): GeneratedExecutionCandidate {
   return {

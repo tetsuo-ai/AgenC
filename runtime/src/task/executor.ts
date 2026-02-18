@@ -70,6 +70,13 @@ const DEFAULT_BACKPRESSURE_CONFIG: BackpressureConfig = {
   pauseDiscovery: true,
 };
 
+interface PipelineRuntimeState {
+  timeoutId: ReturnType<typeof setTimeout> | null;
+  deadlineTimerId: ReturnType<typeof setTimeout> | null;
+  timedOut: boolean;
+  claimExpired: boolean;
+}
+
 // ============================================================================
 // TaskExecutor Class
 // ============================================================================
@@ -767,10 +774,12 @@ export class TaskExecutor {
     pda: string,
     controller: AbortController,
   ): Promise<void> {
-    let timeoutId: ReturnType<typeof setTimeout> | null = null;
-    let deadlineTimerId: ReturnType<typeof setTimeout> | null = null;
-    let timedOut = false;
-    let claimExpired = false;
+    const state: PipelineRuntimeState = {
+      timeoutId: null,
+      deadlineTimerId: null,
+      timedOut: false,
+      claimExpired: false,
+    };
 
     const pipelineStart = Date.now();
     const span = this.tracingProvider.startSpan('agenc.task.pipeline', { taskPda: pda });
@@ -780,86 +789,22 @@ export class TaskExecutor {
     this.metricsProvider.gauge(METRIC_NAMES.QUEUE_SIZE, this.taskQueue.size);
 
     try {
-      // Step 1: Claim (with retry)
-      const claimStart = Date.now();
-      const claimResult = await this.retryStage(
-        'claim',
-        () => this.claimTaskStep(task),
-        controller.signal,
+      const pipeline = await this.runClaimAndExecutePipeline(
+        task,
+        pda,
+        controller,
+        state,
+        span,
       );
-      this.metricsProvider.histogram(METRIC_NAMES.CLAIM_DURATION, Date.now() - claimStart, { taskPda: pda });
-      span.setAttribute('claim.duration_ms', Date.now() - claimStart);
-
-      // Checkpoint: claimed
-      const checkpointCreatedAt = Date.now();
-      await this.saveCheckpoint(pda, 'claimed', claimResult, undefined, checkpointCreatedAt);
-
-      // Step 2: Check claim deadline and set up deadline timer
-      if (this.claimExpiryBufferMs > 0) {
-        const claim = await this.operations.fetchClaim(task.pda);
-        if (claim && claim.expiresAt > 0) {
-          const nowMs = Date.now();
-          const expiresAtMs = claim.expiresAt * 1000;
-          const remainingMs = expiresAtMs - nowMs;
-          const effectiveMs = remainingMs - this.claimExpiryBufferMs;
-
-          if (effectiveMs <= 0) {
-            // Not enough time remaining — abort immediately
-            claimExpired = true;
-            controller.abort();
-            const expiredError = new ClaimExpiredError(claim.expiresAt, this.claimExpiryBufferMs);
-            this.metrics.tasksFailed++;
-            this.metrics.claimsExpired++;
-            this.metricsProvider.counter(METRIC_NAMES.TASKS_FAILED);
-            this.metricsProvider.counter(METRIC_NAMES.CLAIMS_EXPIRED);
-            this.events.onClaimExpiring?.(expiredError, task.pda);
-            this.events.onTaskFailed?.(expiredError, task.pda);
-            this.sendToDeadLetterQueue(task, expiredError, 'claim', 1);
-            this.logger.warn(`Task ${pda} claim deadline too close: remaining=${remainingMs}ms, buffer=${this.claimExpiryBufferMs}ms`);
-            span.setStatus('error', 'claim deadline too close');
-            return;
-          }
-
-          // Set timer to abort before deadline
-          deadlineTimerId = setTimeout(() => {
-            claimExpired = true;
-            controller.abort();
-          }, effectiveMs);
-        }
+      if (!pipeline) {
+        return;
       }
-
-      // Step 3: Set up per-task execution timeout
-      if (this.taskTimeoutMs > 0) {
-        timeoutId = setTimeout(() => {
-          timedOut = true;
-          controller.abort();
-        }, this.taskTimeoutMs);
-      }
-
-      // Step 4: Execute handler
-      const executeStart = Date.now();
-      const result = await this.executeTaskStep(task, claimResult, controller.signal);
-      this.metricsProvider.histogram(METRIC_NAMES.EXECUTE_DURATION, Date.now() - executeStart, { taskPda: pda });
-      span.setAttribute('execute.duration_ms', Date.now() - executeStart);
-
-      // Clear timers on success
-      if (timeoutId !== null) {
-        clearTimeout(timeoutId);
-        timeoutId = null;
-      }
-      if (deadlineTimerId !== null) {
-        clearTimeout(deadlineTimerId);
-        deadlineTimerId = null;
-      }
-
-      // Checkpoint: executed
-      await this.saveCheckpoint(pda, 'executed', claimResult, result, checkpointCreatedAt);
 
       // Step 5: Submit result on-chain (with retry)
       const submitStart = Date.now();
       await this.retryStage(
         'submit',
-        () => this.submitTaskStep(task, result),
+        () => this.submitTaskStep(task, pipeline.result),
         controller.signal,
       );
       this.metricsProvider.histogram(METRIC_NAMES.SUBMIT_DURATION, Date.now() - submitStart, { taskPda: pda });
@@ -872,53 +817,9 @@ export class TaskExecutor {
       // Submission succeeded — remove checkpoint
       await this.removeCheckpoint(pda);
     } catch (err) {
-      // Clear timers if still pending
-      if (timeoutId !== null) {
-        clearTimeout(timeoutId);
-        timeoutId = null;
-      }
-      if (deadlineTimerId !== null) {
-        clearTimeout(deadlineTimerId);
-        deadlineTimerId = null;
-      }
-
-      if (claimExpired) {
-        // Claim deadline expired during execution
-        const claim = await this.operations.fetchClaim(task.pda).catch(() => null);
-        const expiresAt = claim?.expiresAt ?? 0;
-        const expiredError = new ClaimExpiredError(expiresAt, this.claimExpiryBufferMs);
-        this.metrics.tasksFailed++;
-        this.metrics.claimsExpired++;
-        this.metricsProvider.counter(METRIC_NAMES.TASKS_FAILED);
-        this.metricsProvider.counter(METRIC_NAMES.CLAIMS_EXPIRED);
-        this.events.onClaimExpiring?.(expiredError, task.pda);
-        this.events.onTaskFailed?.(expiredError, task.pda);
-        this.sendToDeadLetterQueue(task, expiredError, 'execute', 1);
-        this.logger.warn(`Task ${pda} aborted: claim deadline expiring`);
-        span.setStatus('error', 'claim deadline expired');
-      } else if (timedOut) {
-        // Timeout-specific handling: emit onTaskTimeout, increment tasksFailed
-        const timeoutError = new TaskTimeoutError(this.taskTimeoutMs);
-        this.metrics.tasksFailed++;
-        this.metricsProvider.counter(METRIC_NAMES.TASKS_FAILED);
-        this.events.onTaskTimeout?.(timeoutError, task.pda);
-        this.events.onTaskFailed?.(timeoutError, task.pda);
-        this.sendToDeadLetterQueue(task, timeoutError, 'execute', 1);
-        this.logger.warn(`Task ${pda} timed out after ${this.taskTimeoutMs}ms`);
-        span.setStatus('error', 'timeout');
-      } else if (controller.signal.aborted) {
-        // Graceful shutdown — do not send to DLQ
-        this.logger.debug(`Task ${pda} aborted`);
-        span.setStatus('error', 'aborted');
-      } else {
-        // Non-abort failure (handler crash, retry exhaustion, etc.)
-        const error = err instanceof Error ? err : new Error(String(err));
-        const stage = this.inferFailureStage(error);
-        const attempts = error instanceof RetryExhaustedError ? error.attempts : 1;
-        this.sendToDeadLetterQueue(task, error, stage, attempts);
-        span.setStatus('error', error.message);
-      }
+      await this.handlePipelineFailure(task, pda, controller, state, err, span);
     } finally {
+      this.clearPipelineTimers(state);
       span.end();
       this.activeTasks.delete(pda);
       // Update gauges at pipeline exit
@@ -926,6 +827,171 @@ export class TaskExecutor {
       this.metricsProvider.gauge(METRIC_NAMES.QUEUE_SIZE, this.taskQueue.size);
       this.drainQueue();
     }
+  }
+
+  private async runClaimAndExecutePipeline(
+    task: TaskDiscoveryResult,
+    pda: string,
+    controller: AbortController,
+    state: PipelineRuntimeState,
+    span: ReturnType<TracingProvider['startSpan']>,
+  ): Promise<{ result: TaskExecutionResult | PrivateTaskExecutionResult } | null> {
+    const claimStart = Date.now();
+    const claimResult = await this.retryStage(
+      'claim',
+      () => this.claimTaskStep(task),
+      controller.signal,
+    );
+    this.metricsProvider.histogram(METRIC_NAMES.CLAIM_DURATION, Date.now() - claimStart, { taskPda: pda });
+    span.setAttribute('claim.duration_ms', Date.now() - claimStart);
+
+    const checkpointCreatedAt = Date.now();
+    await this.saveCheckpoint(pda, 'claimed', claimResult, undefined, checkpointCreatedAt);
+
+    const canExecute = await this.setupClaimDeadlineGuard(
+      task,
+      pda,
+      controller,
+      state,
+      span,
+    );
+    if (!canExecute) {
+      return null;
+    }
+
+    this.startExecutionTimeout(controller, state);
+
+    const executeStart = Date.now();
+    const result = await this.executeTaskStep(task, claimResult, controller.signal);
+    this.metricsProvider.histogram(METRIC_NAMES.EXECUTE_DURATION, Date.now() - executeStart, { taskPda: pda });
+    span.setAttribute('execute.duration_ms', Date.now() - executeStart);
+
+    // Execute completed — stop timeout/deadline guards before submit stage.
+    this.clearPipelineTimers(state);
+
+    await this.saveCheckpoint(pda, 'executed', claimResult, result, checkpointCreatedAt);
+    return { result };
+  }
+
+  private startExecutionTimeout(
+    controller: AbortController,
+    state: PipelineRuntimeState,
+  ): void {
+    if (this.taskTimeoutMs <= 0) {
+      return;
+    }
+    state.timeoutId = setTimeout(() => {
+      state.timedOut = true;
+      controller.abort();
+    }, this.taskTimeoutMs);
+  }
+
+  private clearPipelineTimers(state: PipelineRuntimeState): void {
+    if (state.timeoutId !== null) {
+      clearTimeout(state.timeoutId);
+      state.timeoutId = null;
+    }
+    if (state.deadlineTimerId !== null) {
+      clearTimeout(state.deadlineTimerId);
+      state.deadlineTimerId = null;
+    }
+  }
+
+  private async setupClaimDeadlineGuard(
+    task: TaskDiscoveryResult,
+    pda: string,
+    controller: AbortController,
+    state: PipelineRuntimeState,
+    span: ReturnType<TracingProvider['startSpan']>,
+  ): Promise<boolean> {
+    if (this.claimExpiryBufferMs <= 0) {
+      return true;
+    }
+
+    const claim = await this.operations.fetchClaim(task.pda);
+    if (!claim || claim.expiresAt <= 0) {
+      return true;
+    }
+
+    const nowMs = Date.now();
+    const expiresAtMs = claim.expiresAt * 1000;
+    const remainingMs = expiresAtMs - nowMs;
+    const effectiveMs = remainingMs - this.claimExpiryBufferMs;
+
+    if (effectiveMs <= 0) {
+      state.claimExpired = true;
+      controller.abort();
+      const expiredError = new ClaimExpiredError(claim.expiresAt, this.claimExpiryBufferMs);
+      this.metrics.tasksFailed++;
+      this.metrics.claimsExpired++;
+      this.metricsProvider.counter(METRIC_NAMES.TASKS_FAILED);
+      this.metricsProvider.counter(METRIC_NAMES.CLAIMS_EXPIRED);
+      this.events.onClaimExpiring?.(expiredError, task.pda);
+      this.events.onTaskFailed?.(expiredError, task.pda);
+      this.sendToDeadLetterQueue(task, expiredError, 'claim', 1);
+      this.logger.warn(`Task ${pda} claim deadline too close: remaining=${remainingMs}ms, buffer=${this.claimExpiryBufferMs}ms`);
+      span.setStatus('error', 'claim deadline too close');
+      return false;
+    }
+
+    state.deadlineTimerId = setTimeout(() => {
+      state.claimExpired = true;
+      controller.abort();
+    }, effectiveMs);
+    return true;
+  }
+
+  private async handlePipelineFailure(
+    task: TaskDiscoveryResult,
+    pda: string,
+    controller: AbortController,
+    state: PipelineRuntimeState,
+    error: unknown,
+    span: ReturnType<TracingProvider['startSpan']>,
+  ): Promise<void> {
+    if (state.claimExpired) {
+      // Claim deadline expired during execution
+      const claim = await this.operations.fetchClaim(task.pda).catch(() => null);
+      const expiresAt = claim?.expiresAt ?? 0;
+      const expiredError = new ClaimExpiredError(expiresAt, this.claimExpiryBufferMs);
+      this.metrics.tasksFailed++;
+      this.metrics.claimsExpired++;
+      this.metricsProvider.counter(METRIC_NAMES.TASKS_FAILED);
+      this.metricsProvider.counter(METRIC_NAMES.CLAIMS_EXPIRED);
+      this.events.onClaimExpiring?.(expiredError, task.pda);
+      this.events.onTaskFailed?.(expiredError, task.pda);
+      this.sendToDeadLetterQueue(task, expiredError, 'execute', 1);
+      this.logger.warn(`Task ${pda} aborted: claim deadline expiring`);
+      span.setStatus('error', 'claim deadline expired');
+      return;
+    }
+
+    if (state.timedOut) {
+      // Timeout-specific handling: emit onTaskTimeout, increment tasksFailed
+      const timeoutError = new TaskTimeoutError(this.taskTimeoutMs);
+      this.metrics.tasksFailed++;
+      this.metricsProvider.counter(METRIC_NAMES.TASKS_FAILED);
+      this.events.onTaskTimeout?.(timeoutError, task.pda);
+      this.events.onTaskFailed?.(timeoutError, task.pda);
+      this.sendToDeadLetterQueue(task, timeoutError, 'execute', 1);
+      this.logger.warn(`Task ${pda} timed out after ${this.taskTimeoutMs}ms`);
+      span.setStatus('error', 'timeout');
+      return;
+    }
+
+    if (controller.signal.aborted) {
+      // Graceful shutdown — do not send to DLQ
+      this.logger.debug(`Task ${pda} aborted`);
+      span.setStatus('error', 'aborted');
+      return;
+    }
+
+    // Non-abort failure (handler crash, retry exhaustion, etc.)
+    const normalizedError = error instanceof Error ? error : new Error(String(error));
+    const stage = this.inferFailureStage(normalizedError);
+    const attempts = normalizedError instanceof RetryExhaustedError ? normalizedError.attempts : 1;
+    this.sendToDeadLetterQueue(task, normalizedError, stage, attempts);
+    span.setStatus('error', normalizedError.message);
   }
 
   /**
