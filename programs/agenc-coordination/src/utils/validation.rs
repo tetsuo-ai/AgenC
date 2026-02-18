@@ -16,6 +16,8 @@
 ///
 /// # Examples
 /// ```
+/// use agenc_coordination::utils::validation::validate_string_input;
+///
 /// assert!(validate_string_input("https://example.com/api"));
 /// assert!(validate_string_input("hello world"));
 /// assert!(!validate_string_input("hello\x00world")); // null byte
@@ -33,7 +35,9 @@ mod tests {
     fn test_valid_url() {
         assert!(validate_string_input("https://example.com/api/v1"));
         assert!(validate_string_input("http://localhost:8080"));
-        assert!(validate_string_input("https://api.example.com/agents?id=123"));
+        assert!(validate_string_input(
+            "https://api.example.com/agents?id=123"
+        ));
     }
 
     #[test]
@@ -44,7 +48,9 @@ mod tests {
 
     #[test]
     fn test_valid_special_chars() {
-        assert!(validate_string_input("https://example.com/path?key=value&other=123"));
+        assert!(validate_string_input(
+            "https://example.com/path?key=value&other=123"
+        ));
         assert!(validate_string_input("ipfs://QmHash123"));
         assert!(validate_string_input("ar://arweave-hash"));
     }
@@ -57,9 +63,9 @@ mod tests {
     #[test]
     fn test_invalid_control_chars() {
         assert!(!validate_string_input("hello\x00world")); // null byte
-        assert!(!validate_string_input("hello\nworld"));   // newline
-        assert!(!validate_string_input("hello\rworld"));   // carriage return
-        assert!(!validate_string_input("hello\tworld"));   // tab
+        assert!(!validate_string_input("hello\nworld")); // newline
+        assert!(!validate_string_input("hello\rworld")); // carriage return
+        assert!(!validate_string_input("hello\tworld")); // tab
         assert!(!validate_string_input("\x1b[31mred\x1b[0m")); // ANSI escape
     }
 
