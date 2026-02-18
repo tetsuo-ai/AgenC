@@ -2726,7 +2726,8 @@ keyv@^5.5.5, keyv@^5.6.0:
 
 "libsignal@git+https://github.com/whiskeysockets/libsignal-node.git":
   version "2.0.1"
-  resolved "git+ssh://git@github.com/whiskeysockets/libsignal-node.git#1c30d7d7e76a3b0aa120b04dc6a26f5a12dccf67"
+  resolved "git+ssh://git@github.com/whiskeysockets/libsignal-node.git"
+  integrity sha512-OoptN1yDyDSFNvpDHFpiNt5KOu9ePBaRbBQwt9py4yyUs85ey+jTgbdHjR/mAqFF5EOXhBdEM1CBeCzK77nEBg==
   dependencies:
     curve25519-js "^0.0.4"
     protobufjs "6.8.8"
