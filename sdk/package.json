@@ -53,9 +53,7 @@
     "@solana/web3.js": ">=1.90.0",
     "chalk": "^4.1.2",
     "commander": "^12.0.0",
-    "ora": "^5.4.1",
-    "poseidon-lite": "^0.3.0",
-    "snarkjs": "^0.7.0"
+    "ora": "^5.4.1"
   },
   "devDependencies": {
     "@solana/spl-token": "^0.4.0",

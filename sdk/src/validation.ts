@@ -10,7 +10,6 @@ import {
   RISC0_SELECTOR_LEN,
   TRUSTED_RISC0_SELECTOR,
 } from './constants';
-import * as path from 'path';
 
 const MAX_INPUT_LENGTH = 512;
 const DANGEROUS_CHARS = /[;&|`$(){}[\]<>!\\]/;
@@ -87,22 +86,5 @@ export function validateRisc0PayloadShape(payload: Risc0PayloadLike): void {
   const selector = sealBytes.subarray(0, RISC0_SELECTOR_LEN);
   if (!selector.equals(Buffer.from(TRUSTED_RISC0_SELECTOR))) {
     throw new Error('Security: seal selector does not match trusted selector');
-  }
-}
-
-/**
- * @deprecated Circuit-path validation is removed from the RISC0 SDK flow.
- * Kept temporarily for compatibility with legacy internal modules.
- */
-export function validateCircuitPath(_circuitPath: string): void {
-  ensureReasonableInput(_circuitPath, 'Circuit path');
-
-  if (path.isAbsolute(_circuitPath)) {
-    throw new Error('Security: Absolute circuit paths are not allowed');
-  }
-
-  const normalized = path.normalize(_circuitPath);
-  if (normalized.startsWith('..') || normalized.includes('../') || normalized.includes('..\\')) {
-    throw new Error('Security: Path traversal in circuit path is not allowed');
   }
 }

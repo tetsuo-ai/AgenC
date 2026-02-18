@@ -12,8 +12,6 @@ export {
   verifyProofLocally,
   computeHashes,
   generateSalt,
-  checkToolsAvailable,
-  requireTools,
   pubkeyToField,
   FIELD_MODULUS,
   // Hash computation functions
@@ -23,7 +21,6 @@ export {
   ProofGenerationParams,
   ProofResult,
   HashResult,
-  ToolsStatus,
 } from './proofs';
 
 export {

@@ -10,7 +10,6 @@
 
 import { PublicKey } from '@solana/web3.js';
 import { createHash } from 'node:crypto';
-import { poseidon2, poseidon4, poseidon5 } from 'poseidon-lite';
 import {
   HASH_SIZE,
   OUTPUT_FIELD_COUNT,
@@ -36,6 +35,10 @@ const SIGNAL_BYTES = 32 + 32;
 const SIGNAL_SCALARS = 4;
 const EXPECTED_PUBLIC_SIGNALS_LEN = SIGNAL_BYTES + SIGNAL_SCALARS;
 const NULLIFIER_DOMAIN_TAG = Buffer.from('AGENC_V2_NULLIFIER', 'utf8');
+const CONSTRAINT_HASH_DOMAIN_TAG = Buffer.from('AGENC_V2_CONSTRAINT_HASH', 'utf8');
+const OUTPUT_COMMITMENT_DOMAIN_TAG = Buffer.from('AGENC_V2_OUTPUT_COMMITMENT', 'utf8');
+const BINDING_BASE_DOMAIN_TAG = Buffer.from('AGENC_V2_BINDING_BASE', 'utf8');
+const BINDING_DOMAIN_TAG = Buffer.from('AGENC_V2_BINDING', 'utf8');
 const MAX_U256 = (1n << 256n) - 1n;
 
 /**
@@ -143,8 +146,8 @@ export function computeConstraintHash(output: bigint[]): bigint {
   if (output.length !== OUTPUT_FIELD_COUNT) {
     throw new Error(`Output must be exactly ${OUTPUT_FIELD_COUNT} field elements`);
   }
-  const reduced = output.map((x) => ((x % FIELD_MODULUS) + FIELD_MODULUS) % FIELD_MODULUS);
-  return poseidon4(reduced);
+  const reduced = output.map(normalizeFieldElement);
+  return hashFieldElements(CONSTRAINT_HASH_DOMAIN_TAG, reduced);
 }
 
 function normalizeFieldElement(value: bigint): bigint {
@@ -168,7 +171,7 @@ function normalizeOutput(output: bigint[]): bigint[] {
 export function computeCommitmentFromOutput(output: bigint[], salt: bigint): bigint {
   const normalizedOutput = normalizeOutput(output);
   const s = normalizeFieldElement(salt);
-  return poseidon5([
+  return hashFieldElements(OUTPUT_COMMITMENT_DOMAIN_TAG, [
     normalizedOutput[0],
     normalizedOutput[1],
     normalizedOutput[2],
@@ -193,9 +196,9 @@ export function computeExpectedBinding(
 ): bigint {
   const taskField = pubkeyToField(taskPda);
   const agentField = pubkeyToField(agentPubkey);
-  const binding = poseidon2([taskField, agentField]);
-  const commitment = ((outputCommitment % FIELD_MODULUS) + FIELD_MODULUS) % FIELD_MODULUS;
-  return poseidon2([binding, commitment]);
+  const bindingBase = hashFieldElements(BINDING_BASE_DOMAIN_TAG, [taskField, agentField]);
+  const commitment = normalizeFieldElement(outputCommitment);
+  return hashFieldElements(BINDING_DOMAIN_TAG, [bindingBase, commitment]);
 }
 
 export function computeNullifierFromAgentSecret(
@@ -260,6 +263,16 @@ function bigintToBytes32(value: bigint): Buffer {
   return Buffer.from(hex, 'hex');
 }
 
+function hashFieldElements(domainTag: Buffer, values: bigint[]): bigint {
+  const hasher = createHash('sha256');
+  hasher.update(domainTag);
+  for (const value of values) {
+    hasher.update(bigintToBytes32(normalizeFieldElement(value)));
+  }
+  const digest = hasher.digest();
+  return BigInt(`0x${digest.toString('hex')}`) % FIELD_MODULUS;
+}
+
 function assertByteLength(value: Uint8Array | Buffer, expected: number, label: string): void {
   if (value.length !== expected) {
     throw new Error(`${label} must be ${expected} bytes, got ${value.length}`);
@@ -317,8 +330,7 @@ function simulateSealProofBytes(journal: Buffer, imageId: Buffer): Buffer {
 /**
  * Generate a deterministic local RISC0-shaped payload.
  *
- * This migration step removes `snarkjs`/`circuitPath` proof generation flow and
- * emits the new router payload shape for downstream submission.
+ * Emits the router payload shape for downstream submission.
  */
 export async function generateProof(params: ProofGenerationParams): Promise<ProofResult> {
   const startTime = Date.now();
@@ -436,8 +448,7 @@ function buildJournalFromPublicSignals(publicSignals: bigint[]): Buffer {
  */
 export async function verifyProofLocally(
   proof: Buffer,
-  publicSignals: bigint[],
-  _circuitPath?: string
+  publicSignals: bigint[]
 ): Promise<boolean> {
   try {
     const raw = Buffer.from(proof);
@@ -461,35 +472,5 @@ export async function verifyProofLocally(
     return proofBody.equals(expected);
   } catch {
     return false;
-  }
-}
-
-export interface ToolsStatus {
-  /**
-   * @deprecated Legacy marker retained for compatibility. Always false in RISC0 flow.
-   */
-  snarkjs: boolean;
-  risc0: boolean;
-  proverBackend: 'deterministic-local';
-}
-
-/**
- * Report proof tool availability for the current SDK build.
- */
-export function checkToolsAvailable(): ToolsStatus {
-  return {
-    snarkjs: false,
-    risc0: true,
-    proverBackend: 'deterministic-local',
-  };
-}
-
-/**
- * Ensure proof tooling is available.
- */
-export function requireTools(): void {
-  const tools = checkToolsAvailable();
-  if (!tools.risc0) {
-    throw new Error('RISC0 proving backend is unavailable');
   }
 }

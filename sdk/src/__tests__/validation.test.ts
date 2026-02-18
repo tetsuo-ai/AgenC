@@ -2,7 +2,6 @@ import { describe, it, expect } from 'vitest';
 import {
   validateProverEndpoint,
   validateRisc0PayloadShape,
-  validateCircuitPath,
 } from '../validation';
 import {
   RISC0_IMAGE_ID_LEN,
@@ -96,11 +95,5 @@ describe('validateRisc0PayloadShape', () => {
       bindingSeed: makeBytes(32, 3),
       nullifierSeed: makeBytes(32, 4),
     })).toThrow('journal must be');
-  });
-});
-
-describe('validateCircuitPath (deprecated compatibility)', () => {
-  it('still rejects traversal', () => {
-    expect(() => validateCircuitPath('../../../etc/passwd')).toThrow('traversal');
   });
 });
