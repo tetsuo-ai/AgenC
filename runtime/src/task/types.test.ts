@@ -429,12 +429,13 @@ describe('isTaskClaimable', () => {
 });
 
 describe('isPrivateExecutionResult', () => {
-  it('identifies PrivateTaskExecutionResult by presence of proof and constraintHash fields', () => {
+  it('identifies PrivateTaskExecutionResult by RISC0 payload fields', () => {
     const result: PrivateTaskExecutionResult = {
-      proof: new Uint8Array(256),
-      constraintHash: new Uint8Array(32),
-      outputCommitment: new Uint8Array(32),
-      expectedBinding: new Uint8Array(32),
+      sealBytes: new Uint8Array(260),
+      journal: new Uint8Array(192),
+      imageId: new Uint8Array(32),
+      bindingSeed: new Uint8Array(32),
+      nullifierSeed: new Uint8Array(32),
     };
 
     expect(isPrivateExecutionResult(result)).toBe(true);
@@ -448,9 +449,9 @@ describe('isPrivateExecutionResult', () => {
     expect(isPrivateExecutionResult(result)).toBe(false);
   });
 
-  it('does not match object with only proof (missing constraintHash)', () => {
+  it('does not match object with only seal bytes (missing journal fields)', () => {
     const result = {
-      proof: new Uint8Array(256),
+      sealBytes: new Uint8Array(260),
       proofHash: new Uint8Array(32),
     } as TaskExecutionResult;
 

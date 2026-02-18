@@ -11,6 +11,9 @@
 export type {
   ProofEngineConfig,
   ProofCacheConfig,
+  RouterConfig,
+  ProverBackend,
+  ProverBackendConfig,
   ProofInputs,
   EngineProofResult,
   ProofEngineStats,

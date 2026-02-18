@@ -495,7 +495,13 @@ export function isTaskClaimable(task: OnChainTask): boolean {
 export function isPrivateExecutionResult(
   result: TaskExecutionResult | PrivateTaskExecutionResult,
 ): result is PrivateTaskExecutionResult {
-  return 'proof' in result && 'constraintHash' in result;
+  return (
+    'sealBytes' in result &&
+    'journal' in result &&
+    'imageId' in result &&
+    'bindingSeed' in result &&
+    'nullifierSeed' in result
+  );
 }
 
 /**
@@ -591,19 +597,19 @@ export interface TaskExecutionResult {
 
 /**
  * Extended execution result for private (ZK-proof) tasks.
- * Identified by the presence of the `proof` field.
+ * Identified by the presence of the RISC0 payload fields.
  */
 export interface PrivateTaskExecutionResult {
-  /** Generated ZK proof bytes */
-  proof: Uint8Array;
-  /** Constraint hash (32 bytes) */
-  constraintHash: Uint8Array;
-  /** Output commitment (32 bytes) */
-  outputCommitment: Uint8Array;
-  /** Expected binding (32 bytes) */
-  expectedBinding: Uint8Array;
-  /** Nullifier to prevent proof/knowledge reuse (32 bytes) */
-  nullifier: Uint8Array;
+  /** Router seal bytes (selector + proof) */
+  sealBytes: Uint8Array;
+  /** Fixed private journal bytes */
+  journal: Uint8Array;
+  /** RISC0 image id */
+  imageId: Uint8Array;
+  /** Binding spend seed */
+  bindingSeed: Uint8Array;
+  /** Nullifier spend seed */
+  nullifierSeed: Uint8Array;
 }
 
 /**
