@@ -21,7 +21,8 @@ pub struct VoteProposal<'info> {
         init,
         payer = authority,
         space = GovernanceVote::SIZE,
-        seeds = [b"governance_vote", proposal.key().as_ref(), voter.key().as_ref()],
+        // One governance vote per authority per proposal (Sybil mitigation).
+        seeds = [b"governance_vote", proposal.key().as_ref(), authority.key().as_ref()],
         bump
     )]
     pub vote: Account<'info, GovernanceVote>,

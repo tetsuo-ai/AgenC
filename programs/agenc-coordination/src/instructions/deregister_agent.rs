@@ -2,6 +2,7 @@
 
 use crate::errors::CoordinationError;
 use crate::events::AgentDeregistered;
+use crate::instructions::slash_helpers::SLASH_WINDOW;
 use crate::state::{AgentRegistration, ProtocolConfig};
 use anchor_lang::prelude::*;
 
@@ -29,6 +30,7 @@ pub struct DeregisterAgent<'info> {
 
 pub fn handler(ctx: Context<DeregisterAgent>) -> Result<()> {
     let agent = &ctx.accounts.agent;
+    let clock = Clock::get()?;
 
     // Ensure agent has no active tasks
     require!(
@@ -36,19 +38,45 @@ pub fn handler(ctx: Context<DeregisterAgent>) -> Result<()> {
         CoordinationError::AgentHasActiveTasks
     );
 
-    // Ensure agent is not a defendant in any active disputes (fix #544)
-    // Prevents escaping potential slashing by deregistering
-    require!(
-        agent.disputes_as_defendant == 0,
-        CoordinationError::ActiveDisputesExist
-    );
-
-    let clock = Clock::get()?;
+    // If defendant disputes are still tracked, only allow deregistration after the
+    // slash window anchored to the agent's latest activity has elapsed.
+    if agent.disputes_as_defendant > 0 {
+        let time_since_last_activity = clock
+            .unix_timestamp
+            .checked_sub(agent.last_active)
+            .ok_or(CoordinationError::ArithmeticOverflow)?;
+        require!(
+            time_since_last_activity > SLASH_WINDOW,
+            CoordinationError::ActiveDisputesExist
+        );
+    }
 
     require!(
         agent.active_dispute_votes == 0,
         CoordinationError::ActiveDisputeVotes
     );
+
+    // Conservative initiator-slash gating: hold deregistration for a full dispute
+    // lifecycle window plus slash window after the last dispute initiation.
+    if agent.last_dispute_initiated > 0 {
+        let dispute_lifecycle_window = ctx
+            .accounts
+            .protocol_config
+            .max_dispute_duration
+            .max(ctx.accounts.protocol_config.voting_period)
+            .max(0);
+        let initiator_guard_window = dispute_lifecycle_window
+            .checked_add(SLASH_WINDOW)
+            .ok_or(CoordinationError::ArithmeticOverflow)?;
+        let time_since_last_dispute = clock
+            .unix_timestamp
+            .checked_sub(agent.last_dispute_initiated)
+            .ok_or(CoordinationError::ArithmeticOverflow)?;
+        require!(
+            time_since_last_dispute > initiator_guard_window,
+            CoordinationError::CooldownNotElapsed
+        );
+    }
 
     // Only check vote cooldown if agent has actually voted before
     // When last_vote_timestamp is 0 (never voted), skip the check

@@ -76,6 +76,21 @@ describe("complete_task_private", () => {
     )[0];
   }
 
+  function deriveNullifierPda(expectedBinding: Buffer): PublicKey {
+    return PublicKey.findProgramAddressSync(
+      [Buffer.from("nullifier"), expectedBinding],
+      program.programId
+    )[0];
+  }
+
+  function deriveNullifierPdaFromProof(proof: { expectedBinding: number[] }): PublicKey {
+    return deriveNullifierPda(Buffer.from(proof.expectedBinding));
+  }
+
+  function taskIdToBn(taskId: Buffer): BN {
+    return new BN(taskId.subarray(0, 8), "le");
+  }
+
   /**
    * Create a valid-looking but fake proof for testing validation.
    * This proof will fail ZK verification but tests pre-verification checks.
@@ -85,17 +100,20 @@ describe("complete_task_private", () => {
     constraintHash?: Buffer;
     outputCommitment?: Buffer;
     expectedBinding?: Buffer;
+    nullifier?: Buffer;
   } = {}) {
     const proofSize = options.proofSize ?? EXPECTED_PROOF_SIZE;
     const constraintHash = options.constraintHash ?? Buffer.alloc(HASH_SIZE, 0x01);
     const outputCommitment = options.outputCommitment ?? Buffer.alloc(HASH_SIZE, 0x02);
     const expectedBinding = options.expectedBinding ?? Buffer.alloc(HASH_SIZE, 0x03);
+    const nullifier = options.nullifier ?? Buffer.alloc(HASH_SIZE, 0x04);
 
     return {
       proofData: Buffer.alloc(proofSize, 0xAA), // Fake proof data
       constraintHash: Array.from(constraintHash),
       outputCommitment: Array.from(outputCommitment),
       expectedBinding: Array.from(expectedBinding),
+      nullifier: Array.from(nullifier),
     };
   }
 
@@ -116,7 +134,6 @@ describe("complete_task_private", () => {
 
     // Initialize protocol if not already done
     try {
-      const programDataPda = deriveProgramDataPda(program.programId);
       await program.methods
         .initializeProtocol(51, 100, new BN(1 * LAMPORTS_PER_SOL), new BN(LAMPORTS_PER_SOL / 100), 1, [provider.wallet.publicKey, treasury.publicKey])
         .accountsPartial({
@@ -236,6 +253,7 @@ describe("complete_task_private", () => {
           TASK_TYPE_EXCLUSIVE,
           Array.from(privateConstraintHash), // constraint_hash (non-zero = private task)
           0, // min_reputation
+          null, // dependency_task
         )
         .accountsPartial({
           task: privateTaskPda,
@@ -274,13 +292,14 @@ describe("complete_task_private", () => {
 
       try {
         await program.methods
-          .completeTaskPrivate(new BN(0), proof)
+          .completeTaskPrivate(taskIdToBn(privateTaskId), proof)
           .accountsPartial({
             task: privateTaskPda,
             claim: privateClaimPda,
             escrow: privateEscrowPda,
             worker: workerAgentPda,
             protocolConfig: protocolPda,
+            nullifierAccount: deriveNullifierPdaFromProof(proof),
             treasury: treasuryPubkey,
             authority: worker.publicKey,
             systemProgram: SystemProgram.programId,
@@ -301,13 +320,14 @@ describe("complete_task_private", () => {
 
       try {
         await program.methods
-          .completeTaskPrivate(new BN(0), proof)
+          .completeTaskPrivate(taskIdToBn(privateTaskId), proof)
           .accountsPartial({
             task: privateTaskPda,
             claim: privateClaimPda,
             escrow: privateEscrowPda,
             worker: workerAgentPda,
             protocolConfig: protocolPda,
+            nullifierAccount: deriveNullifierPdaFromProof(proof),
             treasury: treasuryPubkey,
             authority: worker.publicKey,
             systemProgram: SystemProgram.programId,
@@ -329,13 +349,14 @@ describe("complete_task_private", () => {
 
       try {
         await program.methods
-          .completeTaskPrivate(new BN(0), proof)
+          .completeTaskPrivate(taskIdToBn(privateTaskId), proof)
           .accountsPartial({
             task: privateTaskPda,
             claim: privateClaimPda,
             escrow: privateEscrowPda,
             worker: workerAgentPda,
             protocolConfig: protocolPda,
+            nullifierAccount: deriveNullifierPdaFromProof(proof),
             treasury: treasuryPubkey,
             authority: worker.publicKey,
             systemProgram: SystemProgram.programId,
@@ -375,6 +396,7 @@ describe("complete_task_private", () => {
           TASK_TYPE_EXCLUSIVE,
           Array.from(Buffer.alloc(HASH_SIZE, 0)), // All zeros = PUBLIC task
           0, // min_reputation
+          null, // dependency_task
         )
         .accountsPartial({
           task: publicTaskPda,
@@ -412,13 +434,14 @@ describe("complete_task_private", () => {
 
       try {
         await program.methods
-          .completeTaskPrivate(new BN(0), proof)
+          .completeTaskPrivate(taskIdToBn(publicTaskId), proof)
           .accountsPartial({
             task: publicTaskPda,
             claim: publicClaimPda,
             escrow: publicEscrowPda,
             worker: workerAgentPda,
             protocolConfig: protocolPda,
+            nullifierAccount: deriveNullifierPdaFromProof(proof),
             treasury: treasuryPubkey,
             authority: worker.publicKey,
             systemProgram: SystemProgram.programId,
@@ -456,6 +479,7 @@ describe("complete_task_private", () => {
           TASK_TYPE_EXCLUSIVE,
           Array.from(constraintHash),
           0, // min_reputation
+          null, // dependency_task
         )
         .accountsPartial({
           task: cancelledTaskPda,
@@ -477,7 +501,6 @@ describe("complete_task_private", () => {
           escrow: cancelledEscrowPda,
           creator: creator.publicKey,
           protocolConfig: protocolPda,
-          protocolConfig: protocolPda,
           systemProgram: SystemProgram.programId,
         })
         .signers([creator])
@@ -490,13 +513,14 @@ describe("complete_task_private", () => {
 
       try {
         await program.methods
-          .completeTaskPrivate(new BN(0), proof)
+          .completeTaskPrivate(taskIdToBn(cancelledTaskId), proof)
           .accountsPartial({
             task: cancelledTaskPda,
             claim: fakeClaimPda,
             escrow: cancelledEscrowPda,
             worker: workerAgentPda,
             protocolConfig: protocolPda,
+            nullifierAccount: deriveNullifierPdaFromProof(proof),
             treasury: treasuryPubkey,
             authority: worker.publicKey,
             systemProgram: SystemProgram.programId,

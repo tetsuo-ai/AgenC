@@ -6,6 +6,12 @@ use crate::state::{AgentRegistration, AgentStatus, FeedPost, ProtocolConfig};
 use crate::utils::version::check_version_compatible;
 use anchor_lang::prelude::*;
 
+/// Minimum reputation required to create a feed post.
+/// New agents start at 5000, so this requires positive contribution history.
+const MIN_FEED_POST_REPUTATION: u16 = 5500;
+/// Minimum account age before posting is allowed.
+const MIN_FEED_POST_ACCOUNT_AGE_SECS: i64 = 60 * 60;
+
 #[derive(Accounts)]
 #[instruction(content_hash: [u8; 32], nonce: [u8; 32])]
 pub struct PostToFeed<'info> {
@@ -52,6 +58,10 @@ pub fn handler(
         author.status == AgentStatus::Active,
         CoordinationError::AgentNotActive
     );
+    require!(
+        author.reputation >= MIN_FEED_POST_REPUTATION,
+        CoordinationError::InsufficientReputation
+    );
 
     require!(
         content_hash != [0u8; 32],
@@ -60,6 +70,12 @@ pub fn handler(
     require!(topic != [0u8; 32], CoordinationError::FeedInvalidTopic);
 
     let clock = Clock::get()?;
+    let account_age_secs = clock.unix_timestamp.saturating_sub(author.registered_at);
+    require!(
+        account_age_secs >= MIN_FEED_POST_ACCOUNT_AGE_SECS,
+        CoordinationError::CooldownNotElapsed
+    );
+
     let post = &mut ctx.accounts.post;
 
     post.author = ctx.accounts.author.key();

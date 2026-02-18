@@ -4,24 +4,31 @@ import { PROOF_SIZE_BYTES, SEEDS } from './constants';
 import { getTask, deriveClaimPda, TaskState, type PrivateCompletionProof } from './tasks';
 import { getAccount } from './anchor-utils';
 
-export interface ProofPreconditionResult {
+/**
+ * Result of best-effort client-side checks before submitting `completeTaskPrivate`.
+ * These checks reduce avoidable RPC failures but do not verify ZK proof validity.
+ */
+export interface ProofSubmissionPreflightResult {
   valid: boolean;
-  failures: ProofPreconditionFailure[];
-  warnings: ProofPreconditionWarning[];
+  failures: ProofSubmissionPreflightFailure[];
+  warnings: ProofSubmissionPreflightWarning[];
 }
 
-export interface ProofPreconditionFailure {
+export interface ProofSubmissionPreflightFailure {
   check: string;
   message: string;
   retriable: boolean;
 }
 
-export interface ProofPreconditionWarning {
+export interface ProofSubmissionPreflightWarning {
   check: string;
   message: string;
 }
 
-export interface ValidateProofParams {
+/**
+ * Input parameters for proof submission preflight.
+ */
+export interface ProofSubmissionPreflightParams {
   taskPda: PublicKey;
   workerAgentPda: PublicKey;
   proof: Pick<
@@ -31,6 +38,26 @@ export interface ValidateProofParams {
   proofGeneratedAtMs?: number;
   maxProofAgeMs?: number;
 }
+
+/**
+ * @deprecated Since v1.6.0. Use {@link ProofSubmissionPreflightResult} instead.
+ */
+export type ProofPreconditionResult = ProofSubmissionPreflightResult;
+
+/**
+ * @deprecated Since v1.6.0. Use {@link ProofSubmissionPreflightFailure} instead.
+ */
+export type ProofPreconditionFailure = ProofSubmissionPreflightFailure;
+
+/**
+ * @deprecated Since v1.6.0. Use {@link ProofSubmissionPreflightWarning} instead.
+ */
+export type ProofPreconditionWarning = ProofSubmissionPreflightWarning;
+
+/**
+ * @deprecated Since v1.6.0. Use {@link ProofSubmissionPreflightParams} instead.
+ */
+export type ValidateProofParams = ProofSubmissionPreflightParams;
 
 export const DEFAULT_MAX_PROOF_AGE_MS = 5 * 60 * 1_000;
 
@@ -61,13 +88,13 @@ function toNumber(value: unknown): number {
   return 0;
 }
 
-export async function validateProofPreconditions(
+export async function runProofSubmissionPreflight(
   connection: Connection,
   program: Program,
-  params: ValidateProofParams,
-): Promise<ProofPreconditionResult> {
-  const failures: ProofPreconditionFailure[] = [];
-  const warnings: ProofPreconditionWarning[] = [];
+  params: ProofSubmissionPreflightParams,
+): Promise<ProofSubmissionPreflightResult> {
+  const failures: ProofSubmissionPreflightFailure[] = [];
+  const warnings: ProofSubmissionPreflightWarning[] = [];
 
   const proofData = toBytes(params.proof.proofData);
   const expectedBinding = toBytes(params.proof.expectedBinding);
@@ -247,4 +274,15 @@ export async function validateProofPreconditions(
     failures,
     warnings,
   };
+}
+
+/**
+ * @deprecated Since v1.6.0. Use {@link runProofSubmissionPreflight} instead.
+ */
+export async function validateProofPreconditions(
+  connection: Connection,
+  program: Program,
+  params: ValidateProofParams,
+): Promise<ProofPreconditionResult> {
+  return runProofSubmissionPreflight(connection, program, params);
 }
