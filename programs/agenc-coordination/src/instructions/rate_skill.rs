@@ -3,7 +3,7 @@
 use crate::errors::CoordinationError;
 use crate::events::SkillRated;
 use crate::state::{
-    AgentRegistration, AgentStatus, ProtocolConfig, SkillRating, SkillRegistration,
+    AgentRegistration, AgentStatus, ProtocolConfig, PurchaseRecord, SkillRating, SkillRegistration,
 };
 use crate::utils::version::check_version_compatible;
 use anchor_lang::prelude::*;
@@ -32,6 +32,14 @@ pub struct RateSkill<'info> {
         has_one = authority @ CoordinationError::UnauthorizedAgent
     )]
     pub rater: Account<'info, AgentRegistration>,
+
+    #[account(
+        seeds = [b"skill_purchase", skill.key().as_ref(), rater.key().as_ref()],
+        bump = purchase_record.bump,
+        constraint = purchase_record.skill == skill.key() @ CoordinationError::InvalidInput,
+        constraint = purchase_record.buyer == rater.key() @ CoordinationError::InvalidInput
+    )]
+    pub purchase_record: Account<'info, PurchaseRecord>,
 
     #[account(
         seeds = [b"protocol"],

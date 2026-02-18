@@ -9,18 +9,22 @@ include "node_modules/circomlib/circuits/comparators.circom";
 //
 // Uses circomlib Poseidon for hashing (groth16-solana compatible)
 //
-// Public Inputs (6 total):
-//   - task_id: 32-byte task identifier as field element
-//   - agent_pubkey: 32-byte agent public key as field element
+// Public Inputs (67 total field elements):
+//   - task_id[32]: 32-byte task identifier (one byte per field element)
+//   - agent_pubkey[32]: 32-byte agent public key (one byte per field element)
 //   - constraint_hash: hash of expected output
 //   - output_commitment: commitment to the output
 //   - expected_binding: anti-replay binding value
-//   - nullifier: prevents proof/knowledge reuse (derived from constraint_hash + agent_secret)
 //
 // Private Inputs:
-//   - output[4]: actual task output (4 field elements)
+//   - output_values[4]: actual task output (4 field elements)
 //   - salt: random salt for commitment
 //   - agent_secret: secret known only to the agent for nullifier derivation
+//
+// Public Outputs:
+//   - nullifier: prevents proof/knowledge reuse (derived from constraint_hash + agent_secret)
+//     NOTE: current on-chain verifier consumes only public inputs. Making nullifier verifier-bound
+//     on-chain requires regenerating artifacts (witness layout + verifying key).
 
 // Convert 32 bytes to a single field element (big-endian)
 // BN254 scalar field is ~254 bits, so 32 bytes fits safely when first byte <= 0x30
@@ -47,16 +51,42 @@ template ByteRangeCheck() {
     bits.in <== in;
 }
 
-// Validate first byte <= 0x30 to prevent field overflow
-// BN254 scalar field modulus starts with 0x30644e72...
-template FieldOverflowCheck() {
-    signal input first_byte;
+// Full lexicographic range check: bytes must be strictly less than BN254 modulus.
+// This avoids field aliasing when converting 32-byte values into field elements.
+template BytesLessThanBn254Modulus() {
+    signal input bytes[32];
+    signal output out;
 
-    // first_byte must be <= 48 (0x30)
-    component lt = LessEqThan(8);
-    lt.in[0] <== first_byte;
-    lt.in[1] <== 48; // 0x30
-    lt.out === 1;
+    // 0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001
+    var modulus[32] = [
+        0x30, 0x64, 0x4e, 0x72, 0xe1, 0x31, 0xa0, 0x29,
+        0xb8, 0x50, 0x45, 0xb6, 0x81, 0x81, 0x58, 0x5d,
+        0x28, 0x33, 0xe8, 0x48, 0x79, 0xb9, 0x70, 0x91,
+        0x43, 0xe1, 0xf5, 0x93, 0xf0, 0x00, 0x00, 0x01
+    ];
+
+    signal prefix_equal[33];
+    signal less_than_accum[33];
+    component eq[32];
+    component lt[32];
+
+    prefix_equal[0] <== 1;
+    less_than_accum[0] <== 0;
+
+    for (var i = 0; i < 32; i++) {
+        eq[i] = IsEqual();
+        eq[i].in[0] <== bytes[i];
+        eq[i].in[1] <== modulus[i];
+
+        lt[i] = LessThan(8);
+        lt[i].in[0] <== bytes[i];
+        lt[i].in[1] <== modulus[i];
+
+        prefix_equal[i + 1] <== prefix_equal[i] * eq[i].out;
+        less_than_accum[i + 1] <== less_than_accum[i] + prefix_equal[i] * lt[i].out;
+    }
+
+    out <== less_than_accum[32];
 }
 
 // Main circuit template
@@ -91,13 +121,16 @@ template TaskCompletion() {
     }
 
     // ========================================
-    // Field overflow check (first byte <= 0x30)
+    // Full modulus checks (strictly less than BN254 modulus)
     // ========================================
-    component task_overflow = FieldOverflowCheck();
-    task_overflow.first_byte <== task_id[0];
-
-    component agent_overflow = FieldOverflowCheck();
-    agent_overflow.first_byte <== agent_pubkey[0];
+    component task_modulus_check = BytesLessThanBn254Modulus();
+    component agent_modulus_check = BytesLessThanBn254Modulus();
+    for (var i = 0; i < 32; i++) {
+        task_modulus_check.bytes[i] <== task_id[i];
+        agent_modulus_check.bytes[i] <== agent_pubkey[i];
+    }
+    task_modulus_check.out === 1;
+    agent_modulus_check.out === 1;
 
     // ========================================
     // Convert bytes to field elements

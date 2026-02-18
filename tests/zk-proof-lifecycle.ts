@@ -7,7 +7,7 @@
  * Test Categories:
  * 1. Happy Path - Valid proof submission and task completion
  * 2. Invalid Proof Rejection - Tampered proofs, wrong bindings
- * 3. Proof Size Validation - Exact 388 bytes requirement
+ * 3. Proof Size Validation - Exact 256 bytes requirement
  * 4. Replay Attack Prevention - Proof uniqueness per task/agent
  * 5. Constraint Hash Binding - Proof must match task constraint
  *
@@ -44,10 +44,9 @@ describe("ZK Proof Verification Lifecycle", () => {
 
   // Constants
   const HASH_SIZE = 32;
-  const EXPECTED_PROOF_SIZE = 388;
-  const ZK_VERIFIER_PROGRAM_ID = new PublicKey("8fHUGmjNzSh76r78v1rPt7BhWmAu2gXrvW9A2XXonwQQ");
+  const EXPECTED_PROOF_SIZE = 256; // groth16-solana format: 64 + 128 + 64
 
-  // HASH_SIZE, EXPECTED_PROOF_SIZE, ZK_VERIFIER_PROGRAM_ID are test-specific constants
+  // HASH_SIZE and EXPECTED_PROOF_SIZE are test-specific constants
 
   // Test run identifier
   const runId = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
@@ -95,6 +94,21 @@ describe("ZK Proof Verification Lifecycle", () => {
     )[0];
   }
 
+  function deriveNullifierPda(expectedBinding: Buffer): PublicKey {
+    return PublicKey.findProgramAddressSync(
+      [Buffer.from("nullifier"), expectedBinding],
+      program.programId
+    )[0];
+  }
+
+  function deriveNullifierPdaFromProof(proof: { expectedBinding: number[] }): PublicKey {
+    return deriveNullifierPda(Buffer.from(proof.expectedBinding));
+  }
+
+  function taskIdToBn(taskId: Buffer): BN {
+    return new BN(taskId.subarray(0, 8), "le");
+  }
+
   /**
    * Create a test proof structure.
    * For tests requiring real verification, replace with actual Groth16 proofs.
@@ -104,17 +118,20 @@ describe("ZK Proof Verification Lifecycle", () => {
     constraintHash?: Buffer;
     outputCommitment?: Buffer;
     expectedBinding?: Buffer;
+    nullifier?: Buffer;
   } = {}) {
     const proofSize = options.proofSize ?? EXPECTED_PROOF_SIZE;
     const constraintHash = options.constraintHash ?? Buffer.alloc(HASH_SIZE, 0x01);
     const outputCommitment = options.outputCommitment ?? Buffer.alloc(HASH_SIZE, 0x02);
     const expectedBinding = options.expectedBinding ?? Buffer.alloc(HASH_SIZE, 0x03);
+    const nullifier = options.nullifier ?? Buffer.alloc(HASH_SIZE, 0x04);
 
     return {
       proofData: Buffer.alloc(proofSize, 0xAA),
       constraintHash: Array.from(constraintHash),
       outputCommitment: Array.from(outputCommitment),
       expectedBinding: Array.from(expectedBinding),
+      nullifier: Array.from(nullifier),
     };
   }
 
@@ -142,6 +159,7 @@ describe("ZK Proof Verification Lifecycle", () => {
         taskType,
         Array.from(constraintHash),
         0, // min_reputation
+        null, // dependency_task
       )
       .accountsPartial({
         task: taskPda,
@@ -208,7 +226,6 @@ describe("ZK Proof Verification Lifecycle", () => {
 
     // Initialize protocol
     try {
-      const programDataPda = deriveProgramDataPda(program.programId);
       await program.methods
         .initializeProtocol(51, 100, new BN(LAMPORTS_PER_SOL / 10), new BN(LAMPORTS_PER_SOL / 100), 1, [provider.wallet.publicKey, treasury.publicKey])
         .accountsPartial({
@@ -277,6 +294,7 @@ describe("ZK Proof Verification Lifecycle", () => {
   // ============================================================================
 
   describe("1. Proof Size Validation", () => {
+    let taskId: Buffer;
     let taskPda: PublicKey;
     let escrowPda: PublicKey;
     let claimPda: PublicKey;
@@ -284,12 +302,13 @@ describe("ZK Proof Verification Lifecycle", () => {
 
     before(async () => {
       const result = await createPrivateTask("size-test", constraintHash);
+      taskId = result.taskId;
       taskPda = result.taskPda;
       escrowPda = result.escrowPda;
       claimPda = await claimTask(taskPda, worker1AgentPda, worker1);
     });
 
-    it("rejects proof smaller than 388 bytes", async () => {
+    it("rejects proof smaller than 256 bytes", async () => {
       const proof = createTestProof({
         proofSize: 100,
         constraintHash,
@@ -297,15 +316,15 @@ describe("ZK Proof Verification Lifecycle", () => {
 
       try {
         await program.methods
-          .completeTaskPrivate(new BN(0), proof)
+          .completeTaskPrivate(taskIdToBn(taskId), proof)
           .accountsPartial({
             task: taskPda,
             claim: claimPda,
             escrow: escrowPda,
             worker: worker1AgentPda,
             protocolConfig: protocolPda,
+            nullifierAccount: deriveNullifierPdaFromProof(proof),
             treasury: treasuryPubkey,
-            zkVerifier: ZK_VERIFIER_PROGRAM_ID,
             authority: worker1.publicKey,
             systemProgram: SystemProgram.programId,
           })
@@ -318,7 +337,7 @@ describe("ZK Proof Verification Lifecycle", () => {
       }
     });
 
-    it("rejects proof larger than 388 bytes", async () => {
+    it("rejects proof larger than 256 bytes", async () => {
       const proof = createTestProof({
         proofSize: 500,
         constraintHash,
@@ -326,15 +345,15 @@ describe("ZK Proof Verification Lifecycle", () => {
 
       try {
         await program.methods
-          .completeTaskPrivate(new BN(0), proof)
+          .completeTaskPrivate(taskIdToBn(taskId), proof)
           .accountsPartial({
             task: taskPda,
             claim: claimPda,
             escrow: escrowPda,
             worker: worker1AgentPda,
             protocolConfig: protocolPda,
+            nullifierAccount: deriveNullifierPdaFromProof(proof),
             treasury: treasuryPubkey,
-            zkVerifier: ZK_VERIFIER_PROGRAM_ID,
             authority: worker1.publicKey,
             systemProgram: SystemProgram.programId,
           })
@@ -353,6 +372,7 @@ describe("ZK Proof Verification Lifecycle", () => {
   // ============================================================================
 
   describe("2. Constraint Hash Binding", () => {
+    let taskId: Buffer;
     let taskPda: PublicKey;
     let escrowPda: PublicKey;
     let claimPda: PublicKey;
@@ -360,6 +380,7 @@ describe("ZK Proof Verification Lifecycle", () => {
 
     before(async () => {
       const result = await createPrivateTask("constraint-test", taskConstraintHash);
+      taskId = result.taskId;
       taskPda = result.taskPda;
       escrowPda = result.escrowPda;
       claimPda = await claimTask(taskPda, worker1AgentPda, worker1);
@@ -373,15 +394,15 @@ describe("ZK Proof Verification Lifecycle", () => {
 
       try {
         await program.methods
-          .completeTaskPrivate(new BN(0), proof)
+          .completeTaskPrivate(taskIdToBn(taskId), proof)
           .accountsPartial({
             task: taskPda,
             claim: claimPda,
             escrow: escrowPda,
             worker: worker1AgentPda,
             protocolConfig: protocolPda,
+            nullifierAccount: deriveNullifierPdaFromProof(proof),
             treasury: treasuryPubkey,
-            zkVerifier: ZK_VERIFIER_PROGRAM_ID,
             authority: worker1.publicKey,
             systemProgram: SystemProgram.programId,
           })
@@ -411,6 +432,7 @@ describe("ZK Proof Verification Lifecycle", () => {
           TASK_TYPE_EXCLUSIVE,
           Array.from(Buffer.alloc(HASH_SIZE, 0)), // Zero = public
           0, // min_reputation
+          null, // dependency_task
         )
         .accountsPartial({
           task: publicTaskPda,
@@ -432,15 +454,15 @@ describe("ZK Proof Verification Lifecycle", () => {
 
       try {
         await program.methods
-          .completeTaskPrivate(new BN(0), proof)
+          .completeTaskPrivate(taskIdToBn(publicTaskId), proof)
           .accountsPartial({
             task: publicTaskPda,
             claim: publicClaimPda,
             escrow: publicEscrowPda,
             worker: worker1AgentPda,
             protocolConfig: protocolPda,
+            nullifierAccount: deriveNullifierPdaFromProof(proof),
             treasury: treasuryPubkey,
-            zkVerifier: ZK_VERIFIER_PROGRAM_ID,
             authority: worker1.publicKey,
             systemProgram: SystemProgram.programId,
           })
@@ -462,6 +484,7 @@ describe("ZK Proof Verification Lifecycle", () => {
   // all-zeros binding/commitment values are rejected before ZK verification.
 
   describe("3. Defense-in-Depth Validation", () => {
+    let taskId: Buffer;
     let taskPda: PublicKey;
     let escrowPda: PublicKey;
     let claimPda: PublicKey;
@@ -469,6 +492,7 @@ describe("ZK Proof Verification Lifecycle", () => {
 
     before(async () => {
       const result = await createPrivateTask("defense-test", constraintHash);
+      taskId = result.taskId;
       taskPda = result.taskPda;
       escrowPda = result.escrowPda;
       claimPda = await claimTask(taskPda, worker1AgentPda, worker1);
@@ -482,15 +506,15 @@ describe("ZK Proof Verification Lifecycle", () => {
 
       try {
         await program.methods
-          .completeTaskPrivate(new BN(0), proof)
+          .completeTaskPrivate(taskIdToBn(taskId), proof)
           .accountsPartial({
             task: taskPda,
             claim: claimPda,
             escrow: escrowPda,
             worker: worker1AgentPda,
             protocolConfig: protocolPda,
+            nullifierAccount: deriveNullifierPdaFromProof(proof),
             treasury: treasuryPubkey,
-            zkVerifier: ZK_VERIFIER_PROGRAM_ID,
             authority: worker1.publicKey,
             systemProgram: SystemProgram.programId,
           })
@@ -519,15 +543,15 @@ describe("ZK Proof Verification Lifecycle", () => {
 
       try {
         await program.methods
-          .completeTaskPrivate(new BN(0), proof)
+          .completeTaskPrivate(taskIdToBn(taskId), proof)
           .accountsPartial({
             task: taskPda,
             claim: claimPda,
             escrow: escrowPda,
             worker: worker1AgentPda,
             protocolConfig: protocolPda,
+            nullifierAccount: deriveNullifierPdaFromProof(proof),
             treasury: treasuryPubkey,
-            zkVerifier: ZK_VERIFIER_PROGRAM_ID,
             authority: worker1.publicKey,
             systemProgram: SystemProgram.programId,
           })
@@ -556,7 +580,7 @@ describe("ZK Proof Verification Lifecycle", () => {
   describe("4. Replay Attack Prevention", () => {
     it("prevents same worker from completing same claim twice", async () => {
       const constraintHash = Buffer.alloc(HASH_SIZE, 0x44);
-      const { taskPda, escrowPda } = await createPrivateTask("replay-test-1", constraintHash);
+      const { taskId, taskPda, escrowPda } = await createPrivateTask("replay-test-1", constraintHash);
       const claimPda = await claimTask(taskPda, worker1AgentPda, worker1);
 
       // First completion attempt will fail ZK verification (fake proof)
@@ -569,15 +593,15 @@ describe("ZK Proof Verification Lifecycle", () => {
       // We're testing the on-chain logic flow
       try {
         await program.methods
-          .completeTaskPrivate(new BN(0), proof)
+          .completeTaskPrivate(taskIdToBn(taskId), proof)
           .accountsPartial({
             task: taskPda,
             claim: claimPda,
             escrow: escrowPda,
             worker: worker1AgentPda,
             protocolConfig: protocolPda,
+            nullifierAccount: deriveNullifierPdaFromProof(proof),
             treasury: treasuryPubkey,
-            zkVerifier: ZK_VERIFIER_PROGRAM_ID,
             authority: worker1.publicKey,
             systemProgram: SystemProgram.programId,
           })
@@ -696,7 +720,7 @@ describe("ZK Proof Verification Lifecycle", () => {
   describe("6. Worker Authorization", () => {
     it("rejects completion from wrong authority", async () => {
       const constraintHash = Buffer.alloc(HASH_SIZE, 0x88);
-      const { taskPda, escrowPda } = await createPrivateTask("auth-test", constraintHash);
+      const { taskId, taskPda, escrowPda } = await createPrivateTask("auth-test", constraintHash);
       const claimPda = await claimTask(taskPda, worker1AgentPda, worker1);
 
       const proof = createTestProof({ constraintHash });
@@ -704,15 +728,15 @@ describe("ZK Proof Verification Lifecycle", () => {
       // Try to complete with worker2's key but worker1's agent PDA
       try {
         await program.methods
-          .completeTaskPrivate(new BN(0), proof)
+          .completeTaskPrivate(taskIdToBn(taskId), proof)
           .accountsPartial({
             task: taskPda,
             claim: claimPda,
             escrow: escrowPda,
             worker: worker1AgentPda, // worker1's agent
             protocolConfig: protocolPda,
+            nullifierAccount: deriveNullifierPdaFromProof(proof),
             treasury: treasuryPubkey,
-            zkVerifier: ZK_VERIFIER_PROGRAM_ID,
             authority: worker2.publicKey, // but worker2 signing
             systemProgram: SystemProgram.programId,
           })
@@ -727,7 +751,7 @@ describe("ZK Proof Verification Lifecycle", () => {
 
     it("rejects completion with wrong claim", async () => {
       const constraintHash = Buffer.alloc(HASH_SIZE, 0x99);
-      const { taskPda, escrowPda } = await createPrivateTask("wrong-claim", constraintHash);
+      const { taskId, taskPda, escrowPda } = await createPrivateTask("wrong-claim", constraintHash);
 
       // Only worker1 claims
       const claimPda = await claimTask(taskPda, worker1AgentPda, worker1);
@@ -740,15 +764,15 @@ describe("ZK Proof Verification Lifecycle", () => {
       // Try to complete with non-existent claim
       try {
         await program.methods
-          .completeTaskPrivate(new BN(0), proof)
+          .completeTaskPrivate(taskIdToBn(taskId), proof)
           .accountsPartial({
             task: taskPda,
             claim: wrongClaimPda, // worker2's claim (doesn't exist)
             escrow: escrowPda,
             worker: worker2AgentPda,
             protocolConfig: protocolPda,
+            nullifierAccount: deriveNullifierPdaFromProof(proof),
             treasury: treasuryPubkey,
-            zkVerifier: ZK_VERIFIER_PROGRAM_ID,
             authority: worker2.publicKey,
             systemProgram: SystemProgram.programId,
           })
