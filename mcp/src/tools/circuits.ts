@@ -5,11 +5,12 @@
  * Circom ZK circuits with structured output parsing.
  */
 
-import { execFile } from 'child_process';
 import { stat, readFile } from 'fs/promises';
 import path from 'path';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
+import { runCommand } from '@agenc/runtime';
+import { withToolErrorResponse, toolTextResponse } from './response.js';
 
 /** Root of the AgenC repository.
  *  When bundled into dist/index.cjs, __dirname is mcp/dist/ (2 up).
@@ -26,6 +27,7 @@ const PROJECT_ROOT = findProjectRoot();
 
 /** Default circuit directory */
 const DEFAULT_CIRCUIT_DIR = path.join(PROJECT_ROOT, 'circuits-circom', 'task_completion');
+const COMMAND_ENV = { ...process.env, FORCE_COLOR: '0', NO_COLOR: '1' };
 
 /**
  * Validate a circuit path to prevent directory traversal and injection.
@@ -55,35 +57,6 @@ function validatePath(inputPath: string | undefined, defaultDir: string): string
   }
 
   return candidate;
-}
-
-/**
- * Run a command and capture output.
- */
-function runCommand(
-  cmd: string,
-  args: string[],
-  cwd: string,
-  timeoutMs: number,
-): Promise<{ stdout: string; stderr: string; exitCode: number }> {
-  return new Promise((resolve) => {
-    const proc = execFile(cmd, args, {
-      cwd,
-      timeout: timeoutMs,
-      maxBuffer: 10 * 1024 * 1024,
-      env: { ...process.env, FORCE_COLOR: '0', NO_COLOR: '1' },
-    }, (error, stdout, stderr) => {
-      resolve({
-        stdout: stdout ?? '',
-        stderr: stderr ?? '',
-        exitCode: error
-          ? (error as NodeJS.ErrnoException & { code?: number | string }).code === 'ETIMEDOUT'
-            ? 124
-            : (proc.exitCode ?? 1)
-          : 0,
-      });
-    });
-  });
 }
 
 /**
@@ -123,40 +96,34 @@ export function registerCircuitTools(server: McpServer): void {
     {
       circuit_path: z.string().optional().describe('Path to circuit directory (default: circuits-circom/task_completion/)'),
     },
-    async ({ circuit_path }) => {
-      try {
-        const circuitDir = validatePath(circuit_path, DEFAULT_CIRCUIT_DIR);
+    withToolErrorResponse(async ({ circuit_path }) => {
+      const circuitDir = validatePath(circuit_path, DEFAULT_CIRCUIT_DIR);
 
         // Find the .circom file
         const circomFile = path.join(circuitDir, 'circuit.circom');
-        if (!(await fileExists(circomFile))) {
-          return {
-            content: [{
-              type: 'text' as const,
-              text: 'Error: circuit file not found at ' + circomFile + '\nLooking for circuit.circom in ' + circuitDir,
-            }],
-          };
-        }
+      if (!(await fileExists(circomFile))) {
+        return toolTextResponse(
+          'Error: circuit file not found at ' + circomFile + '\nLooking for circuit.circom in ' + circuitDir,
+        );
+      }
 
         const targetDir = path.join(circuitDir, 'target');
 
         const { stdout, stderr, exitCode } = await runCommand(
           'circom',
           [circomFile, '--r1cs', '--wasm', '--sym', '-o', targetDir],
-          circuitDir,
-          120_000,
+          {
+            cwd: circuitDir,
+            timeoutMs: 120_000,
+            env: COMMAND_ENV,
+          },
         );
 
         const combined = stdout + '\n' + stderr;
 
-        if (exitCode !== 0) {
-          return {
-            content: [{
-              type: 'text' as const,
-              text: 'Compilation FAILED (exit ' + exitCode + ')\n\n' + combined.slice(-3000),
-            }],
-          };
-        }
+      if (exitCode !== 0) {
+        return toolTextResponse('Compilation FAILED (exit ' + exitCode + ')\n\n' + combined.slice(-3000));
+      }
 
         // Parse output for constraint and signal counts
         const constraintMatch = /non-linear constraints:\s*(\d+)/i.exec(combined)
@@ -197,15 +164,8 @@ export function registerCircuitTools(server: McpServer): void {
           lines.push('', '--- Raw Output ---', combined.slice(0, 2000));
         }
 
-        return {
-          content: [{ type: 'text' as const, text: lines.join('\n') }],
-        };
-      } catch (error) {
-        return {
-          content: [{ type: 'text' as const, text: 'Error: ' + (error as Error).message }],
-        };
-      }
-    },
+      return toolTextResponse(lines.join('\n'));
+    }),
   );
 
   server.tool(
@@ -215,30 +175,24 @@ export function registerCircuitTools(server: McpServer): void {
       input_json: z.string().describe('JSON string with input signals (e.g. {"task_id": "1", "agent_pubkey": "..."})'),
       circuit_path: z.string().optional().describe('Path to circuit directory (default: circuits-circom/task_completion/)'),
     },
-    async ({ input_json, circuit_path }) => {
-      try {
-        const circuitDir = validatePath(circuit_path, DEFAULT_CIRCUIT_DIR);
-        const targetDir = path.join(circuitDir, 'target');
-        const wasmPath = path.join(targetDir, 'circuit_js', 'circuit.wasm');
-        const witnessPath = path.join(targetDir, 'witness.wtns');
+    withToolErrorResponse(async ({ input_json, circuit_path }) => {
+      const circuitDir = validatePath(circuit_path, DEFAULT_CIRCUIT_DIR);
+      const targetDir = path.join(circuitDir, 'target');
+      const wasmPath = path.join(targetDir, 'circuit_js', 'circuit.wasm');
+      const witnessPath = path.join(targetDir, 'witness.wtns');
 
-        if (!(await fileExists(wasmPath))) {
-          return {
-            content: [{
-              type: 'text' as const,
-              text: 'Error: compiled WASM not found at ' + wasmPath + '\nRun agenc_compile_circuit first.',
-            }],
-          };
-        }
+      if (!(await fileExists(wasmPath))) {
+        return toolTextResponse(
+          'Error: compiled WASM not found at ' + wasmPath + '\nRun agenc_compile_circuit first.',
+        );
+      }
 
         // Validate JSON
-        try {
-          JSON.parse(input_json);
-        } catch {
-          return {
-            content: [{ type: 'text' as const, text: 'Error: invalid JSON input' }],
-          };
-        }
+      try {
+        JSON.parse(input_json);
+      } catch {
+        return toolTextResponse('Error: invalid JSON input');
+      }
 
         // Write input to temp file
         const inputPath = path.join(targetDir, 'input.json');
@@ -248,37 +202,27 @@ export function registerCircuitTools(server: McpServer): void {
         const { stdout, stderr, exitCode } = await runCommand(
           'npx',
           ['snarkjs', 'wtns', 'calculate', wasmPath, inputPath, witnessPath],
-          circuitDir,
-          60_000,
+          {
+            cwd: circuitDir,
+            timeoutMs: 60_000,
+            env: COMMAND_ENV,
+          },
         );
 
-        if (exitCode !== 0) {
-          const combined = stdout + '\n' + stderr;
-          return {
-            content: [{
-              type: 'text' as const,
-              text: 'Witness generation FAILED (exit ' + exitCode + ')\n\n' + combined.slice(-2000),
-            }],
-          };
-        }
+      if (exitCode !== 0) {
+        const combined = stdout + '\n' + stderr;
+        return toolTextResponse('Witness generation FAILED (exit ' + exitCode + ')\n\n' + combined.slice(-2000));
+      }
 
         const witnessSize = await getFileSize(witnessPath);
 
-        return {
-          content: [{
-            type: 'text' as const,
-            text: [
-              'Witness generation SUCCESS',
-              'Output: ' + witnessPath + ' (' + formatFileSize(witnessSize) + ')',
-            ].join('\n'),
-          }],
-        };
-      } catch (error) {
-        return {
-          content: [{ type: 'text' as const, text: 'Error: ' + (error as Error).message }],
-        };
-      }
-    },
+      return toolTextResponse(
+        [
+          'Witness generation SUCCESS',
+          'Output: ' + witnessPath + ' (' + formatFileSize(witnessSize) + ')',
+        ].join('\n'),
+      );
+    }),
   );
 
   server.tool(
@@ -288,10 +232,9 @@ export function registerCircuitTools(server: McpServer): void {
       witness_path: z.string().optional().describe('Path to witness file (default: target/witness.wtns in circuit dir)'),
       circuit_path: z.string().optional().describe('Path to circuit directory (default: circuits-circom/task_completion/)'),
     },
-    async ({ witness_path, circuit_path }) => {
-      try {
-        const circuitDir = validatePath(circuit_path, DEFAULT_CIRCUIT_DIR);
-        const targetDir = path.join(circuitDir, 'target');
+    withToolErrorResponse(async ({ witness_path, circuit_path }) => {
+      const circuitDir = validatePath(circuit_path, DEFAULT_CIRCUIT_DIR);
+      const targetDir = path.join(circuitDir, 'target');
 
         const witnessFile = witness_path
           ? validatePath(witness_path, targetDir)
@@ -300,40 +243,32 @@ export function registerCircuitTools(server: McpServer): void {
         const proofPath = path.join(targetDir, 'proof.json');
         const publicPath = path.join(targetDir, 'public.json');
 
-        if (!(await fileExists(witnessFile))) {
-          return {
-            content: [{
-              type: 'text' as const,
-              text: 'Error: witness file not found at ' + witnessFile + '\nRun agenc_generate_witness first.',
-            }],
-          };
-        }
+      if (!(await fileExists(witnessFile))) {
+        return toolTextResponse(
+          'Error: witness file not found at ' + witnessFile + '\nRun agenc_generate_witness first.',
+        );
+      }
 
-        if (!(await fileExists(zkeyPath))) {
-          return {
-            content: [{
-              type: 'text' as const,
-              text: 'Error: proving key not found at ' + zkeyPath + '\nRun trusted setup (powers of tau + phase 2) first.',
-            }],
-          };
-        }
+      if (!(await fileExists(zkeyPath))) {
+        return toolTextResponse(
+          'Error: proving key not found at ' + zkeyPath + '\nRun trusted setup (powers of tau + phase 2) first.',
+        );
+      }
 
         const { stdout, stderr, exitCode } = await runCommand(
           'npx',
           ['snarkjs', 'groth16', 'prove', zkeyPath, witnessFile, proofPath, publicPath],
-          circuitDir,
-          120_000,
+          {
+            cwd: circuitDir,
+            timeoutMs: 120_000,
+            env: COMMAND_ENV,
+          },
         );
 
-        if (exitCode !== 0) {
-          const combined = stdout + '\n' + stderr;
-          return {
-            content: [{
-              type: 'text' as const,
-              text: 'Proof generation FAILED (exit ' + exitCode + ')\n\n' + combined.slice(-2000),
-            }],
-          };
-        }
+      if (exitCode !== 0) {
+        const combined = stdout + '\n' + stderr;
+        return toolTextResponse('Proof generation FAILED (exit ' + exitCode + ')\n\n' + combined.slice(-2000));
+      }
 
         const proofSize = await getFileSize(proofPath);
         const publicSize = await getFileSize(publicPath);
@@ -355,15 +290,8 @@ export function registerCircuitTools(server: McpServer): void {
           // Skip if can't parse
         }
 
-        return {
-          content: [{ type: 'text' as const, text: lines.join('\n') }],
-        };
-      } catch (error) {
-        return {
-          content: [{ type: 'text' as const, text: 'Error: ' + (error as Error).message }],
-        };
-      }
-    },
+      return toolTextResponse(lines.join('\n'));
+    }),
   );
 
   server.tool(
@@ -374,10 +302,9 @@ export function registerCircuitTools(server: McpServer): void {
       public_path: z.string().optional().describe('Path to public.json (default: target/public.json in circuit dir)'),
       circuit_path: z.string().optional().describe('Path to circuit directory (default: circuits-circom/task_completion/)'),
     },
-    async ({ proof_path, public_path, circuit_path }) => {
-      try {
-        const circuitDir = validatePath(circuit_path, DEFAULT_CIRCUIT_DIR);
-        const targetDir = path.join(circuitDir, 'target');
+    withToolErrorResponse(async ({ proof_path, public_path, circuit_path }) => {
+      const circuitDir = validatePath(circuit_path, DEFAULT_CIRCUIT_DIR);
+      const targetDir = path.join(circuitDir, 'target');
 
         const proofFile = proof_path
           ? validatePath(proof_path, targetDir)
@@ -387,63 +314,43 @@ export function registerCircuitTools(server: McpServer): void {
           : path.join(targetDir, 'public.json');
         const vkPath = path.join(targetDir, 'verification_key.json');
 
-        if (!(await fileExists(proofFile))) {
-          return {
-            content: [{
-              type: 'text' as const,
-              text: 'Error: proof file not found at ' + proofFile,
-            }],
-          };
-        }
+      if (!(await fileExists(proofFile))) {
+        return toolTextResponse('Error: proof file not found at ' + proofFile);
+      }
 
-        if (!(await fileExists(publicFile))) {
-          return {
-            content: [{
-              type: 'text' as const,
-              text: 'Error: public inputs file not found at ' + publicFile,
-            }],
-          };
-        }
+      if (!(await fileExists(publicFile))) {
+        return toolTextResponse('Error: public inputs file not found at ' + publicFile);
+      }
 
-        if (!(await fileExists(vkPath))) {
-          return {
-            content: [{
-              type: 'text' as const,
-              text: 'Error: verification key not found at ' + vkPath,
-            }],
-          };
-        }
+      if (!(await fileExists(vkPath))) {
+        return toolTextResponse('Error: verification key not found at ' + vkPath);
+      }
 
         const { stdout, stderr, exitCode } = await runCommand(
           'npx',
           ['snarkjs', 'groth16', 'verify', vkPath, publicFile, proofFile],
-          circuitDir,
-          60_000,
+          {
+            cwd: circuitDir,
+            timeoutMs: 60_000,
+            env: COMMAND_ENV,
+          },
         );
 
         const combined = (stdout + '\n' + stderr).trim();
         const isValid = exitCode === 0 && /OK|valid/i.test(combined);
 
-        return {
-          content: [{
-            type: 'text' as const,
-            text: [
-              'Verification: ' + (isValid ? 'VALID' : 'INVALID'),
-              '',
-              'Proof: ' + proofFile,
-              'Public inputs: ' + publicFile,
-              'Verification key: ' + vkPath,
-              '',
-              combined.length > 0 ? combined.slice(0, 1000) : '(no output)',
-            ].join('\n'),
-          }],
-        };
-      } catch (error) {
-        return {
-          content: [{ type: 'text' as const, text: 'Error: ' + (error as Error).message }],
-        };
-      }
-    },
+      return toolTextResponse(
+        [
+          'Verification: ' + (isValid ? 'VALID' : 'INVALID'),
+          '',
+          'Proof: ' + proofFile,
+          'Public inputs: ' + publicFile,
+          'Verification key: ' + vkPath,
+          '',
+          combined.length > 0 ? combined.slice(0, 1000) : '(no output)',
+        ].join('\n'),
+      );
+    }),
   );
 
   server.tool(
@@ -452,10 +359,9 @@ export function registerCircuitTools(server: McpServer): void {
     {
       circuit_path: z.string().optional().describe('Path to circuit directory (default: circuits-circom/task_completion/)'),
     },
-    async ({ circuit_path }) => {
-      try {
-        const circuitDir = validatePath(circuit_path, DEFAULT_CIRCUIT_DIR);
-        const targetDir = path.join(circuitDir, 'target');
+    withToolErrorResponse(async ({ circuit_path }) => {
+      const circuitDir = validatePath(circuit_path, DEFAULT_CIRCUIT_DIR);
+      const targetDir = path.join(circuitDir, 'target');
 
         const lines = ['Circuit directory: ' + circuitDir, ''];
 
@@ -497,8 +403,11 @@ export function registerCircuitTools(server: McpServer): void {
           const { stdout, stderr } = await runCommand(
             'npx',
             ['snarkjs', 'r1cs', 'info', r1csPath],
-            circuitDir,
-            30_000,
+            {
+              cwd: circuitDir,
+              timeoutMs: 30_000,
+              env: COMMAND_ENV,
+            },
           );
           const info = (stdout + '\n' + stderr).trim();
           if (info.length > 0) {
@@ -524,15 +433,8 @@ export function registerCircuitTools(server: McpServer): void {
           }
         }
 
-        return {
-          content: [{ type: 'text' as const, text: lines.join('\n') }],
-        };
-      } catch (error) {
-        return {
-          content: [{ type: 'text' as const, text: 'Error: ' + (error as Error).message }],
-        };
-      }
-    },
+      return toolTextResponse(lines.join('\n'));
+    }),
   );
 
   server.tool(
@@ -541,12 +443,11 @@ export function registerCircuitTools(server: McpServer): void {
     {
       circuit_path: z.string().optional().describe('Path to circuit directory (default: circuits-circom/task_completion/)'),
     },
-    async ({ circuit_path }) => {
-      try {
-        const circuitDir = validatePath(circuit_path, DEFAULT_CIRCUIT_DIR);
-        const targetDir = path.join(circuitDir, 'target');
-        const zkeyPath = path.join(targetDir, 'circuit_final.zkey');
-        const vkPath = path.join(targetDir, 'verification_key.json');
+    withToolErrorResponse(async ({ circuit_path }) => {
+      const circuitDir = validatePath(circuit_path, DEFAULT_CIRCUIT_DIR);
+      const targetDir = path.join(circuitDir, 'target');
+      const zkeyPath = path.join(targetDir, 'circuit_final.zkey');
+      const vkPath = path.join(targetDir, 'verification_key.json');
 
         const lines = ['Circuit: ' + circuitDir, ''];
 
@@ -584,14 +485,7 @@ export function registerCircuitTools(server: McpServer): void {
           lines.push('  6. npx snarkjs zkey export verificationkey circuit_final.zkey verification_key.json');
         }
 
-        return {
-          content: [{ type: 'text' as const, text: lines.join('\n') }],
-        };
-      } catch (error) {
-        return {
-          content: [{ type: 'text' as const, text: 'Error: ' + (error as Error).message }],
-        };
-      }
-    },
+      return toolTextResponse(lines.join('\n'));
+    }),
   );
 }

@@ -70,7 +70,6 @@ pub struct PurchaseSkill<'info> {
     pub system_program: Program<'info, System>,
 
     // === Optional SPL Token accounts ===
-
     /// SPL token mint for price denomination (optional)
     pub price_mint: Option<Account<'info, Mint>>,
 
@@ -101,10 +100,7 @@ pub fn handler(ctx: Context<PurchaseSkill>) -> Result<()> {
     );
 
     let skill = &ctx.accounts.skill;
-    require!(
-        skill.is_active,
-        CoordinationError::SkillNotActive
-    );
+    require!(skill.is_active, CoordinationError::SkillNotActive);
 
     require!(
         buyer.key() != skill.author,

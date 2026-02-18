@@ -17,6 +17,7 @@ import {
   safePubkey,
   safeBigInt,
 } from '../utils/formatting.js';
+import { toolTextResponse, withToolErrorResponse } from './response.js';
 
 function deriveTaskPda(
   creator: PublicKey,
@@ -81,10 +82,9 @@ export function registerTaskTools(server: McpServer): void {
       creator: z.string().optional().describe('Task creator public key (base58)'),
       task_id: z.string().optional().describe('Task ID (64-char hex)'),
     },
-    async ({ task_pda, creator, task_id }) => {
-      try {
-        const program = getReadOnlyProgram();
-        let pda: PublicKey;
+    withToolErrorResponse(async ({ task_pda, creator, task_id }) => {
+      const program = getReadOnlyProgram();
+      let pda: PublicKey;
 
         if (task_pda) {
           pda = new PublicKey(task_pda);
@@ -92,28 +92,13 @@ export function registerTaskTools(server: McpServer): void {
           const creatorPk = new PublicKey(creator);
           const idBytes = hexToBytes(task_id);
           pda = deriveTaskPda(creatorPk, idBytes, getCurrentProgramId());
-        } else {
-          return {
-            content: [{
-              type: 'text' as const,
-              text: 'Error: provide either task_pda or both creator and task_id',
-            }],
-          };
-        }
-
-        const account = await program.account.task.fetch(pda);
-        return {
-          content: [{
-            type: 'text' as const,
-            text: formatTaskAccount(account as unknown as Record<string, unknown>, pda),
-          }],
-        };
-      } catch (error) {
-        return {
-          content: [{ type: 'text' as const, text: 'Error: ' + (error as Error).message }],
-        };
+      } else {
+        return toolTextResponse('Error: provide either task_pda or both creator and task_id');
       }
-    },
+
+      const account = await program.account.task.fetch(pda);
+      return toolTextResponse(formatTaskAccount(account as unknown as Record<string, unknown>, pda));
+    }),
   );
 
   server.tool(
@@ -122,10 +107,9 @@ export function registerTaskTools(server: McpServer): void {
     {
       creator: z.string().describe('Task creator public key (base58)'),
     },
-    async ({ creator }) => {
-      try {
-        const program = getReadOnlyProgram();
-        const creatorPk = new PublicKey(creator);
+    withToolErrorResponse(async ({ creator }) => {
+      const program = getReadOnlyProgram();
+      const creatorPk = new PublicKey(creator);
 
         const accounts = await program.account.task.all([
           {
@@ -136,14 +120,9 @@ export function registerTaskTools(server: McpServer): void {
           },
         ]);
 
-        if (accounts.length === 0) {
-          return {
-            content: [{
-              type: 'text' as const,
-              text: 'No tasks found for creator: ' + creator,
-            }],
-          };
-        }
+      if (accounts.length === 0) {
+        return toolTextResponse('No tasks found for creator: ' + creator);
+      }
 
         const lines = accounts.map((a, i) => {
           const acc = a.account as unknown as Record<string, unknown>;
@@ -161,18 +140,8 @@ export function registerTaskTools(server: McpServer): void {
           ].join('\n');
         });
 
-        return {
-          content: [{
-            type: 'text' as const,
-            text: 'Found ' + accounts.length + ' task(s):\n\n' + lines.join('\n\n'),
-          }],
-        };
-      } catch (error) {
-        return {
-          content: [{ type: 'text' as const, text: 'Error: ' + (error as Error).message }],
-        };
-      }
-    },
+      return toolTextResponse('Found ' + accounts.length + ' task(s):\n\n' + lines.join('\n\n'));
+    }),
   );
 
   server.tool(
@@ -182,24 +151,18 @@ export function registerTaskTools(server: McpServer): void {
       task_pda: z.string().optional().describe('Task PDA (base58)'),
       escrow_pda: z.string().optional().describe('Escrow PDA (base58) — if known directly'),
     },
-    async ({ task_pda, escrow_pda }) => {
-      try {
-        let escrowAddr: PublicKey;
-        let taskAddr: PublicKey | null = null;
+    withToolErrorResponse(async ({ task_pda, escrow_pda }) => {
+      let escrowAddr: PublicKey;
+      let taskAddr: PublicKey | null = null;
 
         if (escrow_pda) {
           escrowAddr = new PublicKey(escrow_pda);
         } else if (task_pda) {
           taskAddr = new PublicKey(task_pda);
           escrowAddr = deriveEscrowPda(taskAddr, getCurrentProgramId());
-        } else {
-          return {
-            content: [{
-              type: 'text' as const,
-              text: 'Error: provide either task_pda or escrow_pda',
-            }],
-          };
-        }
+      } else {
+        return toolTextResponse('Error: provide either task_pda or escrow_pda');
+      }
 
         const connection = getConnection();
         const balance = await connection.getBalance(escrowAddr);
@@ -232,15 +195,8 @@ export function registerTaskTools(server: McpServer): void {
           }
         }
 
-        return {
-          content: [{ type: 'text' as const, text: lines.join('\n') }],
-        };
-      } catch (error) {
-        return {
-          content: [{ type: 'text' as const, text: 'Error: ' + (error as Error).message }],
-        };
-      }
-    },
+      return toolTextResponse(lines.join('\n'));
+    }),
   );
 
   server.tool(

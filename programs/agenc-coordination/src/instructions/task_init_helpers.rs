@@ -112,12 +112,7 @@ pub fn init_task_fields(
 }
 
 /// Initializes escrow account fields.
-pub fn init_escrow_fields(
-    escrow: &mut TaskEscrow,
-    task_key: Pubkey,
-    amount: u64,
-    bump: u8,
-) {
+pub fn init_escrow_fields(escrow: &mut TaskEscrow, task_key: Pubkey, amount: u64, bump: u8) {
     escrow.task = task_key;
     escrow.amount = amount;
     escrow.distributed = 0;

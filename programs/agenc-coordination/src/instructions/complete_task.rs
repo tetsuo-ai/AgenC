@@ -1,15 +1,14 @@
 //! Complete a task and claim reward
 
 use crate::errors::CoordinationError;
+use crate::instructions::completion_helpers::TokenPaymentAccounts;
 use crate::instructions::completion_helpers::{
     calculate_fee_with_reputation, execute_completion_rewards, validate_completion_prereqs,
     validate_task_dependency,
 };
-use crate::instructions::completion_helpers::TokenPaymentAccounts;
 use crate::instructions::token_helpers::validate_token_account;
 use crate::state::{
-    AgentRegistration, ProtocolConfig, Task, TaskClaim, TaskEscrow,
-    HASH_SIZE, RESULT_DATA_SIZE,
+    AgentRegistration, ProtocolConfig, Task, TaskClaim, TaskEscrow, HASH_SIZE, RESULT_DATA_SIZE,
 };
 use crate::utils::compute_budget::log_compute_units;
 use crate::utils::version::check_version_compatible;
@@ -83,7 +82,6 @@ pub struct CompleteTask<'info> {
     pub system_program: Program<'info, System>,
 
     // === Optional SPL Token accounts (only required for token-denominated tasks) ===
-
     /// Token escrow ATA holding reward tokens (optional)
     #[account(mut)]
     pub token_escrow_ata: Option<Account<'info, TokenAccount>>,
@@ -126,10 +124,7 @@ pub fn handler(
     let protocol_fee_bps = calculate_fee_with_reputation(task.protocol_fee_bps, worker.reputation);
 
     // Validate proof_hash is not zero
-    require!(
-        proof_hash != [0u8; 32],
-        CoordinationError::InvalidProofHash
-    );
+    require!(proof_hash != [0u8; 32], CoordinationError::InvalidProofHash);
 
     // Validate result_data is not all zeros (when provided)
     if let Some(ref data) = result_data {
@@ -163,13 +158,27 @@ pub fn handler(
         );
 
         validate_token_account(token_escrow, &mint.key(), &escrow.key())?;
-        validate_token_account(treasury_ta, &mint.key(), &ctx.accounts.protocol_config.treasury)?;
+        validate_token_account(
+            treasury_ta,
+            &mint.key(),
+            &ctx.accounts.protocol_config.treasury,
+        )?;
 
         Some(TokenPaymentAccounts {
             token_escrow_ata: token_escrow.to_account_info(),
-            worker_token_account: ctx.accounts.worker_token_account.as_ref().unwrap().to_account_info(),
+            worker_token_account: ctx
+                .accounts
+                .worker_token_account
+                .as_ref()
+                .unwrap()
+                .to_account_info(),
             treasury_token_account: treasury_ta.to_account_info(),
-            token_program: ctx.accounts.token_program.as_ref().unwrap().to_account_info(),
+            token_program: ctx
+                .accounts
+                .token_program
+                .as_ref()
+                .unwrap()
+                .to_account_info(),
             escrow_authority: escrow.to_account_info(),
             escrow_bump: escrow.bump,
             task_key: task.key(),

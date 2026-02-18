@@ -35,12 +35,24 @@ pub fn handler(
     require_multisig(&ctx.accounts.protocol_config, ctx.remaining_accounts)?;
 
     // Validate cooldown values are non-negative
-    require!(task_creation_cooldown >= 0, CoordinationError::InvalidCooldown);
-    require!(dispute_initiation_cooldown >= 0, CoordinationError::InvalidCooldown);
+    require!(
+        task_creation_cooldown >= 0,
+        CoordinationError::InvalidCooldown
+    );
+    require!(
+        dispute_initiation_cooldown >= 0,
+        CoordinationError::InvalidCooldown
+    );
 
     // Validate cooldown values have upper bounds (max 1 week)
-    require!(task_creation_cooldown <= MAX_COOLDOWN, CoordinationError::CooldownTooLong);
-    require!(dispute_initiation_cooldown <= MAX_COOLDOWN, CoordinationError::CooldownTooLong);
+    require!(
+        task_creation_cooldown <= MAX_COOLDOWN,
+        CoordinationError::CooldownTooLong
+    );
+    require!(
+        dispute_initiation_cooldown <= MAX_COOLDOWN,
+        CoordinationError::CooldownTooLong
+    );
 
     // Validate rate limit values have upper bounds
     require!(

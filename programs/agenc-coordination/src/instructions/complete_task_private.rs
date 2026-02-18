@@ -51,6 +51,7 @@
 //! - Note: The nullifier is NOT a public input to the verifier, it's only used for the PDA
 
 use crate::errors::CoordinationError;
+use crate::instructions::completion_helpers::TokenPaymentAccounts;
 use crate::instructions::completion_helpers::{
     calculate_fee_with_reputation, execute_completion_rewards, validate_completion_prereqs,
     validate_task_dependency,
@@ -58,7 +59,7 @@ use crate::instructions::completion_helpers::{
 use crate::instructions::constants::{
     ZK_EXPECTED_PROOF_SIZE, ZK_PROOF_A_SIZE, ZK_PROOF_B_SIZE, ZK_PROOF_C_SIZE,
 };
-use crate::verifying_key::PUBLIC_INPUTS_COUNT;
+use crate::instructions::token_helpers::validate_token_account;
 use crate::state::{
     AgentRegistration, Nullifier, ProtocolConfig, Task, TaskClaim, TaskEscrow, HASH_SIZE,
     RESULT_DATA_SIZE,
@@ -66,10 +67,9 @@ use crate::state::{
 use crate::utils::compute_budget::log_compute_units;
 use crate::utils::version::check_version_compatible;
 use crate::verifying_key::get_verifying_key;
+use crate::verifying_key::PUBLIC_INPUTS_COUNT;
 use anchor_lang::prelude::*;
 use anchor_spl::token::{Mint, Token, TokenAccount};
-use crate::instructions::completion_helpers::TokenPaymentAccounts;
-use crate::instructions::token_helpers::validate_token_account;
 use groth16_solana::groth16::Groth16Verifier;
 
 // Semantic alias: field element size matches hash size
@@ -162,7 +162,6 @@ pub struct CompleteTaskPrivate<'info> {
     pub system_program: Program<'info, System>,
 
     // === Optional SPL Token accounts (only required for token-denominated tasks) ===
-
     /// Token escrow ATA holding reward tokens (optional)
     #[account(mut)]
     pub token_escrow_ata: Option<Account<'info, TokenAccount>>,
@@ -203,7 +202,12 @@ pub fn complete_task_private(
     // Validate provided task_id matches the task account (fix: issue #406)
     // This prevents callers from accidentally passing the wrong task_id
     require!(
-        task_id == u64::from_le_bytes(task.task_id[..8].try_into().expect("task_id slice is always 8 bytes")),
+        task_id
+            == u64::from_le_bytes(
+                task.task_id[..8]
+                    .try_into()
+                    .expect("task_id slice is always 8 bytes")
+            ),
         CoordinationError::TaskNotFound
     );
 
@@ -289,13 +293,27 @@ pub fn complete_task_private(
         );
 
         validate_token_account(token_escrow, &mint.key(), &escrow.key())?;
-        validate_token_account(treasury_ta, &mint.key(), &ctx.accounts.protocol_config.treasury)?;
+        validate_token_account(
+            treasury_ta,
+            &mint.key(),
+            &ctx.accounts.protocol_config.treasury,
+        )?;
 
         Some(TokenPaymentAccounts {
             token_escrow_ata: token_escrow.to_account_info(),
-            worker_token_account: ctx.accounts.worker_token_account.as_ref().unwrap().to_account_info(),
+            worker_token_account: ctx
+                .accounts
+                .worker_token_account
+                .as_ref()
+                .unwrap()
+                .to_account_info(),
             treasury_token_account: treasury_ta.to_account_info(),
-            token_program: ctx.accounts.token_program.as_ref().unwrap().to_account_info(),
+            token_program: ctx
+                .accounts
+                .token_program
+                .as_ref()
+                .unwrap()
+                .to_account_info(),
             escrow_authority: escrow.to_account_info(),
             escrow_bump: escrow.bump,
             task_key: task.key(),
@@ -416,7 +434,8 @@ fn verify_zk_proof(proof: &PrivateCompletionProof, task_key: Pubkey, agent: Pubk
         .try_into()
         .map_err(|_| CoordinationError::InvalidProofSize)?;
 
-    let proof_b: [u8; ZK_PROOF_B_SIZE] = proof.proof_data[ZK_PROOF_A_SIZE..ZK_PROOF_A_SIZE + ZK_PROOF_B_SIZE]
+    let proof_b: [u8; ZK_PROOF_B_SIZE] = proof.proof_data
+        [ZK_PROOF_A_SIZE..ZK_PROOF_A_SIZE + ZK_PROOF_B_SIZE]
         .try_into()
         .map_err(|_| CoordinationError::InvalidProofSize)?;
 

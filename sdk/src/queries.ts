@@ -8,6 +8,7 @@ import { Connection, PublicKey, GetProgramAccountsFilter } from '@solana/web3.js
 import type { Program } from '@coral-xyz/anchor';
 import { PROGRAM_ID, DISCRIMINATOR_SIZE } from './constants';
 import { getAccount } from './anchor-utils';
+import { getSdkLogger } from './logger';
 
 // ============================================================================
 // Task Account Field Offsets
@@ -222,6 +223,34 @@ export interface ReplayHealthCheck {
   latestEventTimestampMs: number | null;
   stalenessSeconds: number | null;
   status: 'healthy' | 'stale' | 'empty' | 'unreachable';
+  lastError: string | null;
+}
+
+function buildOptionalPubkeyBytes(pubkey: PublicKey): string {
+  const filterBytes = Buffer.alloc(33);
+  filterBytes[0] = 1; // Option::Some discriminator
+  pubkey.toBuffer().copy(filterBytes, 1);
+  return filterBytes.toString('base64');
+}
+
+function buildOptionalPubkeyFilter(
+  offset: number,
+  pubkey: PublicKey,
+): GetProgramAccountsFilter[] {
+  const bytes = buildOptionalPubkeyBytes(pubkey);
+  return [
+    {
+      memcmp: {
+        offset,
+        bytes,
+        encoding: 'base64',
+      },
+    },
+  ];
+}
+
+function buildDependsOnFilter(parentTaskPda: PublicKey): GetProgramAccountsFilter[] {
+  return buildOptionalPubkeyFilter(TASK_FIELD_OFFSETS.DEPENDS_ON, parentTaskPda);
 }
 
 // ============================================================================
@@ -254,20 +283,7 @@ export async function getTasksByDependency(
   programId: PublicKey,
   parentTaskPda: PublicKey
 ): Promise<DependentTask[]> {
-  // Build the memcmp bytes: Option discriminator (1 = Some) + Pubkey bytes
-  const filterBytes = Buffer.alloc(33);
-  filterBytes[0] = 1; // Some discriminator
-  parentTaskPda.toBuffer().copy(filterBytes, 1);
-
-  const filters: GetProgramAccountsFilter[] = [
-    {
-      memcmp: {
-        offset: TASK_FIELD_OFFSETS.DEPENDS_ON,
-        bytes: filterBytes.toString('base64'),
-        encoding: 'base64',
-      },
-    },
-  ];
+  const filters = buildDependsOnFilter(parentTaskPda);
 
   const accounts = await connection.getProgramAccounts(programId, {
     filters,
@@ -303,20 +319,7 @@ export async function getDependentTaskCount(
   programId: PublicKey,
   parentTaskPda: PublicKey
 ): Promise<number> {
-  // Build the memcmp bytes: Option discriminator (1 = Some) + Pubkey bytes
-  const filterBytes = Buffer.alloc(33);
-  filterBytes[0] = 1; // Some discriminator
-  parentTaskPda.toBuffer().copy(filterBytes, 1);
-
-  const filters: GetProgramAccountsFilter[] = [
-    {
-      memcmp: {
-        offset: TASK_FIELD_OFFSETS.DEPENDS_ON,
-        bytes: filterBytes.toString('base64'),
-        encoding: 'base64',
-      },
-    },
-  ];
+  const filters = buildDependsOnFilter(parentTaskPda);
 
   // Use dataSlice to fetch only 0 bytes of data - we just need the count
   const accounts = await connection.getProgramAccounts(programId, {
@@ -367,16 +370,12 @@ export async function getTasksByDependencyWithProgram(
   program: Program,
   parentTaskPda: PublicKey
 ): Promise<Array<{ publicKey: PublicKey; account: unknown }>> {
-  // Build the memcmp bytes: Option discriminator (1 = Some) + Pubkey bytes
-  const filterBytes = Buffer.alloc(33);
-  filterBytes[0] = 1; // Some discriminator
-  parentTaskPda.toBuffer().copy(filterBytes, 1);
-
+  const bytes = buildOptionalPubkeyBytes(parentTaskPda);
   const tasks = await getAccount(program, 'task').all([
     {
       memcmp: {
         offset: TASK_FIELD_OFFSETS.DEPENDS_ON,
-        bytes: filterBytes.toString('base64'),
+        bytes,
       },
     },
   ]);
@@ -567,8 +566,11 @@ export async function getReplayHealthCheck(
       latestEventTimestampMs,
       stalenessSeconds: stalenessMs === null ? null : Math.floor(stalenessMs / 1000),
       status,
+      lastError: null,
     };
-  } catch {
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    getSdkLogger().warn('getReplayHealthCheck failed', { error: message });
     return {
       storeReachable: false,
       eventCount: 0,
@@ -579,6 +581,7 @@ export async function getReplayHealthCheck(
       latestEventTimestampMs: null,
       stalenessSeconds: null,
       status: 'unreachable',
+      lastError: message,
     };
   }
 }

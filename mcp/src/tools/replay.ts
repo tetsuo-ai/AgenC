@@ -52,6 +52,7 @@ import {
   REPLAY_STATUS_OUTPUT_SCHEMA,
 } from './replay-types.js';
 import { truncateOutput } from '../utils/truncation.js';
+import { clone, safeStringify } from '../utils/json.js';
 import type { ReplayToolRequestExtra } from './replay-internal-types.js';
 import { checkActorPermission, resolveActor } from './replay-actor.js';
 import { emitAuditEntry } from './replay-audit.js';
@@ -369,19 +370,6 @@ function pickQuery(input: {
     fromSlot: input.from_slot,
     toSlot: input.to_slot,
   };
-}
-
-function safeStringify(value: unknown): string {
-  return JSON.stringify(value, (_key, item) => {
-    if (typeof item === 'bigint') {
-      return `${item}n`;
-    }
-    return item;
-  });
-}
-
-function clone<T>(value: T): T {
-  return JSON.parse(safeStringify(value)) as T;
 }
 
 function asRecord(value: unknown): JsonObject | null {

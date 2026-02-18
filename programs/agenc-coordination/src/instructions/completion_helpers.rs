@@ -4,10 +4,10 @@
 
 use crate::errors::CoordinationError;
 use crate::events::{reputation_reason, ReputationChanged, RewardDistributed, TaskCompleted};
-use crate::instructions::lamport_transfer::transfer_lamports;
 use crate::instructions::constants::{
     BASIS_POINTS_DIVISOR, MAX_REPUTATION, REPUTATION_PER_COMPLETION,
 };
+use crate::instructions::lamport_transfer::transfer_lamports;
 use crate::state::{
     AgentRegistration, DependencyType, ProtocolConfig, Task, TaskClaim, TaskEscrow, TaskStatus,
     TaskType, RESULT_DATA_SIZE,
@@ -258,11 +258,7 @@ pub fn update_protocol_stats(config: &mut Account<ProtocolConfig>, reward: u64) 
 ///
 /// Shared by `complete_task` (public) and `complete_task_private` (ZK).
 /// Checks status, status transition, deadline, claim, and competitive-task guard.
-pub fn validate_completion_prereqs(
-    task: &Task,
-    claim: &TaskClaim,
-    clock: &Clock,
-) -> Result<()> {
+pub fn validate_completion_prereqs(task: &Task, claim: &TaskClaim, clock: &Clock) -> Result<()> {
     // Defense-in-depth: reject terminal states with specific error codes (#959)
     require!(
         task.status != TaskStatus::Completed,
@@ -407,7 +403,13 @@ pub fn execute_completion_rewards<'info>(
             escrow.to_account_info().lamports() >= total,
             CoordinationError::InsufficientEscrowBalance
         );
-        transfer_rewards(escrow, authority_info, treasury_info, worker_reward, protocol_fee)?;
+        transfer_rewards(
+            escrow,
+            authority_info,
+            treasury_info,
+            worker_reward,
+            protocol_fee,
+        )?;
     }
 
     update_claim_state(claim, escrow, worker_reward, protocol_fee)?;
@@ -695,7 +697,10 @@ mod tests {
             // Zero reward must fail with RewardTooSmall since worker gets nothing
             let task = create_test_task(TaskType::Exclusive, 0, 1, 0);
             let result = calculate_reward_split(&task, 100);
-            assert!(result.is_err(), "Zero reward should fail: worker gets nothing");
+            assert!(
+                result.is_err(),
+                "Zero reward should fail: worker gets nothing"
+            );
         }
 
         #[test]

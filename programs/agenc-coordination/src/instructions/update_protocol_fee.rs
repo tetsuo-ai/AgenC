@@ -32,7 +32,8 @@ pub fn handler(ctx: Context<UpdateProtocolFee>, protocol_fee_bps: u16) -> Result
     emit!(ProtocolFeeUpdated {
         old_fee_bps,
         new_fee_bps: protocol_fee_bps,
-        updated_by: ctx.remaining_accounts
+        updated_by: ctx
+            .remaining_accounts
             .first()
             .map(|a| a.key())
             .unwrap_or_default(),

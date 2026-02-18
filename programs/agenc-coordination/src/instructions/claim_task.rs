@@ -126,7 +126,10 @@ pub fn handler(ctx: Context<ClaimTask>) -> Result<()> {
         let capped_periods = inactive_periods.min(max_periods) as u16;
         let decay = capped_periods.saturating_mul(REPUTATION_DECAY_RATE);
         let old_rep = worker.reputation;
-        worker.reputation = worker.reputation.saturating_sub(decay).max(REPUTATION_DECAY_MIN);
+        worker.reputation = worker
+            .reputation
+            .saturating_sub(decay)
+            .max(REPUTATION_DECAY_MIN);
         if worker.reputation != old_rep {
             emit!(ReputationChanged {
                 agent_id: worker.agent_id,

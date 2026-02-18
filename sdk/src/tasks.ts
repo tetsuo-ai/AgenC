@@ -214,6 +214,98 @@ function deriveAgentPda(agentId: Uint8Array | number[], programId: PublicKey): P
   return pda;
 }
 
+type TaskTokenAccounts = Record<string, PublicKey | null>;
+
+interface TaskCreationContext {
+  taskPda: PublicKey;
+  escrowPda: PublicKey;
+  protocolPda: PublicKey;
+  creatorAgentPda: PublicKey;
+  idBytes: Uint8Array;
+  mint: PublicKey | null;
+  tokenAccounts: TaskTokenAccounts;
+}
+
+function normalizeTaskId(taskId: Uint8Array | number[]): Uint8Array {
+  return taskId instanceof Uint8Array ? taskId : Uint8Array.from(taskId);
+}
+
+function buildTaskTokenAccounts(
+  mint: PublicKey | null,
+  creator: PublicKey,
+  escrowPda: PublicKey,
+  creatorTokenAccount?: PublicKey,
+): TaskTokenAccounts {
+  if (!mint) {
+    return {
+      rewardMint: null,
+      creatorTokenAccount: null,
+      tokenEscrowAta: null,
+      tokenProgram: null,
+      associatedTokenProgram: null,
+    };
+  }
+
+  const resolvedCreatorTokenAccount = creatorTokenAccount
+    ?? getAssociatedTokenAddressSync(mint, creator);
+  const tokenEscrowAta = getAssociatedTokenAddressSync(mint, escrowPda, true);
+
+  return {
+    rewardMint: mint,
+    creatorTokenAccount: resolvedCreatorTokenAccount,
+    tokenEscrowAta,
+    tokenProgram: TOKEN_PROGRAM_ID,
+    associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+  };
+}
+
+function buildTaskCreationContext(
+  programId: PublicKey,
+  creator: Keypair,
+  creatorAgentId: Uint8Array | number[],
+  params: TaskParams,
+): TaskCreationContext {
+  const idBytes = normalizeTaskId(params.taskId);
+  const taskPda = deriveTaskPda(creator.publicKey, idBytes, programId);
+  const escrowPda = deriveEscrowPda(taskPda, programId);
+  const protocolPda = deriveProtocolPda(programId);
+  const creatorAgentPda = deriveAgentPda(creatorAgentId, programId);
+  const mint = params.rewardMint ?? null;
+  const tokenAccounts = buildTaskTokenAccounts(
+    mint,
+    creator.publicKey,
+    escrowPda,
+    params.creatorTokenAccount,
+  );
+
+  return {
+    taskPda,
+    escrowPda,
+    protocolPda,
+    creatorAgentPda,
+    idBytes,
+    mint,
+    tokenAccounts,
+  };
+}
+
+async function submitTaskCreationTransaction(
+  connection: Connection,
+  operation: 'createTask' | 'createDependentTask',
+  send: () => Promise<string>,
+): Promise<string> {
+  try {
+    const tx = await send();
+    await connection.confirmTransaction(tx, 'confirmed');
+    return tx;
+  } catch (error) {
+    getSdkLogger().error(operation + ' failed', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
+  }
+}
+
 // ============================================================================
 // Task Functions
 // ============================================================================
@@ -232,69 +324,45 @@ export async function createTask(
   creatorAgentId: Uint8Array | number[],
   params: TaskParams,
 ): Promise<{ taskPda: PublicKey; txSignature: string }> {
-  const programId = program.programId;
-  const idBytes = params.taskId instanceof Uint8Array ? params.taskId : Buffer.from(params.taskId);
+  const context = buildTaskCreationContext(
+    program.programId,
+    creator,
+    creatorAgentId,
+    params,
+  );
 
-  const taskPda = deriveTaskPda(creator.publicKey, idBytes, programId);
-  const escrowPda = deriveEscrowPda(taskPda, programId);
-  const protocolPda = deriveProtocolPda(programId);
-  const creatorAgentPda = deriveAgentPda(creatorAgentId, programId);
+  const tx = await submitTaskCreationTransaction(
+    connection,
+    'createTask',
+    () =>
+      program.methods
+        .createTask(
+          Array.from(context.idBytes),
+          new anchor.BN(params.requiredCapabilities.toString()),
+          Buffer.from(params.description),
+          new anchor.BN(params.rewardAmount.toString()),
+          params.maxWorkers,
+          new anchor.BN(params.deadline),
+          params.taskType,
+          params.constraintHash ?? null,
+          params.minReputation ?? 0,
+          context.mint,
+        )
+        .accountsPartial({
+          task: context.taskPda,
+          escrow: context.escrowPda,
+          protocolConfig: context.protocolPda,
+          creatorAgent: context.creatorAgentPda,
+          authority: creator.publicKey,
+          creator: creator.publicKey,
+          systemProgram: SystemProgram.programId,
+          ...context.tokenAccounts,
+        })
+        .signers([creator])
+        .rpc(),
+  );
 
-  const mint = params.rewardMint ?? null;
-
-  // Build token-specific accounts
-  let tokenAccounts: Record<string, PublicKey | null>;
-  if (mint) {
-    const creatorTokenAccount = params.creatorTokenAccount
-      ?? getAssociatedTokenAddressSync(mint, creator.publicKey);
-    const tokenEscrowAta = getAssociatedTokenAddressSync(mint, escrowPda, true);
-
-    tokenAccounts = {
-      rewardMint: mint,
-      creatorTokenAccount,
-      tokenEscrowAta,
-      tokenProgram: TOKEN_PROGRAM_ID,
-      associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
-    };
-  } else {
-    tokenAccounts = {
-      rewardMint: null,
-      creatorTokenAccount: null,
-      tokenEscrowAta: null,
-      tokenProgram: null,
-      associatedTokenProgram: null,
-    };
-  }
-
-  const tx = await program.methods
-    .createTask(
-      Array.from(idBytes),
-      new anchor.BN(params.requiredCapabilities.toString()),
-      Buffer.from(params.description),
-      new anchor.BN(params.rewardAmount.toString()),
-      params.maxWorkers,
-      new anchor.BN(params.deadline),
-      params.taskType,
-      params.constraintHash ?? null,
-      params.minReputation ?? 0,
-      mint,
-    )
-    .accountsPartial({
-      task: taskPda,
-      escrow: escrowPda,
-      protocolConfig: protocolPda,
-      creatorAgent: creatorAgentPda,
-      authority: creator.publicKey,
-      creator: creator.publicKey,
-      systemProgram: SystemProgram.programId,
-      ...tokenAccounts,
-    })
-    .signers([creator])
-    .rpc();
-
-  await connection.confirmTransaction(tx, 'confirmed');
-
-  return { taskPda, txSignature: tx };
+  return { taskPda: context.taskPda, txSignature: tx };
 }
 
 /**
@@ -308,70 +376,47 @@ export async function createDependentTask(
   parentTaskPda: PublicKey,
   params: DependentTaskParams,
 ): Promise<{ taskPda: PublicKey; txSignature: string }> {
-  const programId = program.programId;
-  const idBytes = params.taskId instanceof Uint8Array ? params.taskId : Buffer.from(params.taskId);
+  const context = buildTaskCreationContext(
+    program.programId,
+    creator,
+    creatorAgentId,
+    params,
+  );
 
-  const taskPda = deriveTaskPda(creator.publicKey, idBytes, programId);
-  const escrowPda = deriveEscrowPda(taskPda, programId);
-  const protocolPda = deriveProtocolPda(programId);
-  const creatorAgentPda = deriveAgentPda(creatorAgentId, programId);
+  const tx = await submitTaskCreationTransaction(
+    connection,
+    'createDependentTask',
+    () =>
+      program.methods
+        .createDependentTask(
+          Array.from(context.idBytes),
+          new anchor.BN(params.requiredCapabilities.toString()),
+          Buffer.from(params.description),
+          new anchor.BN(params.rewardAmount.toString()),
+          params.maxWorkers,
+          new anchor.BN(params.deadline),
+          params.taskType,
+          params.constraintHash ?? null,
+          params.dependencyType,
+          params.minReputation ?? 0,
+          context.mint,
+        )
+        .accountsPartial({
+          task: context.taskPda,
+          escrow: context.escrowPda,
+          parentTask: parentTaskPda,
+          protocolConfig: context.protocolPda,
+          creatorAgent: context.creatorAgentPda,
+          authority: creator.publicKey,
+          creator: creator.publicKey,
+          systemProgram: SystemProgram.programId,
+          ...context.tokenAccounts,
+        })
+        .signers([creator])
+        .rpc(),
+  );
 
-  const mint = params.rewardMint ?? null;
-
-  let tokenAccounts: Record<string, PublicKey | null>;
-  if (mint) {
-    const creatorTokenAccount = params.creatorTokenAccount
-      ?? getAssociatedTokenAddressSync(mint, creator.publicKey);
-    const tokenEscrowAta = getAssociatedTokenAddressSync(mint, escrowPda, true);
-
-    tokenAccounts = {
-      rewardMint: mint,
-      creatorTokenAccount,
-      tokenEscrowAta,
-      tokenProgram: TOKEN_PROGRAM_ID,
-      associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
-    };
-  } else {
-    tokenAccounts = {
-      rewardMint: null,
-      creatorTokenAccount: null,
-      tokenEscrowAta: null,
-      tokenProgram: null,
-      associatedTokenProgram: null,
-    };
-  }
-
-  const tx = await program.methods
-    .createDependentTask(
-      Array.from(idBytes),
-      new anchor.BN(params.requiredCapabilities.toString()),
-      Buffer.from(params.description),
-      new anchor.BN(params.rewardAmount.toString()),
-      params.maxWorkers,
-      new anchor.BN(params.deadline),
-      params.taskType,
-      params.constraintHash ?? null,
-      params.dependencyType,
-      params.minReputation ?? 0,
-      mint,
-    )
-    .accountsPartial({
-      task: taskPda,
-      escrow: escrowPda,
-      parentTask: parentTaskPda,
-      protocolConfig: protocolPda,
-      creatorAgent: creatorAgentPda,
-      authority: creator.publicKey,
-      creator: creator.publicKey,
-      systemProgram: SystemProgram.programId,
-      ...tokenAccounts,
-    })
-    .signers([creator])
-    .rpc();
-
-  await connection.confirmTransaction(tx, 'confirmed');
-
-  return { taskPda, txSignature: tx };
+  return { taskPda: context.taskPda, txSignature: tx };
 }
 
 /**

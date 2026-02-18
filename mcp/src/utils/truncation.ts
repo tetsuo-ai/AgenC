@@ -1,3 +1,5 @@
+import { clone, safeStringify } from './json.js';
+
 export type TruncationReason = 'trimmed_to_minimum' | 'payload_limit_exceeded' | null;
 
 export interface TruncationResult<T> {
@@ -6,19 +8,6 @@ export interface TruncationResult<T> {
   reason: TruncationReason;
   originalBytes: number;
   finalBytes: number;
-}
-
-function safeStringify(value: unknown): string {
-  return JSON.stringify(value, (_key, item) => {
-    if (typeof item === 'bigint') {
-      return `${item}n`;
-    }
-    return item;
-  });
-}
-
-function clone<T>(value: T): T {
-  return JSON.parse(safeStringify(value)) as T;
 }
 
 export function truncateOutput<T extends Record<string, unknown>>(

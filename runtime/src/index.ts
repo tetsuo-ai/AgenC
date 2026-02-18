@@ -247,6 +247,13 @@ export {
   silentLogger,
 } from './utils/index.js';
 
+// Process utilities
+export {
+  runCommand,
+  type RunCommandOptions,
+  type RunCommandResult,
+} from './utils/index.js';
+
 // Encoding utilities
 export {
   generateAgentId,
