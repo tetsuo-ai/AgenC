@@ -16,12 +16,13 @@ import { AgencCoordination } from "../target/types/agenc_coordination";
 import {
   CAPABILITY_COMPUTE,
   deriveProtocolPda,
-  deriveAgentPda,
   deriveProgramDataPda,
   deriveFeedPostPda,
   deriveFeedVotePda,
   createHash,
   errorContainsAny,
+  disableRateLimitsForTests,
+  ensureAgentRegistered,
 } from "./test-utils";
 import { createLiteSVMContext, fundAccount } from "./litesvm-helpers";
 
@@ -62,29 +63,6 @@ describe("agent-feed (issue #1103)", () => {
     }
   };
 
-  const registerAgent = async (
-    agentId: Buffer,
-    authority: Keypair,
-    capabilities: number,
-    stake: number = AGENT_STAKE
-  ): Promise<PublicKey> => {
-    const agentPda = deriveAgentPda(agentId, program.programId);
-    try {
-      await program.account.agentRegistration.fetch(agentPda);
-    } catch {
-      await program.methods
-        .registerAgent(Array.from(agentId), new BN(capabilities), "https://example.com", null, new BN(stake))
-        .accountsPartial({
-          agent: agentPda,
-          protocolConfig: protocolPda,
-          authority: authority.publicKey,
-        })
-        .signers([authority])
-        .rpc();
-    }
-    return agentPda;
-  };
-
   before(async () => {
     secondSigner = Keypair.generate();
     treasury = Keypair.generate();
@@ -123,21 +101,45 @@ describe("agent-feed (issue #1103)", () => {
         .rpc();
     }
 
-    // Disable rate limiting for tests
-    try {
-      await program.methods
-        .updateRateLimits(new BN(0), 0, new BN(0), 0, new BN(LAMPORTS_PER_SOL / 100))
-        .accountsPartial({ protocolConfig: protocolPda })
-        .remainingAccounts([{ pubkey: provider.wallet.publicKey, isSigner: true, isWritable: false }])
-        .rpc();
-    } catch {
-      // Already configured
-    }
+    await disableRateLimitsForTests({
+      program,
+      protocolPda,
+      authority: provider.wallet.publicKey,
+      minStakeForDisputeLamports: LAMPORTS_PER_SOL / 100,
+      skipPreflight: false,
+    });
 
     // Register agents
-    poster1AgentPda = await registerAgent(poster1AgentId, poster1, CAPABILITY_COMPUTE, AGENT_STAKE);
-    poster2AgentPda = await registerAgent(poster2AgentId, poster2, CAPABILITY_COMPUTE, AGENT_STAKE);
-    poster3AgentPda = await registerAgent(poster3AgentId, poster3, CAPABILITY_COMPUTE, AGENT_STAKE);
+    poster1AgentPda = await ensureAgentRegistered({
+      program,
+      protocolPda,
+      agentId: poster1AgentId,
+      authority: poster1,
+      capabilities: CAPABILITY_COMPUTE,
+      endpoint: "https://example.com",
+      stakeLamports: AGENT_STAKE,
+      skipPreflight: false,
+    });
+    poster2AgentPda = await ensureAgentRegistered({
+      program,
+      protocolPda,
+      agentId: poster2AgentId,
+      authority: poster2,
+      capabilities: CAPABILITY_COMPUTE,
+      endpoint: "https://example.com",
+      stakeLamports: AGENT_STAKE,
+      skipPreflight: false,
+    });
+    poster3AgentPda = await ensureAgentRegistered({
+      program,
+      protocolPda,
+      agentId: poster3AgentId,
+      authority: poster3,
+      capabilities: CAPABILITY_COMPUTE,
+      endpoint: "https://example.com",
+      stakeLamports: AGENT_STAKE,
+      skipPreflight: false,
+    });
   });
 
   // ==========================================================================

@@ -310,6 +310,93 @@ export async function fundWallets(
   );
 }
 
+/**
+ * Disable protocol rate limits for deterministic integration tests.
+ * Safe to call repeatedly in before hooks.
+ */
+export async function disableRateLimitsForTests(params: {
+  program: Program<AgencCoordination>;
+  protocolPda: PublicKey;
+  authority: PublicKey;
+  minStakeForDisputeLamports?: number;
+  skipPreflight?: boolean;
+}): Promise<void> {
+  const {
+    program,
+    protocolPda,
+    authority,
+    minStakeForDisputeLamports = 0,
+    skipPreflight = true,
+  } = params;
+
+  try {
+    await program.methods
+      .updateRateLimits(
+        new BN(0),
+        0,
+        new BN(0),
+        0,
+        new BN(minStakeForDisputeLamports)
+      )
+      .accountsPartial({ protocolConfig: protocolPda })
+      .remainingAccounts([{ pubkey: authority, isSigner: true, isWritable: false }])
+      .rpc({ skipPreflight });
+  } catch {
+    // Already configured for this validator state
+  }
+}
+
+/**
+ * Ensure an agent registration exists, creating it if needed.
+ */
+export async function ensureAgentRegistered(params: {
+  program: Program<AgencCoordination>;
+  protocolPda: PublicKey;
+  agentId: Buffer;
+  authority: Keypair;
+  capabilities: number;
+  endpoint?: string;
+  stakeLamports?: number;
+  skipPreflight?: boolean;
+}): Promise<PublicKey> {
+  const {
+    program,
+    protocolPda,
+    agentId,
+    authority,
+    capabilities,
+    endpoint = "https://example.com",
+    stakeLamports = LAMPORTS_PER_SOL,
+    skipPreflight = true,
+  } = params;
+
+  const agentPda = deriveAgentPda(agentId, program.programId);
+  try {
+    await program.methods
+      .registerAgent(
+        Array.from(agentId),
+        new BN(capabilities),
+        endpoint,
+        null,
+        new BN(stakeLamports)
+      )
+      .accountsPartial({
+        agent: agentPda,
+        protocolConfig: protocolPda,
+        authority: authority.publicKey,
+      })
+      .signers([authority])
+      .rpc({ skipPreflight });
+  } catch (error) {
+    const message = (error as { message?: string }).message ?? "";
+    if (!message.includes("already in use")) {
+      throw error;
+    }
+  }
+
+  return agentPda;
+}
+
 // ============================================================================
 // Worker Pool for Fast Test Execution
 // ============================================================================

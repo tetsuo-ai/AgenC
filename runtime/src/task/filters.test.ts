@@ -15,38 +15,12 @@ import {
   rankTasks,
   filterAndRank,
 } from './filters.js';
+import { createTask } from './test-utils.js';
 
 /** Capability constants for tests */
 const COMPUTE = 1n << 0n;
 const INFERENCE = 1n << 1n;
 const STORAGE = 1n << 2n;
-
-/**
- * Creates a parsed OnChainTask for filter tests.
- */
-function createTask(overrides: Partial<OnChainTask> = {}): OnChainTask {
-  return {
-    taskId: new Uint8Array(32),
-    creator: Keypair.generate().publicKey,
-    requiredCapabilities: COMPUTE,
-    description: new Uint8Array(64),
-    constraintHash: new Uint8Array(32),
-    rewardAmount: 1_000_000n,
-    maxWorkers: 5,
-    currentWorkers: 0,
-    status: OnChainTaskStatus.Open,
-    taskType: TaskType.Exclusive,
-    createdAt: 1700000000,
-    deadline: Math.floor(Date.now() / 1000) + 3600,
-    completedAt: 0,
-    escrow: Keypair.generate().publicKey,
-    result: new Uint8Array(64),
-    completions: 0,
-    requiredCompletions: 1,
-    bump: 255,
-    ...overrides,
-  };
-}
 
 function toDiscoveredTask(task: OnChainTask): DiscoveredTask {
   return { task, relevanceScore: 0, canClaim: true };

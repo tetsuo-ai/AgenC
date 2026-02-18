@@ -9,6 +9,7 @@ import {
   formatResolutionType,
   safePubkey,
 } from '../utils/formatting.js';
+import { toolErrorResponse } from './response.js';
 
 function formatDisputeAccount(account: Record<string, unknown>, pda: PublicKey): string {
   const disputeId = account.disputeId as Uint8Array | number[];
@@ -80,9 +81,7 @@ export function registerDisputeTools(server: McpServer): void {
           }],
         };
       } catch (error) {
-        return {
-          content: [{ type: 'text' as const, text: 'Error: ' + (error as Error).message }],
-        };
+        return toolErrorResponse(error);
       }
     },
   );
@@ -146,9 +145,7 @@ export function registerDisputeTools(server: McpServer): void {
           }],
         };
       } catch (error) {
-        return {
-          content: [{ type: 'text' as const, text: 'Error: ' + (error as Error).message }],
-        };
+        return toolErrorResponse(error);
       }
     },
   );

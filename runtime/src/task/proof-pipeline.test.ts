@@ -13,42 +13,14 @@ import type { TaskOperations } from './operations.js';
 import type {
   TaskExecutionResult,
   PrivateTaskExecutionResult,
-  OnChainTask,
   ClaimResult,
   CompleteResult,
 } from './types.js';
-import { OnChainTaskStatus } from './types.js';
-import { TaskType } from '../events/types.js';
+import { createTask, createMockOperations } from './test-utils.js';
 
 // ============================================================================
 // Helpers
 // ============================================================================
-
-const COMPUTE = 1n << 0n;
-
-function createTask(overrides: Partial<OnChainTask> = {}): OnChainTask {
-  return {
-    taskId: new Uint8Array(32),
-    creator: Keypair.generate().publicKey,
-    requiredCapabilities: COMPUTE,
-    description: new Uint8Array(64),
-    constraintHash: new Uint8Array(32),
-    rewardAmount: 1_000_000n,
-    maxWorkers: 5,
-    currentWorkers: 0,
-    status: OnChainTaskStatus.Open,
-    taskType: TaskType.Exclusive,
-    createdAt: 1700000000,
-    deadline: Math.floor(Date.now() / 1000) + 3600,
-    completedAt: 0,
-    escrow: Keypair.generate().publicKey,
-    result: new Uint8Array(64),
-    completions: 0,
-    requiredCompletions: 1,
-    bump: 255,
-    ...overrides,
-  };
-}
 
 function createPublicResult(): TaskExecutionResult {
   return {
@@ -67,44 +39,10 @@ function createPrivateResult(): PrivateTaskExecutionResult {
   };
 }
 
-function createMockOperations(): TaskOperations & {
-  claimTask: ReturnType<typeof vi.fn>;
-  completeTask: ReturnType<typeof vi.fn>;
-  completeTaskPrivate: ReturnType<typeof vi.fn>;
-  fetchTask: ReturnType<typeof vi.fn>;
-} {
-  const claimPda = Keypair.generate().publicKey;
-  return {
-    fetchClaimableTasks: vi.fn().mockResolvedValue([]),
-    fetchTask: vi.fn().mockResolvedValue(createTask()),
-    fetchAllTasks: vi.fn().mockResolvedValue([]),
-    fetchClaim: vi.fn().mockResolvedValue(null),
-    fetchActiveClaims: vi.fn().mockResolvedValue([]),
-    fetchTaskByIds: vi.fn().mockResolvedValue(null),
-    claimTask: vi.fn().mockResolvedValue({
-      success: true,
-      taskId: new Uint8Array(32),
-      claimPda,
-      transactionSignature: 'claim-sig',
-    } satisfies ClaimResult),
-    completeTask: vi.fn().mockResolvedValue({
-      success: true,
-      taskId: new Uint8Array(32),
-      isPrivate: false,
-      transactionSignature: 'complete-sig',
-    } satisfies CompleteResult),
-    completeTaskPrivate: vi.fn().mockResolvedValue({
-      success: true,
-      taskId: new Uint8Array(32),
-      isPrivate: true,
-      transactionSignature: 'complete-private-sig',
-    } satisfies CompleteResult),
-  } as unknown as TaskOperations & {
-    claimTask: ReturnType<typeof vi.fn>;
-    completeTask: ReturnType<typeof vi.fn>;
-    completeTaskPrivate: ReturnType<typeof vi.fn>;
-    fetchTask: ReturnType<typeof vi.fn>;
-  };
+function createPipelineMockOperations() {
+  const ops = createMockOperations();
+  (ops.fetchTask as ReturnType<typeof vi.fn>).mockResolvedValue(createTask());
+  return ops;
 }
 
 function createMockDependencyGraph(
@@ -154,13 +92,13 @@ function createMockEvents(): ProofPipelineEvents & {
 // ============================================================================
 
 describe('ProofPipeline', () => {
-  let operations: ReturnType<typeof createMockOperations>;
+  let operations: ReturnType<typeof createPipelineMockOperations>;
   let events: ReturnType<typeof createMockEvents>;
   let config: Partial<ProofPipelineConfig>;
   let pipeline: ProofPipeline;
 
   beforeEach(() => {
-    operations = createMockOperations();
+    operations = createPipelineMockOperations();
     events = createMockEvents();
     config = createDefaultConfig();
     pipeline = new ProofPipeline(config, events, operations);

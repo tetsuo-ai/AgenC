@@ -7,6 +7,7 @@ import {
 import anchor, { type Program } from '@coral-xyz/anchor';
 import { PROGRAM_ID, SEEDS } from './constants';
 import { getAccount } from './anchor-utils';
+import { toBigInt, toNumber } from './utils/numeric';
 
 export interface CoordinationState {
   owner: PublicKey;
@@ -31,24 +32,6 @@ function toFixedBytes(value: Uint8Array | number[], length: number, fieldName: s
     throw new Error(`Invalid ${fieldName} length: ${bytes.length}. Expected ${length} bytes.`);
   }
   return bytes;
-}
-
-function toNumber(value: unknown): number {
-  if (typeof value === 'number') return value;
-  if (value && typeof value === 'object' && 'toNumber' in value) {
-    return (value as { toNumber: () => number }).toNumber();
-  }
-  if (typeof value === 'bigint') return Number(value);
-  return 0;
-}
-
-function toBigInt(value: unknown): bigint {
-  if (typeof value === 'bigint') return value;
-  if (typeof value === 'number') return BigInt(value);
-  if (value && typeof value === 'object' && 'toString' in value) {
-    return BigInt((value as { toString: () => string }).toString());
-  }
-  return 0n;
 }
 
 function deriveAgentPda(agentId: Uint8Array | number[], programId: PublicKey): PublicKey {

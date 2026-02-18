@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { Keypair, PublicKey } from '@solana/web3.js';
+import { PublicKey } from '@solana/web3.js';
 import {
   SpeculativeTaskScheduler,
   type SpeculativeSchedulerConfig,
@@ -11,65 +11,13 @@ import {
 } from './speculative-scheduler.js';
 import { DependencyGraph, DependencyType } from './dependency-graph.js';
 import type { ProofPipeline } from './proof-pipeline.js';
-import type { OnChainTask } from './types.js';
-import { OnChainTaskStatus, TaskType } from './types.js';
+import { createMockProofPipeline, createSpeculationTask, randomPda } from './test-utils.js';
 
 // ============================================================================
 // Test Helpers
 // ============================================================================
 
-function randomPda(): PublicKey {
-  return Keypair.generate().publicKey;
-}
-
-function createMockTask(): OnChainTask {
-  return {
-    taskId: new Uint8Array(32).fill(Math.floor(Math.random() * 256)),
-    creator: randomPda(),
-    requiredCapabilities: 0n,
-    description: new Uint8Array(64),
-    constraintHash: new Uint8Array(32),
-    rewardAmount: 1_000_000n,
-    maxWorkers: 1,
-    currentWorkers: 0,
-    status: OnChainTaskStatus.Open,
-    taskType: TaskType.Exclusive,
-    createdAt: Math.floor(Date.now() / 1000),
-    deadline: 0,
-    completedAt: 0,
-    escrow: randomPda(),
-    result: new Uint8Array(64),
-    completions: 0,
-    requiredCompletions: 1,
-    bump: 255,
-  };
-}
-
-function createMockProofPipeline(): ProofPipeline {
-  return {
-    queueProofGeneration: vi.fn(),
-    submitProof: vi.fn().mockResolvedValue('mock-signature'),
-    getQueuedJobs: vi.fn().mockReturnValue([]),
-    getActiveJobs: vi.fn().mockReturnValue([]),
-    getCompletedJobs: vi.fn().mockReturnValue([]),
-    getFailedJobs: vi.fn().mockReturnValue([]),
-    getStats: vi.fn().mockReturnValue({
-      queued: 0,
-      generating: 0,
-      generated: 0,
-      submitting: 0,
-      confirmed: 0,
-      failed: 0,
-      totalProcessed: 0,
-      averageGenerationTimeMs: 0,
-      averageSubmissionTimeMs: 0,
-    }),
-    stop: vi.fn().mockResolvedValue(undefined),
-    start: vi.fn(),
-    isShuttingDown: vi.fn().mockReturnValue(false),
-    cancel: vi.fn(),
-  } as unknown as ProofPipeline;
-}
+const createMockTask = createSpeculationTask;
 
 function createScheduler(
   configOverrides: Partial<SpeculativeSchedulerConfig> = {},
@@ -166,7 +114,7 @@ describe('SpeculativeTaskScheduler', () => {
       const { scheduler, graph } = createScheduler({ enableSpeculation: true });
 
       const taskPda = randomPda();
-      const task = createMockTask();
+      const task = createSpeculationTask();
       graph.addTask(task, taskPda);
 
       const decision = scheduler.shouldSpeculate(taskPda);
@@ -177,7 +125,7 @@ describe('SpeculativeTaskScheduler', () => {
       const { scheduler, graph } = createScheduler({ enableSpeculation: false });
 
       const taskPda = randomPda();
-      const task = createMockTask();
+      const task = createSpeculationTask();
       graph.addTask(task, taskPda);
 
       const decision = scheduler.shouldSpeculate(taskPda);
@@ -206,8 +154,8 @@ describe('SpeculativeTaskScheduler', () => {
       const child2Pda = randomPda();
 
       graph.addTask(createMockTask(), rootPda);
-      graph.addTaskWithParent(createMockTask(), child1Pda, rootPda);
-      graph.addTaskWithParent(createMockTask(), child2Pda, child1Pda);
+      graph.addTaskWithParent(createSpeculationTask(), child1Pda, rootPda);
+      graph.addTaskWithParent(createSpeculationTask(), child2Pda, child1Pda);
 
       // Depth 2 should be allowed (limit is 3)
       const decision = scheduler.shouldSpeculate(child2Pda);
@@ -222,9 +170,9 @@ describe('SpeculativeTaskScheduler', () => {
       const child1Pda = randomPda();
       const child2Pda = randomPda();
 
-      graph.addTask(createMockTask(), rootPda);
-      graph.addTaskWithParent(createMockTask(), child1Pda, rootPda);
-      graph.addTaskWithParent(createMockTask(), child2Pda, child1Pda);
+      graph.addTask(createSpeculationTask(), rootPda);
+      graph.addTaskWithParent(createSpeculationTask(), child1Pda, rootPda);
+      graph.addTaskWithParent(createSpeculationTask(), child2Pda, child1Pda);
 
       // Depth 2 == limit of 2, should be denied
       const decision = scheduler.shouldSpeculate(child2Pda);
@@ -243,8 +191,8 @@ describe('SpeculativeTaskScheduler', () => {
       const rootPda = randomPda();
       const childPda = randomPda();
 
-      graph.addTask(createMockTask(), rootPda);
-      graph.addTaskWithParent(createMockTask(), childPda, rootPda);
+      graph.addTask(createSpeculationTask(), rootPda);
+      graph.addTaskWithParent(createSpeculationTask(), childPda, rootPda);
 
       scheduler.shouldSpeculate(childPda);
 

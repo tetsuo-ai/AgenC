@@ -37,6 +37,8 @@ import {
   createWorkerPool,
   getWorkerFromPool,
   PooledWorker,
+  disableRateLimitsForTests,
+  ensureAgentRegistered,
 } from "./test-utils";
 
 export interface TestContext {
@@ -120,16 +122,13 @@ export function setupTestContext(ctx: TestContext): void {
       ctx.treasuryPubkey = protocolConfig.treasury;
     }
 
-    // Disable rate limiting for tests
-    try {
-      await program.methods
-        .updateRateLimits(new BN(0), 0, new BN(0), 0, new BN(0))
-        .accountsPartial({ protocolConfig: protocolPda })
-        .remainingAccounts([{ pubkey: provider.wallet.publicKey, isSigner: true, isWritable: false }])
-        .rpc({ skipPreflight: true });
-    } catch {
-      // May already be configured
-    }
+    await disableRateLimitsForTests({
+      program,
+      protocolPda,
+      authority: provider.wallet.publicKey,
+      minStakeForDisputeLamports: 0,
+      skipPreflight: true,
+    });
 
     // Register agents
     const agents = [
@@ -140,15 +139,16 @@ export function setupTestContext(ctx: TestContext): void {
     ];
 
     for (const agent of agents) {
-      try {
-        await program.methods
-          .registerAgent(Array.from(agent.id), new BN(agent.capabilities), agent.endpoint, null, new BN(LAMPORTS_PER_SOL / 100))
-          .accountsPartial({ agent: deriveAgentPda(agent.id, program.programId), protocolConfig: protocolPda, authority: agent.wallet.publicKey })
-          .signers([agent.wallet])
-          .rpc({ skipPreflight: true });
-      } catch (e: any) {
-        if (!e.message?.includes("already in use")) throw e;
-      }
+      await ensureAgentRegistered({
+        program,
+        protocolPda,
+        agentId: agent.id,
+        authority: agent.wallet,
+        capabilities: agent.capabilities,
+        endpoint: agent.endpoint,
+        stakeLamports: LAMPORTS_PER_SOL / 100,
+        skipPreflight: true,
+      });
     }
 
     // Initialize worker pool
@@ -175,17 +175,16 @@ export function setupTestContext(ctx: TestContext): void {
             .rpc();
         }
       } catch {
-        try {
-          await program.methods
-            .registerAgent(Array.from(agent.id), new BN(agent.capabilities), agent.endpoint, null, new BN(LAMPORTS_PER_SOL / 100))
-            .accountsPartial({ agent: agentPda, protocolConfig: protocolPda, authority: agent.wallet.publicKey })
-            .signers([agent.wallet])
-            .rpc({ skipPreflight: true });
-        } catch (regError: any) {
-          if (!regError.message?.includes("already in use")) {
-            throw regError;
-          }
-        }
+        await ensureAgentRegistered({
+          program,
+          protocolPda,
+          agentId: agent.id,
+          authority: agent.wallet,
+          capabilities: agent.capabilities,
+          endpoint: agent.endpoint,
+          stakeLamports: LAMPORTS_PER_SOL / 100,
+          skipPreflight: true,
+        });
       }
     }
   });

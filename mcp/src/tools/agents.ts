@@ -21,6 +21,7 @@ import {
   getCurrentProgramId,
 } from '../utils/connection.js';
 import { formatSol, formatTimestamp, formatStatus, safePubkey, safeBigInt } from '../utils/formatting.js';
+import { toolErrorResponse } from './response.js';
 
 function formatAgentState(account: Record<string, unknown>, pda: PublicKey): string {
   const agentId = account.agentId as Uint8Array | number[];
@@ -107,9 +108,7 @@ export function registerAgentTools(server: McpServer): void {
           content: [{ type: 'text' as const, text: resultLines.join('\n') }],
         };
       } catch (error) {
-        return {
-          content: [{ type: 'text' as const, text: 'Error: ' + (error as Error).message }],
-        };
+        return toolErrorResponse(error);
       }
     },
   );
@@ -141,9 +140,7 @@ export function registerAgentTools(server: McpServer): void {
           }],
         };
       } catch (error) {
-        return {
-          content: [{ type: 'text' as const, text: 'Error: ' + (error as Error).message }],
-        };
+        return toolErrorResponse(error);
       }
     },
   );
@@ -174,9 +171,7 @@ export function registerAgentTools(server: McpServer): void {
           }],
         };
       } catch (error) {
-        return {
-          content: [{ type: 'text' as const, text: 'Error: ' + (error as Error).message }],
-        };
+        return toolErrorResponse(error);
       }
     },
   );
@@ -238,9 +233,7 @@ export function registerAgentTools(server: McpServer): void {
           }],
         };
       } catch (error) {
-        return {
-          content: [{ type: 'text' as const, text: 'Error: ' + (error as Error).message }],
-        };
+        return toolErrorResponse(error);
       }
     },
   );
@@ -307,9 +300,7 @@ export function registerAgentTools(server: McpServer): void {
           }],
         };
       } catch (error) {
-        return {
-          content: [{ type: 'text' as const, text: 'Error: ' + (error as Error).message }],
-        };
+        return toolErrorResponse(error);
       }
     },
   );
@@ -345,9 +336,7 @@ export function registerAgentTools(server: McpServer): void {
           }],
         };
       } catch (error) {
-        return {
-          content: [{ type: 'text' as const, text: 'Error: ' + (error as Error).message }],
-        };
+        return toolErrorResponse(error);
       }
     },
   );

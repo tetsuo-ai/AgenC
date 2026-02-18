@@ -49,6 +49,17 @@ import { ConnectionManager } from '../connection/manager.js';
 
 const DEFAULT_GROK_MODEL = 'grok-4-1-fast-reasoning';
 
+interface WebChatSkillSummary {
+  name: string;
+  description: string;
+  enabled: boolean;
+}
+
+interface WebChatSignals {
+  signalThinking: (sessionId: string) => void;
+  signalIdle: (sessionId: string) => void;
+}
+
 // ============================================================================
 // PID File Types
 // ============================================================================
@@ -238,41 +249,19 @@ export class DaemonManager {
    * memory retrieval, lifecycle hooks, and real-time tool/typing events.
    */
   private async wireWebChat(gateway: Gateway, config: GatewayConfig): Promise<void> {
-    // ── Lifecycle hooks ──────────────────────────────────────────────────
-    const hooks = new HookDispatcher({ logger: this.logger });
-    for (const h of createBuiltinHooks()) hooks.on(h);
-    this._hookDispatcher = hooks;
-    await hooks.dispatch('gateway:startup', { config });
-
-    // ── Discover bundled + user skills ────────────────────────────────────
+    const hooks = await this.createHookDispatcher(config);
     const discovered = await this.discoverSkills();
-    const skillList: Array<{ name: string; description: string; enabled: boolean }> = discovered.map((d) => ({
+    const availableSkills = discovered.filter((d) => d.available);
+    const skillList: WebChatSkillSummary[] = discovered.map((d) => ({
       name: d.skill.name,
       description: d.skill.description,
       enabled: d.available,
     }));
-
-    // Skill toggle callback — mutates skillList in-place
     const skillToggle = (name: string, enabled: boolean): void => {
-      const skill = skillList.find((s) => s.name === name);
+      const skill = skillList.find((entry) => entry.name === name);
       if (skill) skill.enabled = enabled;
     };
 
-    // ── Tool registry ────────────────────────────────────────────────────
-    const registry = new ToolRegistry({ logger: this.logger });
-    const processEnv: Record<string, string> = {};
-    for (const [key, value] of Object.entries(process.env)) {
-      if (value !== undefined) processEnv[key] = value;
-    }
-    registry.register(createBashTool({ logger: this.logger, env: processEnv, unrestricted: true }));
-    registry.registerAll(createHttpTools({}, this.logger));
-    registry.registerAll(createFilesystemTools({
-      allowedPaths: [homedir(), '/tmp'],
-      allowDelete: true,
-    }));
-    registry.registerAll(createBrowserTools({ mode: 'basic' }, this.logger));
-
-    // ── Telemetry collector ──────────────────────────────────────────────
     let telemetry: UnifiedTelemetryCollector | null = null;
     if (config.telemetry?.enabled !== false) {
       telemetry = new UnifiedTelemetryCollector(
@@ -282,46 +271,153 @@ export class DaemonManager {
       this._telemetry = telemetry;
     }
 
-    // ── ConnectionManager for resilient RPC ──────────────────────────────
+    const registry = await this.createToolRegistry(config, telemetry ?? undefined);
+
+    const llmTools = registry.toLLMTools();
+    const baseToolHandler = registry.createToolHandler();
+    const providers = await this.createLLMProviders(config, llmTools);
+    const skillInjector = this.createSkillInjector(availableSkills);
+    const memoryBackend = await this.createMemoryBackend(config, telemetry ?? undefined);
+    this._memoryBackend = memoryBackend;
+    const memoryRetriever = this.createMemoryRetriever(memoryBackend);
+    const chatExecutor = providers.length > 0 ? new ChatExecutor({
+      providers,
+      toolHandler: baseToolHandler,
+      skillInjector,
+      memoryRetriever,
+      sessionTokenBudget: config.llm?.sessionTokenBudget || undefined,
+    }) : null;
+
+    const approvalEngine = new ApprovalEngine();
+    this._approvalEngine = approvalEngine;
+    const sessionMgr = this.createSessionManager(hooks);
+    const resolveSessionId = this.createSessionIdResolver(sessionMgr);
+    const systemPrompt = await this.buildSystemPrompt(config);
+    const commandRegistry = this.createCommandRegistry(
+      sessionMgr,
+      resolveSessionId,
+      providers,
+      memoryBackend,
+      registry,
+      availableSkills,
+      skillList,
+    );
+    const voiceBridge = this.createOptionalVoiceBridge(config, llmTools, baseToolHandler, systemPrompt);
+    this._voiceBridge = voiceBridge ?? null;
+
+    const webChat = new WebChatChannel({
+      gateway: { getStatus: () => gateway.getStatus(), config },
+      skills: skillList,
+      voiceBridge,
+      memoryBackend,
+      approvalEngine,
+      skillToggle,
+    });
+    const signals = this.createWebChatSignals(webChat);
+    const onMessage = this.createWebChatMessageHandler({
+      webChat,
+      commandRegistry,
+      chatExecutor,
+      hooks,
+      sessionMgr,
+      systemPrompt,
+      baseToolHandler,
+      approvalEngine,
+      memoryBackend,
+      signals,
+    });
+
+    await webChat.initialize({ onMessage, logger: this.logger, config: {} });
+    await webChat.start();
+
+    gateway.setWebChatHandler(webChat);
+    this._webChatChannel = webChat;
+
+    const toolCount = registry.size;
+    const skillCount = availableSkills.length;
+    const providerNames = providers.map((p) => p.name).join(' → ') || 'none';
+    this.logger.info(
+      `WebChat wired` +
+      ` with LLM [${providerNames}]` +
+      `, ${toolCount} tools, ${skillCount} skills` +
+      `, memory=${memoryBackend.name}` +
+      `, ${commandRegistry.size} commands` +
+      (telemetry ? ', telemetry' : '') +
+      (config.llm?.sessionTokenBudget ? `, budget=${config.llm.sessionTokenBudget}` : '') +
+      (voiceBridge ? ', voice' : '') +
+      ', hooks, sessions, approvals',
+    );
+  }
+
+  private async createHookDispatcher(config: GatewayConfig): Promise<HookDispatcher> {
+    const hooks = new HookDispatcher({ logger: this.logger });
+    for (const hook of createBuiltinHooks()) {
+      hooks.on(hook);
+    }
+    this._hookDispatcher = hooks;
+    await hooks.dispatch('gateway:startup', { config });
+    return hooks;
+  }
+
+  private async createToolRegistry(
+    config: GatewayConfig,
+    metrics?: UnifiedTelemetryCollector,
+  ): Promise<ToolRegistry> {
+    const registry = new ToolRegistry({ logger: this.logger });
+    const processEnv: Record<string, string> = {};
+    for (const [key, value] of Object.entries(process.env)) {
+      if (value !== undefined) {
+        processEnv[key] = value;
+      }
+    }
+
+    registry.register(createBashTool({ logger: this.logger, env: processEnv, unrestricted: true }));
+    registry.registerAll(createHttpTools({}, this.logger));
+    registry.registerAll(createFilesystemTools({
+      allowedPaths: [homedir(), '/tmp'],
+      allowDelete: true,
+    }));
+    registry.registerAll(createBrowserTools({ mode: 'basic' }, this.logger));
+
     if (config.connection?.rpcUrl) {
       try {
         const endpoints: string[] = [config.connection.rpcUrl];
         if (config.connection.endpoints) {
-          for (const ep of config.connection.endpoints) {
-            if (ep !== config.connection.rpcUrl) endpoints.push(ep);
+          for (const endpoint of config.connection.endpoints) {
+            if (endpoint !== config.connection.rpcUrl) {
+              endpoints.push(endpoint);
+            }
           }
         }
         const connMgr = new ConnectionManager({
           endpoints,
           logger: this.logger,
-          metrics: telemetry ?? undefined,
+          metrics,
         });
         this._connectionManager = connMgr;
 
-        // Wire AgenC protocol tools using resilient connection
         const { createAgencTools } = await import('../tools/agenc/index.js');
         registry.registerAll(createAgencTools({
           connection: connMgr.getConnection(),
           logger: this.logger,
         }));
-      } catch (err) {
-        this.logger.warn?.('AgenC protocol tools unavailable:', err);
+      } catch (error) {
+        this.logger.warn?.('AgenC protocol tools unavailable:', error);
       }
     }
 
-    const llmTools = registry.toLLMTools();
-    const baseToolHandler = registry.createToolHandler();
+    return registry;
+  }
 
-    // ── LLM providers ────────────────────────────────────────────────────
-    const providers = await this.createLLMProviders(config, llmTools);
-
-    // ── Skill injector ───────────────────────────────────────────────────
-    const availableSkills = discovered.filter((d) => d.available);
-    const skillInjector: SkillInjector = {
+  private createSkillInjector(skills: DiscoveredSkill[]): SkillInjector {
+    return {
       async inject(_message: string, _sessionId: string): Promise<string | undefined> {
-        if (availableSkills.length === 0) return undefined;
-        const sections = availableSkills.map((s) =>
-          `## Skill: ${s.skill.name}\n${s.skill.description}\n\n${s.skill.body}`,
+        if (skills.length === 0) {
+          return undefined;
+        }
+
+        const sections = skills.map((skill) =>
+          `## Skill: ${skill.skill.name}\n${skill.skill.description}\n\n${skill.skill.body}`,
         );
         return (
           '# Available Skills\n\n' +
@@ -332,40 +428,27 @@ export class DaemonManager {
         );
       },
     };
+  }
 
-    // ── Memory backend ───────────────────────────────────────────────────
-    const memoryBackend = await this.createMemoryBackend(config, telemetry ?? undefined);
-    this._memoryBackend = memoryBackend;
-
-    // ── Memory retriever — injects recent session context into LLM ──────
-    const memoryRetriever: MemoryRetriever = {
+  private createMemoryRetriever(memoryBackend: MemoryBackend): MemoryRetriever {
+    return {
       async retrieve(_message: string, sessionId: string): Promise<string | undefined> {
         try {
           const entries = await memoryBackend.getThread(sessionId, 10);
-          if (entries.length === 0) return undefined;
-          const lines = entries.map((e) => `[${e.role}] ${e.content}`);
+          if (entries.length === 0) {
+            return undefined;
+          }
+          const lines = entries.map((entry) => `[${entry.role}] ${entry.content}`);
           return '# Recent Memory\n\n' + lines.join('\n');
         } catch {
           return undefined;
         }
       },
     };
+  }
 
-    // ── ChatExecutor ─────────────────────────────────────────────────────
-    const chatExecutor = providers.length > 0 ? new ChatExecutor({
-      providers,
-      toolHandler: baseToolHandler,
-      skillInjector,
-      memoryRetriever,
-      sessionTokenBudget: config.llm?.sessionTokenBudget || undefined,
-    }) : null;
-
-    // ── Approval engine ──────────────────────────────────────────────────
-    const approvalEngine = new ApprovalEngine();
-    this._approvalEngine = approvalEngine;
-
-    // ── Session manager (replaces bare Map) ──────────────────────────────
-    const sessionMgr = new SessionManager(
+  private createSessionManager(hooks: HookDispatcher): SessionManager {
+    return new SessionManager(
       {
         scope: 'per-peer',
         reset: { mode: 'idle', idleMinutes: 120 },
@@ -386,11 +469,10 @@ export class DaemonManager {
         },
       },
     );
+  }
 
-    // Helper: resolve senderId → SessionManager canonical session ID.
-    // SessionManager uses deriveSessionId() internally, but slash commands
-    // need the same derived ID. getOrCreate() is idempotent and cheap.
-    const resolveSessionId = (senderId: string): string => {
+  private createSessionIdResolver(sessionMgr: SessionManager): (senderId: string) => string {
+    return (senderId: string): string => {
       return sessionMgr.getOrCreate({
         channel: 'webchat',
         senderId,
@@ -398,23 +480,29 @@ export class DaemonManager {
         workspaceId: 'default',
       }).id;
     };
+  }
 
-    // ── System prompt — workspace files → personality fallback ────────────
-    const systemPrompt = await this.buildSystemPrompt(config);
-
-    // ── Slash command registry ───────────────────────────────────────────
+  private createCommandRegistry(
+    sessionMgr: SessionManager,
+    resolveSessionId: (senderId: string) => string,
+    providers: LLMProvider[],
+    memoryBackend: MemoryBackend,
+    registry: ToolRegistry,
+    availableSkills: DiscoveredSkill[],
+    skillList: WebChatSkillSummary[],
+  ): SlashCommandRegistry {
     const commandRegistry = new SlashCommandRegistry({ logger: this.logger });
-    for (const cmd of createDefaultCommands()) {
-      commandRegistry.register(cmd);
+    for (const command of createDefaultCommands()) {
+      commandRegistry.register(command);
     }
-    // Wire real handlers for commands that need subsystem access
+
     commandRegistry.register({
       name: 'help',
       description: 'Show available commands',
       global: true,
       handler: async (ctx) => {
-        const cmds = commandRegistry.getCommands();
-        const lines = cmds.map((c) => `  /${c.name} — ${c.description}`);
+        const commands = commandRegistry.getCommands();
+        const lines = commands.map((command) => `  /${command.name} — ${command.description}`);
         await ctx.reply('Available commands:\n' + lines.join('\n'));
       },
     });
@@ -441,8 +529,8 @@ export class DaemonManager {
       description: 'Force conversation compaction',
       global: true,
       handler: async (ctx) => {
-        const sid = resolveSessionId(ctx.senderId);
-        const result = await sessionMgr.compact(sid);
+        const sessionId = resolveSessionId(ctx.senderId);
+        const result = await sessionMgr.compact(sessionId);
         if (result) {
           await ctx.reply(`Compacted: removed ${result.messagesRemoved}, retained ${result.messagesRetained}.`);
         } else {
@@ -455,13 +543,13 @@ export class DaemonManager {
       description: 'Show agent status',
       global: true,
       handler: async (ctx) => {
-        const sid = resolveSessionId(ctx.senderId);
-        const session = sessionMgr.get(sid);
+        const sessionId = resolveSessionId(ctx.senderId);
+        const session = sessionMgr.get(sessionId);
         const historyLen = session?.history.length ?? 0;
-        const providerNames = providers.map((p) => p.name).join(' → ') || 'none';
+        const providerNames = providers.map((provider) => provider.name).join(' → ') || 'none';
         await ctx.reply(
           `Agent is running.\n` +
-          `Session: ${sid.slice(0, 16)}...\n` +
+          `Session: ${sessionId.slice(0, 16)}...\n` +
           `History: ${historyLen} messages\n` +
           `LLM: ${providerNames}\n` +
           `Memory: ${memoryBackend.name}\n` +
@@ -479,8 +567,8 @@ export class DaemonManager {
           await ctx.reply('No skills available.');
           return;
         }
-        const lines = skillList.map((s) =>
-          `  ${s.enabled ? '●' : '○'} ${s.name} — ${s.description}`,
+        const lines = skillList.map((skill) =>
+          `  ${skill.enabled ? '●' : '○'} ${skill.name} — ${skill.description}`,
         );
         await ctx.reply('Skills:\n' + lines.join('\n'));
       },
@@ -491,74 +579,108 @@ export class DaemonManager {
       args: '[name]',
       global: true,
       handler: async (ctx) => {
-        const providerInfo = providers.map((p) => `${p.name}`).join(', ') || 'none';
+        const providerInfo = providers.map((provider) => provider.name).join(', ') || 'none';
         await ctx.reply(`LLM providers: ${providerInfo}`);
       },
     });
 
-    // ── Voice bridge ─────────────────────────────────────────────────────
-    let voiceBridge: VoiceBridge | undefined;
+    return commandRegistry;
+  }
+
+  private createOptionalVoiceBridge(
+    config: GatewayConfig,
+    llmTools: LLMTool[],
+    toolHandler: ToolHandler,
+    systemPrompt: string,
+  ): VoiceBridge | undefined {
     if (
-      config.llm?.provider === 'grok'
-      && config.llm.apiKey
-      && config.voice?.enabled !== false
+      config.llm?.provider !== 'grok'
+      || !config.llm.apiKey
+      || config.voice?.enabled === false
     ) {
-      voiceBridge = new VoiceBridge({
-        apiKey: config.llm.apiKey,
-        tools: llmTools,
-        toolHandler: baseToolHandler,
-        systemPrompt,
-        voice: config.voice?.voice ?? 'Ara',
-        model: config.llm.model ?? DEFAULT_GROK_MODEL,
-        mode: config.voice?.mode ?? 'vad',
-        logger: this.logger,
-      });
-      this._voiceBridge = voiceBridge;
+      return undefined;
     }
 
-    // ── WebChat channel ──────────────────────────────────────────────────
-    const webChat = new WebChatChannel({
-      gateway: { getStatus: () => gateway.getStatus(), config },
-      skills: skillList,
-      voiceBridge,
-      memoryBackend,
-      approvalEngine,
-      skillToggle,
+    return new VoiceBridge({
+      apiKey: config.llm.apiKey,
+      tools: llmTools,
+      toolHandler,
+      systemPrompt,
+      voice: config.voice?.voice ?? 'Ara',
+      model: config.llm.model ?? DEFAULT_GROK_MODEL,
+      mode: config.voice?.mode ?? 'vad',
+      logger: this.logger,
     });
+  }
 
-    // Helpers to push paired status + typing events (avoids duplication)
-    const signalThinking = (sessionId: string): void => {
-      webChat.pushToSession(sessionId, {
-        type: 'agent.status',
-        payload: { phase: 'thinking' },
-      });
-      webChat.pushToSession(sessionId, {
-        type: 'chat.typing',
-        payload: { active: true },
-      });
+  private createWebChatSignals(webChat: WebChatChannel): WebChatSignals {
+    return {
+      signalThinking: (sessionId: string): void => {
+        webChat.pushToSession(sessionId, {
+          type: 'agent.status',
+          payload: { phase: 'thinking' },
+        });
+        webChat.pushToSession(sessionId, {
+          type: 'chat.typing',
+          payload: { active: true },
+        });
+      },
+      signalIdle: (sessionId: string): void => {
+        webChat.pushToSession(sessionId, {
+          type: 'agent.status',
+          payload: { phase: 'idle' },
+        });
+        webChat.pushToSession(sessionId, {
+          type: 'chat.typing',
+          payload: { active: false },
+        });
+      },
     };
-    const signalIdle = (sessionId: string): void => {
-      webChat.pushToSession(sessionId, {
-        type: 'agent.status',
-        payload: { phase: 'idle' },
-      });
-      webChat.pushToSession(sessionId, {
-        type: 'chat.typing',
-        payload: { active: false },
-      });
-    };
+  }
 
-    const onMessage = async (msg: GatewayMessage): Promise<void> => {
-      if (!msg.content.trim()) return;
+  private createWebChatMessageHandler(params: {
+    webChat: WebChatChannel;
+    commandRegistry: SlashCommandRegistry;
+    chatExecutor: ChatExecutor | null;
+    hooks: HookDispatcher;
+    sessionMgr: SessionManager;
+    systemPrompt: string;
+    baseToolHandler: ToolHandler;
+    approvalEngine: ApprovalEngine;
+    memoryBackend: MemoryBackend;
+    signals: WebChatSignals;
+  }): (msg: GatewayMessage) => Promise<void> {
+    const {
+      webChat,
+      commandRegistry,
+      chatExecutor,
+      hooks,
+      sessionMgr,
+      systemPrompt,
+      baseToolHandler,
+      approvalEngine,
+      memoryBackend,
+      signals,
+    } = params;
 
-      // ── Slash command interception ───────────────────────────────────
+    return async (msg: GatewayMessage): Promise<void> => {
+      if (!msg.content.trim()) {
+        return;
+      }
+
       const reply = async (content: string): Promise<void> => {
         await webChat.send({ sessionId: msg.sessionId, content });
       };
       const handled = await commandRegistry.dispatch(
-        msg.content, msg.sessionId, msg.senderId, 'webchat', reply,
+        msg.content,
+        msg.sessionId,
+        msg.senderId,
+        'webchat',
+        reply,
       );
-      if (handled) return;
+      if (handled) {
+        return;
+      }
 
       if (!chatExecutor) {
         await webChat.send({
@@ -568,15 +690,15 @@ export class DaemonManager {
         return;
       }
 
-      // ── Hook: message:inbound ────────────────────────────────────────
       const inboundResult = await hooks.dispatch('message:inbound', {
         sessionId: msg.sessionId,
         content: msg.content,
         senderId: msg.senderId,
       });
-      if (!inboundResult.completed) return; // hook aborted
+      if (!inboundResult.completed) {
+        return;
+      }
 
-      // Per-session streaming callback — pushes token deltas to WS client
       const sessionStreamCallback: StreamProgressCallback = (chunk) => {
         webChat.pushToSession(msg.sessionId, {
           type: 'chat.stream',
@@ -584,33 +706,31 @@ export class DaemonManager {
         });
       };
 
-      // Per-session tool handler that pushes events to the WS client
       const sessionToolHandler: ToolHandler = async (name, args) => {
-        // ── Hook: tool:before ──────────────────────────────────────────
         const toolBeforeResult = await hooks.dispatch('tool:before', {
-          sessionId: msg.sessionId, toolName: name, args,
+          sessionId: msg.sessionId,
+          toolName: name,
+          args,
         });
         if (!toolBeforeResult.completed) {
           return JSON.stringify({ error: `Tool "${name}" blocked by hook` });
         }
 
-        // Notify client of tool_call phase
         webChat.pushToSession(msg.sessionId, {
           type: 'agent.status',
           payload: { phase: 'tool_call', detail: `Calling ${name}` },
         });
-
-        // Push tools.executing to client
         webChat.pushToSession(msg.sessionId, {
           type: 'tools.executing',
           payload: { toolName: name, args },
         });
 
-        // Check approval rules
         const rule = approvalEngine.requiresApproval(name, args);
         if (rule && !approvalEngine.isToolElevated(msg.sessionId, name)) {
           const request = approvalEngine.createRequest(
-            name, args, msg.sessionId,
+            name,
+            args,
+            msg.sessionId,
             rule.description ?? `Approval required for ${name}`,
             rule,
           );
@@ -630,36 +750,34 @@ export class DaemonManager {
               type: 'tools.result',
               payload: { toolName: name, result: err, durationMs: 0, isError: true },
             });
-            // Back to generating phase — LLM will process the denial
             webChat.pushToSession(msg.sessionId, {
               type: 'agent.status',
               payload: { phase: 'generating' },
             });
             return err;
           }
-          // 'always' disposition elevates for future calls
           if (response.disposition === 'always') {
             approvalEngine.elevate(msg.sessionId, name);
           }
         }
 
-        // Execute tool
         const start = Date.now();
         const result = await baseToolHandler(name, args);
         const durationMs = Date.now() - start;
 
-        // Push tools.result to client
         webChat.pushToSession(msg.sessionId, {
           type: 'tools.result',
           payload: { toolName: name, result, durationMs },
         });
 
-        // ── Hook: tool:after ───────────────────────────────────────────
         await hooks.dispatch('tool:after', {
-          sessionId: msg.sessionId, toolName: name, args, result, durationMs,
+          sessionId: msg.sessionId,
+          toolName: name,
+          args,
+          result,
+          durationMs,
         });
 
-        // Back to generating phase after tool completes
         webChat.pushToSession(msg.sessionId, {
           type: 'agent.status',
           payload: { phase: 'generating' },
@@ -669,9 +787,8 @@ export class DaemonManager {
       };
 
       try {
-        signalThinking(msg.sessionId);
+        signals.signalThinking(msg.sessionId);
 
-        // Get or create session, use its managed history
         const session = sessionMgr.getOrCreate({
           channel: 'webchat',
           senderId: msg.senderId,
@@ -688,25 +805,21 @@ export class DaemonManager {
           onStreamChunk: sessionStreamCallback,
         });
 
-        signalIdle(msg.sessionId);
-
-        // SessionManager handles history append + auto-compaction
+        signals.signalIdle(msg.sessionId);
         sessionMgr.appendMessage(session.id, { role: 'user', content: msg.content });
         sessionMgr.appendMessage(session.id, { role: 'assistant', content: result.content });
 
-        // Send response to user first (critical path)
-        const text = result.content || '(no response)';
-        await webChat.send({ sessionId: msg.sessionId, content: text });
+        await webChat.send({
+          sessionId: msg.sessionId,
+          content: result.content || '(no response)',
+        });
 
-        // ── Hook: message:outbound ─────────────────────────────────────
         await hooks.dispatch('message:outbound', {
           sessionId: msg.sessionId,
           content: result.content,
           provider: result.provider,
         });
 
-        // Persist both messages to memory backend (best-effort).
-        // Done AFTER the LLM call so MemoryRetriever only sees past turns.
         try {
           await memoryBackend.addEntry({
             sessionId: msg.sessionId,
@@ -718,46 +831,25 @@ export class DaemonManager {
             role: 'assistant',
             content: result.content,
           });
-        } catch (memErr) {
-          this.logger.warn?.('Failed to persist messages to memory:', memErr);
+        } catch (error) {
+          this.logger.warn?.('Failed to persist messages to memory:', error);
         }
 
         if (result.toolCalls.length > 0) {
           this.logger.info(`Chat used ${result.toolCalls.length} tool call(s)`, {
-            tools: result.toolCalls.map((tc) => tc.name),
+            tools: result.toolCalls.map((toolCall) => toolCall.name),
             provider: result.provider,
           });
         }
-      } catch (err) {
-        signalIdle(msg.sessionId);
-        this.logger.error('LLM chat error:', err);
+      } catch (error) {
+        signals.signalIdle(msg.sessionId);
+        this.logger.error('LLM chat error:', error);
         await webChat.send({
           sessionId: msg.sessionId,
-          content: `Error: ${(err as Error).message}`,
+          content: `Error: ${(error as Error).message}`,
         });
       }
     };
-
-    await webChat.initialize({ onMessage, logger: this.logger, config: {} });
-    await webChat.start();
-
-    gateway.setWebChatHandler(webChat);
-    this._webChatChannel = webChat;
-
-    const toolCount = registry.size;
-    const skillCount = availableSkills.length;
-    const providerNames = providers.map((p) => p.name).join(' → ') || 'none';
-    this.logger.info(
-      `WebChat wired` +
-      ` with LLM [${providerNames}]` +
-      `, ${toolCount} tools, ${skillCount} skills` +
-      `, memory=${memoryBackend.name}` +
-      `, ${commandRegistry.size} commands` +
-      (telemetry ? ', telemetry' : '') +
-      (config.llm?.sessionTokenBudget ? `, budget=${config.llm.sessionTokenBudget}` : '') +
-      (voiceBridge ? ', voice' : '') +
-      ', hooks, sessions, approvals',
-    );
   }
 
   /**
