@@ -14,10 +14,8 @@ import {
   pubkeyToField,
   computeExpectedBinding,
   computeConstraintHash,
-  computeCommitment,
   computeCommitmentFromOutput,
   computeHashes,
-  computeNullifier,
   computeNullifierFromAgentSecret,
   generateSalt,
   FIELD_MODULUS,
@@ -111,43 +109,6 @@ describe('proofs', () => {
 
       expect(hash).toBeGreaterThanOrEqual(0n);
       expect(hash).toBeLessThan(FIELD_MODULUS);
-    });
-  });
-
-  describe('computeCommitment', () => {
-    it('hashes constraint and salt to commitment', () => {
-      const constraintHash = 12345n;
-      const salt = 67890n;
-      const commitment = computeCommitment(constraintHash, salt);
-
-      expect(typeof commitment).toBe('bigint');
-      expect(commitment).toBeGreaterThanOrEqual(0n);
-      expect(commitment).toBeLessThan(FIELD_MODULUS);
-    });
-
-    it('produces deterministic results', () => {
-      const constraintHash = 12345n;
-      const salt = 67890n;
-      const commitment1 = computeCommitment(constraintHash, salt);
-      const commitment2 = computeCommitment(constraintHash, salt);
-
-      expect(commitment1).toBe(commitment2);
-    });
-
-    it('produces different results for different salts', () => {
-      const constraintHash = 12345n;
-      const commitment1 = computeCommitment(constraintHash, 1n);
-      const commitment2 = computeCommitment(constraintHash, 2n);
-
-      expect(commitment1).not.toBe(commitment2);
-    });
-
-    it('produces different results for different constraints', () => {
-      const salt = 67890n;
-      const commitment1 = computeCommitment(1n, salt);
-      const commitment2 = computeCommitment(2n, salt);
-
-      expect(commitment1).not.toBe(commitment2);
     });
   });
 
@@ -287,49 +248,6 @@ describe('proofs', () => {
     });
   });
 
-  describe('computeNullifier', () => {
-    it('computes a valid field element', () => {
-      const agentPubkey = Keypair.generate().publicKey;
-      const constraintHash = computeConstraintHash([1n, 2n, 3n, 4n]);
-      const nullifier = computeNullifier(constraintHash, agentPubkey);
-
-      expect(nullifier).toBeGreaterThanOrEqual(0n);
-      expect(nullifier).toBeLessThan(FIELD_MODULUS);
-    });
-
-    it('is deterministic for the same inputs', () => {
-      const agentPubkey = Keypair.generate().publicKey;
-      const constraintHash = computeConstraintHash([1n, 2n, 3n, 4n]);
-
-      const n1 = computeNullifier(constraintHash, agentPubkey);
-      const n2 = computeNullifier(constraintHash, agentPubkey);
-
-      expect(n1).toBe(n2);
-    });
-
-    it('differs for different agents', () => {
-      const agent1 = Keypair.generate().publicKey;
-      const agent2 = Keypair.generate().publicKey;
-      const constraintHash = computeConstraintHash([1n, 2n, 3n, 4n]);
-
-      const n1 = computeNullifier(constraintHash, agent1);
-      const n2 = computeNullifier(constraintHash, agent2);
-
-      expect(n1).not.toBe(n2);
-    });
-
-    it('differs for different constraint hashes', () => {
-      const agentPubkey = Keypair.generate().publicKey;
-      const ch1 = computeConstraintHash([1n, 2n, 3n, 4n]);
-      const ch2 = computeConstraintHash([5n, 6n, 7n, 8n]);
-
-      const n1 = computeNullifier(ch1, agentPubkey);
-      const n2 = computeNullifier(ch2, agentPubkey);
-
-      expect(n1).not.toBe(n2);
-    });
-  });
-
   describe('end-to-end proof parameter generation', () => {
     it('generates consistent parameters for proof creation', () => {
       // Simulate the full proof parameter generation flow
@@ -342,7 +260,7 @@ describe('proofs', () => {
       const constraintHash = computeConstraintHash(output);
 
       // Step 2: Compute output commitment
-      const outputCommitment = computeCommitment(constraintHash, salt);
+      const outputCommitment = computeCommitmentFromOutput(output, salt);
 
       // Step 3: Compute expected binding
       const expectedBinding = computeExpectedBinding(taskPda, agentPubkey, outputCommitment);
@@ -354,7 +272,7 @@ describe('proofs', () => {
 
       // Re-running should produce same results (deterministic)
       const constraintHash2 = computeConstraintHash(output);
-      const outputCommitment2 = computeCommitment(constraintHash2, salt);
+      const outputCommitment2 = computeCommitmentFromOutput(output, salt);
       const expectedBinding2 = computeExpectedBinding(taskPda, agentPubkey, outputCommitment2);
 
       expect(constraintHash2).toBe(constraintHash);
@@ -381,7 +299,7 @@ describe('proofs', () => {
 
       // Compute values
       const constraintHash = computeConstraintHash(output);
-      const outputCommitment = computeCommitment(constraintHash, salt);
+      const outputCommitment = computeCommitmentFromOutput(output, salt);
       const expectedBinding = computeExpectedBinding(taskPda, agentPubkey, outputCommitment);
 
       // These should be non-zero and valid
@@ -418,34 +336,31 @@ describe('proofs', () => {
       const output2 = [5n, 6n, 7n, 8n];
       const reusedSalt = 12345n;
 
-      const constraint1 = computeConstraintHash(output1);
-      const constraint2 = computeConstraintHash(output2);
-
-      // Same salt with same constraint produces identical commitment
-      const commitment1a = computeCommitment(constraint1, reusedSalt);
-      const commitment1b = computeCommitment(constraint1, reusedSalt);
+      // Same output with same salt produces identical commitment
+      const commitment1a = computeCommitmentFromOutput(output1, reusedSalt);
+      const commitment1b = computeCommitmentFromOutput(output1, reusedSalt);
       expect(commitment1a).toBe(commitment1b);
 
-      // Different constraints with same salt produce different commitments
-      // but an attacker who knows the salt could brute-force the constraint
-      const commitment2 = computeCommitment(constraint2, reusedSalt);
+      // Different outputs with same salt produce different commitments
+      // but an attacker who knows the salt could brute-force the output
+      const commitment2 = computeCommitmentFromOutput(output2, reusedSalt);
       expect(commitment1a).not.toBe(commitment2);
 
       // CORRECT: Use unique salt for each proof
       const uniqueSalt1 = generateSalt();
       const uniqueSalt2 = generateSalt();
-      const secureCommitment1 = computeCommitment(constraint1, uniqueSalt1);
-      const secureCommitment2 = computeCommitment(constraint1, uniqueSalt2);
+      const secureCommitment1 = computeCommitmentFromOutput(output1, uniqueSalt1);
+      const secureCommitment2 = computeCommitmentFromOutput(output1, uniqueSalt2);
 
-      // Same constraint with different salts produces different commitments
+      // Same output with different salts produces different commitments
       expect(secureCommitment1).not.toBe(secureCommitment2);
     });
 
-    it('handles zero constraint hash safely', () => {
-      // Edge case: zero constraint hash should still produce valid commitment
-      const zeroConstraint = 0n;
+    it('handles zero output safely', () => {
+      // Edge case: zero output values should still produce valid commitment
+      const zeroOutput = [0n, 0n, 0n, 0n];
       const salt = generateSalt();
-      const commitment = computeCommitment(zeroConstraint, salt);
+      const commitment = computeCommitmentFromOutput(zeroOutput, salt);
 
       expect(commitment).toBeGreaterThanOrEqual(0n);
       expect(commitment).toBeLessThan(FIELD_MODULUS);
@@ -453,9 +368,9 @@ describe('proofs', () => {
 
     it('handles zero salt (should be avoided in practice)', () => {
       // While technically valid, zero salt should be avoided
-      const constraintHash = computeConstraintHash([1n, 2n, 3n, 4n]);
+      const output = [1n, 2n, 3n, 4n];
       const zeroSalt = 0n;
-      const commitment = computeCommitment(constraintHash, zeroSalt);
+      const commitment = computeCommitmentFromOutput(output, zeroSalt);
 
       // Should still produce valid output (just less secure)
       expect(commitment).toBeGreaterThanOrEqual(0n);
@@ -504,9 +419,8 @@ describe('proofs', () => {
       expect(hash2).toBeLessThan(FIELD_MODULUS);
 
       // Test negative salt handling
-      const constraintHash = computeConstraintHash([1n, 2n, 3n, 4n]);
       const negativeSalt = -12345n;
-      const commitment = computeCommitment(constraintHash, negativeSalt);
+      const commitment = computeCommitmentFromOutput([1n, 2n, 3n, 4n], negativeSalt);
       expect(commitment).toBeGreaterThanOrEqual(0n);
       expect(commitment).toBeLessThan(FIELD_MODULUS);
     });

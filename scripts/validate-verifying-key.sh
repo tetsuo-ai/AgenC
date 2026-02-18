@@ -97,8 +97,23 @@ else
     echo "OK: 'allow-dev-key' not in default features"
 fi
 
-# Check IC point count
-IC_COUNT=$(grep -c "^\s*\[" "$VK_FILE" | tail -1 || true)
-echo "IC points found in verifying key file."
+# Check 5: IC array size matches PUBLIC_INPUTS_COUNT + 1
+# Groth16 requires exactly (PUBLIC_INPUTS_COUNT + 1) IC points in the verifying key.
+PIC=$(sed -n 's/.*pub const PUBLIC_INPUTS_COUNT.*= \([0-9][0-9]*\).*/\1/p' "$VK_FILE" | head -1)
+EXPECTED_IC=$((PIC + 1))
+# Count elements in VK_IC array (each IC point is a [u8; 64] line starting with spaces + '[')
+IC_ACTUAL=$(sed -n '/pub const VK_IC/,/^];/p' "$VK_FILE" | grep -c '^\s*\[' || true)
+echo "PUBLIC_INPUTS_COUNT: $PIC"
+echo "Expected IC points:  $EXPECTED_IC"
+echo "Actual IC points:    $IC_ACTUAL"
+if [ "$IC_ACTUAL" -ne "$EXPECTED_IC" ] 2>/dev/null; then
+    echo "WARNING: IC point count ($IC_ACTUAL) does not match PUBLIC_INPUTS_COUNT + 1 ($EXPECTED_IC)"
+    if [ "$MAINNET_MODE" = true ]; then
+        echo "ERROR: --mainnet flag is set. IC count mismatch is a hard error."
+        exit 1
+    fi
+else
+    echo "OK: IC count matches PUBLIC_INPUTS_COUNT + 1"
+fi
 echo ""
 echo "=== All checks passed ==="

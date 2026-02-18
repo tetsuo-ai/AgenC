@@ -50,6 +50,15 @@ export interface ProofInputs {
   output: bigint[];
   /** Random salt for commitment */
   salt: bigint;
+  /**
+   * Private witness for the circuit's `agent_secret` input.
+   * Used to derive the nullifier: `Poseidon(constraint_hash, agent_secret)`.
+   *
+   * SECURITY: If omitted, the SDK falls back to `pubkeyToField(agentPubkey)`,
+   * which makes the nullifier predictable by anyone who knows the agent's
+   * public key (always public on-chain). Pass an explicit secret for production use.
+   */
+  agentSecret?: bigint;
 }
 
 /**
