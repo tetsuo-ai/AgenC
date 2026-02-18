@@ -269,8 +269,11 @@ pub fn complete_task_private(
 
     verify_zk_proof(&proof, task.key(), worker.authority)?;
 
-    // Initialize the replay-protection account with the verifier-bound key.
-    nullifier_account.nullifier_value = proof.expected_binding;
+    // Initialize the replay-protection account.
+    // Store the actual circuit nullifier for future cross-task replay detection.
+    // Note: PDA is keyed by expected_binding (per-task uniqueness), while the
+    // nullifier_value stores the circuit output for off-chain auditing.
+    nullifier_account.nullifier_value = proof.nullifier;
     nullifier_account.task = task.key();
     nullifier_account.agent = worker.key();
     nullifier_account.spent_at = clock.unix_timestamp;

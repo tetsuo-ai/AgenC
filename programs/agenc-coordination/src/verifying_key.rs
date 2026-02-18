@@ -555,9 +555,11 @@ pub const VK_IC: [[u8; 64]; 68] = [
 /// SHA-256 fingerprint of the concatenated verifying key components for version tracking.
 /// Allows off-chain systems to verify they are using the expected key.
 ///
-/// Computed as: SHA256(VK_ALPHA_G1 || VK_BETA_G2 || VK_GAMMA_G2 || VK_DELTA_G2)
+/// Computed as: SHA256(VK_ALPHA_G1 || VK_BETA_G2 || VK_GAMMA_G2 || VK_DELTA_G2 || VK_IC)
 ///
-/// NOTE: Placeholder until MPC ceremony produces a production key.
+/// SECURITY: All-zeros indicates a development key. MUST be recomputed after MPC
+/// ceremony with >=3 contributors. Off-chain verification tooling should reject
+/// all-zero fingerprints in production environments.
 pub const VK_FINGERPRINT: [u8; 32] = [0u8; 32];
 
 /// Verifying key version. Increment after each MPC ceremony key rotation.

@@ -38,14 +38,18 @@ async function main() {
         return result;
     }
 
+    // agent_secret (private witness for nullifier computation)
+    const agent_secret = 999n;
+
     // Compute hashes
     // constraint_hash = Poseidon(output[0], output[1], output[2], output[3])
     const constraint_hash_raw = poseidon(output_values);
     const constraint_hash = F.toObject(constraint_hash_raw);
     console.error('constraint_hash:', constraint_hash.toString());
 
-    // output_commitment = Poseidon(constraint_hash, salt)
-    const commitment_raw = poseidon([constraint_hash, salt]);
+    // SECURITY FIX: output_commitment = Poseidon(output_values[0..3], salt)
+    // Previously used Poseidon(constraint_hash, salt) which does not match the circuit.
+    const commitment_raw = poseidon([...output_values, salt]);
     const output_commitment = F.toObject(commitment_raw);
     console.error('output_commitment:', output_commitment.toString());
 
@@ -65,6 +69,11 @@ async function main() {
     const expected_binding = F.toObject(full_binding_raw);
     console.error('expected_binding:', expected_binding.toString());
 
+    // nullifier = Poseidon(constraint_hash, agent_secret)
+    const nullifier_raw = poseidon([constraint_hash, agent_secret]);
+    const nullifier = F.toObject(nullifier_raw);
+    console.error('nullifier:', nullifier.toString());
+
     // Generate input.json
     const input = {
         task_id: task_id,
@@ -73,7 +82,8 @@ async function main() {
         output_commitment: output_commitment.toString(),
         expected_binding: expected_binding.toString(),
         output_values: output_values.map(v => v.toString()),
-        salt: salt.toString()
+        salt: salt.toString(),
+        agent_secret: agent_secret.toString()
     };
 
     console.log(JSON.stringify(input, null, 2));
