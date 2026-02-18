@@ -56,6 +56,10 @@ pub fn handler(ctx: Context<DelegateReputation>, amount: u16, expires_at: i64) -
         amount > 0 && amount <= MAX_REPUTATION && amount >= MIN_DELEGATION_AMOUNT,
         CoordinationError::ReputationDelegationAmountInvalid
     );
+    require!(
+        amount <= delegator.reputation,
+        CoordinationError::ReputationDelegationAmountInvalid
+    );
 
     let clock = Clock::get()?;
 

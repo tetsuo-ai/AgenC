@@ -188,16 +188,27 @@ pub fn update_claim_state(
 /// Update task state after completion. Returns true if task is fully completed.
 ///
 /// For private completions, pass `None` for result_data to zero the result field.
+fn update_task_completion_counters(task: &mut Task) -> Result<()> {
+    task.current_workers = task
+        .current_workers
+        .checked_sub(1)
+        .ok_or(CoordinationError::ArithmeticOverflow)?;
+
+    task.completions = task
+        .completions
+        .checked_add(1)
+        .ok_or(CoordinationError::ArithmeticOverflow)?;
+
+    Ok(())
+}
+
 pub fn update_task_state(
     task: &mut Account<Task>,
     timestamp: i64,
     escrow: &mut Account<TaskEscrow>,
     result_data: Option<[u8; RESULT_DATA_SIZE]>,
 ) -> Result<bool> {
-    task.completions = task
-        .completions
-        .checked_add(1)
-        .ok_or(CoordinationError::ArithmeticOverflow)?;
+    update_task_completion_counters(task)?;
 
     let completed = task.completions >= task.required_completions;
     if completed {
@@ -709,6 +720,31 @@ mod tests {
             let reward = calculate_reward_per_worker(&task).unwrap();
             // 25500 / 255 = 100, remainder 0
             assert_eq!(reward, 100);
+        }
+    }
+
+    mod task_state_counter_tests {
+        use super::*;
+
+        #[test]
+        fn test_completion_counters_update_together() {
+            let mut task = create_test_task(TaskType::Collaborative, 1000, 3, 1);
+            task.current_workers = 2;
+
+            update_task_completion_counters(&mut task).unwrap();
+
+            assert_eq!(task.current_workers, 1);
+            assert_eq!(task.completions, 2);
+        }
+
+        #[test]
+        fn test_completion_counters_fail_on_worker_underflow() {
+            let mut task = create_test_task(TaskType::Collaborative, 1000, 3, 1);
+            task.current_workers = 0;
+
+            let result = update_task_completion_counters(&mut task);
+
+            assert!(result.is_err(), "worker counter underflow should fail");
         }
     }
 

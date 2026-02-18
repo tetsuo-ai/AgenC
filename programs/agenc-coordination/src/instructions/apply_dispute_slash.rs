@@ -241,13 +241,16 @@ pub fn handler(ctx: Context<ApplyDisputeSlash>) -> Result<()> {
     // Perform lamport transfer after all CPIs. Direct lamport mutations are
     // checked against CPI boundaries by the runtime.
     if slash_amount > 0 {
+        let worker_agent_info = worker_agent.to_account_info();
         transfer_slash_to_treasury(
-            &ctx.accounts.worker_agent.to_account_info(),
+            &worker_agent_info,
             &ctx.accounts.treasury.to_account_info(),
             slash_amount,
         )?;
     }
 
+    worker_agent.disputes_as_defendant = worker_agent.disputes_as_defendant.saturating_sub(1);
+    worker_agent.last_active = clock.unix_timestamp;
     dispute.slash_applied = true;
 
     Ok(())

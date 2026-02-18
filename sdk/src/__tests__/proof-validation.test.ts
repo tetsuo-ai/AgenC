@@ -2,13 +2,16 @@ import { describe, expect, it, vi } from 'vitest';
 import { Keypair, PublicKey } from '@solana/web3.js';
 import type { Program } from '@coral-xyz/anchor';
 import {
+  runProofSubmissionPreflight,
   validateProofPreconditions,
   DEFAULT_MAX_PROOF_AGE_MS,
 } from '../proof-validation';
 import { NullifierCache } from '../nullifier-cache';
 import {
+  completeTaskPrivateWithPreflight,
   completeTaskPrivateSafe,
   type PrivateCompletionProof,
+  ProofSubmissionPreflightError,
   ProofPreconditionError,
 } from '../tasks';
 import { PROGRAM_ID } from '../constants';
@@ -113,12 +116,12 @@ function makeValidationHarness(options?: {
   };
 }
 
-describe('validateProofPreconditions', () => {
+describe('runProofSubmissionPreflight', () => {
   it('passes all checks for valid proof/task/claim/nullifier state', async () => {
     const harness = makeValidationHarness();
     const proof = makeProof();
 
-    const result = await validateProofPreconditions(
+    const result = await runProofSubmissionPreflight(
       harness.connection as any,
       harness.program,
       {
@@ -137,7 +140,7 @@ describe('validateProofPreconditions', () => {
   it('fails proof_size when proofData length is invalid', async () => {
     const harness = makeValidationHarness();
     const proof = makeProof({ proofData: makeBytes(10, 1) });
-    const result = await validateProofPreconditions(harness.connection as any, harness.program, {
+    const result = await runProofSubmissionPreflight(harness.connection as any, harness.program, {
       taskPda: harness.taskPda,
       workerAgentPda: harness.workerAgentPda,
       proof,
@@ -148,7 +151,7 @@ describe('validateProofPreconditions', () => {
   it('fails binding_nonzero when expectedBinding is all zeros', async () => {
     const harness = makeValidationHarness();
     const proof = makeProof({ expectedBinding: makeBytes(32, 0) });
-    const result = await validateProofPreconditions(harness.connection as any, harness.program, {
+    const result = await runProofSubmissionPreflight(harness.connection as any, harness.program, {
       taskPda: harness.taskPda,
       workerAgentPda: harness.workerAgentPda,
       proof,
@@ -159,7 +162,7 @@ describe('validateProofPreconditions', () => {
   it('fails commitment_nonzero when outputCommitment is all zeros', async () => {
     const harness = makeValidationHarness();
     const proof = makeProof({ outputCommitment: makeBytes(32, 0) });
-    const result = await validateProofPreconditions(harness.connection as any, harness.program, {
+    const result = await runProofSubmissionPreflight(harness.connection as any, harness.program, {
       taskPda: harness.taskPda,
       workerAgentPda: harness.workerAgentPda,
       proof,
@@ -170,7 +173,7 @@ describe('validateProofPreconditions', () => {
   it('fails nullifier_nonzero when nullifier is all zeros', async () => {
     const harness = makeValidationHarness();
     const proof = makeProof({ nullifier: makeBytes(32, 0) });
-    const result = await validateProofPreconditions(harness.connection as any, harness.program, {
+    const result = await runProofSubmissionPreflight(harness.connection as any, harness.program, {
       taskPda: harness.taskPda,
       workerAgentPda: harness.workerAgentPda,
       proof,
@@ -181,7 +184,7 @@ describe('validateProofPreconditions', () => {
   it('fails proof_freshness when proof is stale', async () => {
     const harness = makeValidationHarness();
     const proof = makeProof();
-    const result = await validateProofPreconditions(harness.connection as any, harness.program, {
+    const result = await runProofSubmissionPreflight(harness.connection as any, harness.program, {
       taskPda: harness.taskPda,
       workerAgentPda: harness.workerAgentPda,
       proof,
@@ -194,7 +197,7 @@ describe('validateProofPreconditions', () => {
   it('emits proof_freshness warning when nearing expiry', async () => {
     const harness = makeValidationHarness();
     const proof = makeProof();
-    const result = await validateProofPreconditions(harness.connection as any, harness.program, {
+    const result = await runProofSubmissionPreflight(harness.connection as any, harness.program, {
       taskPda: harness.taskPda,
       workerAgentPda: harness.workerAgentPda,
       proof,
@@ -206,7 +209,7 @@ describe('validateProofPreconditions', () => {
 
   it('fails task_exists and returns early when task is missing', async () => {
     const harness = makeValidationHarness({ taskMissing: true });
-    const result = await validateProofPreconditions(harness.connection as any, harness.program, {
+    const result = await runProofSubmissionPreflight(harness.connection as any, harness.program, {
       taskPda: harness.taskPda,
       workerAgentPda: harness.workerAgentPda,
       proof: makeProof(),
@@ -216,7 +219,7 @@ describe('validateProofPreconditions', () => {
 
   it('fails task_in_progress when task is not in progress', async () => {
     const harness = makeValidationHarness({ taskState: { open: {} } });
-    const result = await validateProofPreconditions(harness.connection as any, harness.program, {
+    const result = await runProofSubmissionPreflight(harness.connection as any, harness.program, {
       taskPda: harness.taskPda,
       workerAgentPda: harness.workerAgentPda,
       proof: makeProof(),
@@ -226,7 +229,7 @@ describe('validateProofPreconditions', () => {
 
   it('fails task_is_private when task has no private constraint hash', async () => {
     const harness = makeValidationHarness({ privateTask: false });
-    const result = await validateProofPreconditions(harness.connection as any, harness.program, {
+    const result = await runProofSubmissionPreflight(harness.connection as any, harness.program, {
       taskPda: harness.taskPda,
       workerAgentPda: harness.workerAgentPda,
       proof: makeProof(),
@@ -236,7 +239,7 @@ describe('validateProofPreconditions', () => {
 
   it('fails constraint_hash_match when proof hash differs from task hash', async () => {
     const harness = makeValidationHarness({ constraintHash: makeBytes(32, 9) });
-    const result = await validateProofPreconditions(harness.connection as any, harness.program, {
+    const result = await runProofSubmissionPreflight(harness.connection as any, harness.program, {
       taskPda: harness.taskPda,
       workerAgentPda: harness.workerAgentPda,
       proof: makeProof({ constraintHash: makeBytes(32, 1) }),
@@ -246,7 +249,7 @@ describe('validateProofPreconditions', () => {
 
   it('fails task_deadline when deadline has passed', async () => {
     const harness = makeValidationHarness({ deadline: Math.floor(Date.now() / 1000) - 1 });
-    const result = await validateProofPreconditions(harness.connection as any, harness.program, {
+    const result = await runProofSubmissionPreflight(harness.connection as any, harness.program, {
       taskPda: harness.taskPda,
       workerAgentPda: harness.workerAgentPda,
       proof: makeProof(),
@@ -256,7 +259,7 @@ describe('validateProofPreconditions', () => {
 
   it('fails competitive_not_won when competitive task already has completion', async () => {
     const harness = makeValidationHarness({ taskType: 2, completions: 1 });
-    const result = await validateProofPreconditions(harness.connection as any, harness.program, {
+    const result = await runProofSubmissionPreflight(harness.connection as any, harness.program, {
       taskPda: harness.taskPda,
       workerAgentPda: harness.workerAgentPda,
       proof: makeProof(),
@@ -266,7 +269,7 @@ describe('validateProofPreconditions', () => {
 
   it('fails claim_exists when claim account is missing', async () => {
     const harness = makeValidationHarness({ claimMissing: true });
-    const result = await validateProofPreconditions(harness.connection as any, harness.program, {
+    const result = await runProofSubmissionPreflight(harness.connection as any, harness.program, {
       taskPda: harness.taskPda,
       workerAgentPda: harness.workerAgentPda,
       proof: makeProof(),
@@ -276,7 +279,7 @@ describe('validateProofPreconditions', () => {
 
   it('fails claim_not_expired when claim is expired', async () => {
     const harness = makeValidationHarness({ claimExpiresAt: Math.floor(Date.now() / 1000) - 10 });
-    const result = await validateProofPreconditions(harness.connection as any, harness.program, {
+    const result = await runProofSubmissionPreflight(harness.connection as any, harness.program, {
       taskPda: harness.taskPda,
       workerAgentPda: harness.workerAgentPda,
       proof: makeProof(),
@@ -286,12 +289,26 @@ describe('validateProofPreconditions', () => {
 
   it('fails nullifier_not_spent when nullifier account exists', async () => {
     const harness = makeValidationHarness({ nullifierSpent: true });
-    const result = await validateProofPreconditions(harness.connection as any, harness.program, {
+    const result = await runProofSubmissionPreflight(harness.connection as any, harness.program, {
       taskPda: harness.taskPda,
       workerAgentPda: harness.workerAgentPda,
       proof: makeProof(),
     });
     expect(result.failures.some((f) => f.check === 'nullifier_not_spent')).toBe(true);
+  });
+
+  it('keeps deprecated validateProofPreconditions wrapper behavior', async () => {
+    const harness = makeValidationHarness({ taskMissing: true });
+    const params = {
+      taskPda: harness.taskPda,
+      workerAgentPda: harness.workerAgentPda,
+      proof: makeProof(),
+    };
+
+    const preflight = await runProofSubmissionPreflight(harness.connection as any, harness.program, params);
+    const deprecated = await validateProofPreconditions(harness.connection as any, harness.program, params);
+
+    expect(deprecated).toEqual(preflight);
   });
 });
 
@@ -333,25 +350,65 @@ describe('NullifierCache', () => {
   });
 });
 
-describe('completeTaskPrivateSafe', () => {
+describe('completeTaskPrivateWithPreflight', () => {
   it('rejects when nullifier was already submitted in local cache', async () => {
     const cache = new NullifierCache();
     const proof = makeProof();
     cache.markUsed(proof.nullifier);
 
     await expect(
-      completeTaskPrivateSafe(
+      completeTaskPrivateWithPreflight(
         { confirmTransaction: vi.fn(), getAccountInfo: vi.fn() } as any,
         {} as Program,
         Keypair.generate(),
         makeBytes(32, 5),
         Keypair.generate().publicKey,
         proof,
-        { nullifierCache: cache, validatePreconditions: false },
+        { nullifierCache: cache, runProofSubmissionPreflight: false },
       ),
     ).rejects.toThrow('Nullifier already submitted in this session');
   });
 
+  it('throws ProofSubmissionPreflightError when preflight fails', async () => {
+    const harness = makeValidationHarness({ taskMissing: true });
+
+    await expect(
+      completeTaskPrivateWithPreflight(
+        harness.connection as any,
+        harness.program,
+        Keypair.generate(),
+        makeBytes(32, 5),
+        harness.taskPda,
+        makeProof(),
+      ),
+    ).rejects.toBeInstanceOf(ProofSubmissionPreflightError);
+  });
+
+  it('submits successfully with runProofSubmissionPreflight=false and marks cache', async () => {
+    const harness = makeValidationHarness();
+    const cache = new NullifierCache();
+    const proof = makeProof();
+
+    const result = await completeTaskPrivateWithPreflight(
+      harness.connection as any,
+      harness.program,
+      Keypair.generate(),
+      makeBytes(32, 5),
+      harness.taskPda,
+      proof,
+      {
+        runProofSubmissionPreflight: false,
+        nullifierCache: cache,
+      },
+    );
+
+    expect(result.txSignature).toBe('tx-sig');
+    expect(result.preflightResult).toBeUndefined();
+    expect(cache.isUsed(proof.nullifier)).toBe(true);
+  });
+});
+
+describe('completeTaskPrivateSafe (deprecated wrapper)', () => {
   it('throws ProofPreconditionError when validation fails', async () => {
     const harness = makeValidationHarness({ taskMissing: true });
 
@@ -367,7 +424,7 @@ describe('completeTaskPrivateSafe', () => {
     ).rejects.toBeInstanceOf(ProofPreconditionError);
   });
 
-  it('submits successfully with validatePreconditions=false and marks cache', async () => {
+  it('supports validatePreconditions=false and preserves validationResult output', async () => {
     const harness = makeValidationHarness();
     const cache = new NullifierCache();
     const proof = makeProof();
@@ -386,6 +443,7 @@ describe('completeTaskPrivateSafe', () => {
     );
 
     expect(result.txSignature).toBe('tx-sig');
+    expect(result.validationResult).toBeUndefined();
     expect(cache.isUsed(proof.nullifier)).toBe(true);
   });
 });

@@ -24,8 +24,8 @@
 //!
 //! - The agent_secret is a private input known only to the agent
 //! - Each unique (constraint, agent_secret) pair produces a unique nullifier
-//! - The on-chain program stores spent nullifiers as PDAs
-//! - If a nullifier PDA already exists, the transaction is rejected
+//! - The on-chain program stores spent proofs as PDAs keyed by `expected_binding`
+//! - If a binding-spend PDA already exists, the transaction is rejected
 //!
 //! This ensures that if two tasks have the same constraint_hash (expecting the same
 //! output), an agent cannot simply reuse a proof from one task to complete the other.
@@ -48,7 +48,7 @@
 //! - Each byte of task_id and agent_pubkey becomes a separate field element
 //! - Field elements are 32 bytes big-endian (BN254 scalar field)
 //! - Total: 32 (task bytes) + 32 (agent bytes) + 3 (constraint_hash, output_commitment, expected_binding) = 67 public inputs
-//! - Note: The nullifier is NOT a public input to the verifier, it's only used for the PDA
+//! - Note: The nullifier is NOT a public input to the verifier
 
 use crate::errors::CoordinationError;
 use crate::instructions::completion_helpers::TokenPaymentAccounts;
@@ -138,13 +138,13 @@ pub struct CompleteTaskPrivate<'info> {
     )]
     pub protocol_config: Box<Account<'info, ProtocolConfig>>,
 
-    /// Nullifier account to prevent proof/knowledge reuse.
-    /// If this account already exists, the proof has been used before.
+    /// Spent-proof account to prevent replay of verifier-bound bindings.
+    /// If this account already exists, the verified binding has already been used.
     #[account(
         init,
         payer = authority,
         space = Nullifier::SIZE,
-        seeds = [b"nullifier", proof.nullifier.as_ref()],
+        seeds = [b"nullifier", proof.expected_binding.as_ref()],
         bump
     )]
     pub nullifier_account: Account<'info, Nullifier>,
@@ -259,14 +259,18 @@ pub fn complete_task_private(
     );
 
     // NOTE: The nullifier account is initialized via Anchor's `init` constraint.
-    // If the account already exists (nullifier was already spent), Anchor will
+    // If the account already exists (binding was already spent), Anchor will
     // automatically reject the transaction with AccountAlreadyInitialized error.
-    // This prevents proof/knowledge reuse without explicit duplicate checking.
+    // This keeps replay protection verifier-bound without extra runtime checks.
+
+    // TODO(#zk-hardening): Nullifier remains circuit-output-only today. When circuit and
+    // verifying key rotation are scheduled, add a verified binding between nullifier and
+    // public inputs so nullifier semantics can be enforced directly on-chain.
 
     verify_zk_proof(&proof, task.key(), worker.authority)?;
 
-    // Initialize the nullifier account to mark it as spent
-    nullifier_account.nullifier_value = proof.nullifier;
+    // Initialize the replay-protection account with the verifier-bound key.
+    nullifier_account.nullifier_value = proof.expected_binding;
     nullifier_account.task = task.key();
     nullifier_account.agent = worker.key();
     nullifier_account.spent_at = clock.unix_timestamp;
@@ -370,7 +374,7 @@ fn append_pubkey_as_field_elements(
 /// Build public inputs array for groth16-solana verification.
 /// Format: 67 field elements, each 32 bytes big-endian.
 /// Note: The nullifier is NOT included as a public input to the ZK verifier.
-/// It's used only for the on-chain nullifier PDA to prevent proof reuse.
+/// On-chain replay protection is keyed by verifier-bound `expected_binding`.
 fn build_public_inputs(
     task_key: &Pubkey,
     agent: &Pubkey,
@@ -405,17 +409,12 @@ fn verify_zk_proof(proof: &PrivateCompletionProof, task_key: Pubkey, agent: Pubk
         CoordinationError::InvalidProofSize
     );
 
-    // Security check: block ZK proofs with development verifying key (issues #356, #358)
-    // Development keys (gamma == delta) make proofs forgeable.
-    // The key must be replaced via MPC ceremony before use.
-    // The allow-dev-key feature bypasses this check for integration testing ONLY.
-    #[cfg(not(feature = "allow-dev-key"))]
-    {
-        require!(
-            !crate::verifying_key::is_development_key(),
-            CoordinationError::DevelopmentKeyNotAllowed
-        );
-    }
+    // Security check: block ZK proofs with development verifying key (issues #356, #358).
+    // Development keys (gamma == delta) make proofs forgeable and are never accepted.
+    require!(
+        !crate::verifying_key::is_development_key(),
+        CoordinationError::DevelopmentKeyNotAllowed
+    );
 
     msg!(
         "ZK verification using VK version {} (dev={})",
