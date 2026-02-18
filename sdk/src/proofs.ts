@@ -20,7 +20,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { PublicKey } from '@solana/web3.js';
-import { poseidon2, poseidon4 } from 'poseidon-lite';
+import { poseidon2, poseidon4, poseidon5 } from 'poseidon-lite';
 import { HASH_SIZE, OUTPUT_FIELD_COUNT, PROOF_SIZE_BYTES } from './constants';
 import { validateCircuitPath } from './validation';
 
@@ -90,6 +90,11 @@ export interface ProofGenerationParams {
   agentPubkey: PublicKey;
   output: bigint[];
   salt: bigint;
+  /**
+   * Optional private witness for circuit `agent_secret`.
+   * If omitted, SDK uses `pubkeyToField(agentPubkey)` as a compatibility fallback.
+   */
+  agentSecret?: bigint;
   circuitPath?: string;
 }
 
@@ -156,18 +161,46 @@ export function computeConstraintHash(output: bigint[]): bigint {
   return poseidon4(reduced);
 }
 
+function normalizeFieldElement(value: bigint): bigint {
+  return ((value % FIELD_MODULUS) + FIELD_MODULUS) % FIELD_MODULUS;
+}
+
+function normalizeOutput(output: bigint[]): bigint[] {
+  if (output.length !== OUTPUT_FIELD_COUNT) {
+    throw new Error(`Output must be exactly ${OUTPUT_FIELD_COUNT} field elements`);
+  }
+  return output.map(normalizeFieldElement);
+}
+
 /**
- * Compute the output commitment from constraint hash and salt.
- * Uses Poseidon hash matching the circomlib implementation.
+ * Compute the output commitment from raw output values and salt.
+ * Matches circuit.circom: Poseidon(output_values[0..3], salt)
  *
- * @param constraintHash - The constraint hash
+ * @param output - Task output (4 field elements)
  * @param salt - Random salt
  * @returns The output commitment
  */
+export function computeCommitmentFromOutput(output: bigint[], salt: bigint): bigint {
+  const normalizedOutput = normalizeOutput(output);
+  const s = normalizeFieldElement(salt);
+  return poseidon5([
+    normalizedOutput[0],
+    normalizedOutput[1],
+    normalizedOutput[2],
+    normalizedOutput[3],
+    s,
+  ]);
+}
+
+/**
+ * Legacy commitment helper.
+ *
+ * NOTE: This helper is retained for API compatibility with older callers.
+ * New proof generation uses `computeCommitmentFromOutput` to match circuit semantics.
+ */
 export function computeCommitment(constraintHash: bigint, salt: bigint): bigint {
-  // Reduce inputs modulo field
-  const ch = ((constraintHash % FIELD_MODULUS) + FIELD_MODULUS) % FIELD_MODULUS;
-  const s = ((salt % FIELD_MODULUS) + FIELD_MODULUS) % FIELD_MODULUS;
+  const ch = normalizeFieldElement(constraintHash);
+  const s = normalizeFieldElement(salt);
   return poseidon2([ch, s]);
 }
 
@@ -195,18 +228,23 @@ export function computeExpectedBinding(
 /**
  * Compute the nullifier to prevent proof/knowledge reuse across tasks.
  *
- * Preliminary: uses Poseidon(constraint_hash, agent_pubkey_field) as a
- * stand-in until the ZK circuit is updated with a dedicated agent_secret
- * witness input (Phase 6.2).
+ * Compatibility helper: derives `agent_secret` from agent public key field.
+ * New proof generation should pass `agentSecret` explicitly where possible.
  *
  * @param constraintHash - The constraint hash
  * @param agentPubkey - Agent's public key
  * @returns The nullifier value
  */
 export function computeNullifier(constraintHash: bigint, agentPubkey: PublicKey): bigint {
-  const ch = ((constraintHash % FIELD_MODULUS) + FIELD_MODULUS) % FIELD_MODULUS;
+  const ch = normalizeFieldElement(constraintHash);
   const agentField = pubkeyToField(agentPubkey);
   return poseidon2([ch, agentField]);
+}
+
+export function computeNullifierFromAgentSecret(constraintHash: bigint, agentSecret: bigint): bigint {
+  const ch = normalizeFieldElement(constraintHash);
+  const secret = normalizeFieldElement(agentSecret);
+  return poseidon2([ch, secret]);
 }
 
 /**
@@ -222,12 +260,14 @@ export function computeHashes(
   taskPda: PublicKey,
   agentPubkey: PublicKey,
   output: bigint[],
-  salt: bigint
+  salt: bigint,
+  agentSecret?: bigint
 ): HashResult {
   const constraintHash = computeConstraintHash(output);
-  const outputCommitment = computeCommitment(constraintHash, salt);
+  const outputCommitment = computeCommitmentFromOutput(output, salt);
   const expectedBinding = computeExpectedBinding(taskPda, agentPubkey, outputCommitment);
-  const nullifier = computeNullifier(constraintHash, agentPubkey);
+  const effectiveAgentSecret = agentSecret ?? pubkeyToField(agentPubkey);
+  const nullifier = computeNullifierFromAgentSecret(constraintHash, effectiveAgentSecret);
 
   return {
     constraintHash,
@@ -250,10 +290,14 @@ function buildWitnessInput(
   agentPubkey: PublicKey,
   output: bigint[],
   salt: bigint,
+  agentSecret: bigint,
   hashes: HashResult
 ): Record<string, string | string[]> {
   const taskBytes = Array.from(taskPda.toBytes()).map((b) => b.toString());
   const agentBytes = Array.from(agentPubkey.toBytes()).map((b) => b.toString());
+  const outputValues = normalizeOutput(output).map((o) => o.toString());
+  const normalizedSalt = normalizeFieldElement(salt);
+  const normalizedAgentSecret = normalizeFieldElement(agentSecret);
 
   return {
     task_id: taskBytes,
@@ -261,8 +305,10 @@ function buildWitnessInput(
     constraint_hash: hashes.constraintHash.toString(),
     output_commitment: hashes.outputCommitment.toString(),
     expected_binding: hashes.expectedBinding.toString(),
-    output: output.map((o) => o.toString()),
-    salt: salt.toString(),
+    output_values: outputValues,
+    output: outputValues, // Legacy alias for older circuit artifacts.
+    salt: normalizedSalt.toString(),
+    agent_secret: normalizedAgentSecret.toString(),
   };
 }
 
@@ -320,8 +366,16 @@ export async function generateProof(params: ProofGenerationParams): Promise<Proo
 
   const startTime = Date.now();
 
+  const agentSecret = params.agentSecret ?? pubkeyToField(params.agentPubkey);
+
   // Step 1: Compute hashes using poseidon-lite
-  const hashes = computeHashes(params.taskPda, params.agentPubkey, params.output, params.salt);
+  const hashes = computeHashes(
+    params.taskPda,
+    params.agentPubkey,
+    params.output,
+    params.salt,
+    agentSecret
+  );
 
   // Step 2: Build witness input
   const witnessInput = buildWitnessInput(
@@ -329,6 +383,7 @@ export async function generateProof(params: ProofGenerationParams): Promise<Proo
     params.agentPubkey,
     params.output,
     params.salt,
+    agentSecret,
     hashes
   );
 

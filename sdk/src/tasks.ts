@@ -21,7 +21,7 @@ import { PROGRAM_ID, SEEDS, TaskState, DISCRIMINATOR_SIZE, PERCENT_BASE, DEFAULT
 import { getAccount } from './anchor-utils';
 import { getSdkLogger } from './logger';
 import { getDependentTaskCount } from './queries';
-import { validateProofPreconditions, type ProofPreconditionResult } from './proof-validation';
+import { runProofSubmissionPreflight, type ProofSubmissionPreflightResult, type ProofPreconditionResult } from './proof-validation';
 import { NullifierCache } from './nullifier-cache';
 
 export { TaskState };
@@ -96,11 +96,19 @@ export interface PrivateCompletionProof {
   nullifier: Buffer | Uint8Array;
 }
 
-export interface CompleteTaskPrivateSafeOptions {
-  validatePreconditions?: boolean;
+export interface CompleteTaskPrivateWithPreflightOptions {
+  runProofSubmissionPreflight?: boolean;
   nullifierCache?: NullifierCache;
   proofGeneratedAtMs?: number;
   maxProofAgeMs?: number;
+}
+
+/**
+ * @deprecated Since v1.6.0. Use {@link CompleteTaskPrivateWithPreflightOptions} and
+ * `runProofSubmissionPreflight` instead of `validatePreconditions`.
+ */
+export interface CompleteTaskPrivateSafeOptions extends CompleteTaskPrivateWithPreflightOptions {
+  validatePreconditions?: boolean;
 }
 
 export interface TaskLifecycleEvent {
@@ -130,13 +138,30 @@ export interface TaskLifecycleSummary {
   isExpired: boolean;
 }
 
-export class ProofPreconditionError extends Error {
+function formatPreflightFailureReasons(result: { failures: Array<{ message: string }> }): string {
+  return result.failures.map((failure) => failure.message).join('; ');
+}
+
+export class ProofSubmissionPreflightError extends Error {
+  readonly result: ProofSubmissionPreflightResult;
+
+  constructor(result: ProofSubmissionPreflightResult) {
+    super(`Proof submission preflight failed: ${formatPreflightFailureReasons(result)}`);
+    this.name = 'ProofSubmissionPreflightError';
+    this.result = result;
+  }
+}
+
+/**
+ * @deprecated Since v1.6.0. Use {@link ProofSubmissionPreflightError} instead.
+ */
+export class ProofPreconditionError extends ProofSubmissionPreflightError {
   readonly result: ProofPreconditionResult;
 
   constructor(result: ProofPreconditionResult) {
-    const reasons = result.failures.map((failure) => failure.message).join('; ');
-    super(`Proof precondition check failed: ${reasons}`);
+    super(result);
     this.name = 'ProofPreconditionError';
+    this.message = `Proof precondition check failed: ${formatPreflightFailureReasons(result)}`;
     this.result = result;
   }
 }
@@ -665,28 +690,31 @@ export async function completeTaskPrivate(
 }
 
 /**
- * Complete a task privately with optional pre-submission validation and local
- * nullifier cache tracking.
+ * Complete a task privately with optional best-effort client-side preflight checks
+ * and local nullifier cache tracking.
+ *
+ * The preflight checks are not a cryptographic proof verifier and do not guarantee
+ * transaction success.
  */
-export async function completeTaskPrivateSafe(
+export async function completeTaskPrivateWithPreflight(
   connection: Connection,
   program: Program,
   worker: Keypair,
   workerAgentId: Uint8Array | number[],
   taskPda: PublicKey,
   proof: PrivateCompletionProof,
-  options: CompleteTaskPrivateSafeOptions = {},
-): Promise<{ txSignature: string; validationResult?: ProofPreconditionResult }> {
+  options: CompleteTaskPrivateWithPreflightOptions = {},
+): Promise<{ txSignature: string; preflightResult?: ProofSubmissionPreflightResult }> {
   if (options.nullifierCache?.isUsed(proof.nullifier)) {
     throw new Error('Nullifier already submitted in this session');
   }
 
-  const validate = options.validatePreconditions ?? true;
-  let validationResult: ProofPreconditionResult | undefined;
+  const shouldRunPreflight = options.runProofSubmissionPreflight ?? true;
+  let preflightResult: ProofSubmissionPreflightResult | undefined;
 
-  if (validate) {
+  if (shouldRunPreflight) {
     const workerAgentPda = deriveAgentPda(workerAgentId, program.programId);
-    validationResult = await validateProofPreconditions(connection, program, {
+    preflightResult = await runProofSubmissionPreflight(connection, program, {
       taskPda,
       workerAgentPda,
       proof,
@@ -694,8 +722,8 @@ export async function completeTaskPrivateSafe(
       maxProofAgeMs: options.maxProofAgeMs,
     });
 
-    if (!validationResult.valid) {
-      throw new ProofPreconditionError(validationResult);
+    if (!preflightResult.valid) {
+      throw new ProofSubmissionPreflightError(preflightResult);
     }
   }
 
@@ -712,8 +740,51 @@ export async function completeTaskPrivateSafe(
 
   return {
     ...result,
-    validationResult,
+    preflightResult,
   };
+}
+
+/**
+ * @deprecated Since v1.6.0. Use {@link completeTaskPrivateWithPreflight}.
+ */
+export async function completeTaskPrivateSafe(
+  connection: Connection,
+  program: Program,
+  worker: Keypair,
+  workerAgentId: Uint8Array | number[],
+  taskPda: PublicKey,
+  proof: PrivateCompletionProof,
+  options: CompleteTaskPrivateSafeOptions = {},
+): Promise<{ txSignature: string; validationResult?: ProofPreconditionResult }> {
+  const runProofSubmissionPreflightOption = options.runProofSubmissionPreflight
+    ?? options.validatePreconditions;
+
+  try {
+    const result = await completeTaskPrivateWithPreflight(
+      connection,
+      program,
+      worker,
+      workerAgentId,
+      taskPda,
+      proof,
+      {
+        runProofSubmissionPreflight: runProofSubmissionPreflightOption,
+        nullifierCache: options.nullifierCache,
+        proofGeneratedAtMs: options.proofGeneratedAtMs,
+        maxProofAgeMs: options.maxProofAgeMs,
+      },
+    );
+
+    return {
+      txSignature: result.txSignature,
+      validationResult: result.preflightResult,
+    };
+  } catch (error) {
+    if (error instanceof ProofSubmissionPreflightError) {
+      throw new ProofPreconditionError(error.result);
+    }
+    throw error;
+  }
 }
 
 /**

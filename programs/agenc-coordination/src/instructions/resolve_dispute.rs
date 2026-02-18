@@ -258,8 +258,9 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
     } else {
         0
     };
-    let defer_token_escrow_close = is_token_task && worker_lost && slash_amount > 0;
-    let defer_worker_claim_close = worker_lost && slash_amount > 0;
+    let worker_slash_pending = worker_lost && slash_amount > 0;
+    let defer_token_escrow_close = is_token_task && worker_slash_pending;
+    let defer_worker_claim_close = worker_slash_pending;
 
     // Execute resolution based on type and approval
     if approved {
@@ -455,7 +456,11 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
         .active_tasks
         .checked_sub(1)
         .ok_or(CoordinationError::ArithmeticOverflow)?;
-    worker.disputes_as_defendant = worker.disputes_as_defendant.saturating_sub(1);
+    // Update activity timestamp so fallback deregistration gating has a deterministic anchor.
+    worker.last_active = clock.unix_timestamp;
+    if !worker_slash_pending {
+        worker.disputes_as_defendant = worker.disputes_as_defendant.saturating_sub(1);
+    }
     let defendant_worker_key = worker.key();
 
     // Update dispute status - decrement active_dispute_votes for each arbiter

@@ -6,6 +6,11 @@ use crate::state::{AgentRegistration, AgentStatus, FeedPost, FeedVote, ProtocolC
 use crate::utils::version::check_version_compatible;
 use anchor_lang::prelude::*;
 
+/// Minimum reputation required to upvote feed posts.
+const MIN_FEED_UPVOTE_REPUTATION: u16 = 5200;
+/// Minimum account age before upvoting is allowed.
+const MIN_FEED_UPVOTE_ACCOUNT_AGE_SECS: i64 = 15 * 60;
+
 #[derive(Accounts)]
 pub struct UpvotePost<'info> {
     #[account(
@@ -52,6 +57,10 @@ pub fn handler(ctx: Context<UpvotePost>) -> Result<()> {
         voter.status == AgentStatus::Active,
         CoordinationError::AgentNotActive
     );
+    require!(
+        voter.reputation >= MIN_FEED_UPVOTE_REPUTATION,
+        CoordinationError::InsufficientReputation
+    );
 
     let post = &ctx.accounts.post;
     require!(
@@ -60,6 +69,11 @@ pub fn handler(ctx: Context<UpvotePost>) -> Result<()> {
     );
 
     let clock = Clock::get()?;
+    let account_age_secs = clock.unix_timestamp.saturating_sub(voter.registered_at);
+    require!(
+        account_age_secs >= MIN_FEED_UPVOTE_ACCOUNT_AGE_SECS,
+        CoordinationError::CooldownNotElapsed
+    );
 
     // Increment upvote count with checked arithmetic
     let post = &mut ctx.accounts.post;
