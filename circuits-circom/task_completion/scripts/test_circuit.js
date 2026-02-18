@@ -30,7 +30,7 @@ async function main() {
     // Helper to compute valid input
     function computeValidInput(taskId, agentPubkey, outputValues, salt) {
         const constraint_hash = F.toObject(poseidon(outputValues));
-        const output_commitment = F.toObject(poseidon([constraint_hash, salt]));
+        const output_commitment = F.toObject(poseidon([...outputValues, salt]));
 
         function bytesToField(bytes) {
             let result = 0n;

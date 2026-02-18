@@ -35,8 +35,8 @@ import { ProofGenerationError, ProofVerificationError } from './errors.js';
 const DEFAULT_CIRCUIT_PATH = './circuits-circom/task_completion';
 
 /**
- * Build the 67-element public signals array for local ZK proof verification.
- * Format: 32 task bytes + 32 agent bytes + constraintHash + outputCommitment + expectedBinding
+ * Build the 68-element public signals array for local ZK proof verification.
+ * Format: 32 task bytes + 32 agent bytes + constraintHash + outputCommitment + expectedBinding + nullifier
  * Each byte of task/agent key becomes a separate bigint field element.
  */
 function buildPublicSignals(
@@ -61,7 +61,10 @@ function buildPublicSignals(
   signals.push(hashes.outputCommitment);
   signals.push(hashes.expectedBinding);
 
-  return signals; // length = 67
+  // Nullifier (circuit output — cryptographically verified by Groth16)
+  signals.push(hashes.nullifier);
+
+  return signals; // length = 68
 }
 
 /**
@@ -140,6 +143,7 @@ export class ProofEngine implements ProofGenerator {
         agentPubkey: inputs.agentPubkey,
         output: inputs.output,
         salt: inputs.salt,
+        agentSecret: inputs.agentSecret,
         circuitPath: this.circuitPath,
       });
     } catch (err) {
@@ -172,7 +176,7 @@ export class ProofEngine implements ProofGenerator {
         // SECURITY FIX: Build the actual 67-element public signals array.
         // Previously passed empty [], making verification always pass trivially.
         const verifyHashes = sdkComputeHashes(
-          inputs.taskPda, inputs.agentPubkey, inputs.output, inputs.salt,
+          inputs.taskPda, inputs.agentPubkey, inputs.output, inputs.salt, inputs.agentSecret,
         );
         const publicSignals = buildPublicSignals(
           inputs.taskPda, inputs.agentPubkey, verifyHashes,
@@ -229,7 +233,7 @@ export class ProofEngine implements ProofGenerator {
    * Compute hashes (constraintHash, outputCommitment, expectedBinding) without generating a proof.
    */
   computeHashes(inputs: ProofInputs): HashResult {
-    return sdkComputeHashes(inputs.taskPda, inputs.agentPubkey, inputs.output, inputs.salt);
+    return sdkComputeHashes(inputs.taskPda, inputs.agentPubkey, inputs.output, inputs.salt, inputs.agentSecret);
   }
 
   /**

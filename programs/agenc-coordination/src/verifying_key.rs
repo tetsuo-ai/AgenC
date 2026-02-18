@@ -1,7 +1,7 @@
 //! Groth16 verifying key for task_completion circuit.
 //!
 //! Auto-generated from: target/verification_key.json
-//! Number of public inputs: 67
+//! Number of public inputs: 68 (67 inputs + 1 output: nullifier)
 //!
 //! To update, run:
 //!   cd circuits-circom/task_completion
@@ -23,7 +23,8 @@
 use groth16_solana::groth16::Groth16Verifyingkey;
 
 /// Number of public inputs for the task_completion circuit.
-pub const PUBLIC_INPUTS_COUNT: usize = 67;
+/// 32 (task bytes) + 32 (agent bytes) + 3 (constraint_hash, output_commitment, expected_binding) + 1 (nullifier output) = 68
+pub const PUBLIC_INPUTS_COUNT: usize = 68;
 
 /// G1 point: vk.alpha (64 bytes: x || y)
 pub const VK_ALPHA_G1: [u8; 64] = [
