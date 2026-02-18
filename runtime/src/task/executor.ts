@@ -1187,11 +1187,11 @@ export class TaskExecutor {
         completeResult = await this.operations.completeTaskPrivate(
           task.pda,
           task.task,
-          result.proof,
-          result.constraintHash,
-          result.outputCommitment,
-          result.expectedBinding,
-          result.nullifier,
+          result.sealBytes,
+          result.journal,
+          result.imageId,
+          result.bindingSeed,
+          result.nullifierSeed,
         );
       } else {
         completeResult = await this.operations.completeTask(

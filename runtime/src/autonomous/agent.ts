@@ -95,9 +95,19 @@ const DEFAULT_MAX_CONCURRENT_TASKS = 1;
 const DEFAULT_DISCOVERY_MODE: DiscoveryMode = 'hybrid';
 const DEFAULT_MAX_RETRIES = 3;
 const DEFAULT_RETRY_DELAY_MS = 1000;
-const DEFAULT_CIRCUIT_PATH = './circuits-circom/task_completion';
 const DEFAULT_MEMORY_TTL_MS = 86_400_000; // 24h
 const SHUTDOWN_TIMEOUT_MS = 30000;
+const BINDING_SPEND_SEED = Buffer.from('binding_spend');
+const NULLIFIER_SPEND_SEED = Buffer.from('nullifier_spend');
+const ROUTER_SEED = Buffer.from('router');
+const VERIFIER_SEED = Buffer.from('verifier');
+const TRUSTED_RISC0_SELECTOR = Uint8Array.from([0x52, 0x5a, 0x56, 0x4d]);
+const TRUSTED_RISC0_ROUTER_PROGRAM_ID = new PublicKey(
+  '6JvFfBrvCcWgANKh1Eae9xDq4RC6cfJuBcf71rp2k9Y7',
+);
+const TRUSTED_RISC0_VERIFIER_PROGRAM_ID = new PublicKey(
+  'THq1qFYQoh7zgcjXoMXduDBqiZRCPeg3PvvMbrVQUge',
+);
 
 /**
  * Internal task tracking
@@ -159,7 +169,6 @@ export class AutonomousAgent extends AgentRuntime {
   private readonly scanIntervalMs: number;
   private readonly maxConcurrentTasks: number;
   private readonly generateProofs: boolean;
-  private readonly circuitPath: string;
   private readonly proofEngine?: ProofEngine;
   private readonly memory?: MemoryBackend;
   private readonly memoryTtlMs: number;
@@ -242,7 +251,6 @@ export class AutonomousAgent extends AgentRuntime {
     this.scanIntervalMs = config.scanIntervalMs ?? DEFAULT_SCAN_INTERVAL_MS;
     this.maxConcurrentTasks = config.maxConcurrentTasks ?? DEFAULT_MAX_CONCURRENT_TASKS;
     this.generateProofs = config.generateProofs ?? true;
-    this.circuitPath = config.circuitPath ?? DEFAULT_CIRCUIT_PATH;
     this.proofEngine = config.proofEngine;
     this.memory = config.memory;
     this.memoryTtlMs = config.memoryTtlMs ?? DEFAULT_MEMORY_TTL_MS;
@@ -1281,7 +1289,14 @@ export class AutonomousAgent extends AgentRuntime {
     this.autonomousLogger.info('Generating ZK proof...');
     const proofStartTime = Date.now();
 
-    let proofResult: { proof: Uint8Array; constraintHash: Uint8Array; outputCommitment: Uint8Array; expectedBinding: Uint8Array; nullifier: Uint8Array; proofSize: number };
+    let proofResult: {
+      sealBytes: Uint8Array;
+      journal: Uint8Array;
+      imageId: Uint8Array;
+      bindingSeed: Uint8Array;
+      nullifierSeed: Uint8Array;
+      proofSize: number;
+    };
     if (this.proofEngine) {
       const salt = this.proofEngine.generateSalt();
       proofResult = await this.proofEngine.generate({
@@ -1292,13 +1307,20 @@ export class AutonomousAgent extends AgentRuntime {
       });
     } else {
       const salt = generateSalt();
-      proofResult = await generateProof({
+      const generated = await generateProof({
         taskPda: task.pda,
         agentPubkey: this.agentWallet.publicKey,
         output,
         salt,
-        circuitPath: this.circuitPath,
       });
+      proofResult = {
+        sealBytes: new Uint8Array(generated.sealBytes),
+        journal: new Uint8Array(generated.journal),
+        imageId: new Uint8Array(generated.imageId),
+        bindingSeed: new Uint8Array(generated.bindingSeed),
+        nullifierSeed: new Uint8Array(generated.nullifierSeed),
+        proofSize: generated.proofSize,
+      };
     }
 
     const proofDuration = Date.now() - proofStartTime;
@@ -1312,6 +1334,22 @@ export class AutonomousAgent extends AgentRuntime {
     const claimPda = findClaimPda(task.pda, agentPda, this.program.programId);
     const escrowPda = findEscrowPda(task.pda, this.program.programId);
     const protocolPda = findProtocolPda(this.program.programId);
+    const [bindingSpend] = PublicKey.findProgramAddressSync(
+      [BINDING_SPEND_SEED, Buffer.from(proofResult.bindingSeed)],
+      this.program.programId,
+    );
+    const [nullifierSpend] = PublicKey.findProgramAddressSync(
+      [NULLIFIER_SPEND_SEED, Buffer.from(proofResult.nullifierSeed)],
+      this.program.programId,
+    );
+    const [router] = PublicKey.findProgramAddressSync(
+      [ROUTER_SEED],
+      TRUSTED_RISC0_ROUTER_PROGRAM_ID,
+    );
+    const [verifierEntry] = PublicKey.findProgramAddressSync(
+      [VERIFIER_SEED, Buffer.from(TRUSTED_RISC0_SELECTOR)],
+      TRUSTED_RISC0_ROUTER_PROGRAM_ID,
+    );
     const treasury = await this.getTreasury();
     const tokenAccounts = buildCompleteTaskTokenAccounts(
       task.rewardMint,
@@ -1320,22 +1358,47 @@ export class AutonomousAgent extends AgentRuntime {
       treasury,
     );
 
-    const tx = await this.program.methods
-      .completeTaskPrivate(new anchor.BN(0), {
-        proofData: Buffer.from(proofResult.proof),
-        constraintHash: toAnchorBytes(proofResult.constraintHash),
-        outputCommitment: toAnchorBytes(proofResult.outputCommitment),
-        expectedBinding: toAnchorBytes(proofResult.expectedBinding),
-        nullifier: toAnchorBytes(proofResult.nullifier),
+    const taskIdU64 = new anchor.BN(task.taskId.slice(0, 8), 'le');
+    const completeTaskPrivateMethod = this.program.methods as unknown as {
+      completeTaskPrivate: (
+        taskId: anchor.BN,
+        proofArgs: {
+          sealBytes: number[];
+          journal: number[];
+          imageId: number[];
+          bindingSeed: number[];
+          nullifierSeed: number[];
+        },
+      ) => {
+        accountsPartial: (
+          accounts: Record<string, unknown>,
+        ) => { rpc: () => Promise<string> };
+      };
+    };
+
+    const tx = await completeTaskPrivateMethod
+      .completeTaskPrivate(taskIdU64, {
+        sealBytes: toAnchorBytes(proofResult.sealBytes),
+        journal: toAnchorBytes(proofResult.journal),
+        imageId: toAnchorBytes(proofResult.imageId),
+        bindingSeed: toAnchorBytes(proofResult.bindingSeed),
+        nullifierSeed: toAnchorBytes(proofResult.nullifierSeed),
       })
       .accountsPartial({
         task: task.pda,
         claim: claimPda,
         escrow: escrowPda,
+        creator: task.creator,
         worker: agentPda,
         protocolConfig: protocolPda,
+        bindingSpend,
+        nullifierSpend,
         treasury,
         authority: this.agentWallet.publicKey,
+        routerProgram: TRUSTED_RISC0_ROUTER_PROGRAM_ID,
+        router,
+        verifierEntry,
+        verifierProgram: TRUSTED_RISC0_VERIFIER_PROGRAM_ID,
         systemProgram: SystemProgram.programId,
         ...tokenAccounts,
       })
