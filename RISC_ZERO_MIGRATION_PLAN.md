@@ -4,19 +4,21 @@
 
 - Objective: fully replace current Circom/snarkjs/Groth16-inline flow with RISC Zero + Solana Verifier Router.
 - This is a hard cutover plan: no long-term legacy path.
-- CI/workflow automation changes are intentionally out of scope for now.
+- GitHub Actions / workflow YAML changes are out of scope for now.
+- Local safety scripts are in scope only when they enforce proof-verification security invariants.
 - Repository is pre-mainnet, so we prioritize correctness and security over backward compatibility.
 
 ## 1. Security Invariants (Non-Negotiable)
 
 1. No unverifiable proof bytes are ever trusted.
 2. Proof must bind to the exact task PDA, worker authority, and output commitment.
-3. Replay prevention is nullifier-based and enforced on-chain.
+3. Replay prevention is enforced on-chain with binding and nullifier spend records.
 4. No `unwrap()` / panic path for untrusted proof payloads.
 5. Router/verifier accounts are canonical and constrained by PDA seeds.
-6. Guest method ID (`image_id`) is pinned and checked on-chain.
-7. `RISC0_DEV_MODE` is never allowed in production proof generation.
-8. All old proving toolchains are removed from code and dependencies.
+6. Router program ID, trusted selector, and trusted verifier program ID are pinned and checked on-chain.
+7. Guest method ID (`image_id`) is pinned and checked on-chain.
+8. `RISC0_DEV_MODE` is never allowed in production proof generation.
+9. All old proving toolchains are removed from code and dependencies.
 
 ## 2. Canonical RISC Zero Proof Model
 
@@ -48,8 +50,30 @@ Replace old private proof payload with:
 - `seal_bytes: Vec<u8>` (borsh-encoded router `Seal`)
 - `journal: Vec<u8>` (exactly 192 bytes)
 - `image_id: [u8; 32]`
-- `nullifier_seed: [u8; 32]` (explicit seed arg for PDA safety)
-- `selector: [u8; 4]` (explicit seed arg for verifier-entry PDA safety)
+- `binding_seed: [u8; 32]` (explicit seed arg for binding-spend PDA safety)
+- `nullifier_seed: [u8; 32]` (explicit seed arg for nullifier-spend PDA safety)
+
+No user-provided selector argument is accepted. Selector is parsed from `seal`, then must match pinned `TRUSTED_RISC0_SELECTOR`.
+
+### 2.4 Replay-Safety Semantics (Binding + Nullifier)
+
+To avoid regressions and undefined behavior for repeated tasks with identical constraints:
+
+- Add `BindingSpend` PDA seeded by `binding` (prevents statement replay for the same task/agent/commitment context).
+- Add `NullifierSpend` PDA seeded by `nullifier` (prevents global proof-knowledge replay).
+- Update nullifier derivation to include commitment context:
+  - `nullifier = SHA256("AGENC_V2_NULLIFIER" || constraint_hash || output_commitment || agent_secret)`
+
+This explicitly allows legitimate repeated work on identical constraints when commitment changes, while still rejecting exact replay.
+
+### 2.5 Legacy Replay-Seed Mismatch to Resolve During Migration
+
+Current code and docs are inconsistent:
+
+- `complete_task_private` currently seeds replay protection using `expected_binding` in the PDA seed path.
+- `state.rs` nullifier account docs describe nullifier-seeded replay semantics.
+
+Migration must remove this ambiguity by implementing the explicit dual-spend model (`BindingSpend` + `NullifierSpend`) and deleting legacy single-account seed behavior.
 
 ## 3. Full Codebase Action Matrix
 
@@ -133,15 +157,19 @@ Replace entire verification section:
   - task PDA in journal matches `task.key()`
   - authority in journal matches signer
   - constraint hash matches task constraint hash
-  - `binding` and `output_commitment` non-zero
+  - `binding`, `output_commitment`, and `nullifier` non-zero
+  - parsed `binding == binding_seed` arg
   - parsed `nullifier == nullifier_seed` arg
-  - `seal.selector == selector` arg
+  - `seal.selector == TRUSTED_RISC0_SELECTOR`
   - `image_id` equals configured method ID
 - Add router CPI accounts:
   - router PDA `[b"router"]` under router program id
-  - verifier entry PDA `[b"verifier", selector]` under router program id
-  - verifier program address equals entry program
+  - verifier entry PDA `[b"verifier", TRUSTED_RISC0_SELECTOR]` under router program id
+  - verifier entry `selector` equals `TRUSTED_RISC0_SELECTOR`
+  - verifier entry `verifier` equals `TRUSTED_RISC0_VERIFIER_PROGRAM_ID`
+  - verifier program account equals `TRUSTED_RISC0_VERIFIER_PROGRAM_ID`
 - Compute `journal_digest` via `hashv` and call router `verify` CPI.
+- Initialize both `binding_spend` and `nullifier_spend` accounts.
 - Keep reward/payment logic and claim updates.
 
 ### `programs/agenc-coordination/src/instructions/complete_task.rs`
@@ -158,13 +186,16 @@ Replace entire verification section:
   - `InvalidJournalTask`
   - `InvalidJournalAuthority`
   - `InvalidImageId`
-  - `InvalidSelector`
+  - `TrustedSelectorMismatch`
+  - `TrustedVerifierProgramMismatch`
   - `RouterAccountMismatch`
 
 ### `programs/agenc-coordination/src/state.rs`
 
-- Keep `Nullifier` account, but update docs to journal-derived nullifier semantics.
-- Confirm PDA seed documentation uses nullifier seed only.
+- Replace single replay account model with explicit dual model:
+  - `BindingSpend` account seeded by binding
+  - `NullifierSpend` account seeded by nullifier
+- Update docs to describe V2 nullifier semantics and repeated-same-constraint behavior.
 
 ### `programs/agenc-coordination/src/utils/compute_budget.rs`
 
@@ -172,7 +203,7 @@ Replace entire verification section:
 
 ### New files to add
 
-- `programs/agenc-coordination/src/risc0_config.rs` (pinned program IDs + image ID)
+- `programs/agenc-coordination/src/risc0_config.rs` (pinned router/verifier IDs + trusted selector + image ID)
 - `programs/agenc-coordination/src/risc0_types.rs` (`Seal` decode helpers, journal parser)
 - `programs/agenc-coordination/src/risc0_verify.rs` (single-purpose router CPI wrapper)
 
@@ -195,6 +226,7 @@ Replace entire verification section:
 - Add:
   - router program id
   - groth16 verifier program id (router target)
+  - trusted selector constant
   - expected journal length
   - expected image id constant(s)
 
@@ -214,8 +246,8 @@ Replace fully:
 
 - Replace `PrivateCompletionProof` type with new RISC0 payload.
 - Remove `proofData`, `expectedBinding` fields from public API.
-- `completeTaskPrivate()` must pass router accounts and new args (`nullifier_seed`, `selector`).
-- Nullifier PDA derivation must use journal nullifier bytes only.
+- `completeTaskPrivate()` must pass router accounts and new args (`binding_seed`, `nullifier_seed`).
+- Spend-account derivation must use journal binding/nullifier bytes only (no caller-chosen selector path).
 
 ### `sdk/src/proof-validation.ts`
 
@@ -246,6 +278,7 @@ Replace fully:
 ### SDK tests to rewrite
 
 - `sdk/src/__tests__/contract.test.ts`
+- `sdk/src/__tests__/client.test.ts`
 - `sdk/src/__tests__/convenience-apis.test.ts`
 - `sdk/src/__tests__/idl-alignment.test.ts`
 - `sdk/src/__tests__/proof-validation.test.ts`
@@ -257,6 +290,22 @@ Replace fully:
 
 - Remove `circuitPath` config.
 - Add `methodId`, `routerConfig`, prover backend config.
+
+### `runtime/src/proof/index.ts`
+
+- Update exports to remove any legacy proof/circuit-facing APIs.
+
+### `runtime/src/builder.ts`
+
+- Replace defaults and wiring that still point to legacy proof-generation paths.
+
+### `runtime/src/index.ts`
+
+- Update public runtime API surface to expose only RISC0 private-proof flow.
+
+### `runtime/src/types/index.ts`
+
+- Update exported type barrel for renamed private-proof payload types.
 
 ### `runtime/src/proof/engine.ts`
 
@@ -280,7 +329,7 @@ Replace fully:
 
 - Replace `completeTaskPrivate()` parameters:
   - old multi-field proof args -> single RISC0 payload + derived seeds.
-- Pass router/verifier accounts and selector/nullifier seed args.
+- Pass router/verifier accounts with trusted selector constant and binding/nullifier seed args.
 
 ### `runtime/src/task/proof-pipeline.ts`
 
@@ -339,7 +388,11 @@ Replace fully:
 ### `mcp/src/server.ts`
 
 - Remove `registerCircuitTools` import/registration.
-- Update static error reference text (proof size and verifier wording).
+- Update static error reference text (proof size and verifier wording), including stale claim-error lines.
+
+### `mcp/src/tools/errors.ts`
+
+- Update stale static error mappings/messages tied to legacy proof stack.
 
 ### `mcp/src/tools/tasks.ts`
 
@@ -353,13 +406,14 @@ Replace fully:
 
 - Regenerate after removing circuit tool deps.
 
-## 3.6 Scripts: Replace In Place
+## 3.6 Local Safety Scripts: Replace In Place
 
 ### `scripts/check-deployment-readiness.sh`
 
 - Rewrite from verifying-key checks to RISC0 checks:
   - router program id
-  - verifier entry selector active
+  - pinned selector present and active
+  - verifier entry program equals pinned trusted verifier
   - expected image id configured
   - dev-mode prover disabled
 
@@ -414,8 +468,11 @@ Also add replacement example:
 - `docs/design/speculation/diagrams/DATA-FLOW.md`
 - `docs/design/speculation/diagrams/STATE-MACHINES.md`
 - `docs/design/speculation/testing/TEST-DATA.md`
+- `docs/design/speculation/operations/CONFIGURATION.md`
 - `docs/design/speculative-execution/API-SPECIFICATION.md`
 - `docs/design/speculative-execution/DESIGN-DOCUMENT.md`
+- `docs/design/speculative-execution/runbooks/deployment-runbook.md`
+- `docs/design/speculative-execution/runbooks/tuning-guide.md`
 - `docs/whitepaper/SPECULATIVE-EXECUTION-WHITEPAPER.md`
 - `security/audit-state-machine-A3.md`
 
@@ -426,6 +483,9 @@ Also add replacement example:
 - `sdk/yarn.lock`
 - `mcp/yarn.lock`
 - `package-lock.json` (if dependency graph changes at root)
+- `runtime/package-lock.json`
+- `sdk/package-lock.json`
+- `mcp/package-lock.json`
 - `programs/agenc-coordination/Cargo.lock`
 
 ## 4. Implementation Sequence (Strict Order)
@@ -445,13 +505,15 @@ Exit criteria:
 
 1. Replace `complete_task_private` verification path.
 2. Remove verifying key module and old constants.
-3. Add router/verifier accounts + selector/nullifier seed args.
+3. Add router/verifier accounts + binding/nullifier seed args (selector is pinned constant, not caller arg).
 4. Regenerate IDL.
 
 Exit criteria:
 
 - Program compiles with no `groth16-solana` and no `verifying_key.rs`.
 - Unit tests for journal parsing and account constraints pass.
+- Selector policy is enforced on-chain and covered by negative tests (including valid-format but untrusted selector).
+- Replay semantics are finalized and implemented as specified in section 2.4, with regression tests for repeated-same-constraint behavior.
 
 ## Phase 3: SDK API migration
 
@@ -489,11 +551,16 @@ Exit criteria:
 1. Delete all files listed in section 3.1.
 2. Run forbidden-term grep gate.
 
-Required zero-match grep:
+Required zero-match grep (targeted scope, no markdown-skill false positives):
 
 ```bash
-rg -n "snarkjs|circom|nargo|sunspot|groth16-solana|verifying_key\.rs|proofData|expectedBinding|circuitPath" \
-  programs sdk runtime mcp tests examples demo docs README.md
+rg -n "snarkjs|circom|nargo|sunspot|groth16-solana|verifying_key\\.rs|proofData|expectedBinding|circuitPath" \
+  programs \
+  sdk/src \
+  runtime/src/proof runtime/src/task runtime/src/autonomous runtime/src/builder.ts runtime/src/index.ts runtime/src/types \
+  mcp/src \
+  tests/complete_task_private.ts tests/zk-proof-lifecycle.ts tests/security-audit-fixes.ts tests/spl-token-tasks.ts \
+  examples demo docs README.md
 ```
 
 (Allowlist only if strictly needed in historical changelog files; default is zero.)
@@ -554,3 +621,31 @@ No cryptographic system is literally perfect. This plan maximizes practical safe
 - enforcing strict input/account validation,
 - and validating every failure mode with local tests and fuzzing.
 
+## 9. Wrong Assumptions (Do Not Reintroduce)
+
+1. "Caller supplies selector at runtime."
+   - Incorrect: selector must be pinned by protocol policy. It is parsed from `seal` and must match trusted config, not user-controlled instruction input.
+
+2. "Replay protection is already nullifier-seeded on-chain."
+   - Incorrect: current instruction path seeds replay PDA with `expected_binding` (`programs/agenc-coordination/src/instructions/complete_task_private.rs`), while state docs describe nullifier-seeded semantics (`programs/agenc-coordination/src/state.rs`). Migration must resolve this explicitly (section 2.5).
+
+3. "Nullifier-only replay semantics are a safe drop-in replacement."
+   - Incorrect: this can change repeated-same-constraint behavior. Replay policy must be explicitly selected and regression-tested before rollout (section 2.4 and Phase 2 exit criteria).
+
+4. "Broad forbidden-term grep over all runtime paths is safe."
+   - Incorrect: it produces false positives in unrelated skill-parser fixtures (for example markdown skill tests mentioning `nargo`). Use the targeted grep scope in section 6.
+
+5. "Only root lockfiles need refresh."
+   - Incorrect: workspace npm lockfiles also exist and must be refreshed when dependency graphs change: `runtime/package-lock.json`, `sdk/package-lock.json`, `mcp/package-lock.json`.
+
+6. "These files are not impacted by migration."
+   - Incorrect: migration matrix must include `runtime/src/builder.ts`, `runtime/src/proof/index.ts`, `runtime/src/types/index.ts`, `mcp/src/tools/errors.ts`, and `sdk/src/__tests__/client.test.ts`.
+
+### 9.1 Review Checklist (Required Before Approving Plan Changes)
+
+- [ ] No caller-provided selector reappears in on-chain instruction args, SDK payloads, or runtime submission APIs.
+- [ ] On-chain checks pin trusted router program ID, trusted selector, and trusted verifier program ID.
+- [ ] Replay policy remains explicit (section 2.4) and Phase 2 exit criteria include replay regression coverage.
+- [ ] Targeted grep scope from section 6 is preserved (no broad runtime/docs sweep that causes fixture false positives).
+- [ ] Migration matrix still includes: `runtime/src/builder.ts`, `runtime/src/proof/index.ts`, `runtime/src/types/index.ts`, `mcp/src/tools/errors.ts`, `sdk/src/__tests__/client.test.ts`.
+- [ ] Lockfile refresh list still includes `runtime/package-lock.json`, `sdk/package-lock.json`, and `mcp/package-lock.json`.
