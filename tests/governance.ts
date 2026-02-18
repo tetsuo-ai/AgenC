@@ -21,7 +21,6 @@ import {
   PROPOSAL_TYPE_TREASURY_SPEND,
   PROPOSAL_TYPE_RATE_LIMIT_CHANGE,
   deriveProtocolPda,
-  deriveAgentPda,
   deriveGovernanceConfigPda,
   deriveProposalPda,
   deriveGovernanceVotePda,
@@ -29,6 +28,8 @@ import {
   createHash,
   getErrorCode,
   errorContainsAny,
+  disableRateLimitsForTests,
+  ensureAgentRegistered,
 } from "./test-utils";
 import { createLiteSVMContext, fundAccount, getClockTimestamp, advanceClock } from "./litesvm-helpers";
 
@@ -81,29 +82,6 @@ describe("governance (issue #1106)", () => {
     for (const wallet of wallets) {
       fundAccount(svm, wallet.publicKey, amount);
     }
-  };
-
-  const registerAgent = async (
-    agentId: Buffer,
-    authority: Keypair,
-    capabilities: number,
-    stake: number = AGENT_STAKE
-  ): Promise<PublicKey> => {
-    const agentPda = deriveAgentPda(agentId, program.programId);
-    try {
-      await program.account.agentRegistration.fetch(agentPda);
-    } catch {
-      await program.methods
-        .registerAgent(Array.from(agentId), new BN(capabilities), "https://example.com", null, new BN(stake))
-        .accountsPartial({
-          agent: agentPda,
-          protocolConfig: protocolPda,
-          authority: authority.publicKey,
-        })
-        .signers([authority])
-        .rpc();
-    }
-    return agentPda;
   };
 
   /** Create a proposal and return its PDA. */
@@ -231,23 +209,65 @@ describe("governance (issue #1106)", () => {
         .rpc();
     }
 
-    // Disable rate limiting for tests
-    try {
-      await program.methods
-        .updateRateLimits(new BN(0), 0, new BN(0), 0, new BN(LAMPORTS_PER_SOL / 100))
-        .accountsPartial({ protocolConfig: protocolPda })
-        .remainingAccounts([{ pubkey: provider.wallet.publicKey, isSigner: true, isWritable: false }])
-        .rpc();
-    } catch {
-      // Already configured
-    }
+    await disableRateLimitsForTests({
+      program,
+      protocolPda,
+      authority: provider.wallet.publicKey,
+      minStakeForDisputeLamports: LAMPORTS_PER_SOL / 100,
+      skipPreflight: false,
+    });
 
     // Register agents
-    proposerAgentPda = await registerAgent(proposerAgentId, proposer, CAPABILITY_COMPUTE, AGENT_STAKE);
-    voter1AgentPda = await registerAgent(voter1AgentId, voter1, CAPABILITY_COMPUTE, AGENT_STAKE);
-    voter2AgentPda = await registerAgent(voter2AgentId, voter2, CAPABILITY_COMPUTE, AGENT_STAKE);
-    voter3AgentPda = await registerAgent(voter3AgentId, voter3, CAPABILITY_COMPUTE, AGENT_STAKE);
-    nonProposerAgentPda = await registerAgent(nonProposerAgentId, nonProposer, CAPABILITY_COMPUTE, AGENT_STAKE);
+    proposerAgentPda = await ensureAgentRegistered({
+      program,
+      protocolPda,
+      agentId: proposerAgentId,
+      authority: proposer,
+      capabilities: CAPABILITY_COMPUTE,
+      endpoint: "https://example.com",
+      stakeLamports: AGENT_STAKE,
+      skipPreflight: false,
+    });
+    voter1AgentPda = await ensureAgentRegistered({
+      program,
+      protocolPda,
+      agentId: voter1AgentId,
+      authority: voter1,
+      capabilities: CAPABILITY_COMPUTE,
+      endpoint: "https://example.com",
+      stakeLamports: AGENT_STAKE,
+      skipPreflight: false,
+    });
+    voter2AgentPda = await ensureAgentRegistered({
+      program,
+      protocolPda,
+      agentId: voter2AgentId,
+      authority: voter2,
+      capabilities: CAPABILITY_COMPUTE,
+      endpoint: "https://example.com",
+      stakeLamports: AGENT_STAKE,
+      skipPreflight: false,
+    });
+    voter3AgentPda = await ensureAgentRegistered({
+      program,
+      protocolPda,
+      agentId: voter3AgentId,
+      authority: voter3,
+      capabilities: CAPABILITY_COMPUTE,
+      endpoint: "https://example.com",
+      stakeLamports: AGENT_STAKE,
+      skipPreflight: false,
+    });
+    nonProposerAgentPda = await ensureAgentRegistered({
+      program,
+      protocolPda,
+      agentId: nonProposerAgentId,
+      authority: nonProposer,
+      capabilities: CAPABILITY_COMPUTE,
+      endpoint: "https://example.com",
+      stakeLamports: AGENT_STAKE,
+      skipPreflight: false,
+    });
   });
 
   // ==========================================================================

@@ -2,12 +2,12 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { PublicKey, Keypair } from '@solana/web3.js';
 import { TaskDiscovery, type TaskDiscoveryOptions, type TaskDiscoveryResult } from './discovery.js';
 import { TaskOperations } from './operations.js';
-import { OnChainTaskStatus, type OnChainTask, type TaskFilterConfig } from './types.js';
-import { TaskType } from '../events/types.js';
+import { type TaskFilterConfig } from './types.js';
 import { silentLogger } from '../utils/logger.js';
 import { PROGRAM_ID } from '@agenc/sdk';
 import type { Program } from '@coral-xyz/anchor';
 import type { AgencCoordination } from '../types/agenc_coordination.js';
+import { createTask, createMockOperations } from './test-utils.js';
 
 // ============================================================================
 // Helpers
@@ -15,30 +15,6 @@ import type { AgencCoordination } from '../types/agenc_coordination.js';
 
 const COMPUTE = 1n << 0n;
 const INFERENCE = 1n << 1n;
-
-function createTask(overrides: Partial<OnChainTask> = {}): OnChainTask {
-  return {
-    taskId: new Uint8Array(32),
-    creator: Keypair.generate().publicKey,
-    requiredCapabilities: COMPUTE,
-    description: new Uint8Array(64),
-    constraintHash: new Uint8Array(32),
-    rewardAmount: 1_000_000n,
-    maxWorkers: 5,
-    currentWorkers: 0,
-    status: OnChainTaskStatus.Open,
-    taskType: TaskType.Exclusive,
-    createdAt: 1700000000,
-    deadline: Math.floor(Date.now() / 1000) + 3600,
-    completedAt: 0,
-    escrow: Keypair.generate().publicKey,
-    result: new Uint8Array(64),
-    completions: 0,
-    requiredCompletions: 1,
-    bump: 255,
-    ...overrides,
-  };
-}
 
 /**
  * Creates a mock Anchor program with event listener support for TaskCreated.
@@ -70,26 +46,6 @@ function createMockProgram() {
   return mockProgram as unknown as Program<AgencCoordination> & {
     _emit: typeof mockProgram._emit;
     _getCallbackCount: typeof mockProgram._getCallbackCount;
-  };
-}
-
-/**
- * Creates a mock TaskOperations instance.
- */
-function createMockOperations() {
-  return {
-    fetchClaimableTasks: vi.fn().mockResolvedValue([]),
-    fetchTask: vi.fn().mockResolvedValue(null),
-    fetchAllTasks: vi.fn().mockResolvedValue([]),
-    fetchClaim: vi.fn().mockResolvedValue(null),
-    fetchActiveClaims: vi.fn().mockResolvedValue([]),
-    claimTask: vi.fn(),
-    completeTask: vi.fn(),
-    completeTaskPrivate: vi.fn(),
-    fetchTaskByIds: vi.fn().mockResolvedValue(null),
-  } as unknown as TaskOperations & {
-    fetchClaimableTasks: ReturnType<typeof vi.fn>;
-    fetchTask: ReturnType<typeof vi.fn>;
   };
 }
 

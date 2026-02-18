@@ -1666,22 +1666,33 @@ function normalizeAndValidateSkillCommand(
   };
 }
 
-export async function runCli(options: CliRunOptions = {}): Promise<CliStatusCode> {
-  const argv = options.argv ?? process.argv.slice(2);
-  const stdout = options.stdout ?? process.stdout;
-  const stderr = options.stderr ?? process.stderr;
+type RoutedStatus = CliStatusCode | null;
 
-  const parsed = parseArgv(argv);
-  const outputFormat = normalizeOutputFormat(parsed.flags.output ?? parsed.flags['output-format']);
-
-  const context = createContext(stdout, stderr, outputFormat, normalizeLogLevel(process.env.AGENC_RUNTIME_LOG_LEVEL ?? DEFAULT_LOG_LEVEL));
-
-  const showRootHelp = parsed.flags.help || parsed.flags.h || parsed.positional.length === 0;
-  if (showRootHelp) {
-    context.output(buildHelp());
-    return 0;
+function loadLenientFileConfig(configPath: string): CliFileConfig {
+  try {
+    return loadFileConfig(configPath);
+  } catch {
+    return {};
   }
+}
 
+function resolveLenientGlobalFlags(parsed: ParsedArgv): {
+  configPath: string;
+  global: ReturnType<typeof normalizeGlobalFlags>;
+} {
+  const configPath = resolveConfigPath(parsed.flags);
+  const fileConfig = loadLenientFileConfig(configPath);
+  const envConfig = readEnvironmentConfig();
+  return {
+    configPath,
+    global: normalizeGlobalFlags(parsed.flags, fileConfig, envConfig),
+  };
+}
+
+async function dispatchBootstrapCommands(
+  parsed: ParsedArgv,
+  context: CliRuntimeContext,
+): Promise<RoutedStatus> {
   if (parsed.positional[0] === 'onboard') {
     try {
       if (parsed.positional.length > 1) {
@@ -1690,16 +1701,7 @@ export async function runCli(options: CliRunOptions = {}): Promise<CliStatusCode
 
       validateUnknownStandaloneOptions(parsed.flags, ONBOARD_COMMAND_OPTIONS);
 
-      const configPath = resolveConfigPath(parsed.flags);
-      let fileConfig: CliFileConfig;
-      try {
-        fileConfig = loadFileConfig(configPath);
-      } catch {
-        fileConfig = {};
-      }
-
-      const envConfig = readEnvironmentConfig();
-      const global = normalizeGlobalFlags(parsed.flags, fileConfig, envConfig);
+      const { configPath, global } = resolveLenientGlobalFlags(parsed);
       const onboardOpts: OnboardOptions = {
         ...global,
         configPath,
@@ -1721,16 +1723,7 @@ export async function runCli(options: CliRunOptions = {}): Promise<CliStatusCode
 
       validateUnknownStandaloneOptions(parsed.flags, HEALTH_COMMAND_OPTIONS);
 
-      const configPath = resolveConfigPath(parsed.flags);
-      let fileConfig: CliFileConfig;
-      try {
-        fileConfig = loadFileConfig(configPath);
-      } catch {
-        fileConfig = {};
-      }
-
-      const envConfig = readEnvironmentConfig();
-      const global = normalizeGlobalFlags(parsed.flags, fileConfig, envConfig);
+      const { configPath, global } = resolveLenientGlobalFlags(parsed);
       const healthOpts: HealthOptions = {
         ...global,
         configPath,
@@ -1744,17 +1737,8 @@ export async function runCli(options: CliRunOptions = {}): Promise<CliStatusCode
     }
   }
 
-  // Handle `doctor security` subcommand before replay routing
   if (parsed.positional[0] === 'doctor' && parsed.positional[1] === 'security') {
-    const configPath = resolveConfigPath(parsed.flags);
-    let fileConfig: CliFileConfig;
-    try {
-      fileConfig = loadFileConfig(configPath);
-    } catch {
-      fileConfig = {};
-    }
-    const envConfig = readEnvironmentConfig();
-    const global = normalizeGlobalFlags(parsed.flags, fileConfig, envConfig);
+    const { global } = resolveLenientGlobalFlags(parsed);
     const securityOpts: SecurityOptions = {
       ...global,
       deep: normalizeBool(parsed.flags.deep, false),
@@ -1764,8 +1748,7 @@ export async function runCli(options: CliRunOptions = {}): Promise<CliStatusCode
     try {
       return await runSecurityCommand(context, securityOpts);
     } catch (error) {
-      const payload = buildErrorPayload(error);
-      context.error(payload);
+      context.error(buildErrorPayload(error));
       return 1;
     }
   }
@@ -1778,16 +1761,7 @@ export async function runCli(options: CliRunOptions = {}): Promise<CliStatusCode
 
       validateUnknownStandaloneOptions(parsed.flags, DOCTOR_COMMAND_OPTIONS);
 
-      const configPath = resolveConfigPath(parsed.flags);
-      let fileConfig: CliFileConfig;
-      try {
-        fileConfig = loadFileConfig(configPath);
-      } catch {
-        fileConfig = {};
-      }
-
-      const envConfig = readEnvironmentConfig();
-      const global = normalizeGlobalFlags(parsed.flags, fileConfig, envConfig);
+      const { configPath, global } = resolveLenientGlobalFlags(parsed);
       const doctorOpts: DoctorOptions = {
         ...global,
         configPath,
@@ -1802,7 +1776,13 @@ export async function runCli(options: CliRunOptions = {}): Promise<CliStatusCode
     }
   }
 
-  // Daemon commands: start, stop, restart, status, service install
+  return null;
+}
+
+async function dispatchDaemonCommands(
+  parsed: ParsedArgv,
+  context: CliRuntimeContext,
+): Promise<RoutedStatus> {
   if (parsed.positional[0] === 'start') {
     try {
       validateUnknownStandaloneOptions(parsed.flags, START_COMMAND_OPTIONS);
@@ -1886,84 +1866,70 @@ export async function runCli(options: CliRunOptions = {}): Promise<CliStatusCode
     }
   }
 
-  // Config commands: config init, config validate, config show
-  if (parsed.positional[0] === 'config') {
-    try {
-      const subcommand = parsed.positional[1] as string | undefined;
-      if (!subcommand) {
-        throw createCliError('missing config subcommand (init | validate | show)', ERROR_CODES.MISSING_CONFIG_COMMAND);
-      }
+  return null;
+}
 
-      const configPath = parseOptionalString(parsed.flags.config)
-        ?? process.env.AGENC_CONFIG
-        ?? getDefaultConfigPath();
-
-      if (subcommand === 'init') {
-        validateUnknownStandaloneOptions(parsed.flags, CONFIG_INIT_OPTIONS);
-        const configPathForInit = resolveConfigPath(parsed.flags);
-        let fileConfig: CliFileConfig;
-        try {
-          fileConfig = loadFileConfig(configPathForInit);
-        } catch {
-          fileConfig = {};
-        }
-        const envConfig = readEnvironmentConfig();
-        const global = normalizeGlobalFlags(parsed.flags, fileConfig, envConfig);
-        const wizardOpts: WizardOptions = {
-          ...global,
-          configPath,
-          nonInteractive: normalizeBool(parsed.flags['non-interactive'], false),
-          force: normalizeBool(parsed.flags.force, false),
-        };
-        return await runConfigInitCommand(context, wizardOpts);
-      }
-
-      if (subcommand === 'validate') {
-        validateUnknownStandaloneOptions(parsed.flags, CONFIG_VALIDATE_OPTIONS);
-        const configPathForValidate = resolveConfigPath(parsed.flags);
-        let fileConfig: CliFileConfig;
-        try {
-          fileConfig = loadFileConfig(configPathForValidate);
-        } catch {
-          fileConfig = {};
-        }
-        const envConfig = readEnvironmentConfig();
-        const global = normalizeGlobalFlags(parsed.flags, fileConfig, envConfig);
-        const validateOpts: ConfigValidateOptions = {
-          ...global,
-          configPath,
-        };
-        return await runConfigValidateCommand(context, validateOpts);
-      }
-
-      if (subcommand === 'show') {
-        validateUnknownStandaloneOptions(parsed.flags, CONFIG_SHOW_OPTIONS);
-        const configPathForShow = resolveConfigPath(parsed.flags);
-        let fileConfig: CliFileConfig;
-        try {
-          fileConfig = loadFileConfig(configPathForShow);
-        } catch {
-          fileConfig = {};
-        }
-        const envConfig = readEnvironmentConfig();
-        const global = normalizeGlobalFlags(parsed.flags, fileConfig, envConfig);
-        const showOpts: ConfigShowOptions = {
-          ...global,
-          configPath,
-        };
-        return await runConfigShowCommand(context, showOpts);
-      }
-
-      throw createCliError(`unknown config subcommand: ${subcommand}`, ERROR_CODES.UNKNOWN_CONFIG_COMMAND);
-    } catch (error) {
-      return reportCliError(context, error, [
-        ERROR_CODES.MISSING_CONFIG_COMMAND,
-        ERROR_CODES.UNKNOWN_CONFIG_COMMAND,
-      ]);
-    }
+async function dispatchConfigCommands(
+  parsed: ParsedArgv,
+  context: CliRuntimeContext,
+): Promise<RoutedStatus> {
+  if (parsed.positional[0] !== 'config') {
+    return null;
   }
 
-  // Session commands: sessions list, sessions kill
+  try {
+    const subcommand = parsed.positional[1] as string | undefined;
+    if (!subcommand) {
+      throw createCliError('missing config subcommand (init | validate | show)', ERROR_CODES.MISSING_CONFIG_COMMAND);
+    }
+
+    const configPath = parseOptionalString(parsed.flags.config)
+      ?? process.env.AGENC_CONFIG
+      ?? getDefaultConfigPath();
+    const { global } = resolveLenientGlobalFlags(parsed);
+
+    if (subcommand === 'init') {
+      validateUnknownStandaloneOptions(parsed.flags, CONFIG_INIT_OPTIONS);
+      const wizardOpts: WizardOptions = {
+        ...global,
+        configPath,
+        nonInteractive: normalizeBool(parsed.flags['non-interactive'], false),
+        force: normalizeBool(parsed.flags.force, false),
+      };
+      return await runConfigInitCommand(context, wizardOpts);
+    }
+
+    if (subcommand === 'validate') {
+      validateUnknownStandaloneOptions(parsed.flags, CONFIG_VALIDATE_OPTIONS);
+      const validateOpts: ConfigValidateOptions = {
+        ...global,
+        configPath,
+      };
+      return await runConfigValidateCommand(context, validateOpts);
+    }
+
+    if (subcommand === 'show') {
+      validateUnknownStandaloneOptions(parsed.flags, CONFIG_SHOW_OPTIONS);
+      const showOpts: ConfigShowOptions = {
+        ...global,
+        configPath,
+      };
+      return await runConfigShowCommand(context, showOpts);
+    }
+
+    throw createCliError(`unknown config subcommand: ${subcommand}`, ERROR_CODES.UNKNOWN_CONFIG_COMMAND);
+  } catch (error) {
+    return reportCliError(context, error, [
+      ERROR_CODES.MISSING_CONFIG_COMMAND,
+      ERROR_CODES.UNKNOWN_CONFIG_COMMAND,
+    ]);
+  }
+}
+
+async function dispatchSessionCommands(
+  parsed: ParsedArgv,
+  context: CliRuntimeContext,
+): Promise<RoutedStatus> {
   if (parsed.positional[0] === 'sessions') {
     try {
       const subcommand = parsed.positional[1] as string | undefined;
@@ -2001,7 +1967,6 @@ export async function runCli(options: CliRunOptions = {}): Promise<CliStatusCode
     }
   }
 
-  // Logs command
   if (parsed.positional[0] === 'logs') {
     try {
       validateUnknownStandaloneOptions(parsed.flags, LOGS_OPTIONS);
@@ -2017,95 +1982,115 @@ export async function runCli(options: CliRunOptions = {}): Promise<CliStatusCode
     }
   }
 
-  if (parsed.positional[0] === 'jobs') {
-    try {
-      validateUnknownStandaloneOptions(parsed.flags, JOBS_COMMAND_OPTIONS);
-      const subcommand = parsed.positional[1] as string | undefined;
+  return null;
+}
 
-      if (!subcommand) {
-        throw createCliError('missing jobs subcommand (list | run | enable | disable)', ERROR_CODES.MISSING_PLUGIN_COMMAND);
-      }
-
-      const scheduler = new CronScheduler();
-
-      if (subcommand === 'list') {
-        return await runJobsListCommand(context, scheduler);
-      }
-
-      const jobName = parsed.positional[2] as string | undefined;
-
-      if (subcommand === 'run') {
-        if (!jobName) {
-          throw createCliError('jobs run requires a job name', ERROR_CODES.MISSING_TARGET);
-        }
-        return await runJobsRunCommand(context, scheduler, jobName);
-      }
-
-      if (subcommand === 'enable') {
-        if (!jobName) {
-          throw createCliError('jobs enable requires a job name', ERROR_CODES.MISSING_TARGET);
-        }
-        return await runJobsEnableCommand(context, scheduler, jobName);
-      }
-
-      if (subcommand === 'disable') {
-        if (!jobName) {
-          throw createCliError('jobs disable requires a job name', ERROR_CODES.MISSING_TARGET);
-        }
-        return await runJobsDisableCommand(context, scheduler, jobName);
-      }
-
-      throw createCliError(`unknown jobs subcommand: ${subcommand}`, ERROR_CODES.UNKNOWN_PLUGIN_COMMAND);
-    } catch (error) {
-      return reportCliError(context, error, [
-        ERROR_CODES.MISSING_PLUGIN_COMMAND,
-        ERROR_CODES.UNKNOWN_PLUGIN_COMMAND,
-      ]);
-    }
+async function dispatchJobsCommands(
+  parsed: ParsedArgv,
+  context: CliRuntimeContext,
+): Promise<RoutedStatus> {
+  if (parsed.positional[0] !== 'jobs') {
+    return null;
   }
 
-  if (parsed.positional[0] === 'skill') {
-    let skillReport: SkillParseReport;
-    try {
-      skillReport = normalizeAndValidateSkillCommand(parsed);
-    } catch (error) {
-      const payload = buildErrorPayload(error);
-      context.error(payload);
-      return 2;
+  try {
+    validateUnknownStandaloneOptions(parsed.flags, JOBS_COMMAND_OPTIONS);
+    const subcommand = parsed.positional[1] as string | undefined;
+
+    if (!subcommand) {
+      throw createCliError('missing jobs subcommand (list | run | enable | disable)', ERROR_CODES.MISSING_PLUGIN_COMMAND);
     }
 
-    const skillContext = createContext(
-      stdout,
-      stderr,
-      skillReport.outputFormat,
-      normalizeLogLevel(parsed.flags['log-level']),
-    );
+    const scheduler = new CronScheduler();
 
-    if (skillReport.global.help) {
-      skillContext.output(buildHelp());
-      return 0;
+    if (subcommand === 'list') {
+      return await runJobsListCommand(context, scheduler);
     }
 
-    const skillDescriptor = SKILL_COMMANDS[skillReport.skillCommand];
-    try {
-      return await skillDescriptor.run(skillContext, skillReport.options);
-    } catch (error) {
-      const payload = buildErrorPayload(error);
-      skillContext.error(payload);
-      return 1;
+    const jobName = parsed.positional[2] as string | undefined;
+
+    if (subcommand === 'run') {
+      if (!jobName) {
+        throw createCliError('jobs run requires a job name', ERROR_CODES.MISSING_TARGET);
+      }
+      return await runJobsRunCommand(context, scheduler, jobName);
     }
+
+    if (subcommand === 'enable') {
+      if (!jobName) {
+        throw createCliError('jobs enable requires a job name', ERROR_CODES.MISSING_TARGET);
+      }
+      return await runJobsEnableCommand(context, scheduler, jobName);
+    }
+
+    if (subcommand === 'disable') {
+      if (!jobName) {
+        throw createCliError('jobs disable requires a job name', ERROR_CODES.MISSING_TARGET);
+      }
+      return await runJobsDisableCommand(context, scheduler, jobName);
+    }
+
+    throw createCliError(`unknown jobs subcommand: ${subcommand}`, ERROR_CODES.UNKNOWN_PLUGIN_COMMAND);
+  } catch (error) {
+    return reportCliError(context, error, [
+      ERROR_CODES.MISSING_PLUGIN_COMMAND,
+      ERROR_CODES.UNKNOWN_PLUGIN_COMMAND,
+    ]);
+  }
+}
+
+async function dispatchSkillCommands(
+  parsed: ParsedArgv,
+  stdout: NodeJS.WritableStream,
+  stderr: NodeJS.WritableStream,
+  context: CliRuntimeContext,
+): Promise<RoutedStatus> {
+  if (parsed.positional[0] !== 'skill') {
+    return null;
   }
 
+  let skillReport: SkillParseReport;
+  try {
+    skillReport = normalizeAndValidateSkillCommand(parsed);
+  } catch (error) {
+    context.error(buildErrorPayload(error));
+    return 2;
+  }
+
+  const skillContext = createContext(
+    stdout,
+    stderr,
+    skillReport.outputFormat,
+    normalizeLogLevel(parsed.flags['log-level']),
+  );
+
+  if (skillReport.global.help) {
+    skillContext.output(buildHelp());
+    return 0;
+  }
+
+  const skillDescriptor = SKILL_COMMANDS[skillReport.skillCommand];
+  try {
+    return await skillDescriptor.run(skillContext, skillReport.options);
+  } catch (error) {
+    skillContext.error(buildErrorPayload(error));
+    return 1;
+  }
+}
+
+async function dispatchPluginOrReplayCommand(
+  parsed: ParsedArgv,
+  stdout: NodeJS.WritableStream,
+  stderr: NodeJS.WritableStream,
+  context: CliRuntimeContext,
+): Promise<CliStatusCode> {
   let report: CliParseReport | PluginParseReport;
   try {
-    if (parsed.positional[0] === 'plugin') {
-      report = normalizeAndValidatePluginCommand(parsed);
-    } else {
-      report = normalizeAndValidate(parsed);
-    }
+    report = parsed.positional[0] === 'plugin'
+      ? normalizeAndValidatePluginCommand(parsed)
+      : normalizeAndValidate(parsed);
   } catch (error) {
-    const payload = buildErrorPayload(error);
-    context.error(payload);
+    context.error(buildErrorPayload(error));
     return 2;
   }
 
@@ -2124,10 +2109,7 @@ export async function runCli(options: CliRunOptions = {}): Promise<CliStatusCode
   if (report.command === 'plugin') {
     const pluginCommand = PLUGIN_COMMANDS[report.pluginCommand];
     try {
-      return await pluginCommand.run(
-        commandContext,
-        report.options,
-      );
+      return await pluginCommand.run(commandContext, report.options);
     } catch (error) {
       return reportCliError(commandContext, error, [
         ERROR_CODES.MISSING_PLUGIN_COMMAND,
@@ -2210,6 +2192,36 @@ export async function runCli(options: CliRunOptions = {}): Promise<CliStatusCode
       ERROR_CODES.UNKNOWN_REPLAY_COMMAND,
     ]);
   }
+}
+
+export async function runCli(options: CliRunOptions = {}): Promise<CliStatusCode> {
+  const argv = options.argv ?? process.argv.slice(2);
+  const stdout = options.stdout ?? process.stdout;
+  const stderr = options.stderr ?? process.stderr;
+
+  const parsed = parseArgv(argv);
+  const outputFormat = normalizeOutputFormat(parsed.flags.output ?? parsed.flags['output-format']);
+
+  const context = createContext(stdout, stderr, outputFormat, normalizeLogLevel(process.env.AGENC_RUNTIME_LOG_LEVEL ?? DEFAULT_LOG_LEVEL));
+
+  const showRootHelp = parsed.flags.help || parsed.flags.h || parsed.positional.length === 0;
+  if (showRootHelp) {
+    context.output(buildHelp());
+    return 0;
+  }
+
+  const routed = await dispatchBootstrapCommands(parsed, context)
+    ?? await dispatchDaemonCommands(parsed, context)
+    ?? await dispatchConfigCommands(parsed, context)
+    ?? await dispatchSessionCommands(parsed, context)
+    ?? await dispatchJobsCommands(parsed, context)
+    ?? await dispatchSkillCommands(parsed, stdout, stderr, context);
+
+  if (routed !== null) {
+    return routed;
+  }
+
+  return dispatchPluginOrReplayCommand(parsed, stdout, stderr, context);
 }
 
 async function runReplayBackfillCommand(

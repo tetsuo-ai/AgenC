@@ -295,42 +295,68 @@ async function deleteWebhook(webhookId: string): Promise<void> {
   console.log(chalk.yellow('Webhook deleted:'), webhookId);
 }
 
+function buildTaskCompletionEvent(
+  payload: WebhookPayload,
+  taskId: number,
+  worker: string | undefined,
+): TaskCompletionEvent {
+  return {
+    taskId,
+    worker: worker || 'unknown',
+    proofVerified: true,
+    timestamp: payload.timestamp,
+    txSignature: payload.txnSignature,
+  };
+}
+
+function* iterateInstructions(events: TransactionEvent[]): Generator<InstructionEvent> {
+  for (const event of events) {
+    if (!event.instructions) {
+      continue;
+    }
+    for (const instruction of event.instructions) {
+      yield instruction;
+    }
+  }
+}
+
+function parseVerifierInstruction(
+  payload: WebhookPayload,
+  instruction: InstructionEvent,
+): TaskCompletionEvent | null {
+  if (instruction.programId !== VERIFIER_PROGRAM_ID) {
+    return null;
+  }
+  return buildTaskCompletionEvent(payload, extractTaskId(instruction.data), instruction.accounts[0]);
+}
+
+function parseAgencCompletionInstruction(
+  payload: WebhookPayload,
+  instruction: InstructionEvent,
+): TaskCompletionEvent | null {
+  if (instruction.programId !== AGENC_PROGRAM_ID) {
+    return null;
+  }
+  const decoded = decodeAgencInstruction(instruction.data);
+  if (decoded?.type !== 'complete_task_private') {
+    return null;
+  }
+  return buildTaskCompletionEvent(payload, decoded.taskId, instruction.accounts[0]);
+}
+
 /**
  * Parse task completion from transaction
  */
 function parseTaskCompletion(payload: WebhookPayload): TaskCompletionEvent | null {
   try {
-    // Look for verifier program invocation
-    for (const event of payload.events) {
-      if (!event.instructions) continue;
-
-      for (const ix of event.instructions) {
-        // Check if this is a verification instruction
-        if (ix.programId === VERIFIER_PROGRAM_ID) {
-          // Parse the instruction data to extract task details
-          // In production, decode the actual instruction data
-          return {
-            taskId: extractTaskId(ix.data),
-            worker: ix.accounts[0] || 'unknown',
-            proofVerified: true,
-            timestamp: payload.timestamp,
-            txSignature: payload.txnSignature,
-          };
-        }
-
-        // Check for AgenC complete_task_private instruction
-        if (ix.programId === AGENC_PROGRAM_ID) {
-          const decoded = decodeAgencInstruction(ix.data);
-          if (decoded?.type === 'complete_task_private') {
-            return {
-              taskId: decoded.taskId,
-              worker: ix.accounts[0] || 'unknown',
-              proofVerified: true,
-              timestamp: payload.timestamp,
-              txSignature: payload.txnSignature,
-            };
-          }
-        }
+    for (const instruction of iterateInstructions(payload.events)) {
+      const verifierMatch = parseVerifierInstruction(payload, instruction);
+      if (verifierMatch) {
+        return verifierMatch;
+      }
+      const agencMatch = parseAgencCompletionInstruction(payload, instruction);
+      if (agencMatch) {
+        return agencMatch;
       }
     }
   } catch (error) {

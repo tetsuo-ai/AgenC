@@ -2,6 +2,7 @@ import { Keypair } from '@solana/web3.js';
 import { vi } from 'vitest';
 import type { TaskOperations } from './operations.js';
 import type { TaskDiscovery, TaskDiscoveryResult, TaskDiscoveryListener } from './discovery.js';
+import type { ProofPipeline } from './proof-pipeline.js';
 import type {
   OnChainTask,
   OnChainTaskClaim,
@@ -37,6 +38,22 @@ export function createTask(overrides: Partial<OnChainTask> = {}): OnChainTask {
     ...overrides,
     rewardMint,
   };
+}
+
+export function randomPda() {
+  return Keypair.generate().publicKey;
+}
+
+export function createSpeculationTask(overrides: Partial<OnChainTask> = {}): OnChainTask {
+  return createTask({
+    taskId: new Uint8Array(32).fill(Math.floor(Math.random() * 256)),
+    creator: randomPda(),
+    requiredCapabilities: 0n,
+    createdAt: Math.floor(Date.now() / 1000),
+    deadline: 0,
+    escrow: randomPda(),
+    ...overrides,
+  });
 }
 
 export function createDiscoveryResult(
@@ -93,6 +110,32 @@ export function createMockOperations(): TaskOperations & {
     fetchTaskByIds: ReturnType<typeof vi.fn>;
     fetchClaim: ReturnType<typeof vi.fn>;
   };
+}
+
+export function createMockProofPipeline(): ProofPipeline {
+  return {
+    queueProofGeneration: vi.fn(),
+    submitProof: vi.fn().mockResolvedValue('mock-signature'),
+    getQueuedJobs: vi.fn().mockReturnValue([]),
+    getActiveJobs: vi.fn().mockReturnValue([]),
+    getCompletedJobs: vi.fn().mockReturnValue([]),
+    getFailedJobs: vi.fn().mockReturnValue([]),
+    getStats: vi.fn().mockReturnValue({
+      queued: 0,
+      generating: 0,
+      generated: 0,
+      submitting: 0,
+      confirmed: 0,
+      failed: 0,
+      totalProcessed: 0,
+      averageGenerationTimeMs: 0,
+      averageSubmissionTimeMs: 0,
+    }),
+    stop: vi.fn().mockResolvedValue(undefined),
+    start: vi.fn(),
+    isShuttingDown: vi.fn().mockReturnValue(false),
+    cancel: vi.fn(),
+  } as unknown as ProofPipeline;
 }
 
 export function createMockDiscovery(): TaskDiscovery & {

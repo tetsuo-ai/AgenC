@@ -8,6 +8,7 @@ import {
 import anchor, { type Program } from '@coral-xyz/anchor';
 import { PROGRAM_ID, SEEDS } from './constants';
 import { getAccount } from './anchor-utils';
+import { toBigInt, toNumber } from './utils/numeric';
 
 const BPF_LOADER_UPGRADEABLE_PROGRAM_ID = new PublicKey(
   'BPFLoaderUpgradeab1e11111111111111111111111',
@@ -38,24 +39,6 @@ export interface ProtocolConfigState {
   minAgentStake: bigint;
   minStakeForDispute: bigint;
   multisigThreshold: number;
-}
-
-function toNumber(value: unknown): number {
-  if (typeof value === 'number') return value;
-  if (value && typeof value === 'object' && 'toNumber' in value) {
-    return (value as { toNumber: () => number }).toNumber();
-  }
-  if (typeof value === 'bigint') return Number(value);
-  return 0;
-}
-
-function toBigInt(value: unknown): bigint {
-  if (typeof value === 'bigint') return value;
-  if (typeof value === 'number') return BigInt(value);
-  if (value && typeof value === 'object' && 'toString' in value) {
-    return BigInt((value as { toString: () => string }).toString());
-  }
-  return 0n;
 }
 
 function buildMultisigRemainingAccounts(signers: Keypair[]): AccountMeta[] {

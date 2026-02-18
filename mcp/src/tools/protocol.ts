@@ -16,6 +16,7 @@ import {
   getCurrentProgramId,
 } from '../utils/connection.js';
 import { formatSol, safePubkey } from '../utils/formatting.js';
+import { toolErrorResponse } from './response.js';
 
 function formatProtocolConfig(config: Record<string, unknown>, pda: PublicKey): string {
   const lines = [
@@ -81,9 +82,7 @@ export function registerProtocolTools(server: McpServer): void {
           }],
         };
       } catch (error) {
-        return {
-          content: [{ type: 'text' as const, text: 'Error: ' + (error as Error).message }],
-        };
+        return toolErrorResponse(error);
       }
     },
   );
@@ -234,9 +233,7 @@ export function registerProtocolTools(server: McpServer): void {
           }],
         };
       } catch (error) {
-        return {
-          content: [{ type: 'text' as const, text: 'Error: ' + (error as Error).message }],
-        };
+        return toolErrorResponse(error);
       }
     },
   );
@@ -294,9 +291,7 @@ export function registerProtocolTools(server: McpServer): void {
           }],
         };
       } catch (error) {
-        return {
-          content: [{ type: 'text' as const, text: 'Error: ' + (error as Error).message }],
-        };
+        return toolErrorResponse(error);
       }
     },
   );
@@ -341,9 +336,7 @@ export function registerProtocolTools(server: McpServer): void {
           content: [{ type: 'text' as const, text: lines.join('\n') }],
         };
       } catch (error) {
-        return {
-          content: [{ type: 'text' as const, text: 'Error: ' + (error as Error).message }],
-        };
+        return toolErrorResponse(error);
       }
     },
   );

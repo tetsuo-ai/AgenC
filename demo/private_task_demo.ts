@@ -31,6 +31,36 @@ const HELIUS_RPC = `https://mainnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}`;
 
 // Circuit path
 const CIRCUIT_PATH = path.join(process.cwd(), 'circuits', 'task_completion');
+const DEFAULT_OUTPUT = [1n, 2n, 3n, 4n] as const;
+const DEFAULT_TASK_ID = 1;
+const DEFAULT_SALT = 12345n;
+const DEFAULT_SUBMISSION_DELAY_MS = 500;
+const DEFAULT_PROOF_SIM_DELAY_MS = 1500;
+
+function parseIntegerEnv(name: string, fallback: number): number {
+  const value = process.env[name];
+  if (!value) return fallback;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function parseBigIntEnv(name: string, fallback: bigint): bigint {
+  const value = process.env[name];
+  if (!value) return fallback;
+  try {
+    return BigInt(value);
+  } catch {
+    return fallback;
+  }
+}
+
+const DEMO_CONFIG = {
+  expectedOutput: [...DEFAULT_OUTPUT] as bigint[],
+  taskId: parseIntegerEnv('PRIVATE_DEMO_TASK_ID', DEFAULT_TASK_ID),
+  salt: parseBigIntEnv('PRIVATE_DEMO_SALT', DEFAULT_SALT),
+  submissionDelayMs: parseIntegerEnv('PRIVATE_DEMO_SUBMISSION_DELAY_MS', DEFAULT_SUBMISSION_DELAY_MS),
+  proofSimulationDelayMs: parseIntegerEnv('PRIVATE_DEMO_PROOF_SIM_DELAY_MS', DEFAULT_PROOF_SIM_DELAY_MS),
+};
 
 async function main() {
     console.log('='.repeat(60));
@@ -70,7 +100,7 @@ async function main() {
     console.log('STEP 1: Create Task');
     console.log('-'.repeat(60));
     
-    const expectedOutput = [1n, 2n, 3n, 4n];  // The expected answer
+    const expectedOutput = [...DEMO_CONFIG.expectedOutput];  // The expected answer
     const constraintHash = computeConstraintHash(expectedOutput);
     
     console.log('Task constraint hash:', constraintHash.toString('hex'));
@@ -84,7 +114,7 @@ async function main() {
     //     deadline: Date.now() + 86400000,
     //     enablePrivacy: true,
     // });
-    const taskId = 1;
+    const taskId = DEMO_CONFIG.taskId;
     console.log('Task created with ID:', taskId);
     console.log('Escrow: 1 SOL locked');
     console.log();
@@ -107,9 +137,9 @@ async function main() {
     console.log('-'.repeat(60));
     
     console.log('Worker computes the answer...');
-    const actualOutput = [1n, 2n, 3n, 4n];  // Worker figured out the answer
-    // Use fixed salt for demo (matches precomputed commitment hash)
-    const salt = 12345n;
+    const actualOutput = [...DEMO_CONFIG.expectedOutput];  // Worker figured out the answer
+    // Use demo salt (override with PRIVATE_DEMO_SALT)
+    const salt = DEMO_CONFIG.salt;
     const outputCommitment = computeCommitment(actualOutput, salt);
     
     console.log('Output computed (PRIVATE - never revealed on-chain)');
@@ -164,7 +194,7 @@ async function main() {
         console.log('  - ZK proof:', proofResult.zkProof.slice(0, 32).toString('hex') + '...');
         console.log('  - To verifier program on Solana');
         console.log('  - Then trigger Privacy Cash withdrawal');
-        await sleep(500);
+        await sleep(DEMO_CONFIG.submissionDelayMs);
         signature = 'DEMO_SIGNATURE_' + Date.now().toString(36);
     } else {
         // Real mainnet execution with Privacy Cash SDK
@@ -263,69 +293,105 @@ async function generateActualZKProof(params: {
     salt: bigint;
 }): Promise<{ proofBytes: number; generationTime: number; zkProof: Buffer; publicWitness: Buffer }> {
     const startTime = Date.now();
+    const cached = loadExistingProof();
+    if (cached) {
+        return {
+            proofBytes: cached.zkProof.length,
+            generationTime: Date.now() - startTime,
+            zkProof: cached.zkProof,
+            publicWitness: cached.publicWitness,
+        };
+    }
 
-    // Check if we have pre-generated proof
+    if (!isNoirToolchainAvailable()) {
+        return runSimulationProof(params, startTime);
+    }
+
+    return runNoirSunspotProof(params, startTime);
+}
+
+function loadExistingProof(): { zkProof: Buffer; publicWitness: Buffer } | null {
     const proofPath = path.join(CIRCUIT_PATH, 'target', 'task_completion.proof');
-    if (fs.existsSync(proofPath)) {
-        console.log('  Using pre-generated proof from previous run...');
-        const zkProof = fs.readFileSync(proofPath);
-        const publicWitness = fs.existsSync(path.join(CIRCUIT_PATH, 'target', 'task_completion.pw'))
-            ? fs.readFileSync(path.join(CIRCUIT_PATH, 'target', 'task_completion.pw'))
-            : Buffer.alloc(32);
-        return {
-            proofBytes: zkProof.length,
-            generationTime: Date.now() - startTime,
-            zkProof,
-            publicWitness
-        };
+    if (!fs.existsSync(proofPath)) {
+        return null;
     }
 
-    // Try to use nargo/sunspot (may fail if not installed)
+    console.log('  Using pre-generated proof from previous run...');
+    const zkProof = fs.readFileSync(proofPath);
+    const witnessPath = path.join(CIRCUIT_PATH, 'target', 'task_completion.pw');
+    const publicWitness = fs.existsSync(witnessPath)
+        ? fs.readFileSync(witnessPath)
+        : Buffer.alloc(32);
+
+    return { zkProof, publicWitness };
+}
+
+function isNoirToolchainAvailable(): boolean {
     try {
-        // Check if nargo is available
         execSync('nargo --version', { stdio: 'pipe' });
+        return true;
     } catch {
-        // Toolchain not available - use simulation mode
-        console.log('  [SIMULATION] Noir/Sunspot toolchain not in PATH');
-        console.log('  [SIMULATION] In production, would run:');
-        console.log('    nargo execute');
-        console.log('    sunspot prove ...');
-        console.log('  [SIMULATION] Generating mock proof...');
-
-        // Generate deterministic mock proof for demo
-        const mockProof = Buffer.alloc(324);
-        Buffer.from(params.constraintHash).copy(mockProof, 0);
-        Buffer.from(params.outputCommitment).copy(mockProof, 32);
-        mockProof.writeUInt32LE(params.taskId, 64);
-
-        await sleep(1500);  // Simulate proof generation time
-
-        return {
-            proofBytes: mockProof.length,
-            generationTime: Date.now() - startTime,
-            zkProof: mockProof,
-            publicWitness: Buffer.alloc(32)
-        };
+        return false;
     }
+}
 
-    // Full proof generation with Noir + Sunspot
+async function runSimulationProof(
+    params: {
+        taskId: number;
+        constraintHash: Buffer;
+        outputCommitment: Buffer;
+    },
+    startTime: number,
+): Promise<{ proofBytes: number; generationTime: number; zkProof: Buffer; publicWitness: Buffer }> {
+    console.log('  [SIMULATION] Noir/Sunspot toolchain not in PATH');
+    console.log('  [SIMULATION] In production, would run:');
+    console.log('    nargo execute');
+    console.log('    sunspot prove ...');
+    console.log('  [SIMULATION] Generating mock proof...');
+
+    const mockProof = Buffer.alloc(324);
+    Buffer.from(params.constraintHash).copy(mockProof, 0);
+    Buffer.from(params.outputCommitment).copy(mockProof, 32);
+    mockProof.writeUInt32LE(params.taskId, 64);
+
+    await sleep(DEMO_CONFIG.proofSimulationDelayMs);
+
+    return {
+        proofBytes: mockProof.length,
+        generationTime: Date.now() - startTime,
+        zkProof: mockProof,
+        publicWitness: Buffer.alloc(32),
+    };
+}
+
+function ensureNoirArtifacts(): void {
     const ccsPath = path.join(CIRCUIT_PATH, 'target', 'task_completion.ccs');
     const pkPath = path.join(CIRCUIT_PATH, 'target', 'task_completion.pk');
-
-    if (!fs.existsSync(ccsPath) || !fs.existsSync(pkPath)) {
-        console.log('  Circuit artifacts not found. Running setup...');
-        console.log('  (In production, these would be pre-deployed)');
-
-        execSync('nargo compile', { cwd: CIRCUIT_PATH, stdio: 'pipe' });
-        execSync('sunspot export target/task_completion.json -o target/task_completion.ccs', {
-            cwd: CIRCUIT_PATH, stdio: 'pipe'
-        });
-        execSync('sunspot setup target/task_completion.ccs -o target/task_completion', {
-            cwd: CIRCUIT_PATH, stdio: 'pipe'
-        });
+    if (fs.existsSync(ccsPath) && fs.existsSync(pkPath)) {
+        return;
     }
 
-    // Write Prover.toml with actual values
+    console.log('  Circuit artifacts not found. Running setup...');
+    console.log('  (In production, these would be pre-deployed)');
+    execSync('nargo compile', { cwd: CIRCUIT_PATH, stdio: 'pipe' });
+    execSync('sunspot export target/task_completion.json -o target/task_completion.ccs', {
+        cwd: CIRCUIT_PATH,
+        stdio: 'pipe',
+    });
+    execSync('sunspot setup target/task_completion.ccs -o target/task_completion', {
+        cwd: CIRCUIT_PATH,
+        stdio: 'pipe',
+    });
+}
+
+function writeProverToml(params: {
+    taskId: number;
+    agentPubkey: PublicKey;
+    constraintHash: Buffer;
+    outputCommitment: Buffer;
+    output: bigint[];
+    salt: bigint;
+}): void {
     const proverToml = `# Auto-generated for proof
 task_id = "${params.taskId}"
 agent_pubkey = [${Array.from(params.agentPubkey.toBytes()).join(', ')}]
@@ -335,6 +401,18 @@ output = [${params.output.map(o => `"${o}"`).join(', ')}]
 salt = "${params.salt}"
 `;
     fs.writeFileSync(path.join(CIRCUIT_PATH, 'Prover.toml'), proverToml);
+}
+
+async function runNoirSunspotProof(params: {
+    taskId: number;
+    agentPubkey: PublicKey;
+    constraintHash: Buffer;
+    outputCommitment: Buffer;
+    output: bigint[];
+    salt: bigint;
+}, startTime: number): Promise<{ proofBytes: number; generationTime: number; zkProof: Buffer; publicWitness: Buffer }> {
+    ensureNoirArtifacts();
+    writeProverToml(params);
 
     console.log('  Executing Noir circuit...');
     execSync('nargo execute', { cwd: CIRCUIT_PATH, stdio: 'pipe' });
@@ -342,19 +420,21 @@ salt = "${params.salt}"
     console.log('  Generating Groth16 proof via Sunspot...');
     execSync(
         'sunspot prove target/task_completion.ccs target/task_completion.pk target/task_completion.gz -o target/task_completion.proof',
-        { cwd: CIRCUIT_PATH, stdio: 'pipe' }
+        { cwd: CIRCUIT_PATH, stdio: 'pipe' },
     );
 
+    const proofPath = path.join(CIRCUIT_PATH, 'target', 'task_completion.proof');
+    const witnessPath = path.join(CIRCUIT_PATH, 'target', 'task_completion.pw');
     const zkProof = fs.readFileSync(proofPath);
-    const publicWitness = fs.existsSync(path.join(CIRCUIT_PATH, 'target', 'task_completion.pw'))
-        ? fs.readFileSync(path.join(CIRCUIT_PATH, 'target', 'task_completion.pw'))
+    const publicWitness = fs.existsSync(witnessPath)
+        ? fs.readFileSync(witnessPath)
         : Buffer.alloc(0);
 
     return {
         proofBytes: zkProof.length,
         generationTime: Date.now() - startTime,
         zkProof,
-        publicWitness
+        publicWitness,
     };
 }
 

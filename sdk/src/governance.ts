@@ -11,6 +11,7 @@ import {
 import anchor, { type Program } from '@coral-xyz/anchor';
 import { PROGRAM_ID, SEEDS } from './constants.js';
 import { getAccount } from './anchor-utils.js';
+import { toBigInt, toNumber } from './utils/numeric.js';
 
 // ============================================================================
 // Enums
@@ -52,24 +53,6 @@ export interface ProposalState {
   totalVoters: number;
   quorum: bigint;
   bump: number;
-}
-
-function toNumber(value: unknown): number {
-  if (typeof value === 'number') return value;
-  if (value && typeof value === 'object' && 'toNumber' in value) {
-    return (value as { toNumber: () => number }).toNumber();
-  }
-  if (typeof value === 'bigint') return Number(value);
-  return 0;
-}
-
-function toBigInt(value: unknown): bigint {
-  if (typeof value === 'bigint') return value;
-  if (typeof value === 'number') return BigInt(value);
-  if (value && typeof value === 'object' && 'toString' in value) {
-    return BigInt((value as { toString: () => string }).toString());
-  }
-  return 0n;
 }
 
 function parseProposalType(raw: unknown): ProposalType {

@@ -30,6 +30,7 @@ import {
   deriveProgramDataPda,
   getDefaultDeadline,
   fundWallet,
+  disableRateLimitsForTests,
 } from "./test-utils";
 
 const HASH_SIZE = 32;
@@ -166,18 +167,13 @@ describe("security-audit-fixes", () => {
       treasuryPubkey = cfg.treasury;
     }
 
-    // Disable rate limiting
-    try {
-      await program.methods
-        .updateRateLimits(new BN(0), 0, new BN(0), 0, new BN(0))
-        .accountsPartial({ protocolConfig: protocolPda })
-        .remainingAccounts([
-          { pubkey: provider.wallet.publicKey, isSigner: true, isWritable: false },
-        ])
-        .rpc();
-    } catch {
-      // Already configured
-    }
+    await disableRateLimitsForTests({
+      program,
+      protocolPda,
+      authority: provider.wallet.publicKey,
+      minStakeForDisputeLamports: 0,
+      skipPreflight: false,
+    });
 
     // Register creator agent
     creatorAgentId = makeAgentId("secCre", runId);

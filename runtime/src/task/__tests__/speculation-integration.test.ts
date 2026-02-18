@@ -8,7 +8,7 @@
  */
 
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
-import { Keypair, PublicKey } from '@solana/web3.js';
+import { PublicKey } from '@solana/web3.js';
 import { DependencyGraph, DependencyType } from '../dependency-graph.js';
 import { CommitmentLedger } from '../commitment-ledger.js';
 import type { ProofPipeline } from '../proof-pipeline.js';
@@ -16,65 +16,13 @@ import {
   SpeculativeTaskScheduler,
   type SpeculativeSchedulerEvents,
 } from '../speculative-scheduler.js';
-import type { OnChainTask } from '../types.js';
-import { OnChainTaskStatus, TaskType } from '../types.js';
+import { createMockProofPipeline, createSpeculationTask, randomPda } from '../test-utils.js';
 
 // ============================================================================
 // Test Helpers
 // ============================================================================
 
-function randomPda(): PublicKey {
-  return Keypair.generate().publicKey;
-}
-
-function createMockTask(): OnChainTask {
-  return {
-    taskId: new Uint8Array(32).fill(Math.floor(Math.random() * 256)),
-    creator: randomPda(),
-    requiredCapabilities: 0n,
-    description: new Uint8Array(64),
-    constraintHash: new Uint8Array(32),
-    rewardAmount: 1_000_000n,
-    maxWorkers: 1,
-    currentWorkers: 0,
-    status: OnChainTaskStatus.Open,
-    taskType: TaskType.Exclusive,
-    createdAt: Math.floor(Date.now() / 1000),
-    deadline: 0,
-    completedAt: 0,
-    escrow: randomPda(),
-    result: new Uint8Array(64),
-    completions: 0,
-    requiredCompletions: 1,
-    bump: 255,
-  };
-}
-
-function createMockProofPipeline(): ProofPipeline {
-  return {
-    queueProofGeneration: vi.fn(),
-    submitProof: vi.fn().mockResolvedValue('mock-signature'),
-    getQueuedJobs: vi.fn().mockReturnValue([]),
-    getActiveJobs: vi.fn().mockReturnValue([]),
-    getCompletedJobs: vi.fn().mockReturnValue([]),
-    getFailedJobs: vi.fn().mockReturnValue([]),
-    getStats: vi.fn().mockReturnValue({
-      queued: 0,
-      generating: 0,
-      generated: 0,
-      submitting: 0,
-      confirmed: 0,
-      failed: 0,
-      totalProcessed: 0,
-      averageGenerationTimeMs: 0,
-      averageSubmissionTimeMs: 0,
-    }),
-    stop: vi.fn().mockResolvedValue(undefined),
-    start: vi.fn(),
-    isShuttingDown: vi.fn().mockReturnValue(false),
-    cancel: vi.fn(),
-  } as unknown as ProofPipeline;
-}
+const createMockTask = createSpeculationTask;
 
 // ============================================================================
 // Integration Test Suite

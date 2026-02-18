@@ -45,12 +45,18 @@ describe("SDK Proof Generation", function () {
     try {
       execSync("nargo --version", { stdio: "pipe" });
       toolsAvailable.nargo = true;
-    } catch {}
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.log("nargo probe failed:", message);
+    }
 
     try {
       execSync("sunspot --version", { stdio: "pipe" });
       toolsAvailable.sunspot = true;
-    } catch {}
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.log("sunspot probe failed:", message);
+    }
 
     if (!toolsAvailable.nargo) {
       console.log("nargo not found, skipping proof tests");

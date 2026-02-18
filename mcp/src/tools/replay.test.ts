@@ -1,13 +1,5 @@
 import assert from 'node:assert/strict';
-import {
-  mkdtempSync,
-  rmSync,
-  readFileSync,
-  writeFileSync,
-} from 'node:fs';
 import { setTimeout } from 'node:timers/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import test from 'node:test';
 import {
   ReplayBackfillOutputSchema,
@@ -25,83 +17,14 @@ import {
   runReplayCompareTool,
   runReplayIncidentTool,
   runReplayStatusTool,
-  type ReplayToolRuntime,
-  type ReplayPolicy,
 } from './replay.js';
-
-type FakeReplayStore = {
-  save: (records: readonly Record<string, unknown>[]) => Promise<{ inserted: number; duplicates: number }>;
-  query: (filter?: Record<string, unknown>) => Promise<readonly Record<string, unknown>[]>;
-  getCursor: () => Promise<Record<string, unknown> | null>;
-  saveCursor: (cursor: Record<string, unknown> | null) => Promise<void>;
-  clear: () => Promise<void>;
-};
-
-type FakeBackfillFetcher = {
-  fetchPage: () => Promise<{
-    events: unknown[];
-    nextCursor: Record<string, unknown> | null;
-    done: boolean;
-  }>;
-};
-
-type TestRuntime = {
-  store: FakeReplayStore;
-  fetcher?: FakeBackfillFetcher;
-  trace?: string;
-};
-
-function createInMemoryReplayStore(): FakeReplayStore {
-  let cursor: Record<string, unknown> | null = null;
-  const records: Record<string, unknown>[] = [];
-  const index = new Set<string>();
-
-  return {
-    async save(input) {
-      let inserted = 0;
-      let duplicates = 0;
-      for (const event of input) {
-        const key = `${String(event.slot)}|${String(event.signature)}|${String(event.sourceEventType ?? event.type ?? '')}`;
-        if (index.has(key)) {
-          duplicates += 1;
-          continue;
-        }
-        index.add(key);
-        records.push(event);
-        inserted += 1;
-      }
-      return { inserted, duplicates };
-    },
-    async query(filter = {}) {
-      return records.filter((event) => {
-        if (filter.taskPda !== undefined && event.taskPda !== filter.taskPda) {
-          return false;
-        }
-        if (filter.disputePda !== undefined && event.disputePda !== filter.disputePda) {
-          return false;
-        }
-        if (filter.fromSlot !== undefined && event.slot < filter.fromSlot) {
-          return false;
-        }
-        if (filter.toSlot !== undefined && event.slot > filter.toSlot) {
-          return false;
-        }
-        return true;
-      });
-    },
-    async getCursor() {
-      return cursor;
-    },
-    async saveCursor(value) {
-      cursor = value;
-    },
-    async clear() {
-      records.length = 0;
-      index.clear();
-      cursor = null;
-    },
-  };
-}
+import {
+  type FakeBackfillFetcher,
+  createInMemoryReplayStore,
+  createReplayRuntime,
+  buildReplayPolicy,
+  runWithTempTrace,
+} from './replay-test-utils.js';
 
 function neverResolve<T>(): Promise<T> {
   return new Promise<T>(() => {});
@@ -127,60 +50,6 @@ const sessionReplayExtra = {
   sessionId: 'policy-session-001',
   requestId: 'policy-session-test',
 };
-
-function createReplayRuntime(runtime: TestRuntime): ReplayToolRuntime {
-  return {
-    createStore: () => runtime.store,
-    createBackfillFetcher: () => {
-      if (!runtime.fetcher) {
-        return {
-          async fetchPage() {
-            return { events: [], nextCursor: null, done: true };
-          },
-        };
-      }
-      return runtime.fetcher;
-    },
-    readLocalTrace(path) {
-      const trace = runtime.trace ?? '';
-      if (path === trace) {
-        return JSON.parse(readFileSyncUtf8(trace));
-      }
-      return JSON.parse(readFileSyncUtf8(path));
-    },
-    async getCurrentSlot() {
-      return 1_000;
-    },
-  };
-}
-
-function readFileSyncUtf8(path: string): string {
-  return readFileSync(path, 'utf8');
-}
-
-function buildReplayPolicy(): ReplayPolicy {
-  return {
-    maxSlotWindow: 1_000_000,
-    maxEventCount: 100,
-    maxConcurrentJobs: 5,
-    maxToolRuntimeMs: 60_000,
-    allowlist: new Set<string>(),
-    denylist: new Set<string>(),
-    defaultRedactions: ['signature'],
-    auditEnabled: false,
-  };
-}
-
-async function runWithTempTrace(trace: object, callback: (path: string) => Promise<unknown>) {
-  const dir = mkdtempSync(join(tmpdir(), 'agenc-mcp-replay-test-'));
-  const tracePath = join(dir, 'trace.json');
-  try {
-    writeFileSync(tracePath, JSON.stringify(trace));
-    return callback(tracePath);
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-}
 
 const storeRecord = {
   seq: 1,

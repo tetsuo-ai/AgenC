@@ -28,6 +28,7 @@ import {
   TASK_TYPE_EXCLUSIVE,
   TASK_TYPE_COMPETITIVE,
   deriveProgramDataPda,
+  disableRateLimitsForTests,
 } from "./test-utils";
 
 describe("ZK Proof Verification Lifecycle", () => {
@@ -226,18 +227,13 @@ describe("ZK Proof Verification Lifecycle", () => {
       treasuryPubkey = config.treasury;
     }
 
-    // Disable rate limiting
-    try {
-      await program.methods
-        .updateRateLimits(new BN(0), 0, new BN(0), 0, new BN(0))
-        .accountsPartial({ protocolConfig: protocolPda })
-        .remainingAccounts([
-          { pubkey: provider.wallet.publicKey, isSigner: true, isWritable: false },
-        ])
-        .rpc();
-    } catch (e) {
-      // May already be configured
-    }
+    await disableRateLimitsForTests({
+      program,
+      protocolPda,
+      authority: provider.wallet.publicKey,
+      minStakeForDisputeLamports: 0,
+      skipPreflight: false,
+    });
 
     // Register agents
     creatorAgentPda = deriveAgentPda(creatorAgentId);
