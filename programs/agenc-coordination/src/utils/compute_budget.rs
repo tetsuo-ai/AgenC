@@ -47,9 +47,8 @@ pub const RECOMMENDED_CU_CLAIM_TASK: u32 = 30_000;
 /// Complete task (public): reward calc + lamport transfers + state updates (~40k measured)
 pub const RECOMMENDED_CU_COMPLETE_TASK: u32 = 60_000;
 
-/// Complete task (private/ZK): Groth16 verification is the heaviest operation.
-/// The groth16-solana verifier uses ~100-130k CU for BN254 pairing checks.
-/// Budget includes proof parsing, public input construction, and state updates.
+/// Complete task (private/ZK): router-based proof verification is the heaviest operation.
+/// Budget includes seal/journal validation, router CPI verification, and state updates.
 pub const RECOMMENDED_CU_COMPLETE_TASK_PRIVATE: u32 = 200_000;
 
 /// Cancel task: escrow refund + state cleanup (~25k measured)

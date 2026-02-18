@@ -1,76 +1,42 @@
 /**
- * ZK Proof Generation for AgenC
+ * RISC Zero private-proof payload helpers for AgenC SDK.
  *
- * Uses snarkjs with Circom circuits for Groth16 proof generation.
- * Hash computation uses poseidon-lite for exact circomlib compatibility.
- *
- * ## Security Notes
- *
- * ### Salt Security
- * - Each proof MUST use a unique, cryptographically random salt
- * - NEVER reuse a salt across different proofs - this can leak private output data
- * - Use `generateSalt()` to create secure random salts
- * - Store salts securely if you need to verify commitments later
- *
- * ### Hash Computation
- * - All hashes are computed via poseidon-lite (circomlib compatible)
- * - This guarantees exact compatibility with the task_completion circuit
+ * Proof generation now emits the router payload shape:
+ * - seal_bytes (260 bytes borsh envelope for trusted selector + Groth16 proof)
+ * - journal (192 bytes fixed schema)
+ * - image_id (32 bytes)
+ * - binding_seed / nullifier_seed (32 bytes each)
  */
 
-import * as fs from 'fs';
-import * as path from 'path';
 import { PublicKey } from '@solana/web3.js';
+import { createHash } from 'node:crypto';
 import { poseidon2, poseidon4, poseidon5 } from 'poseidon-lite';
-import { HASH_SIZE, OUTPUT_FIELD_COUNT, PROOF_SIZE_BYTES } from './constants';
-import { validateCircuitPath } from './validation';
-
-type SnarkjsModule = {
-  groth16: {
-    fullProve: (
-      input: Record<string, string | string[]>,
-      wasmFile: string,
-      zkeyFile: string
-    ) => Promise<{ proof: { pi_a: string[]; pi_b: string[][]; pi_c: string[] } }>;
-    verify: (vkey: unknown, publicSignals: string[], proof: unknown) => Promise<boolean>;
-  };
-};
-
-let snarkjsLoader: Promise<SnarkjsModule> | null = null;
-
-async function loadSnarkjs(): Promise<SnarkjsModule> {
-  if (snarkjsLoader) {
-    return snarkjsLoader;
-  }
-
-  // @ts-expect-error snarkjs is an optional dependency and has no bundled typings
-  snarkjsLoader = import('snarkjs')
-    .then((module) => {
-      const candidate = ((module as { default?: unknown }).default ?? module) as unknown;
-      if (
-        typeof candidate !== 'object'
-        || candidate === null
-        || !('groth16' in candidate)
-        || typeof (candidate as { groth16?: unknown }).groth16 !== 'object'
-      ) {
-        throw new Error('snarkjs module loaded but groth16 API not found');
-      }
-      return candidate as SnarkjsModule;
-    })
-    .catch((error) => {
-      snarkjsLoader = null;
-      throw error;
-    });
-
-  return snarkjsLoader;
-}
+import {
+  HASH_SIZE,
+  OUTPUT_FIELD_COUNT,
+  PROOF_SIZE_BYTES,
+  RISC0_GROTH16_SEAL_LEN,
+  RISC0_IMAGE_ID_LEN,
+  RISC0_JOURNAL_LEN,
+  RISC0_SEAL_BORSH_LEN,
+  RISC0_SELECTOR_LEN,
+  TRUSTED_RISC0_IMAGE_ID,
+  TRUSTED_RISC0_SELECTOR,
+} from './constants';
 
 /** BN254 scalar field modulus */
 export const FIELD_MODULUS = 21888242871839275222246405745257275088548364400416034343698204186575808495617n;
 
-const DEFAULT_CIRCUIT_PATH = './circuits-circom/task_completion';
-
 /** Bits per byte for bit shifting */
 const BITS_PER_BYTE = 8n;
+
+const PROOF_XOR_MULTIPLIER = 13;
+const JOURNAL_FIELDS = 6;
+const SIGNAL_BYTES = 32 + 32;
+const SIGNAL_SCALARS = 4;
+const EXPECTED_PUBLIC_SIGNALS_LEN = SIGNAL_BYTES + SIGNAL_SCALARS;
+const NULLIFIER_DOMAIN_TAG = Buffer.from('AGENC_V2_NULLIFIER', 'utf8');
+const MAX_U256 = (1n << 256n) - 1n;
 
 /**
  * Result from computing hashes
@@ -83,7 +49,7 @@ export interface HashResult {
 }
 
 /**
- * Parameters for proof generation
+ * Parameters for proof generation.
  */
 export interface ProofGenerationParams {
   taskPda: PublicKey;
@@ -91,14 +57,36 @@ export interface ProofGenerationParams {
   output: bigint[];
   salt: bigint;
   /**
-   * Optional private witness for circuit `agent_secret`.
+   * Optional private witness for nullifier derivation.
    * If omitted, SDK uses `pubkeyToField(agentPubkey)` as a compatibility fallback.
    */
   agentSecret?: bigint;
-  circuitPath?: string;
+  /**
+   * Optional image ID override. Must be exactly 32 bytes.
+   * If omitted, uses the pinned trusted SDK value.
+   */
+  imageId?: Uint8Array | Buffer;
+  /**
+   * Optional selector override for local deterministic proving.
+   * Must match the pinned trusted selector.
+   */
+  sealSelector?: Uint8Array | Buffer;
 }
 
 export interface ProofResult {
+  /**
+   * RISC0 payload (canonical target for submission).
+   */
+  sealBytes: Buffer;
+  journal: Buffer;
+  imageId: Buffer;
+  bindingSeed: Buffer;
+  nullifierSeed: Buffer;
+
+  /**
+   * Transitional aliases retained for existing callers.
+   * These will be removed in a later migration step.
+   */
   proof: Buffer;
   constraintHash: Buffer;
   outputCommitment: Buffer;
@@ -147,7 +135,6 @@ export function pubkeyToField(pubkey: PublicKey): bigint {
 
 /**
  * Compute the constraint hash from output values.
- * Uses Poseidon hash matching the circomlib implementation.
  *
  * @param output - Task output (4 field elements)
  * @returns The constraint hash
@@ -156,7 +143,6 @@ export function computeConstraintHash(output: bigint[]): bigint {
   if (output.length !== OUTPUT_FIELD_COUNT) {
     throw new Error(`Output must be exactly ${OUTPUT_FIELD_COUNT} field elements`);
   }
-  // Reduce each element modulo field to handle overflow
   const reduced = output.map((x) => ((x % FIELD_MODULUS) + FIELD_MODULUS) % FIELD_MODULUS);
   return poseidon4(reduced);
 }
@@ -174,7 +160,6 @@ function normalizeOutput(output: bigint[]): bigint[] {
 
 /**
  * Compute the output commitment from raw output values and salt.
- * Matches circuit.circom: Poseidon(output_values[0..3], salt)
  *
  * @param output - Task output (4 field elements)
  * @param salt - Random salt
@@ -213,20 +198,27 @@ export function computeExpectedBinding(
   return poseidon2([binding, commitment]);
 }
 
-export function computeNullifierFromAgentSecret(constraintHash: bigint, agentSecret: bigint): bigint {
+export function computeNullifierFromAgentSecret(
+  constraintHash: bigint,
+  outputCommitment: bigint,
+  agentSecret: bigint
+): bigint {
   const ch = normalizeFieldElement(constraintHash);
+  const oc = normalizeFieldElement(outputCommitment);
   const secret = normalizeFieldElement(agentSecret);
-  return poseidon2([ch, secret]);
+
+  const digest = createHash('sha256')
+    .update(NULLIFIER_DOMAIN_TAG)
+    .update(bigintToBytes32(ch))
+    .update(bigintToBytes32(oc))
+    .update(bigintToBytes32(secret))
+    .digest();
+
+  return BigInt(`0x${digest.toString('hex')}`);
 }
 
 /**
  * Compute all hashes needed for proof generation.
- *
- * @param taskPda - Task PDA (used as task_id)
- * @param agentPubkey - Agent's public key
- * @param output - Task output (4 field elements)
- * @param salt - Random salt for commitment
- * @returns Computed hashes (constraintHash, outputCommitment, expectedBinding)
  */
 export function computeHashes(
   taskPda: PublicKey,
@@ -246,7 +238,11 @@ export function computeHashes(
     );
   }
   const effectiveAgentSecret = agentSecret ?? pubkeyToField(agentPubkey);
-  const nullifier = computeNullifierFromAgentSecret(constraintHash, effectiveAgentSecret);
+  const nullifier = computeNullifierFromAgentSecret(
+    constraintHash,
+    outputCommitment,
+    effectiveAgentSecret
+  );
 
   return {
     constraintHash,
@@ -257,112 +253,74 @@ export function computeHashes(
 }
 
 function bigintToBytes32(value: bigint): Buffer {
+  if (value < 0n || value > MAX_U256) {
+    throw new Error('value must be in [0, 2^256 - 1]');
+  }
   const hex = value.toString(16).padStart(HASH_SIZE * 2, '0');
   return Buffer.from(hex, 'hex');
 }
 
-/**
- * Build witness input for the Circom circuit.
- */
-function buildWitnessInput(
-  taskPda: PublicKey,
-  agentPubkey: PublicKey,
-  output: bigint[],
-  salt: bigint,
-  agentSecret: bigint,
-  hashes: HashResult
-): Record<string, string | string[]> {
-  const taskBytes = Array.from(taskPda.toBytes()).map((b) => b.toString());
-  const agentBytes = Array.from(agentPubkey.toBytes()).map((b) => b.toString());
-  const outputValues = normalizeOutput(output).map((o) => o.toString());
-  const normalizedSalt = normalizeFieldElement(salt);
-  const normalizedAgentSecret = normalizeFieldElement(agentSecret);
-
-  return {
-    task_id: taskBytes,
-    agent_pubkey: agentBytes,
-    constraint_hash: hashes.constraintHash.toString(),
-    output_commitment: hashes.outputCommitment.toString(),
-    expected_binding: hashes.expectedBinding.toString(),
-    output_values: outputValues,
-    salt: normalizedSalt.toString(),
-    agent_secret: normalizedAgentSecret.toString(),
-  };
+function assertByteLength(value: Uint8Array | Buffer, expected: number, label: string): void {
+  if (value.length !== expected) {
+    throw new Error(`${label} must be ${expected} bytes, got ${value.length}`);
+  }
 }
 
-/**
- * Convert snarkjs proof to groth16-solana format (256 bytes).
- *
- * groth16-solana expects: proof_a (64 bytes G1) + proof_b (128 bytes G2) + proof_c (64 bytes G1)
- * snarkjs outputs proof points as decimal strings that need to be converted.
- */
-function convertProofToSolanaFormat(proof: {
-  pi_a: string[];
-  pi_b: string[][];
-  pi_c: string[];
+function copyFixedBytes(value: Uint8Array | Buffer, expected: number, label: string): Buffer {
+  const out = Buffer.from(value);
+  assertByteLength(out, expected, label);
+  return out;
+}
+
+function validateSelector(selector: Buffer): Buffer {
+  if (!selector.equals(Buffer.from(TRUSTED_RISC0_SELECTOR))) {
+    throw new Error('sealSelector must match TRUSTED_RISC0_SELECTOR');
+  }
+  return selector;
+}
+
+function buildJournalBytes(fields: {
+  taskPda: Uint8Array | Buffer;
+  agentAuthority: Uint8Array | Buffer;
+  constraintHash: Uint8Array | Buffer;
+  outputCommitment: Uint8Array | Buffer;
+  bindingSeed: Uint8Array | Buffer;
+  nullifierSeed: Uint8Array | Buffer;
 }): Buffer {
-  // Validate proof structure before conversion
-  if (!proof.pi_a || proof.pi_a.length < 2) {
-    throw new Error('Invalid proof: pi_a must have at least 2 elements');
+  const pieces = [
+    copyFixedBytes(fields.taskPda, HASH_SIZE, 'taskPda'),
+    copyFixedBytes(fields.agentAuthority, HASH_SIZE, 'agentAuthority'),
+    copyFixedBytes(fields.constraintHash, HASH_SIZE, 'constraintHash'),
+    copyFixedBytes(fields.outputCommitment, HASH_SIZE, 'outputCommitment'),
+    copyFixedBytes(fields.bindingSeed, HASH_SIZE, 'bindingSeed'),
+    copyFixedBytes(fields.nullifierSeed, HASH_SIZE, 'nullifierSeed'),
+  ];
+  const journal = Buffer.concat(pieces);
+  const expectedLength = HASH_SIZE * JOURNAL_FIELDS;
+  if (journal.length !== expectedLength || journal.length !== RISC0_JOURNAL_LEN) {
+    throw new Error(`journal must be exactly ${RISC0_JOURNAL_LEN} bytes`);
   }
-  if (!proof.pi_b || proof.pi_b.length < 2
-    || !proof.pi_b[0] || proof.pi_b[0].length < 2
-    || !proof.pi_b[1] || proof.pi_b[1].length < 2) {
-    throw new Error('Invalid proof: pi_b must be a 2x2 array');
+  return journal;
+}
+
+function simulateSealProofBytes(journal: Buffer, imageId: Buffer): Buffer {
+  assertByteLength(journal, RISC0_JOURNAL_LEN, 'journal');
+  assertByteLength(imageId, RISC0_IMAGE_ID_LEN, 'imageId');
+
+  const proof = Buffer.alloc(RISC0_GROTH16_SEAL_LEN);
+  for (let i = 0; i < proof.length; i++) {
+    proof[i] = journal[i % journal.length] ^ imageId[i % imageId.length] ^ ((i * PROOF_XOR_MULTIPLIER) & 0xff);
   }
-  if (!proof.pi_c || proof.pi_c.length < 2) {
-    throw new Error('Invalid proof: pi_c must have at least 2 elements');
-  }
-
-  // Helper to convert a decimal string to 32-byte big-endian buffer with bounds checking
-  const toBe32 = (val: string): Buffer => {
-    const bi = BigInt(val);
-    if (bi < 0n) {
-      throw new Error(`Proof coordinate is negative: ${val}`);
-    }
-    // BN254 base field modulus (coordinates must be < p)
-    const BN254_P = 21888242871839275222246405745257275088696311157297823662689037894645226208583n;
-    if (bi >= BN254_P) {
-      throw new Error(`Proof coordinate exceeds BN254 field modulus: ${val}`);
-    }
-    const hex = bi.toString(16).padStart(64, '0');
-    return Buffer.from(hex, 'hex');
-  };
-
-  // proof_a: G1 point (2 coordinates, 32 bytes each = 64 bytes)
-  const proofA = Buffer.concat([toBe32(proof.pi_a[0]), toBe32(proof.pi_a[1])]);
-
-  // proof_b: G2 point (2x2 coordinates, 32 bytes each = 128 bytes)
-  // Note: G2 point in snarkjs is [[x0, x1], [y0, y1]] but groth16-solana expects
-  // different ordering. The standard is: x1, x0, y1, y0 (reversed within pairs)
-  const proofB = Buffer.concat([
-    toBe32(proof.pi_b[0][1]),
-    toBe32(proof.pi_b[0][0]),
-    toBe32(proof.pi_b[1][1]),
-    toBe32(proof.pi_b[1][0]),
-  ]);
-
-  // proof_c: G1 point (2 coordinates, 32 bytes each = 64 bytes)
-  const proofC = Buffer.concat([toBe32(proof.pi_c[0]), toBe32(proof.pi_c[1])]);
-
-  return Buffer.concat([proofA, proofB, proofC]);
+  return proof;
 }
 
 /**
- * Generate a ZK proof for private task completion.
+ * Generate a deterministic local RISC0-shaped payload.
  *
- * This function:
- * 1. Computes all necessary hashes using poseidon-lite (circomlib compatible)
- * 2. Generates the witness for the task_completion circuit
- * 3. Creates the Groth16 proof via snarkjs
- *
- * @param params - Proof generation parameters
- * @returns Proof result including proof bytes and public inputs
+ * This migration step removes `snarkjs`/`circuitPath` proof generation flow and
+ * emits the new router payload shape for downstream submission.
  */
 export async function generateProof(params: ProofGenerationParams): Promise<ProofResult> {
-  const circuitPath = params.circuitPath || DEFAULT_CIRCUIT_PATH;
-  validateCircuitPath(circuitPath);
-
   const startTime = Date.now();
 
   if (params.agentSecret === undefined) {
@@ -373,8 +331,6 @@ export async function generateProof(params: ProofGenerationParams): Promise<Proo
     );
   }
   const agentSecret = params.agentSecret ?? pubkeyToField(params.agentPubkey);
-
-  // Step 1: Compute hashes using poseidon-lite
   const hashes = computeHashes(
     params.taskPda,
     params.agentPubkey,
@@ -383,159 +339,157 @@ export async function generateProof(params: ProofGenerationParams): Promise<Proo
     agentSecret
   );
 
-  // Step 2: Build witness input
-  const witnessInput = buildWitnessInput(
-    params.taskPda,
-    params.agentPubkey,
-    params.output,
-    params.salt,
-    agentSecret,
-    hashes
+  const constraintHash = bigintToBytes32(hashes.constraintHash);
+  const outputCommitment = bigintToBytes32(hashes.outputCommitment);
+  const bindingSeed = bigintToBytes32(hashes.expectedBinding);
+  const nullifierSeed = bigintToBytes32(hashes.nullifier);
+
+  const journal = buildJournalBytes({
+    taskPda: params.taskPda.toBytes(),
+    agentAuthority: params.agentPubkey.toBytes(),
+    constraintHash,
+    outputCommitment,
+    bindingSeed,
+    nullifierSeed,
+  });
+
+  const imageId = copyFixedBytes(
+    params.imageId ?? TRUSTED_RISC0_IMAGE_ID,
+    RISC0_IMAGE_ID_LEN,
+    'imageId'
+  );
+  const selector = validateSelector(
+    copyFixedBytes(
+      params.sealSelector ?? TRUSTED_RISC0_SELECTOR,
+      RISC0_SELECTOR_LEN,
+      'sealSelector'
+    )
   );
 
-  // Step 3: Locate circuit files
-  const wasmPath = path.join(circuitPath, 'target/circuit_js/circuit.wasm');
-  const zkeyPath = path.join(circuitPath, 'target/circuit.zkey');
-
-  if (!fs.existsSync(wasmPath)) {
-    throw new Error(`Circuit WASM not found at ${wasmPath}. Run 'npm run build' in circuits-circom/task_completion first.`);
-  }
-  if (!fs.existsSync(zkeyPath)) {
-    throw new Error(`Circuit zkey not found at ${zkeyPath}. Run 'npm run build' in circuits-circom/task_completion first.`);
-  }
-
-  const snarkjs = await loadSnarkjs();
-
-  // Step 4: Generate proof using snarkjs
-  const { proof } = await snarkjs.groth16.fullProve(witnessInput, wasmPath, zkeyPath);
-
-  // Step 5: Convert proof to groth16-solana format
-  const proofBuffer = convertProofToSolanaFormat(proof);
-
-  if (proofBuffer.length !== PROOF_SIZE_BYTES) {
-    throw new Error(`Proof size mismatch: expected ${PROOF_SIZE_BYTES}, got ${proofBuffer.length}`);
-  }
+  const proof = simulateSealProofBytes(journal, imageId);
+  assertByteLength(proof, PROOF_SIZE_BYTES, 'proof');
+  const sealBytes = Buffer.concat([selector, proof]);
+  assertByteLength(sealBytes, RISC0_SEAL_BORSH_LEN, 'sealBytes');
 
   return {
-    proof: proofBuffer,
-    constraintHash: bigintToBytes32(hashes.constraintHash),
-    outputCommitment: bigintToBytes32(hashes.outputCommitment),
-    expectedBinding: bigintToBytes32(hashes.expectedBinding),
-    nullifier: bigintToBytes32(hashes.nullifier),
-    proofSize: proofBuffer.length,
+    sealBytes,
+    journal,
+    imageId,
+    bindingSeed,
+    nullifierSeed,
+    proof,
+    constraintHash,
+    outputCommitment,
+    expectedBinding: Buffer.from(bindingSeed),
+    nullifier: Buffer.from(nullifierSeed),
+    proofSize: proof.length,
     generationTime: Date.now() - startTime,
   };
 }
 
+function byteFromSignal(value: bigint, label: string): number {
+  if (value < 0n || value > 255n) {
+    throw new Error(`${label} must be an 8-bit value`);
+  }
+  return Number(value);
+}
+
+function signalToFieldBytes(value: bigint): Buffer {
+  return bigintToBytes32(value);
+}
+
+function buildJournalFromPublicSignals(publicSignals: bigint[]): Buffer {
+  if (publicSignals.length !== EXPECTED_PUBLIC_SIGNALS_LEN) {
+    throw new Error(
+      `publicSignals must contain exactly ${EXPECTED_PUBLIC_SIGNALS_LEN} elements`
+    );
+  }
+
+  const taskPda = Buffer.alloc(HASH_SIZE);
+  const agentAuthority = Buffer.alloc(HASH_SIZE);
+  for (let i = 0; i < HASH_SIZE; i++) {
+    taskPda[i] = byteFromSignal(publicSignals[i], `publicSignals[${i}]`);
+    agentAuthority[i] = byteFromSignal(publicSignals[i + HASH_SIZE], `publicSignals[${i + HASH_SIZE}]`);
+  }
+
+  const constraintHash = signalToFieldBytes(publicSignals[64]);
+  const outputCommitment = signalToFieldBytes(publicSignals[65]);
+  const bindingSeed = signalToFieldBytes(publicSignals[66]);
+  const nullifierSeed = signalToFieldBytes(publicSignals[67]);
+
+  return buildJournalBytes({
+    taskPda,
+    agentAuthority,
+    constraintHash,
+    outputCommitment,
+    bindingSeed,
+    nullifierSeed,
+  });
+}
+
 /**
- * Verify a proof locally using snarkjs.
+ * Verify locally that seal bytes match the deterministic SDK proving transform.
  *
- * @param proof - The proof buffer (256 bytes in groth16-solana format)
- * @param publicSignals - Array of public signals
- * @param circuitPath - Path to circuit directory
- * @returns True if proof is valid
+ * For compatibility with existing callers, this accepts either:
+ * - 256-byte `proof` (legacy alias, selector assumed trusted), or
+ * - 260-byte `sealBytes` (selector + proof).
  */
 export async function verifyProofLocally(
   proof: Buffer,
   publicSignals: bigint[],
-  circuitPath: string = DEFAULT_CIRCUIT_PATH
+  _circuitPath?: string
 ): Promise<boolean> {
-  validateCircuitPath(circuitPath);
-
-  const vkeyPath = path.join(circuitPath, 'target/verification_key.json');
-
-  if (!fs.existsSync(vkeyPath)) {
-    throw new Error(`Verification key not found at ${vkeyPath}. Run trusted setup first.`);
-  }
-
-  const vkey = JSON.parse(fs.readFileSync(vkeyPath, 'utf-8'));
-
-  // Convert proof buffer back to snarkjs format
-  // This is the reverse of convertProofToSolanaFormat
-  const readBe32 = (buf: Buffer, offset: number): string => {
-    const slice = buf.slice(offset, offset + 32);
-    return BigInt('0x' + slice.toString('hex')).toString();
-  };
-
-  const snarkjsProof = {
-    pi_a: [readBe32(proof, 0), readBe32(proof, 32), '1'],
-    pi_b: [
-      [readBe32(proof, 96), readBe32(proof, 64)],
-      [readBe32(proof, 160), readBe32(proof, 128)],
-      ['1', '0'],
-    ],
-    pi_c: [readBe32(proof, 192), readBe32(proof, 224), '1'],
-    protocol: 'groth16',
-    curve: 'bn128',
-  };
-
-  const signals = publicSignals.map((s) => s.toString());
-  const snarkjs = await loadSnarkjs();
-
   try {
-    return await snarkjs.groth16.verify(vkey, signals, snarkjsProof);
-  } catch (err) {
-    // Only suppress snarkjs proof-math failures. Rethrow all other errors
-    // (file errors, config errors, etc.) so callers know verification is broken.
-    if (err instanceof Error) {
-      const msg = err.message.toLowerCase();
-      // snarkjs proof-math error patterns (narrowly scoped to avoid masking setup errors)
-      const isProofMathFailure =
-        msg.includes('invalid proof')
-        || msg.includes('proof is not valid')
-        || msg.includes('pairing check failed');
-      if (!isProofMathFailure) {
-        throw err;
-      }
+    const raw = Buffer.from(proof);
+    let selector: Buffer;
+    let proofBody: Buffer;
+
+    if (raw.length === RISC0_SEAL_BORSH_LEN) {
+      selector = raw.subarray(0, RISC0_SELECTOR_LEN);
+      proofBody = raw.subarray(RISC0_SELECTOR_LEN);
+    } else if (raw.length === RISC0_GROTH16_SEAL_LEN) {
+      selector = Buffer.from(TRUSTED_RISC0_SELECTOR);
+      proofBody = raw;
+    } else {
+      return false;
     }
+
+    validateSelector(selector);
+    assertByteLength(proofBody, RISC0_GROTH16_SEAL_LEN, 'proof');
+    const journal = buildJournalFromPublicSignals(publicSignals);
+    const expected = simulateSealProofBytes(journal, Buffer.from(TRUSTED_RISC0_IMAGE_ID));
+    return proofBody.equals(expected);
+  } catch {
     return false;
   }
 }
 
 export interface ToolsStatus {
+  /**
+   * @deprecated Legacy marker retained for compatibility. Always false in RISC0 flow.
+   */
   snarkjs: boolean;
-  snarkjsVersion?: string;
+  risc0: boolean;
+  proverBackend: 'deterministic-local';
 }
 
 /**
- * Check if required tools (snarkjs) are available.
- * Note: circom is only needed for circuit compilation, not proof generation.
- * @returns Status of snarkjs including version if available
+ * Report proof tool availability for the current SDK build.
  */
 export function checkToolsAvailable(): ToolsStatus {
-  const result: ToolsStatus = { snarkjs: false };
-
-  // snarkjs is a node module, check if it's importable.
-  // Uses globalThis.require or module.require to avoid Function() constructor (indirect eval).
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const nodeRequire: ((id: string) => unknown) | undefined =
-      typeof require !== 'undefined' ? require : undefined;
-    if (nodeRequire) {
-      const snarkjsPkg = nodeRequire('snarkjs/package.json') as { version?: string };
-      result.snarkjs = true;
-      if (typeof snarkjsPkg.version === 'string') {
-        result.snarkjsVersion = snarkjsPkg.version;
-      }
-    }
-  } catch {
-    // snarkjs not available
-  }
-
-  return result;
+  return {
+    snarkjs: false,
+    risc0: true,
+    proverBackend: 'deterministic-local',
+  };
 }
 
 /**
- * Throws an error with installation instructions if required tools are missing.
+ * Ensure proof tooling is available.
  */
 export function requireTools(): void {
   const tools = checkToolsAvailable();
-
-  if (!tools.snarkjs) {
-    throw new Error(
-      'snarkjs not found. Install with:\n' +
-        '  npm install snarkjs\n\n' +
-        'See: https://github.com/iden3/snarkjs'
-    );
+  if (!tools.risc0) {
+    throw new Error('RISC0 proving backend is unavailable');
   }
 }

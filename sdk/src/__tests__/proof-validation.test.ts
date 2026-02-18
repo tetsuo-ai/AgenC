@@ -14,7 +14,14 @@ import {
   ProofSubmissionPreflightError,
   ProofPreconditionError,
 } from '../tasks';
-import { PROGRAM_ID } from '../constants';
+import {
+  PROGRAM_ID,
+  RISC0_IMAGE_ID_LEN,
+  RISC0_JOURNAL_LEN,
+  RISC0_SEAL_BORSH_LEN,
+  TRUSTED_RISC0_IMAGE_ID,
+  TRUSTED_RISC0_SELECTOR,
+} from '../constants';
 
 function bnLike(value: number) {
   return {
@@ -27,13 +34,76 @@ function makeBytes(length: number, fill: number): Uint8Array {
   return new Uint8Array(length).fill(fill);
 }
 
-function makeProof(overrides: Partial<PrivateCompletionProof> = {}): PrivateCompletionProof {
+function makeJournal(fields: {
+  taskPda: Uint8Array;
+  authority: Uint8Array;
+  constraintHash: Uint8Array;
+  outputCommitment: Uint8Array;
+  binding: Uint8Array;
+  nullifier: Uint8Array;
+}): Uint8Array {
+  const out = new Uint8Array(RISC0_JOURNAL_LEN);
+  out.set(fields.taskPda, 0);
+  out.set(fields.authority, 32);
+  out.set(fields.constraintHash, 64);
+  out.set(fields.outputCommitment, 96);
+  out.set(fields.binding, 128);
+  out.set(fields.nullifier, 160);
+  return out;
+}
+
+function makeProof(
+  overrides: Partial<PrivateCompletionProof> & {
+    taskPda?: PublicKey;
+    authorityPubkey?: PublicKey;
+    constraintHash?: Uint8Array;
+    outputCommitment?: Uint8Array;
+    bindingFromJournal?: Uint8Array;
+    nullifierFromJournal?: Uint8Array;
+    sealSelector?: Uint8Array;
+    sealBytesLen?: number;
+    journalLen?: number;
+    imageIdBytes?: Uint8Array;
+  } = {},
+): PrivateCompletionProof {
+  const taskPda = overrides.taskPda ?? Keypair.generate().publicKey;
+  const authorityPubkey = overrides.authorityPubkey ?? Keypair.generate().publicKey;
+  const constraintHash = overrides.constraintHash ?? makeBytes(32, 1);
+  const outputCommitment = overrides.outputCommitment ?? makeBytes(32, 2);
+  const bindingSeed = overrides.bindingSeed ?? makeBytes(32, 3);
+  const nullifierSeed = overrides.nullifierSeed ?? makeBytes(32, 4);
+  const bindingFromJournal = overrides.bindingFromJournal ?? Uint8Array.from(bindingSeed);
+  const nullifierFromJournal = overrides.nullifierFromJournal ?? Uint8Array.from(nullifierSeed);
+
+  const sealSelector = overrides.sealSelector ?? TRUSTED_RISC0_SELECTOR;
+  const sealBytesLen = overrides.sealBytesLen ?? RISC0_SEAL_BORSH_LEN;
+  const sealBytes = makeBytes(sealBytesLen, 7);
+  if (sealBytes.length >= TRUSTED_RISC0_SELECTOR.length) {
+    sealBytes.set(sealSelector, 0);
+  }
+
+  const journalLen = overrides.journalLen ?? RISC0_JOURNAL_LEN;
+  const journal = makeBytes(journalLen, 9);
+  if (journal.length === RISC0_JOURNAL_LEN) {
+    journal.set(
+      makeJournal({
+        taskPda: taskPda.toBytes(),
+        authority: authorityPubkey.toBytes(),
+        constraintHash,
+        outputCommitment,
+        binding: bindingFromJournal,
+        nullifier: nullifierFromJournal,
+      }),
+      0,
+    );
+  }
+
   return {
-    proofData: makeBytes(256, 7),
-    constraintHash: makeBytes(32, 1),
-    outputCommitment: makeBytes(32, 2),
-    expectedBinding: makeBytes(32, 3),
-    nullifier: makeBytes(32, 4),
+    sealBytes,
+    journal,
+    imageId: overrides.imageIdBytes ?? TRUSTED_RISC0_IMAGE_ID,
+    bindingSeed,
+    nullifierSeed,
     ...overrides,
   };
 }
@@ -49,10 +119,12 @@ function makeValidationHarness(options?: {
   claimMissing?: boolean;
   claimCompleted?: boolean;
   claimExpiresAt?: number;
+  bindingSpent?: boolean;
   nullifierSpent?: boolean;
 }) {
   const now = Math.floor(Date.now() / 1000);
   const creator = Keypair.generate().publicKey;
+  const authorityPubkey = Keypair.generate().publicKey;
 
   const taskFetch = options?.taskMissing
     ? vi.fn().mockRejectedValue(new Error('Account does not exist'))
@@ -103,8 +175,18 @@ function makeValidationHarness(options?: {
     },
   } as unknown as Program;
 
+  let callIndex = 0;
   const connection = {
-    getAccountInfo: vi.fn().mockResolvedValue(options?.nullifierSpent ? { data: Buffer.alloc(0) } : null),
+    getAccountInfo: vi.fn().mockImplementation(async () => {
+      callIndex += 1;
+      if (callIndex === 1) {
+        return options?.bindingSpent ? { data: Buffer.alloc(0) } : null;
+      }
+      if (callIndex === 2) {
+        return options?.nullifierSpent ? { data: Buffer.alloc(0) } : null;
+      }
+      return null;
+    }),
     confirmTransaction: vi.fn().mockResolvedValue(undefined),
   };
 
@@ -113,13 +195,17 @@ function makeValidationHarness(options?: {
     connection,
     taskPda: Keypair.generate().publicKey,
     workerAgentPda: Keypair.generate().publicKey,
+    authorityPubkey,
   };
 }
 
 describe('runProofSubmissionPreflight', () => {
-  it('passes all checks for valid proof/task/claim/nullifier state', async () => {
+  it('passes all checks for valid proof/task/claim/spend state', async () => {
     const harness = makeValidationHarness();
-    const proof = makeProof();
+    const proof = makeProof({
+      taskPda: harness.taskPda,
+      authorityPubkey: harness.authorityPubkey,
+    });
 
     const result = await runProofSubmissionPreflight(
       harness.connection as any,
@@ -127,6 +213,7 @@ describe('runProofSubmissionPreflight', () => {
       {
         taskPda: harness.taskPda,
         workerAgentPda: harness.workerAgentPda,
+        authorityPubkey: harness.authorityPubkey,
         proof,
         proofGeneratedAtMs: Date.now() - 30_000,
       },
@@ -137,20 +224,81 @@ describe('runProofSubmissionPreflight', () => {
     expect(result.warnings).toEqual([]);
   });
 
-  it('fails proof_size when proofData length is invalid', async () => {
+  it('fails seal_length when sealBytes length is invalid', async () => {
     const harness = makeValidationHarness();
-    const proof = makeProof({ proofData: makeBytes(10, 1) });
+    const proof = makeProof({ sealBytesLen: 10, taskPda: harness.taskPda });
     const result = await runProofSubmissionPreflight(harness.connection as any, harness.program, {
       taskPda: harness.taskPda,
       workerAgentPda: harness.workerAgentPda,
       proof,
     });
-    expect(result.failures.some((f) => f.check === 'proof_size')).toBe(true);
+    expect(result.failures.some((f) => f.check === 'seal_length')).toBe(true);
   });
 
-  it('fails binding_nonzero when expectedBinding is all zeros', async () => {
+  it('fails trusted_selector when selector is not trusted', async () => {
     const harness = makeValidationHarness();
-    const proof = makeProof({ expectedBinding: makeBytes(32, 0) });
+    const badSelector = Uint8Array.from(TRUSTED_RISC0_SELECTOR);
+    badSelector[0] ^= 1;
+    const proof = makeProof({
+      taskPda: harness.taskPda,
+      sealSelector: badSelector,
+    });
+    const result = await runProofSubmissionPreflight(harness.connection as any, harness.program, {
+      taskPda: harness.taskPda,
+      workerAgentPda: harness.workerAgentPda,
+      proof,
+    });
+    expect(result.failures.some((f) => f.check === 'trusted_selector')).toBe(true);
+  });
+
+  it('fails journal_length when journal size is invalid', async () => {
+    const harness = makeValidationHarness();
+    const proof = makeProof({ journalLen: 10, taskPda: harness.taskPda });
+    const result = await runProofSubmissionPreflight(harness.connection as any, harness.program, {
+      taskPda: harness.taskPda,
+      workerAgentPda: harness.workerAgentPda,
+      proof,
+    });
+    expect(result.failures.some((f) => f.check === 'journal_length')).toBe(true);
+  });
+
+  it('fails image_id_length when imageId length is invalid', async () => {
+    const harness = makeValidationHarness();
+    const proof = makeProof({
+      taskPda: harness.taskPda,
+      imageIdBytes: makeBytes(10, 1),
+    });
+    const result = await runProofSubmissionPreflight(harness.connection as any, harness.program, {
+      taskPda: harness.taskPda,
+      workerAgentPda: harness.workerAgentPda,
+      proof,
+    });
+    expect(result.failures.some((f) => f.check === 'image_id_length')).toBe(true);
+  });
+
+  it('fails trusted_image_id when imageId differs from trusted ID', async () => {
+    const harness = makeValidationHarness();
+    const imageId = Uint8Array.from(TRUSTED_RISC0_IMAGE_ID);
+    imageId[0] ^= 1;
+    const proof = makeProof({
+      taskPda: harness.taskPda,
+      imageIdBytes: imageId,
+    });
+    const result = await runProofSubmissionPreflight(harness.connection as any, harness.program, {
+      taskPda: harness.taskPda,
+      workerAgentPda: harness.workerAgentPda,
+      proof,
+    });
+    expect(result.failures.some((f) => f.check === 'trusted_image_id')).toBe(true);
+  });
+
+  it('fails binding_nonzero when journal binding is all zeros', async () => {
+    const harness = makeValidationHarness();
+    const proof = makeProof({
+      taskPda: harness.taskPda,
+      bindingFromJournal: makeBytes(32, 0),
+      bindingSeed: makeBytes(32, 0),
+    });
     const result = await runProofSubmissionPreflight(harness.connection as any, harness.program, {
       taskPda: harness.taskPda,
       workerAgentPda: harness.workerAgentPda,
@@ -159,9 +307,12 @@ describe('runProofSubmissionPreflight', () => {
     expect(result.failures.some((f) => f.check === 'binding_nonzero')).toBe(true);
   });
 
-  it('fails commitment_nonzero when outputCommitment is all zeros', async () => {
+  it('fails commitment_nonzero when journal output commitment is all zeros', async () => {
     const harness = makeValidationHarness();
-    const proof = makeProof({ outputCommitment: makeBytes(32, 0) });
+    const proof = makeProof({
+      taskPda: harness.taskPda,
+      outputCommitment: makeBytes(32, 0),
+    });
     const result = await runProofSubmissionPreflight(harness.connection as any, harness.program, {
       taskPda: harness.taskPda,
       workerAgentPda: harness.workerAgentPda,
@@ -170,9 +321,13 @@ describe('runProofSubmissionPreflight', () => {
     expect(result.failures.some((f) => f.check === 'commitment_nonzero')).toBe(true);
   });
 
-  it('fails nullifier_nonzero when nullifier is all zeros', async () => {
+  it('fails nullifier_nonzero when journal nullifier is all zeros', async () => {
     const harness = makeValidationHarness();
-    const proof = makeProof({ nullifier: makeBytes(32, 0) });
+    const proof = makeProof({
+      taskPda: harness.taskPda,
+      nullifierFromJournal: makeBytes(32, 0),
+      nullifierSeed: makeBytes(32, 0),
+    });
     const result = await runProofSubmissionPreflight(harness.connection as any, harness.program, {
       taskPda: harness.taskPda,
       workerAgentPda: harness.workerAgentPda,
@@ -181,9 +336,67 @@ describe('runProofSubmissionPreflight', () => {
     expect(result.failures.some((f) => f.check === 'nullifier_nonzero')).toBe(true);
   });
 
+  it('fails binding_seed_match when journal binding differs from bindingSeed', async () => {
+    const harness = makeValidationHarness();
+    const proof = makeProof({
+      taskPda: harness.taskPda,
+      bindingFromJournal: makeBytes(32, 8),
+      bindingSeed: makeBytes(32, 3),
+    });
+    const result = await runProofSubmissionPreflight(harness.connection as any, harness.program, {
+      taskPda: harness.taskPda,
+      workerAgentPda: harness.workerAgentPda,
+      proof,
+    });
+    expect(result.failures.some((f) => f.check === 'binding_seed_match')).toBe(true);
+  });
+
+  it('fails nullifier_seed_match when journal nullifier differs from nullifierSeed', async () => {
+    const harness = makeValidationHarness();
+    const proof = makeProof({
+      taskPda: harness.taskPda,
+      nullifierFromJournal: makeBytes(32, 8),
+      nullifierSeed: makeBytes(32, 4),
+    });
+    const result = await runProofSubmissionPreflight(harness.connection as any, harness.program, {
+      taskPda: harness.taskPda,
+      workerAgentPda: harness.workerAgentPda,
+      proof,
+    });
+    expect(result.failures.some((f) => f.check === 'nullifier_seed_match')).toBe(true);
+  });
+
+  it('fails journal_task_match when journal task PDA differs from supplied task', async () => {
+    const harness = makeValidationHarness();
+    const proof = makeProof({
+      taskPda: Keypair.generate().publicKey,
+    });
+    const result = await runProofSubmissionPreflight(harness.connection as any, harness.program, {
+      taskPda: harness.taskPda,
+      workerAgentPda: harness.workerAgentPda,
+      proof,
+    });
+    expect(result.failures.some((f) => f.check === 'journal_task_match')).toBe(true);
+  });
+
+  it('fails journal_authority_match when journal authority differs from signer authority', async () => {
+    const harness = makeValidationHarness();
+    const proof = makeProof({
+      taskPda: harness.taskPda,
+      authorityPubkey: Keypair.generate().publicKey,
+    });
+    const result = await runProofSubmissionPreflight(harness.connection as any, harness.program, {
+      taskPda: harness.taskPda,
+      workerAgentPda: harness.workerAgentPda,
+      authorityPubkey: harness.authorityPubkey,
+      proof,
+    });
+    expect(result.failures.some((f) => f.check === 'journal_authority_match')).toBe(true);
+  });
+
   it('fails proof_freshness when proof is stale', async () => {
     const harness = makeValidationHarness();
-    const proof = makeProof();
+    const proof = makeProof({ taskPda: harness.taskPda });
     const result = await runProofSubmissionPreflight(harness.connection as any, harness.program, {
       taskPda: harness.taskPda,
       workerAgentPda: harness.workerAgentPda,
@@ -196,7 +409,7 @@ describe('runProofSubmissionPreflight', () => {
 
   it('emits proof_freshness warning when nearing expiry', async () => {
     const harness = makeValidationHarness();
-    const proof = makeProof();
+    const proof = makeProof({ taskPda: harness.taskPda });
     const result = await runProofSubmissionPreflight(harness.connection as any, harness.program, {
       taskPda: harness.taskPda,
       workerAgentPda: harness.workerAgentPda,
@@ -212,7 +425,7 @@ describe('runProofSubmissionPreflight', () => {
     const result = await runProofSubmissionPreflight(harness.connection as any, harness.program, {
       taskPda: harness.taskPda,
       workerAgentPda: harness.workerAgentPda,
-      proof: makeProof(),
+      proof: makeProof({ taskPda: harness.taskPda }),
     });
     expect(result.failures.some((f) => f.check === 'task_exists')).toBe(true);
   });
@@ -222,7 +435,7 @@ describe('runProofSubmissionPreflight', () => {
     const result = await runProofSubmissionPreflight(harness.connection as any, harness.program, {
       taskPda: harness.taskPda,
       workerAgentPda: harness.workerAgentPda,
-      proof: makeProof(),
+      proof: makeProof({ taskPda: harness.taskPda }),
     });
     expect(result.failures.some((f) => f.check === 'task_in_progress')).toBe(true);
   });
@@ -232,17 +445,20 @@ describe('runProofSubmissionPreflight', () => {
     const result = await runProofSubmissionPreflight(harness.connection as any, harness.program, {
       taskPda: harness.taskPda,
       workerAgentPda: harness.workerAgentPda,
-      proof: makeProof(),
+      proof: makeProof({ taskPda: harness.taskPda }),
     });
     expect(result.failures.some((f) => f.check === 'task_is_private')).toBe(true);
   });
 
-  it('fails constraint_hash_match when proof hash differs from task hash', async () => {
+  it('fails constraint_hash_match when journal hash differs from task hash', async () => {
     const harness = makeValidationHarness({ constraintHash: makeBytes(32, 9) });
     const result = await runProofSubmissionPreflight(harness.connection as any, harness.program, {
       taskPda: harness.taskPda,
       workerAgentPda: harness.workerAgentPda,
-      proof: makeProof({ constraintHash: makeBytes(32, 1) }),
+      proof: makeProof({
+        taskPda: harness.taskPda,
+        constraintHash: makeBytes(32, 1),
+      }),
     });
     expect(result.failures.some((f) => f.check === 'constraint_hash_match')).toBe(true);
   });
@@ -252,7 +468,7 @@ describe('runProofSubmissionPreflight', () => {
     const result = await runProofSubmissionPreflight(harness.connection as any, harness.program, {
       taskPda: harness.taskPda,
       workerAgentPda: harness.workerAgentPda,
-      proof: makeProof(),
+      proof: makeProof({ taskPda: harness.taskPda }),
     });
     expect(result.failures.some((f) => f.check === 'task_deadline')).toBe(true);
   });
@@ -262,7 +478,7 @@ describe('runProofSubmissionPreflight', () => {
     const result = await runProofSubmissionPreflight(harness.connection as any, harness.program, {
       taskPda: harness.taskPda,
       workerAgentPda: harness.workerAgentPda,
-      proof: makeProof(),
+      proof: makeProof({ taskPda: harness.taskPda }),
     });
     expect(result.failures.some((f) => f.check === 'competitive_not_won')).toBe(true);
   });
@@ -272,7 +488,7 @@ describe('runProofSubmissionPreflight', () => {
     const result = await runProofSubmissionPreflight(harness.connection as any, harness.program, {
       taskPda: harness.taskPda,
       workerAgentPda: harness.workerAgentPda,
-      proof: makeProof(),
+      proof: makeProof({ taskPda: harness.taskPda }),
     });
     expect(result.failures.some((f) => f.check === 'claim_exists')).toBe(true);
   });
@@ -282,17 +498,27 @@ describe('runProofSubmissionPreflight', () => {
     const result = await runProofSubmissionPreflight(harness.connection as any, harness.program, {
       taskPda: harness.taskPda,
       workerAgentPda: harness.workerAgentPda,
-      proof: makeProof(),
+      proof: makeProof({ taskPda: harness.taskPda }),
     });
     expect(result.failures.some((f) => f.check === 'claim_not_expired')).toBe(true);
   });
 
-  it('fails nullifier_not_spent when nullifier account exists', async () => {
+  it('fails binding_not_spent when binding spend account already exists', async () => {
+    const harness = makeValidationHarness({ bindingSpent: true });
+    const result = await runProofSubmissionPreflight(harness.connection as any, harness.program, {
+      taskPda: harness.taskPda,
+      workerAgentPda: harness.workerAgentPda,
+      proof: makeProof({ taskPda: harness.taskPda }),
+    });
+    expect(result.failures.some((f) => f.check === 'binding_not_spent')).toBe(true);
+  });
+
+  it('fails nullifier_not_spent when nullifier spend account already exists', async () => {
     const harness = makeValidationHarness({ nullifierSpent: true });
     const result = await runProofSubmissionPreflight(harness.connection as any, harness.program, {
       taskPda: harness.taskPda,
       workerAgentPda: harness.workerAgentPda,
-      proof: makeProof(),
+      proof: makeProof({ taskPda: harness.taskPda }),
     });
     expect(result.failures.some((f) => f.check === 'nullifier_not_spent')).toBe(true);
   });
@@ -302,7 +528,7 @@ describe('runProofSubmissionPreflight', () => {
     const params = {
       taskPda: harness.taskPda,
       workerAgentPda: harness.workerAgentPda,
-      proof: makeProof(),
+      proof: makeProof({ taskPda: harness.taskPda }),
     };
 
     const preflight = await runProofSubmissionPreflight(harness.connection as any, harness.program, params);
@@ -354,7 +580,7 @@ describe('completeTaskPrivateWithPreflight', () => {
   it('rejects when nullifier was already submitted in local cache', async () => {
     const cache = new NullifierCache();
     const proof = makeProof();
-    cache.markUsed(proof.nullifier);
+    cache.markUsed(proof.nullifierSeed);
 
     await expect(
       completeTaskPrivateWithPreflight(
@@ -379,7 +605,7 @@ describe('completeTaskPrivateWithPreflight', () => {
         Keypair.generate(),
         makeBytes(32, 5),
         harness.taskPda,
-        makeProof(),
+        makeProof({ taskPda: harness.taskPda }),
       ),
     ).rejects.toBeInstanceOf(ProofSubmissionPreflightError);
   });
@@ -387,7 +613,7 @@ describe('completeTaskPrivateWithPreflight', () => {
   it('submits successfully with runProofSubmissionPreflight=false and marks cache', async () => {
     const harness = makeValidationHarness();
     const cache = new NullifierCache();
-    const proof = makeProof();
+    const proof = makeProof({ taskPda: harness.taskPda });
 
     const result = await completeTaskPrivateWithPreflight(
       harness.connection as any,
@@ -404,7 +630,7 @@ describe('completeTaskPrivateWithPreflight', () => {
 
     expect(result.txSignature).toBe('tx-sig');
     expect(result.preflightResult).toBeUndefined();
-    expect(cache.isUsed(proof.nullifier)).toBe(true);
+    expect(cache.isUsed(proof.nullifierSeed)).toBe(true);
   });
 });
 
@@ -419,7 +645,7 @@ describe('completeTaskPrivateSafe (deprecated wrapper)', () => {
         Keypair.generate(),
         makeBytes(32, 5),
         harness.taskPda,
-        makeProof(),
+        makeProof({ taskPda: harness.taskPda }),
       ),
     ).rejects.toBeInstanceOf(ProofPreconditionError);
   });
@@ -427,7 +653,7 @@ describe('completeTaskPrivateSafe (deprecated wrapper)', () => {
   it('supports validatePreconditions=false and preserves validationResult output', async () => {
     const harness = makeValidationHarness();
     const cache = new NullifierCache();
-    const proof = makeProof();
+    const proof = makeProof({ taskPda: harness.taskPda });
 
     const result = await completeTaskPrivateSafe(
       harness.connection as any,
@@ -444,6 +670,6 @@ describe('completeTaskPrivateSafe (deprecated wrapper)', () => {
 
     expect(result.txSignature).toBe('tx-sig');
     expect(result.validationResult).toBeUndefined();
-    expect(cache.isUsed(proof.nullifier)).toBe(true);
+    expect(cache.isUsed(proof.nullifierSeed)).toBe(true);
   });
 });

@@ -7,8 +7,8 @@
 import { Connection, PublicKey, Keypair, LAMPORTS_PER_SOL } from '@solana/web3.js';
 import { type Idl, Program, AnchorProvider, Wallet } from '@coral-xyz/anchor';
 import { AgenCPrivacyClient } from './privacy';
-import { PROGRAM_ID, DEVNET_RPC, MAINNET_RPC } from './constants';
-import { validateCircuitPath } from './validation';
+import { DEVNET_RPC, MAINNET_RPC } from './constants';
+import { validateProverEndpoint } from './validation';
 import { createLogger, silentLogger, type Logger, type LogLevel } from './logger';
 
 export interface PrivacyClientConfig {
@@ -16,8 +16,8 @@ export interface PrivacyClientConfig {
   rpcUrl?: string;
   /** Use devnet (default: false for mainnet) */
   devnet?: boolean;
-  /** Path to Noir circuit directory */
-  circuitPath?: string;
+  /** Optional external RISC0 prover endpoint */
+  proverEndpoint?: string;
   /** Owner wallet keypair */
   wallet?: Keypair;
   /** Enable debug logging */
@@ -37,12 +37,12 @@ export class PrivacyClient {
   private logger: Logger;
 
   constructor(config: PrivacyClientConfig = {}) {
-    // Validate circuit path before accepting it (uses shared validator with shell metacharacter checks)
-    const circuitPath = config.circuitPath || './circuits/task_completion';
-    try {
-      validateCircuitPath(circuitPath);
-    } catch (e) {
-      throw new Error(`Invalid circuit path: ${(e as Error).message}`);
+    if (config.proverEndpoint !== undefined) {
+      try {
+        validateProverEndpoint(config.proverEndpoint);
+      } catch (e) {
+        throw new Error(`Invalid prover endpoint: ${(e as Error).message}`);
+      }
     }
 
     // Validate RPC URL format if provided
@@ -62,7 +62,6 @@ export class PrivacyClient {
 
     this.config = {
       devnet: false,
-      circuitPath,
       debug: false,
       ...config,
     };
@@ -86,7 +85,9 @@ export class PrivacyClient {
     // Security: Only log non-sensitive info in debug mode
     this.logger.debug('PrivacyClient initialized');
     this.logger.debug(`  Network: ${this.config.devnet ? 'devnet' : 'mainnet'}`);
-    this.logger.debug(`  Circuit: ${this.config.circuitPath}`);
+    if (this.config.proverEndpoint) {
+      this.logger.debug(`  Prover endpoint: ${this.config.proverEndpoint}`);
+    }
   }
 
   /**
@@ -123,7 +124,7 @@ export class PrivacyClient {
       this.privacyClient = new AgenCPrivacyClient(
         this.connection,
         this.program,
-        this.config.circuitPath,
+        undefined,
         this.connection.rpcEndpoint
       );
       await this.privacyClient.initPrivacyCash(wallet);

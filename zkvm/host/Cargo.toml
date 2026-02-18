@@ -1,0 +1,27 @@
+[package]
+name = "agenc-zkvm-host"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[features]
+default = []
+production-prover = [
+  "dep:risc0-zkvm",
+  "risc0-zkvm/std",
+  "risc0-zkvm/prove",
+  "risc0-zkvm/disable-dev-mode",
+]
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "agenc-zkvm-host"
+path = "src/main.rs"
+
+[dependencies]
+agenc-zkvm-guest = { path = "../guest" }
+borsh = "0.10.4"
+risc0-zkvm = { version = "=2.3.2", optional = true, default-features = false }
+verifier_router = { git = "https://github.com/boundless-xyz/risc0-solana", tag = "v3.0.0", package = "verifier_router", default-features = false, features = ["client", "cpi"] }

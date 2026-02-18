@@ -223,7 +223,7 @@ describe('proofs', () => {
       expect(result.expectedBinding).toBeGreaterThanOrEqual(0n);
       expect(result.expectedBinding).toBeLessThan(FIELD_MODULUS);
       expect(result.nullifier).toBeGreaterThanOrEqual(0n);
-      expect(result.nullifier).toBeLessThan(FIELD_MODULUS);
+      expect(result.nullifier.toString(16).length).toBeLessThanOrEqual(64);
     });
 
     it('produces consistent results with individual functions', () => {
@@ -244,7 +244,55 @@ describe('proofs', () => {
       expect(result.outputCommitment).toBe(outputCommitment);
       expect(result.expectedBinding).toBe(expectedBinding);
       // computeHashes falls back to pubkeyToField when no agentSecret provided
-      expect(result.nullifier).toBe(computeNullifierFromAgentSecret(constraintHash, pubkeyToField(agentPubkey)));
+      expect(result.nullifier).toBe(
+        computeNullifierFromAgentSecret(
+          constraintHash,
+          outputCommitment,
+          pubkeyToField(agentPubkey),
+        )
+      );
+    });
+  });
+
+  describe('computeNullifierFromAgentSecret', () => {
+    it('produces different nullifier when output_commitment changes', () => {
+      const constraintHash = 123n;
+      const agentSecret = 456n;
+      const outputCommitmentA = 10n;
+      const outputCommitmentB = 11n;
+
+      const nullifierA = computeNullifierFromAgentSecret(
+        constraintHash,
+        outputCommitmentA,
+        agentSecret,
+      );
+      const nullifierB = computeNullifierFromAgentSecret(
+        constraintHash,
+        outputCommitmentB,
+        agentSecret,
+      );
+
+      expect(nullifierA).not.toBe(nullifierB);
+    });
+
+    it('produces identical nullifier for identical inputs', () => {
+      const constraintHash = 999n;
+      const outputCommitment = 123456n;
+      const agentSecret = 789n;
+
+      const first = computeNullifierFromAgentSecret(
+        constraintHash,
+        outputCommitment,
+        agentSecret,
+      );
+      const second = computeNullifierFromAgentSecret(
+        constraintHash,
+        outputCommitment,
+        agentSecret,
+      );
+
+      expect(first).toBe(second);
+      expect(first.toString(16).length).toBeLessThanOrEqual(64);
     });
   });
 
