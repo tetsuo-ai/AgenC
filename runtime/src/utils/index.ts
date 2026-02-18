@@ -33,6 +33,12 @@ export { fetchTreasury } from './treasury.js';
 
 export { ensureLazyModule } from './lazy-import.js';
 
+export {
+  runCommand,
+  type RunCommandOptions,
+  type RunCommandResult,
+} from './process.js';
+
 export { isRecord, isStringArray } from './type-guards.js';
 
 export type { ValidationResult } from './validation.js';

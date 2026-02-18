@@ -55,14 +55,8 @@ pub fn handler(
         CoordinationError::AgentNotActive
     );
 
-    require!(
-        skill_id != [0u8; 32],
-        CoordinationError::SkillInvalidId
-    );
-    require!(
-        name != [0u8; 32],
-        CoordinationError::SkillInvalidName
-    );
+    require!(skill_id != [0u8; 32], CoordinationError::SkillInvalidId);
+    require!(name != [0u8; 32], CoordinationError::SkillInvalidName);
     require!(
         content_hash != [0u8; 32],
         CoordinationError::SkillInvalidContentHash

@@ -4,13 +4,14 @@
  * Wraps ts-mocha and anchor test with structured output parsing.
  */
 
-import { execFile } from 'child_process';
 import { existsSync } from 'fs';
 import { readdir, readFile } from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
+import { runCommand } from '@agenc/runtime';
+import { toolTextResponse, withToolErrorResponse } from './response.js';
 
 const MODULE_DIR = typeof __dirname !== 'undefined'
   ? __dirname
@@ -31,6 +32,7 @@ function findProjectRoot(): string {
   return process.cwd();
 }
 const PROJECT_ROOT = findProjectRoot();
+const COMMAND_ENV = { ...process.env, FORCE_COLOR: '0', NO_COLOR: '1' };
 
 /** Directory containing test files */
 const TESTS_DIR = path.join(PROJECT_ROOT, 'tests');
@@ -309,31 +311,6 @@ function parseMochaOutput(stdout: string, stderr: string, file: string): TestRun
   };
 }
 
-/**
- * Run a command and capture output.
- */
-function runCommand(
-  cmd: string,
-  args: string[],
-  cwd: string,
-  timeoutMs: number,
-): Promise<{ stdout: string; stderr: string; exitCode: number }> {
-  return new Promise((resolve) => {
-    const proc = execFile(cmd, args, {
-      cwd,
-      timeout: timeoutMs,
-      maxBuffer: 10 * 1024 * 1024,
-      env: { ...process.env, FORCE_COLOR: '0', NO_COLOR: '1' },
-    }, (error, stdout, stderr) => {
-      resolve({
-        stdout: stdout ?? '',
-        stderr: stderr ?? '',
-        exitCode: error ? (error as NodeJS.ErrnoException & { code?: number | string }).code === 'ETIMEDOUT' ? 124 : (proc.exitCode ?? 1) : 0,
-      });
-    });
-  });
-}
-
 function formatTestResults(results: TestRunResult[]): string {
   const lines: string[] = [];
 
@@ -375,76 +352,68 @@ export function registerTestingTools(server: McpServer): void {
       grep: z.string().optional().describe('Mocha --grep pattern to filter test names'),
       timeout: z.number().int().positive().optional().describe('Test timeout in ms (default: 120000)'),
     },
-    async ({ file, grep, timeout }) => {
-      try {
-        const timeoutMs = timeout ?? 120_000;
-        const filesToRun: string[] = [];
+    withToolErrorResponse(async ({ file, grep, timeout }) => {
+      const timeoutMs = timeout ?? 120_000;
+      const filesToRun: string[] = [];
 
-        if (file) {
-          // Validate filename to prevent path traversal
-          const basename = path.basename(file);
-          if (basename !== file || file.includes('..')) {
-            return {
-              content: [{ type: 'text' as const, text: 'Error: invalid test file name' }],
-            };
-          }
-          filesToRun.push(file);
-        } else {
-          // Discover all .ts test files
-          try {
-            const entries = await readdir(TESTS_DIR);
-            for (const e of entries) {
-              if (e.endsWith('.ts')) filesToRun.push(e);
-            }
-          } catch {
-            return {
-              content: [{ type: 'text' as const, text: 'Error: could not read tests directory at ' + TESTS_DIR }],
-            };
-          }
+      if (file) {
+        // Validate filename to prevent path traversal
+        const basename = path.basename(file);
+        if (basename !== file || file.includes('..')) {
+          return toolTextResponse('Error: invalid test file name');
         }
-
-        if (filesToRun.length === 0) {
-          return {
-            content: [{ type: 'text' as const, text: 'No test files found' }],
-          };
-        }
-
-        const results: TestRunResult[] = [];
-        for (const f of filesToRun) {
-          const args = [
-            'ts-mocha',
-            '-p', './tsconfig.json',
-            '-t', String(timeoutMs),
-            'tests/' + f,
-          ];
-          if (grep) {
-            args.push('--grep', grep);
+        filesToRun.push(file);
+      } else {
+        // Discover all .ts test files
+        try {
+          const entries = await readdir(TESTS_DIR);
+          for (const e of entries) {
+            if (e.endsWith('.ts')) filesToRun.push(e);
           }
-
-          const { stdout, stderr, exitCode } = await runCommand(
-            'npx', args, PROJECT_ROOT, timeoutMs + 30_000,
-          );
-
-          const result = parseMochaOutput(stdout, stderr, f);
-          if (exitCode === 124) {
-            result.tests.push({ name: '(timeout)', status: 'failed', error: 'Test run timed out after ' + timeoutMs + 'ms' });
-            result.failed += 1;
-            result.total += 1;
-          }
-          results.push(result);
+        } catch {
+          return toolTextResponse('Error: could not read tests directory at ' + TESTS_DIR);
         }
-
-        lastResults = results;
-
-        return {
-          content: [{ type: 'text' as const, text: formatTestResults(results) }],
-        };
-      } catch (error) {
-        return {
-          content: [{ type: 'text' as const, text: 'Error: ' + (error as Error).message }],
-        };
       }
-    },
+
+      if (filesToRun.length === 0) {
+        return toolTextResponse('No test files found');
+      }
+
+      const results: TestRunResult[] = [];
+      for (const f of filesToRun) {
+        const args = [
+          'ts-mocha',
+          '-p', './tsconfig.json',
+          '-t', String(timeoutMs),
+          'tests/' + f,
+        ];
+        if (grep) {
+          args.push('--grep', grep);
+        }
+
+        const { stdout, stderr, exitCode } = await runCommand(
+          'npx',
+          args,
+          {
+            cwd: PROJECT_ROOT,
+            timeoutMs: timeoutMs + 30_000,
+            env: COMMAND_ENV,
+          },
+        );
+
+        const result = parseMochaOutput(stdout, stderr, f);
+        if (exitCode === 124) {
+          result.tests.push({ name: '(timeout)', status: 'failed', error: 'Test run timed out after ' + timeoutMs + 'ms' });
+          result.failed += 1;
+          result.total += 1;
+        }
+        results.push(result);
+      }
+
+      lastResults = results;
+
+      return toolTextResponse(formatTestResults(results));
+    }),
   );
 
   server.tool(
@@ -454,87 +423,76 @@ export function registerTestingTools(server: McpServer): void {
       suite: z.enum(['smoke', 'integration', 'security', 'zk', 'fuzz']).describe('Test suite to run'),
       timeout: z.number().int().positive().optional().describe('Test timeout in ms (default: 120000)'),
     },
-    async ({ suite, timeout }) => {
-      try {
-        const suiteConfig = TEST_SUITES[suite];
-        if (!suiteConfig) {
-          return {
-            content: [{ type: 'text' as const, text: 'Error: unknown suite "' + suite + '"' }],
-          };
-        }
-
-        if (suite === 'fuzz') {
-          return {
-            content: [{
-              type: 'text' as const,
-              text: [
-                'Fuzz tests run via cargo fuzz, not ts-mocha.',
-                'Available fuzz targets:',
-                '  cargo fuzz run claim_task',
-                '  cargo fuzz run complete_task',
-                '  cargo fuzz run vote_dispute',
-                '  cargo fuzz run resolve_dispute',
-                '',
-                'Run from: programs/agenc-coordination/',
-              ].join('\n'),
-            }],
-          };
-        }
-
-        if (suiteConfig.files.length === 0) {
-          return {
-            content: [{ type: 'text' as const, text: 'Suite "' + suite + '" has no TypeScript test files.' }],
-          };
-        }
-
-        const timeoutMs = timeout ?? 120_000;
-        const results: TestRunResult[] = [];
-
-        for (const f of suiteConfig.files) {
-          const args = [
-            'ts-mocha',
-            '-p', './tsconfig.json',
-            '-t', String(timeoutMs),
-            'tests/' + f,
-          ];
-
-          const { stdout, stderr, exitCode } = await runCommand(
-            'npx', args, PROJECT_ROOT, timeoutMs + 30_000,
-          );
-
-          const result = parseMochaOutput(stdout, stderr, f);
-          if (exitCode === 124) {
-            result.tests.push({ name: '(timeout)', status: 'failed', error: 'Test run timed out' });
-            result.failed += 1;
-            result.total += 1;
-          }
-          results.push(result);
-        }
-
-        lastResults = results;
-
-        return {
-          content: [{
-            type: 'text' as const,
-            text: 'Suite: ' + suite + ' (' + suiteConfig.description + ')\n\n' + formatTestResults(results),
-          }],
-        };
-      } catch (error) {
-        return {
-          content: [{ type: 'text' as const, text: 'Error: ' + (error as Error).message }],
-        };
+    withToolErrorResponse(async ({ suite, timeout }) => {
+      const suiteConfig = TEST_SUITES[suite];
+      if (!suiteConfig) {
+        return toolTextResponse('Error: unknown suite "' + suite + '"');
       }
-    },
+
+      if (suite === 'fuzz') {
+        return toolTextResponse(
+          [
+            'Fuzz tests run via cargo fuzz, not ts-mocha.',
+            'Available fuzz targets:',
+            '  cargo fuzz run claim_task',
+            '  cargo fuzz run complete_task',
+            '  cargo fuzz run vote_dispute',
+            '  cargo fuzz run resolve_dispute',
+            '',
+            'Run from: programs/agenc-coordination/',
+          ].join('\n'),
+        );
+      }
+
+      if (suiteConfig.files.length === 0) {
+        return toolTextResponse('Suite "' + suite + '" has no TypeScript test files.');
+      }
+
+      const timeoutMs = timeout ?? 120_000;
+      const results: TestRunResult[] = [];
+
+      for (const f of suiteConfig.files) {
+        const args = [
+          'ts-mocha',
+          '-p', './tsconfig.json',
+          '-t', String(timeoutMs),
+          'tests/' + f,
+        ];
+
+        const { stdout, stderr, exitCode } = await runCommand(
+          'npx',
+          args,
+          {
+            cwd: PROJECT_ROOT,
+            timeoutMs: timeoutMs + 30_000,
+            env: COMMAND_ENV,
+          },
+        );
+
+        const result = parseMochaOutput(stdout, stderr, f);
+        if (exitCode === 124) {
+          result.tests.push({ name: '(timeout)', status: 'failed', error: 'Test run timed out' });
+          result.failed += 1;
+          result.total += 1;
+        }
+        results.push(result);
+      }
+
+      lastResults = results;
+
+      return toolTextResponse(
+        'Suite: ' + suite + ' (' + suiteConfig.description + ')\n\n' + formatTestResults(results),
+      );
+    }),
   );
 
   server.tool(
     'agenc_get_test_files',
     'List available test files with descriptions',
     {},
-    async () => {
-      try {
-        const entries = await readdir(TESTS_DIR);
-        const testFiles = entries.filter((e) => e.endsWith('.ts')).sort();
+    withToolErrorResponse(async () => {
+      const entries = await readdir(TESTS_DIR);
+      const testFiles = entries.filter((e) => e.endsWith('.ts')).sort();
 
         const descriptions: Record<string, string> = {
           'test_1.ts': 'Main integration test suite',
@@ -561,24 +519,16 @@ export function registerTestingTools(server: McpServer): void {
           return '  ' + name + ': ' + cfg.description + ' (' + (cfg.files.length > 0 ? cfg.files.join(', ') : 'cargo fuzz') + ')';
         });
 
-        return {
-          content: [{
-            type: 'text' as const,
-            text: [
-              'Test files (' + testFiles.length + '):',
-              ...lines,
-              '',
-              'Named suites:',
-              ...suiteLines,
-            ].join('\n'),
-          }],
-        };
-      } catch (error) {
-        return {
-          content: [{ type: 'text' as const, text: 'Error: ' + (error as Error).message }],
-        };
-      }
-    },
+      return toolTextResponse(
+        [
+          'Test files (' + testFiles.length + '):',
+          ...lines,
+          '',
+          'Named suites:',
+          ...suiteLines,
+        ].join('\n'),
+      );
+    }),
   );
 
   server.tool(
@@ -605,10 +555,9 @@ export function registerTestingTools(server: McpServer): void {
       benchmark_artifact: z.string().optional().describe('Path to benchmark artifact JSON (default: runtime/benchmarks/artifacts/latest.json)'),
       mutation_artifact: z.string().optional().describe('Path to mutation artifact JSON (default: runtime/benchmarks/artifacts/mutation.latest.json)'),
     },
-    async ({ benchmark_artifact, mutation_artifact }) => {
-      try {
-        const benchmarkPath = resolveArtifactPath(benchmark_artifact, DEFAULT_BENCHMARK_ARTIFACT);
-        const mutationPath = resolveArtifactPath(mutation_artifact, DEFAULT_MUTATION_ARTIFACT);
+    withToolErrorResponse(async ({ benchmark_artifact, mutation_artifact }) => {
+      const benchmarkPath = resolveArtifactPath(benchmark_artifact, DEFAULT_BENCHMARK_ARTIFACT);
+      const mutationPath = resolveArtifactPath(mutation_artifact, DEFAULT_MUTATION_ARTIFACT);
 
         const benchmarkArtifact = await loadJsonArtifact(benchmarkPath);
         let mutationArtifact: unknown | undefined;
@@ -630,15 +579,8 @@ export function registerTestingTools(server: McpServer): void {
           summary,
         ];
 
-        return {
-          content: [{ type: 'text' as const, text: lines.join('\n') }],
-        };
-      } catch (error) {
-        return {
-          content: [{ type: 'text' as const, text: 'Error: ' + (error as Error).message }],
-        };
-      }
-    },
+      return toolTextResponse(lines.join('\n'));
+    }),
   );
 
   server.tool(
@@ -649,16 +591,21 @@ export function registerTestingTools(server: McpServer): void {
       skip_deploy: z.boolean().optional().describe('Skip anchor deploy step (default: false)'),
       timeout: z.number().int().positive().optional().describe('Timeout in ms (default: 300000)'),
     },
-    async ({ skip_build, skip_deploy, timeout }) => {
-      try {
-        const timeoutMs = timeout ?? 300_000;
-        const args = ['test'];
-        if (skip_build) args.push('--skip-build');
-        if (skip_deploy) args.push('--skip-deploy');
+    withToolErrorResponse(async ({ skip_build, skip_deploy, timeout }) => {
+      const timeoutMs = timeout ?? 300_000;
+      const args = ['test'];
+      if (skip_build) args.push('--skip-build');
+      if (skip_deploy) args.push('--skip-deploy');
 
-        const { stdout, stderr, exitCode } = await runCommand(
-          'anchor', args, PROJECT_ROOT, timeoutMs,
-        );
+      const { stdout, stderr, exitCode } = await runCommand(
+        'anchor',
+        args,
+        {
+          cwd: PROJECT_ROOT,
+          timeoutMs,
+          env: COMMAND_ENV,
+        },
+      );
 
         const result = parseMochaOutput(stdout, stderr, 'anchor test');
         if (exitCode === 124) {
@@ -681,14 +628,7 @@ export function registerTestingTools(server: McpServer): void {
           lines.push('', '--- Raw Output (last 3000 chars) ---', raw);
         }
 
-        return {
-          content: [{ type: 'text' as const, text: lines.join('\n') }],
-        };
-      } catch (error) {
-        return {
-          content: [{ type: 'text' as const, text: 'Error: ' + (error as Error).message }],
-        };
-      }
-    },
+      return toolTextResponse(lines.join('\n'));
+    }),
   );
 }

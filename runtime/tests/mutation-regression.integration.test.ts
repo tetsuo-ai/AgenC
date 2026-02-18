@@ -1,4 +1,3 @@
-import { execFile } from 'node:child_process';
 import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -8,33 +7,7 @@ import {
   MutationRunner,
   serializeMutationArtifact,
 } from '../src/eval/mutation-runner.js';
-
-function runCommand(
-  cmd: string,
-  args: string[],
-  cwd: string,
-): Promise<{ stdout: string; stderr: string; exitCode: number }> {
-  return new Promise((resolve) => {
-    const child = execFile(
-      cmd,
-      args,
-      {
-        cwd,
-        maxBuffer: 10 * 1024 * 1024,
-      },
-      (error, stdout, stderr) => {
-        const exitCode = error
-          ? (child.exitCode ?? 1)
-          : 0;
-        resolve({
-          stdout: stdout ?? '',
-          stderr: stderr ?? '',
-          exitCode,
-        });
-      },
-    );
-  });
-}
+import { runCommand } from '../src/utils/process.js';
 
 describe('mutation regression integration', () => {
   it('runs benchmark corpus under mutation operators deterministically', async () => {
@@ -83,11 +56,15 @@ describe('mutation regression integration', () => {
       '0.01',
     ];
 
-    const failRun = await runCommand(process.execPath, strictArgs, path.resolve(fileURLToPath(new URL('..', import.meta.url))));
+    const failRun = await runCommand(process.execPath, strictArgs, {
+      cwd: path.resolve(fileURLToPath(new URL('..', import.meta.url))),
+    });
     expect(failRun.exitCode).toBe(1);
     expect(`${failRun.stdout}\n${failRun.stderr}`).toContain('FAIL');
 
-    const dryRun = await runCommand(process.execPath, [...strictArgs, '--dry-run'], path.resolve(fileURLToPath(new URL('..', import.meta.url))));
+    const dryRun = await runCommand(process.execPath, [...strictArgs, '--dry-run'], {
+      cwd: path.resolve(fileURLToPath(new URL('..', import.meta.url))),
+    });
     expect(dryRun.exitCode).toBe(0);
     expect(`${dryRun.stdout}\n${dryRun.stderr}`).toContain('FAIL');
   });

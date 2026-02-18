@@ -10,7 +10,10 @@ use anchor_spl::associated_token::AssociatedToken;
 use anchor_spl::token::{self, Mint, Token, TokenAccount, Transfer};
 
 use super::rate_limit_helpers::check_task_creation_rate_limits;
-use super::task_init_helpers::{init_escrow_fields, init_task_fields, increment_total_tasks, validate_deadline, validate_task_params};
+use super::task_init_helpers::{
+    increment_total_tasks, init_escrow_fields, init_task_fields, validate_deadline,
+    validate_task_params,
+};
 
 #[derive(Accounts)]
 #[instruction(task_id: [u8; 32])]
@@ -63,7 +66,6 @@ pub struct CreateTask<'info> {
     pub system_program: Program<'info, System>,
 
     // === Optional SPL Token accounts (only required for token-denominated tasks) ===
-
     /// SPL token mint for reward denomination (optional)
     pub reward_mint: Option<Account<'info, Mint>>,
 
@@ -103,7 +105,14 @@ pub fn handler(
     min_reputation: u16,
     reward_mint: Option<Pubkey>,
 ) -> Result<()> {
-    validate_task_params(&task_id, &description, required_capabilities, max_workers, task_type, min_reputation)?;
+    validate_task_params(
+        &task_id,
+        &description,
+        required_capabilities,
+        max_workers,
+        task_type,
+        min_reputation,
+    )?;
     // Validate reward is not zero (#540) - not in shared validator since dependent tasks allow zero
     require!(reward_amount > 0, CoordinationError::InvalidReward);
 

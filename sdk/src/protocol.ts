@@ -55,6 +55,44 @@ function buildMultisigRemainingAccounts(signers: Keypair[]): AccountMeta[] {
   return accounts;
 }
 
+type MultisigInstructionBuilder = {
+  accountsPartial(accounts: { protocolConfig: PublicKey }): MultisigInstructionBuilder;
+  signers(signers: Keypair[]): MultisigInstructionBuilder;
+  remainingAccounts(accounts: AccountMeta[]): MultisigInstructionBuilder;
+  rpc(): Promise<string>;
+};
+
+function validateMultisigSigners(signers: Keypair[], operationName: string): void {
+  if (signers.length === 0) {
+    throw new Error(`${operationName} requires at least one multisig signer`);
+  }
+}
+
+async function executeMultisigProtocolInstruction(
+  connection: Connection,
+  program: Program,
+  multisigSigners: Keypair[],
+  operationName: string,
+  createBuilder: () => MultisigInstructionBuilder,
+): Promise<{ txSignature: string }> {
+  validateMultisigSigners(multisigSigners, operationName);
+
+  const builder = createBuilder()
+    .accountsPartial({
+      protocolConfig: deriveProtocolPda(program.programId),
+    })
+    .signers(multisigSigners);
+
+  const remainingAccounts = buildMultisigRemainingAccounts(multisigSigners);
+  if (remainingAccounts.length > 0) {
+    builder.remainingAccounts(remainingAccounts);
+  }
+
+  const tx = await builder.rpc();
+  await connection.confirmTransaction(tx, 'confirmed');
+  return { txSignature: tx };
+}
+
 function validateInitializeParams(params: InitializeProtocolParams): void {
   if (params.multisigThreshold < 1) {
     throw new Error('multisigThreshold must be >= 1');
@@ -127,25 +165,13 @@ export async function updateProtocolFee(
   multisigSigners: Keypair[],
   newFeeBps: number,
 ): Promise<{ txSignature: string }> {
-  if (multisigSigners.length === 0) {
-    throw new Error('updateProtocolFee requires at least one multisig signer');
-  }
-
-  const builder = program.methods
-    .updateProtocolFee(newFeeBps)
-    .accountsPartial({
-      protocolConfig: deriveProtocolPda(program.programId),
-    })
-    .signers(multisigSigners);
-
-  const remainingAccounts = buildMultisigRemainingAccounts(multisigSigners);
-  if (remainingAccounts.length > 0) {
-    builder.remainingAccounts(remainingAccounts);
-  }
-
-  const tx = await builder.rpc();
-  await connection.confirmTransaction(tx, 'confirmed');
-  return { txSignature: tx };
+  return executeMultisigProtocolInstruction(
+    connection,
+    program,
+    multisigSigners,
+    'updateProtocolFee',
+    () => program.methods.updateProtocolFee(newFeeBps) as unknown as MultisigInstructionBuilder,
+  );
 }
 
 export async function updateRateLimits(
@@ -154,31 +180,20 @@ export async function updateRateLimits(
   multisigSigners: Keypair[],
   params: UpdateRateLimitsParams,
 ): Promise<{ txSignature: string }> {
-  if (multisigSigners.length === 0) {
-    throw new Error('updateRateLimits requires at least one multisig signer');
-  }
-
-  const builder = program.methods
-    .updateRateLimits(
-      new anchor.BN(params.taskCreationCooldown.toString()),
-      params.maxTasksPer24h,
-      new anchor.BN(params.disputeInitiationCooldown.toString()),
-      params.maxDisputesPer24h,
-      new anchor.BN(params.minStakeForDispute.toString()),
-    )
-    .accountsPartial({
-      protocolConfig: deriveProtocolPda(program.programId),
-    })
-    .signers(multisigSigners);
-
-  const remainingAccounts = buildMultisigRemainingAccounts(multisigSigners);
-  if (remainingAccounts.length > 0) {
-    builder.remainingAccounts(remainingAccounts);
-  }
-
-  const tx = await builder.rpc();
-  await connection.confirmTransaction(tx, 'confirmed');
-  return { txSignature: tx };
+  return executeMultisigProtocolInstruction(
+    connection,
+    program,
+    multisigSigners,
+    'updateRateLimits',
+    () =>
+      program.methods.updateRateLimits(
+        new anchor.BN(params.taskCreationCooldown.toString()),
+        params.maxTasksPer24h,
+        new anchor.BN(params.disputeInitiationCooldown.toString()),
+        params.maxDisputesPer24h,
+        new anchor.BN(params.minStakeForDispute.toString()),
+      ) as unknown as MultisigInstructionBuilder,
+  );
 }
 
 export async function migrateProtocol(
@@ -187,25 +202,13 @@ export async function migrateProtocol(
   multisigSigners: Keypair[],
   targetVersion: number,
 ): Promise<{ txSignature: string }> {
-  if (multisigSigners.length === 0) {
-    throw new Error('migrateProtocol requires at least one multisig signer');
-  }
-
-  const builder = program.methods
-    .migrateProtocol(targetVersion)
-    .accountsPartial({
-      protocolConfig: deriveProtocolPda(program.programId),
-    })
-    .signers(multisigSigners);
-
-  const remainingAccounts = buildMultisigRemainingAccounts(multisigSigners);
-  if (remainingAccounts.length > 0) {
-    builder.remainingAccounts(remainingAccounts);
-  }
-
-  const tx = await builder.rpc();
-  await connection.confirmTransaction(tx, 'confirmed');
-  return { txSignature: tx };
+  return executeMultisigProtocolInstruction(
+    connection,
+    program,
+    multisigSigners,
+    'migrateProtocol',
+    () => program.methods.migrateProtocol(targetVersion) as unknown as MultisigInstructionBuilder,
+  );
 }
 
 export async function updateMinVersion(
@@ -214,25 +217,13 @@ export async function updateMinVersion(
   multisigSigners: Keypair[],
   newMinVersion: number,
 ): Promise<{ txSignature: string }> {
-  if (multisigSigners.length === 0) {
-    throw new Error('updateMinVersion requires at least one multisig signer');
-  }
-
-  const builder = program.methods
-    .updateMinVersion(newMinVersion)
-    .accountsPartial({
-      protocolConfig: deriveProtocolPda(program.programId),
-    })
-    .signers(multisigSigners);
-
-  const remainingAccounts = buildMultisigRemainingAccounts(multisigSigners);
-  if (remainingAccounts.length > 0) {
-    builder.remainingAccounts(remainingAccounts);
-  }
-
-  const tx = await builder.rpc();
-  await connection.confirmTransaction(tx, 'confirmed');
-  return { txSignature: tx };
+  return executeMultisigProtocolInstruction(
+    connection,
+    program,
+    multisigSigners,
+    'updateMinVersion',
+    () => program.methods.updateMinVersion(newMinVersion) as unknown as MultisigInstructionBuilder,
+  );
 }
 
 export async function getProtocolConfig(program: Program): Promise<ProtocolConfigState | null> {

@@ -2078,6 +2078,89 @@ async function dispatchSkillCommands(
   }
 }
 
+function resolveIncidentCommandCategory(command: ReplayCommand): IncidentCommandCategory {
+  switch (command) {
+    case 'backfill':
+      return 'replay.backfill';
+    case 'compare':
+      return 'replay.compare';
+    case 'incident':
+      return 'replay.incident';
+  }
+}
+
+function enforceIncidentRoleAccess(
+  role: OperatorRole | undefined,
+  commandCategory: IncidentCommandCategory,
+): void {
+  if (!role) {
+    return;
+  }
+
+  try {
+    enforceRole(role, commandCategory);
+  } catch (error) {
+    if (error instanceof IncidentRoleViolationError) {
+      throw createCliError(error.message, ERROR_CODES.INVALID_VALUE);
+    }
+    throw error;
+  }
+}
+
+type CommandOutputCapture = {
+  getOutput: () => unknown;
+  getError: () => unknown;
+};
+
+function installCommandOutputCapture(
+  commandContext: CliRuntimeContext,
+  enabled: boolean,
+): CommandOutputCapture {
+  let capturedOutput: unknown;
+  let capturedError: unknown;
+
+  if (enabled) {
+    const originalOutput = commandContext.output;
+    const originalError = commandContext.error;
+
+    commandContext.output = (value) => {
+      capturedOutput = value;
+      originalOutput(value);
+    };
+
+    commandContext.error = (value) => {
+      capturedError = value;
+      originalError(value);
+    };
+  }
+
+  return {
+    getOutput: () => capturedOutput,
+    getError: () => capturedError,
+  };
+}
+
+function appendReplayAuditEntry(
+  auditTrail: InMemoryAuditTrail | null,
+  role: OperatorRole | undefined,
+  commandCategory: IncidentCommandCategory,
+  options: CliCommandOptions,
+  outputValue: unknown,
+): void {
+  if (!role || !auditTrail) {
+    return;
+  }
+
+  auditTrail.append({
+    timestamp: new Date().toISOString(),
+    actor: process.env.USER ?? 'unknown',
+    role,
+    action: commandCategory,
+    inputHash: computeInputHash(options),
+    outputHash: computeOutputHash(outputValue),
+  });
+}
+
 async function dispatchPluginOrReplayCommand(
   parsed: ParsedArgv,
   stdout: NodeJS.WritableStream,
@@ -2120,72 +2203,33 @@ async function dispatchPluginOrReplayCommand(
 
   const commandDescriptor = COMMANDS[report.replayCommand];
   const role = report.options.role;
-  const commandCategory: IncidentCommandCategory = report.replayCommand === 'backfill'
-    ? 'replay.backfill'
-    : report.replayCommand === 'compare'
-      ? 'replay.compare'
-      : 'replay.incident';
+  const commandCategory = resolveIncidentCommandCategory(report.replayCommand);
 
   const auditTrail = role ? new InMemoryAuditTrail() : null;
-  let capturedOutput: unknown;
-  let capturedError: unknown;
-
-  if (role) {
-    const originalOutput = commandContext.output;
-    const originalError = commandContext.error;
-
-    commandContext.output = (value) => {
-      capturedOutput = value;
-      originalOutput(value);
-    };
-
-    commandContext.error = (value) => {
-      capturedError = value;
-      originalError(value);
-    };
-  }
+  const capture = installCommandOutputCapture(commandContext, role !== undefined);
 
   try {
-    if (role) {
-      try {
-        enforceRole(role, commandCategory);
-      } catch (error) {
-        if (error instanceof IncidentRoleViolationError) {
-          throw createCliError(error.message, ERROR_CODES.INVALID_VALUE);
-        }
-        throw error;
-      }
-    }
+    enforceIncidentRoleAccess(role, commandCategory);
 
     const status = await commandDescriptor.run(commandContext, report.options);
-
-    if (role && auditTrail) {
-      const outputValue = capturedOutput ?? { status };
-      auditTrail.append({
-        timestamp: new Date().toISOString(),
-        actor: process.env.USER ?? 'unknown',
-        role,
-        action: commandCategory,
-        inputHash: computeInputHash(report.options),
-        outputHash: computeOutputHash(outputValue),
-      });
-    }
+    appendReplayAuditEntry(
+      auditTrail,
+      role,
+      commandCategory,
+      report.options,
+      capture.getOutput() ?? { status },
+    );
 
     return status;
   } catch (error) {
     const payload = buildErrorPayload(error);
-
-    if (role && auditTrail) {
-      const outputValue = capturedError ?? payload;
-      auditTrail.append({
-        timestamp: new Date().toISOString(),
-        actor: process.env.USER ?? 'unknown',
-        role,
-        action: commandCategory,
-        inputHash: computeInputHash(report.options),
-        outputHash: computeOutputHash(outputValue),
-      });
-    }
+    appendReplayAuditEntry(
+      auditTrail,
+      role,
+      commandCategory,
+      report.options,
+      capture.getError() ?? payload,
+    );
 
     return reportCliError(commandContext, payload, [
       ERROR_CODES.MISSING_REPLAY_COMMAND,

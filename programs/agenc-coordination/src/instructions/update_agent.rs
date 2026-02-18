@@ -49,20 +49,14 @@ pub fn handler(
 
     if let Some(ep) = endpoint {
         require!(!ep.is_empty(), CoordinationError::InvalidInput);
-        require!(
-            validate_string_input(&ep),
-            CoordinationError::InvalidInput
-        );
+        require!(validate_string_input(&ep), CoordinationError::InvalidInput);
         validate_endpoint(&ep)?;
         agent.endpoint = ep;
     }
 
     if let Some(uri) = metadata_uri {
         require!(uri.len() <= 128, CoordinationError::StringTooLong);
-        require!(
-            validate_string_input(&uri),
-            CoordinationError::InvalidInput
-        );
+        require!(validate_string_input(&uri), CoordinationError::InvalidInput);
         agent.metadata_uri = uri;
     }
 

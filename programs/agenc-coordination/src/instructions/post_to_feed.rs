@@ -57,10 +57,7 @@ pub fn handler(
         content_hash != [0u8; 32],
         CoordinationError::FeedInvalidContentHash
     );
-    require!(
-        topic != [0u8; 32],
-        CoordinationError::FeedInvalidTopic
-    );
+    require!(topic != [0u8; 32], CoordinationError::FeedInvalidTopic);
 
     let clock = Clock::get()?;
     let post = &mut ctx.accounts.post;
