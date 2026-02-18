@@ -27,8 +27,6 @@ export {
   // Hash computation functions
   computeExpectedBinding,
   computeConstraintHash,
-  computeCommitment,
-  computeNullifier,
   // Types
   ProofGenerationParams,
   ProofResult,

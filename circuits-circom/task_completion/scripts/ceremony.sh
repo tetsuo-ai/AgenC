@@ -23,6 +23,13 @@ CEREMONY_DIR="${CEREMONY_DIR:-./ceremony}"
 PTAU_FILE="${PTAU_FILE:-pot14_final.ptau}"
 CIRCUIT_R1CS="${CIRCUIT_R1CS:-target/circuit.r1cs}"
 MIN_CONTRIBUTORS="${MIN_CONTRIBUTORS:-3}"
+# Security: enforce minimum 3 contributors for a cryptographically meaningful MPC ceremony.
+# A 1- or 2-party ceremony does not provide sufficient security guarantees
+# because the toxic waste can be reconstructed if all parties collude.
+if [ "$MIN_CONTRIBUTORS" -lt 3 ]; then
+    echo -e "\033[0;31m[ERROR]\033[0m MIN_CONTRIBUTORS must be >= 3 for a secure MPC ceremony (got $MIN_CONTRIBUTORS)" >&2
+    exit 1
+fi
 TRANSCRIPT_FILE="${CEREMONY_DIR}/transcript.json"
 
 mkdir -p "$CEREMONY_DIR"
@@ -204,20 +211,50 @@ cmd_beacon() {
 
     # Fetch latest drand beacon value
     local beacon_hash
+    local beacon_source="drand"
     beacon_hash=$(node -e "
         const https = require('https');
-        https.get('https://drand.cloudflare.com/public/latest', (res) => {
+        const req = https.get('https://drand.cloudflare.com/public/latest', (res) => {
             let data = '';
             res.on('data', (chunk) => data += chunk);
             res.on('end', () => {
-                const json = JSON.parse(data);
-                console.log(json.randomness);
+                try {
+                    const json = JSON.parse(data);
+                    console.log(json.randomness);
+                } catch (e) {
+                    console.error('SECURITY WARNING: Failed to parse drand response. Using local entropy.', e.message);
+                    console.log(require('crypto').randomBytes(32).toString('hex'));
+                }
             });
-        }).on('error', () => {
-            // Fallback: use current block hash from a public source
+        });
+        req.on('error', (err) => {
+            console.error('SECURITY WARNING: drand beacon unavailable (' + err.message + '). Using local entropy only.');
+            console.error('This reduces the randomness quality of the ceremony beacon.');
+            console.error('For production deployments, ensure network access to drand.cloudflare.com and re-run.');
             console.log(require('crypto').randomBytes(32).toString('hex'));
         });
-    " 2>/dev/null || node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")
+        req.setTimeout(10000, () => {
+            req.destroy();
+            console.error('SECURITY WARNING: drand beacon timed out. Using local entropy only.');
+            console.log(require('crypto').randomBytes(32).toString('hex'));
+        });
+    " 2>"$CEREMONY_DIR/beacon_stderr.log" || {
+        beacon_hash=$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")
+        beacon_source="local-fallback"
+    })
+
+    # Check if the drand beacon was actually used or if we fell back to local entropy
+    if [ -f "$CEREMONY_DIR/beacon_stderr.log" ] && grep -q "SECURITY WARNING" "$CEREMONY_DIR/beacon_stderr.log" 2>/dev/null; then
+        beacon_source="local-fallback"
+        echo ""
+        log_warn "============================================================"
+        log_warn "SECURITY WARNING: drand beacon was unavailable."
+        log_warn "Beacon entropy was sourced from LOCAL randomness only."
+        log_warn "This is less secure than using a public randomness beacon."
+        log_warn "For production, re-run with network access to drand.cloudflare.com"
+        log_warn "============================================================"
+        echo ""
+    fi
 
     log_info "Beacon hash: $beacon_hash"
     log_info "Applying beacon with 10 iterations..."
@@ -227,11 +264,13 @@ cmd_beacon() {
     # Update transcript — pass values via env to prevent injection
     TRANSCRIPT_FILE="$TRANSCRIPT_FILE" \
     BEACON_HASH="$beacon_hash" \
+    BEACON_SOURCE="$beacon_source" \
     node -e "
         const fs = require('fs');
         const t = JSON.parse(fs.readFileSync(process.env.TRANSCRIPT_FILE, 'utf8'));
         t.beaconApplied = true;
         t.beaconHash = process.env.BEACON_HASH;
+        t.beaconSource = process.env.BEACON_SOURCE;
         t.beaconTimestamp = new Date().toISOString();
         fs.writeFileSync(process.env.TRANSCRIPT_FILE, JSON.stringify(t, null, 2));
     "
