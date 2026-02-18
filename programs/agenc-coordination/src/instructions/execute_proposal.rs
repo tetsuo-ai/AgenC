@@ -10,6 +10,7 @@ use crate::instructions::lamport_transfer::transfer_lamports;
 use crate::state::{GovernanceConfig, Proposal, ProposalStatus, ProposalType, ProtocolConfig};
 use crate::utils::version::check_version_compatible;
 use anchor_lang::prelude::*;
+use anchor_lang::system_program;
 
 /// Maximum rate limit value (matches update_rate_limits.rs)
 const MAX_RATE_LIMIT: u64 = 1000;
@@ -43,7 +44,9 @@ pub struct ExecuteProposal<'info> {
     pub executor: Signer<'info>,
 
     /// CHECK: Treasury account for TreasurySpend proposals.
-    /// Must be a program-owned PDA matching protocol_config.treasury.
+    /// Must match protocol_config.treasury. Spend path supports:
+    /// - program-owned treasury (direct lamport mutation), or
+    /// - system-owned treasury when this account signs.
     #[account(mut)]
     pub treasury: Option<UncheckedAccount<'info>>,
 
@@ -159,22 +162,34 @@ pub fn handler(ctx: Context<ExecuteProposal>) -> Result<()> {
                 CoordinationError::InvalidProposalPayload
             );
 
-            // Treasury must be program-owned for lamport transfer to work
-            require!(
-                treasury.owner == &crate::ID,
-                CoordinationError::TreasuryNotProgramOwned
-            );
-
             require!(
                 treasury.lamports() >= amount,
                 CoordinationError::TreasuryInsufficientBalance
             );
 
-            transfer_lamports(
-                &treasury.to_account_info(),
-                &recipient.to_account_info(),
-                amount,
-            )?;
+            if treasury.owner == &crate::ID {
+                // Program-owned treasury: mutate lamports directly.
+                transfer_lamports(
+                    &treasury.to_account_info(),
+                    &recipient.to_account_info(),
+                    amount,
+                )?;
+            } else if treasury.owner == &system_program::ID && treasury.is_signer {
+                // System-owned treasury fallback: requires treasury signer at execution.
+                // This keeps governance operable for legacy/system-wallet treasury setups.
+                system_program::transfer(
+                    CpiContext::new(
+                        ctx.accounts.system_program.to_account_info(),
+                        system_program::Transfer {
+                            from: treasury.to_account_info(),
+                            to: recipient.to_account_info(),
+                        },
+                    ),
+                    amount,
+                )?;
+            } else {
+                return Err(CoordinationError::TreasuryNotSpendable.into());
+            }
         }
         ProposalType::RateLimitChange => {
             // Payload layout:

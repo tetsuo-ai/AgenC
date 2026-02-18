@@ -32,41 +32,43 @@ pub mod validation;
 pub mod apply_dispute_slash;
 pub mod apply_initiator_slash;
 pub mod cancel_dispute;
+pub mod cancel_proposal;
 pub mod cancel_task;
 pub mod claim_task;
 pub mod complete_task;
 pub mod complete_task_private;
 pub mod create_dependent_task;
+pub mod create_proposal;
 pub mod create_task;
+pub mod delegate_reputation;
 pub mod deregister_agent;
+pub mod execute_proposal;
 pub mod expire_claim;
 pub mod expire_dispute;
+pub mod initialize_governance;
 pub mod initialize_protocol;
 pub mod initiate_dispute;
 pub mod migrate;
-pub mod register_agent;
-pub mod resolve_dispute;
-pub mod suspend_agent;
-pub mod unsuspend_agent;
-pub mod update_agent;
-pub mod update_protocol_fee;
-pub mod update_rate_limits;
-pub mod update_state;
-pub mod vote_dispute;
-pub mod cancel_proposal;
-pub mod create_proposal;
-pub mod execute_proposal;
-pub mod initialize_governance;
-pub mod vote_proposal;
 pub mod post_to_feed;
 pub mod purchase_skill;
 pub mod rate_skill;
+pub mod register_agent;
 pub mod register_skill;
-pub mod update_skill;
-pub mod upvote_post;
-pub mod delegate_reputation;
+pub mod resolve_dispute;
 pub mod revoke_delegation;
 pub mod stake_reputation;
+pub mod suspend_agent;
+pub mod unsuspend_agent;
+pub mod update_agent;
+pub mod update_multisig;
+pub mod update_protocol_fee;
+pub mod update_rate_limits;
+pub mod update_skill;
+pub mod update_state;
+pub mod update_treasury;
+pub mod upvote_post;
+pub mod vote_dispute;
+pub mod vote_proposal;
 pub mod withdraw_reputation_stake;
 
 // Glob re-exports are required for Anchor's #[program] macro to access generated
@@ -78,6 +80,8 @@ pub use apply_initiator_slash::*;
 #[allow(ambiguous_glob_reexports)]
 pub use cancel_dispute::*;
 #[allow(ambiguous_glob_reexports)]
+pub use cancel_proposal::*;
+#[allow(ambiguous_glob_reexports)]
 pub use cancel_task::*;
 #[allow(ambiguous_glob_reexports)]
 pub use claim_task::*;
@@ -87,12 +91,20 @@ pub use complete_task::*;
 pub use complete_task_private::*;
 #[allow(ambiguous_glob_reexports)]
 pub use create_dependent_task::*;
+#[allow(ambiguous_glob_reexports)]
+pub use create_proposal::*;
 pub use create_task::*;
+#[allow(ambiguous_glob_reexports)]
+pub use delegate_reputation::*;
 #[allow(ambiguous_glob_reexports)]
 pub use deregister_agent::*;
 #[allow(ambiguous_glob_reexports)]
+pub use execute_proposal::*;
+#[allow(ambiguous_glob_reexports)]
 pub use expire_claim::*;
 pub use expire_dispute::*;
+#[allow(ambiguous_glob_reexports)]
+pub use initialize_governance::*;
 #[allow(ambiguous_glob_reexports)]
 pub use initialize_protocol::*;
 #[allow(ambiguous_glob_reexports)]
@@ -100,9 +112,21 @@ pub use initiate_dispute::*;
 #[allow(ambiguous_glob_reexports)]
 pub use migrate::*;
 #[allow(ambiguous_glob_reexports)]
+pub use post_to_feed::*;
+#[allow(ambiguous_glob_reexports)]
+pub use purchase_skill::*;
+#[allow(ambiguous_glob_reexports)]
+pub use rate_skill::*;
+#[allow(ambiguous_glob_reexports)]
 pub use register_agent::*;
 #[allow(ambiguous_glob_reexports)]
+pub use register_skill::*;
+#[allow(ambiguous_glob_reexports)]
 pub use resolve_dispute::*;
+#[allow(ambiguous_glob_reexports)]
+pub use revoke_delegation::*;
+#[allow(ambiguous_glob_reexports)]
+pub use stake_reputation::*;
 #[allow(ambiguous_glob_reexports)]
 pub use suspend_agent::*;
 #[allow(ambiguous_glob_reexports)]
@@ -110,40 +134,22 @@ pub use unsuspend_agent::*;
 #[allow(ambiguous_glob_reexports)]
 pub use update_agent::*;
 #[allow(ambiguous_glob_reexports)]
+pub use update_multisig::*;
+#[allow(ambiguous_glob_reexports)]
 pub use update_protocol_fee::*;
 #[allow(ambiguous_glob_reexports)]
 pub use update_rate_limits::*;
 #[allow(ambiguous_glob_reexports)]
+pub use update_skill::*;
+#[allow(ambiguous_glob_reexports)]
 pub use update_state::*;
 #[allow(ambiguous_glob_reexports)]
-pub use vote_dispute::*;
-#[allow(ambiguous_glob_reexports)]
-pub use cancel_proposal::*;
-#[allow(ambiguous_glob_reexports)]
-pub use create_proposal::*;
-#[allow(ambiguous_glob_reexports)]
-pub use execute_proposal::*;
-#[allow(ambiguous_glob_reexports)]
-pub use initialize_governance::*;
-#[allow(ambiguous_glob_reexports)]
-pub use vote_proposal::*;
-#[allow(ambiguous_glob_reexports)]
-pub use post_to_feed::*;
-#[allow(ambiguous_glob_reexports)]
-pub use purchase_skill::*;
-#[allow(ambiguous_glob_reexports)]
-pub use rate_skill::*;
-#[allow(ambiguous_glob_reexports)]
-pub use register_skill::*;
-#[allow(ambiguous_glob_reexports)]
-pub use update_skill::*;
+pub use update_treasury::*;
 #[allow(ambiguous_glob_reexports)]
 pub use upvote_post::*;
 #[allow(ambiguous_glob_reexports)]
-pub use delegate_reputation::*;
+pub use vote_dispute::*;
 #[allow(ambiguous_glob_reexports)]
-pub use revoke_delegation::*;
-#[allow(ambiguous_glob_reexports)]
-pub use stake_reputation::*;
+pub use vote_proposal::*;
 #[allow(ambiguous_glob_reexports)]
 pub use withdraw_reputation_stake::*;

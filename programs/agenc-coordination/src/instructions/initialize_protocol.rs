@@ -77,15 +77,14 @@ pub fn handler(
 ) -> Result<()> {
     // Verify the caller is the program's upgrade authority (fix #839)
     // The ProgramData account must be passed as remaining_accounts[0]
-    let program_data_info = ctx.remaining_accounts
+    let program_data_info = ctx
+        .remaining_accounts
         .first()
         .ok_or(CoordinationError::UnauthorizedUpgrade)?;
 
     // Verify the ProgramData PDA matches: findProgramAddress([program_id], bpf_loader_upgradeable)
-    let (expected_program_data, _) = Pubkey::find_program_address(
-        &[crate::ID.as_ref()],
-        &bpf_loader_upgradeable::id(),
-    );
+    let (expected_program_data, _) =
+        Pubkey::find_program_address(&[crate::ID.as_ref()], &bpf_loader_upgradeable::id());
     require!(
         program_data_info.key() == expected_program_data,
         CoordinationError::UnauthorizedUpgrade
@@ -143,8 +142,8 @@ pub fn handler(
         CoordinationError::MultisigInvalidSigners
     );
     require!(
-    // Fix #505: Require threshold < owners count to ensure protocol remains
-    // operational even if one key is lost. This prevents lockout scenarios.
+        // Fix #505: Require threshold < owners count to ensure protocol remains
+        // operational even if one key is lost. This prevents lockout scenarios.
         multisig_threshold > 0 && (multisig_threshold as usize) < multisig_owners.len(),
         CoordinationError::MultisigInvalidThreshold
     );
@@ -202,6 +201,23 @@ pub fn handler(
         ctx.accounts.treasury.key() != Pubkey::default(),
         CoordinationError::InvalidTreasury
     );
+    // Hardening: treasury must be either protocol-owned (PDA/account owned by this
+    // program) or a system account. This prevents misconfiguration to arbitrary
+    // third-party program accounts that cannot be governed by this protocol.
+    let treasury_is_program_owned = ctx.accounts.treasury.owner == &crate::ID;
+    let treasury_is_system_owned = ctx.accounts.treasury.owner == &anchor_lang::system_program::ID;
+    require!(
+        treasury_is_program_owned || treasury_is_system_owned,
+        CoordinationError::InvalidTreasury
+    );
+    // System-account treasuries are only valid if they sign at initialization,
+    // guaranteeing the configured address is actively controlled.
+    if treasury_is_system_owned {
+        require!(
+            ctx.accounts.treasury.is_signer,
+            CoordinationError::TreasuryNotSpendable
+        );
+    }
 
     // Now safe to write config
     let config = &mut ctx.accounts.protocol_config;
@@ -233,7 +249,6 @@ pub fn handler(
     config.min_supported_version = MIN_SUPPORTED_VERSION;
     config._padding = [0u8; 2];
     // Fix #497: Explicitly zero all slots before populating to ensure no data leakage.
-    // This is the ONLY place multisig_owners can be set (immutable after init).
     config.multisig_owners = [Pubkey::default(); ProtocolConfig::MAX_MULTISIG_OWNERS];
     for (index, owner) in multisig_owners.iter().enumerate() {
         config.multisig_owners[index] = *owner;
