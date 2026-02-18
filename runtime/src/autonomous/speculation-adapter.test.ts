@@ -10,26 +10,25 @@ import { TaskStatus, type Task, type TaskExecutor } from './types.js';
 import { OnChainTaskStatus, type OnChainTask, type TaskExecutionContext } from '../task/types.js';
 import { TaskType } from '../events/types.js';
 import { silentLogger } from '../utils/logger.js';
+import { createTask as createBaseTask } from './test-utils.js';
 
 // ============================================================================
 // Test Helpers
 // ============================================================================
 
 function makeTask(overrides: Partial<Task> = {}): Task {
-  return {
+  return createBaseTask({
     pda: PublicKey.unique(),
-    taskId: new Uint8Array(32).fill(1),
     creator: PublicKey.unique(),
     requiredCapabilities: 3n,
     reward: 1_000_000n,
     description: new Uint8Array(64).fill(2),
-    constraintHash: new Uint8Array(32),
     deadline: 1700000000,
     maxWorkers: 5,
     currentClaims: 2,
     status: TaskStatus.InProgress,
     ...overrides,
-  };
+  });
 }
 
 function makeOnChainTask(overrides: Partial<OnChainTask> = {}): OnChainTask {

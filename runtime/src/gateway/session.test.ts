@@ -4,6 +4,7 @@ import {
   SessionManager,
   deriveSessionId,
   type SessionConfig,
+  type SessionCompactionHookPayload,
   type SessionLookupParams,
   type Summarizer,
 } from './session.js';
@@ -155,13 +156,16 @@ describe('SessionManager', () => {
       expect(session.history[0].content).toBe('hi');
     });
 
-    it('triggers compaction when exceeding maxHistoryLength', () => {
+    it('triggers compaction when exceeding maxHistoryLength', async () => {
       const mgr = new SessionManager(makeConfig({ maxHistoryLength: 5, compaction: 'truncate' }));
       const session = mgr.getOrCreate(makeParams());
 
       for (let i = 0; i < 6; i++) {
         mgr.appendMessage(session.id, msg('user', `msg-${i}`));
       }
+
+      // appendMessage compaction is async (fire-and-forget)
+      await new Promise((resolve) => setTimeout(resolve, 0));
 
       // Truncate keeps last half (ceil(6/2)=3)
       expect(session.history.length).toBeLessThanOrEqual(5);
@@ -258,6 +262,55 @@ describe('SessionManager', () => {
       }
 
       await expect(mgr.compact(session.id)).rejects.toThrow('LLM failed');
+    });
+
+    it('emits compaction hook events before and after compaction', async () => {
+      const events: SessionCompactionHookPayload[] = [];
+      const mgr = new SessionManager(
+        makeConfig({ compaction: 'truncate' }),
+        {
+          compactionHook: async (payload) => {
+            events.push(payload);
+          },
+        },
+      );
+      const session = mgr.getOrCreate(makeParams());
+      for (let i = 0; i < 8; i++) {
+        session.history.push(msg('user', `m${i}`));
+      }
+
+      const result = await mgr.compact(session.id);
+
+      expect(result).not.toBeNull();
+      expect(events).toHaveLength(2);
+      expect(events[0]?.phase).toBe('before');
+      expect(events[1]?.phase).toBe('after');
+      expect(events[1]?.result?.messagesRemoved).toBe(4);
+      expect(events[1]?.historyLengthBefore).toBe(8);
+      expect(events[1]?.historyLengthAfter).toBe(4);
+    });
+
+    it('emits an error hook event when compaction fails', async () => {
+      const events: SessionCompactionHookPayload[] = [];
+      const summarizer: Summarizer = vi.fn().mockRejectedValue(new Error('LLM failed'));
+      const mgr = new SessionManager(
+        makeConfig({ compaction: 'summarize' }),
+        {
+          summarizer,
+          compactionHook: async (payload) => {
+            events.push(payload);
+          },
+        },
+      );
+      const session = mgr.getOrCreate(makeParams());
+      for (let i = 0; i < 8; i++) {
+        session.history.push(msg('user', `m${i}`));
+      }
+
+      await expect(mgr.compact(session.id)).rejects.toThrow('LLM failed');
+      expect(events[0]?.phase).toBe('before');
+      expect(events[1]?.phase).toBe('error');
+      expect(events[1]?.error).toContain('LLM failed');
     });
   });
 
@@ -394,6 +447,31 @@ describe('SessionManager', () => {
 
       // DM override changes scope to 'main'
       expect(session.id).toBe('session:main');
+    });
+
+    it('channel-level override can replace nested scope overrides', () => {
+      const mgr = new SessionManager(makeConfig({
+        scope: 'per-peer',
+        overrides: {
+          dm: { scope: 'main' },
+        },
+        channelOverrides: {
+          'special-channel': {
+            overrides: {
+              dm: { scope: 'per-peer' },
+            },
+          },
+        },
+      }));
+
+      const params = makeParams({
+        channel: 'special-channel',
+        scope: 'dm',
+        senderId: 'alice',
+      });
+      const session = mgr.getOrCreate(params);
+
+      expect(session.id).toBe(deriveSessionId(params, 'per-peer'));
     });
   });
 

@@ -1293,6 +1293,38 @@ function buildErrorPayload(error: unknown): { status: 'error'; code: string; mes
   };
 }
 
+const DEFAULT_USAGE_ERROR_CODES = new Set<string>([
+  ERROR_CODES.INVALID_OPTION,
+  ERROR_CODES.INVALID_VALUE,
+  ERROR_CODES.MISSING_REQUIRED_OPTION,
+  ERROR_CODES.MISSING_TARGET,
+  ERROR_CODES.MISSING_ROOT_COMMAND,
+  ERROR_CODES.UNKNOWN_COMMAND,
+]);
+
+function reportCliError(
+  context: Pick<CliRuntimeContext, 'error'>,
+  error: unknown,
+  extraUsageCodes: readonly string[] = [],
+): CliStatusCode {
+  const payload = (
+    typeof error === 'object'
+    && error !== null
+    && 'status' in error
+    && 'code' in error
+    && 'message' in error
+    && (error as { status?: unknown }).status === 'error'
+    && typeof (error as { code?: unknown }).code === 'string'
+    && typeof (error as { message?: unknown }).message === 'string'
+  )
+    ? error as { status: 'error'; code: string; message: string }
+    : buildErrorPayload(error);
+  context.error(payload);
+  const isUsageError = DEFAULT_USAGE_ERROR_CODES.has(payload.code)
+    || extraUsageCodes.includes(payload.code);
+  return isUsageError ? 2 : 1;
+}
+
 interface PluginParseReport {
   command: 'plugin';
   pluginCommand: PluginCommand;
@@ -1677,17 +1709,7 @@ export async function runCli(options: CliRunOptions = {}): Promise<CliStatusCode
 
       return await runOnboardCommand(context, onboardOpts);
     } catch (error) {
-      const payload = buildErrorPayload(error);
-      context.error(payload);
-      const isUsageError = (payload.code === ERROR_CODES.INVALID_OPTION
-        || payload.code === ERROR_CODES.INVALID_VALUE
-        || payload.code === ERROR_CODES.MISSING_REQUIRED_OPTION
-        || payload.code === ERROR_CODES.MISSING_TARGET
-        || payload.code === ERROR_CODES.MISSING_ROOT_COMMAND
-        || payload.code === ERROR_CODES.UNKNOWN_COMMAND)
-        ? 2
-        : 1;
-      return isUsageError;
+      return reportCliError(context, error);
     }
   }
 
@@ -1718,17 +1740,7 @@ export async function runCli(options: CliRunOptions = {}): Promise<CliStatusCode
 
       return await runHealthCommand(context, healthOpts);
     } catch (error) {
-      const payload = buildErrorPayload(error);
-      context.error(payload);
-      const isUsageError = (payload.code === ERROR_CODES.INVALID_OPTION
-        || payload.code === ERROR_CODES.INVALID_VALUE
-        || payload.code === ERROR_CODES.MISSING_REQUIRED_OPTION
-        || payload.code === ERROR_CODES.MISSING_TARGET
-        || payload.code === ERROR_CODES.MISSING_ROOT_COMMAND
-        || payload.code === ERROR_CODES.UNKNOWN_COMMAND)
-        ? 2
-        : 1;
-      return isUsageError;
+      return reportCliError(context, error);
     }
   }
 
@@ -1786,17 +1798,7 @@ export async function runCli(options: CliRunOptions = {}): Promise<CliStatusCode
 
       return await runDoctorCommand(context, doctorOpts);
     } catch (error) {
-      const payload = buildErrorPayload(error);
-      context.error(payload);
-      const isUsageError = (payload.code === ERROR_CODES.INVALID_OPTION
-        || payload.code === ERROR_CODES.INVALID_VALUE
-        || payload.code === ERROR_CODES.MISSING_REQUIRED_OPTION
-        || payload.code === ERROR_CODES.MISSING_TARGET
-        || payload.code === ERROR_CODES.MISSING_ROOT_COMMAND
-        || payload.code === ERROR_CODES.UNKNOWN_COMMAND)
-        ? 2
-        : 1;
-      return isUsageError;
+      return reportCliError(context, error);
     }
   }
 
@@ -1816,9 +1818,7 @@ export async function runCli(options: CliRunOptions = {}): Promise<CliStatusCode
       };
       return await runStartCommand(context, startOpts);
     } catch (error) {
-      const payload = buildErrorPayload(error);
-      context.error(payload);
-      return payload.code === ERROR_CODES.INVALID_OPTION ? 2 : 1;
+      return reportCliError(context, error);
     }
   }
 
@@ -1832,9 +1832,7 @@ export async function runCli(options: CliRunOptions = {}): Promise<CliStatusCode
       };
       return await runStopCommand(context, stopOpts);
     } catch (error) {
-      const payload = buildErrorPayload(error);
-      context.error(payload);
-      return payload.code === ERROR_CODES.INVALID_OPTION ? 2 : 1;
+      return reportCliError(context, error);
     }
   }
 
@@ -1857,9 +1855,7 @@ export async function runCli(options: CliRunOptions = {}): Promise<CliStatusCode
       };
       return await runRestartCommand(context, startOpts, stopOpts);
     } catch (error) {
-      const payload = buildErrorPayload(error);
-      context.error(payload);
-      return payload.code === ERROR_CODES.INVALID_OPTION ? 2 : 1;
+      return reportCliError(context, error);
     }
   }
 
@@ -1873,9 +1869,7 @@ export async function runCli(options: CliRunOptions = {}): Promise<CliStatusCode
       };
       return await runStatusCommand(context, statusOpts);
     } catch (error) {
-      const payload = buildErrorPayload(error);
-      context.error(payload);
-      return payload.code === ERROR_CODES.INVALID_OPTION ? 2 : 1;
+      return reportCliError(context, error);
     }
   }
 
@@ -1888,9 +1882,7 @@ export async function runCli(options: CliRunOptions = {}): Promise<CliStatusCode
       };
       return await runServiceInstallCommand(context, serviceOpts);
     } catch (error) {
-      const payload = buildErrorPayload(error);
-      context.error(payload);
-      return payload.code === ERROR_CODES.INVALID_OPTION ? 2 : 1;
+      return reportCliError(context, error);
     }
   }
 
@@ -1964,13 +1956,10 @@ export async function runCli(options: CliRunOptions = {}): Promise<CliStatusCode
 
       throw createCliError(`unknown config subcommand: ${subcommand}`, ERROR_CODES.UNKNOWN_CONFIG_COMMAND);
     } catch (error) {
-      const payload = buildErrorPayload(error);
-      context.error(payload);
-      return payload.code === ERROR_CODES.INVALID_OPTION
-        || payload.code === ERROR_CODES.MISSING_CONFIG_COMMAND
-        || payload.code === ERROR_CODES.UNKNOWN_CONFIG_COMMAND
-        ? 2
-        : 1;
+      return reportCliError(context, error, [
+        ERROR_CODES.MISSING_CONFIG_COMMAND,
+        ERROR_CODES.UNKNOWN_CONFIG_COMMAND,
+      ]);
     }
   }
 
@@ -2008,14 +1997,7 @@ export async function runCli(options: CliRunOptions = {}): Promise<CliStatusCode
 
       throw createCliError(`unknown sessions subcommand: ${subcommand}`, ERROR_CODES.UNKNOWN_COMMAND);
     } catch (error) {
-      const payload = buildErrorPayload(error);
-      context.error(payload);
-      return payload.code === ERROR_CODES.INVALID_OPTION
-        || payload.code === ERROR_CODES.MISSING_SESSION_ID
-        || payload.code === ERROR_CODES.MISSING_ROOT_COMMAND
-        || payload.code === ERROR_CODES.UNKNOWN_COMMAND
-        ? 2
-        : 1;
+      return reportCliError(context, error, [ERROR_CODES.MISSING_SESSION_ID]);
     }
   }
 
@@ -2031,9 +2013,7 @@ export async function runCli(options: CliRunOptions = {}): Promise<CliStatusCode
       };
       return await runLogsCommand(context, logsOpts);
     } catch (error) {
-      const payload = buildErrorPayload(error);
-      context.error(payload);
-      return payload.code === ERROR_CODES.INVALID_OPTION ? 2 : 1;
+      return reportCliError(context, error);
     }
   }
 
@@ -2077,14 +2057,10 @@ export async function runCli(options: CliRunOptions = {}): Promise<CliStatusCode
 
       throw createCliError(`unknown jobs subcommand: ${subcommand}`, ERROR_CODES.UNKNOWN_PLUGIN_COMMAND);
     } catch (error) {
-      const payload = buildErrorPayload(error);
-      context.error(payload);
-      return payload.code === ERROR_CODES.INVALID_OPTION
-        || payload.code === ERROR_CODES.MISSING_PLUGIN_COMMAND
-        || payload.code === ERROR_CODES.UNKNOWN_PLUGIN_COMMAND
-        || payload.code === ERROR_CODES.MISSING_TARGET
-        ? 2
-        : 1;
+      return reportCliError(context, error, [
+        ERROR_CODES.MISSING_PLUGIN_COMMAND,
+        ERROR_CODES.UNKNOWN_PLUGIN_COMMAND,
+      ]);
     }
   }
 
@@ -2153,19 +2129,10 @@ export async function runCli(options: CliRunOptions = {}): Promise<CliStatusCode
         report.options,
       );
     } catch (error) {
-      const payload = buildErrorPayload(error);
-      commandContext.error(payload);
-      const isUsageError = (payload.code === ERROR_CODES.INVALID_OPTION
-        || payload.code === ERROR_CODES.INVALID_VALUE
-        || payload.code === ERROR_CODES.MISSING_REQUIRED_OPTION
-        || payload.code === ERROR_CODES.MISSING_TARGET
-        || payload.code === ERROR_CODES.MISSING_PLUGIN_COMMAND
-        || payload.code === ERROR_CODES.UNKNOWN_PLUGIN_COMMAND
-        || payload.code === ERROR_CODES.MISSING_ROOT_COMMAND
-        || payload.code === ERROR_CODES.UNKNOWN_COMMAND)
-        ? 2
-        : 1;
-      return isUsageError;
+      return reportCliError(commandContext, error, [
+        ERROR_CODES.MISSING_PLUGIN_COMMAND,
+        ERROR_CODES.UNKNOWN_PLUGIN_COMMAND,
+      ]);
     }
   }
 
@@ -2225,7 +2192,6 @@ export async function runCli(options: CliRunOptions = {}): Promise<CliStatusCode
     return status;
   } catch (error) {
     const payload = buildErrorPayload(error);
-    commandContext.error(payload);
 
     if (role && auditTrail) {
       const outputValue = capturedError ?? payload;
@@ -2239,17 +2205,10 @@ export async function runCli(options: CliRunOptions = {}): Promise<CliStatusCode
       });
     }
 
-    const isUsageError = (payload.code === ERROR_CODES.INVALID_OPTION
-      || payload.code === ERROR_CODES.INVALID_VALUE
-      || payload.code === ERROR_CODES.MISSING_REQUIRED_OPTION
-      || payload.code === ERROR_CODES.MISSING_TARGET
-      || payload.code === ERROR_CODES.MISSING_ROOT_COMMAND
-      || payload.code === ERROR_CODES.UNKNOWN_COMMAND
-      || payload.code === ERROR_CODES.MISSING_REPLAY_COMMAND
-      || payload.code === ERROR_CODES.UNKNOWN_REPLAY_COMMAND)
-      ? 2
-      : 1;
-    return isUsageError;
+    return reportCliError(commandContext, payload, [
+      ERROR_CODES.MISSING_REPLAY_COMMAND,
+      ERROR_CODES.UNKNOWN_REPLAY_COMMAND,
+    ]);
   }
 }
 
@@ -2445,56 +2404,7 @@ async function runReplayIncidentCommand(
   args: CliCommandOptions,
 ): Promise<CliStatusCode> {
   const options = args as ReplayIncidentOptions;
-
-  let queryDsl: QueryDSL = {};
-  if (options.query !== undefined) {
-    try {
-      queryDsl = parseQueryDSL(options.query);
-    } catch (error) {
-      throw createCliError(
-        error instanceof Error ? error.message : String(error),
-        ERROR_CODES.INVALID_VALUE,
-      );
-    }
-  }
-
-  if (options.taskPda !== undefined) {
-    if (queryDsl.taskPda !== undefined && queryDsl.taskPda !== options.taskPda) {
-      throw createCliError('conflicting task PDA filters between --task-pda and --query', ERROR_CODES.INVALID_VALUE);
-    }
-    queryDsl.taskPda = queryDsl.taskPda ?? options.taskPda;
-  }
-
-  if (options.disputePda !== undefined) {
-    if (queryDsl.disputePda !== undefined && queryDsl.disputePda !== options.disputePda) {
-      throw createCliError('conflicting dispute PDA filters between --dispute-pda and --query', ERROR_CODES.INVALID_VALUE);
-    }
-    queryDsl.disputePda = queryDsl.disputePda ?? options.disputePda;
-  }
-
-  if (options.fromSlot !== undefined || options.toSlot !== undefined) {
-    const from = queryDsl.slotRange?.from ?? options.fromSlot;
-    const to = queryDsl.slotRange?.to ?? options.toSlot;
-
-    if (options.fromSlot !== undefined && queryDsl.slotRange?.from !== undefined && options.fromSlot !== queryDsl.slotRange.from) {
-      throw createCliError('conflicting from-slot filters between --from-slot and --query', ERROR_CODES.INVALID_VALUE);
-    }
-
-    if (options.toSlot !== undefined && queryDsl.slotRange?.to !== undefined && options.toSlot !== queryDsl.slotRange.to) {
-      throw createCliError('conflicting to-slot filters between --to-slot and --query', ERROR_CODES.INVALID_VALUE);
-    }
-
-    queryDsl.slotRange = { from, to };
-  }
-
-  if (queryDsl.taskPda === undefined && queryDsl.disputePda === undefined) {
-    throw createCliError('incident requires --task-pda, --dispute-pda, or --query', ERROR_CODES.MISSING_TARGET);
-  }
-
-  if (queryDsl.slotRange?.from !== undefined && queryDsl.slotRange?.to !== undefined && queryDsl.slotRange.to < queryDsl.slotRange.from) {
-    throw createCliError('--to-slot must be greater than or equal to --from-slot', ERROR_CODES.INVALID_VALUE);
-  }
-
+  const queryDsl = mergeIncidentQueryDsl(options);
   const normalizedQuery = normalizeQuery(queryDsl);
   const incidentFilters = {
     taskPda: queryDsl.taskPda,
@@ -2598,6 +2508,59 @@ async function runReplayIncidentCommand(
   context.output(applyRedaction(payload, options.redactFields ?? []));
 
   return 0;
+}
+
+function mergeIncidentQueryDsl(options: ReplayIncidentOptions): QueryDSL {
+  let queryDsl: QueryDSL = {};
+  if (options.query !== undefined) {
+    try {
+      queryDsl = parseQueryDSL(options.query);
+    } catch (error) {
+      throw createCliError(
+        error instanceof Error ? error.message : String(error),
+        ERROR_CODES.INVALID_VALUE,
+      );
+    }
+  }
+
+  if (options.taskPda !== undefined) {
+    if (queryDsl.taskPda !== undefined && queryDsl.taskPda !== options.taskPda) {
+      throw createCliError('conflicting task PDA filters between --task-pda and --query', ERROR_CODES.INVALID_VALUE);
+    }
+    queryDsl.taskPda = queryDsl.taskPda ?? options.taskPda;
+  }
+
+  if (options.disputePda !== undefined) {
+    if (queryDsl.disputePda !== undefined && queryDsl.disputePda !== options.disputePda) {
+      throw createCliError('conflicting dispute PDA filters between --dispute-pda and --query', ERROR_CODES.INVALID_VALUE);
+    }
+    queryDsl.disputePda = queryDsl.disputePda ?? options.disputePda;
+  }
+
+  if (options.fromSlot !== undefined || options.toSlot !== undefined) {
+    const from = queryDsl.slotRange?.from ?? options.fromSlot;
+    const to = queryDsl.slotRange?.to ?? options.toSlot;
+
+    if (options.fromSlot !== undefined && queryDsl.slotRange?.from !== undefined && options.fromSlot !== queryDsl.slotRange.from) {
+      throw createCliError('conflicting from-slot filters between --from-slot and --query', ERROR_CODES.INVALID_VALUE);
+    }
+
+    if (options.toSlot !== undefined && queryDsl.slotRange?.to !== undefined && options.toSlot !== queryDsl.slotRange.to) {
+      throw createCliError('conflicting to-slot filters between --to-slot and --query', ERROR_CODES.INVALID_VALUE);
+    }
+
+    queryDsl.slotRange = { from, to };
+  }
+
+  if (queryDsl.taskPda === undefined && queryDsl.disputePda === undefined) {
+    throw createCliError('incident requires --task-pda, --dispute-pda, or --query', ERROR_CODES.MISSING_TARGET);
+  }
+
+  if (queryDsl.slotRange?.from !== undefined && queryDsl.slotRange?.to !== undefined && queryDsl.slotRange.to < queryDsl.slotRange.from) {
+    throw createCliError('--to-slot must be greater than or equal to --from-slot', ERROR_CODES.INVALID_VALUE);
+  }
+
+  return queryDsl;
 }
 
 function buildIncidentEventAnomalyId(entry: {

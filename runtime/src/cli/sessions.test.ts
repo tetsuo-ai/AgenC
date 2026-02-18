@@ -2,7 +2,8 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { CliRuntimeContext, SessionsListOptions, SessionsKillOptions } from './types.js';
+import type { SessionsListOptions, SessionsKillOptions } from './types.js';
+import { createContextCapture } from './test-utils.js';
 
 // Mock gateway dependencies to avoid @coral-xyz/anchor dependency chain
 vi.mock('../gateway/gateway.js', () => ({}));
@@ -19,26 +20,6 @@ vi.mock('../utils/logger.js', () => {
 });
 
 import { runSessionsListCommand, runSessionsKillCommand } from './sessions.js';
-
-function createContextCapture(): { context: CliRuntimeContext; outputs: unknown[]; errors: unknown[] } {
-  const outputs: unknown[] = [];
-  const errors: unknown[] = [];
-  return {
-    context: {
-      logger: {
-        error: vi.fn(),
-        warn: vi.fn(),
-        info: vi.fn(),
-        debug: vi.fn(),
-      },
-      outputFormat: 'json',
-      output: (value) => outputs.push(value),
-      error: (value) => errors.push(value),
-    },
-    outputs,
-    errors,
-  };
-}
 
 describe('sessions: runSessionsListCommand', () => {
   let workspace = '';
