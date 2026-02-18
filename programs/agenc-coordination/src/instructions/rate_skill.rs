@@ -2,7 +2,9 @@
 
 use crate::errors::CoordinationError;
 use crate::events::SkillRated;
-use crate::state::{AgentRegistration, AgentStatus, ProtocolConfig, SkillRating, SkillRegistration};
+use crate::state::{
+    AgentRegistration, AgentStatus, ProtocolConfig, SkillRating, SkillRegistration,
+};
 use crate::utils::version::check_version_compatible;
 use anchor_lang::prelude::*;
 
@@ -43,11 +45,7 @@ pub struct RateSkill<'info> {
     pub system_program: Program<'info, System>,
 }
 
-pub fn handler(
-    ctx: Context<RateSkill>,
-    rating: u8,
-    review_hash: Option<[u8; 32]>,
-) -> Result<()> {
+pub fn handler(ctx: Context<RateSkill>, rating: u8, review_hash: Option<[u8; 32]>) -> Result<()> {
     let config = &ctx.accounts.protocol_config;
     check_version_compatible(config)?;
 
@@ -63,10 +61,7 @@ pub fn handler(
     );
 
     let skill = &ctx.accounts.skill;
-    require!(
-        skill.is_active,
-        CoordinationError::SkillNotActive
-    );
+    require!(skill.is_active, CoordinationError::SkillNotActive);
 
     require!(
         rater.key() != skill.author,

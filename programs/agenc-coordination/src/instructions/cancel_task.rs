@@ -3,11 +3,13 @@
 use crate::errors::CoordinationError;
 use crate::events::TaskCancelled;
 use crate::instructions::lamport_transfer::transfer_lamports;
+use crate::instructions::token_helpers::{
+    close_token_escrow, transfer_tokens_from_escrow, validate_token_account,
+};
 use crate::state::{AgentRegistration, ProtocolConfig, Task, TaskClaim, TaskEscrow, TaskStatus};
 use crate::utils::version::check_version_compatible;
 use anchor_lang::prelude::*;
 use anchor_spl::token::{Mint, Token, TokenAccount};
-use crate::instructions::token_helpers::{close_token_escrow, transfer_tokens_from_escrow, validate_token_account};
 
 #[derive(Accounts)]
 pub struct CancelTask<'info> {
@@ -39,7 +41,6 @@ pub struct CancelTask<'info> {
     pub system_program: Program<'info, System>,
 
     // === Optional SPL Token accounts (only required for token-denominated tasks) ===
-
     /// Token escrow ATA holding reward tokens (optional)
     #[account(mut)]
     pub token_escrow_ata: Option<Account<'info, TokenAccount>>,

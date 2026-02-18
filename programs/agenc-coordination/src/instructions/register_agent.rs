@@ -51,10 +51,7 @@ pub fn handler(
     metadata_uri: Option<String>,
     stake_amount: u64,
 ) -> Result<()> {
-    require!(
-        agent_id != [0u8; 32],
-        CoordinationError::InvalidAgentId
-    );
+    require!(agent_id != [0u8; 32], CoordinationError::InvalidAgentId);
 
     require!(capabilities != 0, CoordinationError::InvalidCapabilities);
     require!(!endpoint.is_empty(), CoordinationError::InvalidInput);

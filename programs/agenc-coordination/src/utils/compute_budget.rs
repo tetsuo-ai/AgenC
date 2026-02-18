@@ -87,10 +87,10 @@ pub const RECOMMENDED_CU_INITIALIZE_PROTOCOL: u32 = 40_000;
 ///   - Tier 2 (200-999 tasks): 25 bps discount  -> 0.75% effective
 ///   - Tier 3 (1000+ tasks):   40 bps discount  -> 0.60% effective
 pub const FEE_TIER_THRESHOLDS: [(u64, u16); 4] = [
-    (0, 0),       // Base tier: no discount
-    (50, 10),     // Bronze: 10 bps discount after 50 completed tasks
-    (200, 25),    // Silver: 25 bps discount after 200 completed tasks
-    (1000, 40),   // Gold: 40 bps discount after 1000 completed tasks
+    (0, 0),     // Base tier: no discount
+    (50, 10),   // Bronze: 10 bps discount after 50 completed tasks
+    (200, 25),  // Silver: 25 bps discount after 200 completed tasks
+    (1000, 40), // Gold: 40 bps discount after 1000 completed tasks
 ];
 
 /// Maximum discount in basis points (cannot exceed base fee)
@@ -129,10 +129,10 @@ pub fn calculate_tiered_fee(base_fee_bps: u16, completed_tasks: u64) -> u16 {
 /// Reputation fee tier thresholds and discount amounts.
 /// Each tier specifies (min_reputation, discount_bps).
 pub const REPUTATION_FEE_TIERS: [(u16, u16); 4] = [
-    (0, 0),        // No discount below 8000
-    (8000, 5),     // 5 bps discount at 8000+ reputation
-    (9000, 10),    // 10 bps discount at 9000+ reputation
-    (9500, 15),    // 15 bps discount at 9500+ reputation
+    (0, 0),     // No discount below 8000
+    (8000, 5),  // 5 bps discount at 8000+ reputation
+    (9000, 10), // 10 bps discount at 9000+ reputation
+    (9500, 15), // 15 bps discount at 9500+ reputation
 ];
 
 /// Calculate reputation-based fee discount in basis points.
