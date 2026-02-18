@@ -419,10 +419,6 @@ export class WebChatChannel extends BaseChannelPlugin implements WebChatHandler 
       this.sessionHistory.set(sessionId, history);
     }
     history.push(entry);
-    // Keep history bounded
-    if (history.length > 500) {
-      history.splice(0, history.length - 500);
-    }
   }
 
   // --------------------------------------------------------------------------

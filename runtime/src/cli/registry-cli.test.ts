@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { CliRuntimeContext } from './types.js';
+import { createContextCapture } from './test-utils.js';
 import type { SkillRegistryClient, SkillListing, SkillListingEntry } from '../skills/registry/types.js';
 import {
   SkillRegistryNotFoundError,
@@ -19,26 +19,6 @@ import {
   runRegistryVerifyCommand,
   runImportOpenclawCommand,
 } from './registry-cli.js';
-
-function createContextCapture(): { context: CliRuntimeContext; outputs: unknown[]; errors: unknown[] } {
-  const outputs: unknown[] = [];
-  const errors: unknown[] = [];
-  return {
-    context: {
-      logger: {
-        error: vi.fn(),
-        warn: vi.fn(),
-        info: vi.fn(),
-        debug: vi.fn(),
-      },
-      outputFormat: 'json',
-      output: (value) => outputs.push(value),
-      error: (value) => errors.push(value),
-    },
-    outputs,
-    errors,
-  };
-}
 
 function makeListing(overrides: Partial<SkillListing> = {}): SkillListing {
   return {

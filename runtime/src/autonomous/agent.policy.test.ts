@@ -1,28 +1,10 @@
 import { describe, it, expect, vi } from 'vitest';
 import { Keypair } from '@solana/web3.js';
-import type { Task, TaskExecutor } from './types.js';
-import { TaskStatus } from './types.js';
+import type { TaskExecutor } from './types.js';
 import { AutonomousAgent } from './agent.js';
 import { PolicyEngine } from '../policy/engine.js';
 import { PolicyViolationError } from '../policy/types.js';
-
-function createTask(overrides: Partial<Task> = {}): Task {
-  return {
-    pda: Keypair.generate().publicKey,
-    taskId: new Uint8Array(32).fill(1),
-    creator: Keypair.generate().publicKey,
-    requiredCapabilities: 1n,
-    reward: 100n,
-    description: new Uint8Array(64),
-    constraintHash: new Uint8Array(32),
-    deadline: 0,
-    maxWorkers: 1,
-    currentClaims: 0,
-    status: TaskStatus.Open,
-    rewardMint: null,
-    ...overrides,
-  };
-}
+import { createTask } from './test-utils.js';
 
 function createAgent(
   executor: TaskExecutor,
@@ -107,4 +89,3 @@ describe('AutonomousAgent policy integration', () => {
     expect(agentAny.completeTaskWithRetry).toHaveBeenCalledTimes(1);
   });
 });
-

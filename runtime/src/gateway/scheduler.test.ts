@@ -267,6 +267,12 @@ describe('CronScheduler', () => {
     expect(() => scheduler.addJob('dup', '* * * * *', makeAction())).toThrow('already exists');
   });
 
+  it('surfaces invalid cron expressions with job context', () => {
+    expect(() => scheduler.addJob('bad-cron', '* * *', makeAction())).toThrow(
+      'failed to schedule job "bad-cron"',
+    );
+  });
+
   it('removeJob removes a job', () => {
     scheduler.addJob('to-remove', '* * * * *', makeAction());
     expect(scheduler.removeJob('to-remove')).toBe(true);
@@ -295,6 +301,28 @@ describe('CronScheduler', () => {
 
     const jobs = scheduler.listJobs();
     expect(jobs[0].enabled).toBe(true);
+  });
+
+  it('enableJob throws when next run cannot be computed', () => {
+    scheduler.addJob('broken', '* * * * *', makeAction());
+    scheduler.disableJob('broken');
+
+    const jobMap = (scheduler as unknown as {
+      jobs: Map<string, { schedule: CronSchedule }>;
+    }).jobs;
+    const brokenJob = jobMap.get('broken');
+    expect(brokenJob).toBeDefined();
+    brokenJob!.schedule = {
+      minute: [0],
+      hour: [0],
+      dayOfMonth: [31],
+      month: [2],
+      dayOfWeek: [],
+    };
+
+    expect(() => scheduler.enableJob('broken')).toThrow(
+      'failed to enable job "broken"',
+    );
   });
 
   it('enableJob returns false for non-existent job', () => {
