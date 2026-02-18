@@ -2,160 +2,23 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Keypair } from '@solana/web3.js';
 import { InMemoryCheckpointStore } from './checkpoint.js';
 import { TaskExecutor } from './executor.js';
-import type { TaskOperations } from './operations.js';
-import type { TaskDiscovery, TaskDiscoveryResult, TaskDiscoveryListener } from './discovery.js';
 import type {
-  OnChainTask,
-  OnChainTaskClaim,
   TaskExecutionContext,
   TaskExecutionResult,
   TaskExecutorConfig,
-  ClaimResult,
-  CompleteResult,
   CheckpointStore,
   TaskCheckpoint,
+  ClaimResult,
 } from './types.js';
-import { OnChainTaskStatus } from './types.js';
-import { TaskType } from '../events/types.js';
 import { silentLogger } from '../utils/logger.js';
-
-// ============================================================================
-// Helpers
-// ============================================================================
-
-function createTask(overrides: Partial<OnChainTask> = {}): OnChainTask {
-  return {
-    taskId: new Uint8Array(32),
-    creator: Keypair.generate().publicKey,
-    requiredCapabilities: 1n,
-    description: new Uint8Array(64),
-    constraintHash: new Uint8Array(32),
-    rewardAmount: 1_000_000n,
-    maxWorkers: 5,
-    currentWorkers: 0,
-    status: OnChainTaskStatus.Open,
-    taskType: TaskType.Exclusive,
-    createdAt: 1700000000,
-    deadline: Math.floor(Date.now() / 1000) + 3600,
-    completedAt: 0,
-    escrow: Keypair.generate().publicKey,
-    result: new Uint8Array(64),
-    completions: 0,
-    requiredCompletions: 1,
-    bump: 255,
-    ...overrides,
-  };
-}
-
-function createDiscoveryResult(overrides: Partial<TaskDiscoveryResult> = {}): TaskDiscoveryResult {
-  return {
-    pda: Keypair.generate().publicKey,
-    task: createTask(),
-    discoveredAt: Date.now(),
-    source: 'poll',
-    ...overrides,
-  };
-}
-
-function createMockOperations(): TaskOperations & {
-  claimTask: ReturnType<typeof vi.fn>;
-  completeTask: ReturnType<typeof vi.fn>;
-  completeTaskPrivate: ReturnType<typeof vi.fn>;
-  fetchTask: ReturnType<typeof vi.fn>;
-  fetchTaskByIds: ReturnType<typeof vi.fn>;
-  fetchClaim: ReturnType<typeof vi.fn>;
-} {
-  const claimPda = Keypair.generate().publicKey;
-  return {
-    fetchClaimableTasks: vi.fn().mockResolvedValue([]),
-    fetchTask: vi.fn().mockResolvedValue(null),
-    fetchAllTasks: vi.fn().mockResolvedValue([]),
-    fetchClaim: vi.fn().mockResolvedValue(null),
-    fetchActiveClaims: vi.fn().mockResolvedValue([]),
-    fetchTaskByIds: vi.fn().mockResolvedValue(null),
-    claimTask: vi.fn().mockResolvedValue({
-      success: true,
-      taskId: new Uint8Array(32),
-      claimPda,
-      transactionSignature: 'claim-sig',
-    } satisfies ClaimResult),
-    completeTask: vi.fn().mockResolvedValue({
-      success: true,
-      taskId: new Uint8Array(32),
-      isPrivate: false,
-      transactionSignature: 'complete-sig',
-    } satisfies CompleteResult),
-    completeTaskPrivate: vi.fn().mockResolvedValue({
-      success: true,
-      taskId: new Uint8Array(32),
-      isPrivate: true,
-      transactionSignature: 'private-complete-sig',
-    } satisfies CompleteResult),
-  } as unknown as TaskOperations & {
-    claimTask: ReturnType<typeof vi.fn>;
-    completeTask: ReturnType<typeof vi.fn>;
-    completeTaskPrivate: ReturnType<typeof vi.fn>;
-    fetchTask: ReturnType<typeof vi.fn>;
-    fetchTaskByIds: ReturnType<typeof vi.fn>;
-    fetchClaim: ReturnType<typeof vi.fn>;
-  };
-}
-
-function createMockDiscovery(): TaskDiscovery & {
-  onTaskDiscovered: ReturnType<typeof vi.fn>;
-  start: ReturnType<typeof vi.fn>;
-  stop: ReturnType<typeof vi.fn>;
-  pause: ReturnType<typeof vi.fn>;
-  resume: ReturnType<typeof vi.fn>;
-  _emitTask: (task: TaskDiscoveryResult) => void;
-} {
-  let listener: TaskDiscoveryListener | null = null;
-
-  const mock = {
-    onTaskDiscovered: vi.fn((cb: TaskDiscoveryListener) => {
-      listener = cb;
-      return () => { listener = null; };
-    }),
-    start: vi.fn().mockResolvedValue(undefined),
-    stop: vi.fn().mockResolvedValue(undefined),
-    pause: vi.fn(),
-    resume: vi.fn(),
-    isRunning: vi.fn().mockReturnValue(false),
-    isPaused: vi.fn().mockReturnValue(false),
-    getDiscoveredCount: vi.fn().mockReturnValue(0),
-    clearSeen: vi.fn(),
-    poll: vi.fn().mockResolvedValue([]),
-    _emitTask: (task: TaskDiscoveryResult) => {
-      listener?.(task);
-    },
-  };
-
-  return mock as unknown as TaskDiscovery & {
-    onTaskDiscovered: ReturnType<typeof vi.fn>;
-    start: ReturnType<typeof vi.fn>;
-    stop: ReturnType<typeof vi.fn>;
-    pause: ReturnType<typeof vi.fn>;
-    resume: ReturnType<typeof vi.fn>;
-    _emitTask: (task: TaskDiscoveryResult) => void;
-  };
-}
-
-function createMockClaim(overrides: Partial<OnChainTaskClaim> = {}): OnChainTaskClaim {
-  return {
-    task: Keypair.generate().publicKey,
-    worker: Keypair.generate().publicKey,
-    claimedAt: Math.floor(Date.now() / 1000),
-    expiresAt: Math.floor(Date.now() / 1000) + 300,
-    completedAt: 0,
-    proofHash: new Uint8Array(32),
-    resultData: new Uint8Array(64),
-    isCompleted: false,
-    isValidated: false,
-    rewardPaid: 0n,
-    bump: 255,
-    ...overrides,
-  };
-}
+import {
+  createTask,
+  createDiscoveryResult,
+  createMockOperations,
+  createMockDiscovery,
+  createMockClaim,
+  waitFor,
+} from './test-utils.js';
 
 const agentId = new Uint8Array(32).fill(42);
 const agentPda = Keypair.generate().publicKey;
@@ -173,20 +36,6 @@ function createExecutorConfig(overrides: Partial<TaskExecutorConfig> = {}): Task
     logger: silentLogger,
     ...overrides,
   };
-}
-
-async function waitFor(
-  condition: () => boolean,
-  timeoutMs = 2000,
-  intervalMs = 10,
-): Promise<void> {
-  const start = Date.now();
-  while (!condition()) {
-    if (Date.now() - start > timeoutMs) {
-      throw new Error('waitFor timeout');
-    }
-    await new Promise((r) => setTimeout(r, intervalMs));
-  }
 }
 
 // ============================================================================

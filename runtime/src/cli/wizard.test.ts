@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from 'no
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { CliRuntimeContext, WizardOptions, ConfigValidateOptions, ConfigShowOptions } from './types.js';
+import type { WizardOptions, ConfigValidateOptions, ConfigShowOptions } from './types.js';
 import {
   generateDefaultConfig,
   detectSolanaKeypair,
@@ -11,26 +11,7 @@ import {
   runConfigShowCommand,
 } from './wizard.js';
 import type { GatewayConfig } from '../gateway/types.js';
-
-function createContextCapture(): { context: CliRuntimeContext; outputs: unknown[]; errors: unknown[] } {
-  const outputs: unknown[] = [];
-  const errors: unknown[] = [];
-  return {
-    context: {
-      logger: {
-        error: vi.fn(),
-        warn: vi.fn(),
-        info: vi.fn(),
-        debug: vi.fn(),
-      },
-      outputFormat: 'json',
-      output: (value) => outputs.push(value),
-      error: (value) => errors.push(value),
-    },
-    outputs,
-    errors,
-  };
-}
+import { createContextCapture } from './test-utils.js';
 
 function baseOptions(): Omit<WizardOptions, 'configPath' | 'force'> {
   return {

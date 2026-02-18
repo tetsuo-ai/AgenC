@@ -30,7 +30,7 @@ function suggestSimilarNames(input: string, skills: DiscoveredSkill[]): string[]
 function buildSkillTemplate(name: string): string {
   return `---
 name: ${name}
-description: TODO — describe what this skill does
+description: ${name} skill for AgenC runtime workflows
 version: 0.1.0
 metadata:
   agenc:
@@ -45,7 +45,19 @@ metadata:
 
 # ${name}
 
-TODO — write skill instructions here.
+## Purpose
+
+Describe what this skill automates and when to use it.
+
+## Inputs
+
+- List required inputs and expected formats.
+
+## Steps
+
+1. Add the concrete workflow steps this skill should execute.
+2. Note any safety checks or validation requirements.
+3. Document expected output shape.
 `;
 }
 

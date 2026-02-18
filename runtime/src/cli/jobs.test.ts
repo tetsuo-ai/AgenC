@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { CronScheduler } from '../gateway/scheduler.js';
 import type { HeartbeatActionDef } from '../gateway/scheduler.js';
-import type { CliRuntimeContext } from './types.js';
+import { createContextCapture } from './test-utils.js';
 import {
   runJobsListCommand,
   runJobsRunCommand,
@@ -15,30 +15,6 @@ const silentLogger = {
   info: () => {},
   debug: () => {},
 };
-
-function createContextCapture(): {
-  context: CliRuntimeContext;
-  outputs: unknown[];
-  errors: unknown[];
-} {
-  const outputs: unknown[] = [];
-  const errors: unknown[] = [];
-  return {
-    context: {
-      logger: {
-        error: vi.fn(),
-        warn: vi.fn(),
-        info: vi.fn(),
-        debug: vi.fn(),
-      },
-      outputFormat: 'json',
-      output: (value) => outputs.push(value),
-      error: (value) => errors.push(value),
-    },
-    outputs,
-    errors,
-  };
-}
 
 function makeAction(fn?: () => Promise<void>): HeartbeatActionDef {
   return {

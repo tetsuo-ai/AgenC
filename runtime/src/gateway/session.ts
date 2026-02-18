@@ -70,6 +70,22 @@ export interface CompactionResult {
   readonly summaryGenerated: boolean;
 }
 
+export type SessionCompactionPhase = 'before' | 'after' | 'error';
+
+export interface SessionCompactionHookPayload {
+  readonly phase: SessionCompactionPhase;
+  readonly sessionId: string;
+  readonly strategy: CompactionStrategy;
+  readonly historyLengthBefore: number;
+  readonly historyLengthAfter?: number;
+  readonly result?: CompactionResult;
+  readonly error?: string;
+}
+
+export type SessionCompactionHook = (
+  payload: SessionCompactionHookPayload,
+) => Promise<void> | void;
+
 export interface SessionInfo {
   readonly id: string;
   readonly channel: string;
@@ -127,6 +143,7 @@ const DEFAULT_IDLE_MINUTES = 120;
 
 interface SessionManagerOptions {
   summarizer?: Summarizer;
+  compactionHook?: SessionCompactionHook;
 }
 
 export class SessionManager {
@@ -134,10 +151,12 @@ export class SessionManager {
   private readonly sessions = new Map<string, Session>();
   private readonly lookups = new Map<string, SessionLookupParams>();
   private readonly summarizer?: Summarizer;
+  private readonly compactionHook?: SessionCompactionHook;
 
   constructor(config: SessionConfig, options?: SessionManagerOptions) {
     this.config = config;
     this.summarizer = options?.summarizer;
+    this.compactionHook = options?.compactionHook;
   }
 
   /** Number of active sessions. */
@@ -215,8 +234,6 @@ export class SessionManager {
   /**
    * Compact a session's history using the configured strategy.
    * Returns null if session not found.
-   *
-   * TODO: emit session:compact hook event before/after compaction (#1056)
    */
   async compact(sessionId: string): Promise<CompactionResult | null> {
     const session = this.sessions.get(sessionId);
@@ -224,56 +241,105 @@ export class SessionManager {
 
     const strategy = this.resolveConfigForId(sessionId).compaction;
     const history = session.history;
+    const historyLengthBefore = history.length;
 
-    if (history.length <= 1) {
-      return { messagesRemoved: 0, messagesRetained: history.length, summaryGenerated: false };
-    }
+    await this.emitCompactionHook({
+      phase: 'before',
+      sessionId,
+      strategy,
+      historyLengthBefore,
+    });
 
-    const keepCount = Math.ceil(history.length / 2);
-    const dropCount = history.length - keepCount;
+    try {
+      let result: CompactionResult;
 
-    switch (strategy) {
-      case 'truncate': {
-        session.history = history.slice(dropCount);
-        return { messagesRemoved: dropCount, messagesRetained: keepCount, summaryGenerated: false };
-      }
-
-      case 'sliding-window': {
-        const toSummarize = history.slice(0, dropCount);
-        let summaryText: string;
-
-        if (this.summarizer) {
-          summaryText = await this.summarizer(toSummarize);
-        } else {
-          summaryText = `[Compacted: ${dropCount} earlier messages removed]`;
-        }
-
-        const summaryMsg: LLMMessage = { role: 'system', content: summaryText };
-        session.history = [summaryMsg, ...history.slice(dropCount)];
-        return {
-          messagesRemoved: dropCount,
-          messagesRetained: keepCount + 1,
-          summaryGenerated: !!this.summarizer,
+      if (history.length <= 1) {
+        result = {
+          messagesRemoved: 0,
+          messagesRetained: history.length,
+          summaryGenerated: false,
         };
-      }
+      } else {
+        const keepCount = Math.ceil(history.length / 2);
+        const dropCount = history.length - keepCount;
 
-      case 'summarize': {
-        if (!this.summarizer) {
-          // Fall back to truncate
-          session.history = history.slice(dropCount);
-          return { messagesRemoved: dropCount, messagesRetained: keepCount, summaryGenerated: false };
+        switch (strategy) {
+          case 'truncate': {
+            session.history = history.slice(dropCount);
+            result = {
+              messagesRemoved: dropCount,
+              messagesRetained: keepCount,
+              summaryGenerated: false,
+            };
+            break;
+          }
+
+          case 'sliding-window': {
+            const toSummarize = history.slice(0, dropCount);
+            let summaryText: string;
+
+            if (this.summarizer) {
+              summaryText = await this.summarizer(toSummarize);
+            } else {
+              summaryText = `[Compacted: ${dropCount} earlier messages removed]`;
+            }
+
+            const summaryMsg: LLMMessage = { role: 'system', content: summaryText };
+            session.history = [summaryMsg, ...history.slice(dropCount)];
+            result = {
+              messagesRemoved: dropCount,
+              messagesRetained: keepCount + 1,
+              summaryGenerated: !!this.summarizer,
+            };
+            break;
+          }
+
+          case 'summarize': {
+            if (!this.summarizer) {
+              // Fall back to truncate
+              session.history = history.slice(dropCount);
+              result = {
+                messagesRemoved: dropCount,
+                messagesRetained: keepCount,
+                summaryGenerated: false,
+              };
+              break;
+            }
+
+            const toSummarize = history.slice(0, dropCount);
+            const summary = await this.summarizer(toSummarize);
+            const summaryMsg: LLMMessage = { role: 'system', content: summary };
+            session.history = [summaryMsg, ...history.slice(dropCount)];
+            result = {
+              messagesRemoved: dropCount,
+              messagesRetained: keepCount + 1,
+              summaryGenerated: true,
+            };
+            break;
+          }
         }
-
-        const toSummarize = history.slice(0, dropCount);
-        const summary = await this.summarizer(toSummarize);
-        const summaryMsg: LLMMessage = { role: 'system', content: summary };
-        session.history = [summaryMsg, ...history.slice(dropCount)];
-        return {
-          messagesRemoved: dropCount,
-          messagesRetained: keepCount + 1,
-          summaryGenerated: true,
-        };
       }
+
+      await this.emitCompactionHook({
+        phase: 'after',
+        sessionId,
+        strategy,
+        historyLengthBefore,
+        historyLengthAfter: session.history.length,
+        result,
+      });
+
+      return result;
+    } catch (error) {
+      await this.emitCompactionHook({
+        phase: 'error',
+        sessionId,
+        strategy,
+        historyLengthBefore,
+        historyLengthAfter: session.history.length,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
     }
   }
 
@@ -374,7 +440,7 @@ export class SessionManager {
     }
 
     // Scope overrides (dm/group/thread)
-    const scopeOverride = this.config.overrides?.[params.scope];
+    const scopeOverride = merged.overrides?.[params.scope];
     if (scopeOverride) {
       merged = mergeConfig(merged, scopeOverride);
     }
@@ -391,6 +457,13 @@ export class SessionManager {
     if (!params) return this.config;
     return this.resolveConfig(params);
   }
+
+  private async emitCompactionHook(
+    payload: SessionCompactionHookPayload,
+  ): Promise<void> {
+    if (!this.compactionHook) return;
+    await this.compactionHook(payload);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -406,7 +479,7 @@ function mergeConfig(
     reset: override.reset ?? base.reset,
     compaction: override.compaction ?? base.compaction,
     maxHistoryLength: override.maxHistoryLength ?? base.maxHistoryLength,
-    overrides: base.overrides,
-    channelOverrides: base.channelOverrides,
+    overrides: override.overrides ?? base.overrides,
+    channelOverrides: override.channelOverrides ?? base.channelOverrides,
   };
 }

@@ -365,12 +365,27 @@ export class DaemonManager {
     this._approvalEngine = approvalEngine;
 
     // ── Session manager (replaces bare Map) ──────────────────────────────
-    const sessionMgr = new SessionManager({
-      scope: 'per-peer',
-      reset: { mode: 'idle', idleMinutes: 120 },
-      maxHistoryLength: 100,
-      compaction: 'sliding-window',
-    });
+    const sessionMgr = new SessionManager(
+      {
+        scope: 'per-peer',
+        reset: { mode: 'idle', idleMinutes: 120 },
+        maxHistoryLength: 100,
+        compaction: 'sliding-window',
+      },
+      {
+        compactionHook: async (payload) => {
+          await hooks.dispatch('session:compact', {
+            phase: payload.phase,
+            sessionId: payload.sessionId,
+            strategy: payload.strategy,
+            historyLengthBefore: payload.historyLengthBefore,
+            historyLengthAfter: payload.historyLengthAfter,
+            result: payload.result,
+            error: payload.error,
+          });
+        },
+      },
+    );
 
     // Helper: resolve senderId → SessionManager canonical session ID.
     // SessionManager uses deriveSessionId() internally, but slash commands
