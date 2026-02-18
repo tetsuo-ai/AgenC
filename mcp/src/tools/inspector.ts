@@ -27,6 +27,7 @@ import {
   formatResolutionType,
   formatBytes,
 } from '../utils/formatting.js';
+import { withToolErrorResponse } from './response.js';
 
 /** Known account type names from IDL */
 // Known account types: agentRegistration, task, taskEscrow, taskClaim,
@@ -158,8 +159,7 @@ export function registerInspectorTools(server: McpServer): void {
     {
       pubkey: z.string().describe('Account public key (base58)'),
     },
-    async ({ pubkey }) => {
-      try {
+    withToolErrorResponse(async ({ pubkey }) => {
         const connection = getConnection();
         const pk = new PublicKey(pubkey);
         const accountInfo = await connection.getAccountInfo(pk);
@@ -228,12 +228,7 @@ export function registerInspectorTools(server: McpServer): void {
             text: text + '\n\nLamports: ' + accountInfo.lamports + ' (' + formatSol(accountInfo.lamports) + ')\nData length: ' + accountInfo.data.length + ' bytes',
           }],
         };
-      } catch (error) {
-        return {
-          content: [{ type: 'text' as const, text: 'Error: ' + (error as Error).message }],
-        };
-      }
-    },
+    }),
   );
 
   server.tool(
@@ -243,8 +238,7 @@ export function registerInspectorTools(server: McpServer): void {
       agent_id: z.string().optional().describe('Agent ID (64-char hex string)'),
       pubkey: z.string().optional().describe('Agent PDA address (base58)'),
     },
-    async ({ agent_id, pubkey }) => {
-      try {
+    withToolErrorResponse(async ({ agent_id, pubkey }) => {
         const program = getReadOnlyProgram();
         const programId = getCurrentProgramId();
         let pda: PublicKey;
@@ -270,12 +264,7 @@ export function registerInspectorTools(server: McpServer): void {
         return {
           content: [{ type: 'text' as const, text: text }],
         };
-      } catch (error) {
-        return {
-          content: [{ type: 'text' as const, text: 'Error: ' + (error as Error).message }],
-        };
-      }
-    },
+    }),
   );
 
   server.tool(
@@ -286,8 +275,7 @@ export function registerInspectorTools(server: McpServer): void {
       task_id: z.string().optional().describe('Task ID (64-char hex string)'),
       pubkey: z.string().optional().describe('Task PDA address (base58)'),
     },
-    async ({ creator, task_id, pubkey }) => {
-      try {
+    withToolErrorResponse(async ({ creator, task_id, pubkey }) => {
         const program = getReadOnlyProgram();
         const programId = getCurrentProgramId();
         let pda: PublicKey;
@@ -325,12 +313,7 @@ export function registerInspectorTools(server: McpServer): void {
             text: text + '\n\n--- Escrow ---\nEscrow PDA: ' + escrowPda.toBase58() + '\nEscrow Balance: ' + formatSol(escrowBalance),
           }],
         };
-      } catch (error) {
-        return {
-          content: [{ type: 'text' as const, text: 'Error: ' + (error as Error).message }],
-        };
-      }
-    },
+    }),
   );
 
   server.tool(
@@ -340,8 +323,7 @@ export function registerInspectorTools(server: McpServer): void {
       task_pda: z.string().optional().describe('Task PDA (base58) to derive escrow from'),
       pubkey: z.string().optional().describe('Escrow PDA address (base58) directly'),
     },
-    async ({ task_pda, pubkey }) => {
-      try {
+    withToolErrorResponse(async ({ task_pda, pubkey }) => {
         const connection = getConnection();
         const programId = getCurrentProgramId();
         let escrowAddr: PublicKey;
@@ -404,12 +386,7 @@ export function registerInspectorTools(server: McpServer): void {
         return {
           content: [{ type: 'text' as const, text: lines.join('\n') }],
         };
-      } catch (error) {
-        return {
-          content: [{ type: 'text' as const, text: 'Error: ' + (error as Error).message }],
-        };
-      }
-    },
+    }),
   );
 
   server.tool(
@@ -419,8 +396,7 @@ export function registerInspectorTools(server: McpServer): void {
       dispute_id: z.string().optional().describe('Dispute ID (64-char hex string)'),
       pubkey: z.string().optional().describe('Dispute PDA address (base58)'),
     },
-    async ({ dispute_id, pubkey }) => {
-      try {
+    withToolErrorResponse(async ({ dispute_id, pubkey }) => {
         const program = getReadOnlyProgram();
         const programId = getCurrentProgramId();
         let pda: PublicKey;
@@ -446,12 +422,7 @@ export function registerInspectorTools(server: McpServer): void {
         return {
           content: [{ type: 'text' as const, text: text }],
         };
-      } catch (error) {
-        return {
-          content: [{ type: 'text' as const, text: 'Error: ' + (error as Error).message }],
-        };
-      }
-    },
+    }),
   );
 
   server.tool(
@@ -461,8 +432,7 @@ export function registerInspectorTools(server: McpServer): void {
       account_type: z.enum(['agent', 'task', 'escrow', 'dispute', 'claim', 'vote', 'protocol', 'state']).describe('Account type to list'),
       limit: z.number().int().positive().optional().describe('Maximum number of accounts to return (default: 20)'),
     },
-    async ({ account_type, limit }) => {
-      try {
+    withToolErrorResponse(async ({ account_type, limit }) => {
         const program = getReadOnlyProgram();
         const maxResults = limit ?? 20;
 
@@ -546,12 +516,7 @@ export function registerInspectorTools(server: McpServer): void {
         return {
           content: [{ type: 'text' as const, text: lines.join('\n') }],
         };
-      } catch (error) {
-        return {
-          content: [{ type: 'text' as const, text: 'Error: ' + (error as Error).message }],
-        };
-      }
-    },
+    }),
   );
 
   server.tool(
@@ -560,8 +525,7 @@ export function registerInspectorTools(server: McpServer): void {
     {
       signature: z.string().describe('Transaction signature (base58)'),
     },
-    async ({ signature }) => {
-      try {
+    withToolErrorResponse(async ({ signature }) => {
         const connection = getConnection();
         const tx = await connection.getTransaction(signature, {
           maxSupportedTransactionVersion: 0,
@@ -660,11 +624,6 @@ export function registerInspectorTools(server: McpServer): void {
         return {
           content: [{ type: 'text' as const, text: lines.join('\n') }],
         };
-      } catch (error) {
-        return {
-          content: [{ type: 'text' as const, text: 'Error: ' + (error as Error).message }],
-        };
-      }
-    },
+    }),
   );
 }

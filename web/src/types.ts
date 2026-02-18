@@ -9,7 +9,7 @@
 // Connection State
 // ============================================================================
 
-export type ConnectionState = 'connecting' | 'connected' | 'disconnected' | 'reconnecting';
+export type ConnectionState = 'connecting' | 'authenticating' | 'connected' | 'disconnected' | 'reconnecting';
 
 // ============================================================================
 // Chat Messages
