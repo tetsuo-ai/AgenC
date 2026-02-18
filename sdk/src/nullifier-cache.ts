@@ -43,6 +43,14 @@ export class NullifierCache {
     }
   }
 
+  /**
+   * Remove a nullifier from the cache (e.g., on transaction failure rollback).
+   */
+  remove(nullifier: Uint8Array | Buffer): void {
+    const key = this.toKey(nullifier);
+    this.used.delete(key);
+  }
+
   clear(): void {
     this.used.clear();
   }

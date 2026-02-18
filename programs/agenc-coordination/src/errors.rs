@@ -579,4 +579,8 @@ pub enum CoordinationError {
 
     #[msg("Agent has pending disputes as defendant: cannot withdraw stake")]
     ReputationDisputesPending,
+
+    // ZK security errors (sequential from enum position)
+    #[msg("Private tasks (non-zero constraint_hash) must use complete_task_private")]
+    PrivateTaskRequiresZkProof,
 }

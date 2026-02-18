@@ -269,6 +269,11 @@ pub fn update_protocol_stats(config: &mut Account<ProtocolConfig>, reward: u64) 
 ///
 /// Shared by `complete_task` (public) and `complete_task_private` (ZK).
 /// Checks status, status transition, deadline, claim, and competitive-task guard.
+///
+/// NOTE: This function intentionally does NOT check agent suspension status.
+/// Agents that claimed a task before being suspended should still be able to
+/// complete it and receive their reward. Suspension prevents new claims
+/// (enforced in `claim_task.rs`), not completion of existing work.
 pub fn validate_completion_prereqs(task: &Task, claim: &TaskClaim, clock: &Clock) -> Result<()> {
     // Defense-in-depth: reject terminal states with specific error codes (#959)
     require!(

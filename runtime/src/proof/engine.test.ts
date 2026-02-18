@@ -529,9 +529,9 @@ describe('deriveCacheKey', () => {
     const key1 = deriveCacheKey(inputs);
     const key2 = deriveCacheKey(inputs);
     expect(key1).toBe(key2);
-    expect(key1).toContain(taskPda.toBase58());
-    expect(key1).toContain(agentPubkey.toBase58());
-    expect(key1).toContain('12345');
+    // Keys are SHA-256 hashes (hex strings), no longer contain plaintext secrets
+    expect(key1).toMatch(/^[0-9a-f]{64}$/);
+    expect(key1).toHaveLength(64);
   });
 
   it('produces different keys for different inputs', () => {
