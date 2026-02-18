@@ -216,8 +216,7 @@ pub struct ProtocolConfig {
     /// Note: Cannot be updated after initialization.
     pub authority: Pubkey,
     /// Treasury address for protocol fees
-    /// Note: Cannot be updated after initialization.
-    /// Deploy new protocol if treasury change needed.
+    /// Can be updated via multisig-gated `update_treasury`.
     pub treasury: Pubkey,
     /// Minimum votes needed to resolve dispute (percentage, 1-100)
     pub dispute_threshold: u8,
@@ -270,16 +269,12 @@ pub struct ProtocolConfig {
     /// Padding for future use and alignment
     /// Currently unused but reserved for backwards-compatible additions
     pub _padding: [u8; 2],
-    /// Multisig owners (immutable after init for security).
+    /// Multisig owners for admin-gated protocol changes.
     ///
-    /// # Security Note (see #464)
-    /// Multisig configuration **cannot be updated** after protocol initialization.
-    /// To change multisig, deploy new protocol.
-    ///
-    /// This is intentional:
-    /// - Prevents hostile takeover via multisig reconfiguration
-    /// - Ensures governance changes require protocol redeployment with proper ceremony
-    /// - The array is fully zeroed before population in `initialize_protocol`
+    /// Updated via multisig-gated `update_multisig` with strict validation:
+    /// - owner keys must be unique and non-default
+    /// - threshold must satisfy 0 < threshold < owners_len
+    /// - update tx must include threshold signers from the new owner set
     ///
     /// Only the first `multisig_owners_len` entries are valid; remaining slots
     /// are always `Pubkey::default()`.
@@ -929,7 +924,7 @@ impl Nullifier {
         32 + // task
         32 + // agent
         8 +  // spent_at
-        1;   // bump
+        1; // bump
 }
 
 // ============================================================================
@@ -971,7 +966,7 @@ impl GovernanceConfig {
         2 +  // approval_threshold_bps
         8 +  // total_proposals
         1 +  // bump
-        64;  // _reserved
+        64; // _reserved
 
     /// Default voting period: 3 days
     pub const DEFAULT_VOTING_PERIOD: i64 = 3 * 24 * 60 * 60;
@@ -1081,7 +1076,7 @@ impl Proposal {
         2 +  // total_voters
         8 +  // quorum
         1 +  // bump
-        64;  // _reserved
+        64; // _reserved
 }
 
 /// Governance vote record
@@ -1113,7 +1108,7 @@ impl GovernanceVote {
         8 +  // voted_at
         8 +  // vote_weight
         1 +  // bump
-        8;   // _reserved
+        8; // _reserved
 }
 
 // ============================================================================
@@ -1176,7 +1171,7 @@ impl SkillRegistration {
         8 +  // created_at
         8 +  // updated_at
         1 +  // bump
-        8;   // _reserved
+        8; // _reserved
 }
 
 /// Skill rating record (one per rater per skill)
@@ -1211,7 +1206,7 @@ impl SkillRating {
         2 +  // rater_reputation
         8 +  // timestamp
         1 +  // bump
-        4;   // _reserved
+        4; // _reserved
 }
 
 /// Purchase record (one per buyer per skill, prevents double purchase)
@@ -1240,7 +1235,7 @@ impl PurchaseRecord {
         8 +  // price_paid
         8 +  // timestamp
         1 +  // bump
-        4;   // _reserved
+        4; // _reserved
 }
 
 /// Agent feed post (content hash stored on-chain, content on IPFS)
@@ -1278,7 +1273,7 @@ impl FeedPost {
         4 +  // upvote_count
         8 +  // created_at
         1 +  // bump
-        8;   // _reserved
+        8; // _reserved
 }
 
 /// Feed upvote record (one per voter per post, prevents double voting)
@@ -1304,7 +1299,7 @@ impl FeedVote {
         32 + // voter
         8 +  // timestamp
         1 +  // bump
-        4;   // _reserved
+        4; // _reserved
 }
 
 // ============================================================================
@@ -1342,7 +1337,7 @@ impl ReputationStake {
         1 +  // slash_count
         8 +  // created_at
         1 +  // bump
-        8;   // _reserved
+        8; // _reserved
 }
 
 /// Reputation delegation — agent delegates reputation points to a trusted peer.
@@ -1375,7 +1370,7 @@ impl ReputationDelegation {
         8 +  // expires_at
         8 +  // created_at
         1 +  // bump
-        8;   // _reserved
+        8; // _reserved
 }
 
 #[cfg(test)]

@@ -512,6 +512,9 @@ pub enum CoordinationError {
     #[msg("Treasury must be a program-owned PDA")]
     TreasuryNotProgramOwned,
 
+    #[msg("Treasury must be program-owned, or a signer system account for governance spends")]
+    TreasuryNotSpendable,
+
     // Skill registry errors (sequential from enum position)
     #[msg("Skill ID cannot be all zeros")]
     SkillInvalidId,
@@ -560,7 +563,9 @@ pub enum CoordinationError {
     #[msg("Reputation stake has insufficient balance for withdrawal")]
     ReputationStakeInsufficientBalance,
 
-    #[msg("Reputation delegation amount invalid: must be > 0, <= 10000, and >= MIN_DELEGATION_AMOUNT")]
+    #[msg(
+        "Reputation delegation amount invalid: must be > 0, <= 10000, and >= MIN_DELEGATION_AMOUNT"
+    )]
     ReputationDelegationAmountInvalid,
 
     #[msg("Cannot delegate reputation to self")]

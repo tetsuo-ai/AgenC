@@ -209,6 +209,26 @@ pub struct ProtocolInitialized {
     pub timestamp: i64,
 }
 
+/// Emitted when protocol treasury is updated via multisig governance.
+#[event]
+pub struct TreasuryUpdated {
+    pub old_treasury: Pubkey,
+    pub new_treasury: Pubkey,
+    pub updated_by: Pubkey,
+    pub timestamp: i64,
+}
+
+/// Emitted when multisig signer set or threshold is updated.
+#[event]
+pub struct MultisigUpdated {
+    pub old_threshold: u8,
+    pub new_threshold: u8,
+    pub old_owner_count: u8,
+    pub new_owner_count: u8,
+    pub updated_by: Pubkey,
+    pub timestamp: i64,
+}
+
 /// Emitted for reward distribution
 #[event]
 pub struct RewardDistributed {
