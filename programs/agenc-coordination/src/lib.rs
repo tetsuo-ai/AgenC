@@ -322,6 +322,28 @@ pub mod agenc_coordination {
         instructions::update_protocol_fee::handler(ctx, protocol_fee_bps)
     }
 
+    /// Update protocol treasury destination (multisig gated).
+    ///
+    /// Hardening:
+    /// - Allows treasury rotation/recovery.
+    /// - New treasury must be program-owned, or a signer system account.
+    pub fn update_treasury(ctx: Context<UpdateTreasury>) -> Result<()> {
+        instructions::update_treasury::handler(ctx)
+    }
+
+    /// Rotate multisig owners/threshold (multisig gated).
+    ///
+    /// Hardening:
+    /// - Allows signer rotation for key loss/compromise recovery.
+    /// - Requires threshold of new-set signers in the same update transaction.
+    pub fn update_multisig(
+        ctx: Context<UpdateMultisig>,
+        new_threshold: u8,
+        new_owners: Vec<Pubkey>,
+    ) -> Result<()> {
+        instructions::update_multisig::handler(ctx, new_threshold, new_owners)
+    }
+
     /// Update rate limiting configuration (multisig gated).
     /// Parameters can be tuned post-deployment without program upgrade.
     ///
