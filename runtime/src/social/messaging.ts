@@ -9,8 +9,7 @@
 
 import { PublicKey, SystemProgram } from '@solana/web3.js';
 import type { Keypair } from '@solana/web3.js';
-import type { Program } from '@coral-xyz/anchor';
-import { BN, utils } from '@coral-xyz/anchor';
+import anchor, { utils, type Program } from '@coral-xyz/anchor';
 import type { AgencCoordination } from '../idl.js';
 import type { Logger } from '../utils/logger.js';
 import { silentLogger } from '../utils/logger.js';
@@ -407,7 +406,7 @@ export class AgentMessaging {
           .updateState(
             Array.from(stateKey) as unknown as number[],
             Array.from(stateValue) as unknown as number[],
-            new BN(0), // expected_version = 0 (new account)
+            new anchor.BN(0), // expected_version = 0 (new account)
           )
           .accountsPartial({
             state: statePda,
