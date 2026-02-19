@@ -91,23 +91,25 @@ export function ChatView({
         <div className="flex-1" />
 
         {/* Logo + wordmark */}
-        <div className="flex flex-col items-center gap-4 px-6">
+        <div className="flex flex-col items-center gap-4 px-6 animate-welcome-in">
           <img src="/assets/agenc-logo.svg" alt="AgenC" className="w-16 h-16 dark:hidden" />
           <img src="/assets/agenc-logo-white.svg" alt="AgenC" className="w-16 h-16 hidden dark:block" />
           <img src="/assets/agenc-wordmark.svg" alt="AgenC" className="h-6 dark:invert" />
         </div>
 
         {/* Input */}
-        <div className="mt-8 px-4 md:px-6">
-          <ChatInput
-            onSend={onSend}
-            disabled={!connected}
-            voiceState={voiceState}
-            voiceMode={voiceMode}
-            onVoiceToggle={onVoiceToggle}
-            onPushToTalkStart={onPushToTalkStart}
-            onPushToTalkStop={onPushToTalkStop}
-          />
+        <div className="mt-8 px-4 md:px-6 animate-welcome-in" style={{ animationDelay: '0.15s' }}>
+          <div className="animate-input-glow rounded-2xl">
+            <ChatInput
+              onSend={onSend}
+              disabled={!connected}
+              voiceState={voiceState}
+              voiceMode={voiceMode}
+              onVoiceToggle={onVoiceToggle}
+              onPushToTalkStart={onPushToTalkStart}
+              onPushToTalkStop={onPushToTalkStop}
+            />
+          </div>
         </div>
 
         {/* Spacer below (slightly larger so it sits above center) */}
@@ -131,7 +133,7 @@ export function ChatView({
 
   // ── Active chat state ──
   return (
-    <div className="relative flex flex-col h-full bg-surface">
+    <div className="relative flex flex-col h-full bg-surface animate-chat-enter">
       {/* Top header bar — hidden on mobile (MobileHeader used instead) */}
       <div className="hidden md:flex items-center justify-between px-6 py-4 border-b border-tetsuo-200 bg-surface">
         <h1 className="text-xl font-bold text-tetsuo-800 tracking-tight">
