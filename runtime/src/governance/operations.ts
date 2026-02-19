@@ -233,9 +233,14 @@ export class GovernanceOperations {
   }
 
   async vote(params: VoteProposalParams): Promise<GovernanceVoteResult> {
+    const authority = this.program.provider.publicKey;
+    if (!authority) {
+      throw new Error('Provider public key is required for governance voting');
+    }
+
     const { address: votePda } = deriveGovernanceVotePda(
       params.proposalPda,
-      this.agentPda,
+      authority,
       this.program.programId,
     );
 
@@ -251,7 +256,7 @@ export class GovernanceOperations {
           vote: votePda,
           voter: this.agentPda,
           protocolConfig: this.protocolPda,
-          authority: this.program.provider.publicKey,
+          authority,
           systemProgram: SystemProgram.programId,
         })
         .rpc();

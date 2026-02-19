@@ -11,7 +11,7 @@
  * IDL can be found at `target/idl/agenc_coordination.json`.
  */
 export type AgencCoordination = {
-  "address": "EopUaCV2svxj9j4hd7KjbrWfdjkspmm2BCBe7jGpKzKZ",
+  "address": "5j9ZbT3mnPX5QjWVMrDaWFuaGf8ddji6LW1HVJw6kUE7",
   "metadata": {
     "name": "agencCoordination",
     "version": "0.1.0",
@@ -1331,7 +1331,7 @@ export type AgencCoordination = {
           "name": "proof",
           "type": {
             "defined": {
-              "name": "privateCompletionProof"
+              "name": "privateCompletionPayload"
             }
           }
         }
@@ -9260,7 +9260,7 @@ export type AgencCoordination = {
       }
     },
     {
-      "name": "privateCompletionProof",
+      "name": "privateCompletionPayload",
       "type": {
         "kind": "struct",
         "fields": [

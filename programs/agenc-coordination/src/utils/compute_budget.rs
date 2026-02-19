@@ -158,12 +158,6 @@ pub fn calculate_reputation_fee_discount(reputation: u16) -> u16 {
 /// This is a no-op in production builds when `msg!` is stripped,
 /// but the syscall itself always executes on-chain.
 ///
-/// # Usage
-/// ```ignore
-/// log_compute_units("before_zk_verify");
-/// // ... ZK verification ...
-/// log_compute_units("after_zk_verify");
-/// ```
 pub fn log_compute_units(label: &str) {
     msg!("CU checkpoint [{}]", label);
     #[cfg(target_os = "solana")]
