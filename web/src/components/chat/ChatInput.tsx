@@ -131,7 +131,7 @@ export function ChatInput({
         )}
 
         {/* Top row: attachment icon + textarea */}
-        <div className="flex items-start gap-3 px-4 pt-4 pb-2">
+        <div className="flex items-start gap-3 px-4 pt-3 pb-1">
           {/* Attachment button */}
           <button
             onClick={() => fileInputRef.current?.click()}
@@ -153,13 +153,13 @@ export function ChatInput({
             onInput={handleInput}
             placeholder="Message to AgenC..."
             disabled={disabled}
-            rows={2}
+            rows={1}
             className="flex-1 text-sm text-tetsuo-900 resize-none focus:outline-none placeholder:text-tetsuo-500 disabled:opacity-50 bg-transparent leading-relaxed caret-tetsuo-900"
           />
         </div>
 
         {/* Bottom row: emoji, mic, send */}
-        <div className="flex items-center justify-end gap-2 px-4 pb-3">
+        <div className="flex items-center justify-end gap-2 px-4 pb-2.5">
           {/* Emoji */}
           <div className="relative" ref={emojiRef}>
             <button
