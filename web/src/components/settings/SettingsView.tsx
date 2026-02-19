@@ -1,7 +1,15 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import type { UseSettingsReturn, GatewaySettings } from '../../hooks/useSettings';
 
-const LLM_PROVIDERS = [
+interface LLMProviderDef {
+  value: string;
+  label: string;
+  defaultModel: string;
+  defaultBaseUrl: string;
+  models: string[];
+}
+
+const LLM_PROVIDERS: LLMProviderDef[] = [
   {
     value: 'grok',
     label: 'Grok (x.ai)',
@@ -21,9 +29,9 @@ const LLM_PROVIDERS = [
     label: 'Ollama (local)',
     defaultModel: 'llama3',
     defaultBaseUrl: 'http://localhost:11434',
-    models: ['llama3', 'llama3.1', 'mistral', 'codellama', 'phi3', 'gemma2'],
+    models: [],
   },
-] as const;
+];
 
 interface SettingsViewProps {
   settings: UseSettingsReturn;
@@ -43,6 +51,31 @@ export function SettingsView({ settings }: SettingsViewProps) {
   );
   const [dirty, setDirty] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [ollamaModels, setOllamaModels] = useState<string[]>([]);
+  const [ollamaError, setOllamaError] = useState<string | null>(null);
+
+  const fetchOllamaModels = useCallback(async () => {
+    setOllamaError(null);
+    try {
+      const res = await fetch('http://localhost:11434/api/tags');
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json() as { models?: { name: string }[] };
+      const names = (data.models ?? []).map((m) => m.name);
+      setOllamaModels(names);
+      if (names.length > 0 && !names.includes(model)) {
+        setModel(names[0]);
+      }
+    } catch {
+      setOllamaModels([]);
+      setOllamaError('Cannot reach Ollama at localhost:11434');
+    }
+  }, [model]);
+
+  useEffect(() => {
+    if (provider === 'ollama') {
+      void fetchOllamaModels();
+    }
+  }, [provider, fetchOllamaModels]);
 
   useEffect(() => {
     if (!loaded) return;
@@ -56,10 +89,12 @@ export function SettingsView({ settings }: SettingsViewProps) {
 
   const markDirty = () => { setDirty(true); setSaved(false); };
 
-  const handleProviderChange = (p: typeof provider) => {
-    setProvider(p);
-    const match = LLM_PROVIDERS.find((lp) => lp.value === p);
-    if (match) setModel(match.defaultModel);
+  const handleProviderChange = (p: string) => {
+    setProvider(p as GatewaySettings['llm']['provider']);
+    if (p !== 'ollama') {
+      const match = LLM_PROVIDERS.find((lp) => lp.value === p);
+      if (match) setModel(match.defaultModel);
+    }
     setApiKey('');
     markDirty();
   };
@@ -160,13 +195,17 @@ export function SettingsView({ settings }: SettingsViewProps) {
             {/* Model */}
             <section>
               <h2 className="text-sm font-semibold text-tetsuo-800 mb-1">Model</h2>
-              <p className="text-xs text-tetsuo-400 mb-3">Select the model for inference.</p>
+              <p className="text-xs text-tetsuo-400 mb-3">
+                {provider === 'ollama' && ollamaError
+                  ? <span className="text-amber-500">{ollamaError}</span>
+                  : 'Select the model for inference.'}
+              </p>
               <select
                 value={model}
                 onChange={(e) => { setModel(e.target.value); markDirty(); }}
                 className="w-full bg-tetsuo-50 border border-tetsuo-200 rounded-xl px-4 py-2.5 text-sm text-tetsuo-700 font-mono focus:outline-none focus:border-accent focus:shadow-[0_0_0_3px_rgba(var(--accent),0.1)] transition-all duration-200"
               >
-                {(LLM_PROVIDERS.find((p) => p.value === provider)?.models ?? []).map((m) => (
+                {(provider === 'ollama' ? ollamaModels : LLM_PROVIDERS.find((p) => p.value === provider)?.models ?? []).map((m) => (
                   <option key={m} value={m}>{m}</option>
                 ))}
               </select>
