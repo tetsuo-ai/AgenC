@@ -93,7 +93,7 @@ export function ChatInput({
   return (
     <div className="px-3 pb-3 md:px-6 md:pb-5">
       {/* Input container */}
-      <div className="border border-tetsuo-200 rounded-2xl bg-surface shadow-sm overflow-visible relative">
+      <div className="max-w-3xl mx-auto border border-tetsuo-200 rounded-2xl bg-surface shadow-sm overflow-visible relative">
         {/* Hidden file input */}
         <input
           ref={fileInputRef}
@@ -131,7 +131,7 @@ export function ChatInput({
         )}
 
         {/* Top row: attachment icon + textarea */}
-        <div className="flex items-start gap-3 px-4 pt-4 pb-2">
+        <div className="flex items-start gap-3 px-4 pt-3 pb-1">
           {/* Attachment button */}
           <button
             onClick={() => fileInputRef.current?.click()}
@@ -153,15 +153,15 @@ export function ChatInput({
             onInput={handleInput}
             placeholder="Message to AgenC..."
             disabled={disabled}
-            rows={2}
+            rows={1}
             className="flex-1 text-sm text-tetsuo-900 resize-none focus:outline-none placeholder:text-tetsuo-500 disabled:opacity-50 bg-transparent leading-relaxed caret-tetsuo-900"
           />
         </div>
 
         {/* Bottom row: emoji, mic, send */}
-        <div className="flex items-center justify-end gap-2 px-4 pb-3">
-          {/* Emoji */}
-          <div className="relative" ref={emojiRef}>
+        <div className="flex items-center justify-end gap-2 px-4 pb-2.5">
+          {/* Emoji (desktop only) */}
+          <div className="relative hidden md:block" ref={emojiRef}>
             <button
               onClick={() => setShowEmoji((v) => !v)}
               className={`w-9 h-9 rounded-lg flex items-center justify-center transition-colors ${
@@ -207,7 +207,7 @@ export function ChatInput({
       </div>
 
       {/* Disclaimer */}
-      <p className="text-center text-xs text-tetsuo-400 mt-3">
+      <p className="max-w-3xl mx-auto text-center text-xs text-tetsuo-400 mt-3">
         AgenC can make mistakes. Check our Terms &amp; Conditions.
       </p>
     </div>
@@ -223,7 +223,7 @@ const EMOJI_GROUPS: { label: string; emojis: string[] }[] = [
 
 function EmojiPicker({ onSelect }: { onSelect: (emoji: string) => void }) {
   return (
-    <div className="absolute bottom-full right-0 mb-2 w-[280px] bg-surface border border-tetsuo-200 rounded-xl shadow-lg p-3 space-y-2 animate-panel-enter z-50">
+    <div className="absolute bottom-full right-0 mb-2 w-[280px] max-w-[calc(100vw-2rem)] bg-surface border border-tetsuo-200 rounded-xl shadow-lg p-3 space-y-2 animate-panel-enter z-50">
       {EMOJI_GROUPS.map((group) => (
         <div key={group.label}>
           <div className="text-[10px] text-tetsuo-400 uppercase tracking-wider mb-1">{group.label}</div>

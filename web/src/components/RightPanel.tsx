@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import type { UseSettingsReturn, GatewaySettings } from '../hooks/useSettings';
 import type { UseWalletReturn } from '../hooks/useWallet';
+import type { ChatSessionInfo } from '../hooks/useChat';
 
 type Tab = 'main' | 'settings' | 'payment';
 const TABS: Tab[] = ['main', 'settings', 'payment'];
@@ -13,16 +14,6 @@ const AGENTS = [
   { name: 'Storage Agent', icon: 'storage', desc: 'Memory & data persistence' },
   { name: 'Validator Agent', icon: 'validator', desc: 'Proof verification & disputes' },
   { name: 'Coordinator', icon: 'coordinator', desc: 'Workflow & team orchestration' },
-];
-
-const RECENT_CHATS = [
-  { label: 'How to deploy to Solana?', time: '2m ago' },
-  { label: 'Agent coordination protocol', time: '5m ago' },
-  { label: 'ZK proof generation help', time: '12m ago' },
-  { label: 'Task marketplace design', time: '1h ago' },
-  { label: 'Memory backend setup', time: '2h ago' },
-  { label: 'Dispute resolution flow', time: '3h ago' },
-  { label: 'Skill registry integration', time: '5h ago' },
 ];
 
 const LLM_PROVIDERS = [
@@ -52,6 +43,10 @@ const LLM_PROVIDERS = [
 interface RightPanelProps {
   settings: UseSettingsReturn;
   wallet: UseWalletReturn;
+  chatSessions?: ChatSessionInfo[];
+  activeSessionId?: string | null;
+  onSelectSession?: (sessionId: string) => void;
+  onNewChat?: () => void;
 }
 
 // =============================================================================
@@ -105,7 +100,7 @@ function TabBar({ active, onChange }: { active: Tab; onChange: (t: Tab) => void 
 // Main Component
 // =============================================================================
 
-export function RightPanel({ settings, wallet }: RightPanelProps) {
+export function RightPanel({ settings, wallet, chatSessions, activeSessionId, onSelectSession, onNewChat }: RightPanelProps) {
   const [activeTab, setActiveTab] = useState<Tab>('main');
   const [tabKey, setTabKey] = useState(0);
 
@@ -144,7 +139,14 @@ export function RightPanel({ settings, wallet }: RightPanelProps) {
 
       {/* Tab content with entrance animation */}
       <div key={tabKey} className="flex-1 min-h-0 animate-panel-enter">
-        {activeTab === 'main' && <MainTab />}
+        {activeTab === 'main' && (
+          <MainTab
+            sessions={chatSessions ?? []}
+            activeSessionId={activeSessionId ?? null}
+            onSelectSession={onSelectSession}
+            onNewChat={onNewChat}
+          />
+        )}
         {activeTab === 'settings' && <SettingsTab settings={settings} />}
         {activeTab === 'payment' && <PaymentTab wallet={wallet} />}
       </div>
@@ -156,7 +158,25 @@ export function RightPanel({ settings, wallet }: RightPanelProps) {
 // Main Tab
 // =============================================================================
 
-function MainTab() {
+function formatTimeAgo(timestamp: number): string {
+  const diff = Date.now() - timestamp;
+  const minutes = Math.floor(diff / 60000);
+  if (minutes < 1) return 'just now';
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
+
+interface MainTabProps {
+  sessions: ChatSessionInfo[];
+  activeSessionId: string | null;
+  onSelectSession?: (sessionId: string) => void;
+  onNewChat?: () => void;
+}
+
+function MainTab({ sessions, activeSessionId, onSelectSession, onNewChat }: MainTabProps) {
   const [activeAgent, setActiveAgent] = useState(0);
   const [hoveredChat, setHoveredChat] = useState<number | null>(null);
 
@@ -200,36 +220,52 @@ function MainTab() {
       <div className="py-4">
         <div className="flex items-center justify-between px-6 mb-2">
           <span className="text-sm font-bold text-tetsuo-800">Recent Chats</span>
-          <button className="text-tetsuo-400 hover:text-tetsuo-600 transition-colors">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="6 9 12 15 18 9" /></svg>
-          </button>
+          {onNewChat && (
+            <button
+              onClick={onNewChat}
+              className="text-tetsuo-400 hover:text-accent transition-colors"
+              title="New chat"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
+            </button>
+          )}
         </div>
-        {RECENT_CHATS.map((chat, i) => (
-          <div
-            key={i}
-            onMouseEnter={() => setHoveredChat(i)}
-            onMouseLeave={() => setHoveredChat(null)}
-            className="animate-list-item flex items-center justify-between px-6 py-3.5 hover:bg-tetsuo-50 transition-all duration-200 cursor-pointer"
-            style={{ animationDelay: `${(AGENTS.length + i) * 40}ms` }}
-          >
-            <span className="text-sm text-tetsuo-600 truncate flex-1 min-w-0 pr-3">{chat.label}</span>
-            {hoveredChat === i ? (
-              <div className="flex items-center gap-1 shrink-0 animate-panel-enter">
-                <button className="w-6 h-6 rounded flex items-center justify-center text-tetsuo-400 hover:text-accent transition-colors">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" /><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" /></svg>
-                </button>
-                <button className="w-6 h-6 rounded flex items-center justify-center text-tetsuo-400 hover:text-red-500 transition-colors">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></svg>
-                </button>
-                <button className="w-6 h-6 rounded flex items-center justify-center text-tetsuo-400 hover:text-tetsuo-600 transition-colors">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="1" /><circle cx="19" cy="12" r="1" /><circle cx="5" cy="12" r="1" /></svg>
-                </button>
-              </div>
-            ) : (
-              <span className="text-xs text-tetsuo-400 shrink-0">{chat.time}</span>
-            )}
+        {sessions.length === 0 && (
+          <div className="px-6 py-4 text-xs text-tetsuo-400 text-center">
+            No conversations yet
           </div>
-        ))}
+        )}
+        {sessions.map((session, i) => {
+          const isActive = session.sessionId === activeSessionId;
+          return (
+            <div
+              key={session.sessionId}
+              onClick={() => onSelectSession?.(session.sessionId)}
+              onMouseEnter={() => setHoveredChat(i)}
+              onMouseLeave={() => setHoveredChat(null)}
+              className={`animate-list-item flex items-center justify-between px-6 py-3.5 transition-all duration-200 cursor-pointer ${
+                isActive ? 'bg-accent-bg' : 'hover:bg-tetsuo-50'
+              }`}
+              style={{ animationDelay: `${(AGENTS.length + i) * 40}ms` }}
+            >
+              <div className="flex items-center gap-2 min-w-0 flex-1 pr-3">
+                {isActive && (
+                  <span className="w-1.5 h-1.5 rounded-full bg-accent shrink-0" />
+                )}
+                <span className={`text-sm truncate ${isActive ? 'text-accent font-medium' : 'text-tetsuo-600'}`}>
+                  {session.label}
+                </span>
+              </div>
+              {hoveredChat === i ? (
+                <div className="flex items-center gap-0.5 shrink-0 animate-panel-enter">
+                  <span className="text-[10px] text-tetsuo-400 mr-1">{session.messageCount} msgs</span>
+                </div>
+              ) : (
+                <span className="text-xs text-tetsuo-400 shrink-0">{formatTimeAgo(session.lastActiveAt)}</span>
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );

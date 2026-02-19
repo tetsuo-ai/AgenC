@@ -136,7 +136,7 @@ export interface GatewayEventSubscription {
 // Control Plane Messages
 // ============================================================================
 
-export type ControlMessageType = 'ping' | 'status' | 'reload' | 'channels' | 'sessions' | 'sessions.kill' | 'auth' | 'config.get' | 'config.set' | 'wallet.info' | 'wallet.airdrop';
+export type ControlMessageType = 'ping' | 'status' | 'reload' | 'channels' | 'sessions' | 'sessions.kill' | 'auth' | 'config.get' | 'config.set' | 'wallet.info' | 'wallet.airdrop' | 'ollama.models';
 
 export interface ControlMessage {
   type: ControlMessageType;
