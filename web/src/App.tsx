@@ -150,6 +150,10 @@ export default function App() {
                 onPushToTalkStop={voice.pushToTalkStop}
                 theme={theme}
                 onToggleTheme={toggleTheme}
+                chatSessions={chat.sessions}
+                activeSessionId={chat.sessionId}
+                onSelectSession={chat.resumeSession}
+                onNewChat={chat.startNewChat}
               />
             )}
             {currentView === 'status' && (
