@@ -211,7 +211,7 @@ describe("test_1", () => {
         )
         .accountsPartial({
           protocolConfig: protocolPda,
-          treasury: treasury.publicKey,
+          treasury: secondSigner.publicKey,
           authority: provider.wallet.publicKey,
           secondSigner: secondSigner.publicKey,  // new account (fix #556)
           systemProgram: SystemProgram.programId,
@@ -219,7 +219,7 @@ describe("test_1", () => {
         .remainingAccounts([{ pubkey: deriveProgramDataPda(program.programId), isSigner: false, isWritable: false }])
         .signers([secondSigner])
         .rpc();
-      treasuryPubkey = treasury.publicKey;
+      treasuryPubkey = secondSigner.publicKey;
     } catch (e: unknown) {
       // Protocol may already be initialized by another test file
       // Read the actual treasury from protocol config

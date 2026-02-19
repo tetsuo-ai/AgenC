@@ -56,15 +56,15 @@ export function findProposalPda(
 
 /**
  * Derives the governance vote PDA and bump seed.
- * Seeds: ["governance_vote", proposal_pda, voter_agent_pda]
+ * Seeds: ["governance_vote", proposal_pda, voter_authority_pubkey]
  */
 export function deriveGovernanceVotePda(
   proposalPda: PublicKey,
-  voterAgentPda: PublicKey,
+  voterAuthorityPubkey: PublicKey,
   programId: PublicKey = PROGRAM_ID,
 ): PdaWithBump {
   return derivePda(
-    [SEEDS.GOVERNANCE_VOTE, proposalPda.toBuffer(), voterAgentPda.toBuffer()],
+    [SEEDS.GOVERNANCE_VOTE, proposalPda.toBuffer(), voterAuthorityPubkey.toBuffer()],
     programId,
   );
 }
@@ -74,8 +74,8 @@ export function deriveGovernanceVotePda(
  */
 export function findGovernanceVotePda(
   proposalPda: PublicKey,
-  voterAgentPda: PublicKey,
+  voterAuthorityPubkey: PublicKey,
   programId: PublicKey = PROGRAM_ID,
 ): PublicKey {
-  return deriveGovernanceVotePda(proposalPda, voterAgentPda, programId).address;
+  return deriveGovernanceVotePda(proposalPda, voterAuthorityPubkey, programId).address;
 }

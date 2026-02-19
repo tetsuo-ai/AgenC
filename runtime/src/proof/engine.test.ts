@@ -33,7 +33,7 @@ vi.mock('@agenc/sdk', () => {
     }),
     generateSalt: vi.fn().mockReturnValue(999n),
     // Re-export types that the module expects
-    PROGRAM_ID: new PublicKey('EopUaCV2svxj9j4hd7KjbrWfdjkspmm2BCBe7jGpKzKZ'),
+    PROGRAM_ID: new PublicKey('5j9ZbT3mnPX5QjWVMrDaWFuaGf8ddji6LW1HVJw6kUE7'),
     DEVNET_RPC: 'https://api.devnet.solana.com',
     MAINNET_RPC: 'https://api.mainnet-beta.solana.com',
     SEEDS: {},

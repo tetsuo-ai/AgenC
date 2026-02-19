@@ -9,7 +9,7 @@ import { PublicKey } from '@solana/web3.js';
 // ============================================================================
 
 /** AgenC Coordination Program ID */
-export const PROGRAM_ID = new PublicKey('EopUaCV2svxj9j4hd7KjbrWfdjkspmm2BCBe7jGpKzKZ');
+export const PROGRAM_ID = new PublicKey('5j9ZbT3mnPX5QjWVMrDaWFuaGf8ddji6LW1HVJw6kUE7');
 
 /** Privacy Cash Program ID */
 export const PRIVACY_CASH_PROGRAM_ID = new PublicKey('9fhQBbumKEFuXtMBDw8AaQyAjCorLGJQiS3skWZdQyQD');

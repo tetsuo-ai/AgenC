@@ -21,7 +21,6 @@ describe('IDL exports', () => {
 
   it('has correct program address', () => {
     expect(IDL.address).toBe(PROGRAM_ID.toBase58());
-    expect(IDL.address).toBe('EopUaCV2svxj9j4hd7KjbrWfdjkspmm2BCBe7jGpKzKZ');
   });
 
   it('has expected metadata', () => {

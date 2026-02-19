@@ -127,7 +127,7 @@ describe("CU Benchmarks", () => {
         )
         .accountsPartial({
           protocolConfig: protocolPda,
-          treasury: treasury.publicKey,
+          treasury: secondSigner.publicKey,
           authority: provider.wallet.publicKey,
           secondSigner: secondSigner.publicKey,
           systemProgram: SystemProgram.programId,
@@ -165,7 +165,7 @@ describe("CU Benchmarks", () => {
         new BN(CAPABILITY_COMPUTE),
         "https://bench-creator.example.com",
         null,
-        new BN(LAMPORTS_PER_SOL / 100)
+        new BN(LAMPORTS_PER_SOL)
       )
       .accountsPartial({
         agent: agentPda,
@@ -173,7 +173,7 @@ describe("CU Benchmarks", () => {
         authority: creator.publicKey,
       })
       .signers([creator])
-      .rpc({ skipPreflight: true });
+      .rpc();
 
     const logs = await getTxLogs(provider.connection, sig);
     const cu = extractComputeUnits(logs);
@@ -199,7 +199,7 @@ describe("CU Benchmarks", () => {
         new BN(CAPABILITY_COMPUTE | CAPABILITY_INFERENCE),
         "https://bench-worker.example.com",
         null,
-        new BN(LAMPORTS_PER_SOL / 100)
+        new BN(LAMPORTS_PER_SOL)
       )
       .accountsPartial({
         agent: agentPda,
@@ -207,7 +207,7 @@ describe("CU Benchmarks", () => {
         authority: worker.publicKey,
       })
       .signers([worker])
-      .rpc({ skipPreflight: true });
+      .rpc();
 
     const logs = await getTxLogs(provider.connection, sig);
     const cu = extractComputeUnits(logs);
@@ -237,6 +237,7 @@ describe("CU Benchmarks", () => {
         0, // Exclusive
         null, // No constraint hash
         0, // min_reputation
+        null, // reward_mint
       )
       .accountsPartial({
         task: taskPda,
@@ -246,9 +247,14 @@ describe("CU Benchmarks", () => {
         authority: creator.publicKey,
         creator: creator.publicKey,
         systemProgram: SystemProgram.programId,
+        rewardMint: null,
+        creatorTokenAccount: null,
+        tokenEscrowAta: null,
+        tokenProgram: null,
+        associatedTokenProgram: null,
       })
       .signers([creator])
-      .rpc({ skipPreflight: true });
+      .rpc();
 
     const logs = await getTxLogs(provider.connection, sig);
     const cu = extractComputeUnits(logs);
@@ -289,7 +295,7 @@ describe("CU Benchmarks", () => {
         systemProgram: SystemProgram.programId,
       })
       .signers([worker])
-      .rpc({ skipPreflight: true });
+      .rpc();
 
     const logs = await getTxLogs(provider.connection, sig);
     const cu = extractComputeUnits(logs);
@@ -339,9 +345,14 @@ describe("CU Benchmarks", () => {
         treasury: protocolConfig.treasury,
         authority: worker.publicKey,
         systemProgram: SystemProgram.programId,
+        tokenEscrowAta: null,
+        workerTokenAccount: null,
+        treasuryTokenAccount: null,
+        rewardMint: null,
+        tokenProgram: null,
       })
       .signers([worker])
-      .rpc({ skipPreflight: true });
+      .rpc();
 
     const logs = await getTxLogs(provider.connection, sig);
     const cu = extractComputeUnits(logs);

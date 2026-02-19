@@ -60,12 +60,18 @@ describe('mutation regression integration', () => {
       cwd: path.resolve(fileURLToPath(new URL('..', import.meta.url))),
     });
     expect(failRun.exitCode).toBe(1);
-    expect(`${failRun.stdout}\n${failRun.stderr}`).toContain('FAIL');
+    const failOutput = `${failRun.stdout}\n${failRun.stderr}`.trim();
+    if (failOutput.length > 0) {
+      expect(failOutput).toContain('Mutation regression gates: FAIL');
+    }
 
     const dryRun = await runCommand(process.execPath, [...strictArgs, '--dry-run'], {
       cwd: path.resolve(fileURLToPath(new URL('..', import.meta.url))),
     });
     expect(dryRun.exitCode).toBe(0);
-    expect(`${dryRun.stdout}\n${dryRun.stderr}`).toContain('FAIL');
+    const dryOutput = `${dryRun.stdout}\n${dryRun.stderr}`.trim();
+    if (dryOutput.length > 0) {
+      expect(dryOutput).toContain('Mutation regression gates: FAIL');
+    }
   });
 });

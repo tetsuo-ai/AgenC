@@ -40,6 +40,8 @@ describe("complete_task_private (router interface)", () => {
     TRUSTED_ROUTER_PROGRAM_ID
   );
 
+  const runId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+
   let treasury: Keypair;
   let treasuryPubkey: PublicKey;
   let creator: Keypair;
@@ -47,8 +49,8 @@ describe("complete_task_private (router interface)", () => {
   let creatorAgentPda: PublicKey;
   let workerAgentPda: PublicKey;
 
-  const creatorAgentId = Buffer.from("creator-private-router-test".padEnd(32, "\0"));
-  const workerAgentId = Buffer.from("worker-private-router-test0".padEnd(32, "\0"));
+  const creatorAgentId = Buffer.from(`creator-${runId}`.slice(0, 32).padEnd(32, "\0"));
+  const workerAgentId = Buffer.from(`worker-${runId}`.slice(0, 32).padEnd(32, "\0"));
 
   function deriveAgentPda(agentId: Buffer): PublicKey {
     return PublicKey.findProgramAddressSync(
@@ -153,6 +155,9 @@ describe("complete_task_private (router interface)", () => {
     const taskId = Buffer.alloc(32, 0);
     taskId.writeUInt32LE(Date.now() % 1_000_000, 0);
     taskId[4] = 0x91;
+    const description = Buffer.alloc(64, 0);
+    description.write("private-router-task");
+    const deadline = new BN(Math.floor(Date.now() / 1000) + 3600);
     const taskPda = deriveTaskPda(creator.publicKey, taskId);
     const escrowPda = deriveEscrowPda(taskPda);
     const claimPda = deriveClaimPda(taskPda, workerAgentPda);
@@ -161,10 +166,10 @@ describe("complete_task_private (router interface)", () => {
       .createTask(
         Array.from(taskId),
         new BN(CAPABILITY_COMPUTE),
-        Array.from(Buffer.alloc(64, 0)),
+        Array.from(description),
         new BN(0.2 * LAMPORTS_PER_SOL),
         1,
-        new BN(0),
+        deadline,
         TASK_TYPE_EXCLUSIVE,
         Array.from(constraintHash),
         0,
@@ -178,6 +183,11 @@ describe("complete_task_private (router interface)", () => {
         authority: creator.publicKey,
         creator: creator.publicKey,
         systemProgram: SystemProgram.programId,
+        rewardMint: null,
+        creatorTokenAccount: null,
+        tokenEscrowAta: null,
+        tokenProgram: null,
+        associatedTokenProgram: null,
       })
       .signers([creator])
       .rpc();
@@ -287,6 +297,13 @@ describe("complete_task_private (router interface)", () => {
       treasuryPubkey = protocol.treasury;
     }
 
+    const protocol = await program.account.protocolConfig.fetch(protocolPda);
+    const minAgentStakeLamportsRaw = (protocol as { minAgentStake: unknown }).minAgentStake;
+    const minAgentStakeLamports = BN.isBN(minAgentStakeLamportsRaw)
+      ? minAgentStakeLamportsRaw.toNumber()
+      : Number(minAgentStakeLamportsRaw);
+    const registerStakeLamports = Math.max(minAgentStakeLamports, LAMPORTS_PER_SOL);
+
     creatorAgentPda = deriveAgentPda(creatorAgentId);
     workerAgentPda = deriveAgentPda(workerAgentId);
 
@@ -301,7 +318,7 @@ describe("complete_task_private (router interface)", () => {
             new BN(CAPABILITY_COMPUTE),
             "https://private-interface-test.example",
             null,
-            new BN(1 * LAMPORTS_PER_SOL)
+            new BN(registerStakeLamports)
           )
           .accountsPartial({
             agent: agentPda,
@@ -312,7 +329,17 @@ describe("complete_task_private (router interface)", () => {
           .signers([signer])
           .rpc();
       } catch (e) {
-        // Already registered in shared test validator session.
+        const existingAgent = await (program.account.agentRegistration as {
+          fetchNullable: (pubkey: PublicKey) => Promise<{ authority: PublicKey } | null>;
+        }).fetchNullable(agentPda);
+        if (!existingAgent) {
+          throw e;
+        }
+        if (!existingAgent.authority.equals(signer.publicKey)) {
+          throw new Error(
+            `agent ${agentPda.toBase58()} authority mismatch (${existingAgent.authority.toBase58()} != ${signer.publicKey.toBase58()})`
+          );
+        }
       }
     }
   });

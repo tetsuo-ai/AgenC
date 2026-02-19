@@ -37,20 +37,6 @@ pub const RESULT_DATA_SIZE: usize = 64;
 ///
 /// Bits 10-63 are reserved for future protocol extensions.
 ///
-/// # Usage Examples
-///
-/// ```ignore
-/// use agenc_coordination::state::capability;
-///
-/// // Single capability
-/// let compute_agent = capability::COMPUTE;
-///
-/// // Multiple capabilities (bitwise OR)
-/// let ml_agent = capability::COMPUTE | capability::INFERENCE | capability::STORAGE;
-///
-/// // Check if agent has required capabilities
-/// let has_caps = (agent.capabilities & task.required_capabilities) == task.required_capabilities;
-/// ```
 pub mod capability {
     /// General computation tasks
     pub const COMPUTE: u64 = 1 << 0;

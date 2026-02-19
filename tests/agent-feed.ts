@@ -15,8 +15,12 @@ import { Keypair, PublicKey, SystemProgram, LAMPORTS_PER_SOL } from "@solana/web
 import { AgencCoordination } from "../target/types/agenc_coordination";
 import {
   CAPABILITY_COMPUTE,
+  TASK_TYPE_EXCLUSIVE,
   deriveProtocolPda,
   deriveProgramDataPda,
+  deriveTaskPda,
+  deriveEscrowPda,
+  deriveClaimPda,
   deriveFeedPostPda,
   deriveFeedVotePda,
   createHash,
@@ -24,7 +28,7 @@ import {
   disableRateLimitsForTests,
   ensureAgentRegistered,
 } from "./test-utils";
-import { createLiteSVMContext, fundAccount } from "./litesvm-helpers";
+import { createLiteSVMContext, fundAccount, advanceClock, getClockTimestamp } from "./litesvm-helpers";
 
 describe("agent-feed (issue #1103)", () => {
   const { svm, provider, program, payer } = createLiteSVMContext();
@@ -38,14 +42,17 @@ describe("agent-feed (issue #1103)", () => {
   let poster1: Keypair;
   let poster2: Keypair;
   let poster3: Keypair;
+  let repCreator: Keypair;
 
   let poster1AgentId: Buffer;
   let poster2AgentId: Buffer;
   let poster3AgentId: Buffer;
+  let repCreatorAgentId: Buffer;
 
   let poster1AgentPda: PublicKey;
   let poster2AgentPda: PublicKey;
   let poster3AgentPda: PublicKey;
+  let repCreatorAgentPda: PublicKey;
 
   const AGENT_STAKE = LAMPORTS_PER_SOL;
 
@@ -63,18 +70,111 @@ describe("agent-feed (issue #1103)", () => {
     }
   };
 
+  let repTaskCounter = 0;
+  const nextRepTaskId = (prefix: string): Buffer => {
+    repTaskCounter += 1;
+    return Buffer.from(`${prefix}-${runId}-${repTaskCounter}`.slice(0, 32).padEnd(32, "\0"));
+  };
+
+  const completeTaskForReputation = async (
+    workerWallet: Keypair,
+    workerAgentPda: PublicKey,
+    label: string,
+  ): Promise<void> => {
+    const taskId = nextRepTaskId(label);
+    const taskPda = deriveTaskPda(repCreator.publicKey, taskId, program.programId);
+    const escrowPda = deriveEscrowPda(taskPda, program.programId);
+    const claimPda = deriveClaimPda(taskPda, workerAgentPda, program.programId);
+    const deadline = new BN(getClockTimestamp(svm) + 3600);
+
+    await program.methods
+      .createTask(
+        Array.from(taskId),
+        new BN(CAPABILITY_COMPUTE),
+        Buffer.from("feed reputation task".padEnd(64, "\0")),
+        new BN(1_000_000),
+        1,
+        deadline,
+        TASK_TYPE_EXCLUSIVE,
+        null,
+        0,
+        null,
+      )
+      .accountsPartial({
+        task: taskPda,
+        escrow: escrowPda,
+        protocolConfig: protocolPda,
+        creatorAgent: repCreatorAgentPda,
+        authority: repCreator.publicKey,
+        creator: repCreator.publicKey,
+        systemProgram: SystemProgram.programId,
+        rewardMint: null,
+        creatorTokenAccount: null,
+        tokenEscrowAta: null,
+        tokenProgram: null,
+        associatedTokenProgram: null,
+      })
+      .signers([repCreator])
+      .rpc();
+
+    await program.methods
+      .claimTask()
+      .accountsPartial({
+        task: taskPda,
+        claim: claimPda,
+        worker: workerAgentPda,
+        protocolConfig: protocolPda,
+        authority: workerWallet.publicKey,
+      })
+      .signers([workerWallet])
+      .rpc();
+
+    await program.methods
+      .completeTask(Array.from(Buffer.from("feed-rep-proof".padEnd(32, "\0"))), null)
+      .accountsPartial({
+        task: taskPda,
+        claim: claimPda,
+        escrow: escrowPda,
+        creator: repCreator.publicKey,
+        worker: workerAgentPda,
+        protocolConfig: protocolPda,
+        treasury: secondSigner.publicKey,
+        authority: workerWallet.publicKey,
+        tokenEscrowAta: null,
+        workerTokenAccount: null,
+        treasuryTokenAccount: null,
+        rewardMint: null,
+        tokenProgram: null,
+      })
+      .signers([workerWallet])
+      .rpc();
+  };
+
+  const boostReputation = async (
+    workerWallet: Keypair,
+    workerAgentPda: PublicKey,
+    completions: number,
+    label: string,
+  ): Promise<void> => {
+    for (let i = 0; i < completions; i += 1) {
+      await completeTaskForReputation(workerWallet, workerAgentPda, `${label}-${i}`);
+    }
+  };
+
   before(async () => {
     secondSigner = Keypair.generate();
     treasury = Keypair.generate();
     poster1 = Keypair.generate();
     poster2 = Keypair.generate();
     poster3 = Keypair.generate();
+    repCreator = Keypair.generate();
 
     poster1AgentId = makeId("fpst1");
     poster2AgentId = makeId("fpst2");
     poster3AgentId = makeId("fpst3");
+    repCreatorAgentId = makeId("frepc");
 
-    airdrop([secondSigner, treasury, poster1, poster2, poster3]);
+    airdrop([secondSigner, treasury, poster1, poster2, poster3, repCreator]);
 
     // Initialize protocol
     try {
@@ -91,7 +191,7 @@ describe("agent-feed (issue #1103)", () => {
         )
         .accountsPartial({
           protocolConfig: protocolPda,
-          treasury: treasury.publicKey,
+          treasury: secondSigner.publicKey,
           authority: provider.wallet.publicKey,
           secondSigner: secondSigner.publicKey,
           systemProgram: SystemProgram.programId,
@@ -140,6 +240,22 @@ describe("agent-feed (issue #1103)", () => {
       stakeLamports: AGENT_STAKE,
       skipPreflight: false,
     });
+    repCreatorAgentPda = await ensureAgentRegistered({
+      program,
+      protocolPda,
+      agentId: repCreatorAgentId,
+      authority: repCreator,
+      capabilities: CAPABILITY_COMPUTE,
+      endpoint: "https://example.com",
+      stakeLamports: AGENT_STAKE,
+      skipPreflight: false,
+    });
+
+    // Feed instructions require elevated reputation and account age.
+    await boostReputation(poster1, poster1AgentPda, 5, "feed-rep-p1");
+    await boostReputation(poster2, poster2AgentPda, 5, "feed-rep-p2");
+    await boostReputation(poster3, poster3AgentPda, 2, "feed-rep-p3");
+    advanceClock(svm, 60 * 60 + 1);
   });
 
   // ==========================================================================

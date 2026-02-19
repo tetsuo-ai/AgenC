@@ -267,7 +267,7 @@ describe("Task lifecycle guards (#959)", () => {
         )
         .accountsPartial({
           protocolConfig: protocolPda,
-          treasury: treasury.publicKey,
+          treasury: secondSigner.publicKey,
           authority: provider.wallet.publicKey,
           secondSigner: secondSigner.publicKey,
           systemProgram: SystemProgram.programId,
@@ -275,7 +275,7 @@ describe("Task lifecycle guards (#959)", () => {
         .remainingAccounts([{ pubkey: programDataPda, isSigner: false, isWritable: false }])
         .signers([secondSigner])
         .rpc();
-      treasuryPubkey = treasury.publicKey;
+      treasuryPubkey = secondSigner.publicKey;
     } catch {
       const protocolConfig = await program.account.protocolConfig.fetch(protocolPda);
       treasuryPubkey = protocolConfig.treasury;

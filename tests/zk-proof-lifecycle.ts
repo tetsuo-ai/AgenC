@@ -39,7 +39,8 @@ describe("ZK Proof Verification Lifecycle (router payload)", () => {
     TRUSTED_ROUTER_PROGRAM_ID
   );
 
-  const runId = Date.now().toString(36).slice(-6);
+  const runId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+  let taskNonce = 0;
 
   let treasury: Keypair;
   let treasuryPubkey: PublicKey;
@@ -146,7 +147,12 @@ describe("ZK Proof Verification Lifecycle (router payload)", () => {
   }
 
   async function createPrivateTaskAndClaim(constraintHash: Buffer) {
-    const taskId = Buffer.from(`zk-private-${runId}`.slice(0, 32).padEnd(32, "\0"));
+    const taskId = Buffer.from(
+      `zk-${runId}-${(taskNonce++).toString(36)}`.slice(0, 32).padEnd(32, "\0")
+    );
+    const description = Buffer.alloc(64, 0);
+    description.write("zk-lifecycle-private-task");
+    const deadline = new BN(Math.floor(Date.now() / 1000) + 3600);
     const taskPda = deriveTaskPda(taskCreator.publicKey, taskId);
     const escrowPda = deriveEscrowPda(taskPda);
     const claimPda = deriveClaimPda(taskPda, workerAgentPda);
@@ -155,10 +161,10 @@ describe("ZK Proof Verification Lifecycle (router payload)", () => {
       .createTask(
         Array.from(taskId),
         new BN(CAPABILITY_COMPUTE),
-        Array.from(Buffer.alloc(64, 0)),
+        Array.from(description),
         new BN(0.3 * LAMPORTS_PER_SOL),
         1,
-        new BN(0),
+        deadline,
         TASK_TYPE_EXCLUSIVE,
         Array.from(constraintHash),
         0,
@@ -172,6 +178,11 @@ describe("ZK Proof Verification Lifecycle (router payload)", () => {
         authority: taskCreator.publicKey,
         creator: taskCreator.publicKey,
         systemProgram: SystemProgram.programId,
+        rewardMint: null,
+        creatorTokenAccount: null,
+        tokenEscrowAta: null,
+        tokenProgram: null,
+        associatedTokenProgram: null,
       })
       .signers([taskCreator])
       .rpc();
@@ -285,6 +296,13 @@ describe("ZK Proof Verification Lifecycle (router payload)", () => {
       skipPreflight: false,
     });
 
+    const protocol = await program.account.protocolConfig.fetch(protocolPda);
+    const minAgentStakeLamportsRaw = (protocol as { minAgentStake: unknown }).minAgentStake;
+    const minAgentStakeLamports = BN.isBN(minAgentStakeLamportsRaw)
+      ? minAgentStakeLamportsRaw.toNumber()
+      : Number(minAgentStakeLamportsRaw);
+    const registerStakeLamports = Math.max(minAgentStakeLamports, Math.floor(LAMPORTS_PER_SOL / 10));
+
     creatorAgentPda = deriveAgentPda(creatorAgentId);
     workerAgentPda = deriveAgentPda(workerAgentId);
 
@@ -299,7 +317,7 @@ describe("ZK Proof Verification Lifecycle (router payload)", () => {
             new BN(CAPABILITY_COMPUTE),
             `https://zk-lifecycle-${runId}.example.com`,
             null,
-            new BN(LAMPORTS_PER_SOL / 10)
+            new BN(registerStakeLamports)
           )
           .accountsPartial({
             agent: agentPda,
@@ -310,7 +328,17 @@ describe("ZK Proof Verification Lifecycle (router payload)", () => {
           .signers([signer])
           .rpc();
       } catch (e) {
-        // already exists
+        const existingAgent = await (program.account.agentRegistration as {
+          fetchNullable: (pubkey: PublicKey) => Promise<{ authority: PublicKey } | null>;
+        }).fetchNullable(agentPda);
+        if (!existingAgent) {
+          throw e;
+        }
+        if (!existingAgent.authority.equals(signer.publicKey)) {
+          throw new Error(
+            `agent ${agentPda.toBase58()} authority mismatch (${existingAgent.authority.toBase58()} != ${signer.publicKey.toBase58()})`
+          );
+        }
       }
     }
   });
@@ -358,7 +386,7 @@ describe("ZK Proof Verification Lifecycle (router payload)", () => {
 
 describe("Private Replay Seed Semantics", () => {
   it("derives distinct spend PDAs for distinct binding/nullifier seeds", () => {
-    const programId = new PublicKey("EopUaCV2svxj9j4hd7KjbrWfdjkspmm2BCBe7jGpKzKZ");
+    const programId = new PublicKey("5j9ZbT3mnPX5QjWVMrDaWFuaGf8ddji6LW1HVJw6kUE7");
 
     const bindingA = Buffer.alloc(32, 0x21);
     const bindingB = Buffer.alloc(32, 0x22);
