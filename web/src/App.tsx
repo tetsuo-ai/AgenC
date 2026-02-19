@@ -24,6 +24,8 @@ import { SkillsView } from './components/skills/SkillsView';
 import { TasksView } from './components/tasks/TasksView';
 import { MemoryView } from './components/memory/MemoryView';
 import { ActivityFeedView } from './components/activity/ActivityFeedView';
+import { SettingsView } from './components/settings/SettingsView';
+import { PaymentView } from './components/payment/PaymentView';
 
 // Type helper: extract handleMessage from hook return
 type WithHandler<T> = T & { handleMessage: (msg: WSMessage) => void };
@@ -42,7 +44,7 @@ export default function App() {
   const connected = connectionState === 'connected';
 
   // Hooks (all include handleMessage for routing WS messages)
-  const chat = useChat({ send }) as WithHandler<ReturnType<typeof useChat>>;
+  const chat = useChat({ send, connected }) as WithHandler<ReturnType<typeof useChat>>;
   const voice = useVoice({ send });
   const agentStatus = useAgentStatus({ send, connected }) as WithHandler<ReturnType<typeof useAgentStatus>>;
   const skills = useSkills({ send }) as WithHandler<ReturnType<typeof useSkills>>;
@@ -117,6 +119,7 @@ export default function App() {
                 connectionState={connectionState}
                 workspace="default"
                 pendingApprovals={approvals.pending.length}
+                mobile
               />
             </div>
           </div>
@@ -147,6 +150,10 @@ export default function App() {
                 onPushToTalkStop={voice.pushToTalkStop}
                 theme={theme}
                 onToggleTheme={toggleTheme}
+                chatSessions={chat.sessions}
+                activeSessionId={chat.sessionId}
+                onSelectSession={chat.resumeSession}
+                onNewChat={chat.startNewChat}
               />
             )}
             {currentView === 'status' && (
@@ -184,12 +191,25 @@ export default function App() {
                 onClear={activityFeed.clear}
               />
             )}
+            {currentView === 'settings' && (
+              <SettingsView settings={gatewaySettings} />
+            )}
+            {currentView === 'payment' && (
+              <PaymentView wallet={walletInfo} />
+            )}
           </div>
         </main>
 
         {/* Desktop right panel */}
         <div className="hidden lg:flex">
-          <RightPanel settings={gatewaySettings} wallet={walletInfo} />
+          <RightPanel
+            settings={gatewaySettings}
+            wallet={walletInfo}
+            chatSessions={chat.sessions}
+            activeSessionId={chat.sessionId}
+            onSelectSession={chat.resumeSession}
+            onNewChat={chat.startNewChat}
+          />
         </div>
 
         {selectedApproval && (

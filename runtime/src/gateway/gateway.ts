@@ -546,6 +546,10 @@ export class Gateway {
         void this.handleWalletAirdrop(socket, msg.payload, id);
         break;
 
+      case 'ollama.models':
+        void this.handleOllamaModels(socket, id);
+        break;
+
       default: {
         // msg.type is narrowed to `never` here by exhaustive switch,
         // but at runtime unknown types arrive as plain strings.
@@ -706,6 +710,19 @@ export class Gateway {
       });
     } catch (err) {
       this.sendResponse(socket, { type: 'wallet.airdrop', error: (err as Error).message, id });
+    }
+  }
+
+  private async handleOllamaModels(socket: WsWebSocket, id?: string): Promise<void> {
+    try {
+      const baseUrl = this._config.llm?.baseUrl || 'http://localhost:11434';
+      const res = await fetch(`${baseUrl}/api/tags`);
+      if (!res.ok) throw new Error(`Ollama returned HTTP ${res.status}`);
+      const data = await res.json() as { models?: { name: string }[] };
+      const models = (data.models ?? []).map((m: { name: string }) => m.name);
+      this.sendResponse(socket, { type: 'ollama.models', payload: { models }, id });
+    } catch (err) {
+      this.sendResponse(socket, { type: 'ollama.models', error: (err as Error).message, id });
     }
   }
 

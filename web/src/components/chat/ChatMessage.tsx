@@ -8,9 +8,10 @@ import { ToolCallCard } from './ToolCallCard';
 interface ChatMessageProps {
   message: ChatMessageType;
   theme?: 'light' | 'dark';
+  searchQuery?: string;
 }
 
-export function ChatMessage({ message, theme = 'light' }: ChatMessageProps) {
+export function ChatMessage({ message, theme = 'light', searchQuery = '' }: ChatMessageProps) {
   const isUser = message.sender === 'user';
   const time = new Date(message.timestamp).toLocaleTimeString([], {
     hour: '2-digit',
@@ -25,12 +26,8 @@ export function ChatMessage({ message, theme = 'light' }: ChatMessageProps) {
 
   return (
     <div className={`flex gap-3 ${isUser ? 'flex-row-reverse animate-msg-user' : 'flex-row animate-msg-agent'}`}>
-      {/* Avatar */}
-      {isUser ? (
-        <div className="shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold bg-accent text-white">
-          U
-        </div>
-      ) : (
+      {/* Avatar (agent only) */}
+      {!isUser && (
         <div className="shrink-0 w-8 h-8 rounded-full flex items-center justify-center bg-tetsuo-100">
           <img src="/assets/agenc-logo.svg" alt="AgenC" className="w-5 h-5 dark:hidden" />
           <img src="/assets/agenc-logo-white.svg" alt="AgenC" className="w-5 h-5 hidden dark:block" />
@@ -39,21 +36,19 @@ export function ChatMessage({ message, theme = 'light' }: ChatMessageProps) {
 
       {/* Message content */}
       <div className={`flex flex-col gap-1 max-w-[75%] ${isUser ? 'items-end' : 'items-start'}`}>
-        <div className="flex items-center gap-2 text-xs text-tetsuo-400">
-          {isUser ? (
-            <span className="font-medium text-tetsuo-600">You</span>
-          ) : (
+        {!isUser && (
+          <div className="flex items-center gap-2 text-xs text-tetsuo-400">
             <img src="/assets/agenc-wordmark.svg" alt="AgenC" className="h-3 dark:invert opacity-90" />
-          )}
-          <span>{time}</span>
-        </div>
+            <span>{time}</span>
+          </div>
+        )}
 
         <div
           className={`rounded-2xl px-4 py-3 text-sm leading-relaxed ${
             isUser
               ? 'bg-accent text-white rounded-tr-sm'
               : 'bg-tetsuo-50 text-tetsuo-800 border border-tetsuo-200 rounded-tl-sm'
-          }`}
+          }${searchQuery ? ' ring-2 ring-amber-400/60 shadow-[0_0_8px_rgba(251,191,36,0.2)]' : ''}`}
         >
           {message.content && (
             <ReactMarkdown

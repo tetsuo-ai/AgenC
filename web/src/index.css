@@ -88,6 +88,45 @@
   animation: slide-in 0.2s ease-out;
 }
 
+@keyframes slide-up {
+  0% { transform: translateY(100%); }
+  100% { transform: translateY(0); }
+}
+.animate-slide-up {
+  animation: slide-up 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Welcome → chat transition */
+@keyframes welcome-fade-in {
+  0% { opacity: 0; transform: translateY(12px) scale(0.96); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+.animate-welcome-in {
+  animation: welcome-fade-in 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes chat-enter {
+  0% { opacity: 0; transform: translateY(-8px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+.animate-chat-enter {
+  animation: chat-enter 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* Rotating border beam */
+@keyframes border-beam {
+  0% { offset-distance: 0%; }
+  100% { offset-distance: 100%; }
+}
+
+@keyframes input-glow-pulse {
+  0%, 100% { box-shadow: 0 0 0 1px rgba(var(--accent), 0.25), 0 0 20px -4px rgba(var(--accent), 0.15); }
+  50% { box-shadow: 0 0 0 1px rgba(var(--accent), 0.5), 0 0 32px -4px rgba(var(--accent), 0.3); }
+}
+.animate-input-glow {
+  animation: input-glow-pulse 3s ease-in-out infinite;
+}
+
 /* Chat message entrance animations */
 @keyframes msg-in-left {
   0% { opacity: 0; transform: translateX(-16px) scale(0.96); }
@@ -178,3 +217,77 @@
   background-size: 200% 100%;
   animation: shimmer 1.5s ease-in-out;
 }
+
+/* ============================================================
+   VoiceOverlay keyframes
+   ============================================================ */
+
+@keyframes voice-overlay-in {
+  0%   { opacity: 0; }
+  100% { opacity: 1; }
+}
+
+/* Orb core gentle breathe — base pulse for all states */
+@keyframes orb-breathe {
+  0%, 100% { transform: scale(1);    opacity: 0.85; }
+  50%       { transform: scale(1.08); opacity: 1;    }
+}
+
+/* Listening: slow organic inhale ring */
+@keyframes ring-breathe {
+  0%   { transform: scale(0.92); opacity: 0.6; }
+  50%  { transform: scale(1.18); opacity: 0.2; }
+  100% { transform: scale(0.92); opacity: 0.6; }
+}
+
+@keyframes ring-breathe-2 {
+  0%   { transform: scale(1.0);  opacity: 0.4; }
+  50%  { transform: scale(1.32); opacity: 0.1; }
+  100% { transform: scale(1.0);  opacity: 0.4; }
+}
+
+/* Speaking: energetic burst-expand rings */
+@keyframes ring-expand {
+  0%   { transform: scale(1);   opacity: 0.7; }
+  100% { transform: scale(1.7); opacity: 0;   }
+}
+
+@keyframes ring-expand-2 {
+  0%   { transform: scale(1.1); opacity: 0.5; }
+  100% { transform: scale(1.9); opacity: 0;   }
+}
+
+/* Processing: conic gradient rotation */
+@keyframes ring-shimmer {
+  0%   { transform: rotate(0deg);   }
+  100% { transform: rotate(360deg); }
+}
+
+/* Connecting: slow single ring pulse */
+@keyframes ring-connect {
+  0%, 100% { transform: scale(1);    opacity: 0.3; }
+  50%       { transform: scale(1.25); opacity: 0.1; }
+}
+
+/* Transcript text entrance */
+@keyframes transcript-in {
+  0%   { opacity: 0; transform: translateY(10px); }
+  100% { opacity: 1; transform: translateY(0);    }
+}
+
+.animate-voice-overlay-in  { animation: voice-overlay-in 0.25s cubic-bezier(0.16, 1, 0.3, 1) both; }
+.animate-orb-breathe       { animation: orb-breathe 3.2s ease-in-out infinite; }
+.animate-ring-breathe      { animation: ring-breathe 3.2s ease-in-out infinite; }
+.animate-ring-breathe-2    { animation: ring-breathe-2 3.2s ease-in-out 0.8s infinite; }
+.animate-ring-expand       { animation: ring-expand 1.4s cubic-bezier(0.0, 0.0, 0.2, 1) infinite; }
+.animate-ring-expand-2     { animation: ring-expand-2 1.4s cubic-bezier(0.0, 0.0, 0.2, 1) 0.35s infinite; }
+.animate-ring-connect      { animation: ring-connect 2.4s ease-in-out infinite; }
+.animate-ring-shimmer      { animation: ring-shimmer 1.8s linear infinite; }
+.animate-transcript-in     { animation: transcript-in 0.35s cubic-bezier(0.16, 1, 0.3, 1) both; }
+
+/* Word-by-word reveal */
+@keyframes word-in {
+  0%   { opacity: 0; transform: translateY(4px) scale(0.97); filter: blur(2px); }
+  100% { opacity: 1; transform: translateY(0) scale(1);      filter: blur(0);   }
+}
+.animate-word-in { animation: word-in 0.35s cubic-bezier(0.16, 1, 0.3, 1) both; }

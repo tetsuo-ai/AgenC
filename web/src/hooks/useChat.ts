@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type { ChatMessage, ChatMessageAttachment, ToolCall, WSMessage } from '../types';
 
 let msgCounter = 0;
@@ -10,21 +10,53 @@ export interface ChatAttachment {
   sizeBytes: number;
 }
 
+export interface ChatSessionInfo {
+  sessionId: string;
+  label: string;
+  messageCount: number;
+  lastActiveAt: number;
+}
+
 export interface UseChatReturn {
   messages: ChatMessage[];
   sendMessage: (content: string, attachments?: File[]) => void;
   isTyping: boolean;
   sessionId: string | null;
+  sessions: ChatSessionInfo[];
+  refreshSessions: () => void;
+  resumeSession: (sessionId: string) => void;
+  startNewChat: () => void;
 }
 
 interface UseChatOptions {
   send: (msg: Record<string, unknown>) => void;
+  connected?: boolean;
 }
 
-export function useChat({ send }: UseChatOptions): UseChatReturn {
+export function useChat({ send, connected }: UseChatOptions): UseChatReturn {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isTyping, setIsTyping] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
+  const [sessions, setSessions] = useState<ChatSessionInfo[]>([]);
+
+  const refreshSessions = useCallback(() => {
+    send({ type: 'chat.sessions' });
+  }, [send]);
+
+  // Fetch sessions when connected
+  useEffect(() => {
+    if (connected) refreshSessions();
+  }, [connected, refreshSessions]);
+
+  const resumeSession = useCallback((targetSessionId: string) => {
+    send({ type: 'chat.resume', payload: { sessionId: targetSessionId } });
+  }, [send]);
+
+  const startNewChat = useCallback(() => {
+    setMessages([]);
+    setSessionId(null);
+    setIsTyping(false);
+  }, []);
 
   const sendMessage = useCallback((content: string, files?: File[]) => {
     if (!files || files.length === 0) {
@@ -124,7 +156,20 @@ export function useChat({ send }: UseChatOptions): UseChatReturn {
 
       case 'chat.resumed': {
         const payload = (msg.payload ?? msg) as Record<string, unknown>;
-        setSessionId((payload.sessionId as string) ?? null);
+        const resumedId = (payload.sessionId as string) ?? null;
+        setSessionId(resumedId);
+        // Fetch history for the resumed session
+        if (resumedId) {
+          send({ type: 'chat.history' });
+        }
+        break;
+      }
+
+      case 'chat.sessions': {
+        const payload = msg.payload as ChatSessionInfo[];
+        if (Array.isArray(payload)) {
+          setSessions(payload);
+        }
         break;
       }
 
@@ -179,7 +224,11 @@ export function useChat({ send }: UseChatOptions): UseChatReturn {
         break;
       }
     }
-  }, []);
+  }, [send]);
 
-  return { messages, sendMessage, isTyping, sessionId, handleMessage } as UseChatReturn & { handleMessage: (msg: WSMessage) => void };
+  return {
+    messages, sendMessage, isTyping, sessionId,
+    sessions, refreshSessions, resumeSession, startNewChat,
+    handleMessage,
+  } as UseChatReturn & { handleMessage: (msg: WSMessage) => void };
 }
