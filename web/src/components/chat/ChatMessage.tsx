@@ -26,12 +26,8 @@ export function ChatMessage({ message, theme = 'light', searchQuery = '' }: Chat
 
   return (
     <div className={`flex gap-3 ${isUser ? 'flex-row-reverse animate-msg-user' : 'flex-row animate-msg-agent'}`}>
-      {/* Avatar */}
-      {isUser ? (
-        <div className="shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold bg-accent text-white">
-          U
-        </div>
-      ) : (
+      {/* Avatar (agent only) */}
+      {!isUser && (
         <div className="shrink-0 w-8 h-8 rounded-full flex items-center justify-center bg-tetsuo-100">
           <img src="/assets/agenc-logo.svg" alt="AgenC" className="w-5 h-5 dark:hidden" />
           <img src="/assets/agenc-logo-white.svg" alt="AgenC" className="w-5 h-5 hidden dark:block" />
