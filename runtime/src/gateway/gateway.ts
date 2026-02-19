@@ -715,8 +715,9 @@ export class Gateway {
 
   private async handleOllamaModels(socket: WsWebSocket, id?: string): Promise<void> {
     try {
-      const baseUrl = this._config.llm?.baseUrl || 'http://localhost:11434';
-      const res = await fetch(`${baseUrl}/api/tags`);
+      // Always use the Ollama default URL — the current config.llm.baseUrl may point to a different provider
+      const ollamaUrl = 'http://localhost:11434';
+      const res = await fetch(`${ollamaUrl}/api/tags`);
       if (!res.ok) throw new Error(`Ollama returned HTTP ${res.status}`);
       const data = await res.json() as { models?: { name: string }[] };
       const models = (data.models ?? []).map((m: { name: string }) => m.name);
@@ -805,6 +806,12 @@ function maskConfigSecrets(config: GatewayConfig): Record<string, unknown> {
   const mem = clone.memory as Record<string, unknown> | undefined;
   if (mem?.password) mem.password = '********';
   if (mem?.encryptionKey) mem.encryptionKey = '********';
+  const voice = clone.voice as Record<string, unknown> | undefined;
+  if (voice?.apiKey && typeof voice.apiKey === 'string') {
+    voice.apiKey = voice.apiKey.length > 8
+      ? '****' + voice.apiKey.slice(-4)
+      : '********';
+  }
   const auth = clone.auth as Record<string, unknown> | undefined;
   if (auth?.secret) auth.secret = '********';
   return clone;
