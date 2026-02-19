@@ -37,7 +37,7 @@ import type { SendFn } from './handlers.js';
 export class WebChatChannel extends BaseChannelPlugin implements WebChatHandler {
   readonly name = 'webchat';
 
-  private readonly deps: WebChatDeps;
+  private deps: WebChatDeps;
 
   // clientId → sessionId mapping (for outbound routing)
   private readonly clientSessions = new Map<string, string>();
@@ -55,6 +55,11 @@ export class WebChatChannel extends BaseChannelPlugin implements WebChatHandler 
   constructor(deps: WebChatDeps, _config?: WebChatChannelConfig) {
     super();
     this.deps = deps;
+  }
+
+  /** Replace the voice bridge at runtime (e.g. after config hot-reload). */
+  updateVoiceBridge(bridge: import('../../gateway/voice-bridge.js').VoiceBridge | null): void {
+    this.deps = { ...this.deps, voiceBridge: bridge ?? undefined };
   }
 
   // --------------------------------------------------------------------------
