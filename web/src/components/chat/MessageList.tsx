@@ -23,7 +23,8 @@ export function MessageList({ messages, isTyping, theme = 'light', searchQuery =
   }, [messages, isTyping, query]);
 
   return (
-    <div className="flex-1 overflow-y-auto px-4 py-4 md:px-6 md:py-6 space-y-4 md:space-y-6">
+    <div className="flex-1 overflow-y-auto px-4 py-4 md:px-6 md:py-6">
+      <div className="max-w-3xl mx-auto space-y-3">
       {filtered.length === 0 && !query && (
         <div className="flex items-center justify-center h-full text-tetsuo-400 text-sm">
           Send a message to start the conversation
@@ -60,6 +61,7 @@ export function MessageList({ messages, isTyping, theme = 'light', searchQuery =
       )}
 
       <div ref={endRef} />
+      </div>
     </div>
   );
 }
