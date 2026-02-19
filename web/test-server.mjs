@@ -13,7 +13,10 @@
  * Open http://localhost:5173 — the connection indicator should go green.
  */
 
-import { WebSocketServer } from 'ws';
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
+const ws = require('ws');
+const WebSocketServer = ws.WebSocketServer || ws.Server;
 
 const PORT = 9100;
 const HOST = '127.0.0.1';

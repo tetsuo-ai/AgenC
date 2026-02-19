@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ConnectionState, WSMessage } from '../types';
 
-const DEFAULT_URL = 'ws://127.0.0.1:3100';
+const DEFAULT_URL = 'ws://127.0.0.1:9100';
 const PING_INTERVAL_MS = 30_000;
 const RECONNECT_BASE_DELAY_MS = 1_000;
 const RECONNECT_MAX_DELAY_MS = 30_000;
@@ -195,9 +195,15 @@ export function useWebSocket(options?: UseWebSocketOptions): UseWebSocketReturn 
       stopPing();
       clearReconnect();
       if (wsRef.current) {
-        wsRef.current.onclose = null;
-        wsRef.current.close();
+        const ws = wsRef.current;
+        ws.onopen = null;
+        ws.onclose = null;
+        ws.onerror = null;
+        ws.onmessage = null;
         wsRef.current = null;
+        if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+          ws.close();
+        }
       }
     };
   }, [clearReconnect, connect, stopPing]);

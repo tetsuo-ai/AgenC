@@ -17,11 +17,11 @@ export function TasksView({ tasks, onRefresh, onCreate, onCancel }: TasksViewPro
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center justify-between px-4 py-3 border-b border-tetsuo-700">
-        <h2 className="text-sm font-semibold text-tetsuo-200">Tasks</h2>
+      <div className="flex items-center justify-between px-4 py-3 border-b border-tetsuo-200">
+        <h2 className="text-sm font-semibold text-tetsuo-800">Tasks</h2>
         <button
           onClick={onRefresh}
-          className="text-xs text-accent hover:text-accent-light transition-colors"
+          className="text-xs text-accent hover:text-accent-dark transition-colors"
         >
           Refresh
         </button>
@@ -31,7 +31,7 @@ export function TasksView({ tasks, onRefresh, onCreate, onCancel }: TasksViewPro
         <CreateTaskForm onCreate={onCreate} />
 
         {tasks.length === 0 ? (
-          <div className="text-center text-tetsuo-500 text-sm py-8">
+          <div className="text-center text-tetsuo-400 text-sm py-8">
             No tasks found
           </div>
         ) : (

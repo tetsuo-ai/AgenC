@@ -16,18 +16,18 @@ export function ActivityFeedView({ events, onClear }: ActivityFeedViewProps) {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center justify-between px-4 py-3 border-b border-tetsuo-700">
-        <h2 className="text-sm font-semibold text-tetsuo-200">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-tetsuo-200">
+        <h2 className="text-sm font-semibold text-tetsuo-800">
           Activity Feed
           {events.length > 0 && (
-            <span className="ml-2 text-xs text-tetsuo-500 font-normal">
+            <span className="ml-2 text-xs text-tetsuo-400 font-normal">
               ({events.length} events)
             </span>
           )}
         </h2>
         <button
           onClick={onClear}
-          className="text-xs text-tetsuo-400 hover:text-tetsuo-200 transition-colors"
+          className="text-xs text-tetsuo-500 hover:text-tetsuo-700 transition-colors"
         >
           Clear
         </button>
@@ -35,7 +35,7 @@ export function ActivityFeedView({ events, onClear }: ActivityFeedViewProps) {
 
       <div className="flex-1 overflow-y-auto p-4 space-y-2">
         {events.length === 0 ? (
-          <div className="text-center text-tetsuo-500 text-sm py-8">
+          <div className="text-center text-tetsuo-400 text-sm py-8">
             No events yet. Activity will appear here in real-time.
           </div>
         ) : (

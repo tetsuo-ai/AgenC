@@ -166,10 +166,13 @@ export function messageToEntryOptions(
   msg: LLMMessage,
   sessionId: string,
 ): Omit<AddEntryOptions, 'taskPda' | 'metadata' | 'ttlMs'> {
+  const content = typeof msg.content === 'string'
+    ? msg.content
+    : msg.content.filter((p) => p.type === 'text').map((p) => (p as { type: 'text'; text: string }).text).join('\n');
   const opts: Omit<AddEntryOptions, 'taskPda' | 'metadata' | 'ttlMs'> = {
     sessionId,
     role: msg.role,
-    content: msg.content,
+    content,
   };
   if (msg.toolCallId) (opts as AddEntryOptions).toolCallId = msg.toolCallId;
   if (msg.toolName) (opts as AddEntryOptions).toolName = msg.toolName;
