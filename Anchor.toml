@@ -12,8 +12,9 @@ agenc_coordination = "EopUaCV2svxj9j4hd7KjbrWfdjkspmm2BCBe7jGpKzKZ"
 [programs.devnet]
 agenc_coordination = "EopUaCV2svxj9j4hd7KjbrWfdjkspmm2BCBe7jGpKzKZ"
 
-[programs.mainnet]
-agenc_coordination = "EopUaCV2svxj9j4hd7KjbrWfdjkspmm2BCBe7jGpKzKZ"
+<<<<<<< HEAD
+# Mainnet intentionally not configured yet.
+# Add [programs.mainnet] only after pre-mainnet security sign-off.
 
 [registry]
 url = "https://api.apr.dev"
