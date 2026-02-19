@@ -119,6 +119,7 @@ export default function App() {
                 connectionState={connectionState}
                 workspace="default"
                 pendingApprovals={approvals.pending.length}
+                mobile
               />
             </div>
           </div>

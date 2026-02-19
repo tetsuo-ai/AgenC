@@ -7,6 +7,7 @@ interface SidebarProps {
   connectionState: ConnectionState;
   workspace: string;
   pendingApprovals: number;
+  mobile?: boolean;
 }
 
 interface NavItem {
@@ -34,6 +35,7 @@ export function Sidebar({
   onNavigate,
   connectionState,
   pendingApprovals,
+  mobile,
 }: SidebarProps) {
   return (
     <div className="w-20 h-full bg-tetsuo-50 border-r border-tetsuo-200 flex flex-col items-center py-4">
@@ -72,8 +74,8 @@ export function Sidebar({
         })}
       </nav>
 
-      {/* Bottom nav: Settings + Payment */}
-      <div className="flex flex-col items-center gap-1 mt-auto mb-3">
+      {/* Bottom nav: Settings + Payment (mobile only — desktop uses RightPanel) */}
+      {mobile && <div className="flex flex-col items-center gap-1 mt-auto mb-3">
         {BOTTOM_NAV.map((item) => {
           const isActive = currentView === item.id;
           return (
@@ -94,7 +96,7 @@ export function Sidebar({
             </button>
           );
         })}
-      </div>
+      </div>}
 
       {/* Connection */}
       <div className="flex flex-col items-center gap-2">
