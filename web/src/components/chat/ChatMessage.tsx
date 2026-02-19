@@ -8,9 +8,10 @@ import { ToolCallCard } from './ToolCallCard';
 interface ChatMessageProps {
   message: ChatMessageType;
   theme?: 'light' | 'dark';
+  searchQuery?: string;
 }
 
-export function ChatMessage({ message, theme = 'light' }: ChatMessageProps) {
+export function ChatMessage({ message, theme = 'light', searchQuery = '' }: ChatMessageProps) {
   const isUser = message.sender === 'user';
   const time = new Date(message.timestamp).toLocaleTimeString([], {
     hour: '2-digit',
@@ -53,7 +54,7 @@ export function ChatMessage({ message, theme = 'light' }: ChatMessageProps) {
             isUser
               ? 'bg-accent text-white rounded-tr-sm'
               : 'bg-tetsuo-50 text-tetsuo-800 border border-tetsuo-200 rounded-tl-sm'
-          }`}
+          }${searchQuery ? ' ring-2 ring-amber-400/60 shadow-[0_0_8px_rgba(251,191,36,0.2)]' : ''}`}
         >
           {message.content && (
             <ReactMarkdown

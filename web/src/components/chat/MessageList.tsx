@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import type { ChatMessage as ChatMessageType } from '../../types';
 import { ChatMessage } from './ChatMessage';
 
@@ -6,25 +6,41 @@ interface MessageListProps {
   messages: ChatMessageType[];
   isTyping: boolean;
   theme?: 'light' | 'dark';
+  searchQuery?: string;
 }
 
-export function MessageList({ messages, isTyping, theme = 'light' }: MessageListProps) {
+export function MessageList({ messages, isTyping, theme = 'light', searchQuery = '' }: MessageListProps) {
   const endRef = useRef<HTMLDivElement>(null);
+  const query = searchQuery.trim().toLowerCase();
+
+  const filtered = useMemo(
+    () => (query ? messages.filter((m) => m.content.toLowerCase().includes(query)) : messages),
+    [messages, query],
+  );
 
   useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, isTyping]);
+    if (!query) endRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages, isTyping, query]);
 
   return (
     <div className="flex-1 overflow-y-auto px-4 py-4 md:px-6 md:py-6 space-y-4 md:space-y-6">
-      {messages.length === 0 && (
+      {filtered.length === 0 && !query && (
         <div className="flex items-center justify-center h-full text-tetsuo-400 text-sm">
           Send a message to start the conversation
         </div>
       )}
 
-      {messages.map((msg) => (
-        <ChatMessage key={msg.id} message={msg} theme={theme} />
+      {filtered.length === 0 && query && (
+        <div className="flex flex-col items-center justify-center h-full gap-2">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" className="text-tetsuo-300" strokeWidth="1.5" strokeLinecap="round">
+            <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+          </svg>
+          <span className="text-sm text-tetsuo-400">No messages match "{searchQuery.trim()}"</span>
+        </div>
+      )}
+
+      {filtered.map((msg) => (
+        <ChatMessage key={msg.id} message={msg} theme={theme} searchQuery={query} />
       ))}
 
       {isTyping && (

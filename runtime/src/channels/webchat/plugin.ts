@@ -189,6 +189,11 @@ export class WebChatChannel extends BaseChannelPlugin implements WebChatHandler 
       return;
     }
 
+    if (type === 'chat.sessions') {
+      this.handleChatSessions(clientId, id, send);
+      return;
+    }
+
     // Delegate to subsystem handlers (may be async)
     const handler = HANDLER_MAP[type];
     if (handler) {
@@ -379,6 +384,37 @@ export class WebChatChannel extends BaseChannelPlugin implements WebChatHandler 
       },
       id,
     });
+  }
+
+  private handleChatSessions(
+    _clientId: string,
+    id: string | undefined,
+    send: SendFn,
+  ): void {
+    const sessions: Array<{
+      sessionId: string;
+      label: string;
+      messageCount: number;
+      lastActiveAt: number;
+    }> = [];
+
+    for (const [sessionId, history] of this.sessionHistory) {
+      if (history.length === 0) continue;
+      const firstUserMsg = history.find((m) => m.sender === 'user');
+      const label = firstUserMsg
+        ? firstUserMsg.content.slice(0, 80)
+        : 'New conversation';
+      const lastEntry = history[history.length - 1];
+      sessions.push({
+        sessionId,
+        label,
+        messageCount: history.length,
+        lastActiveAt: lastEntry.timestamp,
+      });
+    }
+
+    sessions.sort((a, b) => b.lastActiveAt - a.lastActiveAt);
+    send({ type: 'chat.sessions', payload: sessions, id });
   }
 
   // --------------------------------------------------------------------------

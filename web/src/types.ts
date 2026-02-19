@@ -158,4 +158,4 @@ export type VoiceMode = 'vad' | 'push-to-talk';
 // Navigation
 // ============================================================================
 
-export type ViewId = 'chat' | 'status' | 'skills' | 'tasks' | 'memory' | 'activity';
+export type ViewId = 'chat' | 'status' | 'skills' | 'tasks' | 'memory' | 'activity' | 'settings' | 'payment';
