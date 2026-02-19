@@ -2,36 +2,25 @@
  * @agenc/sdk - Privacy-preserving agent coordination on Solana
  *
  * AgenC enables agents to complete tasks and receive payments with full privacy:
- * - ZK proofs verify task completion without revealing outputs
- * - Privacy Cash breaks payment linkability via shielded pools
- * - Inline groth16-solana verifier validates Circom circuit proofs
+ * - RISC0 payloads verify task completion without revealing outputs
+ * - Router-verifier account model is used for private completion
+ * - Private payload shape is seal/journal/image/binding/nullifier seeds
  */
-
-// AgenCPrivacyClient is not directly exported — it is used internally by PrivacyClient.
-// Requires optional peer dependency: privacycash
-
-export {
-  PrivacyClient,
-  PrivacyClientConfig,
-} from './client';
 
 export {
   generateProof,
   verifyProofLocally,
   computeHashes,
   generateSalt,
-  checkToolsAvailable,
-  requireTools,
   pubkeyToField,
   FIELD_MODULUS,
   // Hash computation functions
-  computeExpectedBinding,
+  computeBindingDigest,
   computeConstraintHash,
   // Types
   ProofGenerationParams,
   ProofResult,
   HashResult,
-  ToolsStatus,
 } from './proofs';
 
 export {
@@ -57,7 +46,7 @@ export {
   TaskStatus,
   TaskLifecycleEvent,
   TaskLifecycleSummary,
-  PrivateCompletionProof,
+  PrivateCompletionPayload,
   CompleteTaskPrivateSafeOptions,
   ProofPreconditionError,
 } from './tasks';
@@ -114,6 +103,13 @@ export {
   FEE_TIERS,
   // ZK constants
   PROOF_SIZE_BYTES,
+  RISC0_SELECTOR_LEN,
+  RISC0_GROTH16_SEAL_LEN,
+  RISC0_SEAL_BORSH_LEN,
+  RISC0_JOURNAL_LEN,
+  RISC0_IMAGE_ID_LEN,
+  TRUSTED_RISC0_SELECTOR,
+  TRUSTED_RISC0_IMAGE_ID,
   VERIFICATION_COMPUTE_UNITS,
   PUBLIC_INPUTS_COUNT,
   // Compute budget constants (issue #40)
@@ -135,7 +131,6 @@ export {
   RECOMMENDED_CU_CANCEL_TASK_TOKEN,
   // PDA seeds
   SEEDS,
-  VERIFIER_PROGRAM_ID,
 } from './constants';
 
 export {

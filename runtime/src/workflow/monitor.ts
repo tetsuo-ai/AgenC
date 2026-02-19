@@ -190,7 +190,7 @@ export class DAGMonitor {
   private startEventListeners(): void {
     // Subscribe to taskCompleted (unfiltered — we filter client-side)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    this.completedListenerId = this.program.addEventListener(
+    this.completedListenerId = (this.program as Program<any>).addEventListener(
       'taskCompleted' as any,
       (rawEvent: any, _slot: number, _signature: string) => {
         try {
@@ -212,7 +212,7 @@ export class DAGMonitor {
 
     // Subscribe to taskCancelled (unfiltered)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    this.cancelledListenerId = this.program.addEventListener(
+    this.cancelledListenerId = (this.program as Program<any>).addEventListener(
       'taskCancelled' as any,
       (rawEvent: any, _slot: number, _signature: string) => {
         try {

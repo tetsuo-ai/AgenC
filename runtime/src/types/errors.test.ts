@@ -1,4 +1,6 @@
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import {
   // Constants
   RuntimeErrorCodes,
@@ -30,6 +32,21 @@ import {
   validateNonZeroBytes,
 } from './errors';
 
+interface IdlErrorEntry {
+  code: number;
+  name: string;
+  msg: string;
+}
+
+const idlPath = resolve(process.cwd(), 'idl', 'agenc_coordination.json');
+const idlErrors = (
+  JSON.parse(readFileSync(idlPath, 'utf8')) as { errors?: IdlErrorEntry[] }
+).errors ?? [];
+const idlErrorMap = new Map(idlErrors.map((entry) => [entry.name, entry]));
+const idlCodes = idlErrors.map((entry) => entry.code);
+const idlMinCode = Math.min(...idlCodes);
+const idlMaxCode = Math.max(...idlCodes);
+
 describe('RuntimeErrorCodes', () => {
   it('has all expected error codes', () => {
     expect(RuntimeErrorCodes.AGENT_NOT_REGISTERED).toBe('AGENT_NOT_REGISTERED');
@@ -56,191 +73,51 @@ describe('RuntimeErrorCodes', () => {
 });
 
 describe('AnchorErrorCodes', () => {
-  it('has exactly 173 error codes (6000-6172)', () => {
-    expect(Object.keys(AnchorErrorCodes)).toHaveLength(173);
+  it('matches IDL error count', () => {
+    expect(Object.keys(AnchorErrorCodes)).toHaveLength(idlErrors.length);
   });
 
-  it('has codes in range 6000-6172', () => {
+  it('matches IDL code range', () => {
+    expect(idlErrors.length).toBeGreaterThan(0);
     const codes = Object.values(AnchorErrorCodes);
     const minCode = Math.min(...codes);
     const maxCode = Math.max(...codes);
+    const idlCodes = idlErrors.map((entry) => entry.code);
 
-    expect(minCode).toBe(6000);
-    expect(maxCode).toBe(6172);
+    expect(minCode).toBe(Math.min(...idlCodes));
+    expect(maxCode).toBe(Math.max(...idlCodes));
   });
 
   it('has sequential codes (no gaps)', () => {
     const codes = Object.values(AnchorErrorCodes).sort((a, b) => a - b);
+    const start = Math.min(...codes);
     for (let i = 0; i < codes.length; i++) {
-      expect(codes[i]).toBe(6000 + i);
+      expect(codes[i]).toBe(start + i);
     }
   });
 
-  it('has correct agent error codes (6000-6012)', () => {
-    expect(AnchorErrorCodes.AgentAlreadyRegistered).toBe(6000);
-    expect(AnchorErrorCodes.AgentNotFound).toBe(6001);
-    expect(AnchorErrorCodes.AgentNotActive).toBe(6002);
-    expect(AnchorErrorCodes.InsufficientCapabilities).toBe(6003);
-    expect(AnchorErrorCodes.InvalidCapabilities).toBe(6004);
-    expect(AnchorErrorCodes.MaxActiveTasksReached).toBe(6005);
-    expect(AnchorErrorCodes.AgentHasActiveTasks).toBe(6006);
-    expect(AnchorErrorCodes.UnauthorizedAgent).toBe(6007);
-    expect(AnchorErrorCodes.CreatorAuthorityMismatch).toBe(6008);
-    expect(AnchorErrorCodes.InvalidAgentId).toBe(6009);
-    expect(AnchorErrorCodes.AgentRegistrationRequired).toBe(6010);
-    expect(AnchorErrorCodes.AgentSuspended).toBe(6011);
-    expect(AnchorErrorCodes.AgentBusyWithTasks).toBe(6012);
+  it('has exact name->code parity with IDL', () => {
+    const runtimeEntries = Object.entries(AnchorErrorCodes);
+    for (const [name, code] of runtimeEntries) {
+      const idlEntry = idlErrorMap.get(name);
+      expect(idlEntry, `Missing IDL entry for ${name}`).toBeDefined();
+      expect(code).toBe(idlEntry!.code);
+    }
   });
 
-  it('has correct task error codes (6013-6034)', () => {
-    expect(AnchorErrorCodes.TaskNotFound).toBe(6013);
-    expect(AnchorErrorCodes.TaskNotOpen).toBe(6014);
-    expect(AnchorErrorCodes.TaskFullyClaimed).toBe(6015);
-    expect(AnchorErrorCodes.TaskExpired).toBe(6016);
-    expect(AnchorErrorCodes.TaskNotExpired).toBe(6017);
-    expect(AnchorErrorCodes.DeadlinePassed).toBe(6018);
-    expect(AnchorErrorCodes.TaskNotInProgress).toBe(6019);
-    expect(AnchorErrorCodes.TaskAlreadyCompleted).toBe(6020);
-    expect(AnchorErrorCodes.TaskCannotBeCancelled).toBe(6021);
-    expect(AnchorErrorCodes.UnauthorizedTaskAction).toBe(6022);
-    expect(AnchorErrorCodes.InvalidCreator).toBe(6023);
-    expect(AnchorErrorCodes.InvalidTaskId).toBe(6024);
-    expect(AnchorErrorCodes.InvalidDescription).toBe(6025);
-    expect(AnchorErrorCodes.InvalidMaxWorkers).toBe(6026);
-    expect(AnchorErrorCodes.InvalidTaskType).toBe(6027);
-    expect(AnchorErrorCodes.InvalidDeadline).toBe(6028);
-    expect(AnchorErrorCodes.InvalidReward).toBe(6029);
-    expect(AnchorErrorCodes.InvalidRequiredCapabilities).toBe(6030);
-    expect(AnchorErrorCodes.CompetitiveTaskAlreadyWon).toBe(6031);
-    expect(AnchorErrorCodes.NoWorkers).toBe(6032);
-    expect(AnchorErrorCodes.ConstraintHashMismatch).toBe(6033);
-    expect(AnchorErrorCodes.NotPrivateTask).toBe(6034);
-  });
-
-  it('has correct claim error codes (6035-6049)', () => {
-    expect(AnchorErrorCodes.AlreadyClaimed).toBe(6035);
-    expect(AnchorErrorCodes.NotClaimed).toBe(6036);
-    expect(AnchorErrorCodes.ClaimAlreadyCompleted).toBe(6037);
-    expect(AnchorErrorCodes.ClaimNotExpired).toBe(6038);
-    expect(AnchorErrorCodes.ClaimExpired).toBe(6039);
-    expect(AnchorErrorCodes.InvalidExpiration).toBe(6040);
-    expect(AnchorErrorCodes.InvalidProof).toBe(6041);
-    expect(AnchorErrorCodes.ZkVerificationFailed).toBe(6042);
-    expect(AnchorErrorCodes.InvalidProofSize).toBe(6043);
-    expect(AnchorErrorCodes.InvalidProofBinding).toBe(6044);
-    expect(AnchorErrorCodes.InvalidOutputCommitment).toBe(6045);
-    expect(AnchorErrorCodes.InvalidRentRecipient).toBe(6046);
-    expect(AnchorErrorCodes.GracePeriodNotPassed).toBe(6047);
-    expect(AnchorErrorCodes.InvalidProofHash).toBe(6048);
-    expect(AnchorErrorCodes.InvalidResultData).toBe(6049);
-  });
-
-  it('has correct dispute error codes (6050-6075)', () => {
-    expect(AnchorErrorCodes.DisputeNotActive).toBe(6050);
-    expect(AnchorErrorCodes.VotingEnded).toBe(6051);
-    expect(AnchorErrorCodes.VotingNotEnded).toBe(6052);
-    expect(AnchorErrorCodes.AlreadyVoted).toBe(6053);
-    expect(AnchorErrorCodes.NotArbiter).toBe(6054);
-    expect(AnchorErrorCodes.InsufficientVotes).toBe(6055);
-    expect(AnchorErrorCodes.DisputeAlreadyResolved).toBe(6056);
-    expect(AnchorErrorCodes.UnauthorizedResolver).toBe(6057);
-    expect(AnchorErrorCodes.ActiveDisputeVotes).toBe(6058);
-    expect(AnchorErrorCodes.RecentVoteActivity).toBe(6059);
-    expect(AnchorErrorCodes.AuthorityAlreadyVoted).toBe(6060);
-    expect(AnchorErrorCodes.InsufficientEvidence).toBe(6061);
-    expect(AnchorErrorCodes.EvidenceTooLong).toBe(6062);
-    expect(AnchorErrorCodes.DisputeNotExpired).toBe(6063);
-    expect(AnchorErrorCodes.SlashAlreadyApplied).toBe(6064);
-    expect(AnchorErrorCodes.SlashWindowExpired).toBe(6065);
-    expect(AnchorErrorCodes.DisputeNotResolved).toBe(6066);
-    expect(AnchorErrorCodes.NotTaskParticipant).toBe(6067);
-    expect(AnchorErrorCodes.InvalidEvidenceHash).toBe(6068);
-    expect(AnchorErrorCodes.ArbiterIsDisputeParticipant).toBe(6069);
-    expect(AnchorErrorCodes.InsufficientQuorum).toBe(6070);
-    expect(AnchorErrorCodes.ActiveDisputesExist).toBe(6071);
-    expect(AnchorErrorCodes.WorkerAgentRequired).toBe(6072);
-    expect(AnchorErrorCodes.WorkerClaimRequired).toBe(6073);
-    expect(AnchorErrorCodes.WorkerNotInDispute).toBe(6074);
-    expect(AnchorErrorCodes.InitiatorCannotResolve).toBe(6075);
-  });
-
-  it('has correct state error codes (6076-6081)', () => {
-    expect(AnchorErrorCodes.VersionMismatch).toBe(6076);
-    expect(AnchorErrorCodes.StateKeyExists).toBe(6077);
-    expect(AnchorErrorCodes.StateNotFound).toBe(6078);
-    expect(AnchorErrorCodes.InvalidStateValue).toBe(6079);
-    expect(AnchorErrorCodes.StateOwnershipViolation).toBe(6080);
-    expect(AnchorErrorCodes.InvalidStateKey).toBe(6081);
-  });
-
-  it('has correct protocol error codes (6082-6093)', () => {
-    expect(AnchorErrorCodes.ProtocolAlreadyInitialized).toBe(6082);
-    expect(AnchorErrorCodes.ProtocolNotInitialized).toBe(6083);
-    expect(AnchorErrorCodes.InvalidProtocolFee).toBe(6084);
-    expect(AnchorErrorCodes.InvalidTreasury).toBe(6085);
-    expect(AnchorErrorCodes.InvalidDisputeThreshold).toBe(6086);
-    expect(AnchorErrorCodes.InsufficientStake).toBe(6087);
-    expect(AnchorErrorCodes.MultisigInvalidThreshold).toBe(6088);
-    expect(AnchorErrorCodes.MultisigInvalidSigners).toBe(6089);
-    expect(AnchorErrorCodes.MultisigNotEnoughSigners).toBe(6090);
-    expect(AnchorErrorCodes.MultisigDuplicateSigner).toBe(6091);
-    expect(AnchorErrorCodes.MultisigDefaultSigner).toBe(6092);
-    expect(AnchorErrorCodes.MultisigSignerNotSystemOwned).toBe(6093);
-  });
-
-  it('has correct general error codes (6094-6101)', () => {
-    expect(AnchorErrorCodes.InvalidInput).toBe(6094);
-    expect(AnchorErrorCodes.ArithmeticOverflow).toBe(6095);
-    expect(AnchorErrorCodes.VoteOverflow).toBe(6096);
-    expect(AnchorErrorCodes.InsufficientFunds).toBe(6097);
-    expect(AnchorErrorCodes.RewardTooSmall).toBe(6098);
-    expect(AnchorErrorCodes.CorruptedData).toBe(6099);
-    expect(AnchorErrorCodes.StringTooLong).toBe(6100);
-    expect(AnchorErrorCodes.InvalidAccountOwner).toBe(6101);
-  });
-
-  it('has correct rate limiting error codes (6102-6110)', () => {
-    expect(AnchorErrorCodes.RateLimitExceeded).toBe(6102);
-    expect(AnchorErrorCodes.CooldownNotElapsed).toBe(6103);
-    expect(AnchorErrorCodes.UpdateTooFrequent).toBe(6104);
-    expect(AnchorErrorCodes.InvalidCooldown).toBe(6105);
-    expect(AnchorErrorCodes.CooldownTooLarge).toBe(6106);
-    expect(AnchorErrorCodes.RateLimitTooHigh).toBe(6107);
-    expect(AnchorErrorCodes.CooldownTooLong).toBe(6108);
-    expect(AnchorErrorCodes.InsufficientStakeForDispute).toBe(6109);
-    expect(AnchorErrorCodes.InsufficientStakeForCreatorDispute).toBe(6110);
-  });
-
-  it('has correct version/upgrade error codes (6111-6118)', () => {
-    expect(AnchorErrorCodes.VersionMismatchProtocol).toBe(6111);
-    expect(AnchorErrorCodes.AccountVersionTooOld).toBe(6112);
-    expect(AnchorErrorCodes.AccountVersionTooNew).toBe(6113);
-    expect(AnchorErrorCodes.InvalidMigrationSource).toBe(6114);
-    expect(AnchorErrorCodes.InvalidMigrationTarget).toBe(6115);
-    expect(AnchorErrorCodes.UnauthorizedUpgrade).toBe(6116);
-    expect(AnchorErrorCodes.InvalidMinVersion).toBe(6117);
-    expect(AnchorErrorCodes.ProtocolConfigRequired).toBe(6118);
-  });
-
-  it('has correct dependency error codes (6119-6124)', () => {
-    expect(AnchorErrorCodes.ParentTaskCancelled).toBe(6119);
-    expect(AnchorErrorCodes.ParentTaskDisputed).toBe(6120);
-    expect(AnchorErrorCodes.InvalidDependencyType).toBe(6121);
-    expect(AnchorErrorCodes.ParentTaskNotCompleted).toBe(6122);
-    expect(AnchorErrorCodes.ParentTaskAccountRequired).toBe(6123);
-    expect(AnchorErrorCodes.UnauthorizedCreator).toBe(6124);
-  });
-
-  it('has correct nullifier error codes (6125-6126)', () => {
-    expect(AnchorErrorCodes.NullifierAlreadySpent).toBe(6125);
-    expect(AnchorErrorCodes.InvalidNullifier).toBe(6126);
-  });
-
-  it('has correct SPL token error codes (6143-6146)', () => {
-    expect(AnchorErrorCodes.MissingTokenAccounts).toBe(6143);
-    expect(AnchorErrorCodes.InvalidTokenEscrow).toBe(6144);
-    expect(AnchorErrorCodes.InvalidTokenMint).toBe(6145);
-    expect(AnchorErrorCodes.TokenTransferFailed).toBe(6146);
+  it('includes new private verification error codes', () => {
+    expect(idlErrorMap.get('InvalidSealEncoding')).toBeDefined();
+    expect(idlErrorMap.get('InvalidJournalLength')).toBeDefined();
+    expect(idlErrorMap.get('InvalidJournalBinding')).toBeDefined();
+    expect(idlErrorMap.get('TrustedSelectorMismatch')).toBeDefined();
+    expect(idlErrorMap.get('RouterAccountMismatch')).toBeDefined();
+    expect(AnchorErrorCodes.InvalidSealEncoding).toBe(idlErrorMap.get('InvalidSealEncoding')!.code);
+    expect(AnchorErrorCodes.TrustedSelectorMismatch).toBe(
+      idlErrorMap.get('TrustedSelectorMismatch')!.code,
+    );
+    expect(AnchorErrorCodes.RouterAccountMismatch).toBe(
+      idlErrorMap.get('RouterAccountMismatch')!.code,
+    );
   });
 });
 
@@ -562,8 +439,8 @@ describe('parseAnchorError', () => {
   });
 
   it('returns null for code outside range', () => {
-    expect(parseAnchorError({ code: 5999 })).toBeNull();
-    expect(parseAnchorError({ code: 6173 })).toBeNull();
+    expect(parseAnchorError({ code: idlMinCode - 1 })).toBeNull();
+    expect(parseAnchorError({ code: idlMaxCode + 1 })).toBeNull();
   });
 
   it('returns null for null/undefined', () => {
@@ -602,13 +479,13 @@ describe('getAnchorErrorName', () => {
   });
 
   it('returns undefined for invalid code', () => {
-    expect(getAnchorErrorName(5999)).toBeUndefined();
-    expect(getAnchorErrorName(6173)).toBeUndefined();
+    expect(getAnchorErrorName(idlMinCode - 1)).toBeUndefined();
+    expect(getAnchorErrorName(idlMaxCode + 1)).toBeUndefined();
     expect(getAnchorErrorName(0)).toBeUndefined();
   });
 
-  it('returns name for all 173 codes', () => {
-    for (let code = 6000; code <= 6172; code++) {
+  it('returns name for all IDL Anchor codes', () => {
+    for (let code = idlMinCode; code <= idlMaxCode; code++) {
       const name = getAnchorErrorName(code);
       expect(name).toBeDefined();
       expect(typeof name).toBe('string');
@@ -623,8 +500,8 @@ describe('getAnchorErrorMessage', () => {
     expect(getAnchorErrorMessage(AnchorErrorCodes.TokenTransferFailed)).toBe('SPL token transfer CPI failed');
   });
 
-  it('returns message for all 147 codes', () => {
-    for (let code = 6000; code <= 6146; code++) {
+  it('returns message for all IDL Anchor codes', () => {
+    for (let code = idlMinCode; code <= idlMaxCode; code++) {
       const message = getAnchorErrorMessage(code as AnchorErrorCode);
       expect(message).toBeDefined();
       expect(typeof message).toBe('string');

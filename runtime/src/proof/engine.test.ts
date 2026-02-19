@@ -1,33 +1,37 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Keypair, PublicKey } from '@solana/web3.js';
 
 // Mock @agenc/sdk before imports
 vi.mock('@agenc/sdk', () => {
-  const mockProof = Buffer.alloc(256, 0xab);
-  const mockHash = Buffer.alloc(32, 0xcd);
+  const mockSeal = Buffer.alloc(260, 0xab);
+  const mockJournal = Buffer.alloc(192, 0xcd);
+  const mockImageId = Buffer.alloc(32, 0xef);
+  const mockBindingSeed = Buffer.alloc(32, 0x12);
+  const mockNullifierSeed = Buffer.alloc(32, 0x34);
 
   return {
     generateProof: vi.fn().mockResolvedValue({
-      proof: mockProof,
-      constraintHash: mockHash,
-      outputCommitment: Buffer.alloc(32, 0xef),
-      expectedBinding: Buffer.alloc(32, 0x12),
-      nullifier: Buffer.alloc(32, 0x34),
-      proofSize: 256,
+      sealBytes: mockSeal,
+      journal: mockJournal,
+      imageId: mockImageId,
+      bindingSeed: mockBindingSeed,
+      nullifierSeed: mockNullifierSeed,
+      proof: Buffer.alloc(256, 0xaa),
+      constraintHash: Buffer.alloc(32, 0x01),
+      outputCommitment: Buffer.alloc(32, 0x02),
+      bindingDigest: Buffer.alloc(32, 0x03),
+      nullifier: Buffer.alloc(32, 0x04),
+      proofSize: 260,
       generationTime: 42,
     }),
     verifyProofLocally: vi.fn().mockResolvedValue(true),
     computeHashes: vi.fn().mockReturnValue({
       constraintHash: 123n,
       outputCommitment: 456n,
-      expectedBinding: 789n,
+      bindingDigest: 789n,
       nullifier: 101112n,
     }),
     generateSalt: vi.fn().mockReturnValue(999n),
-    checkToolsAvailable: vi.fn().mockReturnValue({
-      snarkjs: true,
-      snarkjsVersion: '0.7.0',
-    }),
     // Re-export types that the module expects
     PROGRAM_ID: new PublicKey('EopUaCV2svxj9j4hd7KjbrWfdjkspmm2BCBe7jGpKzKZ'),
     DEVNET_RPC: 'https://api.devnet.solana.com',
@@ -69,7 +73,6 @@ import {
   verifyProofLocally as mockVerifyProofLocally,
   computeHashes as mockComputeHashes,
   generateSalt as mockGenerateSalt,
-  checkToolsAvailable as mockCheckToolsAvailable,
 } from '@agenc/sdk';
 import { ProofEngine } from './engine.js';
 import { ProofCache, deriveCacheKey } from './cache.js';
@@ -103,11 +106,18 @@ describe('ProofEngine', () => {
 
     it('creates with custom config', () => {
       const engine = new ProofEngine({
-        circuitPath: '/custom/path',
+        methodId: new Uint8Array(32),
+        proverBackend: { kind: 'deterministic-local' },
         verifyAfterGeneration: true,
         cache: { ttlMs: 60_000, maxEntries: 50 },
       });
       expect(engine).toBeInstanceOf(ProofEngine);
+    });
+
+    it('rejects invalid methodId length', () => {
+      expect(() => new ProofEngine({ methodId: new Uint8Array(31) })).toThrow(
+        'methodId must be 32 bytes',
+      );
     });
 
     it('creates without cache when config.cache is omitted', () => {
@@ -128,42 +138,53 @@ describe('ProofEngine', () => {
       const result = await engine.generate(inputs);
 
       expect(mockGenerateProof).toHaveBeenCalledOnce();
-      expect(result.proof).toBeInstanceOf(Uint8Array);
-      expect(result.proof.length).toBe(256);
-      expect(result.constraintHash).toBeInstanceOf(Uint8Array);
-      expect(result.constraintHash.length).toBe(32);
-      expect(result.outputCommitment).toBeInstanceOf(Uint8Array);
-      expect(result.expectedBinding).toBeInstanceOf(Uint8Array);
-      expect(result.nullifier).toBeInstanceOf(Uint8Array);
-      expect(result.nullifier.length).toBe(32);
-      expect(result.proofSize).toBe(256);
+      expect(result.sealBytes).toBeInstanceOf(Uint8Array);
+      expect(result.sealBytes.length).toBe(260);
+      expect(result.journal).toBeInstanceOf(Uint8Array);
+      expect(result.journal.length).toBe(192);
+      expect(result.imageId).toBeInstanceOf(Uint8Array);
+      expect(result.imageId.length).toBe(32);
+      expect(result.bindingSeed).toBeInstanceOf(Uint8Array);
+      expect(result.bindingSeed.length).toBe(32);
+      expect(result.nullifierSeed).toBeInstanceOf(Uint8Array);
+      expect(result.nullifierSeed.length).toBe(32);
+      expect(result.proofSize).toBe(260);
       expect(result.fromCache).toBe(false);
       expect(result.verified).toBe(false);
       expect(result.generationTimeMs).toBeGreaterThanOrEqual(0);
     });
 
-    it('passes circuitPath to SDK', async () => {
-      const engine = new ProofEngine({ circuitPath: '/my/circuit' });
+    it('does not pass legacy path args to SDK', async () => {
+      const engine = new ProofEngine();
       const inputs = makeInputs();
       await engine.generate(inputs);
 
-      expect(mockGenerateProof).toHaveBeenCalledWith(
-        expect.objectContaining({ circuitPath: '/my/circuit' }),
+      const args = vi.mocked(mockGenerateProof).mock.calls[0]?.[0];
+      expect(args).toBeDefined();
+      expect(Object.prototype.hasOwnProperty.call(args, 'legacyPath')).toBe(false);
+    });
+
+    it('enforces configured methodId against generated imageId', async () => {
+      const pinnedMethodId = new Uint8Array(32).fill(0x7f);
+      const engine = new ProofEngine({ methodId: pinnedMethodId });
+
+      await expect(engine.generate(makeInputs())).rejects.toThrow(
+        'Generated imageId does not match configured methodId',
       );
     });
 
     it('wraps SDK errors in ProofGenerationError', async () => {
-      vi.mocked(mockGenerateProof).mockRejectedValueOnce(new Error('snarkjs boom'));
+      vi.mocked(mockGenerateProof).mockRejectedValueOnce(new Error('proof backend boom'));
       const engine = new ProofEngine();
 
       await expect(engine.generate(makeInputs())).rejects.toThrow(ProofGenerationError);
     });
 
     it('ProofGenerationError message includes SDK error details', async () => {
-      vi.mocked(mockGenerateProof).mockRejectedValueOnce(new Error('snarkjs boom'));
+      vi.mocked(mockGenerateProof).mockRejectedValueOnce(new Error('proof backend boom'));
       const engine = new ProofEngine();
 
-      await expect(engine.generate(makeInputs())).rejects.toThrow('snarkjs boom');
+      await expect(engine.generate(makeInputs())).rejects.toThrow('proof backend boom');
     });
 
     it('wraps non-Error SDK throws in ProofGenerationError', async () => {
@@ -200,8 +221,8 @@ describe('ProofEngine', () => {
       const cached = await engine.generate(inputs);
 
       expect(cached.fromCache).toBe(true);
-      expect(cached.proof).toBeInstanceOf(Uint8Array);
-      expect(cached.proof.length).toBe(256);
+      expect(cached.sealBytes).toBeInstanceOf(Uint8Array);
+      expect(cached.sealBytes.length).toBe(260);
     });
 
     it('respects cache TTL expiry', async () => {
@@ -349,10 +370,11 @@ describe('ProofEngine', () => {
         inputs.agentPubkey,
         inputs.output,
         inputs.salt,
+        undefined,
       );
       expect(result.constraintHash).toBe(123n);
       expect(result.outputCommitment).toBe(456n);
-      expect(result.expectedBinding).toBe(789n);
+      expect(result.bindingDigest).toBe(789n);
       expect(result.nullifier).toBe(101112n);
     });
   });
@@ -375,12 +397,28 @@ describe('ProofEngine', () => {
   // ==========================================================================
 
   describe('checkTools', () => {
-    it('delegates to SDK checkToolsAvailable', () => {
+    it('reports local RISC0 backend status', () => {
       const engine = new ProofEngine();
       const status = engine.checkTools();
-      expect(mockCheckToolsAvailable).toHaveBeenCalledOnce();
-      expect(status.snarkjs).toBe(true);
-      expect(status.snarkjsVersion).toBe('0.7.0');
+      expect(status.risc0).toBe(true);
+      expect(status.proverBackend).toBe('deterministic-local');
+      expect(status.methodIdPinned).toBe(false);
+      expect(status.routerPinned).toBe(false);
+    });
+
+    it('marks methodId and router as pinned when configured', () => {
+      const engine = new ProofEngine({
+        methodId: new Uint8Array(32).fill(7),
+        routerConfig: {
+          routerProgramId: Keypair.generate().publicKey,
+          routerPda: Keypair.generate().publicKey,
+          verifierEntryPda: Keypair.generate().publicKey,
+          verifierProgramId: Keypair.generate().publicKey,
+        },
+      });
+      const status = engine.checkTools();
+      expect(status.methodIdPinned).toBe(true);
+      expect(status.routerPinned).toBe(true);
     });
   });
 
@@ -446,20 +484,20 @@ describe('ProofEngine', () => {
       expect(result).toBe(proofHash);
     });
 
-    it('generatePrivateProof returns proof bytes', async () => {
+    it('generatePrivateProof returns seal bytes', async () => {
       const engine = new ProofEngine();
-      const proof = new Uint8Array(256).fill(0xbb);
+      const sealBytes = new Uint8Array(260).fill(0xbb);
       const result = await engine.generatePrivateProof(
         {} as any,
         {
-          proof,
-          constraintHash: new Uint8Array(32),
-          outputCommitment: new Uint8Array(32),
-          expectedBinding: new Uint8Array(32),
-          nullifier: new Uint8Array(32),
+          sealBytes,
+          journal: new Uint8Array(192),
+          imageId: new Uint8Array(32),
+          bindingSeed: new Uint8Array(32),
+          nullifierSeed: new Uint8Array(32),
         },
       );
-      expect(result).toBe(proof);
+      expect(result).toBe(sealBytes);
     });
   });
 });
@@ -471,12 +509,12 @@ describe('ProofEngine', () => {
 describe('ProofCache', () => {
   function makeCacheResult(): EngineProofResult {
     return {
-      proof: new Uint8Array(256).fill(0x01),
-      constraintHash: new Uint8Array(32).fill(0x02),
-      outputCommitment: new Uint8Array(32).fill(0x03),
-      expectedBinding: new Uint8Array(32).fill(0x04),
-      nullifier: new Uint8Array(32).fill(0x05),
-      proofSize: 256,
+      sealBytes: new Uint8Array(260).fill(0x01),
+      journal: new Uint8Array(192).fill(0x02),
+      imageId: new Uint8Array(32).fill(0x03),
+      bindingSeed: new Uint8Array(32).fill(0x04),
+      nullifierSeed: new Uint8Array(32).fill(0x05),
+      proofSize: 260,
       generationTimeMs: 100,
       fromCache: false,
       verified: false,
@@ -497,7 +535,7 @@ describe('ProofCache', () => {
     const retrieved = cache.get(inputs);
 
     expect(retrieved).toBeDefined();
-    expect(retrieved!.proof).toEqual(result.proof);
+    expect(retrieved!.sealBytes).toEqual(result.sealBytes);
   });
 
   it('clears all entries', () => {

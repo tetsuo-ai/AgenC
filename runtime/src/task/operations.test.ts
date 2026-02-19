@@ -6,7 +6,21 @@ import { OnChainTaskStatus, type OnChainTask } from './types.js';
 import { TaskType } from '../events/types.js';
 import { TaskNotClaimableError, TaskSubmissionError, ValidationError, AnchorErrorCodes } from '../types/errors.js';
 import { silentLogger } from '../utils/logger.js';
-import { PROGRAM_ID } from '@agenc/sdk';
+import {
+  PROGRAM_ID,
+  HASH_SIZE,
+  RISC0_IMAGE_ID_LEN,
+  RISC0_JOURNAL_LEN,
+  RISC0_SEAL_BORSH_LEN,
+  TRUSTED_RISC0_SELECTOR,
+} from '@agenc/sdk';
+
+const TRUSTED_RISC0_ROUTER_PROGRAM_ID = new PublicKey(
+  '6JvFfBrvCcWgANKh1Eae9xDq4RC6cfJuBcf71rp2k9Y7',
+);
+const TRUSTED_RISC0_VERIFIER_PROGRAM_ID = new PublicKey(
+  'THq1qFYQoh7zgcjXoMXduDBqiZRCPeg3PvvMbrVQUge',
+);
 
 /**
  * Creates a 32-byte agent ID from a seed.
@@ -127,6 +141,7 @@ function createMockProgram() {
     accountsPartial: vi.fn().mockReturnThis(),
     rpc: completeTaskPrivateRpc,
   };
+  const completeTaskPrivateMethod = vi.fn().mockReturnValue(completeTaskPrivateBuilder);
 
   const program = {
     programId: PROGRAM_ID,
@@ -139,7 +154,7 @@ function createMockProgram() {
     methods: {
       claimTask: vi.fn().mockReturnValue(claimTaskBuilder),
       completeTask: vi.fn().mockReturnValue(completeTaskBuilder),
-      completeTaskPrivate: vi.fn().mockReturnValue(completeTaskPrivateBuilder),
+      completeTaskPrivate: completeTaskPrivateMethod,
     },
   };
 
@@ -154,6 +169,7 @@ function createMockProgram() {
       claimTaskRpc,
       completeTaskRpc,
       completeTaskPrivateRpc,
+      completeTaskPrivateMethod,
       claimTaskBuilder,
       completeTaskBuilder,
       completeTaskPrivateBuilder,
@@ -555,25 +571,45 @@ describe('TaskOperations', () => {
     it('calls completeTaskPrivate with correct arguments', async () => {
       const taskPda = Keypair.generate().publicKey;
       const task = createParsedTask();
-      const proofData = new Uint8Array(256).fill(0x01);
-      const constraintHash = new Uint8Array(32).fill(0x02);
-      const outputCommitment = new Uint8Array(32).fill(0x03);
-      const expectedBinding = new Uint8Array(32).fill(0x04);
-      const nullifier = new Uint8Array(32).fill(0x05);
+      const sealBytes = new Uint8Array(RISC0_SEAL_BORSH_LEN).fill(0x01);
+      sealBytes.set(TRUSTED_RISC0_SELECTOR, 0);
+      const journal = new Uint8Array(RISC0_JOURNAL_LEN).fill(0x02);
+      const imageId = new Uint8Array(RISC0_IMAGE_ID_LEN).fill(0x03);
+      const bindingSeed = new Uint8Array(HASH_SIZE).fill(0x04);
+      const nullifierSeed = new Uint8Array(HASH_SIZE).fill(0x05);
 
       const result = await ops.completeTaskPrivate(
         taskPda,
         task,
-        proofData,
-        constraintHash,
-        outputCommitment,
-        expectedBinding,
-        nullifier,
+        sealBytes,
+        journal,
+        imageId,
+        bindingSeed,
+        nullifierSeed,
       );
 
       expect(result.success).toBe(true);
       expect(result.isPrivate).toBe(true);
       expect(result.transactionSignature).toBe('private-sig');
+
+      expect(mocks.completeTaskPrivateMethod).toHaveBeenCalledTimes(1);
+      const proofArg = mocks.completeTaskPrivateMethod.mock.calls[0][1] as Record<string, unknown>;
+      expect(Object.keys(proofArg).sort()).toEqual([
+        'bindingSeed',
+        'imageId',
+        'journal',
+        'nullifierSeed',
+        'sealBytes',
+      ]);
+
+      const accounts = mocks.completeTaskPrivateBuilder.accountsPartial.mock.calls[0][0] as Record<string, unknown>;
+      expect(accounts.bindingSpend).toBeInstanceOf(PublicKey);
+      expect(accounts.nullifierSpend).toBeInstanceOf(PublicKey);
+      expect((accounts.routerProgram as PublicKey).equals(TRUSTED_RISC0_ROUTER_PROGRAM_ID)).toBe(true);
+      expect((accounts.verifierProgram as PublicKey).equals(TRUSTED_RISC0_VERIFIER_PROGRAM_ID)).toBe(true);
+      expect(accounts.router).toBeInstanceOf(PublicKey);
+      expect(accounts.verifierEntry).toBeInstanceOf(PublicKey);
+      expect((accounts.creator as PublicKey).equals(task.creator)).toBe(true);
     });
 
     it('throws TaskSubmissionError on failure', async () => {
@@ -586,11 +622,15 @@ describe('TaskOperations', () => {
         ops.completeTaskPrivate(
           taskPda,
           task,
-          new Uint8Array(256).fill(0x01),
-          new Uint8Array(32).fill(0x02),
-          new Uint8Array(32).fill(0x03),
-          new Uint8Array(32).fill(0x04),
-          new Uint8Array(32).fill(0x05),
+          (() => {
+            const sealBytes = new Uint8Array(RISC0_SEAL_BORSH_LEN).fill(0x01);
+            sealBytes.set(TRUSTED_RISC0_SELECTOR, 0);
+            return sealBytes;
+          })(),
+          new Uint8Array(RISC0_JOURNAL_LEN).fill(0x02),
+          new Uint8Array(RISC0_IMAGE_ID_LEN).fill(0x03),
+          new Uint8Array(HASH_SIZE).fill(0x04),
+          new Uint8Array(HASH_SIZE).fill(0x05),
         ),
       ).rejects.toThrow(TaskSubmissionError);
     });
@@ -671,56 +711,82 @@ describe('TaskOperations', () => {
       ).rejects.toThrow('expected 64 bytes');
     });
 
-    it('completeTaskPrivate rejects proof shorter than 256 bytes', async () => {
+    it('completeTaskPrivate rejects sealBytes shorter than expected', async () => {
       await expect(
         ops.completeTaskPrivate(
           taskPda, mockTask,
-          new Uint8Array(128),
-          new Uint8Array(32).fill(1),
-          new Uint8Array(32).fill(1),
-          new Uint8Array(32).fill(1),
-          new Uint8Array(32).fill(1),
+          new Uint8Array(RISC0_SEAL_BORSH_LEN - 1),
+          new Uint8Array(RISC0_JOURNAL_LEN).fill(1),
+          new Uint8Array(RISC0_IMAGE_ID_LEN).fill(1),
+          new Uint8Array(HASH_SIZE).fill(1),
+          new Uint8Array(HASH_SIZE).fill(1),
         )
-      ).rejects.toThrow('expected 256 bytes');
+      ).rejects.toThrow(`expected ${RISC0_SEAL_BORSH_LEN} bytes`);
     });
 
-    it('completeTaskPrivate rejects all-zero outputCommitment', async () => {
+    it('completeTaskPrivate rejects all-zero imageId', async () => {
       await expect(
         ops.completeTaskPrivate(
           taskPda, mockTask,
-          new Uint8Array(256).fill(1),
-          new Uint8Array(32).fill(1),
-          new Uint8Array(32),
-          new Uint8Array(32).fill(1),
-          new Uint8Array(32).fill(1),
+          (() => {
+            const sealBytes = new Uint8Array(RISC0_SEAL_BORSH_LEN).fill(1);
+            sealBytes.set(TRUSTED_RISC0_SELECTOR, 0);
+            return sealBytes;
+          })(),
+          new Uint8Array(RISC0_JOURNAL_LEN).fill(1),
+          new Uint8Array(RISC0_IMAGE_ID_LEN),
+          new Uint8Array(HASH_SIZE).fill(1),
+          new Uint8Array(HASH_SIZE).fill(1),
         )
       ).rejects.toThrow('cannot be all zeros');
     });
 
-    it('completeTaskPrivate rejects all-zero expectedBinding', async () => {
+    it('completeTaskPrivate rejects all-zero bindingSeed', async () => {
       await expect(
         ops.completeTaskPrivate(
           taskPda, mockTask,
-          new Uint8Array(256).fill(1),
-          new Uint8Array(32).fill(1),
-          new Uint8Array(32).fill(1),
-          new Uint8Array(32),
-          new Uint8Array(32).fill(1),
+          (() => {
+            const sealBytes = new Uint8Array(RISC0_SEAL_BORSH_LEN).fill(1);
+            sealBytes.set(TRUSTED_RISC0_SELECTOR, 0);
+            return sealBytes;
+          })(),
+          new Uint8Array(RISC0_JOURNAL_LEN).fill(1),
+          new Uint8Array(RISC0_IMAGE_ID_LEN).fill(1),
+          new Uint8Array(HASH_SIZE),
+          new Uint8Array(HASH_SIZE).fill(1),
         )
       ).rejects.toThrow('cannot be all zeros');
     });
 
-    it('completeTaskPrivate rejects all-zero nullifier', async () => {
+    it('completeTaskPrivate rejects all-zero nullifierSeed', async () => {
       await expect(
         ops.completeTaskPrivate(
           taskPda, mockTask,
-          new Uint8Array(256).fill(1),
-          new Uint8Array(32).fill(1),
-          new Uint8Array(32).fill(1),
-          new Uint8Array(32).fill(1),
-          new Uint8Array(32),
+          (() => {
+            const sealBytes = new Uint8Array(RISC0_SEAL_BORSH_LEN).fill(1);
+            sealBytes.set(TRUSTED_RISC0_SELECTOR, 0);
+            return sealBytes;
+          })(),
+          new Uint8Array(RISC0_JOURNAL_LEN).fill(1),
+          new Uint8Array(RISC0_IMAGE_ID_LEN).fill(1),
+          new Uint8Array(HASH_SIZE).fill(1),
+          new Uint8Array(HASH_SIZE),
         )
       ).rejects.toThrow('cannot be all zeros');
+    });
+
+    it('completeTaskPrivate rejects untrusted seal selector', async () => {
+      await expect(
+        ops.completeTaskPrivate(
+          taskPda,
+          mockTask,
+          new Uint8Array(RISC0_SEAL_BORSH_LEN).fill(1),
+          new Uint8Array(RISC0_JOURNAL_LEN).fill(1),
+          new Uint8Array(RISC0_IMAGE_ID_LEN).fill(1),
+          new Uint8Array(HASH_SIZE).fill(1),
+          new Uint8Array(HASH_SIZE).fill(1),
+        ),
+      ).rejects.toThrow('trusted selector');
     });
   });
 });

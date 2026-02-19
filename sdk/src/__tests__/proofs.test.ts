@@ -12,7 +12,7 @@ import { describe, it, expect } from 'vitest';
 import { PublicKey, Keypair } from '@solana/web3.js';
 import {
   pubkeyToField,
-  computeExpectedBinding,
+  computeBindingDigest,
   computeConstraintHash,
   computeCommitmentFromOutput,
   computeHashes,
@@ -112,13 +112,13 @@ describe('proofs', () => {
     });
   });
 
-  describe('computeExpectedBinding', () => {
+  describe('computeBindingDigest', () => {
     it('computes binding from task, agent, and commitment', () => {
       const taskPda = Keypair.generate().publicKey;
       const agentPubkey = Keypair.generate().publicKey;
       const outputCommitment = 12345n;
 
-      const binding = computeExpectedBinding(taskPda, agentPubkey, outputCommitment);
+      const binding = computeBindingDigest(taskPda, agentPubkey, outputCommitment);
 
       expect(typeof binding).toBe('bigint');
       expect(binding).toBeGreaterThanOrEqual(0n);
@@ -130,8 +130,8 @@ describe('proofs', () => {
       const agentPubkey = Keypair.generate().publicKey;
       const outputCommitment = 12345n;
 
-      const binding1 = computeExpectedBinding(taskPda, agentPubkey, outputCommitment);
-      const binding2 = computeExpectedBinding(taskPda, agentPubkey, outputCommitment);
+      const binding1 = computeBindingDigest(taskPda, agentPubkey, outputCommitment);
+      const binding2 = computeBindingDigest(taskPda, agentPubkey, outputCommitment);
 
       expect(binding1).toBe(binding2);
     });
@@ -142,8 +142,8 @@ describe('proofs', () => {
       const agentPubkey = Keypair.generate().publicKey;
       const outputCommitment = 12345n;
 
-      const binding1 = computeExpectedBinding(task1, agentPubkey, outputCommitment);
-      const binding2 = computeExpectedBinding(task2, agentPubkey, outputCommitment);
+      const binding1 = computeBindingDigest(task1, agentPubkey, outputCommitment);
+      const binding2 = computeBindingDigest(task2, agentPubkey, outputCommitment);
 
       expect(binding1).not.toBe(binding2);
     });
@@ -154,8 +154,8 @@ describe('proofs', () => {
       const agent2 = Keypair.generate().publicKey;
       const outputCommitment = 12345n;
 
-      const binding1 = computeExpectedBinding(taskPda, agent1, outputCommitment);
-      const binding2 = computeExpectedBinding(taskPda, agent2, outputCommitment);
+      const binding1 = computeBindingDigest(taskPda, agent1, outputCommitment);
+      const binding2 = computeBindingDigest(taskPda, agent2, outputCommitment);
 
       expect(binding1).not.toBe(binding2);
     });
@@ -164,8 +164,8 @@ describe('proofs', () => {
       const taskPda = Keypair.generate().publicKey;
       const agentPubkey = Keypair.generate().publicKey;
 
-      const binding1 = computeExpectedBinding(taskPda, agentPubkey, 1n);
-      const binding2 = computeExpectedBinding(taskPda, agentPubkey, 2n);
+      const binding1 = computeBindingDigest(taskPda, agentPubkey, 1n);
+      const binding2 = computeBindingDigest(taskPda, agentPubkey, 2n);
 
       expect(binding1).not.toBe(binding2);
     });
@@ -220,10 +220,10 @@ describe('proofs', () => {
       expect(result.constraintHash).toBeLessThan(FIELD_MODULUS);
       expect(result.outputCommitment).toBeGreaterThanOrEqual(0n);
       expect(result.outputCommitment).toBeLessThan(FIELD_MODULUS);
-      expect(result.expectedBinding).toBeGreaterThanOrEqual(0n);
-      expect(result.expectedBinding).toBeLessThan(FIELD_MODULUS);
+      expect(result.bindingDigest).toBeGreaterThanOrEqual(0n);
+      expect(result.bindingDigest).toBeLessThan(FIELD_MODULUS);
       expect(result.nullifier).toBeGreaterThanOrEqual(0n);
-      expect(result.nullifier).toBeLessThan(FIELD_MODULUS);
+      expect(result.nullifier.toString(16).length).toBeLessThanOrEqual(64);
     });
 
     it('produces consistent results with individual functions', () => {
@@ -238,13 +238,61 @@ describe('proofs', () => {
       const constraintHash = computeConstraintHash(output);
       // computeHashes uses computeCommitmentFromOutput (poseidon5), not the legacy computeCommitment
       const outputCommitment = computeCommitmentFromOutput(output, salt);
-      const expectedBinding = computeExpectedBinding(taskPda, agentPubkey, outputCommitment);
+      const bindingDigest = computeBindingDigest(taskPda, agentPubkey, outputCommitment);
 
       expect(result.constraintHash).toBe(constraintHash);
       expect(result.outputCommitment).toBe(outputCommitment);
-      expect(result.expectedBinding).toBe(expectedBinding);
+      expect(result.bindingDigest).toBe(bindingDigest);
       // computeHashes falls back to pubkeyToField when no agentSecret provided
-      expect(result.nullifier).toBe(computeNullifierFromAgentSecret(constraintHash, pubkeyToField(agentPubkey)));
+      expect(result.nullifier).toBe(
+        computeNullifierFromAgentSecret(
+          constraintHash,
+          outputCommitment,
+          pubkeyToField(agentPubkey),
+        )
+      );
+    });
+  });
+
+  describe('computeNullifierFromAgentSecret', () => {
+    it('produces different nullifier when output_commitment changes', () => {
+      const constraintHash = 123n;
+      const agentSecret = 456n;
+      const outputCommitmentA = 10n;
+      const outputCommitmentB = 11n;
+
+      const nullifierA = computeNullifierFromAgentSecret(
+        constraintHash,
+        outputCommitmentA,
+        agentSecret,
+      );
+      const nullifierB = computeNullifierFromAgentSecret(
+        constraintHash,
+        outputCommitmentB,
+        agentSecret,
+      );
+
+      expect(nullifierA).not.toBe(nullifierB);
+    });
+
+    it('produces identical nullifier for identical inputs', () => {
+      const constraintHash = 999n;
+      const outputCommitment = 123456n;
+      const agentSecret = 789n;
+
+      const first = computeNullifierFromAgentSecret(
+        constraintHash,
+        outputCommitment,
+        agentSecret,
+      );
+      const second = computeNullifierFromAgentSecret(
+        constraintHash,
+        outputCommitment,
+        agentSecret,
+      );
+
+      expect(first).toBe(second);
+      expect(first.toString(16).length).toBeLessThanOrEqual(64);
     });
   });
 
@@ -263,21 +311,21 @@ describe('proofs', () => {
       const outputCommitment = computeCommitmentFromOutput(output, salt);
 
       // Step 3: Compute expected binding
-      const expectedBinding = computeExpectedBinding(taskPda, agentPubkey, outputCommitment);
+      const bindingDigest = computeBindingDigest(taskPda, agentPubkey, outputCommitment);
 
       // All values should be valid field elements
       expect(constraintHash).toBeLessThan(FIELD_MODULUS);
       expect(outputCommitment).toBeLessThan(FIELD_MODULUS);
-      expect(expectedBinding).toBeLessThan(FIELD_MODULUS);
+      expect(bindingDigest).toBeLessThan(FIELD_MODULUS);
 
       // Re-running should produce same results (deterministic)
       const constraintHash2 = computeConstraintHash(output);
       const outputCommitment2 = computeCommitmentFromOutput(output, salt);
-      const expectedBinding2 = computeExpectedBinding(taskPda, agentPubkey, outputCommitment2);
+      const bindingDigest2 = computeBindingDigest(taskPda, agentPubkey, outputCommitment2);
 
       expect(constraintHash2).toBe(constraintHash);
       expect(outputCommitment2).toBe(outputCommitment);
-      expect(expectedBinding2).toBe(expectedBinding);
+      expect(bindingDigest2).toBe(bindingDigest);
     });
 
     it('matches circuit computation for known values', () => {
@@ -300,12 +348,12 @@ describe('proofs', () => {
       // Compute values
       const constraintHash = computeConstraintHash(output);
       const outputCommitment = computeCommitmentFromOutput(output, salt);
-      const expectedBinding = computeExpectedBinding(taskPda, agentPubkey, outputCommitment);
+      const bindingDigest = computeBindingDigest(taskPda, agentPubkey, outputCommitment);
 
       // These should be non-zero and valid
       expect(constraintHash).toBeGreaterThan(0n);
       expect(outputCommitment).toBeGreaterThan(0n);
-      expect(expectedBinding).toBeGreaterThan(0n);
+      expect(bindingDigest).toBeGreaterThan(0n);
     });
   });
 
@@ -384,16 +432,16 @@ describe('proofs', () => {
       const agentPubkey = Keypair.generate().publicKey;
       const commitment = 12345n;
 
-      const originalBinding = computeExpectedBinding(taskPda, agentPubkey, commitment);
+      const originalBinding = computeBindingDigest(taskPda, agentPubkey, commitment);
 
       // Changing any input should change the binding
       const altTask = Keypair.generate().publicKey;
       const altAgent = Keypair.generate().publicKey;
       const altCommitment = 67890n;
 
-      expect(computeExpectedBinding(altTask, agentPubkey, commitment)).not.toBe(originalBinding);
-      expect(computeExpectedBinding(taskPda, altAgent, commitment)).not.toBe(originalBinding);
-      expect(computeExpectedBinding(taskPda, agentPubkey, altCommitment)).not.toBe(originalBinding);
+      expect(computeBindingDigest(altTask, agentPubkey, commitment)).not.toBe(originalBinding);
+      expect(computeBindingDigest(taskPda, altAgent, commitment)).not.toBe(originalBinding);
+      expect(computeBindingDigest(taskPda, agentPubkey, altCommitment)).not.toBe(originalBinding);
     });
 
     it('handles negative bigint values via modular reduction', () => {
@@ -431,7 +479,7 @@ describe('proofs', () => {
       const agentPubkey = Keypair.generate().publicKey;
       const negativeCommitment = -12345n;
 
-      const binding = computeExpectedBinding(taskPda, agentPubkey, negativeCommitment);
+      const binding = computeBindingDigest(taskPda, agentPubkey, negativeCommitment);
 
       // Should still produce valid field element
       expect(binding).toBeGreaterThanOrEqual(0n);

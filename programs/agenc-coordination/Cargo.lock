@@ -183,7 +183,7 @@ dependencies = [
  "solana-account-info 3.1.0",
  "solana-big-mod-exp 3.0.0",
  "solana-blake3-hasher 3.1.0",
- "solana-bn254 3.2.1",
+ "solana-bn254",
  "solana-clock 3.0.0",
  "solana-cpi 3.1.0",
  "solana-curve25519 3.1.8",
@@ -250,10 +250,10 @@ dependencies = [
  "anchor-lang",
  "anchor-spl",
  "getrandom 0.2.12",
- "groth16-solana",
  "indexmap",
  "solana-program-test",
  "solana-sdk",
+ "solana-sha256-hasher 2.3.0",
  "tokio",
 ]
 
@@ -2393,21 +2393,6 @@ dependencies = [
  "rand 0.8.5",
  "smallvec",
  "spinning_top",
-]
-
-[[package]]
-name = "groth16-solana"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3a6d1ffb18dbf5cfc60b11bd7da88474c672870247c1e5b498619bcb6ba3d8f5"
-dependencies = [
- "ark-bn254 0.5.0",
- "ark-ec 0.5.0",
- "ark-ff 0.5.0",
- "ark-serialize 0.5.0",
- "num-bigint 0.4.6",
- "solana-bn254 2.2.2",
- "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -5126,21 +5111,6 @@ dependencies = [
  "solana-signature 3.3.0",
  "solana-signer 3.0.0",
  "subtle",
- "thiserror 2.0.18",
-]
-
-[[package]]
-name = "solana-bn254"
-version = "2.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4420f125118732833f36facf96a27e7b78314b2d642ba07fa9ffdacd8d79e243"
-dependencies = [
- "ark-bn254 0.4.0",
- "ark-ec 0.4.2",
- "ark-ff 0.4.2",
- "ark-serialize 0.4.2",
- "bytemuck",
- "solana-define-syscall 2.3.0",
  "thiserror 2.0.18",
 ]
 

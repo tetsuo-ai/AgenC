@@ -22,6 +22,21 @@ describe('PrivacyClient input validation (#963)', () => {
     expect(() => new PrivacyClient()).not.toThrow();
   });
 
+  it('rejects invalid prover endpoint URL', () => {
+    expect(() => new PrivacyClient({ proverEndpoint: 'not-a-url' }))
+      .toThrow('Invalid prover endpoint');
+  });
+
+  it('rejects non-http prover endpoint URL', () => {
+    expect(() => new PrivacyClient({ proverEndpoint: 'ws://localhost:8080' }))
+      .toThrow('http or https');
+  });
+
+  it('accepts valid HTTPS prover endpoint URL', () => {
+    expect(() => new PrivacyClient({ proverEndpoint: 'https://prover.example.com' }))
+      .not.toThrow();
+  });
+
   describe('completeTaskPrivate validation', () => {
     it('rejects when not initialized', async () => {
       const client = new PrivacyClient({ rpcUrl: 'http://localhost:8899' });

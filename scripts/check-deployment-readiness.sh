@@ -38,59 +38,35 @@ echo "=== AgenC Deployment Readiness Check ==="
 echo "Network: $NETWORK"
 echo ""
 
-# 1. Verifying key security (issues #356, #358)
-echo "--- Verifying Key Security ---"
+# 1. Router verifier policy checks
+echo "--- Router Verifier Policy ---"
 
-VK_FILE="programs/agenc-coordination/src/verifying_key.rs"
-if [ ! -f "$VK_FILE" ]; then
-    fail "Verifying key file not found"
+ROUTER_FILE="programs/agenc-coordination/src/instructions/complete_task_private.rs"
+if [ ! -f "$ROUTER_FILE" ]; then
+    fail "Private completion handler not found"
 else
-    # Check for is_development_key function
-    if grep -q "is_development_key" "$VK_FILE"; then
-        pass "Development key detection function present"
+    if grep -q "TRUSTED_RISC0_SELECTOR" "$ROUTER_FILE"; then
+        pass "Trusted selector pinning present"
     else
-        warn "is_development_key() function not found in verifying key"
+        fail "Missing trusted selector pinning"
     fi
 
-    # Check gamma != delta
-    GAMMA_LINE=$(grep -n "VK_GAMMA_G2" "$VK_FILE" | head -1 | cut -d: -f1)
-    DELTA_LINE=$(grep -n "VK_DELTA_G2" "$VK_FILE" | head -1 | cut -d: -f1)
-
-    if [ -n "$GAMMA_LINE" ] && [ -n "$DELTA_LINE" ]; then
-        GAMMA_FIRST=$(sed -n "$((GAMMA_LINE+1))p" "$VK_FILE" | tr -d ' ')
-        DELTA_FIRST=$(sed -n "$((DELTA_LINE+1))p" "$VK_FILE" | tr -d ' ')
-
-        if [ "$GAMMA_FIRST" = "$DELTA_FIRST" ]; then
-            if [ "$NETWORK" = "mainnet" ]; then
-                fail "VK_GAMMA_G2 == VK_DELTA_G2: Single-party setup detected (CRITICAL for mainnet)"
-            else
-                warn "VK_GAMMA_G2 == VK_DELTA_G2: Development key (acceptable for $NETWORK)"
-            fi
-        else
-            pass "VK_GAMMA_G2 != VK_DELTA_G2: MPC ceremony key detected"
-        fi
-    fi
-
-    # Check VK_VERSION (fix #962)
-    VK_VERSION=$(sed -n 's/.*pub const VK_VERSION.*= \([0-9][0-9]*\).*/\1/p' "$VK_FILE" | head -1 || echo "")
-    if [ -n "$VK_VERSION" ]; then
-        if [ "$VK_VERSION" = "0" ]; then
-            if [ "$NETWORK" = "mainnet" ]; then
-                fail "VK_VERSION is 0 (development key)"
-            else
-                warn "VK_VERSION is 0 (development key, acceptable for $NETWORK)"
-            fi
-        else
-            pass "VK_VERSION is $VK_VERSION"
-        fi
-    fi
-
-    # Check allow-dev-key not in default features (fix #962)
-    CARGO_FILE="programs/agenc-coordination/Cargo.toml"
-    if grep -q 'default.*allow-dev-key' "$CARGO_FILE" 2>/dev/null; then
-        fail "'allow-dev-key' is in default Cargo features"
+    if grep -q "TRUSTED_RISC0_IMAGE_ID" "$ROUTER_FILE"; then
+        pass "Trusted image ID pinning present"
     else
-        pass "'allow-dev-key' not in default features"
+        fail "Missing trusted image ID pinning"
+    fi
+
+    if grep -q "TRUSTED_RISC0_ROUTER_PROGRAM_ID" "$ROUTER_FILE" && grep -q "TRUSTED_RISC0_VERIFIER_PROGRAM_ID" "$ROUTER_FILE"; then
+        pass "Trusted router and verifier program pinning present"
+    else
+        fail "Missing trusted router/verifier program pinning"
+    fi
+
+    if grep -q "binding_spend" "$ROUTER_FILE" && grep -q "nullifier_spend" "$ROUTER_FILE"; then
+        pass "Dual spend replay checks present"
+    else
+        fail "Missing dual spend replay checks"
     fi
 fi
 echo ""
@@ -141,14 +117,14 @@ else
 fi
 echo ""
 
-# 5. Ceremony transcript (mainnet only)
-echo "--- MPC Ceremony (mainnet requirement) ---"
-CEREMONY_DIR="circuits-circom/task_completion/ceremony"
+# 5. Proof policy evidence archive (mainnet only)
+echo "--- Proof Policy Evidence (mainnet requirement) ---"
+POLICY_DIR="artifacts/risc0/router-policy"
 if [ "$NETWORK" = "mainnet" ]; then
-    if [ -f "$CEREMONY_DIR/transcript.json" ]; then
-        pass "Ceremony transcript found"
+    if [ -f "$POLICY_DIR/transcript.json" ]; then
+        pass "Proof policy transcript found"
         node -e "
-            const t = JSON.parse(require('fs').readFileSync('$CEREMONY_DIR/transcript.json', 'utf8'));
+            const t = JSON.parse(require('fs').readFileSync('$POLICY_DIR/transcript.json', 'utf8'));
             if (t.contributions.length >= 3) {
                 console.log('  PASS: ' + t.contributions.length + ' contributions (>= 3 required)');
             } else {
@@ -161,12 +137,12 @@ if [ "$NETWORK" = "mainnet" ]; then
                 console.log('  FAIL: Random beacon not applied');
                 process.exit(1);
             }
-        " 2>/dev/null || fail "Ceremony transcript validation failed"
+        " 2>/dev/null || fail "Proof policy transcript validation failed"
     else
-        fail "No ceremony transcript found (required for mainnet)"
+        fail "No proof policy transcript found (required for mainnet)"
     fi
 else
-    warn "MPC ceremony check skipped for $NETWORK"
+    warn "Proof policy transcript check skipped for $NETWORK"
 fi
 echo ""
 

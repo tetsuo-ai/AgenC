@@ -881,13 +881,17 @@ describe('TaskExecutor', () => {
       const mockOps = createMockOperations();
       const mockDiscovery = createMockDiscovery();
 
-      const handler = async (): Promise<PrivateTaskExecutionResult> => ({
-        proof: new Uint8Array(388),
-        constraintHash: new Uint8Array(32).fill(1),
-        outputCommitment: new Uint8Array(32).fill(2),
-        expectedBinding: new Uint8Array(32).fill(3),
-        nullifier: new Uint8Array(32).fill(4),
-      });
+      const handler = async (): Promise<PrivateTaskExecutionResult> => {
+        const sealBytes = new Uint8Array(260).fill(1);
+        sealBytes.set([0x52, 0x5a, 0x56, 0x4d], 0);
+        return {
+          sealBytes,
+          journal: new Uint8Array(192).fill(2),
+          imageId: new Uint8Array(32).fill(3),
+          bindingSeed: new Uint8Array(32).fill(4),
+          nullifierSeed: new Uint8Array(32).fill(5),
+        };
+      };
 
       const config = createExecutorConfig({
         mode: 'autonomous',
@@ -944,11 +948,11 @@ describe('TaskExecutor', () => {
       };
 
       const privateResult: PrivateTaskExecutionResult = {
-        proof: new Uint8Array(388),
-        constraintHash: new Uint8Array(32),
-        outputCommitment: new Uint8Array(32),
-        expectedBinding: new Uint8Array(32),
-        nullifier: new Uint8Array(32),
+        sealBytes: new Uint8Array(260),
+        journal: new Uint8Array(192),
+        imageId: new Uint8Array(32),
+        bindingSeed: new Uint8Array(32),
+        nullifierSeed: new Uint8Array(32),
       };
 
       expect(isPrivateExecutionResult(publicResult)).toBe(false);

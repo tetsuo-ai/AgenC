@@ -1,10 +1,10 @@
-import * as fs from 'node:fs';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { Connection, Keypair, PublicKey } from '@solana/web3.js';
 import {
   createTask,
   claimTask,
   completeTask,
+  completeTaskPrivate,
   getTask,
   generateProof,
   deriveTokenEscrowAddress,
@@ -12,23 +12,6 @@ import {
 import { getAssociatedTokenAddressSync } from '@solana/spl-token';
 import { TaskState, PROGRAM_ID } from '../constants.js';
 import { getAccount } from '../anchor-utils.js';
-
-vi.mock('node:fs', () => ({
-  existsSync: vi.fn(),
-}));
-
-const mockFullProve = vi.fn();
-
-vi.mock('snarkjs', () => ({
-  default: {
-    groth16: {
-      fullProve: mockFullProve,
-    },
-  },
-  groth16: {
-    fullProve: mockFullProve,
-  },
-}));
 
 vi.mock('../anchor-utils.js', () => ({
   getAccount: vi.fn(),
@@ -73,7 +56,6 @@ const createPublicKeySeeded = (seed: number): PublicKey => {
 describe('SDK contract tests', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(fs.existsSync).mockReturnValue(true);
   });
 
   it('returns stable contract for createTask', async () => {
@@ -157,6 +139,76 @@ describe('SDK contract tests', () => {
     expect(result.txSignature).toMatch(/\S+/);
   });
 
+  it('returns stable contract for completeTaskPrivate with router accounts', async () => {
+    const connection = { confirmTransaction: vi.fn() } as unknown as Connection;
+    const program = makeProgram(['completeTaskPrivate'], 'tx-complete-task-private') as never;
+    const worker = makeKeypair(13);
+    const taskPda = createPublicKeySeeded(14);
+    const workerId = new Uint8Array(32);
+    workerId.fill(13);
+
+    const taskId = new Uint8Array(32);
+    taskId.fill(42);
+    mockGetAccount({
+      creator: createPublicKeySeeded(15),
+      taskId,
+      rewardMint: null,
+    } as never);
+    mockGetAccount({
+      treasury: createPublicKeySeeded(16),
+    } as never);
+
+    const generated = await generateProof({
+      taskPda,
+      agentPubkey: worker.publicKey,
+      output: [1n, 2n, 3n, 4n],
+      salt: 17n,
+    });
+
+    const result = await completeTaskPrivate(
+      connection,
+      program as never,
+      worker,
+      workerId,
+      taskPda,
+      {
+        sealBytes: generated.sealBytes,
+        journal: generated.journal,
+        imageId: generated.imageId,
+        bindingSeed: generated.bindingSeed,
+        nullifierSeed: generated.nullifierSeed,
+      },
+    );
+
+    expect(result).toEqual({ txSignature: 'tx-complete-task-private' });
+
+    const completeTaskPrivateMock = (program as any).methods.completeTaskPrivate as ReturnType<typeof vi.fn>;
+    expect(completeTaskPrivateMock).toHaveBeenCalledTimes(1);
+    const proofArg = completeTaskPrivateMock.mock.calls[0][1];
+    expect(proofArg).toMatchObject({
+      sealBytes: expect.any(Array),
+      journal: expect.any(Array),
+      imageId: expect.any(Array),
+      bindingSeed: expect.any(Array),
+      nullifierSeed: expect.any(Array),
+    });
+    expect(proofArg.sealBytes).toHaveLength(260);
+    expect(proofArg.journal).toHaveLength(192);
+    expect(proofArg.imageId).toHaveLength(32);
+    expect(proofArg.bindingSeed).toHaveLength(32);
+    expect(proofArg.nullifierSeed).toHaveLength(32);
+
+    const builder = completeTaskPrivateMock.mock.results[0].value;
+    expect(builder.accountsPartial).toHaveBeenCalledWith(expect.objectContaining({
+      bindingSpend: expect.any(PublicKey),
+      nullifierSpend: expect.any(PublicKey),
+      routerProgram: expect.any(PublicKey),
+      router: expect.any(PublicKey),
+      verifierEntry: expect.any(PublicKey),
+      verifierProgram: expect.any(PublicKey),
+    }));
+  });
+
   it('returns stable TaskStatus contract for getTask', async () => {
     const taskPda = createPublicKeySeeded(7);
     const creator = createPublicKeySeeded(8);
@@ -196,30 +248,26 @@ describe('SDK contract tests', () => {
   });
 
   it('returns stable ProofResult contract for generateProof', async () => {
-    mockFullProve.mockResolvedValue({
-      proof: {
-        pi_a: ['1', '2'],
-        pi_b: [['3', '4'], ['5', '6']],
-        pi_c: ['7', '8'],
-      },
-    } as never);
-
     const result = await generateProof({
       taskPda: createPublicKeySeeded(9),
       agentPubkey: createPublicKeySeeded(10),
       output: [1n, 2n, 3n, 4n],
       salt: 7n,
-      circuitPath: 'circuits-circom/task_completion',
     });
 
     expect(result).toMatchObject({
-      proof: expect.any(Buffer),
-      constraintHash: expect.any(Buffer),
-      outputCommitment: expect.any(Buffer),
-      expectedBinding: expect.any(Buffer),
-      proofSize: 256,
+      sealBytes: expect.any(Buffer),
+      journal: expect.any(Buffer),
+      imageId: expect.any(Buffer),
+      bindingSeed: expect.any(Buffer),
+      nullifierSeed: expect.any(Buffer),
       generationTime: expect.any(Number),
     });
+    expect(result.sealBytes.length).toBe(260);
+    expect(result.journal.length).toBe(192);
+    expect(result.imageId.length).toBe(32);
+    expect(result.bindingSeed.length).toBe(32);
+    expect(result.nullifierSeed.length).toBe(32);
     expect(result.generationTime).toBeGreaterThanOrEqual(0);
   });
 

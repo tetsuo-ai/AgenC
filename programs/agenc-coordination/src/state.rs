@@ -899,15 +899,40 @@ impl SpeculativeCommitment {
     pub const SIZE: usize = 8 + 32 + 32 + 32 + 1 + 8 + 8 + 8 + 1; // 130 bytes
 }
 
-/// Nullifier account to prevent proof/knowledge reuse across tasks.
-/// Once a nullifier is "spent" (account exists), the same proof/knowledge
-/// combination cannot be used again.
-/// PDA seeds: ["nullifier", nullifier_value]
+/// Binding spend account to prevent statement replay for the same
+/// task/authority/commitment context.
+/// PDA seeds: ["binding_spend", binding]
 #[account]
 #[derive(Default, InitSpace)]
-pub struct Nullifier {
-    /// The nullifier value (derived from constraint_hash + agent_secret in ZK circuit)
-    pub nullifier_value: [u8; 32],
+pub struct BindingSpend {
+    /// Binding value committed in the private journal.
+    pub binding: [u8; 32],
+    /// The task where this binding was first used
+    pub task: Pubkey,
+    /// The agent who spent this binding
+    pub agent: Pubkey,
+    /// Timestamp when binding was spent
+    pub spent_at: i64,
+    /// Bump seed for PDA
+    pub bump: u8,
+}
+
+impl BindingSpend {
+    pub const SIZE: usize = 8 +  // discriminator
+        32 + // binding
+        32 + // task
+        32 + // agent
+        8 +  // spent_at
+        1; // bump
+}
+
+/// Nullifier spend account to prevent global proof/knowledge replay.
+/// PDA seeds: ["nullifier_spend", nullifier]
+#[account]
+#[derive(Default, InitSpace)]
+pub struct NullifierSpend {
+    /// Nullifier value committed in the private journal.
+    pub nullifier: [u8; 32],
     /// The task where this nullifier was first used
     pub task: Pubkey,
     /// The agent who spent this nullifier
@@ -918,9 +943,9 @@ pub struct Nullifier {
     pub bump: u8,
 }
 
-impl Nullifier {
+impl NullifierSpend {
     pub const SIZE: usize = 8 +  // discriminator
-        32 + // nullifier_value
+        32 + // nullifier
         32 + // task
         32 + // agent
         8 +  // spent_at
@@ -1446,8 +1471,13 @@ mod tests {
     }
 
     #[test]
-    fn test_nullifier_size() {
-        test_size_constant!(Nullifier);
+    fn test_binding_spend_size() {
+        test_size_constant!(BindingSpend);
+    }
+
+    #[test]
+    fn test_nullifier_spend_size() {
+        test_size_constant!(NullifierSpend);
     }
 
     #[test]

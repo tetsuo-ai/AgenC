@@ -26,7 +26,17 @@ export interface TaskState {
   outputCommitment: string
   workerPubkey: string
   recipientPubkey: string
-  proofData: string
+  sealBytes: string
+  journal: string
+  imageId: string
+  bindingSeed: string
+  nullifierSeed: string
+  routerProgram: string
+  router: string
+  verifierEntry: string
+  verifierProgram: string
+  bindingSpend: string
+  nullifierSpend: string
   txSignatures: {
     createTask?: string
     shieldEscrow?: string
@@ -132,7 +142,17 @@ function App() {
     outputCommitment: '',
     workerPubkey: '',
     recipientPubkey: '',
-    proofData: '',
+    sealBytes: '',
+    journal: '',
+    imageId: '',
+    bindingSeed: '',
+    nullifierSeed: '',
+    routerProgram: '',
+    router: '',
+    verifierEntry: '',
+    verifierProgram: '',
+    bindingSpend: '',
+    nullifierSpend: '',
     txSignatures: {},
   })
 
@@ -186,7 +206,17 @@ function App() {
       outputCommitment: '',
       workerPubkey: '',
       recipientPubkey: '',
-      proofData: '',
+      sealBytes: '',
+      journal: '',
+      imageId: '',
+      bindingSeed: '',
+      nullifierSeed: '',
+      routerProgram: '',
+      router: '',
+      verifierEntry: '',
+      verifierProgram: '',
+      bindingSpend: '',
+      nullifierSpend: '',
       txSignatures: {},
     })
     // Re-initialize connection to ensure clean state

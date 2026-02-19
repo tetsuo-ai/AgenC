@@ -666,7 +666,7 @@ classDiagram
         +taskId: TaskId
         +agentId: AgentId
         +status: ProofStatus
-        +proofData: ProofData
+        +privatePayload: Risc0PrivatePayload
         +priority: Priority
         +submittedAt: Timestamp
         +deferredUntil: Option~Timestamp~
@@ -1395,7 +1395,7 @@ classDiagram
     
     class DeferredProof {
         +proofId: ProofId
-        +proofData: ProofData
+        +privatePayload: Risc0PrivatePayload
         +status: ProofStatus
     }
     

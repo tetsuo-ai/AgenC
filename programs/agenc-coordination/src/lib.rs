@@ -20,7 +20,6 @@ pub mod events;
 pub mod instructions;
 pub mod state;
 pub mod utils;
-pub mod verifying_key;
 
 use instructions::*;
 
@@ -203,7 +202,7 @@ pub mod agenc_coordination {
     pub fn complete_task_private(
         ctx: Context<CompleteTaskPrivate>,
         task_id: u64,
-        proof: PrivateCompletionProof,
+        proof: PrivateCompletionPayload,
     ) -> Result<()> {
         instructions::complete_task_private::complete_task_private(ctx, task_id, proof)
     }

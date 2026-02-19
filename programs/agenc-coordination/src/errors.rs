@@ -140,6 +140,33 @@ pub enum CoordinationError {
     #[msg("ZK proof verification failed")]
     ZkVerificationFailed,
 
+    #[msg("Invalid RISC0 seal encoding")]
+    InvalidSealEncoding,
+
+    #[msg("Invalid RISC0 journal length")]
+    InvalidJournalLength,
+
+    #[msg("Invalid RISC0 journal binding")]
+    InvalidJournalBinding,
+
+    #[msg("RISC0 journal task binding mismatch")]
+    InvalidJournalTask,
+
+    #[msg("RISC0 journal authority binding mismatch")]
+    InvalidJournalAuthority,
+
+    #[msg("Invalid RISC0 image ID")]
+    InvalidImageId,
+
+    #[msg("RISC0 seal selector does not match trusted selector")]
+    TrustedSelectorMismatch,
+
+    #[msg("RISC0 verifier program does not match trusted verifier")]
+    TrustedVerifierProgramMismatch,
+
+    #[msg("RISC0 router account constraints failed")]
+    RouterAccountMismatch,
+
     #[msg("Invalid proof size - expected 256 bytes for Groth16")]
     InvalidProofSize,
 

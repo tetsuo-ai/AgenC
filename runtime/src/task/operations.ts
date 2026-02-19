@@ -10,6 +10,13 @@
 
 import { PublicKey, SystemProgram } from '@solana/web3.js';
 import { getAssociatedTokenAddressSync } from '@solana/spl-token';
+import {
+  HASH_SIZE,
+  RISC0_IMAGE_ID_LEN,
+  RISC0_JOURNAL_LEN,
+  RISC0_SEAL_BORSH_LEN,
+  TRUSTED_RISC0_SELECTOR,
+} from '@agenc/sdk';
 import { toAnchorBytes } from '../utils/encoding.js';
 import anchor, { type Program } from '@coral-xyz/anchor';
 import type { AgencCoordination } from '../types/agenc_coordination.js';
@@ -53,6 +60,17 @@ import { encodeStatusByte, queryWithFallback } from '../utils/query.js';
  *       + 1 (max_workers) + 1 (current_workers) = 186
  */
 export const TASK_STATUS_OFFSET = 186;
+
+const BINDING_SPEND_SEED = Buffer.from('binding_spend');
+const NULLIFIER_SPEND_SEED = Buffer.from('nullifier_spend');
+const ROUTER_SEED = Buffer.from('router');
+const VERIFIER_SEED = Buffer.from('verifier');
+const TRUSTED_RISC0_ROUTER_PROGRAM_ID = new PublicKey(
+  '6JvFfBrvCcWgANKh1Eae9xDq4RC6cfJuBcf71rp2k9Y7',
+);
+const TRUSTED_RISC0_VERIFIER_PROGRAM_ID = new PublicKey(
+  'THq1qFYQoh7zgcjXoMXduDBqiZRCPeg3PvvMbrVQUge',
+);
 
 // ============================================================================
 // Configuration
@@ -438,36 +456,60 @@ export class TaskOperations {
    *
    * @param taskPda - Task account PDA
    * @param task - The on-chain task data
-   * @param proofData - Raw proof bytes
-   * @param constraintHash - 32-byte constraint hash
-   * @param outputCommitment - 32-byte output commitment
-   * @param expectedBinding - 32-byte expected binding
-   * @param nullifier - 32-byte nullifier to prevent proof reuse
+   * @param sealBytes - Router seal bytes
+   * @param journal - Fixed private journal bytes
+   * @param imageId - Trusted image ID bytes
+   * @param bindingSeed - 32-byte binding spend seed
+   * @param nullifierSeed - 32-byte nullifier spend seed
    * @returns Completion result with signature
    */
   async completeTaskPrivate(
     taskPda: PublicKey,
     task: OnChainTask,
-    proofData: Uint8Array,
-    constraintHash: Uint8Array,
-    outputCommitment: Uint8Array,
-    expectedBinding: Uint8Array,
-    nullifier: Uint8Array,
+    sealBytes: Uint8Array,
+    journal: Uint8Array,
+    imageId: Uint8Array,
+    bindingSeed: Uint8Array,
+    nullifierSeed: Uint8Array,
   ): Promise<CompleteResult> {
     // Input validation (#963)
-    validateByteLength(proofData, 256, 'proofData');
-    validateByteLength(constraintHash, 32, 'constraintHash');
-    validateByteLength(outputCommitment, 32, 'outputCommitment');
-    validateByteLength(expectedBinding, 32, 'expectedBinding');
-    validateByteLength(nullifier, 32, 'nullifier');
-    validateNonZeroBytes(outputCommitment, 'outputCommitment');
-    validateNonZeroBytes(expectedBinding, 'expectedBinding');
-    validateNonZeroBytes(nullifier, 'nullifier');
+    validateByteLength(sealBytes, RISC0_SEAL_BORSH_LEN, 'sealBytes');
+    validateByteLength(journal, RISC0_JOURNAL_LEN, 'journal');
+    validateByteLength(imageId, RISC0_IMAGE_ID_LEN, 'imageId');
+    validateByteLength(bindingSeed, HASH_SIZE, 'bindingSeed');
+    validateByteLength(nullifierSeed, HASH_SIZE, 'nullifierSeed');
+    validateNonZeroBytes(imageId, 'imageId');
+    validateNonZeroBytes(bindingSeed, 'bindingSeed');
+    validateNonZeroBytes(nullifierSeed, 'nullifierSeed');
+
+    if (
+      !Buffer.from(sealBytes.subarray(0, TRUSTED_RISC0_SELECTOR.length)).equals(
+        Buffer.from(TRUSTED_RISC0_SELECTOR),
+      )
+    ) {
+      throw new Error('sealBytes selector does not match trusted selector');
+    }
 
     const workerPda = this.getAgentPda();
     const { address: claimPda } = deriveClaimPda(taskPda, workerPda, this.program.programId);
     const { address: escrowPda } = deriveEscrowPda(taskPda, this.program.programId);
     const protocolPda = findProtocolPda(this.program.programId);
+    const [bindingSpend] = PublicKey.findProgramAddressSync(
+      [BINDING_SPEND_SEED, Buffer.from(bindingSeed)],
+      this.program.programId,
+    );
+    const [nullifierSpend] = PublicKey.findProgramAddressSync(
+      [NULLIFIER_SPEND_SEED, Buffer.from(nullifierSeed)],
+      this.program.programId,
+    );
+    const [router] = PublicKey.findProgramAddressSync(
+      [ROUTER_SEED],
+      TRUSTED_RISC0_ROUTER_PROGRAM_ID,
+    );
+    const [verifierEntry] = PublicKey.findProgramAddressSync(
+      [VERIFIER_SEED, Buffer.from(TRUSTED_RISC0_SELECTOR)],
+      TRUSTED_RISC0_ROUTER_PROGRAM_ID,
+    );
     const treasury = await this.getProtocolTreasury();
     const tokenAccounts = buildCompleteTaskTokenAccounts(
       task.rewardMint,
@@ -484,23 +526,41 @@ export class TaskOperations {
       const taskIdBN = new anchor.BN(task.taskId.slice(0, 8), 'le');
 
       const proof = {
-        proofData: Buffer.from(proofData),
-        constraintHash: toAnchorBytes(constraintHash),
-        outputCommitment: toAnchorBytes(outputCommitment),
-        expectedBinding: toAnchorBytes(expectedBinding),
-        nullifier: toAnchorBytes(nullifier),
+        sealBytes: toAnchorBytes(sealBytes),
+        journal: toAnchorBytes(journal),
+        imageId: toAnchorBytes(imageId),
+        bindingSeed: toAnchorBytes(bindingSeed),
+        nullifierSeed: toAnchorBytes(nullifierSeed),
       };
 
-      const signature = await this.program.methods
+      const completeTaskPrivateMethod = this.program.methods as unknown as {
+        completeTaskPrivate: (
+          taskId: anchor.BN,
+          proofArgs: typeof proof,
+        ) => {
+          accountsPartial: (
+            accounts: Record<string, unknown>,
+          ) => { rpc: () => Promise<string> };
+        };
+      };
+
+      const signature = await completeTaskPrivateMethod
         .completeTaskPrivate(taskIdBN, proof)
         .accountsPartial({
           task: taskPda,
           claim: claimPda,
           escrow: escrowPda,
+          creator: task.creator,
           worker: workerPda,
           protocolConfig: protocolPda,
+          bindingSpend,
+          nullifierSpend,
           treasury,
           authority: this.program.provider.publicKey,
+          routerProgram: TRUSTED_RISC0_ROUTER_PROGRAM_ID,
+          router,
+          verifierEntry,
+          verifierProgram: TRUSTED_RISC0_VERIFIER_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
           ...tokenAccounts,
         })

@@ -562,7 +562,7 @@ export class ProofPipeline {
         // or a placeholder for public tasks (real proof generation would happen here)
         if (job.isPrivate) {
           const privateResult = job.executionResult as PrivateTaskExecutionResult;
-          proofBytes = privateResult.proof;
+          proofBytes = privateResult.sealBytes;
         } else {
           // For public tasks, the "proof" is just the proof hash
           const publicResult = job.executionResult as TaskExecutionResult;
@@ -643,14 +643,15 @@ export class ProofPipeline {
       let result;
       if (job.isPrivate) {
         const privateResult = job.executionResult as PrivateTaskExecutionResult;
+        const sealBytes = job.proofBytes ?? privateResult.sealBytes;
         result = await this.operations.completeTaskPrivate(
           job.taskPda,
           task,
-          job.proofBytes!,
-          privateResult.constraintHash,
-          privateResult.outputCommitment,
-          privateResult.expectedBinding,
-          privateResult.nullifier,
+          sealBytes,
+          privateResult.journal,
+          privateResult.imageId,
+          privateResult.bindingSeed,
+          privateResult.nullifierSeed,
         );
       } else {
         const publicResult = job.executionResult as TaskExecutionResult;
@@ -780,7 +781,7 @@ export class ProofPipeline {
 
 /**
  * Default proof generator that uses execution results directly.
- * For public tasks, uses the proof hash. For private tasks, uses the proof bytes.
+ * For public tasks, uses the proof hash. For private tasks, uses seal bytes.
  * Real implementations would generate actual ZK proofs.
  */
 export class DefaultProofGenerator implements ProofGenerator {
@@ -796,7 +797,7 @@ export class DefaultProofGenerator implements ProofGenerator {
     _task: OnChainTask,
     result: PrivateTaskExecutionResult,
   ): Promise<Uint8Array> {
-    // For private tasks, use the pre-generated proof
-    return result.proof;
+    // For private tasks, use the pre-generated router seal bytes
+    return result.sealBytes;
   }
 }

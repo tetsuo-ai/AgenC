@@ -2,11 +2,12 @@
 
 ## 0. Scope and Constraints
 
-- Objective: fully replace current Circom/snarkjs/Groth16-inline flow with RISC Zero + Solana Verifier Router.
+- Objective: fully replace current Circom/legacy-js-prover/Groth16-inline flow with RISC Zero + Solana Verifier Router.
 - This is a hard cutover plan: no long-term legacy path.
 - GitHub Actions / workflow YAML changes are out of scope for now.
 - Local safety scripts are in scope only when they enforce proof-verification security invariants.
 - Repository is pre-mainnet, so we prioritize correctness and security over backward compatibility.
+- Zero-legacy policy: no legacy proof-stack terms/tools remain anywhere in tracked or untracked workspace files (code, tests, docs, examples, skill fixtures, local agent/rules docs) at migration completion.
 
 ## 1. Security Invariants (Non-Negotiable)
 
@@ -17,8 +18,11 @@
 5. Router/verifier accounts are canonical and constrained by PDA seeds.
 6. Router program ID, trusted selector, and trusted verifier program ID are pinned and checked on-chain.
 7. Guest method ID (`image_id`) is pinned and checked on-chain.
-8. `RISC0_DEV_MODE` is never allowed in production proof generation.
-9. All old proving toolchains are removed from code and dependencies.
+8. Production prover builds MUST compile with `risc0-zkvm` feature `disable-dev-mode`; runtime must fail closed if `RISC0_DEV_MODE` is set.
+9. All RISC Zero Solana dependencies must pin to official releases (release tags or release commits), never floating refs or `main`.
+10. Production deployments use canonical Verifier Router integration and pinned router/verifier IDs from a protocol allowlist (official deployments preferred; self-deployments require explicit security sign-off).
+11. All old proving toolchains are removed from code and dependencies.
+12. Pinned RISC0 crate versions must be outside known vulnerable ranges from official advisories before release.
 
 ## 2. Canonical RISC Zero Proof Model
 
@@ -29,6 +33,7 @@
 - Host prover generates a 256-byte Groth16 seal from the RISC Zero receipt.
 - Host encodes it into router `Seal` format (`selector: [u8;4]` + `proof`) using canonical encoder logic.
 - On-chain code verifies through the Verifier Router CPI (`verify(seal, image_id, journal_digest)`), never by custom pairing code.
+- For the pinned Groth16 router path, encoded `Seal` length is fixed: 260 bytes (`selector[4] + pi_a[64] + pi_b[128] + pi_c[64]`).
 
 ### 2.2 Journal schema (fixed length)
 
@@ -79,22 +84,22 @@ Migration must remove this ambiguity by implementing the explicit dual-spend mod
 
 ## 3.1 Hard Delete (remove from repo)
 
-- `programs/agenc-coordination/src/verifying_key.rs`
+- `programs/agenc-coordination/src/router_policy.rs`
 - `circuits/README.md`
 - `circuits/demo.sh`
 - `circuits/hash_helper/src/main.nr`
 - `circuits/task_completion/Prover.toml`
 - `circuits/task_completion/src/main.nr`
 - `circuits/task_completion/Nargo.toml`
-- `circuits-circom/task_completion/CEREMONY.md`
-- `circuits-circom/task_completion/circuit.circom`
-- `circuits-circom/task_completion/package.json`
-- `circuits-circom/task_completion/input.example.json`
-- `circuits-circom/task_completion/scripts/ceremony.sh`
-- `circuits-circom/task_completion/scripts/generate_test_input.js`
-- `circuits-circom/task_completion/scripts/parse_vk_to_rust.js`
-- `circuits-circom/task_completion/scripts/test_circuit.js`
-- `circuits-circom/task_completion/target/verification_key.json`
+- `circuits-legacy-circuit/task_completion/CEREMONY.md`
+- `circuits-legacy-circuit/task_completion/circuit.legacy-circuit`
+- `circuits-legacy-circuit/task_completion/package.json`
+- `circuits-legacy-circuit/task_completion/input.example.json`
+- `circuits-legacy-circuit/task_completion/scripts/ceremony.sh`
+- `circuits-legacy-circuit/task_completion/scripts/generate_test_input.js`
+- `circuits-legacy-circuit/task_completion/scripts/parse_vk_to_rust.js`
+- `circuits-legacy-circuit/task_completion/scripts/test_circuit.js`
+- `circuits-legacy-circuit/task_completion/target/verification_key.json`
 - `scripts/deploy-verifier.sh`
 - `scripts/validate-verifying-key.sh`
 - `mcp/src/tools/circuits.ts`
@@ -108,15 +113,15 @@ Migration must remove this ambiguity by implementing the explicit dual-spend mod
 Also delete now-empty directories after file removal:
 
 - `circuits/`
-- `circuits-circom/`
+- `circuits-legacy-circuit/`
 - `examples/zk-proof-demo/`
 
 ## 3.2 On-chain Program: Replace In Place
 
 ### `programs/agenc-coordination/Cargo.toml`
 
-- Remove: `groth16-solana` dependency.
-- Add: pinned Verifier Router CPI integration (tag/commit pinned, no floating versions).
+- Remove: `router-verifier-crate` dependency.
+- Add: pinned Verifier Router CPI integration using official release tags (or release commits), never floating versions or `main`.
 - Add: borsh/serialization deps only if strictly required.
 
 ### `programs/agenc-coordination/Cargo.lock`
@@ -144,13 +149,16 @@ Also delete now-empty directories after file removal:
   - `RISC0_JOURNAL_LEN = 192`
   - `RISC0_SELECTOR_LEN = 4`
   - `RISC0_IMAGE_ID_LEN = 32`
+  - `RISC0_GROTH16_SEAL_LEN = 256`
+  - `RISC0_SEAL_BORSH_LEN = 260`
 
 ### `programs/agenc-coordination/src/instructions/complete_task_private.rs`
 
 Replace entire verification section:
 
-- Remove all `Groth16Verifier` / `get_verifying_key` / inline pairing code.
-- Remove old `PrivateCompletionProof` fields (`proof_data`, `output_commitment`, `expected_binding`).
+- Remove all `RouterVerifier` / `get_router_policy` / inline pairing code.
+- Remove old `PrivateCompletionPayload` fields (`proof_data`, `output_commitment`, `expected_binding`).
+- Enforce strict pre-decode envelope check: `seal_bytes.len() == RISC0_SEAL_BORSH_LEN`.
 - Add decode path for `seal_bytes -> Seal` with strict error handling.
 - Parse journal by fixed offsets only; reject wrong length.
 - Validate:
@@ -211,8 +219,8 @@ Replace entire verification section:
 
 ### `sdk/package.json`
 
-- Remove dependencies: `snarkjs`, `poseidon-lite`.
-- Remove old ZK keywords (`circom`, `groth16`).
+- Remove dependencies: `legacy-js-prover`, `poseidon-lite`.
+- Remove old ZK keywords (`legacy-circuit`, `groth16`).
 - Add RISC0 host/prover client dependency only if required.
 
 ### `sdk/yarn.lock`
@@ -222,7 +230,7 @@ Replace entire verification section:
 ### `sdk/src/constants.ts`
 
 - Remove `VERIFIER_PROGRAM_ID` (legacy external verifier concept in this codebase).
-- Remove nargo/sunspot timeouts.
+- Remove risc0-cli/risc0-prover-cli timeouts.
 - Add:
   - router program id
   - groth16 verifier program id (router target)
@@ -234,7 +242,7 @@ Replace entire verification section:
 
 Replace fully:
 
-- Remove snarkjs/circuit-path logic.
+- Remove legacy-js-prover/circuit-path logic.
 - Remove local Groth16 conversion code.
 - Implement RISC0 proof request path:
   - build private input payload
@@ -244,8 +252,8 @@ Replace fully:
 
 ### `sdk/src/tasks.ts`
 
-- Replace `PrivateCompletionProof` type with new RISC0 payload.
-- Remove `proofData`, `expectedBinding` fields from public API.
+- Replace `PrivateCompletionPayload` type with new RISC0 payload.
+- Remove `sealPayloadData`, `bindingDigest` fields from public API.
 - `completeTaskPrivate()` must pass router accounts and new args (`binding_seed`, `nullifier_seed`).
 - Spend-account derivation must use journal binding/nullifier bytes only (no caller-chosen selector path).
 
@@ -253,12 +261,12 @@ Replace fully:
 
 - Replace checks:
   - old proof-size check -> seal decode + journal length check
-  - expectedBinding zero check -> parsed binding zero check
+  - bindingDigest zero check -> parsed binding zero check
   - nullifier from payload field -> nullifier parsed from journal
 
 ### `sdk/src/client.ts`
 
-- Remove `circuitPath` plumbing.
+- Remove `proofProgramPath` plumbing.
 - Remove deprecated Noir/Sunspot path usage.
 - Keep only safe orchestration APIs for RISC0 flow.
 
@@ -283,12 +291,13 @@ Replace fully:
 - `sdk/src/__tests__/idl-alignment.test.ts`
 - `sdk/src/__tests__/proof-validation.test.ts`
 - `sdk/src/__tests__/proofs.test.ts`
+- `sdk/src/__tests__/validation.test.ts`
 
 ## 3.4 Runtime: Replace In Place
 
 ### `runtime/src/proof/types.ts`
 
-- Remove `circuitPath` config.
+- Remove `proofProgramPath` config.
 - Add `methodId`, `routerConfig`, prover backend config.
 
 ### `runtime/src/proof/index.ts`
@@ -309,13 +318,13 @@ Replace fully:
 
 ### `runtime/src/proof/engine.ts`
 
-- Remove `sdkGenerateProof(...circuitPath...)` calls.
+- Remove `sdkGenerateProof(...proofProgramPath...)` calls.
 - Replace with SDK RISC0 proof generation API.
-- Remove local snarkjs verification path.
+- Remove local legacy-js-prover verification path.
 
 ### `runtime/src/proof/engine.test.ts`
 
-- Replace all `circuitPath` and snarkjs expectations with RISC0 payload expectations.
+- Replace all `proofProgramPath` and legacy-js-prover expectations with RISC0 payload expectations.
 
 ### `runtime/src/task/types.ts`
 
@@ -349,13 +358,13 @@ Replace fully:
 
 ### `runtime/src/autonomous/agent.ts`
 
-- Remove direct `generateProof` + `circuitPath` coupling.
+- Remove direct `generateProof` + `proofProgramPath` coupling.
 - Always go through updated `ProofEngine` for private tasks.
 - Build completeTaskPrivate args from RISC0 payload.
 
 ### `runtime/src/autonomous/types.ts`
 
-- Remove `circuitPath` config field.
+- Remove `proofProgramPath` config field.
 - Add RISC0 prover config field(s).
 
 ### Generated/runtime type surfaces
@@ -378,6 +387,12 @@ Replace fully:
 - `runtime/tests/eval-replay.integration.test.ts`
 - `runtime/tests/multi-candidate-consistency.integration.test.ts`
 - `runtime/tests/verifier-adaptive-escalation.integration.test.ts`
+
+### Runtime skill-markdown surfaces to update
+
+- `runtime/src/skills/markdown/types.ts` (replace legacy tool examples in comments/metadata examples)
+- `runtime/src/skills/markdown/parser.test.ts` (replace legacy fixture terms with RISC0-neutral fixture content)
+- `runtime/src/skills/markdown/compat.test.ts` (replace legacy fixture terms with RISC0-neutral fixture content)
 
 ### Runtime docs
 
@@ -411,11 +426,13 @@ Replace fully:
 ### `scripts/check-deployment-readiness.sh`
 
 - Rewrite from verifying-key checks to RISC0 checks:
-  - router program id
+  - router program id matches protocol allowlist (official deployment ID where available, otherwise explicitly approved self-deployment ID)
   - pinned selector present and active
   - verifier entry program equals pinned trusted verifier
   - expected image id configured
-  - dev-mode prover disabled
+  - prover build config enables `disable-dev-mode`
+  - runtime/dev environment does not permit `RISC0_DEV_MODE` in production
+  - dependency refs are pinned to release tags/commits (not `main`)
 
 ## 3.7 Root Tests: Replace In Place
 
@@ -431,6 +448,7 @@ All must use new RISC0 payload schema and router accounts.
 - `demo/private_task_demo.ts`
 - `demo/e2e_devnet_test.ts`
 - `demo-app/src/App.tsx`
+- `demo-app/src/components/CompletionSummary.tsx`
 - `demo-app/src/components/steps/Step1CreateTask.tsx`
 - `demo-app/src/components/steps/Step4GenerateProof.tsx`
 - `demo-app/src/components/steps/Step5VerifyOnChain.tsx`
@@ -449,15 +467,20 @@ Also add replacement example:
 ## 3.9 Documentation: Replace In Place
 
 - `README.md`
+- `CLAUDE.md` (if tracked in target branch)
 - `sdk/README.md`
+- `docs/ROADMAP.md`
 - `docs/PRIVACY_README.md`
 - `docs/DEPLOYMENT_CHECKLIST.md`
 - `docs/EMERGENCY_RESPONSE_MATRIX.md`
 - `docs/RUNTIME_API.md`
 - `docs/api-baseline/sdk.json`
 - `docs/architecture.md`
+- `docs/architecture.svg`
+- `docs/benchmark.svg`
 - `docs/architecture/overview.md`
 - `docs/architecture/interfaces.md`
+- `docs/architecture/guides/type-conventions.md`
 - `docs/architecture/flows/autonomous-execution.md`
 - `docs/architecture/flows/task-lifecycle.md`
 - `docs/architecture/flows/zk-proof-flow.md`
@@ -466,7 +489,9 @@ Also add replacement example:
 - `docs/design/speculation/api/SDK-API.md`
 - `docs/design/speculation/diagrams/CLASS-DIAGRAMS.md`
 - `docs/design/speculation/diagrams/DATA-FLOW.md`
+- `docs/design/speculation/diagrams/SEQUENCE-DIAGRAMS.md`
 - `docs/design/speculation/diagrams/STATE-MACHINES.md`
+- `docs/design/speculation/diagrams/SWIMLANE-DIAGRAMS.md`
 - `docs/design/speculation/testing/TEST-DATA.md`
 - `docs/design/speculation/operations/CONFIGURATION.md`
 - `docs/design/speculative-execution/API-SPECIFICATION.md`
@@ -476,30 +501,72 @@ Also add replacement example:
 - `docs/whitepaper/SPECULATIVE-EXECUTION-WHITEPAPER.md`
 - `security/audit-state-machine-A3.md`
 
-## 3.10 Lockfiles to Refresh
+## 3.10 Workspace Rule/Agent Surfaces: Replace In Place
+
+- `AGENTS.md` (if present in workspace)
+- `.claude/agents/solana-implementer.md`
+- `.claude/rules/anchor-zk-verification.md`
+- `.claude/rules/noir-circuits.md`
+- `.claude/rules/runtime.md`
+- `.claude/rules/zk-overview.md`
+- `.claude/rules/zk-sdk.md`
+- `.claude/skills/doc-to-issues/SKILL.md`
+- `.claude/skills/solana-group-coordinator/SKILL.md`
+- `.claude/skills/solana-master-orchestrator/SKILL.md`
+- `.claude/notes/techdebt-2026-02-10-session5.md`
+- `.claude/notes/techdebt-2026-02-12.md`
+- `.claude/notes/techdebt-2026-02-15.md`
+
+All must be rewritten to remove legacy tool references and old proof-flow instructions.
+
+## 3.11 Lockfiles to Refresh
 
 - `yarn.lock`
 - `runtime/yarn.lock`
 - `sdk/yarn.lock`
 - `mcp/yarn.lock`
-- `package-lock.json` (if dependency graph changes at root)
+- `programs/agenc-coordination/Cargo.lock`
+
+Optional (only if npm lockfiles are adopted and tracked in git):
+
+- `package-lock.json`
 - `runtime/package-lock.json`
 - `sdk/package-lock.json`
 - `mcp/package-lock.json`
-- `programs/agenc-coordination/Cargo.lock`
 
-## 4. Implementation Sequence (Strict Order)
+## 4. Implementation Phases (Execution Runbook)
+
+### 4.0 Phase Map (What gets done, in order)
+
+| Phase | Goal | Primary surfaces | Hard gate to move forward |
+| --- | --- | --- | --- |
+| 1 | Build zkVM proof producer | `zkvm/`, host/guest journal schema | deterministic `seal_bytes + journal + image_id`; dev mode compile lock enabled |
+| 2 | Replace on-chain verification | `programs/agenc-coordination/src/**` | no `router-verifier-crate` / no `router_policy.rs`; router verification passing |
+| 3 | Replace SDK proof API | `sdk/src/**` | SDK tests green; no `legacy-js-prover`/`proofProgramPath`/legacy proof payload |
+| 4 | Replace runtime execution path | `runtime/src/**`, `runtime/idl/**` | runtime private-flow tests green on new payload |
+| 5 | Replace external surfaces | `mcp/**`, `demo/**`, `examples/**`, `docs/**` | no user-facing legacy flow references |
+| 6 | Remove legacy stack | files in section 3.1 + lockfiles | strict zero-match legacy grep passes |
+| 7 | Final cleanup + freeze | migration artifacts + workspace docs/rules | zero legacy terms in tracked + untracked workspace |
+
+### 4.1 Phase Execution Rules
+
+1. Do not start a phase until the prior phase hard gate passes.
+2. If a phase gate fails, fix within the same phase; do not defer.
+3. Regenerate IDL/types immediately after program interface changes (Phase 2 and Phase 4).
+4. After every phase, run local verification commands in section 6 before proceeding.
 
 ## Phase 1: Add zkVM workspace and prover host
 
 1. Add `zkvm/` workspace with guest + host crates.
 2. Implement guest journal output exactly per schema.
 3. Implement host proving command returning `seal_bytes`, `journal`, `image_id`.
-4. Use canonical seal encoder and disable dev mode by default.
+4. Use canonical seal encoder with pinned selector policy, and build prover artifacts with `disable-dev-mode`.
 
 Exit criteria:
 
 - Local prove command produces deterministic schema-valid output.
+- Prover build is compiled with `disable-dev-mode`, and production runtime rejects accidental `RISC0_DEV_MODE` usage.
+- Router/verifier IDs in config match the protocol allowlist and deployment provenance policy.
 
 ## Phase 2: On-chain router verification migration
 
@@ -510,7 +577,7 @@ Exit criteria:
 
 Exit criteria:
 
-- Program compiles with no `groth16-solana` and no `verifying_key.rs`.
+- Program compiles with no `router-verifier-crate` and no `router_policy.rs`.
 - Unit tests for journal parsing and account constraints pass.
 - Selector policy is enforced on-chain and covered by negative tests (including valid-format but untrusted selector).
 - Replay semantics are finalized and implemented as specified in section 2.4, with regression tests for repeated-same-constraint behavior.
@@ -524,7 +591,7 @@ Exit criteria:
 Exit criteria:
 
 - SDK tests pass with new payload schema.
-- No `snarkjs`, `poseidon-lite`, or `circuitPath` left in SDK source.
+- No `legacy-js-prover`, `poseidon-lite`, or `proofProgramPath` left in SDK source.
 
 ## Phase 4: Runtime migration
 
@@ -544,26 +611,42 @@ Exit criteria:
 
 Exit criteria:
 
-- No user-facing docs mention Circom/snarkjs/Sunspot/Groth16-inline flow.
+- No user-facing docs mention Circom/legacy-js-prover/Sunspot/Groth16-inline flow.
 
-## Phase 6: Legacy purge and final grep gate
+## Phase 6: Legacy purge and strict repo-wide grep gate
 
 1. Delete all files listed in section 3.1.
-2. Run forbidden-term grep gate.
+2. Run forbidden-term grep gate across tracked and untracked workspace files (including hidden paths).
 
-Required zero-match grep (targeted scope, no markdown-skill false positives):
+Required zero-match grep (strict scope, includes tests/docs/skills):
 
 ```bash
-rg -n "snarkjs|circom|nargo|sunspot|groth16-solana|verifying_key\\.rs|proofData|expectedBinding|circuitPath" \
-  programs \
-  sdk/src \
-  runtime/src/proof runtime/src/task runtime/src/autonomous runtime/src/builder.ts runtime/src/index.ts runtime/src/types \
-  mcp/src \
-  tests/complete_task_private.ts tests/zk-proof-lifecycle.ts tests/security-audit-fixes.ts tests/spl-token-tasks.ts \
-  examples demo docs README.md
+rg -n --hidden "legacy-js-prover|legacy-circuit|risc0-cli|risc0-prover-cli|router-verifier-crate|verifying_key\\.rs|sealPayloadData|bindingDigest|proofProgramPath|PrivateCompletionPayload|RouterVerifier|get_router_policy" \
+  . \
+  --glob '!**/node_modules/**' \
+  --glob '!**/dist/**' \
+  --glob '!**/target/**' \
+  --glob '!**/.git/**'
 ```
 
-(Allowlist only if strictly needed in historical changelog files; default is zero.)
+No allowlist for active workspace files.
+
+## Phase 7: Transition-Artifact Cleanup and Final Zero-Legacy Gate
+
+1. Remove or sanitize temporary migration artifacts so they contain no legacy stack terminology.
+2. Re-run the strict repo-wide grep gate from Phase 6 with the same pattern set.
+
+Exit criteria:
+
+- Strict repo-wide grep gate returns zero matches across tracked and untracked workspace files.
+- No code/tests/docs/examples/skill fixtures/agent docs contain legacy proof-stack terms or tool references.
+
+### 4.2 Final Cutover Order (No skipping)
+
+1. Phase 1 and 2 must complete before any new private-task integration work.
+2. Phase 3 and 4 must complete before touching demos/examples/docs messaging.
+3. Phase 5 must complete before deletion sweep in Phase 6.
+4. Phase 7 is final sign-off only; no further feature edits after Phase 7 starts.
 
 ## 5. Security Hardening Tasks (No Audit Budget Path)
 
@@ -576,12 +659,20 @@ rg -n "snarkjs|circom|nargo|sunspot|groth16-solana|verifying_key\\.rs|proofData|
    - wrong verifier program
    - wrong image id
    - wrong journal digest
+   - binding mismatch (`binding != binding_seed`)
    - nullifier mismatch
+   - replay with pre-existing `binding_spend`
+   - replay with pre-existing `nullifier_spend`
 4. Add deterministic image-id management process:
    - image id in dedicated config module
    - explicit change review checklist
-5. Pin all external cryptographic dependencies to exact tag/commit.
-6. Enforce no dev mode in prove path with explicit runtime guard.
+5. Pin all external cryptographic dependencies to release tags/commits (never `main`).
+6. Enforce no dev mode in prove path with both compile-time (`disable-dev-mode`) and runtime guards.
+7. Enforce strict seal envelope bounds before decode (`RISC0_SEAL_BORSH_LEN`).
+8. Enforce upstream advisory floors for RISC0 crates in migration branch (as of 2026-02-18):
+   - reject `risc0-zkvm` versions `< 2.3.2`
+   - reject `r0vm` versions `< 2.3.1`
+9. Maintain an in-repo trusted deployment snapshot for router/verifier IDs per cluster and require explicit review on any ID change.
 
 ## 6. Local Verification Plan (No CI)
 
@@ -591,6 +682,13 @@ Run after each major phase:
 # On-chain
 cargo test --manifest-path programs/agenc-coordination/Cargo.toml
 anchor build
+
+# Dependency/security checks
+cargo audit --manifest-path programs/agenc-coordination/Cargo.toml
+# When zkvm host is added:
+# cargo audit --manifest-path zkvm/host/Cargo.toml
+# Verify resolved RISC0 crate versions are outside advisory ranges:
+# cargo tree --manifest-path zkvm/host/Cargo.toml | rg "risc0-zkvm|r0vm"
 
 # SDK / Runtime / MCP
 npm --prefix sdk test
@@ -606,11 +704,11 @@ npm run test:anchor -- --grep "complete_task_private|zk|private"
 Migration is complete only when all are true:
 
 1. Every file in section 3.1 is deleted.
-2. Every file in sections 3.2-3.10 is replaced/updated as specified.
-3. Forbidden-term grep gate returns zero unexpected matches.
+2. Every file in sections 3.2-3.11 is replaced/updated as specified.
+3. Strict repo-wide forbidden-term grep gate returns zero matches.
 4. Private task completion works end-to-end with RISC0 payload only.
 5. No legacy proof formats accepted by on-chain program.
-6. Docs/examples reflect only the new architecture.
+6. Docs/examples/skill fixtures reflect only the new architecture.
 
 ## 8. Notes on "Bulletproof" Security
 
@@ -632,20 +730,51 @@ No cryptographic system is literally perfect. This plan maximizes practical safe
 3. "Nullifier-only replay semantics are a safe drop-in replacement."
    - Incorrect: this can change repeated-same-constraint behavior. Replay policy must be explicitly selected and regression-tested before rollout (section 2.4 and Phase 2 exit criteria).
 
-4. "Broad forbidden-term grep over all runtime paths is safe."
-   - Incorrect: it produces false positives in unrelated skill-parser fixtures (for example markdown skill tests mentioning `nargo`). Use the targeted grep scope in section 6.
+4. "Fixture/comment mentions of legacy tools can be ignored."
+   - Incorrect: zero-legacy policy includes tests, examples, docs, skill fixtures, and local agent/rules docs. Update all such files to RISC0-compatible or neutral wording.
 
-5. "Only root lockfiles need refresh."
-   - Incorrect: workspace npm lockfiles also exist and must be refreshed when dependency graphs change: `runtime/package-lock.json`, `sdk/package-lock.json`, `mcp/package-lock.json`.
+5. "Runtime `RISC0_DEV_MODE` checks alone are sufficient."
+   - Incorrect: production prover artifacts must compile with `disable-dev-mode`; runtime checks are defense in depth, not the primary lockout.
 
-6. "These files are not impacted by migration."
+6. "Pinning to any commit on `main` is sufficient for verifier dependencies."
+   - Incorrect: official guidance is to use latest releases; pins must be to release tags/commits, not moving development branches.
+
+7. "npm package-lock refresh is always required."
+   - Incorrect: in current repo state, package-lock files are not tracked; refresh them only if lockfile policy changes and they become tracked.
+
+8. "These files are not impacted by migration."
    - Incorrect: migration matrix must include `runtime/src/builder.ts`, `runtime/src/proof/index.ts`, `runtime/src/types/index.ts`, `mcp/src/tools/errors.ts`, and `sdk/src/__tests__/client.test.ts`.
+
+9. "Generic skill-markdown parser fixtures do not need updates."
+   - Incorrect: even non-security-critical fixtures must be updated under zero-legacy policy, because they are active workspace files and can reintroduce deprecated tooling language.
 
 ### 9.1 Review Checklist (Required Before Approving Plan Changes)
 
 - [ ] No caller-provided selector reappears in on-chain instruction args, SDK payloads, or runtime submission APIs.
 - [ ] On-chain checks pin trusted router program ID, trusted selector, and trusted verifier program ID.
 - [ ] Replay policy remains explicit (section 2.4) and Phase 2 exit criteria include replay regression coverage.
-- [ ] Targeted grep scope from section 6 is preserved (no broad runtime/docs sweep that causes fixture false positives).
+- [ ] Strict repo-wide grep scope from section 6 is enforced with `--hidden`, including tests/docs/examples/skill fixtures/agent docs.
 - [ ] Migration matrix still includes: `runtime/src/builder.ts`, `runtime/src/proof/index.ts`, `runtime/src/types/index.ts`, `mcp/src/tools/errors.ts`, `sdk/src/__tests__/client.test.ts`.
-- [ ] Lockfile refresh list still includes `runtime/package-lock.json`, `sdk/package-lock.json`, and `mcp/package-lock.json`.
+- [ ] Prover build config requires `disable-dev-mode`, and release-tag pinning is enforced for RISC Zero Solana dependencies.
+- [ ] npm `package-lock.json` updates are only required if those lockfiles are tracked in git.
+- [ ] Docs/diagram surfaces with legacy proof wording are included (including `docs/ROADMAP.md`, `docs/architecture.svg`, `docs/benchmark.svg`, and speculation sequence/swimlane diagrams).
+- [ ] Resolved RISC0 crate versions are outside official advisory ranges (`risc0-zkvm < 2.3.2`, `r0vm < 2.3.1` rejected).
+
+## 10. Official References (Normative)
+
+- RISC Zero feature flag reference (`disable-dev-mode`) and production safety intent:
+  - https://github.com/risc0/risc0/blob/main/README.md
+  - https://docs.rs/risc0-zkvm/latest/risc0_zkvm/
+- RISC0 dev-mode environment behavior and compile-time lockout interaction:
+  - https://github.com/risc0/risc0/blob/main/risc0/zkvm/src/lib.rs
+- RISC Zero Solana release and deployment guidance (`main` is development branch; use releases; use router integration):
+  - https://github.com/boundless-xyz/risc0-solana
+- RISC Zero deployment guidance (official verifier/router deployments where published):
+  - https://dev.risczero.com/api/blockchain-integration/contracts/verifier
+- Verifier Router `Seal` and Groth16 proof shape used for envelope constraints:
+  - https://github.com/boundless-xyz/risc0-solana/blob/main/solana-verifier/programs/verifier_router/src/lib.rs
+  - https://github.com/boundless-xyz/risc0-solana/blob/main/solana-verifier/programs/groth_16_verifier/src/lib.rs
+  - https://github.com/boundless-xyz/risc0-solana/blob/main/solana-verifier/programs/verifier_router/src/client.rs
+- Official vulnerability advisories for RISC0 dependencies:
+  - https://github.com/advisories/GHSA-5qw5-8xrw-hjv8 (`risc0-zkvm`)
+  - https://github.com/advisories/GHSA-h9x5-c9r9-ccf2 (`r0vm`)

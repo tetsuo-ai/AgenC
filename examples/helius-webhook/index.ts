@@ -32,7 +32,8 @@ if (!HELIUS_WEBHOOK_SECRET) {
   console.warn(chalk.yellow('Warning: HELIUS_WEBHOOK_SECRET not set. Webhook signature verification disabled.'));
   console.warn(chalk.yellow('  This is a security risk in production. Set HELIUS_WEBHOOK_SECRET to enable verification.'));
 }
-const VERIFIER_PROGRAM_ID = '8fHUGmjNzSh76r78v1rPt7BhWmAu2gXrvW9A2XXonwQQ';
+const ROUTER_PROGRAM_ID = '6JvFfBrvCcWgANKh1Eae9xDq4RC6cfJuBcf71rp2k9Y7';
+const VERIFIER_PROGRAM_ID = 'THq1qFYQoh7zgcjXoMXduDBqiZRCPeg3PvvMbrVQUge';
 const AGENC_PROGRAM_ID = 'EopUaCV2svxj9j4hd7KjbrWfdjkspmm2BCBe7jGpKzKZ';
 const WEBHOOK_PORT = process.env.PORT || 3000;
 
@@ -239,7 +240,7 @@ async function createWebhook(webhookUrl: string): Promise<string> {
     body: JSON.stringify({
       webhookURL: webhookUrl,
       transactionTypes: ['ANY'],
-      accountAddresses: [VERIFIER_PROGRAM_ID, AGENC_PROGRAM_ID],
+      accountAddresses: [ROUTER_PROGRAM_ID, VERIFIER_PROGRAM_ID, AGENC_PROGRAM_ID],
       webhookType: 'enhanced',
       txnStatus: 'success',
     }),
@@ -320,11 +321,13 @@ function* iterateInstructions(events: TransactionEvent[]): Generator<Instruction
   }
 }
 
-function parseVerifierInstruction(
+function parseRouterInstruction(
   payload: WebhookPayload,
   instruction: InstructionEvent,
 ): TaskCompletionEvent | null {
-  if (instruction.programId !== VERIFIER_PROGRAM_ID) {
+  const isRouterPath = instruction.programId === ROUTER_PROGRAM_ID;
+  const isVerifierPath = instruction.programId === VERIFIER_PROGRAM_ID;
+  if (!isRouterPath && !isVerifierPath) {
     return null;
   }
   return buildTaskCompletionEvent(payload, extractTaskId(instruction.data), instruction.accounts[0]);
@@ -350,9 +353,9 @@ function parseAgencCompletionInstruction(
 function parseTaskCompletion(payload: WebhookPayload): TaskCompletionEvent | null {
   try {
     for (const instruction of iterateInstructions(payload.events)) {
-      const verifierMatch = parseVerifierInstruction(payload, instruction);
-      if (verifierMatch) {
-        return verifierMatch;
+      const routerMatch = parseRouterInstruction(payload, instruction);
+      if (routerMatch) {
+        return routerMatch;
       }
       const agencMatch = parseAgencCompletionInstruction(payload, instruction);
       if (agencMatch) {
@@ -499,6 +502,7 @@ function startServer(): void {
     console.log(chalk.gray('================================'));
     console.log(chalk.white('  Port:'), WEBHOOK_PORT);
     console.log(chalk.white('  Monitoring:'));
+    console.log(chalk.gray('    - Router:'), ROUTER_PROGRAM_ID);
     console.log(chalk.gray('    - Verifier:'), VERIFIER_PROGRAM_ID);
     console.log(chalk.gray('    - AgenC:'), AGENC_PROGRAM_ID);
     console.log();
@@ -542,7 +546,7 @@ async function subscribeToLogs(): Promise<void> {
         id: 1,
         method: 'logsSubscribe',
         params: [
-          { mentions: [VERIFIER_PROGRAM_ID] },
+          { mentions: [ROUTER_PROGRAM_ID] },
           { commitment: 'confirmed' },
         ],
       })
@@ -552,6 +556,18 @@ async function subscribeToLogs(): Promise<void> {
       JSON.stringify({
         jsonrpc: '2.0',
         id: 2,
+        method: 'logsSubscribe',
+        params: [
+          { mentions: [VERIFIER_PROGRAM_ID] },
+          { commitment: 'confirmed' },
+        ],
+      })
+    );
+
+    ws.send(
+      JSON.stringify({
+        jsonrpc: '2.0',
+        id: 3,
         method: 'logsSubscribe',
         params: [
           { mentions: [AGENC_PROGRAM_ID] },
