@@ -81,18 +81,63 @@ export function ChatView({
     ? messages.filter((m) => m.content.toLowerCase().includes(searchQuery.trim().toLowerCase())).length
     : 0;
 
+  const isEmpty = messages.length === 0 && !isTyping;
+
+  // ── Welcome / landing state ──
+  if (isEmpty) {
+    return (
+      <div className="relative flex flex-col h-full bg-surface">
+        {/* Spacer pushes content to center */}
+        <div className="flex-1" />
+
+        {/* Logo + wordmark */}
+        <div className="flex flex-col items-center gap-4 px-6">
+          <img src="/assets/agenc-logo.svg" alt="AgenC" className="w-16 h-16 dark:hidden" />
+          <img src="/assets/agenc-logo-white.svg" alt="AgenC" className="w-16 h-16 hidden dark:block" />
+          <img src="/assets/agenc-wordmark.svg" alt="AgenC" className="h-6 dark:invert" />
+        </div>
+
+        {/* Input */}
+        <div className="mt-8 px-4 md:px-6">
+          <ChatInput
+            onSend={onSend}
+            disabled={!connected}
+            voiceState={voiceState}
+            voiceMode={voiceMode}
+            onVoiceToggle={onVoiceToggle}
+            onPushToTalkStart={onPushToTalkStart}
+            onPushToTalkStop={onPushToTalkStop}
+          />
+        </div>
+
+        {/* Spacer below (slightly larger so it sits above center) */}
+        <div className="flex-[1.4]" />
+
+        {/* Voice overlay */}
+        {onVoiceModeChange && onVoiceToggle && (
+          <VoiceOverlay
+            voiceState={voiceState}
+            transcript={voiceTranscript}
+            mode={voiceMode}
+            onModeChange={onVoiceModeChange}
+            onStop={onVoiceToggle}
+            onPushToTalkStart={onPushToTalkStart}
+            onPushToTalkStop={onPushToTalkStop}
+          />
+        )}
+      </div>
+    );
+  }
+
+  // ── Active chat state ──
   return (
     <div className="relative flex flex-col h-full bg-surface">
       {/* Top header bar — hidden on mobile (MobileHeader used instead) */}
       <div className="hidden md:flex items-center justify-between px-6 py-4 border-b border-tetsuo-200 bg-surface">
-        {/* Left: title */}
         <h1 className="text-xl font-bold text-tetsuo-800 tracking-tight">
           AgenC 1.0
         </h1>
-
-        {/* Right: action buttons */}
         <div className="flex items-center gap-1">
-          {/* Theme toggle */}
           <button
             onClick={onToggleTheme}
             className="w-9 h-9 rounded-lg flex items-center justify-center text-tetsuo-400 hover:text-tetsuo-600 hover:bg-tetsuo-100 transition-colors"
@@ -108,7 +153,6 @@ export function ChatView({
               </svg>
             )}
           </button>
-          {/* Search */}
           <button
             onClick={toggleSearch}
             className={`w-9 h-9 rounded-lg flex items-center justify-center transition-colors ${searchOpen ? 'text-accent bg-accent-bg' : 'text-tetsuo-400 hover:text-tetsuo-600 hover:bg-tetsuo-100'}`}
@@ -116,7 +160,6 @@ export function ChatView({
           >
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
           </button>
-          {/* Download App button */}
           <button className="ml-2 flex items-center gap-2 px-4 py-2 rounded-lg border border-tetsuo-200 text-sm font-medium text-tetsuo-700 hover:bg-tetsuo-50 transition-colors">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
             Download App
@@ -154,7 +197,7 @@ export function ChatView({
         </div>
       )}
 
-      {/* Mobile-only: Recent Chats button (RightPanel not visible on mobile) */}
+      {/* Mobile-only: Recent Chats button */}
       <div className="flex lg:hidden items-center justify-between px-4 py-2 border-b border-tetsuo-200 bg-tetsuo-50/50">
         <button
           onClick={() => setSessionsOpen(true)}
@@ -187,7 +230,7 @@ export function ChatView({
         onPushToTalkStop={onPushToTalkStop}
       />
 
-      {/* Voice overlay — stacks above everything when active */}
+      {/* Voice overlay */}
       {onVoiceModeChange && onVoiceToggle && (
         <VoiceOverlay
           voiceState={voiceState}
