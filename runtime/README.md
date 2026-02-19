@@ -858,8 +858,17 @@ const completeResult = await operations.completeTask(claimPda, {
 // Complete a task (private/ZK)
 const privateResult = await operations.completePrivateTask(claimPda, {
   proofHash: new Uint8Array(32).fill(1),
-  proofData: zkProofBytes,
-  publicInputs: inputsArray,
+  sealBytes,
+  journal,
+  imageId,
+  bindingSeed,
+  nullifierSeed,
+  routerProgram,
+  router,
+  verifierEntry,
+  verifierProgram,
+  bindingSpend,
+  nullifierSpend,
 });
 ```
 

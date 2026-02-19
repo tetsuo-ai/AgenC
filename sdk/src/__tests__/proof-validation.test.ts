@@ -10,7 +10,7 @@ import { NullifierCache } from '../nullifier-cache';
 import {
   completeTaskPrivateWithPreflight,
   completeTaskPrivateSafe,
-  type PrivateCompletionProof,
+  type PrivateCompletionPayload,
   ProofSubmissionPreflightError,
   ProofPreconditionError,
 } from '../tasks';
@@ -53,7 +53,7 @@ function makeJournal(fields: {
 }
 
 function makeProof(
-  overrides: Partial<PrivateCompletionProof> & {
+  overrides: Partial<PrivateCompletionPayload> & {
     taskPda?: PublicKey;
     authorityPubkey?: PublicKey;
     constraintHash?: Uint8Array;
@@ -65,7 +65,7 @@ function makeProof(
     journalLen?: number;
     imageIdBytes?: Uint8Array;
   } = {},
-): PrivateCompletionProof {
+): PrivateCompletionPayload {
   const taskPda = overrides.taskPda ?? Keypair.generate().publicKey;
   const authorityPubkey = overrides.authorityPubkey ?? Keypair.generate().publicKey;
   const constraintHash = overrides.constraintHash ?? makeBytes(32, 1);

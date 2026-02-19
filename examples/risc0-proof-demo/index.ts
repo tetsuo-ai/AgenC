@@ -1,16 +1,16 @@
 /**
- * Simple AgenC SDK usage with the RISC0 private payload model.
+ * RISC0 private payload demo.
  *
- * Usage:
- *   npx tsx examples/simple-usage/index.ts
+ * Run:
+ *   npx tsx examples/risc0-proof-demo/index.ts
  */
 
 import { PublicKey } from '@solana/web3.js';
 import {
   PROGRAM_ID,
   TRUSTED_RISC0_SELECTOR,
-  generateSalt,
   generateProof,
+  generateSalt,
 } from '@agenc/sdk';
 
 const ROUTER_PROGRAM_ID = new PublicKey('6JvFfBrvCcWgANKh1Eae9xDq4RC6cfJuBcf71rp2k9Y7');
@@ -20,7 +20,7 @@ const VERIFIER_SEED = Buffer.from('verifier');
 const BINDING_SPEND_SEED = Buffer.from('binding_spend');
 const NULLIFIER_SPEND_SEED = Buffer.from('nullifier_spend');
 
-function deriveSubmissionAccounts(bindingSeed: Buffer, nullifierSeed: Buffer) {
+function deriveRouterSubmissionAccounts(bindingSeed: Buffer, nullifierSeed: Buffer) {
   const [bindingSpend] = PublicKey.findProgramAddressSync(
     [BINDING_SPEND_SEED, bindingSeed],
     PROGRAM_ID,
@@ -51,41 +51,34 @@ function deriveSubmissionAccounts(bindingSeed: Buffer, nullifierSeed: Buffer) {
 async function main() {
   const taskPda = new PublicKey('5oW3w7vxaX4jA5de7AaShARQnTPN9JMWVqoB2RQ5x7h7');
   const agentPubkey = new PublicKey('7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU');
-  const output = [1n, 2n, 3n, 4n];
+  const output = [11n, 22n, 33n, 44n];
   const salt = generateSalt();
 
-  console.log('Generating private payload...');
   const proof = await generateProof({
     taskPda,
     agentPubkey,
     output,
     salt,
   });
+  const accounts = deriveRouterSubmissionAccounts(proof.bindingSeed, proof.nullifierSeed);
 
-  const accounts = deriveSubmissionAccounts(proof.bindingSeed, proof.nullifierSeed);
-
-  console.log('Payload shape:');
-  console.log('  sealBytes:', proof.sealBytes.length);
-  console.log('  journal:', proof.journal.length);
-  console.log('  imageId:', proof.imageId.length);
-  console.log('  bindingSeed:', proof.bindingSeed.length);
-  console.log('  nullifierSeed:', proof.nullifierSeed.length);
-
-  console.log('\nSubmission accounts:');
-  console.log('  routerProgram:', accounts.routerProgram.toBase58());
-  console.log('  router:', accounts.router.toBase58());
-  console.log('  verifierEntry:', accounts.verifierEntry.toBase58());
-  console.log('  verifierProgram:', accounts.verifierProgram.toBase58());
-  console.log('  bindingSpend:', accounts.bindingSpend.toBase58());
-  console.log('  nullifierSpend:', accounts.nullifierSpend.toBase58());
-
-  console.log('\nInstruction payload preview:');
+  console.log('RISC0 payload');
   console.log({
-    sealBytes: Array.from(proof.sealBytes.subarray(0, 12)),
-    journal: Array.from(proof.journal.subarray(0, 12)),
-    imageId: Array.from(proof.imageId),
-    bindingSeed: Array.from(proof.bindingSeed),
-    nullifierSeed: Array.from(proof.nullifierSeed),
+    sealBytes: proof.sealBytes.length,
+    journal: proof.journal.length,
+    imageId: proof.imageId.toString('hex'),
+    bindingSeed: proof.bindingSeed.toString('hex'),
+    nullifierSeed: proof.nullifierSeed.toString('hex'),
+  });
+
+  console.log('\nRouter account model');
+  console.log({
+    routerProgram: accounts.routerProgram.toBase58(),
+    router: accounts.router.toBase58(),
+    verifierEntry: accounts.verifierEntry.toBase58(),
+    verifierProgram: accounts.verifierProgram.toBase58(),
+    bindingSpend: accounts.bindingSpend.toBase58(),
+    nullifierSpend: accounts.nullifierSpend.toBase58(),
   });
 }
 

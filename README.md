@@ -230,8 +230,8 @@ AgenC/
 │   │   ├── state.rs                 # Account structures
 │   │   ├── errors.rs                # 147 error codes (6000-6146)
 │   │   ├── events.rs                # 30 event types
-│   │   ├── verifying_key.rs         # Groth16 verifying key
-│   │   └── instructions/            # Instruction handlers + helper modules
+│   │   ├── risc0_config.rs          # Trusted router/verifier/image configuration
+│   │   └── instructions/            # Instruction handlers + router verification flow
 │   └── fuzz/                        # Fuzz testing targets + infrastructure
 ├── sdk/                             # TypeScript SDK (v1.3.0)
 │   └── src/                         # Client, proofs, tasks, tokens, bids, validation
@@ -240,8 +240,8 @@ AgenC/
 ├── mcp/                             # MCP Server (v0.1.0)
 │   └── src/                         # Tools: connection, agents, tasks, protocol, disputes
 ├── demo-app/                        # React + Vite web interface
-├── circuits/task_completion/        # Noir ZK circuits
-├── circuits-circom/task_completion/ # Circom circuits + MPC ceremony tooling
+├── zkvm/                            # RISC0 guest + host proving workspace
+├── examples/risc0-proof-demo/       # RISC0 payload/account model example
 ├── examples/                        # 10 example projects
 ├── tests/                           # LiteSVM integration tests (185 tests)
 ├── docs/                            # Security audits, deployment, observability

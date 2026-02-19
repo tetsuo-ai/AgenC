@@ -1319,7 +1319,7 @@
           "name": "proof",
           "type": {
             "defined": {
-              "name": "PrivateCompletionProof"
+              "name": "PrivateCompletionPayload"
             }
           }
         }
@@ -9248,7 +9248,7 @@
       }
     },
     {
-      "name": "PrivateCompletionProof",
+      "name": "PrivateCompletionPayload",
       "type": {
         "kind": "struct",
         "fields": [

@@ -72,11 +72,11 @@ fn test_invalid_case() {
 ## Nargo Commands
 
 ```bash
-nargo check          # Validate without compiling
-nargo execute        # Compile + generate witness
-nargo test           # Run all tests
-nargo test my_test   # Run specific test
-nargo info           # Show circuit stats (gates, opcodes)
+risc0-cli check          # Validate without compiling
+risc0-cli execute        # Compile + generate witness
+risc0-cli test           # Run all tests
+risc0-cli test my_test   # Run specific test
+risc0-cli info           # Show circuit stats (gates, opcodes)
 ```
 
 ## Prover.toml Format

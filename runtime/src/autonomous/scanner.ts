@@ -138,7 +138,8 @@ export class TaskScanner {
   subscribeToNewTasks(callback: TaskCreatedCallback): TaskEventSubscription {
     this.logger.debug('Subscribing to TaskCreated events...');
 
-    const listenerId = this.program.addEventListener(
+    // Avoid deep type instantiation from the generated IDL event union in this call site.
+    const listenerId = (this.program as Program<any>).addEventListener(
       'taskCreated',
       async (rawEvent: RawTaskCreatedEvent, slot: number, signature: string) => {
         try {

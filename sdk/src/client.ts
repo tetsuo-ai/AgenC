@@ -6,10 +6,25 @@
 
 import { Connection, PublicKey, Keypair, LAMPORTS_PER_SOL } from '@solana/web3.js';
 import { type Idl, Program, AnchorProvider, Wallet } from '@coral-xyz/anchor';
-import { AgenCPrivacyClient } from './privacy';
 import { DEVNET_RPC, MAINNET_RPC } from './constants';
 import { validateProverEndpoint } from './validation';
 import { createLogger, silentLogger, type Logger, type LogLevel } from './logger';
+
+interface PrivacyOperationsClient {
+  initPrivacyCash(wallet: Keypair): Promise<void>;
+  shieldEscrow(wallet: Keypair, lamports: number): Promise<{ txSignature: string; shieldedAmount: number }>;
+  getShieldedBalance(): Promise<{ lamports: number }>;
+  completeTaskPrivate(
+    params: {
+      taskId: number;
+      output: bigint[];
+      salt: bigint;
+      recipientWallet: PublicKey;
+      escrowLamports: number;
+    },
+    wallet: Keypair,
+  ): Promise<{ proofTxSignature: string; withdrawResult: any }>;
+}
 
 export interface PrivacyClientConfig {
   /** Solana RPC endpoint URL */
@@ -31,7 +46,7 @@ export interface PrivacyClientConfig {
 export class PrivacyClient {
   private connection: Connection;
   private program: Program | null = null;
-  private privacyClient: AgenCPrivacyClient | null = null;
+  private privacyClient: PrivacyOperationsClient | null = null;
   private config: PrivacyClientConfig;
   private wallet: Keypair | null = null;
   private logger: Logger;
@@ -119,15 +134,11 @@ export class PrivacyClient {
     const pubkey = wallet.publicKey.toBase58();
     this.logger.debug(`Wallet initialized: ${pubkey.substring(0, 8)}...${pubkey.substring(pubkey.length - 4)}`);
 
-    // Initialize privacy client only if program is available
+    // The legacy embedded privacy client was removed from the SDK package.
+    // Use explicit task/proof APIs for private completion flows.
     if (this.program) {
-      this.privacyClient = new AgenCPrivacyClient(
-        this.connection,
-        this.program,
-        undefined,
-        this.connection.rpcEndpoint
-      );
-      await this.privacyClient.initPrivacyCash(wallet);
+      this.logger.warn('Embedded privacy client is unavailable in this build');
+      this.privacyClient = null;
     }
   }
 
@@ -223,9 +234,9 @@ export class PrivacyClient {
   }
 
   /**
-   * Get the underlying AgenCPrivacyClient for advanced operations
+   * Get the underlying privacy operations client for advanced operations
    */
-  getPrivacyClient(): AgenCPrivacyClient | null {
+  getPrivacyClient(): PrivacyOperationsClient | null {
     return this.privacyClient;
   }
 

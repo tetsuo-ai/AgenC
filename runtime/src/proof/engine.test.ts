@@ -19,7 +19,7 @@ vi.mock('@agenc/sdk', () => {
       proof: Buffer.alloc(256, 0xaa),
       constraintHash: Buffer.alloc(32, 0x01),
       outputCommitment: Buffer.alloc(32, 0x02),
-      expectedBinding: Buffer.alloc(32, 0x03),
+      bindingDigest: Buffer.alloc(32, 0x03),
       nullifier: Buffer.alloc(32, 0x04),
       proofSize: 260,
       generationTime: 42,
@@ -28,7 +28,7 @@ vi.mock('@agenc/sdk', () => {
     computeHashes: vi.fn().mockReturnValue({
       constraintHash: 123n,
       outputCommitment: 456n,
-      expectedBinding: 789n,
+      bindingDigest: 789n,
       nullifier: 101112n,
     }),
     generateSalt: vi.fn().mockReturnValue(999n),
@@ -154,14 +154,14 @@ describe('ProofEngine', () => {
       expect(result.generationTimeMs).toBeGreaterThanOrEqual(0);
     });
 
-    it('does not pass legacy circuitPath to SDK', async () => {
+    it('does not pass legacy path args to SDK', async () => {
       const engine = new ProofEngine();
       const inputs = makeInputs();
       await engine.generate(inputs);
 
       const args = vi.mocked(mockGenerateProof).mock.calls[0]?.[0];
       expect(args).toBeDefined();
-      expect(Object.prototype.hasOwnProperty.call(args, 'circuitPath')).toBe(false);
+      expect(Object.prototype.hasOwnProperty.call(args, 'legacyPath')).toBe(false);
     });
 
     it('enforces configured methodId against generated imageId', async () => {
@@ -174,17 +174,17 @@ describe('ProofEngine', () => {
     });
 
     it('wraps SDK errors in ProofGenerationError', async () => {
-      vi.mocked(mockGenerateProof).mockRejectedValueOnce(new Error('snarkjs boom'));
+      vi.mocked(mockGenerateProof).mockRejectedValueOnce(new Error('proof backend boom'));
       const engine = new ProofEngine();
 
       await expect(engine.generate(makeInputs())).rejects.toThrow(ProofGenerationError);
     });
 
     it('ProofGenerationError message includes SDK error details', async () => {
-      vi.mocked(mockGenerateProof).mockRejectedValueOnce(new Error('snarkjs boom'));
+      vi.mocked(mockGenerateProof).mockRejectedValueOnce(new Error('proof backend boom'));
       const engine = new ProofEngine();
 
-      await expect(engine.generate(makeInputs())).rejects.toThrow('snarkjs boom');
+      await expect(engine.generate(makeInputs())).rejects.toThrow('proof backend boom');
     });
 
     it('wraps non-Error SDK throws in ProofGenerationError', async () => {
@@ -374,7 +374,7 @@ describe('ProofEngine', () => {
       );
       expect(result.constraintHash).toBe(123n);
       expect(result.outputCommitment).toBe(456n);
-      expect(result.expectedBinding).toBe(789n);
+      expect(result.bindingDigest).toBe(789n);
       expect(result.nullifier).toBe(101112n);
     });
   });

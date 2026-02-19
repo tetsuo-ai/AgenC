@@ -105,12 +105,12 @@
     {
       "name": "completeTaskPrivate",
       "kind": "function",
-      "signature": "(connection: Connection, program: Program, worker: Keypair, workerAgentId: Uint8Array | number[], taskPda: PublicKey, proof: PrivateCompletionProof): Promise<{ txSignature: string; }>"
+      "signature": "(connection: Connection, program: Program, worker: Keypair, workerAgentId: Uint8Array | number[], taskPda: PublicKey, proof: PrivateCompletionPayload): Promise<{ txSignature: string; }>"
     },
     {
       "name": "completeTaskPrivateSafe",
       "kind": "function",
-      "signature": "(connection: Connection, program: Program, worker: Keypair, workerAgentId: Uint8Array | number[], taskPda: PublicKey, proof: PrivateCompletionProof, options?: CompleteTaskPrivateSafeOptions): Promise<{ txSignature: string; validationResult?: ProofPreconditionResult; }>"
+      "signature": "(connection: Connection, program: Program, worker: Keypair, workerAgentId: Uint8Array | number[], taskPda: PublicKey, proof: PrivateCompletionPayload, options?: CompleteTaskPrivateSafeOptions): Promise<{ txSignature: string; validationResult?: ProofPreconditionResult; }>"
     },
     {
       "name": "CompleteTaskPrivateSafeOptions",
@@ -127,7 +127,7 @@
       "signature": "(output: bigint[]): bigint"
     },
     {
-      "name": "computeExpectedBinding",
+      "name": "computeBindingDigest",
       "kind": "function",
       "signature": "(taskPda: PublicKey, agentPubkey: PublicKey, outputCommitment: bigint): bigint"
     },
@@ -501,7 +501,7 @@
       "kind": "interface"
     },
     {
-      "name": "PrivateCompletionProof",
+      "name": "PrivateCompletionPayload",
       "kind": "interface"
     },
     {
@@ -818,7 +818,7 @@
     {
       "name": "verifyProofLocally",
       "kind": "function",
-      "signature": "(proof: Buffer, publicSignals: bigint[], circuitPath?: string): Promise<boolean>"
+      "signature": "(proof: Buffer, publicSignals: bigint[]): Promise<boolean>"
     },
     {
       "name": "VERSION",

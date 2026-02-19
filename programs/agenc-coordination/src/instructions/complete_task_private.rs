@@ -38,7 +38,7 @@ const TRUSTED_RISC0_IMAGE_ID: [u8; RISC0_IMAGE_ID_LEN] = [
 ];
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
-pub struct PrivateCompletionProof {
+pub struct PrivateCompletionPayload {
     pub seal_bytes: Vec<u8>,
     pub journal: Vec<u8>,
     pub image_id: [u8; RISC0_IMAGE_ID_LEN],
@@ -47,7 +47,7 @@ pub struct PrivateCompletionProof {
 }
 
 #[derive(Accounts)]
-#[instruction(task_id: u64, proof: PrivateCompletionProof)]
+#[instruction(task_id: u64, proof: PrivateCompletionPayload)]
 pub struct CompleteTaskPrivate<'info> {
     #[account(
         mut,
@@ -175,7 +175,7 @@ pub struct CompleteTaskPrivate<'info> {
 pub fn complete_task_private(
     ctx: Context<CompleteTaskPrivate>,
     task_id: u64,
-    proof: PrivateCompletionProof,
+    proof: PrivateCompletionPayload,
 ) -> Result<()> {
     let clock = Clock::get()?;
 

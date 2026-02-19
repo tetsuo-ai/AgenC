@@ -95,7 +95,7 @@ export interface TaskStatus {
   rewardMint: PublicKey | null;
 }
 
-export interface PrivateCompletionProof {
+export interface PrivateCompletionPayload {
   /** Borsh-encoded router seal bytes (selector + proof = 260 bytes) */
   sealBytes: Buffer | Uint8Array;
   /** Fixed private journal bytes (192 bytes) */
@@ -632,7 +632,7 @@ export async function completeTaskPrivate(
   worker: Keypair,
   workerAgentId: Uint8Array | number[],
   taskPda: PublicKey,
-  proof: PrivateCompletionProof,
+  proof: PrivateCompletionPayload,
 ): Promise<{ txSignature: string }> {
   const programId = program.programId;
   const workerAgentPda = deriveAgentPda(workerAgentId, programId);
@@ -747,7 +747,7 @@ export async function completeTaskPrivateWithPreflight(
   worker: Keypair,
   workerAgentId: Uint8Array | number[],
   taskPda: PublicKey,
-  proof: PrivateCompletionProof,
+  proof: PrivateCompletionPayload,
   options: CompleteTaskPrivateWithPreflightOptions = {},
 ): Promise<{ txSignature: string; preflightResult?: ProofSubmissionPreflightResult }> {
   if (options.nullifierCache?.isUsed(proof.nullifierSeed)) {
@@ -807,7 +807,7 @@ export async function completeTaskPrivateSafe(
   worker: Keypair,
   workerAgentId: Uint8Array | number[],
   taskPda: PublicKey,
-  proof: PrivateCompletionProof,
+  proof: PrivateCompletionPayload,
   options: CompleteTaskPrivateSafeOptions = {},
 ): Promise<{ txSignature: string; validationResult?: ProofPreconditionResult }> {
   const runProofSubmissionPreflightOption = options.runProofSubmissionPreflight

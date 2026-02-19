@@ -152,7 +152,13 @@ await monitor.stop();
 import { ProofEngine } from '@agenc/runtime';
 
 const engine = new ProofEngine({
-  circuitPath: './circuits-circom/task_completion',
+  methodId: trustedImageIdBytes,
+  routerConfig: {
+    routerProgram,
+    router,
+    verifierEntry,
+    verifierProgram,
+  },
   verifyAfterGeneration: false,
   cache: { ttlMs: 300_000, maxEntries: 100 },
 });
@@ -310,7 +316,11 @@ Provider-specific additions:
 
 | Field | Type | Required | Default |
 |-------|------|----------|---------|
-| `circuitPath` | `string` | No | `./circuits-circom/task_completion` |
+| `methodId` | `Uint8Array` | Yes | Trusted image ID bytes |
+| `routerConfig.routerProgram` | `PublicKey` | Yes | Trusted router program |
+| `routerConfig.router` | `PublicKey` | Yes | Router PDA |
+| `routerConfig.verifierEntry` | `PublicKey` | Yes | Verifier-entry PDA |
+| `routerConfig.verifierProgram` | `PublicKey` | Yes | Trusted verifier program |
 | `verifyAfterGeneration` | `boolean` | No | `false` |
 | `cache.ttlMs` | `number` | No | `300_000` |
 | `cache.maxEntries` | `number` | No | `100` |

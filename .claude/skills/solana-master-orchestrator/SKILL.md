@@ -171,7 +171,7 @@ npx tsc --noEmit 2>&1
 #### Step 4.4: Check ZK Circuits (if Noir installed)
 ```bash
 cd /home/tetsuo/git/AgenC/circuits/task_completion
-nargo check 2>&1 || echo "Noir not installed, skipping circuit check"
+risc0-cli check 2>&1 || echo "Noir not installed, skipping circuit check"
 ```
 
 If any validation fails:

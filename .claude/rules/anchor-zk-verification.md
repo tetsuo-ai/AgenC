@@ -17,7 +17,7 @@ pub const ZK_VERIFIER_PROGRAM_ID: Pubkey = pubkey!("8fHUGmjNzSh76r78v1rPt7BhWmAu
 ## Proof Structure
 
 ```rust
-pub struct PrivateCompletionProof {
+pub struct PrivateCompletionPayload {
     pub proof_data: Vec<u8>,         // Groth16 proof (~256 bytes for BN254)
     pub constraint_hash: [u8; 32],   // Public: task constraint hash
     pub output_commitment: [u8; 32], // Public: commitment to private output

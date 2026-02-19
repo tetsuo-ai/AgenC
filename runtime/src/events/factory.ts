@@ -8,7 +8,6 @@
  */
 
 import { Program } from '@coral-xyz/anchor';
-import type { AgencCoordination } from '../types/agenc_coordination.js';
 import { agentIdsEqual } from '../utils/encoding.js';
 import type { EventSubscription } from './types.js';
 
@@ -46,7 +45,8 @@ type Callback<T> = (event: T, slot: number, signature: string) => void;
  * @returns Subscription handle for unsubscribing
  */
 export function createEventSubscription<TRaw, TParsed, TOptions>(
-  program: Program<AgencCoordination>,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- avoid deep generic instantiation from generated IDL type
+  program: Program<any>,
   config: EventSubscriptionConfig<TRaw, TParsed, TOptions>,
   callback: Callback<TParsed>,
   options?: TOptions,

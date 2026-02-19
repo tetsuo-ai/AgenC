@@ -75,7 +75,7 @@ npm run subscribe
 |---------|---------|
 | AgenC Coordination | `EopUaCV2svxj9j4hd7KjbrWfdjkspmm2BCBe7jGpKzKZ` |
 
-Note: ZK proof verification is now inline via groth16-solana (no external verifier program).
+Note: private completion verification now routes through router/verifier-entry accounts and the trusted verifier program.
 
 ## Integration Examples
 

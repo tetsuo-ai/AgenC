@@ -59,7 +59,7 @@ metadata:
       - zk
     requires:
       binaries:
-        - nargo
+        - risc0-prover
 ---
 # AgenC Native
 

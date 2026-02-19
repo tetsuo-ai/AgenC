@@ -9,7 +9,7 @@ import {
   TRUSTED_RISC0_IMAGE_ID,
   TRUSTED_RISC0_SELECTOR,
 } from './constants';
-import { getTask, deriveClaimPda, TaskState, type PrivateCompletionProof } from './tasks';
+import { getTask, deriveClaimPda, TaskState, type PrivateCompletionPayload } from './tasks';
 import { getAccount } from './anchor-utils';
 
 const BINDING_SPEND_SEED = Buffer.from('binding_spend');
@@ -59,7 +59,7 @@ export interface ProofSubmissionPreflightParams {
   workerAgentPda: PublicKey;
   authorityPubkey?: PublicKey;
   proof: Pick<
-    PrivateCompletionProof,
+    PrivateCompletionPayload,
     'sealBytes' | 'journal' | 'imageId' | 'bindingSeed' | 'nullifierSeed'
   >;
   proofGeneratedAtMs?: number;

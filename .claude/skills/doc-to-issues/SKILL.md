@@ -449,7 +449,7 @@ This skill is designed for the AgenC Solana project. Key patterns to use:
 
 - **File structure**: `circuits/task_completion/src/main.nr`
 - **Hash function**: Poseidon2 for ZK-friendly hashing
-- **Build**: `nargo compile`, `nargo prove`
+- **Build**: `risc0-cli compile`, `risc0-cli prove`
 
 ### Test Infrastructure
 

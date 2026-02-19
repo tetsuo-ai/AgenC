@@ -15,7 +15,7 @@ export {
   pubkeyToField,
   FIELD_MODULUS,
   // Hash computation functions
-  computeExpectedBinding,
+  computeBindingDigest,
   computeConstraintHash,
   // Types
   ProofGenerationParams,
@@ -46,7 +46,7 @@ export {
   TaskStatus,
   TaskLifecycleEvent,
   TaskLifecycleSummary,
-  PrivateCompletionProof,
+  PrivateCompletionPayload,
   CompleteTaskPrivateSafeOptions,
   ProofPreconditionError,
 } from './tasks';

@@ -51,7 +51,7 @@ cd {worktree_path} && npx tsc --noEmit --project tsconfig.json 2>&1
 ### Noir (ZK Circuits)
 
 ```bash
-cd {worktree_path}/circuits/task_completion && nargo check 2>&1
+cd {worktree_path}/circuits/task_completion && risc0-cli check 2>&1
 ```
 
 ## MCP Verification

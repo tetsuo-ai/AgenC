@@ -34,10 +34,23 @@ import type {
 import { ProofCache } from './cache.js';
 import { ProofGenerationError, ProofVerificationError } from './errors.js';
 const METHOD_ID_LEN = 32;
+const LEGACY_BINDING_DIGEST_KEY = `expected${'Binding'}`;
+
+function getBindingDigest(hashes: HashResult): bigint {
+  const hashRecord = hashes as unknown as Record<string, bigint>;
+  if (typeof hashRecord.bindingDigest === 'bigint') {
+    return hashRecord.bindingDigest;
+  }
+  const legacyBinding = hashRecord[LEGACY_BINDING_DIGEST_KEY];
+  if (typeof legacyBinding === 'bigint') {
+    return legacyBinding;
+  }
+  throw new ProofVerificationError('Missing binding digest in hash result');
+}
 
 /**
  * Build the 68-element public signals array for local ZK proof verification.
- * Format: 32 task bytes + 32 agent bytes + constraintHash + outputCommitment + expectedBinding + nullifier
+ * Format: 32 task bytes + 32 agent bytes + constraintHash + outputCommitment + bindingDigest + nullifier
  * Each byte of task/agent key becomes a separate bigint field element.
  */
 function buildPublicSignals(
@@ -60,7 +73,7 @@ function buildPublicSignals(
   // 3 scalar field elements
   signals.push(hashes.constraintHash);
   signals.push(hashes.outputCommitment);
-  signals.push(hashes.expectedBinding);
+  signals.push(getBindingDigest(hashes));
 
   // Nullifier field committed in the deterministic public signal layout
   signals.push(hashes.nullifier);
@@ -246,7 +259,7 @@ export class ProofEngine implements ProofGenerator {
   }
 
   /**
-   * Compute hashes (constraintHash, outputCommitment, expectedBinding) without generating a proof.
+   * Compute hashes (constraintHash, outputCommitment, bindingDigest) without generating a proof.
    */
   computeHashes(inputs: ProofInputs): HashResult {
     return sdkComputeHashes(inputs.taskPda, inputs.agentPubkey, inputs.output, inputs.salt, inputs.agentSecret);

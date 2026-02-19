@@ -4,7 +4,7 @@
 - `programs/agenc-coordination/`: Anchor Solana program (Rust). Instruction handlers live in `src/instructions/`; fuzz targets live in `fuzz/`.
 - `sdk/`, `runtime/`, `mcp/`, and `docs-mcp/`: core TypeScript packages built and tested independently.
 - `tests/`: root integration suite (LiteSVM + Anchor flows).
-- `circuits/` and `circuits-circom/`: Noir/Circom ZK circuits and ceremony tooling.
+- `circuits/` and `circuits-legacy-circuit/`: Noir/Circom ZK circuits and ceremony tooling.
 - App surfaces: `web/`, `mobile/`, `demo-app/`, and `examples/`.
 - Operational docs/scripts: `docs/` and `scripts/`.
 

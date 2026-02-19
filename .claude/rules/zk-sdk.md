@@ -9,18 +9,18 @@ paths:
 ## Proof Generation Flow
 
 1. Generate `Prover.toml` with inputs
-2. Run `nargo execute` to compile and generate witness
-3. Run `sunspot prove` to generate Groth16 proof
-4. Verify locally with `sunspot verify` before on-chain submission
+2. Run `risc0-cli execute` to compile and generate witness
+3. Run `risc0-prover-cli prove` to generate Groth16 proof
+4. Verify locally with `risc0-prover-cli verify` before on-chain submission
 
 ## Required Tools
 
-- `nargo` - Noir compiler (>=0.36.0)
-- `sunspot` - Groth16 prover for Solana
+- `risc0-cli` - Noir compiler (>=0.36.0)
+- `risc0-prover-cli` - Groth16 prover for Solana
 
 Check availability:
 ```typescript
-const { nargo, sunspot } = checkToolsAvailable();
+const { risc0-cli, risc0-prover-cli } = checkToolsAvailable();
 ```
 
 ## Public Inputs Structure
@@ -53,4 +53,4 @@ interface ProofResult {
 
 ## Error Handling
 
-Always wrap proof generation in try/catch - the `nargo` and `sunspot` CLI tools can fail for various reasons (invalid inputs, missing files, compilation errors).
+Always wrap proof generation in try/catch - the `risc0-cli` and `risc0-prover-cli` CLI tools can fail for various reasons (invalid inputs, missing files, compilation errors).

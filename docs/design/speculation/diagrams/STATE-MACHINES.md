@@ -24,7 +24,7 @@ The ProofStatus state machine tracks the lifecycle of a zero-knowledge proof fro
 | State | Description |
 |-------|-------------|
 | `pending` | Proof generation has been requested but not yet started |
-| `generating` | Proof generation is in progress (snarkjs/Groth16 running) |
+| `generating` | Proof generation is in progress (RISC0 payload generation running) |
 | `generated` | Proof successfully generated, awaiting submission |
 | `submitting` | Proof transaction submitted to chain, awaiting confirmation |
 | `confirmed` | Proof verified and confirmed on-chain |

@@ -1,7 +1,0 @@
-[package]
-name = "task_completion"
-type = "bin"
-authors = ["Tetsuo Team"]
-compiler_version = ">=0.36.0"
-
-[dependencies]

@@ -268,6 +268,14 @@ enum DependencyStatus {
 
 **Key Data Structures**:
 ```typescript
+interface Risc0PrivatePayload {
+  sealBytes: Uint8Array;
+  journal: Uint8Array;
+  imageId: Uint8Array;
+  bindingSeed: Uint8Array;
+  nullifierSeed: Uint8Array;
+}
+
 interface SpeculativeCommitment {
   taskId: Uint8Array;           // Task identifier
   outputCommitment: Uint8Array; // Poseidon2(constraintHash, salt)
@@ -277,7 +285,7 @@ interface SpeculativeCommitment {
   speculationDepth: number;
   createdAt: number;
   expiresAt: number;            // TTL-based expiration
-  proofData: Uint8Array | null; // Generated proof (388 bytes)
+  privatePayload: Risc0PrivatePayload | null; // seal/journal/image/binding/nullifier bundle
   bondedStake: bigint;          // Lamports bonded for this commitment
 }
 
@@ -307,8 +315,7 @@ enum CommitmentStatus {
 ```typescript
 interface DeferredProof {
   taskId: Uint8Array;
-  proof: Uint8Array;            // 388-byte Groth16 proof
-  publicInputs: bigint[];       // Circuit public inputs
+  payload: Risc0PrivatePayload; // Private payload bundle for complete_task_private
   ancestors: Uint8Array[];      // Task IDs that must confirm first
   pendingAncestors: Set<string>;  // Hex-encoded IDs still unconfirmed
   status: DeferralStatus;
@@ -983,8 +990,8 @@ export interface SpeculativeCommitment {
   createdAt: number;
   /** Expiration timestamp (createdAt + TTL) */
   expiresAt: number;
-  /** Generated Groth16 proof (388 bytes) */
-  proofData: Uint8Array | null;
+  /** Generated private payload bundle for complete_task_private */
+  privatePayload: Risc0PrivatePayload | null;
   /** Bonded stake in lamports */
   bondedStake: bigint;
   /** Transaction signature if submitted */
@@ -1078,7 +1085,7 @@ export class CommitmentLedger {
       speculationDepth: options.speculationDepth,
       createdAt: now,
       expiresAt: now + (options.ttlMs ?? this.defaultTtlMs),
-      proofData: null,
+      privatePayload: null,
       bondedStake: options.bondedStake ?? 0n,
       submissionTx: null,
       error: null,
@@ -1120,15 +1127,21 @@ export class CommitmentLedger {
   /**
    * Update commitment with generated proof
    */
-  setProof(id: string, proofData: Uint8Array): boolean {
+  setProof(id: string, privatePayload: Risc0PrivatePayload): boolean {
     const commitment = this.commitments.get(id);
     if (!commitment) return false;
     
-    if (proofData.length !== 388) {
-      throw new Error(`Invalid proof size: expected 388, got ${proofData.length}`);
+    if (
+      privatePayload.sealBytes.length !== 260
+      || privatePayload.journal.length !== 192
+      || privatePayload.imageId.length !== 32
+      || privatePayload.bindingSeed.length !== 32
+      || privatePayload.nullifierSeed.length !== 32
+    ) {
+      throw new Error('Invalid private payload shape for complete_task_private');
     }
-    
-    commitment.proofData = proofData;
+
+    commitment.privatePayload = privatePayload;
     commitment.status = CommitmentStatus.ProofGenerated;
     return true;
   }
@@ -1274,7 +1287,15 @@ export class CommitmentLedger {
         outputCommitment: bytesToHex(c.outputCommitment),
         constraintHash: bytesToHex(c.constraintHash),
         salt: c.salt.toString(),
-        proofData: c.proofData ? bytesToHex(c.proofData) : null,
+        privatePayload: c.privatePayload
+          ? {
+              sealBytes: bytesToHex(c.privatePayload.sealBytes),
+              journal: bytesToHex(c.privatePayload.journal),
+              imageId: bytesToHex(c.privatePayload.imageId),
+              bindingSeed: bytesToHex(c.privatePayload.bindingSeed),
+              nullifierSeed: bytesToHex(c.privatePayload.nullifierSeed),
+            }
+          : null,
         bondedStake: c.bondedStake.toString(),
         taskPda: c.taskPda.toBase58(),
       })),
@@ -1299,7 +1320,15 @@ export class CommitmentLedger {
         outputCommitment: hexToBytes(item.outputCommitment),
         constraintHash: hexToBytes(item.constraintHash),
         salt: BigInt(item.salt),
-        proofData: item.proofData ? hexToBytes(item.proofData) : null,
+        privatePayload: item.privatePayload
+          ? {
+              sealBytes: hexToBytes(item.privatePayload.sealBytes),
+              journal: hexToBytes(item.privatePayload.journal),
+              imageId: hexToBytes(item.privatePayload.imageId),
+              bindingSeed: hexToBytes(item.privatePayload.bindingSeed),
+              nullifierSeed: hexToBytes(item.privatePayload.nullifierSeed),
+            }
+          : null,
         bondedStake: BigInt(item.bondedStake),
         taskPda: new PublicKey(item.taskPda),
       };
@@ -2339,7 +2368,7 @@ export class SpeculativeTaskScheduler extends EventEmitter {
     outputCommitment: Uint8Array,
     constraintHash: Uint8Array,
     salt: bigint,
-    proofData: Uint8Array
+    privatePayload: Risc0PrivatePayload
   ): string {
     const node = this.dependencyGraph.getNode(taskId);
     if (!node) {
@@ -2362,7 +2391,7 @@ export class SpeculativeTaskScheduler extends EventEmitter {
     });
     
     // Add proof
-    this.commitmentLedger.setProof(commitment.id, proofData);
+    this.commitmentLedger.setProof(commitment.id, privatePayload);
     
     // Update node status
     node.status = DependencyStatus.Speculative;
@@ -2376,7 +2405,7 @@ export class SpeculativeTaskScheduler extends EventEmitter {
       taskId,
       taskPda: node.taskPda,
       commitmentId: commitment.id,
-      proof: proofData,
+      payload: privatePayload,
       publicInputs: [], // Would be populated by proof generator
       ancestors: ancestors.map((a) => a.taskId),
       priority: node.depth,  // Lower depth = higher priority
@@ -3559,7 +3588,7 @@ class SpeculativeTaskScheduler {
    * @param outputCommitment - Commitment hash
    * @param constraintHash - Constraint hash from output
    * @param salt - Commitment salt
-   * @param proofData - Generated Groth16 proof
+   * @param privatePayload - Generated RISC0 payload bundle
    * @returns Commitment ID
    */
   recordCompletion(
@@ -3567,7 +3596,7 @@ class SpeculativeTaskScheduler {
     outputCommitment: Uint8Array,
     constraintHash: Uint8Array,
     salt: bigint,
-    proofData: Uint8Array
+    privatePayload: Risc0PrivatePayload
   ): string;
   
   /**
@@ -3674,7 +3703,7 @@ class CommitmentLedger {
   /**
    * Set proof data for commitment
    */
-  setProof(id: string, proofData: Uint8Array): boolean;
+  setProof(id: string, privatePayload: Risc0PrivatePayload): boolean;
   
   /**
    * Mark commitment as submitted
