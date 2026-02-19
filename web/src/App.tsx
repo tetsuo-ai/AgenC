@@ -1,6 +1,7 @@
 import { useCallback, useState } from 'react';
 import type { ViewId, WSMessage, ApprovalRequest } from './types';
 import { useWebSocket } from './hooks/useWebSocket';
+import { useTheme } from './hooks/useTheme';
 import { useChat } from './hooks/useChat';
 import { useVoice } from './hooks/useVoice';
 import { useAgentStatus } from './hooks/useAgentStatus';
@@ -8,9 +9,13 @@ import { useSkills } from './hooks/useSkills';
 import { useTasks } from './hooks/useTasks';
 import { useMemory } from './hooks/useMemory';
 import { useApprovals } from './hooks/useApprovals';
+import { useSettings } from './hooks/useSettings';
+import { useWallet } from './hooks/useWallet';
 import { useActivityFeed } from './hooks/useActivityFeed';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { Sidebar } from './components/Sidebar';
+import { RightPanel } from './components/RightPanel';
+import { MobileHeader } from './components/MobileHeader';
 import { ApprovalBanner } from './components/approvals/ApprovalBanner';
 import { ApprovalDialog } from './components/approvals/ApprovalDialog';
 import { ChatView } from './components/chat/ChatView';
@@ -26,6 +31,8 @@ type WithHandler<T> = T & { handleMessage: (msg: WSMessage) => void };
 export default function App() {
   const [currentView, setCurrentView] = useState<ViewId>('chat');
   const [selectedApproval, setSelectedApproval] = useState<ApprovalRequest | null>(null);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const { theme, toggle: toggleTheme } = useTheme();
 
   // WebSocket connection
   const { state: connectionState, send } = useWebSocket({
@@ -42,6 +49,8 @@ export default function App() {
   const tasks = useTasks({ send }) as WithHandler<ReturnType<typeof useTasks>>;
   const memory = useMemory({ send }) as WithHandler<ReturnType<typeof useMemory>>;
   const approvals = useApprovals({ send }) as WithHandler<ReturnType<typeof useApprovals>>;
+  const gatewaySettings = useSettings({ send, connected });
+  const walletInfo = useWallet({ send, connected });
   const activityFeed = useActivityFeed({ send, connected }) as WithHandler<ReturnType<typeof useActivityFeed>>;
 
   // Voice toggle — start or stop voice session
@@ -62,6 +71,8 @@ export default function App() {
     tasks.handleMessage(msg);
     memory.handleMessage(msg);
     approvals.handleMessage(msg);
+    gatewaySettings.handleMessage(msg);
+    walletInfo.handleMessage(msg);
     activityFeed.handleMessage(msg);
   }
 
@@ -83,16 +94,38 @@ export default function App() {
 
   return (
     <ErrorBoundary>
-      <div className="flex h-screen">
-        <Sidebar
-          currentView={currentView}
-          onNavigate={setCurrentView}
-          connectionState={connectionState}
-          workspace="default"
-          pendingApprovals={approvals.pending.length}
-        />
+      <div className="flex h-screen bg-surface">
+        {/* Desktop sidebar */}
+        <div className="hidden md:flex">
+          <Sidebar
+            currentView={currentView}
+            onNavigate={setCurrentView}
+            connectionState={connectionState}
+            workspace="default"
+            pendingApprovals={approvals.pending.length}
+          />
+        </div>
+
+        {/* Mobile sidebar overlay */}
+        {sidebarOpen && (
+          <div className="fixed inset-0 z-50 md:hidden">
+            <div className="absolute inset-0 bg-black/40" onClick={() => setSidebarOpen(false)} />
+            <div className="relative h-full w-[340px] max-w-[85vw] animate-slide-in">
+              <Sidebar
+                currentView={currentView}
+                onNavigate={(view) => { setCurrentView(view); setSidebarOpen(false); }}
+                connectionState={connectionState}
+                workspace="default"
+                pendingApprovals={approvals.pending.length}
+              />
+            </div>
+          </div>
+        )}
 
         <main className="flex-1 flex flex-col min-w-0">
+          {/* Mobile header */}
+          <MobileHeader onMenuToggle={() => setSidebarOpen(true)} />
+
           <ApprovalBanner
             pending={approvals.pending}
             onSelect={setSelectedApproval}
@@ -112,6 +145,8 @@ export default function App() {
                 onVoiceModeChange={voice.setMode}
                 onPushToTalkStart={voice.pushToTalkStart}
                 onPushToTalkStop={voice.pushToTalkStop}
+                theme={theme}
+                onToggleTheme={toggleTheme}
               />
             )}
             {currentView === 'status' && (
@@ -151,6 +186,11 @@ export default function App() {
             )}
           </div>
         </main>
+
+        {/* Desktop right panel */}
+        <div className="hidden lg:flex">
+          <RightPanel settings={gatewaySettings} wallet={walletInfo} />
+        </div>
 
         {selectedApproval && (
           <ApprovalDialog

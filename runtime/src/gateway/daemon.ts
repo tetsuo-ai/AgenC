@@ -880,7 +880,7 @@ export class DaemonManager {
     // Fall back to personality template
     const template = loadPersonalityTemplate('default');
     const nameOverride = config.agent?.name
-      ? { agent: template.agent?.replace('AgenC Agent', config.agent.name) }
+      ? { agent: template.agent?.replace(/^AgenC$/m, config.agent.name) }
       : {};
     const merged = mergePersonality(template, nameOverride);
     const prompt = assembleSystemPrompt(merged, {

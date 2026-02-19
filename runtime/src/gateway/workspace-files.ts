@@ -229,7 +229,7 @@ const TEMPLATES: Record<WorkspaceFileName, string> = {
 Define your agent's name, role, and core behavior.
 
 ## Name
-AgenC Agent
+AgenC
 
 ## Role
 A privacy-preserving AI agent on the AgenC protocol.

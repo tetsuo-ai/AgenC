@@ -7,15 +7,15 @@ interface SkillCardProps {
 
 export function SkillCard({ skill, onToggle }: SkillCardProps) {
   return (
-    <div className="flex items-center justify-between px-4 py-3 bg-tetsuo-800 rounded-lg border border-tetsuo-700">
+    <div className="flex items-center justify-between px-4 py-3 bg-tetsuo-50 rounded-lg border border-tetsuo-200">
       <div>
-        <div className="text-sm font-medium text-tetsuo-100">{skill.name}</div>
-        <div className="text-xs text-tetsuo-400 mt-0.5">{skill.description}</div>
+        <div className="text-sm font-medium text-tetsuo-800">{skill.name}</div>
+        <div className="text-xs text-tetsuo-500 mt-0.5">{skill.description}</div>
       </div>
       <button
         onClick={() => onToggle(skill.name, !skill.enabled)}
         className={`relative w-10 h-5 rounded-full transition-colors ${
-          skill.enabled ? 'bg-accent' : 'bg-tetsuo-600'
+          skill.enabled ? 'bg-accent' : 'bg-tetsuo-300'
         }`}
       >
         <span

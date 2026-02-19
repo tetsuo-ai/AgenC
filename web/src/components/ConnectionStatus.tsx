@@ -10,15 +10,25 @@ const STATE_CONFIG: Record<ConnectionState, { color: string; label: string }> = 
 
 interface ConnectionStatusProps {
   state: ConnectionState;
+  compact?: boolean;
 }
 
-export function ConnectionStatus({ state }: ConnectionStatusProps) {
+export function ConnectionStatus({ state, compact }: ConnectionStatusProps) {
   const { color, label } = STATE_CONFIG[state];
+  const pulse = state === 'connecting' || state === 'authenticating' || state === 'reconnecting' ? 'animate-pulse' : '';
+
+  if (compact) {
+    return (
+      <div className="flex items-center justify-center" title={label}>
+        <span className={`w-2.5 h-2.5 rounded-full ${color} ${pulse}`} />
+      </div>
+    );
+  }
 
   return (
     <div className="flex items-center gap-2 px-3 py-1.5 text-xs">
-      <span className={`w-2 h-2 rounded-full ${color} ${state === 'connecting' || state === 'authenticating' || state === 'reconnecting' ? 'animate-pulse' : ''}`} />
-      <span className="text-tetsuo-400">{label}</span>
+      <span className={`w-2 h-2 rounded-full ${color} ${pulse}`} />
+      <span className="text-tetsuo-500">{label}</span>
     </div>
   );
 }

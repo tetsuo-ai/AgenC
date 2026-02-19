@@ -9,14 +9,6 @@ interface VoiceButtonProps {
   disabled?: boolean;
 }
 
-/**
- * Mic toggle button with visual state indicators.
- *
- * - Inactive: grey mic icon
- * - Listening: pulsing green ring
- * - Speaking: animated blue ring
- * - Processing: amber pulse
- */
 export function VoiceButton({
   voiceState,
   mode,
@@ -45,11 +37,6 @@ export function VoiceButton({
     ? 'animate-pulse'
     : '';
 
-  const bgColor = isActive
-    ? 'bg-red-600 hover:bg-red-700'
-    : 'bg-tetsuo-700 hover:bg-tetsuo-600';
-
-  // In PTT mode, use mouse/touch events for press-and-hold
   const isPTT = mode === 'push-to-talk' && isActive;
 
   return (
@@ -70,9 +57,11 @@ export function VoiceButton({
       }
       className={`
         relative flex items-center justify-center
-        w-10 h-10 rounded-lg text-sm transition-colors
-        ${bgColor}
-        ${isActive ? `ring-2 ${ringColor} ${pulseClass}` : ''}
+        w-10 h-10 rounded-xl text-sm transition-colors
+        ${isActive
+          ? `bg-red-500 hover:bg-red-600 text-white ring-2 ${ringColor} ${pulseClass}`
+          : 'text-tetsuo-400 hover:text-tetsuo-600 hover:bg-tetsuo-50'
+        }
         disabled:opacity-50 disabled:cursor-not-allowed
       `}
     >
@@ -88,7 +77,7 @@ function MicIcon({ active }: { active: boolean }) {
       height="18"
       viewBox="0 0 24 24"
       fill="none"
-      stroke={active ? 'white' : '#9ca3af'}
+      stroke={active ? 'white' : 'currentColor'}
       strokeWidth="2"
       strokeLinecap="round"
       strokeLinejoin="round"
