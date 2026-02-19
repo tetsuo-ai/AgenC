@@ -93,8 +93,8 @@ export interface ProtocolConfig {
  * BN fields will be converted to number/bigint.
  */
 interface RawProtocolConfigData {
-  authority: PublicKey;
-  treasury: PublicKey;
+  authority: unknown;
+  treasury: unknown;
   disputeThreshold: number;
   protocolFeeBps: number;
   minArbiterStake: { toNumber?: () => number; toString: () => string };
@@ -109,16 +109,18 @@ interface RawProtocolConfigData {
   multisigThreshold: number;
   multisigOwnersLen: number;
   taskCreationCooldown: { toNumber: () => number };
-  maxTasksPer24H: number;
+  maxTasksPer24h?: number;
+  maxTasksPer24H?: number;
   disputeInitiationCooldown: { toNumber: () => number };
-  maxDisputesPer24H: number;
+  maxDisputesPer24h?: number;
+  maxDisputesPer24H?: number;
   minStakeForDispute: { toNumber?: () => number; toString: () => string };
   slashPercentage: number;
   stateUpdateCooldown: { toNumber: () => number };
   votingPeriod: { toNumber: () => number };
   protocolVersion: number;
   minSupportedVersion: number;
-  multisigOwners: PublicKey[];
+  multisigOwners: unknown[];
 }
 
 /**
@@ -141,6 +143,48 @@ function isBNLikeWithToNumber(value: unknown): value is { toNumber: () => number
   );
 }
 
+function isPublicKeyLike(value: unknown): boolean {
+  if (typeof value === 'string') {
+    try {
+      // Reject non-base58 garbage early so parse errors remain deterministic.
+      new PublicKey(value);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  if (value instanceof PublicKey) {
+    return true;
+  }
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const candidate = value as Record<string, unknown>;
+  return (
+    typeof candidate.toBase58 === 'function' ||
+    typeof candidate.toBytes === 'function'
+  );
+}
+
+function toPublicKey(value: unknown): PublicKey {
+  if (value instanceof PublicKey) {
+    return value;
+  }
+  if (typeof value === 'string') {
+    return new PublicKey(value);
+  }
+  if (typeof value === 'object' && value !== null) {
+    const candidate = value as { toBytes?: () => Uint8Array; toBase58?: () => string };
+    if (typeof candidate.toBytes === 'function') {
+      return new PublicKey(candidate.toBytes());
+    }
+    if (typeof candidate.toBase58 === 'function') {
+      return new PublicKey(candidate.toBase58());
+    }
+  }
+  throw new Error('Invalid public key value');
+}
+
 /**
  * Type guard to check if a value has the shape of raw protocol config data.
  * Validates all required fields used by parseProtocolConfig.
@@ -152,8 +196,8 @@ function isRawProtocolConfigData(data: unknown): data is RawProtocolConfigData {
   const obj = data as Record<string, unknown>;
 
   // Validate PublicKey fields
-  if (!(obj.authority instanceof PublicKey)) return false;
-  if (!(obj.treasury instanceof PublicKey)) return false;
+  if (!isPublicKeyLike(obj.authority)) return false;
+  if (!isPublicKeyLike(obj.treasury)) return false;
 
   // Validate number fields (u8, u16)
   if (typeof obj.disputeThreshold !== 'number') return false;
@@ -161,8 +205,12 @@ function isRawProtocolConfigData(data: unknown): data is RawProtocolConfigData {
   if (typeof obj.bump !== 'number') return false;
   if (typeof obj.multisigThreshold !== 'number') return false;
   if (typeof obj.multisigOwnersLen !== 'number') return false;
-  if (typeof obj.maxTasksPer24H !== 'number') return false;
-  if (typeof obj.maxDisputesPer24H !== 'number') return false;
+  const hasMaxTasksPer24h =
+    typeof obj.maxTasksPer24h === 'number' || typeof obj.maxTasksPer24H === 'number';
+  if (!hasMaxTasksPer24h) return false;
+  const hasMaxDisputesPer24h =
+    typeof obj.maxDisputesPer24h === 'number' || typeof obj.maxDisputesPer24H === 'number';
+  if (!hasMaxDisputesPer24h) return false;
   if (typeof obj.slashPercentage !== 'number') return false;
   if (typeof obj.protocolVersion !== 'number') return false;
   if (typeof obj.minSupportedVersion !== 'number') return false;
@@ -186,7 +234,7 @@ function isRawProtocolConfigData(data: unknown): data is RawProtocolConfigData {
 
   // Validate array field and its contents
   if (!Array.isArray(obj.multisigOwners)) return false;
-  if (!obj.multisigOwners.every((pk) => pk instanceof PublicKey)) return false;
+  if (!obj.multisigOwners.every((pk) => isPublicKeyLike(pk))) return false;
 
   return true;
 }
@@ -216,6 +264,16 @@ function toBigInt(value: { toString: () => string }): bigint {
 export function parseProtocolConfig(data: unknown): ProtocolConfig {
   if (!isRawProtocolConfigData(data)) {
     throw new Error('Invalid protocol config data: missing required fields');
+  }
+
+  const maxTasksPer24h =
+    typeof data.maxTasksPer24h === 'number' ? data.maxTasksPer24h : data.maxTasksPer24H;
+  const maxDisputesPer24h =
+    typeof data.maxDisputesPer24h === 'number'
+      ? data.maxDisputesPer24h
+      : data.maxDisputesPer24H;
+  if (maxTasksPer24h === undefined || maxDisputesPer24h === undefined) {
+    throw new Error('Invalid protocol config data: missing rate-limit fields');
   }
 
   // Range validation for protocol fields
@@ -251,8 +309,8 @@ export function parseProtocolConfig(data: unknown): ProtocolConfig {
 
   return {
     // Authority & Treasury
-    authority: data.authority,
-    treasury: data.treasury,
+    authority: toPublicKey(data.authority),
+    treasury: toPublicKey(data.treasury),
 
     // Dispute Settings
     disputeThreshold: data.disputeThreshold,
@@ -278,13 +336,13 @@ export function parseProtocolConfig(data: unknown): ProtocolConfig {
     // Multisig
     multisigThreshold: data.multisigThreshold,
     multisigOwnersLen: multisigOwnersLen,
-    multisigOwners: multisigOwners,
+    multisigOwners: multisigOwners.map((owner) => toPublicKey(owner)),
 
     // Rate Limiting
     taskCreationCooldown: data.taskCreationCooldown.toNumber(),
-    maxTasksPer24h: data.maxTasksPer24H,
+    maxTasksPer24h: maxTasksPer24h,
     disputeInitiationCooldown: data.disputeInitiationCooldown.toNumber(),
-    maxDisputesPer24h: data.maxDisputesPer24H,
+    maxDisputesPer24h: maxDisputesPer24h,
     minStakeForDispute: toBigInt(data.minStakeForDispute),
     slashPercentage: data.slashPercentage,
 

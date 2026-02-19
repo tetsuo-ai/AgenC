@@ -203,7 +203,7 @@ describe("spl-token-tasks (issue #860)", () => {
         )
         .accountsPartial({
           protocolConfig: protocolPda,
-          treasury: treasury.publicKey,
+          treasury: secondSigner.publicKey,
           authority: provider.wallet.publicKey,
           secondSigner: secondSigner.publicKey,
           systemProgram: SystemProgram.programId,
@@ -217,7 +217,7 @@ describe("spl-token-tasks (issue #860)", () => {
         ])
         .signers([secondSigner])
         .rpc();
-      treasuryPubkey = treasury.publicKey;
+      treasuryPubkey = secondSigner.publicKey;
       minAgentStake = LAMPORTS_PER_SOL;
       minArbiterStake = LAMPORTS_PER_SOL;
     }

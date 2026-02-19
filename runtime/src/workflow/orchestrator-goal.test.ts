@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { PublicKey, Keypair } from '@solana/web3.js';
+import { PROGRAM_ID } from '@agenc/sdk';
 import { DAGOrchestrator } from './orchestrator.js';
 import { GoalCompiler, type GoalPlanner } from './compiler.js';
 
@@ -13,7 +14,7 @@ function makeMockProgram() {
   };
 
   const program = {
-    programId: new PublicKey('EopUaCV2svxj9j4hd7KjbrWfdjkspmm2BCBe7jGpKzKZ'),
+    programId: PROGRAM_ID,
     provider: {
       publicKey: authority.publicKey,
     },

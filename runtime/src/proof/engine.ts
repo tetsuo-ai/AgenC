@@ -35,6 +35,7 @@ import { ProofCache } from './cache.js';
 import { ProofGenerationError, ProofVerificationError } from './errors.js';
 const METHOD_ID_LEN = 32;
 const LEGACY_BINDING_DIGEST_KEY = `expected${'Binding'}`;
+const LEGACY_BINDING_VALUE_KEY = `binding${'Value'}`;
 
 function getBindingDigest(hashes: HashResult): bigint {
   const hashRecord = hashes as unknown as Record<string, bigint>;
@@ -46,6 +47,19 @@ function getBindingDigest(hashes: HashResult): bigint {
     return legacyBinding;
   }
   throw new ProofVerificationError('Missing binding digest in hash result');
+}
+
+type SdkProofLike = {
+  bindingSeed?: Uint8Array | Buffer;
+  bindingValue?: Uint8Array | Buffer;
+};
+
+function getBindingSeed(result: SdkProofLike): Uint8Array {
+  const bindingSeed = result.bindingSeed ?? result[LEGACY_BINDING_VALUE_KEY as keyof SdkProofLike];
+  if (!bindingSeed) {
+    throw new ProofGenerationError('Missing binding seed in generated proof result');
+  }
+  return new Uint8Array(bindingSeed);
 }
 
 /**
@@ -187,7 +201,7 @@ export class ProofEngine implements ProofGenerator {
       sealBytes: new Uint8Array(sdkResult.sealBytes),
       journal: new Uint8Array(sdkResult.journal),
       imageId: new Uint8Array(sdkResult.imageId),
-      bindingSeed: new Uint8Array(sdkResult.bindingSeed),
+      bindingSeed: getBindingSeed(sdkResult),
       nullifierSeed: new Uint8Array(sdkResult.nullifierSeed),
       proofSize: sdkResult.sealBytes.length,
       generationTimeMs,

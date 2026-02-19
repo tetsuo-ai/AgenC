@@ -104,11 +104,11 @@ export function deriveProposalPda(
 
 export function deriveGovernanceVotePda(
   proposalPda: PublicKey,
-  voterAgentPda: PublicKey,
+  voterAuthorityPubkey: PublicKey,
   programId: PublicKey = PROGRAM_ID,
 ): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
-    [SEEDS.GOVERNANCE_VOTE, proposalPda.toBuffer(), voterAgentPda.toBuffer()],
+    [SEEDS.GOVERNANCE_VOTE, proposalPda.toBuffer(), voterAuthorityPubkey.toBuffer()],
     programId,
   );
 }
@@ -207,7 +207,7 @@ export async function voteProposal(
   voterAgentPda: PublicKey,
   approve: boolean,
 ): Promise<{ txSignature: string; votePda: PublicKey }> {
-  const [votePda] = deriveGovernanceVotePda(proposalPda, voterAgentPda, program.programId);
+  const [votePda] = deriveGovernanceVotePda(proposalPda, authority.publicKey, program.programId);
   const [protocolPda] = PublicKey.findProgramAddressSync([SEEDS.PROTOCOL], program.programId);
 
   const tx = await program.methods

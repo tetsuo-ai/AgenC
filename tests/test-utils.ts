@@ -538,15 +538,16 @@ export function deriveProposalPda(
 }
 
 /**
- * Derive a governance vote PDA from proposal PDA and voter agent PDA.
+ * Derive a governance vote PDA from proposal PDA and voter authority pubkey.
+ * Seeds: ["governance_vote", proposal_pda, authority_pubkey]
  */
 export function deriveGovernanceVotePda(
   proposalPda: PublicKey,
-  voterAgentPda: PublicKey,
+  voterAuthorityPubkey: PublicKey,
   programId: PublicKey
 ): PublicKey {
   return PublicKey.findProgramAddressSync(
-    [Buffer.from("governance_vote"), proposalPda.toBuffer(), voterAgentPda.toBuffer()],
+    [Buffer.from("governance_vote"), proposalPda.toBuffer(), voterAuthorityPubkey.toBuffer()],
     programId
   )[0];
 }

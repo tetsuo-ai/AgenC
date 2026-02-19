@@ -319,8 +319,9 @@ export async function initializeProtocol(ctx: RuntimeTestContext): Promise<void>
     program.programId
   );
 
-  const treasury = Keypair.generate();
-  svm.airdrop(treasury.publicKey, BigInt(LAMPORTS_PER_SOL));
+  // Use the payer as treasury so treasury signer requirements are satisfied
+  // without introducing additional unknown-signer edges in LiteSVM tx assembly.
+  const treasury = payer;
 
   const secondSigner = Keypair.generate();
   svm.airdrop(secondSigner.publicKey, BigInt(LAMPORTS_PER_SOL));

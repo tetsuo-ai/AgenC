@@ -129,7 +129,11 @@ describe("governance (issue #1106)", () => {
     voterAgent: PublicKey,
     approve: boolean,
   ): Promise<PublicKey> => {
-    const votePda = deriveGovernanceVotePda(proposalPda, voterAgent, program.programId);
+    const votePda = deriveGovernanceVotePda(
+      proposalPda,
+      voterKeypair.publicKey,
+      program.programId,
+    );
 
     await program.methods
       .voteProposal(approve)
@@ -199,7 +203,7 @@ describe("governance (issue #1106)", () => {
         )
         .accountsPartial({
           protocolConfig: protocolPda,
-          treasury: treasury.publicKey,
+          treasury: secondSigner.publicKey,
           authority: provider.wallet.publicKey,
           secondSigner: secondSigner.publicKey,
           systemProgram: SystemProgram.programId,

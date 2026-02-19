@@ -117,7 +117,7 @@ describe("reputation economy (issue #1110)", () => {
         .accountsPartial({
           protocolConfig: protocolPda,
           authority: payer.publicKey,
-          treasury: treasury.publicKey,
+          treasury: secondSigner.publicKey,
           secondSigner: secondSigner.publicKey,
           systemProgram: SystemProgram.programId,
         })

@@ -55,6 +55,7 @@ describe("AgenC Integration Tests", () => {
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
   const program = anchor.workspace.AgencCoordination as Program<AgencCoordination>;
+  const runId = generateRunId();
 
   // ============================================================================
   // CONSTANTS - Test-specific values (capabilities and task types from test-utils)
@@ -87,7 +88,7 @@ describe("AgenC Integration Tests", () => {
    * Create a 32-byte buffer from a string (padded with zeros)
    */
   function createId(name: string): Buffer {
-    return Buffer.from(name.padEnd(32, "\0"));
+    return Buffer.from(`${name}-${runId}`.slice(0, 32).padEnd(32, "\0"));
   }
 
   /**
@@ -160,16 +161,19 @@ describe("AgenC Integration Tests", () => {
             DISPUTE_THRESHOLD,                    // dispute_threshold: u8
             PROTOCOL_FEE_BPS,                     // protocol_fee_bps: u16
             new BN(MIN_STAKE),                    // min_stake: u64
+            new BN(MIN_STAKE / 100),              // min_stake_for_dispute: u64
             1,                                    // multisig_threshold: u8
-            [provider.wallet.publicKey]           // multisig_owners: Vec<Pubkey>
+            [provider.wallet.publicKey, treasury.publicKey] // multisig_owners: Vec<Pubkey>
           )
-          .accounts({
-            // protocolConfig: auto-resolved from const seeds
+          .accountsPartial({
+            protocolConfig: protocolConfigPda,
             treasury: treasury.publicKey,
             authority: provider.wallet.publicKey,
-            // systemProgram: auto-resolved from address field
+            secondSigner: treasury.publicKey,
+            systemProgram: SystemProgram.programId,
           })
           .remainingAccounts([{ pubkey: deriveProgramDataPda(program.programId), isSigner: false, isWritable: false }])
+          .signers([treasury])
           .rpc();
 
         treasuryPubkey = treasury.publicKey;
@@ -357,15 +361,21 @@ describe("AgenC Integration Tests", () => {
             TASK_TYPE_EXCLUSIVE,                  // task_type: u8
             null,                                  // constraint_hash: Option<[u8; 32]>
             0, // min_reputation
+            null, // reward_mint
           )
           .accountsPartial({
-            // task: auto-resolved from taskId arg + creator account
-            // escrow: auto-resolved from task account
-            // protocolConfig: auto-resolved from const seeds
+            task: taskPda,
+            escrow: escrowPda,
+            protocolConfig: protocolConfigPda,
             creatorAgent: creatorAgentPda,        // MUST provide - self-referential PDA
             authority: creator.publicKey,
             creator: creator.publicKey,
-            // systemProgram: auto-resolved
+            systemProgram: SystemProgram.programId,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
           })
           .signers([creator])
           .rpc();
@@ -414,15 +424,25 @@ describe("AgenC Integration Tests", () => {
             createDescription("Claimable task"),
             new BN(0.1 * LAMPORTS_PER_SOL),
             1,
-            new BN(0),
+            new BN(Math.floor(Date.now() / 1000) + 3600),
             TASK_TYPE_EXCLUSIVE,
             null,
             0, // min_reputation
+            null, // reward_mint
           )
           .accountsPartial({
+            task: taskPda,
+            escrow: deriveEscrowPdaUtil(taskPda, program.programId),
+            protocolConfig: protocolConfigPda,
             creatorAgent: creatorAgentPda,
             authority: creator.publicKey,
             creator: creator.publicKey,
+            systemProgram: SystemProgram.programId,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
           })
           .signers([creator])
           .rpc();
@@ -446,11 +466,11 @@ describe("AgenC Integration Tests", () => {
           .claimTask()
           .accountsPartial({
             task: taskPda,
-            // claim: auto-resolved from task + authority
-            // protocolConfig: auto-resolved
+            claim: claimPda,
+            protocolConfig: protocolConfigPda,
             worker: workerAgentPda,
             authority: worker1.publicKey,
-            // systemProgram: auto-resolved
+            systemProgram: SystemProgram.programId,
           })
           .signers([worker1])
           .rpc();
@@ -465,7 +485,7 @@ describe("AgenC Integration Tests", () => {
 
       // Verify claim exists
       const claim = await program.account.taskClaim.fetch(claimPda);
-      expect(claim.worker.toString()).to.equal(worker1.publicKey.toString());
+      expect(claim.worker.toString()).to.equal(workerAgentPda.toString());
     });
   });
 
@@ -537,15 +557,25 @@ describe("AgenC Integration Tests", () => {
             createDescription("Completable task"),
             new BN(0.1 * LAMPORTS_PER_SOL),
             1,
-            new BN(0),
+            new BN(Math.floor(Date.now() / 1000) + 3600),
             TASK_TYPE_EXCLUSIVE,
             null,
             0, // min_reputation
+            null, // reward_mint
           )
           .accountsPartial({
+            task: taskPda,
+            escrow: escrowPda,
+            protocolConfig: protocolConfigPda,
             creatorAgent: creatorAgentPda,
             authority: creator.publicKey,
             creator: creator.publicKey,
+            systemProgram: SystemProgram.programId,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
           })
           .signers([creator])
           .rpc();
@@ -559,8 +589,11 @@ describe("AgenC Integration Tests", () => {
           .claimTask()
           .accountsPartial({
             task: taskPda,
+            claim: claimPda,
+            protocolConfig: protocolConfigPda,
             worker: workerAgentPda,
             authority: worker1.publicKey,
+            systemProgram: SystemProgram.programId,
           })
           .signers([worker1])
           .rpc();
@@ -593,11 +626,17 @@ describe("AgenC Integration Tests", () => {
             task: taskPda,
             claim: claimPda,
             escrow: escrowPda,
+            creator: creator.publicKey,
             worker: workerAgentPda,
-            // protocolConfig: auto-resolved
+            protocolConfig: protocolConfigPda,
             treasury: protocol.treasury,
             authority: worker1.publicKey,
-            // systemProgram: auto-resolved
+            systemProgram: SystemProgram.programId,
+            tokenEscrowAta: null,
+            workerTokenAccount: null,
+            treasuryTokenAccount: null,
+            rewardMint: null,
+            tokenProgram: null,
           })
           .signers([worker1])
           .rpc();
@@ -720,15 +759,25 @@ describe("AgenC Integration Tests", () => {
             createDescription("Task to cancel"),
             new BN(0.05 * LAMPORTS_PER_SOL),
             1,
-            new BN(0),
+            new BN(Math.floor(Date.now() / 1000) + 3600),
             TASK_TYPE_EXCLUSIVE,
             null,
             0, // min_reputation
+            null, // reward_mint
           )
           .accountsPartial({
+            task: taskPda,
+            escrow: escrowPda,
+            protocolConfig: protocolConfigPda,
             creatorAgent: creatorAgentPda,
             authority: creator.publicKey,
             creator: creator.publicKey,
+            systemProgram: SystemProgram.programId,
+            rewardMint: null,
+            creatorTokenAccount: null,
+            tokenEscrowAta: null,
+            tokenProgram: null,
+            associatedTokenProgram: null,
           })
           .signers([creator])
           .rpc();
@@ -750,9 +799,12 @@ describe("AgenC Integration Tests", () => {
             task: taskPda,
             escrow: escrowPda,
             creator: creator.publicKey,
-            protocolConfig: protocolPda,
-          protocolConfig: protocolPda,
-            // systemProgram: auto-resolved
+            protocolConfig: protocolConfigPda,
+            systemProgram: SystemProgram.programId,
+            tokenEscrowAta: null,
+            creatorTokenAccount: null,
+            rewardMint: null,
+            tokenProgram: null,
           })
           .signers([creator])
           .rpc();

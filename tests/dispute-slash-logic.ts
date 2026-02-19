@@ -157,7 +157,7 @@ describe("dispute-slash-logic (issue #136)", () => {
         )
         .accountsPartial({
           protocolConfig: protocolPda,
-          treasury: treasury.publicKey,
+          treasury: secondSigner.publicKey,
           authority: provider.wallet.publicKey,
           secondSigner: secondSigner.publicKey,
           systemProgram: SystemProgram.programId,
@@ -165,7 +165,7 @@ describe("dispute-slash-logic (issue #136)", () => {
         .remainingAccounts([{ pubkey: deriveProgramDataPda(program.programId), isSigner: false, isWritable: false }])
         .signers([secondSigner])
         .rpc();
-      treasuryPubkey = treasury.publicKey;
+      treasuryPubkey = secondSigner.publicKey;
       minAgentStake = LAMPORTS_PER_SOL;
       minArbiterStake = LAMPORTS_PER_SOL;
     }
