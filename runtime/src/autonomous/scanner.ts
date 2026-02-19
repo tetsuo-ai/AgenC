@@ -47,6 +47,14 @@ interface RawTaskCreatedEvent {
   timestamp: { toNumber: () => number } | number;
 }
 
+type EventProgram = {
+  addEventListener(
+    eventName: string,
+    callback: (event: unknown, slot: number, signature: string) => void,
+  ): number;
+  removeEventListener(listenerId: number): Promise<void>;
+};
+
 /**
  * Scans the blockchain for available tasks matching filter criteria.
  *
@@ -137,13 +145,14 @@ export class TaskScanner {
    */
   subscribeToNewTasks(callback: TaskCreatedCallback): TaskEventSubscription {
     this.logger.debug('Subscribing to TaskCreated events...');
-
-    const listenerId = this.program.addEventListener(
+    const eventProgram = this.program as unknown as EventProgram;
+    const listenerId = eventProgram.addEventListener(
       'taskCreated',
-      async (rawEvent: RawTaskCreatedEvent, slot: number, signature: string) => {
+      async (rawEvent: unknown, slot: number, signature: string) => {
         try {
+          const typedEvent = rawEvent as RawTaskCreatedEvent;
           // Derive task PDA from task ID
-          const taskId = this.toUint8Array(rawEvent.taskId);
+          const taskId = this.toUint8Array(typedEvent.taskId);
           const [taskPda] = PublicKey.findProgramAddressSync(
             [Buffer.from('task'), taskId],
             this.program.programId
@@ -178,7 +187,7 @@ export class TaskScanner {
 
     return {
       unsubscribe: async () => {
-        await this.program.removeEventListener(listenerId);
+        await eventProgram.removeEventListener(listenerId);
         this.logger.debug('Unsubscribed from TaskCreated events');
       },
     };

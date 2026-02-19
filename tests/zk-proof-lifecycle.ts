@@ -79,9 +79,9 @@ describe("ZK Proof Verification Lifecycle (router payload)", () => {
     )[0];
   }
 
-  function deriveBindingSpendPda(bindingSeed: Buffer): PublicKey {
+  function deriveBindingSpendPda(bindingValue: Buffer): PublicKey {
     return PublicKey.findProgramAddressSync(
-      [Buffer.from("binding_spend"), bindingSeed],
+      [Buffer.from("binding_spend"), bindingValue],
       program.programId
     )[0];
   }
@@ -102,7 +102,7 @@ describe("ZK Proof Verification Lifecycle (router payload)", () => {
     authority: PublicKey;
     constraintHash: Buffer;
     outputCommitment: Buffer;
-    bindingSeed: Buffer;
+    bindingValue: Buffer;
     nullifierSeed: Buffer;
   }): Buffer {
     return Buffer.concat([
@@ -110,7 +110,7 @@ describe("ZK Proof Verification Lifecycle (router payload)", () => {
       params.authority.toBuffer(),
       params.constraintHash,
       params.outputCommitment,
-      params.bindingSeed,
+      params.bindingValue,
       params.nullifierSeed,
     ]);
   }
@@ -120,19 +120,19 @@ describe("ZK Proof Verification Lifecycle (router payload)", () => {
     authority: PublicKey;
     constraintHash: Buffer;
     outputCommitment?: Buffer;
-    bindingSeed?: Buffer;
+    bindingValue?: Buffer;
     nullifierSeed?: Buffer;
     sealBytesLen?: number;
   }) {
     const outputCommitment = params.outputCommitment ?? Buffer.alloc(HASH_SIZE, 0x51);
-    const bindingSeed = params.bindingSeed ?? Buffer.alloc(HASH_SIZE, 0x52);
+    const bindingValue = params.bindingValue ?? Buffer.alloc(HASH_SIZE, 0x52);
     const nullifierSeed = params.nullifierSeed ?? Buffer.alloc(HASH_SIZE, 0x53);
     const journal = buildJournal({
       taskPda: params.taskPda,
       authority: params.authority,
       constraintHash: params.constraintHash,
       outputCommitment,
-      bindingSeed,
+      bindingValue,
       nullifierSeed,
     });
 
@@ -140,7 +140,7 @@ describe("ZK Proof Verification Lifecycle (router payload)", () => {
       sealBytes: Buffer.alloc(params.sealBytesLen ?? 260, 0xaa),
       journal,
       imageId: Array.from(TRUSTED_IMAGE_ID),
-      bindingSeed: Array.from(bindingSeed),
+      bindingValue: Array.from(bindingValue),
       nullifierSeed: Array.from(nullifierSeed),
     };
   }
@@ -199,7 +199,7 @@ describe("ZK Proof Verification Lifecycle (router payload)", () => {
     claimPda: PublicKey;
     proof: ReturnType<typeof createProofPayload>;
   }) {
-    const bindingSeed = Buffer.from(input.proof.bindingSeed);
+    const bindingValue = Buffer.from(input.proof.bindingValue);
     const nullifierSeed = Buffer.from(input.proof.nullifierSeed);
 
     return program.methods
@@ -211,7 +211,7 @@ describe("ZK Proof Verification Lifecycle (router payload)", () => {
         creator: taskCreator.publicKey,
         worker: workerAgentPda,
         protocolConfig: protocolPda,
-        bindingSpend: deriveBindingSpendPda(bindingSeed),
+        bindingSpend: deriveBindingSpendPda(bindingValue),
         nullifierSpend: deriveNullifierSpendPda(nullifierSeed),
         treasury: treasuryPubkey,
         authority: worker.publicKey,
@@ -333,16 +333,16 @@ describe("ZK Proof Verification Lifecycle (router payload)", () => {
     }
   });
 
-  it("accepts explicit bindingSeed/nullifierSeed fields in payload", async () => {
+  it("accepts explicit bindingValue/nullifierSeed fields in payload", async () => {
     const constraintHash = Buffer.alloc(HASH_SIZE, 0x62);
-    const bindingSeed = Buffer.alloc(HASH_SIZE, 0x73);
+    const bindingValue = Buffer.alloc(HASH_SIZE, 0x73);
     const nullifierSeed = Buffer.alloc(HASH_SIZE, 0x74);
     const { taskId, taskPda, escrowPda, claimPda } = await createPrivateTaskAndClaim(constraintHash);
     const proof = createProofPayload({
       taskPda,
       authority: worker.publicKey,
       constraintHash,
-      bindingSeed,
+      bindingValue,
       nullifierSeed,
       sealBytesLen: 64,
     });
@@ -358,7 +358,7 @@ describe("ZK Proof Verification Lifecycle (router payload)", () => {
 
 describe("Private Replay Seed Semantics", () => {
   it("derives distinct spend PDAs for distinct binding/nullifier seeds", () => {
-    const programId = new PublicKey("EopUaCV2svxj9j4hd7KjbrWfdjkspmm2BCBe7jGpKzKZ");
+    const programId = new PublicKey("5j9ZbT3mnPX5QjWVMrDaWFuaGf8ddji6LW1HVJw6kUE7");
 
     const bindingA = Buffer.alloc(32, 0x21);
     const bindingB = Buffer.alloc(32, 0x22);

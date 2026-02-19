@@ -39,13 +39,13 @@ export default function Step4GenerateProof({ updateTaskState, onNext, onPrev }: 
       Math.floor(Math.random() * 16).toString(16)
     ).join('')
 
-    const proofData = '0x' + Array.from({ length: 776 }, () =>
+    const sealBytes = '0x' + Array.from({ length: 776 }, () =>
       Math.floor(Math.random() * 16).toString(16)
     ).join('')
 
     updateTaskState({
       outputCommitment,
-      proofData,
+      sealBytes,
     })
 
     setIsProcessing(false)

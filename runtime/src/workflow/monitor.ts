@@ -47,11 +47,20 @@ export interface DAGMonitorConfig {
   pollIntervalMs?: number;
 }
 
+type EventProgram = {
+  addEventListener(
+    eventName: string,
+    callback: (event: unknown, slot: number, signature: string) => void,
+  ): number;
+  removeEventListener(listenerId: number): Promise<void>;
+};
+
 /**
  * Monitors workflow task completion via events and polling.
  */
 export class DAGMonitor {
   private readonly program: Program<AgencCoordination>;
+  private readonly eventProgram: EventProgram;
   private readonly logger: Logger;
   private readonly pollIntervalMs: number;
   private readonly workflows = new Map<string, MonitoredWorkflow>();
@@ -62,6 +71,7 @@ export class DAGMonitor {
 
   constructor(config: DAGMonitorConfig) {
     this.program = config.program;
+    this.eventProgram = config.program as unknown as EventProgram;
     this.logger = config.logger ?? silentLogger;
     this.pollIntervalMs = config.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
   }
@@ -189,12 +199,11 @@ export class DAGMonitor {
 
   private startEventListeners(): void {
     // Subscribe to taskCompleted (unfiltered — we filter client-side)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    this.completedListenerId = this.program.addEventListener(
-      'taskCompleted' as any,
-      (rawEvent: any, _slot: number, _signature: string) => {
+    this.completedListenerId = this.eventProgram.addEventListener(
+      'taskCompleted',
+      (rawEvent: unknown, _slot: number, _signature: string) => {
         try {
-          const event = parseTaskCompletedEvent(rawEvent);
+          const event = parseTaskCompletedEvent(rawEvent as Parameters<typeof parseTaskCompletedEvent>[0]);
           const idHex = Buffer.from(event.taskId).toString('hex');
 
           // Check all monitored workflows
@@ -211,12 +220,11 @@ export class DAGMonitor {
     );
 
     // Subscribe to taskCancelled (unfiltered)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    this.cancelledListenerId = this.program.addEventListener(
-      'taskCancelled' as any,
-      (rawEvent: any, _slot: number, _signature: string) => {
+    this.cancelledListenerId = this.eventProgram.addEventListener(
+      'taskCancelled',
+      (rawEvent: unknown, _slot: number, _signature: string) => {
         try {
-          const event = parseTaskCancelledEvent(rawEvent);
+          const event = parseTaskCancelledEvent(rawEvent as Parameters<typeof parseTaskCancelledEvent>[0]);
           const idHex = Buffer.from(event.taskId).toString('hex');
 
           for (const wf of this.workflows.values()) {
@@ -389,11 +397,11 @@ export class DAGMonitor {
       this.pollTimer = null;
     }
     if (this.completedListenerId !== null) {
-      void this.program.removeEventListener(this.completedListenerId);
+      void this.eventProgram.removeEventListener(this.completedListenerId);
       this.completedListenerId = null;
     }
     if (this.cancelledListenerId !== null) {
-      void this.program.removeEventListener(this.cancelledListenerId);
+      void this.eventProgram.removeEventListener(this.cancelledListenerId);
       this.cancelledListenerId = null;
     }
     this.started = false;

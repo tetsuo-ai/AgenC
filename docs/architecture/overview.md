@@ -48,7 +48,7 @@ flowchart TB
 
 | Package | Depends On | Provides |
 |---------|-----------|----------|
-| **Program** | Solana runtime, groth16-solana | On-chain state, instructions, events |
+| **Program** | Solana runtime, verifier-router | On-chain state, instructions, events |
 | **SDK** | @solana/web3.js, @coral-xyz/anchor | Transaction builders, proof functions, type definitions |
 | **Runtime** | SDK, @solana/web3.js, @coral-xyz/anchor | Agent lifecycle, LLM adapters, tools, memory, autonomous execution |
 | **MCP Server** | SDK, Runtime, @modelcontextprotocol/sdk | MCP tools for protocol operations |

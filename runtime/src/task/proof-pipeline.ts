@@ -650,7 +650,7 @@ export class ProofPipeline {
           sealBytes,
           privateResult.journal,
           privateResult.imageId,
-          privateResult.bindingSeed,
+          privateResult.bindingValue,
           privateResult.nullifierSeed,
         );
       } else {

@@ -459,7 +459,7 @@ export class TaskOperations {
    * @param sealBytes - Router seal bytes
    * @param journal - Fixed private journal bytes
    * @param imageId - Trusted image ID bytes
-   * @param bindingSeed - 32-byte binding spend seed
+   * @param bindingValue - 32-byte binding spend seed
    * @param nullifierSeed - 32-byte nullifier spend seed
    * @returns Completion result with signature
    */
@@ -469,17 +469,17 @@ export class TaskOperations {
     sealBytes: Uint8Array,
     journal: Uint8Array,
     imageId: Uint8Array,
-    bindingSeed: Uint8Array,
+    bindingValue: Uint8Array,
     nullifierSeed: Uint8Array,
   ): Promise<CompleteResult> {
     // Input validation (#963)
     validateByteLength(sealBytes, RISC0_SEAL_BORSH_LEN, 'sealBytes');
     validateByteLength(journal, RISC0_JOURNAL_LEN, 'journal');
     validateByteLength(imageId, RISC0_IMAGE_ID_LEN, 'imageId');
-    validateByteLength(bindingSeed, HASH_SIZE, 'bindingSeed');
+    validateByteLength(bindingValue, HASH_SIZE, 'bindingValue');
     validateByteLength(nullifierSeed, HASH_SIZE, 'nullifierSeed');
     validateNonZeroBytes(imageId, 'imageId');
-    validateNonZeroBytes(bindingSeed, 'bindingSeed');
+    validateNonZeroBytes(bindingValue, 'bindingValue');
     validateNonZeroBytes(nullifierSeed, 'nullifierSeed');
 
     if (
@@ -495,7 +495,7 @@ export class TaskOperations {
     const { address: escrowPda } = deriveEscrowPda(taskPda, this.program.programId);
     const protocolPda = findProtocolPda(this.program.programId);
     const [bindingSpend] = PublicKey.findProgramAddressSync(
-      [BINDING_SPEND_SEED, Buffer.from(bindingSeed)],
+      [BINDING_SPEND_SEED, Buffer.from(bindingValue)],
       this.program.programId,
     );
     const [nullifierSpend] = PublicKey.findProgramAddressSync(
@@ -529,7 +529,7 @@ export class TaskOperations {
         sealBytes: toAnchorBytes(sealBytes),
         journal: toAnchorBytes(journal),
         imageId: toAnchorBytes(imageId),
-        bindingSeed: toAnchorBytes(bindingSeed),
+        bindingValue: toAnchorBytes(bindingValue),
         nullifierSeed: toAnchorBytes(nullifierSeed),
       };
 

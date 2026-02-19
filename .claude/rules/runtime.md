@@ -295,7 +295,7 @@ runtime/src/proof/
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `circuitPath` | `string` | `'./circuits-circom/task_completion'` | Circuit directory path |
+| `proverEndpoint` | `string` | `'./circuits-circuit/task_completion'` | Circuit directory path |
 | `verifyAfterGeneration` | `boolean` | `false` | Verify proof after generation |
 | `cache.ttlMs` | `number` | `300_000` | Cache TTL in ms |
 | `cache.maxEntries` | `number` | `100` | Max cached entries |

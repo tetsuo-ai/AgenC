@@ -434,7 +434,7 @@ describe('isPrivateExecutionResult', () => {
       sealBytes: new Uint8Array(260),
       journal: new Uint8Array(192),
       imageId: new Uint8Array(32),
-      bindingSeed: new Uint8Array(32),
+      bindingValue: new Uint8Array(32),
       nullifierSeed: new Uint8Array(32),
     };
 

@@ -6,7 +6,6 @@
 
 import { Connection, PublicKey, Keypair, LAMPORTS_PER_SOL } from '@solana/web3.js';
 import { type Idl, Program, AnchorProvider, Wallet } from '@coral-xyz/anchor';
-import { AgenCPrivacyClient } from './privacy';
 import { DEVNET_RPC, MAINNET_RPC } from './constants';
 import { validateProverEndpoint } from './validation';
 import { createLogger, silentLogger, type Logger, type LogLevel } from './logger';
@@ -31,7 +30,7 @@ export interface PrivacyClientConfig {
 export class PrivacyClient {
   private connection: Connection;
   private program: Program | null = null;
-  private privacyClient: AgenCPrivacyClient | null = null;
+  private privacyClient: null = null;
   private config: PrivacyClientConfig;
   private wallet: Keypair | null = null;
   private logger: Logger;
@@ -119,16 +118,8 @@ export class PrivacyClient {
     const pubkey = wallet.publicKey.toBase58();
     this.logger.debug(`Wallet initialized: ${pubkey.substring(0, 8)}...${pubkey.substring(pubkey.length - 4)}`);
 
-    // Initialize privacy client only if program is available
-    if (this.program) {
-      this.privacyClient = new AgenCPrivacyClient(
-        this.connection,
-        this.program,
-        undefined,
-        this.connection.rpcEndpoint
-      );
-      await this.privacyClient.initPrivacyCash(wallet);
-    }
+    // Privacy sub-client is intentionally disabled in this SDK build.
+    this.logger.warn('PrivacyClient sub-module disabled; use task APIs directly.');
   }
 
   /**
@@ -151,7 +142,7 @@ export class PrivacyClient {
    * @throws Error if lamports is invalid or client not initialized
    */
   async shield(lamports: number): Promise<{ txSignature: string; amount: number }> {
-    if (!this.wallet || !this.privacyClient) {
+    if (!this.wallet) {
       throw new Error('Client not initialized. Call init() first.');
     }
 
@@ -163,23 +154,14 @@ export class PrivacyClient {
       throw new Error('Lamports amount exceeds safe integer limit');
     }
 
-    const result = await this.privacyClient.shieldEscrow(this.wallet, lamports);
-    return {
-      txSignature: result.txSignature,
-      amount: result.shieldedAmount,
-    };
+    throw new Error('Shield flow is unavailable in this SDK build');
   }
 
   /**
    * Get shielded balance
    */
   async getShieldedBalance(): Promise<number> {
-    if (!this.privacyClient) {
-      throw new Error('Client not initialized. Call init() first.');
-    }
-
-    const { lamports } = await this.privacyClient.getShieldedBalance();
-    return lamports;
+    throw new Error('Shielded balance API is unavailable in this SDK build');
   }
 
   /**
@@ -192,7 +174,7 @@ export class PrivacyClient {
     recipientWallet: PublicKey;
     escrowLamports: number;
   }): Promise<{ proofTxSignature: string; withdrawResult: any }> {
-    if (!this.wallet || !this.privacyClient) {
+    if (!this.wallet) {
       throw new Error('Client not initialized. Call init() first.');
     }
 
@@ -219,13 +201,13 @@ export class PrivacyClient {
       throw new Error('Invalid escrowLamports: must be a positive integer');
     }
 
-    return await this.privacyClient.completeTaskPrivate(params, this.wallet);
+    throw new Error('Private completion helper is unavailable in this SDK build');
   }
 
   /**
    * Get the underlying AgenCPrivacyClient for advanced operations
    */
-  getPrivacyClient(): AgenCPrivacyClient | null {
+  getPrivacyClient(): null {
     return this.privacyClient;
   }
 

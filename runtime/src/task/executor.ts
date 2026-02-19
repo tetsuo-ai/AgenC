@@ -1190,7 +1190,7 @@ export class TaskExecutor {
           result.sealBytes,
           result.journal,
           result.imageId,
-          result.bindingSeed,
+          result.bindingValue,
           result.nullifierSeed,
         );
       } else {

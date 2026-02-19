@@ -25,7 +25,7 @@
 
 ```
 1. Agent computes task output locally
-2. Agent generates Noir proof via nargo/sunspot
+2. Agent generates Noir proof via risc0-host-prover/risc0-host-prover
 3. Agent submits proof on-chain via complete_task_private
 4. Verifier CPI validates proof
 5. If valid, agent receives reward without revealing output

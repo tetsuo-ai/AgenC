@@ -277,7 +277,7 @@ interface SpeculativeCommitment {
   speculationDepth: number;
   createdAt: number;
   expiresAt: number;            // TTL-based expiration
-  proofData: Uint8Array | null; // Generated proof (388 bytes)
+  sealBytes: Uint8Array | null; // Generated proof (388 bytes)
   bondedStake: bigint;          // Lamports bonded for this commitment
 }
 
@@ -984,7 +984,7 @@ export interface SpeculativeCommitment {
   /** Expiration timestamp (createdAt + TTL) */
   expiresAt: number;
   /** Generated Groth16 proof (388 bytes) */
-  proofData: Uint8Array | null;
+  sealBytes: Uint8Array | null;
   /** Bonded stake in lamports */
   bondedStake: bigint;
   /** Transaction signature if submitted */
@@ -1078,7 +1078,7 @@ export class CommitmentLedger {
       speculationDepth: options.speculationDepth,
       createdAt: now,
       expiresAt: now + (options.ttlMs ?? this.defaultTtlMs),
-      proofData: null,
+      sealBytes: null,
       bondedStake: options.bondedStake ?? 0n,
       submissionTx: null,
       error: null,
@@ -1120,15 +1120,15 @@ export class CommitmentLedger {
   /**
    * Update commitment with generated proof
    */
-  setProof(id: string, proofData: Uint8Array): boolean {
+  setProof(id: string, sealBytes: Uint8Array): boolean {
     const commitment = this.commitments.get(id);
     if (!commitment) return false;
     
-    if (proofData.length !== 388) {
-      throw new Error(`Invalid proof size: expected 388, got ${proofData.length}`);
+    if (sealBytes.length !== 388) {
+      throw new Error(`Invalid proof size: expected 388, got ${sealBytes.length}`);
     }
     
-    commitment.proofData = proofData;
+    commitment.sealBytes = sealBytes;
     commitment.status = CommitmentStatus.ProofGenerated;
     return true;
   }
@@ -1274,7 +1274,7 @@ export class CommitmentLedger {
         outputCommitment: bytesToHex(c.outputCommitment),
         constraintHash: bytesToHex(c.constraintHash),
         salt: c.salt.toString(),
-        proofData: c.proofData ? bytesToHex(c.proofData) : null,
+        sealBytes: c.sealBytes ? bytesToHex(c.sealBytes) : null,
         bondedStake: c.bondedStake.toString(),
         taskPda: c.taskPda.toBase58(),
       })),
@@ -1299,7 +1299,7 @@ export class CommitmentLedger {
         outputCommitment: hexToBytes(item.outputCommitment),
         constraintHash: hexToBytes(item.constraintHash),
         salt: BigInt(item.salt),
-        proofData: item.proofData ? hexToBytes(item.proofData) : null,
+        sealBytes: item.sealBytes ? hexToBytes(item.sealBytes) : null,
         bondedStake: BigInt(item.bondedStake),
         taskPda: new PublicKey(item.taskPda),
       };
@@ -2339,7 +2339,7 @@ export class SpeculativeTaskScheduler extends EventEmitter {
     outputCommitment: Uint8Array,
     constraintHash: Uint8Array,
     salt: bigint,
-    proofData: Uint8Array
+    sealBytes: Uint8Array
   ): string {
     const node = this.dependencyGraph.getNode(taskId);
     if (!node) {
@@ -2362,7 +2362,7 @@ export class SpeculativeTaskScheduler extends EventEmitter {
     });
     
     // Add proof
-    this.commitmentLedger.setProof(commitment.id, proofData);
+    this.commitmentLedger.setProof(commitment.id, sealBytes);
     
     // Update node status
     node.status = DependencyStatus.Speculative;
@@ -2376,7 +2376,7 @@ export class SpeculativeTaskScheduler extends EventEmitter {
       taskId,
       taskPda: node.taskPda,
       commitmentId: commitment.id,
-      proof: proofData,
+      proof: sealBytes,
       publicInputs: [], // Would be populated by proof generator
       ancestors: ancestors.map((a) => a.taskId),
       priority: node.depth,  // Lower depth = higher priority
@@ -3559,7 +3559,7 @@ class SpeculativeTaskScheduler {
    * @param outputCommitment - Commitment hash
    * @param constraintHash - Constraint hash from output
    * @param salt - Commitment salt
-   * @param proofData - Generated Groth16 proof
+   * @param sealBytes - Generated Groth16 proof
    * @returns Commitment ID
    */
   recordCompletion(
@@ -3567,7 +3567,7 @@ class SpeculativeTaskScheduler {
     outputCommitment: Uint8Array,
     constraintHash: Uint8Array,
     salt: bigint,
-    proofData: Uint8Array
+    sealBytes: Uint8Array
   ): string;
   
   /**
@@ -3674,7 +3674,7 @@ class CommitmentLedger {
   /**
    * Set proof data for commitment
    */
-  setProof(id: string, proofData: Uint8Array): boolean;
+  setProof(id: string, sealBytes: Uint8Array): boolean;
   
   /**
    * Mark commitment as submitted

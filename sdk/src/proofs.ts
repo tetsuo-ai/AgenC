@@ -47,7 +47,7 @@ const MAX_U256 = (1n << 256n) - 1n;
 export interface HashResult {
   constraintHash: bigint;
   outputCommitment: bigint;
-  expectedBinding: bigint;
+  bindingValue: bigint;
   nullifier: bigint;
 }
 
@@ -83,7 +83,7 @@ export interface ProofResult {
   sealBytes: Buffer;
   journal: Buffer;
   imageId: Buffer;
-  bindingSeed: Buffer;
+  bindingValue: Buffer;
   nullifierSeed: Buffer;
 
   /**
@@ -93,7 +93,7 @@ export interface ProofResult {
   proof: Buffer;
   constraintHash: Buffer;
   outputCommitment: Buffer;
-  expectedBinding: Buffer;
+  binding: Buffer;
   nullifier: Buffer;
   proofSize: number;
   generationTime: number;
@@ -232,7 +232,7 @@ export function computeHashes(
 ): HashResult {
   const constraintHash = computeConstraintHash(output);
   const outputCommitment = computeCommitmentFromOutput(output, salt);
-  const expectedBinding = computeExpectedBinding(taskPda, agentPubkey, outputCommitment);
+  const bindingValue = computeExpectedBinding(taskPda, agentPubkey, outputCommitment);
   if (agentSecret === undefined) {
     console.warn(
       'SECURITY WARNING: agentSecret not provided to computeHashes(). Falling back to ' +
@@ -250,7 +250,7 @@ export function computeHashes(
   return {
     constraintHash,
     outputCommitment,
-    expectedBinding,
+    bindingValue,
     nullifier,
   };
 }
@@ -297,7 +297,7 @@ function buildJournalBytes(fields: {
   agentAuthority: Uint8Array | Buffer;
   constraintHash: Uint8Array | Buffer;
   outputCommitment: Uint8Array | Buffer;
-  bindingSeed: Uint8Array | Buffer;
+  bindingValue: Uint8Array | Buffer;
   nullifierSeed: Uint8Array | Buffer;
 }): Buffer {
   const pieces = [
@@ -305,7 +305,7 @@ function buildJournalBytes(fields: {
     copyFixedBytes(fields.agentAuthority, HASH_SIZE, 'agentAuthority'),
     copyFixedBytes(fields.constraintHash, HASH_SIZE, 'constraintHash'),
     copyFixedBytes(fields.outputCommitment, HASH_SIZE, 'outputCommitment'),
-    copyFixedBytes(fields.bindingSeed, HASH_SIZE, 'bindingSeed'),
+    copyFixedBytes(fields.bindingValue, HASH_SIZE, 'bindingValue'),
     copyFixedBytes(fields.nullifierSeed, HASH_SIZE, 'nullifierSeed'),
   ];
   const journal = Buffer.concat(pieces);
@@ -353,7 +353,7 @@ export async function generateProof(params: ProofGenerationParams): Promise<Proo
 
   const constraintHash = bigintToBytes32(hashes.constraintHash);
   const outputCommitment = bigintToBytes32(hashes.outputCommitment);
-  const bindingSeed = bigintToBytes32(hashes.expectedBinding);
+  const bindingValue = bigintToBytes32(hashes.bindingValue);
   const nullifierSeed = bigintToBytes32(hashes.nullifier);
 
   const journal = buildJournalBytes({
@@ -361,7 +361,7 @@ export async function generateProof(params: ProofGenerationParams): Promise<Proo
     agentAuthority: params.agentPubkey.toBytes(),
     constraintHash,
     outputCommitment,
-    bindingSeed,
+    bindingValue,
     nullifierSeed,
   });
 
@@ -387,12 +387,12 @@ export async function generateProof(params: ProofGenerationParams): Promise<Proo
     sealBytes,
     journal,
     imageId,
-    bindingSeed,
+    bindingValue,
     nullifierSeed,
     proof,
     constraintHash,
     outputCommitment,
-    expectedBinding: Buffer.from(bindingSeed),
+    binding: Buffer.from(bindingValue),
     nullifier: Buffer.from(nullifierSeed),
     proofSize: proof.length,
     generationTime: Date.now() - startTime,
@@ -426,7 +426,7 @@ function buildJournalFromPublicSignals(publicSignals: bigint[]): Buffer {
 
   const constraintHash = signalToFieldBytes(publicSignals[64]);
   const outputCommitment = signalToFieldBytes(publicSignals[65]);
-  const bindingSeed = signalToFieldBytes(publicSignals[66]);
+  const bindingValue = signalToFieldBytes(publicSignals[66]);
   const nullifierSeed = signalToFieldBytes(publicSignals[67]);
 
   return buildJournalBytes({
@@ -434,7 +434,7 @@ function buildJournalFromPublicSignals(publicSignals: bigint[]): Buffer {
     agentAuthority,
     constraintHash,
     outputCommitment,
-    bindingSeed,
+    bindingValue,
     nullifierSeed,
   });
 }

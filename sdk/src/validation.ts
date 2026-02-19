@@ -53,7 +53,7 @@ export interface Risc0PayloadLike {
   sealBytes: Uint8Array | Buffer;
   journal: Uint8Array | Buffer;
   imageId: Uint8Array | Buffer;
-  bindingSeed: Uint8Array | Buffer;
+  bindingValue: Uint8Array | Buffer;
   nullifierSeed: Uint8Array | Buffer;
 }
 
@@ -64,7 +64,7 @@ export function validateRisc0PayloadShape(payload: Risc0PayloadLike): void {
   const sealBytes = Buffer.from(payload.sealBytes);
   const journal = Buffer.from(payload.journal);
   const imageId = Buffer.from(payload.imageId);
-  const bindingSeed = Buffer.from(payload.bindingSeed);
+  const bindingValue = Buffer.from(payload.bindingValue);
   const nullifierSeed = Buffer.from(payload.nullifierSeed);
 
   if (sealBytes.length !== RISC0_SEAL_BORSH_LEN) {
@@ -76,8 +76,8 @@ export function validateRisc0PayloadShape(payload: Risc0PayloadLike): void {
   if (imageId.length !== RISC0_IMAGE_ID_LEN) {
     throw new Error(`Security: imageId must be ${RISC0_IMAGE_ID_LEN} bytes`);
   }
-  if (bindingSeed.length !== HASH_SIZE) {
-    throw new Error(`Security: bindingSeed must be ${HASH_SIZE} bytes`);
+  if (bindingValue.length !== HASH_SIZE) {
+    throw new Error(`Security: bindingValue must be ${HASH_SIZE} bytes`);
   }
   if (nullifierSeed.length !== HASH_SIZE) {
     throw new Error(`Security: nullifierSeed must be ${HASH_SIZE} bytes`);

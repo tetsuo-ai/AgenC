@@ -58,8 +58,8 @@ The existing non-private path still works. Privacy is opt-in.
 
 | Component | Description | Location |
 |-----------|-------------|----------|
-| Circom Circuit | Proves task completion without revealing output | `circuits-circom/task_completion/` |
-| Groth16 Verifier | On-chain proof verification via groth16-solana | Inline in program |
+| Circom Circuit | Proves task completion without revealing output | `circuits-circuit/task_completion/` |
+| Groth16 Verifier | On-chain proof verification via verifier-router | Inline in program |
 | complete_task_private | Anchor instruction with inline verification | `programs/agenc-coordination/` |
 | Privacy Cash Integration | Breaks payment linkability | `sdk/src/privacy.ts` |
 | Demo Script | Full E2E demonstration | `demo/` |
@@ -68,17 +68,17 @@ The existing non-private path still works. Privacy is opt-in.
 
 **Devnet:**
 
-- AgenC Program: `EopUaCV2svxj9j4hd7KjbrWfdjkspmm2BCBe7jGpKzKZ`
+- AgenC Program: `5j9ZbT3mnPX5QjWVMrDaWFuaGf8ddji6LW1HVJw6kUE7`
 - Privacy Cash: `9fhQBbumKEFuXtMBDw8AaQyAjCorLGJQiS3skWZdQyQD`
 
-Note: Groth16 verification is now inline via groth16-solana (no external verifier program).
+Note: Groth16 verification is now inline via verifier-router (no external verifier program).
 
 ## Prerequisites
 
 - Rust 1.82+
 - Solana CLI 2.2.20+
 - Node.js 18+
-- circom + snarkjs (for circuit compilation)
+- circuit + risc0-host-prover (for circuit compilation)
 
 ## Setup
 
@@ -90,8 +90,8 @@ cd AgenC
 npm install
 
 # Build Circom circuit
-cd circuits-circom/task_completion
-circom circuit.circom --r1cs --wasm --sym
+cd circuits-circuit/task_completion
+circuit circuit.circuit --r1cs --wasm --sym
 
 # Build Anchor program
 cd ../..
@@ -116,7 +116,7 @@ The Circom circuit proves three things without revealing the output:
 2. **Commitment is valid** - The output commitment was correctly formed
 3. **Proof is bound** - The proof is tied to this specific task ID and agent
 
-```circom
+```circuit
 template TaskCompletion() {
     signal input task_id[32];      // PUBLIC
     signal input agent_pubkey[32]; // PUBLIC
@@ -156,7 +156,7 @@ This means observers cannot determine which task creator paid which agent.
 
 | Bounty | Fit | Notes |
 |--------|-----|-------|
-| Circom/Groth16 | Primary | Using Circom with groth16-solana |
+| Circom/Groth16 | Primary | Using Circom with verifier-router |
 | Privacy Cash | Primary | Integration for unlinkable payments |
 | Track 2: Privacy Tooling | Primary | Infrastructure for private agents |
 | Helius | Secondary | RPC for transaction handling |
@@ -165,8 +165,8 @@ This means observers cannot determine which task creator paid which agent.
 ## Testing
 
 ```bash
-# Circuit tests (via snarkjs)
-cd circuits-circom/task_completion
+# Circuit tests (via risc0-host-prover)
+cd circuits-circuit/task_completion
 npm test
 
 # Anchor tests

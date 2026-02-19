@@ -575,7 +575,7 @@ describe('TaskOperations', () => {
       sealBytes.set(TRUSTED_RISC0_SELECTOR, 0);
       const journal = new Uint8Array(RISC0_JOURNAL_LEN).fill(0x02);
       const imageId = new Uint8Array(RISC0_IMAGE_ID_LEN).fill(0x03);
-      const bindingSeed = new Uint8Array(HASH_SIZE).fill(0x04);
+      const bindingValue = new Uint8Array(HASH_SIZE).fill(0x04);
       const nullifierSeed = new Uint8Array(HASH_SIZE).fill(0x05);
 
       const result = await ops.completeTaskPrivate(
@@ -584,7 +584,7 @@ describe('TaskOperations', () => {
         sealBytes,
         journal,
         imageId,
-        bindingSeed,
+        bindingValue,
         nullifierSeed,
       );
 
@@ -595,7 +595,7 @@ describe('TaskOperations', () => {
       expect(mocks.completeTaskPrivateMethod).toHaveBeenCalledTimes(1);
       const proofArg = mocks.completeTaskPrivateMethod.mock.calls[0][1] as Record<string, unknown>;
       expect(Object.keys(proofArg).sort()).toEqual([
-        'bindingSeed',
+        'bindingValue',
         'imageId',
         'journal',
         'nullifierSeed',
@@ -741,7 +741,7 @@ describe('TaskOperations', () => {
       ).rejects.toThrow('cannot be all zeros');
     });
 
-    it('completeTaskPrivate rejects all-zero bindingSeed', async () => {
+    it('completeTaskPrivate rejects all-zero bindingValue', async () => {
       await expect(
         ops.completeTaskPrivate(
           taskPda, mockTask,

@@ -65,7 +65,7 @@ function makeMockProgram() {
   };
 
   const program = {
-    programId: new PublicKey('EopUaCV2svxj9j4hd7KjbrWfdjkspmm2BCBe7jGpKzKZ'),
+    programId: new PublicKey('5j9ZbT3mnPX5QjWVMrDaWFuaGf8ddji6LW1HVJw6kUE7'),
     provider: {
       publicKey: authority.publicKey,
     },

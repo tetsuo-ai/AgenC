@@ -22,8 +22,8 @@ import {
 async function main() {
   // Check prerequisites
   const tools = checkToolsAvailable();
-  if (!tools.snarkjs) {
-    console.error('Missing snarkjs. Install with: npm install snarkjs');
+  if (!tools.risc0-host-prover) {
+    console.error('Missing risc0-host-prover. Install with: npm install risc0-host-prover');
     process.exit(1);
   }
 
@@ -38,7 +38,7 @@ async function main() {
   const salt = generateSalt();
 
   // Compute the hashes that will be public inputs
-  // Uses poseidon-lite for circomlib-compatible hashing
+  // Uses poseidon-lite for circuitlib-compatible hashing
   console.log('Computing hashes...');
   const hashes = computeHashes(taskPda, agentPubkey, output, salt);
 
@@ -52,7 +52,7 @@ async function main() {
     agentPubkey,
     output,
     salt,
-    circuitPath: './circuits-circom/task_completion',
+    proverEndpoint: './circuits-circuit/task_completion',
   });
 
   console.log('Proof size:', result.proofSize, 'bytes');
@@ -63,12 +63,12 @@ async function main() {
   const publicSignals = [
     hashes.constraintHash,
     hashes.outputCommitment,
-    hashes.expectedBinding,
+    hashes.bindingValue,
   ];
   const valid = await verifyProofLocally(
     result.proof,
     publicSignals,
-    './circuits-circom/task_completion'
+    './circuits-circuit/task_completion'
   );
 
   console.log('Valid:', valid);

@@ -64,7 +64,7 @@ if (!IS_DEMO_MODE) {
 
 // Simulated imports for demo
 const VERIFIER_PROGRAM_ID = new PublicKey('8fHUGmjNzSh76r78v1rPt7BhWmAu2gXrvW9A2XXonwQQ');
-const AGENC_PROGRAM_ID = new PublicKey('EopUaCV2svxj9j4hd7KjbrWfdjkspmm2BCBe7jGpKzKZ');
+const AGENC_PROGRAM_ID = new PublicKey('5j9ZbT3mnPX5QjWVMrDaWFuaGf8ddji6LW1HVJw6kUE7');
 
 // ============================================================================
 // Tetsuo Agent Configuration

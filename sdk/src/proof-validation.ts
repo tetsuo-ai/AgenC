@@ -60,7 +60,7 @@ export interface ProofSubmissionPreflightParams {
   authorityPubkey?: PublicKey;
   proof: Pick<
     PrivateCompletionProof,
-    'sealBytes' | 'journal' | 'imageId' | 'bindingSeed' | 'nullifierSeed'
+    'sealBytes' | 'journal' | 'imageId' | 'bindingValue' | 'nullifierSeed'
   >;
   proofGeneratedAtMs?: number;
   maxProofAgeMs?: number;
@@ -141,7 +141,7 @@ export async function runProofSubmissionPreflight(
   const sealBytes = toBytes(params.proof.sealBytes);
   const journalBytes = toBytes(params.proof.journal);
   const imageId = toBytes(params.proof.imageId);
-  const bindingSeed = toBytes(params.proof.bindingSeed);
+  const bindingValue = toBytes(params.proof.bindingValue);
   const nullifierSeed = toBytes(params.proof.nullifierSeed);
 
   if (sealBytes.length !== RISC0_SEAL_BORSH_LEN) {
@@ -183,10 +183,10 @@ export async function runProofSubmissionPreflight(
     });
   }
 
-  if (bindingSeed.length !== HASH_SIZE) {
+  if (bindingValue.length !== HASH_SIZE) {
     failures.push({
       check: 'binding_seed_length',
-      message: `bindingSeed must be ${HASH_SIZE} bytes, got ${bindingSeed.length}`,
+      message: `bindingValue must be ${HASH_SIZE} bytes, got ${bindingValue.length}`,
       retriable: false,
     });
   }
@@ -243,10 +243,10 @@ export async function runProofSubmissionPreflight(
       });
     }
 
-    if (bindingSeed.length === HASH_SIZE && !bytesEqual(journal.binding, bindingSeed)) {
+    if (bindingValue.length === HASH_SIZE && !bytesEqual(journal.binding, bindingValue)) {
       failures.push({
         check: 'binding_seed_match',
-        message: 'journal binding does not match bindingSeed',
+        message: 'journal binding does not match bindingValue',
         retriable: false,
       });
     }
@@ -382,9 +382,9 @@ export async function runProofSubmissionPreflight(
     });
   }
 
-  if (bindingSeed.length === HASH_SIZE) {
+  if (bindingValue.length === HASH_SIZE) {
     const [bindingSpendPda] = PublicKey.findProgramAddressSync(
-      [BINDING_SPEND_SEED, bindingSeed],
+      [BINDING_SPEND_SEED, bindingValue],
       program.programId,
     );
     const bindingSpendInfo = await connection.getAccountInfo(bindingSpendPda);

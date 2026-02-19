@@ -21,7 +21,7 @@ The speculation module extends the AgenC Coordination Program with speculative e
 ### Program ID
 
 ```
-PROGRAM_ID: EopUaCV2svxj9j4hd7KjbrWfdjkspmm2BCBe7jGpKzKZ
+PROGRAM_ID: 5j9ZbT3mnPX5QjWVMrDaWFuaGf8ddji6LW1HVJw6kUE7
 ```
 
 ### Module Seeds
@@ -1381,7 +1381,7 @@ pub fn process_validate_speculation(
 ```typescript
 import { PublicKey } from '@solana/web3.js';
 
-const PROGRAM_ID = new PublicKey('EopUaCV2svxj9j4hd7KjbrWfdjkspmm2BCBe7jGpKzKZ');
+const PROGRAM_ID = new PublicKey('5j9ZbT3mnPX5QjWVMrDaWFuaGf8ddji6LW1HVJw6kUE7');
 
 export function deriveSpeculationConfigPda(
   programId: PublicKey = PROGRAM_ID

@@ -72,7 +72,7 @@ const wallet = Keypair.fromSecretKey(/* your secret key */);
 const client = new SpeculationClient({
   connection,
   wallet,
-  programId: 'EopUaCV2svxj9j4hd7KjbrWfdjkspmm2BCBe7jGpKzKZ',
+  programId: '5j9ZbT3mnPX5QjWVMrDaWFuaGf8ddji6LW1HVJw6kUE7',
 });
 
 // Initialize (loads program and config)

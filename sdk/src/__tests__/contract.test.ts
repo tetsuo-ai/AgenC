@@ -175,7 +175,7 @@ describe('SDK contract tests', () => {
         sealBytes: generated.sealBytes,
         journal: generated.journal,
         imageId: generated.imageId,
-        bindingSeed: generated.bindingSeed,
+        bindingValue: generated.bindingValue,
         nullifierSeed: generated.nullifierSeed,
       },
     );
@@ -189,13 +189,13 @@ describe('SDK contract tests', () => {
       sealBytes: expect.any(Array),
       journal: expect.any(Array),
       imageId: expect.any(Array),
-      bindingSeed: expect.any(Array),
+      bindingValue: expect.any(Array),
       nullifierSeed: expect.any(Array),
     });
     expect(proofArg.sealBytes).toHaveLength(260);
     expect(proofArg.journal).toHaveLength(192);
     expect(proofArg.imageId).toHaveLength(32);
-    expect(proofArg.bindingSeed).toHaveLength(32);
+    expect(proofArg.bindingValue).toHaveLength(32);
     expect(proofArg.nullifierSeed).toHaveLength(32);
 
     const builder = completeTaskPrivateMock.mock.results[0].value;
@@ -259,14 +259,14 @@ describe('SDK contract tests', () => {
       sealBytes: expect.any(Buffer),
       journal: expect.any(Buffer),
       imageId: expect.any(Buffer),
-      bindingSeed: expect.any(Buffer),
+      bindingValue: expect.any(Buffer),
       nullifierSeed: expect.any(Buffer),
       generationTime: expect.any(Number),
     });
     expect(result.sealBytes.length).toBe(260);
     expect(result.journal.length).toBe(192);
     expect(result.imageId.length).toBe(32);
-    expect(result.bindingSeed.length).toBe(32);
+    expect(result.bindingValue.length).toBe(32);
     expect(result.nullifierSeed.length).toBe(32);
     expect(result.generationTime).toBeGreaterThanOrEqual(0);
   });

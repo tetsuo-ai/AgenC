@@ -103,7 +103,7 @@ export interface PrivateCompletionProof {
   /** RISC0 image ID (32 bytes) */
   imageId: Buffer | Uint8Array;
   /** Binding spend seed (32 bytes) */
-  bindingSeed: Buffer | Uint8Array;
+  bindingValue: Buffer | Uint8Array;
   /** Nullifier spend seed (32 bytes) */
   nullifierSeed: Buffer | Uint8Array;
 }
@@ -642,11 +642,11 @@ export async function completeTaskPrivate(
   const sealBytes = toFixedBytes(proof.sealBytes, RISC0_SEAL_BORSH_LEN, 'sealBytes');
   const journal = toFixedBytes(proof.journal, RISC0_JOURNAL_LEN, 'journal');
   const imageId = toFixedBytes(proof.imageId, RISC0_IMAGE_ID_LEN, 'imageId');
-  const bindingSeed = toFixedBytes(proof.bindingSeed, HASH_SIZE, 'bindingSeed');
+  const bindingValue = toFixedBytes(proof.bindingValue, HASH_SIZE, 'bindingValue');
   const nullifierSeed = toFixedBytes(proof.nullifierSeed, HASH_SIZE, 'nullifierSeed');
 
   const [bindingSpend] = PublicKey.findProgramAddressSync(
-    [BINDING_SPEND_SEED, bindingSeed],
+    [BINDING_SPEND_SEED, bindingValue],
     programId,
   );
   const [nullifierSpend] = PublicKey.findProgramAddressSync(
@@ -705,7 +705,7 @@ export async function completeTaskPrivate(
       sealBytes: Array.from(sealBytes),
       journal: Array.from(journal),
       imageId: Array.from(imageId),
-      bindingSeed: Array.from(bindingSeed),
+      bindingValue: Array.from(bindingValue),
       nullifierSeed: Array.from(nullifierSeed),
     })
     .accountsPartial({

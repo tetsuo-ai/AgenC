@@ -26,7 +26,7 @@ export interface TaskState {
   outputCommitment: string
   workerPubkey: string
   recipientPubkey: string
-  proofData: string
+  sealBytes: string
   txSignatures: {
     createTask?: string
     shieldEscrow?: string
@@ -132,7 +132,7 @@ function App() {
     outputCommitment: '',
     workerPubkey: '',
     recipientPubkey: '',
-    proofData: '',
+    sealBytes: '',
     txSignatures: {},
   })
 
@@ -186,7 +186,7 @@ function App() {
       outputCommitment: '',
       workerPubkey: '',
       recipientPubkey: '',
-      proofData: '',
+      sealBytes: '',
       txSignatures: {},
     })
     // Re-initialize connection to ensure clean state

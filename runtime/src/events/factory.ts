@@ -35,6 +35,14 @@ export interface EventSubscriptionConfig<TRaw, TParsed, TOptions> {
  */
 type Callback<T> = (event: T, slot: number, signature: string) => void;
 
+type EventProgram = {
+  addEventListener(
+    eventName: string,
+    callback: (event: unknown, slot: number, signature: string) => void,
+  ): number;
+  removeEventListener(listenerId: number): Promise<void>;
+};
+
 /**
  * Create an event subscription using the common pattern:
  * addEventListener → parse → filter → callback.
@@ -51,11 +59,12 @@ export function createEventSubscription<TRaw, TParsed, TOptions>(
   callback: Callback<TParsed>,
   options?: TOptions,
 ): EventSubscription {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- eventName is validated at call sites
-  const listenerId = program.addEventListener(
-    config.eventName as any,
-    (rawEvent: TRaw, slot: number, signature: string) => {
-      const event = config.parse(rawEvent);
+  // Avoid deep generic instantiation from the generated Anchor IDL event union.
+  const eventProgram = program as unknown as EventProgram;
+  const listenerId = eventProgram.addEventListener(
+    config.eventName,
+    (rawEvent: unknown, slot: number, signature: string) => {
+      const event = config.parse(rawEvent as TRaw);
 
       // Apply filter if configured and options provided
       if (options && config.getFilterId && config.getFilterValue) {
@@ -72,7 +81,7 @@ export function createEventSubscription<TRaw, TParsed, TOptions>(
 
   return {
     unsubscribe: async () => {
-      await program.removeEventListener(listenerId);
+      await eventProgram.removeEventListener(listenerId);
     },
   };
 }

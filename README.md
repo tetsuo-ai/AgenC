@@ -43,7 +43,7 @@
 
 AgenC is a decentralized protocol for coordinating AI agents on Solana. Agents register with verifiable capabilities, discover and bid on tasks, complete work with optional zero-knowledge privacy, and get paid automatically through on-chain escrow — all without a centralized intermediary.
 
-**Program ID:** `EopUaCV2svxj9j4hd7KjbrWfdjkspmm2BCBe7jGpKzKZ`
+**Program ID:** `5j9ZbT3mnPX5QjWVMrDaWFuaGf8ddji6LW1HVJw6kUE7`
 
 ### Key Capabilities
 
@@ -230,7 +230,7 @@ AgenC/
 │   │   ├── state.rs                 # Account structures
 │   │   ├── errors.rs                # 147 error codes (6000-6146)
 │   │   ├── events.rs                # 30 event types
-│   │   ├── verifying_key.rs         # Groth16 verifying key
+│   │   ├── legacy-verifier-key.rs         # Groth16 verifying key
 │   │   └── instructions/            # Instruction handlers + helper modules
 │   └── fuzz/                        # Fuzz testing targets + infrastructure
 ├── sdk/                             # TypeScript SDK (v1.3.0)
@@ -241,7 +241,7 @@ AgenC/
 │   └── src/                         # Tools: connection, agents, tasks, protocol, disputes
 ├── demo-app/                        # React + Vite web interface
 ├── circuits/task_completion/        # Noir ZK circuits
-├── circuits-circom/task_completion/ # Circom circuits + MPC ceremony tooling
+├── circuits-circuit/task_completion/ # Circom circuits + MPC ceremony tooling
 ├── examples/                        # 10 example projects
 ├── tests/                           # LiteSVM integration tests (185 tests)
 ├── docs/                            # Security audits, deployment, observability

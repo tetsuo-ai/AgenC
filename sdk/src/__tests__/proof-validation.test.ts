@@ -70,9 +70,9 @@ function makeProof(
   const authorityPubkey = overrides.authorityPubkey ?? Keypair.generate().publicKey;
   const constraintHash = overrides.constraintHash ?? makeBytes(32, 1);
   const outputCommitment = overrides.outputCommitment ?? makeBytes(32, 2);
-  const bindingSeed = overrides.bindingSeed ?? makeBytes(32, 3);
+  const bindingValue = overrides.bindingValue ?? makeBytes(32, 3);
   const nullifierSeed = overrides.nullifierSeed ?? makeBytes(32, 4);
-  const bindingFromJournal = overrides.bindingFromJournal ?? Uint8Array.from(bindingSeed);
+  const bindingFromJournal = overrides.bindingFromJournal ?? Uint8Array.from(bindingValue);
   const nullifierFromJournal = overrides.nullifierFromJournal ?? Uint8Array.from(nullifierSeed);
 
   const sealSelector = overrides.sealSelector ?? TRUSTED_RISC0_SELECTOR;
@@ -102,7 +102,7 @@ function makeProof(
     sealBytes,
     journal,
     imageId: overrides.imageIdBytes ?? TRUSTED_RISC0_IMAGE_ID,
-    bindingSeed,
+    bindingValue,
     nullifierSeed,
     ...overrides,
   };
@@ -297,7 +297,7 @@ describe('runProofSubmissionPreflight', () => {
     const proof = makeProof({
       taskPda: harness.taskPda,
       bindingFromJournal: makeBytes(32, 0),
-      bindingSeed: makeBytes(32, 0),
+      bindingValue: makeBytes(32, 0),
     });
     const result = await runProofSubmissionPreflight(harness.connection as any, harness.program, {
       taskPda: harness.taskPda,
@@ -336,12 +336,12 @@ describe('runProofSubmissionPreflight', () => {
     expect(result.failures.some((f) => f.check === 'nullifier_nonzero')).toBe(true);
   });
 
-  it('fails binding_seed_match when journal binding differs from bindingSeed', async () => {
+  it('fails binding_seed_match when journal binding differs from bindingValue', async () => {
     const harness = makeValidationHarness();
     const proof = makeProof({
       taskPda: harness.taskPda,
       bindingFromJournal: makeBytes(32, 8),
-      bindingSeed: makeBytes(32, 3),
+      bindingValue: makeBytes(32, 3),
     });
     const result = await runProofSubmissionPreflight(harness.connection as any, harness.program, {
       taskPda: harness.taskPda,

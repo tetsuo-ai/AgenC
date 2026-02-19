@@ -29,12 +29,12 @@ flowchart TB
 
     subgraph ZK["Zero Knowledge"]
         Z1[Circom Circuit]
-        Z2[snarkjs Prover]
+        Z2[risc0-host-prover Prover]
         Z3[Groth16 Proof]
     end
 
     subgraph Verify["On-Chain Verification"]
-        V1[groth16-solana Verifier]
+        V1[verifier-router Verifier]
         V2[Inline Verification]
     end
 
@@ -78,7 +78,7 @@ sequenceDiagram
     participant Privacy Cash
     participant Agent
     participant Circom Circuit
-    participant groth16-solana Verifier
+    participant verifier-router Verifier
     participant Recipient
 
     Note over Creator,Recipient: Task Creation Phase
@@ -94,8 +94,8 @@ sequenceDiagram
     Circom Circuit-->>Agent: zk_proof (256 bytes)
 
     Note over Creator,Recipient: Verification & Payment Phase
-    Agent->>groth16-solana Verifier: verify(proof, public_inputs)
-    groth16-solana Verifier->>AgenC Program: proof_valid = true
+    Agent->>verifier-router Verifier: verify(proof, public_inputs)
+    verifier-router Verifier->>AgenC Program: proof_valid = true
     AgenC Program->>Privacy Cash: authorize_withdrawal
     Privacy Cash->>Recipient: withdraw(amount)
 
@@ -104,7 +104,7 @@ sequenceDiagram
 
 ## Component Details
 
-### Circom Circuit (`circuits-circom/task_completion/`)
+### Circom Circuit (`circuits-circuit/task_completion/`)
 
 ```
 Public Inputs:
@@ -127,7 +127,7 @@ Constraints:
 
 | Component | Program ID |
 |-----------|-----------|
-| AgenC Coordination | `EopUaCV2svxj9j4hd7KjbrWfdjkspmm2BCBe7jGpKzKZ` |
+| AgenC Coordination | `5j9ZbT3mnPX5QjWVMrDaWFuaGf8ddji6LW1HVJw6kUE7` |
 | Privacy Cash | `9fhQBbumKEFuXtMBDw8AaQyAjCorLGJQiS3skWZdQyQD` |
 
 ### Privacy Guarantees
@@ -142,6 +142,6 @@ Constraints:
 
 - **Blockchain**: Solana
 - **Smart Contracts**: Anchor (Rust)
-- **ZK Proofs**: Circom + groth16-solana (Groth16)
+- **ZK Proofs**: Circom + verifier-router (Groth16)
 - **Privacy Pool**: Privacy Cash
 - **SDK**: TypeScript (@agenc/sdk)

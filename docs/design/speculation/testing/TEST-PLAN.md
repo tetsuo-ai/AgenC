@@ -1044,7 +1044,7 @@ cd ../..
 
 # Start local validator with speculation features
 solana-test-validator \
-  --bpf-program EopUaCV2svxj9j4hd7KjbrWfdjkspmm2BCBe7jGpKzKZ target/deploy/agenc_coordination.so \
+  --bpf-program 5j9ZbT3mnPX5QjWVMrDaWFuaGf8ddji6LW1HVJw6kUE7 target/deploy/agenc_coordination.so \
   --reset
 
 # Run speculation tests

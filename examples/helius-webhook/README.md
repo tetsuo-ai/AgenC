@@ -73,9 +73,9 @@ npm run subscribe
 
 | Program | Address |
 |---------|---------|
-| AgenC Coordination | `EopUaCV2svxj9j4hd7KjbrWfdjkspmm2BCBe7jGpKzKZ` |
+| AgenC Coordination | `5j9ZbT3mnPX5QjWVMrDaWFuaGf8ddji6LW1HVJw6kUE7` |
 
-Note: ZK proof verification is now inline via groth16-solana (no external verifier program).
+Note: ZK proof verification is now inline via verifier-router (no external verifier program).
 
 ## Integration Examples
 

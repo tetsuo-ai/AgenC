@@ -11,7 +11,7 @@
  * IDL can be found at `target/idl/agenc_coordination.json`.
  */
 export type AgencCoordination = {
-  "address": "EopUaCV2svxj9j4hd7KjbrWfdjkspmm2BCBe7jGpKzKZ",
+  "address": "5j9ZbT3mnPX5QjWVMrDaWFuaGf8ddji6LW1HVJw6kUE7",
   "metadata": {
     "name": "agencCoordination",
     "version": "0.1.0",
@@ -1023,10 +1023,6 @@ export type AgencCoordination = {
         },
         {
           "name": "escrow",
-          "docs": [
-            "Note: Escrow account is closed conditionally after the final completion.",
-            "For collaborative tasks with multiple workers, it stays open until all complete."
-          ],
           "writable": true,
           "pda": {
             "seeds": [
@@ -1097,11 +1093,37 @@ export type AgencCoordination = {
           }
         },
         {
-          "name": "nullifierAccount",
-          "docs": [
-            "Nullifier account to prevent proof/knowledge reuse.",
-            "If this account already exists, the proof has been used before."
-          ],
+          "name": "bindingSpend",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  105,
+                  110,
+                  100,
+                  105,
+                  110,
+                  103,
+                  95,
+                  115,
+                  112,
+                  101,
+                  110,
+                  100
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "proof.binding_seed"
+              }
+            ]
+          }
+        },
+        {
+          "name": "nullifierSpend",
           "writable": true,
           "pda": {
             "seeds": [
@@ -1116,12 +1138,18 @@ export type AgencCoordination = {
                   102,
                   105,
                   101,
-                  114
+                  114,
+                  95,
+                  115,
+                  112,
+                  101,
+                  110,
+                  100
                 ]
               },
               {
                 "kind": "arg",
-                "path": "proof.nullifier"
+                "path": "proof.nullifier_seed"
               }
             ]
           }
@@ -1139,45 +1167,157 @@ export type AgencCoordination = {
           ]
         },
         {
+          "name": "routerProgram"
+        },
+        {
+          "name": "router",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  111,
+                  117,
+                  116,
+                  101,
+                  114
+                ]
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                78,
+                225,
+                133,
+                125,
+                40,
+                66,
+                77,
+                214,
+                9,
+                252,
+                64,
+                53,
+                108,
+                230,
+                117,
+                158,
+                173,
+                73,
+                175,
+                167,
+                6,
+                101,
+                14,
+                54,
+                1,
+                226,
+                70,
+                97,
+                85,
+                205,
+                10,
+                148
+              ]
+            }
+          }
+        },
+        {
+          "name": "verifierEntry",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  101,
+                  114,
+                  105,
+                  102,
+                  105,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "const",
+                "value": [
+                  82,
+                  90,
+                  86,
+                  77
+                ]
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                78,
+                225,
+                133,
+                125,
+                40,
+                66,
+                77,
+                214,
+                9,
+                252,
+                64,
+                53,
+                108,
+                230,
+                117,
+                158,
+                173,
+                73,
+                175,
+                167,
+                6,
+                101,
+                14,
+                54,
+                1,
+                226,
+                70,
+                97,
+                85,
+                205,
+                10,
+                148
+              ]
+            }
+          }
+        },
+        {
+          "name": "verifierProgram"
+        },
+        {
           "name": "systemProgram",
           "address": "11111111111111111111111111111111"
         },
         {
           "name": "tokenEscrowAta",
-          "docs": [
-            "Token escrow ATA holding reward tokens (optional)"
-          ],
           "writable": true,
           "optional": true
         },
         {
           "name": "workerTokenAccount",
-          "docs": [
-            "Worker's token account to receive reward (optional)"
-          ],
           "writable": true,
           "optional": true
         },
         {
           "name": "treasuryTokenAccount",
-          "docs": [
-            "Treasury's token account for protocol fees (optional, must pre-exist)"
-          ],
           "writable": true,
           "optional": true
         },
         {
           "name": "rewardMint",
-          "docs": [
-            "SPL token mint (optional, must match task.reward_mint)"
-          ],
           "optional": true
         },
         {
           "name": "tokenProgram",
-          "docs": [
-            "SPL Token program (optional, required for token tasks)"
-          ],
           "optional": true,
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         }
@@ -1876,6 +2016,95 @@ export type AgencCoordination = {
       ]
     },
     {
+      "name": "delegateReputation",
+      "docs": [
+        "Delegate reputation points to a trusted peer.",
+        "One delegation per (delegator, delegatee) pair."
+      ],
+      "discriminator": [
+        195,
+        86,
+        46,
+        27,
+        29,
+        166,
+        147,
+        66
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "delegatorAgent"
+          ]
+        },
+        {
+          "name": "delegatorAgent"
+        },
+        {
+          "name": "delegateeAgent"
+        },
+        {
+          "name": "delegation",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  112,
+                  117,
+                  116,
+                  97,
+                  116,
+                  105,
+                  111,
+                  110,
+                  95,
+                  100,
+                  101,
+                  108,
+                  101,
+                  103,
+                  97,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "delegatorAgent"
+              },
+              {
+                "kind": "account",
+                "path": "delegateeAgent"
+              }
+            ]
+          }
+        },
+        {
+          "name": "systemProgram",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u16"
+        },
+        {
+          "name": "expiresAt",
+          "type": "i64"
+        }
+      ]
+    },
+    {
       "name": "deregisterAgent",
       "docs": [
         "Deregister an agent and reclaim rent.",
@@ -2048,7 +2277,9 @@ export type AgencCoordination = {
         {
           "name": "treasury",
           "docs": [
-            "Must be a program-owned PDA matching protocol_config.treasury."
+            "Must match protocol_config.treasury. Spend path supports:",
+            "- program-owned treasury (direct lamport mutation), or",
+            "- system-owned treasury when this account signs."
           ],
           "writable": true,
           "optional": true
@@ -3316,6 +3547,40 @@ export type AgencCoordination = {
           }
         },
         {
+          "name": "purchaseRecord",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  107,
+                  105,
+                  108,
+                  108,
+                  95,
+                  112,
+                  117,
+                  114,
+                  99,
+                  104,
+                  97,
+                  115,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "skill"
+              },
+              {
+                "kind": "account",
+                "path": "rater"
+              }
+            ]
+          }
+        },
+        {
           "name": "protocolConfig",
           "pda": {
             "seeds": [
@@ -3842,6 +4107,153 @@ export type AgencCoordination = {
       "args": []
     },
     {
+      "name": "revokeDelegation",
+      "docs": [
+        "Revoke a reputation delegation and close the account.",
+        "Rent is returned to the delegator's authority."
+      ],
+      "discriminator": [
+        188,
+        92,
+        135,
+        67,
+        160,
+        181,
+        54,
+        62
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "delegatorAgent"
+          ]
+        },
+        {
+          "name": "delegatorAgent"
+        },
+        {
+          "name": "delegation",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  112,
+                  117,
+                  116,
+                  97,
+                  116,
+                  105,
+                  111,
+                  110,
+                  95,
+                  100,
+                  101,
+                  108,
+                  101,
+                  103,
+                  97,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "delegatorAgent"
+              },
+              {
+                "kind": "account",
+                "path": "delegation.delegatee",
+                "account": "reputationDelegation"
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "stakeReputation",
+      "docs": [
+        "Stake SOL on agent reputation.",
+        "Creates or adds to an existing reputation stake account."
+      ],
+      "discriminator": [
+        104,
+        250,
+        157,
+        87,
+        16,
+        190,
+        180,
+        238
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "agent"
+          ]
+        },
+        {
+          "name": "agent"
+        },
+        {
+          "name": "reputationStake",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  112,
+                  117,
+                  116,
+                  97,
+                  116,
+                  105,
+                  111,
+                  110,
+                  95,
+                  115,
+                  116,
+                  97,
+                  107,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "agent"
+              }
+            ]
+          }
+        },
+        {
+          "name": "systemProgram",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
       "name": "suspendAgent",
       "docs": [
         "Suspend an agent (protocol authority only, fix #819).",
@@ -4102,6 +4514,61 @@ export type AgencCoordination = {
         {
           "name": "newMinVersion",
           "type": "u8"
+        }
+      ]
+    },
+    {
+      "name": "updateMultisig",
+      "docs": [
+        "Rotate multisig owners/threshold (multisig gated).",
+        "",
+        "Hardening:",
+        "- Allows signer rotation for key loss/compromise recovery.",
+        "- Requires threshold of new-set signers in the same update transaction."
+      ],
+      "discriminator": [
+        152,
+        192,
+        112,
+        152,
+        120,
+        184,
+        150,
+        59
+      ],
+      "accounts": [
+        {
+          "name": "protocolConfig",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "newThreshold",
+          "type": "u8"
+        },
+        {
+          "name": "newOwners",
+          "type": {
+            "vec": "pubkey"
+          }
         }
       ]
     },
@@ -4475,6 +4942,58 @@ export type AgencCoordination = {
           "type": "u64"
         }
       ]
+    },
+    {
+      "name": "updateTreasury",
+      "docs": [
+        "Update protocol treasury destination (multisig gated).",
+        "",
+        "Hardening:",
+        "- Allows treasury rotation/recovery.",
+        "- New treasury must be program-owned, or a signer system account."
+      ],
+      "discriminator": [
+        60,
+        16,
+        243,
+        66,
+        96,
+        59,
+        254,
+        131
+      ],
+      "accounts": [
+        {
+          "name": "protocolConfig",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "newTreasury",
+          "docs": [
+            "Must be either:",
+            "- program-owned (preferred), or",
+            "- a system-owned signer account (legacy compatibility)."
+          ]
+        }
+      ],
+      "args": []
     },
     {
       "name": "upvotePost",
@@ -4943,7 +5462,7 @@ export type AgencCoordination = {
               },
               {
                 "kind": "account",
-                "path": "voter"
+                "path": "authority"
               }
             ]
           }
@@ -5009,6 +5528,75 @@ export type AgencCoordination = {
           "type": "bool"
         }
       ]
+    },
+    {
+      "name": "withdrawReputationStake",
+      "docs": [
+        "Withdraw SOL from reputation stake after cooldown period.",
+        "Agent must have no pending disputes as defendant."
+      ],
+      "discriminator": [
+        234,
+        37,
+        157,
+        236,
+        80,
+        222,
+        40,
+        233
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "agent"
+          ]
+        },
+        {
+          "name": "agent"
+        },
+        {
+          "name": "reputationStake",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  112,
+                  117,
+                  116,
+                  97,
+                  116,
+                  105,
+                  111,
+                  110,
+                  95,
+                  115,
+                  116,
+                  97,
+                  107,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "agent"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
     }
   ],
   "accounts": [
@@ -5036,6 +5624,19 @@ export type AgencCoordination = {
         81,
         110,
         137
+      ]
+    },
+    {
+      "name": "bindingSpend",
+      "discriminator": [
+        196,
+        241,
+        81,
+        0,
+        238,
+        99,
+        30,
+        100
       ]
     },
     {
@@ -5130,16 +5731,16 @@ export type AgencCoordination = {
       ]
     },
     {
-      "name": "nullifier",
+      "name": "nullifierSpend",
       "discriminator": [
-        18,
-        56,
-        142,
-        165,
-        181,
-        158,
-        187,
-        133
+        254,
+        192,
+        216,
+        27,
+        119,
+        64,
+        151,
+        144
       ]
     },
     {
@@ -5179,6 +5780,32 @@ export type AgencCoordination = {
         96,
         209,
         2
+      ]
+    },
+    {
+      "name": "reputationDelegation",
+      "discriminator": [
+        247,
+        166,
+        224,
+        123,
+        62,
+        95,
+        198,
+        71
+      ]
+    },
+    {
+      "name": "reputationStake",
+      "discriminator": [
+        226,
+        12,
+        248,
+        110,
+        109,
+        108,
+        99,
+        212
       ]
     },
     {
@@ -5496,6 +6123,19 @@ export type AgencCoordination = {
       ]
     },
     {
+      "name": "multisigUpdated",
+      "discriminator": [
+        242,
+        206,
+        37,
+        59,
+        122,
+        197,
+        210,
+        72
+      ]
+    },
+    {
       "name": "postCreated",
       "discriminator": [
         209,
@@ -5639,6 +6279,58 @@ export type AgencCoordination = {
       ]
     },
     {
+      "name": "reputationDelegated",
+      "discriminator": [
+        143,
+        11,
+        134,
+        202,
+        135,
+        97,
+        121,
+        223
+      ]
+    },
+    {
+      "name": "reputationDelegationRevoked",
+      "discriminator": [
+        130,
+        130,
+        191,
+        20,
+        81,
+        88,
+        109,
+        152
+      ]
+    },
+    {
+      "name": "reputationStakeWithdrawn",
+      "discriminator": [
+        189,
+        97,
+        237,
+        131,
+        201,
+        190,
+        121,
+        43
+      ]
+    },
+    {
+      "name": "reputationStaked",
+      "discriminator": [
+        12,
+        70,
+        73,
+        125,
+        30,
+        125,
+        6,
+        10
+      ]
+    },
+    {
       "name": "rewardDistributed",
       "discriminator": [
         36,
@@ -5779,6 +6471,19 @@ export type AgencCoordination = {
         159,
         69,
         175
+      ]
+    },
+    {
+      "name": "treasuryUpdated",
+      "discriminator": [
+        80,
+        239,
+        54,
+        168,
+        43,
+        38,
+        85,
+        145
       ]
     }
   ],
@@ -6000,653 +6705,748 @@ export type AgencCoordination = {
     },
     {
       "code": 6043,
+      "name": "invalidSealEncoding",
+      "msg": "Invalid RISC0 seal encoding"
+    },
+    {
+      "code": 6044,
+      "name": "invalidJournalLength",
+      "msg": "Invalid RISC0 journal length"
+    },
+    {
+      "code": 6045,
+      "name": "invalidJournalBinding",
+      "msg": "Invalid RISC0 journal binding"
+    },
+    {
+      "code": 6046,
+      "name": "invalidJournalTask",
+      "msg": "RISC0 journal task binding mismatch"
+    },
+    {
+      "code": 6047,
+      "name": "invalidJournalAuthority",
+      "msg": "RISC0 journal authority binding mismatch"
+    },
+    {
+      "code": 6048,
+      "name": "invalidImageId",
+      "msg": "Invalid RISC0 image ID"
+    },
+    {
+      "code": 6049,
+      "name": "trustedSelectorMismatch",
+      "msg": "RISC0 seal selector does not match trusted selector"
+    },
+    {
+      "code": 6050,
+      "name": "trustedVerifierProgramMismatch",
+      "msg": "RISC0 verifier program does not match trusted verifier"
+    },
+    {
+      "code": 6051,
+      "name": "routerAccountMismatch",
+      "msg": "RISC0 router account constraints failed"
+    },
+    {
+      "code": 6052,
       "name": "invalidProofSize",
       "msg": "Invalid proof size - expected 256 bytes for Groth16"
     },
     {
-      "code": 6044,
+      "code": 6053,
       "name": "invalidProofBinding",
       "msg": "Invalid proof binding: expected_binding cannot be all zeros"
     },
     {
-      "code": 6045,
+      "code": 6054,
       "name": "invalidOutputCommitment",
       "msg": "Invalid output commitment: output_commitment cannot be all zeros"
     },
     {
-      "code": 6046,
+      "code": 6055,
       "name": "invalidRentRecipient",
       "msg": "Invalid rent recipient: must be worker authority"
     },
     {
-      "code": 6047,
+      "code": 6056,
       "name": "gracePeriodNotPassed",
       "msg": "Grace period not passed: only worker authority can expire claim within 60 seconds of expiry"
     },
     {
-      "code": 6048,
+      "code": 6057,
       "name": "invalidProofHash",
       "msg": "Invalid proof hash: proof_hash cannot be all zeros"
     },
     {
-      "code": 6049,
+      "code": 6058,
       "name": "invalidResultData",
       "msg": "Invalid result data: result_data cannot be all zeros when provided"
     },
     {
-      "code": 6050,
+      "code": 6059,
       "name": "disputeNotActive",
       "msg": "Dispute is not active"
     },
     {
-      "code": 6051,
+      "code": 6060,
       "name": "votingEnded",
       "msg": "Voting period has ended"
     },
     {
-      "code": 6052,
+      "code": 6061,
       "name": "votingNotEnded",
       "msg": "Voting period has not ended"
     },
     {
-      "code": 6053,
+      "code": 6062,
       "name": "alreadyVoted",
       "msg": "Already voted on this dispute"
     },
     {
-      "code": 6054,
+      "code": 6063,
       "name": "notArbiter",
       "msg": "Not authorized to vote (not an arbiter)"
     },
     {
-      "code": 6055,
+      "code": 6064,
       "name": "insufficientVotes",
       "msg": "Insufficient votes to resolve"
     },
     {
-      "code": 6056,
+      "code": 6065,
       "name": "disputeAlreadyResolved",
       "msg": "Dispute has already been resolved"
     },
     {
-      "code": 6057,
+      "code": 6066,
       "name": "unauthorizedResolver",
       "msg": "Only protocol authority or dispute initiator can resolve disputes"
     },
     {
-      "code": 6058,
+      "code": 6067,
       "name": "activeDisputeVotes",
       "msg": "Agent has active dispute votes pending resolution"
     },
     {
-      "code": 6059,
+      "code": 6068,
       "name": "recentVoteActivity",
       "msg": "Agent must wait 24 hours after voting before deregistering"
     },
     {
-      "code": 6060,
+      "code": 6069,
       "name": "authorityAlreadyVoted",
       "msg": "Authority has already voted on this dispute"
     },
     {
-      "code": 6061,
+      "code": 6070,
       "name": "insufficientEvidence",
       "msg": "Insufficient dispute evidence provided"
     },
     {
-      "code": 6062,
+      "code": 6071,
       "name": "evidenceTooLong",
       "msg": "Dispute evidence exceeds maximum allowed length"
     },
     {
-      "code": 6063,
+      "code": 6072,
       "name": "disputeNotExpired",
       "msg": "Dispute has not expired"
     },
     {
-      "code": 6064,
+      "code": 6073,
       "name": "slashAlreadyApplied",
       "msg": "Dispute slashing already applied"
     },
     {
-      "code": 6065,
+      "code": 6074,
       "name": "slashWindowExpired",
       "msg": "Slash window expired: must apply slashing within 7 days of resolution"
     },
     {
-      "code": 6066,
+      "code": 6075,
       "name": "disputeNotResolved",
       "msg": "Dispute has not been resolved"
     },
     {
-      "code": 6067,
+      "code": 6076,
       "name": "notTaskParticipant",
       "msg": "Only task creator or workers can initiate disputes"
     },
     {
-      "code": 6068,
+      "code": 6077,
       "name": "invalidEvidenceHash",
       "msg": "Invalid evidence hash: cannot be all zeros"
     },
     {
-      "code": 6069,
+      "code": 6078,
       "name": "arbiterIsDisputeParticipant",
       "msg": "Arbiter cannot vote on disputes they are a participant in"
     },
     {
-      "code": 6070,
+      "code": 6079,
       "name": "insufficientQuorum",
       "msg": "Insufficient quorum: minimum number of voters not reached"
     },
     {
-      "code": 6071,
+      "code": 6080,
       "name": "activeDisputesExist",
       "msg": "Agent has active disputes as defendant and cannot deregister"
     },
     {
-      "code": 6072,
+      "code": 6081,
       "name": "workerAgentRequired",
       "msg": "Worker agent account required when creator initiates dispute"
     },
     {
-      "code": 6073,
+      "code": 6082,
       "name": "workerClaimRequired",
       "msg": "Worker claim account required when creator initiates dispute"
     },
     {
-      "code": 6074,
+      "code": 6083,
       "name": "workerNotInDispute",
       "msg": "Worker was not involved in this dispute"
     },
     {
-      "code": 6075,
+      "code": 6084,
       "name": "initiatorCannotResolve",
       "msg": "Dispute initiator cannot resolve their own dispute"
     },
     {
-      "code": 6076,
+      "code": 6085,
       "name": "versionMismatch",
       "msg": "State version mismatch (concurrent modification)"
     },
     {
-      "code": 6077,
+      "code": 6086,
       "name": "stateKeyExists",
       "msg": "State key already exists"
     },
     {
-      "code": 6078,
+      "code": 6087,
       "name": "stateNotFound",
       "msg": "State not found"
     },
     {
-      "code": 6079,
+      "code": 6088,
       "name": "invalidStateValue",
       "msg": "Invalid state value: state_value cannot be all zeros"
     },
     {
-      "code": 6080,
+      "code": 6089,
       "name": "stateOwnershipViolation",
       "msg": "State ownership violation: only the creator agent can update this state"
     },
     {
-      "code": 6081,
+      "code": 6090,
       "name": "invalidStateKey",
       "msg": "Invalid state key: state_key cannot be all zeros"
     },
     {
-      "code": 6082,
+      "code": 6091,
       "name": "protocolAlreadyInitialized",
       "msg": "Protocol is already initialized"
     },
     {
-      "code": 6083,
+      "code": 6092,
       "name": "protocolNotInitialized",
       "msg": "Protocol is not initialized"
     },
     {
-      "code": 6084,
+      "code": 6093,
       "name": "invalidProtocolFee",
       "msg": "Invalid protocol fee (must be <= 1000 bps)"
     },
     {
-      "code": 6085,
+      "code": 6094,
       "name": "invalidTreasury",
       "msg": "Invalid treasury: treasury account cannot be default pubkey"
     },
     {
-      "code": 6086,
+      "code": 6095,
       "name": "invalidDisputeThreshold",
       "msg": "Invalid dispute threshold: must be 1-100 (percentage of votes required)"
     },
     {
-      "code": 6087,
+      "code": 6096,
       "name": "insufficientStake",
       "msg": "Insufficient stake for arbiter registration"
     },
     {
-      "code": 6088,
+      "code": 6097,
       "name": "multisigInvalidThreshold",
       "msg": "Invalid multisig threshold"
     },
     {
-      "code": 6089,
+      "code": 6098,
       "name": "multisigInvalidSigners",
       "msg": "Invalid multisig signer configuration"
     },
     {
-      "code": 6090,
+      "code": 6099,
       "name": "multisigNotEnoughSigners",
       "msg": "Not enough multisig signers"
     },
     {
-      "code": 6091,
+      "code": 6100,
       "name": "multisigDuplicateSigner",
       "msg": "Duplicate multisig signer provided"
     },
     {
-      "code": 6092,
+      "code": 6101,
       "name": "multisigDefaultSigner",
       "msg": "Multisig signer cannot be default pubkey"
     },
     {
-      "code": 6093,
+      "code": 6102,
       "name": "multisigSignerNotSystemOwned",
       "msg": "Multisig signer account not owned by System Program"
     },
     {
-      "code": 6094,
+      "code": 6103,
       "name": "invalidInput",
       "msg": "Invalid input parameter"
     },
     {
-      "code": 6095,
+      "code": 6104,
       "name": "arithmeticOverflow",
       "msg": "Arithmetic overflow"
     },
     {
-      "code": 6096,
+      "code": 6105,
       "name": "voteOverflow",
       "msg": "Vote count overflow"
     },
     {
-      "code": 6097,
+      "code": 6106,
       "name": "insufficientFunds",
       "msg": "Insufficient funds"
     },
     {
-      "code": 6098,
+      "code": 6107,
       "name": "rewardTooSmall",
       "msg": "Reward too small: worker must receive at least 1 lamport"
     },
     {
-      "code": 6099,
+      "code": 6108,
       "name": "corruptedData",
       "msg": "Account data is corrupted"
     },
     {
-      "code": 6100,
+      "code": 6109,
       "name": "stringTooLong",
       "msg": "String too long"
     },
     {
-      "code": 6101,
+      "code": 6110,
       "name": "invalidAccountOwner",
       "msg": "Account owner validation failed: account not owned by this program"
     },
     {
-      "code": 6102,
+      "code": 6111,
       "name": "rateLimitExceeded",
       "msg": "Rate limit exceeded: maximum actions per 24h window reached"
     },
     {
-      "code": 6103,
+      "code": 6112,
       "name": "cooldownNotElapsed",
       "msg": "Cooldown period has not elapsed since last action"
     },
     {
-      "code": 6104,
+      "code": 6113,
       "name": "updateTooFrequent",
       "msg": "Agent update too frequent: must wait cooldown period"
     },
     {
-      "code": 6105,
+      "code": 6114,
       "name": "invalidCooldown",
       "msg": "Cooldown value cannot be negative"
     },
     {
-      "code": 6106,
+      "code": 6115,
       "name": "cooldownTooLarge",
       "msg": "Cooldown value exceeds maximum (24 hours)"
     },
     {
-      "code": 6107,
+      "code": 6116,
       "name": "rateLimitTooHigh",
       "msg": "Rate limit value exceeds maximum allowed (1000)"
     },
     {
-      "code": 6108,
+      "code": 6117,
       "name": "cooldownTooLong",
       "msg": "Cooldown value exceeds maximum allowed (1 week)"
     },
     {
-      "code": 6109,
+      "code": 6118,
       "name": "insufficientStakeForDispute",
       "msg": "Insufficient stake to initiate dispute"
     },
     {
-      "code": 6110,
+      "code": 6119,
       "name": "insufficientStakeForCreatorDispute",
       "msg": "Creator-initiated disputes require 2x the minimum stake"
     },
     {
-      "code": 6111,
+      "code": 6120,
       "name": "versionMismatchProtocol",
       "msg": "Protocol version mismatch: account version incompatible with current program"
     },
     {
-      "code": 6112,
+      "code": 6121,
       "name": "accountVersionTooOld",
       "msg": "Account version too old: migration required"
     },
     {
-      "code": 6113,
+      "code": 6122,
       "name": "accountVersionTooNew",
       "msg": "Account version too new: program upgrade required"
     },
     {
-      "code": 6114,
+      "code": 6123,
       "name": "invalidMigrationSource",
       "msg": "Migration not allowed: invalid source version"
     },
     {
-      "code": 6115,
+      "code": 6124,
       "name": "invalidMigrationTarget",
       "msg": "Migration not allowed: invalid target version"
     },
     {
-      "code": 6116,
+      "code": 6125,
       "name": "unauthorizedUpgrade",
       "msg": "Only upgrade authority can perform this action"
     },
     {
-      "code": 6117,
+      "code": 6126,
       "name": "invalidMinVersion",
       "msg": "Minimum version cannot exceed current protocol version"
     },
     {
-      "code": 6118,
+      "code": 6127,
       "name": "protocolConfigRequired",
       "msg": "Protocol config account required: suspending an agent requires the protocol config PDA in remaining_accounts"
     },
     {
-      "code": 6119,
+      "code": 6128,
       "name": "parentTaskCancelled",
       "msg": "Parent task has been cancelled"
     },
     {
-      "code": 6120,
+      "code": 6129,
       "name": "parentTaskDisputed",
       "msg": "Parent task is in disputed state"
     },
     {
-      "code": 6121,
+      "code": 6130,
       "name": "invalidDependencyType",
       "msg": "Invalid dependency type"
     },
     {
-      "code": 6122,
+      "code": 6131,
       "name": "parentTaskNotCompleted",
       "msg": "Parent task must be completed before completing a proof-dependent task"
     },
     {
-      "code": 6123,
+      "code": 6132,
       "name": "parentTaskAccountRequired",
       "msg": "Parent task account required for proof-dependent task completion"
     },
     {
-      "code": 6124,
+      "code": 6133,
       "name": "unauthorizedCreator",
       "msg": "Parent task does not belong to the same creator"
     },
     {
-      "code": 6125,
+      "code": 6134,
       "name": "nullifierAlreadySpent",
       "msg": "Nullifier has already been spent - proof/knowledge reuse detected"
     },
     {
-      "code": 6126,
+      "code": 6135,
       "name": "invalidNullifier",
       "msg": "Invalid nullifier: nullifier value cannot be all zeros"
     },
     {
-      "code": 6127,
+      "code": 6136,
       "name": "incompleteWorkerAccounts",
       "msg": "All worker accounts must be provided when cancelling a task with active claims"
     },
     {
-      "code": 6128,
+      "code": 6137,
       "name": "workerAccountsRequired",
       "msg": "Worker accounts required when task has active workers"
     },
     {
-      "code": 6129,
+      "code": 6138,
       "name": "duplicateArbiter",
       "msg": "Duplicate arbiter provided in remaining_accounts"
     },
     {
-      "code": 6130,
+      "code": 6139,
       "name": "insufficientEscrowBalance",
       "msg": "Escrow has insufficient balance for reward transfer"
     },
     {
-      "code": 6131,
+      "code": 6140,
       "name": "invalidStatusTransition",
       "msg": "Invalid task status transition"
     },
     {
-      "code": 6132,
+      "code": 6141,
       "name": "stakeTooLow",
       "msg": "Stake value is below minimum required (0.001 SOL)"
     },
     {
-      "code": 6133,
+      "code": 6142,
       "name": "invalidMinStake",
       "msg": "min_stake_for_dispute must be greater than zero"
     },
     {
-      "code": 6134,
+      "code": 6143,
       "name": "invalidSlashAmount",
       "msg": "Slash amount must be greater than zero"
     },
     {
-      "code": 6135,
+      "code": 6144,
       "name": "bondAmountTooLow",
       "msg": "Bond amount too low"
     },
     {
-      "code": 6136,
+      "code": 6145,
       "name": "bondAlreadyExists",
       "msg": "Bond already exists"
     },
     {
-      "code": 6137,
+      "code": 6146,
       "name": "bondNotFound",
       "msg": "Bond not found"
     },
     {
-      "code": 6138,
+      "code": 6147,
       "name": "bondNotMatured",
       "msg": "Bond not yet matured"
     },
     {
-      "code": 6139,
+      "code": 6148,
       "name": "insufficientReputation",
       "msg": "Agent reputation below task minimum requirement"
     },
     {
-      "code": 6140,
+      "code": 6149,
       "name": "invalidMinReputation",
       "msg": "Invalid minimum reputation: must be <= 10000"
     },
     {
-      "code": 6141,
+      "code": 6150,
       "name": "developmentKeyNotAllowed",
       "msg": "Development verifying key detected (gamma == delta). ZK proofs are forgeable. Run MPC ceremony before use."
     },
     {
-      "code": 6142,
+      "code": 6151,
       "name": "selfTaskNotAllowed",
       "msg": "Cannot claim own task: worker authority matches task creator"
     },
     {
-      "code": 6143,
+      "code": 6152,
       "name": "missingTokenAccounts",
       "msg": "Token accounts not provided for token-denominated task"
     },
     {
-      "code": 6144,
+      "code": 6153,
       "name": "invalidTokenEscrow",
       "msg": "Token escrow ATA does not match expected derivation"
     },
     {
-      "code": 6145,
+      "code": 6154,
       "name": "invalidTokenMint",
       "msg": "Provided mint does not match task's reward_mint"
     },
     {
-      "code": 6146,
+      "code": 6155,
       "name": "tokenTransferFailed",
       "msg": "SPL token transfer CPI failed"
     },
     {
-      "code": 6147,
+      "code": 6156,
       "name": "proposalNotActive",
       "msg": "Proposal is not active"
     },
     {
-      "code": 6148,
+      "code": 6157,
       "name": "proposalVotingNotEnded",
       "msg": "Voting period has not ended"
     },
     {
-      "code": 6149,
+      "code": 6158,
       "name": "proposalVotingEnded",
       "msg": "Voting period has ended"
     },
     {
-      "code": 6150,
+      "code": 6159,
       "name": "proposalAlreadyExecuted",
       "msg": "Proposal has already been executed"
     },
     {
-      "code": 6151,
+      "code": 6160,
       "name": "proposalInsufficientQuorum",
       "msg": "Insufficient quorum for proposal execution"
     },
     {
-      "code": 6152,
+      "code": 6161,
       "name": "proposalNotApproved",
       "msg": "Proposal did not achieve majority"
     },
     {
-      "code": 6153,
+      "code": 6162,
       "name": "proposalUnauthorizedCancel",
       "msg": "Only the proposer can cancel this proposal"
     },
     {
-      "code": 6154,
+      "code": 6163,
       "name": "proposalInsufficientStake",
       "msg": "Insufficient stake to create a proposal"
     },
     {
-      "code": 6155,
+      "code": 6164,
       "name": "invalidProposalPayload",
       "msg": "Invalid proposal payload"
     },
     {
-      "code": 6156,
+      "code": 6165,
       "name": "invalidProposalType",
       "msg": "Invalid proposal type"
     },
     {
-      "code": 6157,
+      "code": 6166,
       "name": "treasuryInsufficientBalance",
       "msg": "Treasury spend amount exceeds available balance"
     },
     {
-      "code": 6158,
+      "code": 6167,
       "name": "timelockNotElapsed",
       "msg": "Execution timelock has not elapsed"
     },
     {
-      "code": 6159,
+      "code": 6168,
       "name": "invalidGovernanceParam",
       "msg": "Invalid governance configuration parameter"
     },
     {
-      "code": 6160,
+      "code": 6169,
       "name": "treasuryNotProgramOwned",
       "msg": "Treasury must be a program-owned PDA"
     },
     {
-      "code": 6161,
+      "code": 6170,
+      "name": "treasuryNotSpendable",
+      "msg": "Treasury must be program-owned, or a signer system account for governance spends"
+    },
+    {
+      "code": 6171,
       "name": "skillInvalidId",
       "msg": "Skill ID cannot be all zeros"
     },
     {
-      "code": 6162,
+      "code": 6172,
       "name": "skillInvalidName",
       "msg": "Skill name cannot be all zeros"
     },
     {
-      "code": 6163,
+      "code": 6173,
       "name": "skillInvalidContentHash",
       "msg": "Skill content hash cannot be all zeros"
     },
     {
-      "code": 6164,
+      "code": 6174,
       "name": "skillNotActive",
       "msg": "Skill is not active"
     },
     {
-      "code": 6165,
+      "code": 6175,
       "name": "skillInvalidRating",
       "msg": "Rating must be between 1 and 5"
     },
     {
-      "code": 6166,
+      "code": 6176,
       "name": "skillSelfRating",
       "msg": "Cannot rate own skill"
     },
     {
-      "code": 6167,
+      "code": 6177,
       "name": "skillUnauthorizedUpdate",
       "msg": "Only the skill author can update this skill"
     },
     {
-      "code": 6168,
+      "code": 6178,
       "name": "skillSelfPurchase",
       "msg": "Cannot purchase own skill"
     },
     {
-      "code": 6169,
+      "code": 6179,
       "name": "feedInvalidContentHash",
       "msg": "Feed content hash cannot be all zeros"
     },
     {
-      "code": 6170,
+      "code": 6180,
       "name": "feedInvalidTopic",
       "msg": "Feed topic cannot be all zeros"
     },
     {
-      "code": 6171,
+      "code": 6181,
       "name": "feedPostNotFound",
       "msg": "Feed post not found"
     },
     {
-      "code": 6172,
+      "code": 6182,
       "name": "feedSelfUpvote",
       "msg": "Cannot upvote own post"
+    },
+    {
+      "code": 6183,
+      "name": "reputationStakeAmountTooLow",
+      "msg": "Reputation stake amount must be greater than zero"
+    },
+    {
+      "code": 6184,
+      "name": "reputationStakeLocked",
+      "msg": "Reputation stake is locked: withdrawal before cooldown"
+    },
+    {
+      "code": 6185,
+      "name": "reputationStakeInsufficientBalance",
+      "msg": "Reputation stake has insufficient balance for withdrawal"
+    },
+    {
+      "code": 6186,
+      "name": "reputationDelegationAmountInvalid",
+      "msg": "Reputation delegation amount invalid: must be > 0, <= 10000, and >= MIN_DELEGATION_AMOUNT"
+    },
+    {
+      "code": 6187,
+      "name": "reputationCannotDelegateSelf",
+      "msg": "Cannot delegate reputation to self"
+    },
+    {
+      "code": 6188,
+      "name": "reputationDelegationExpired",
+      "msg": "Reputation delegation has expired"
+    },
+    {
+      "code": 6189,
+      "name": "reputationAgentNotActive",
+      "msg": "Agent must be Active to participate in reputation economy"
+    },
+    {
+      "code": 6190,
+      "name": "reputationDisputesPending",
+      "msg": "Agent has pending disputes as defendant: cannot withdraw stake"
+    },
+    {
+      "code": 6191,
+      "name": "privateTaskRequiresZkProof",
+      "msg": "Private tasks (non-zero constraint_hash) must use complete_task_private"
     }
   ],
   "types": [
@@ -7104,6 +7904,59 @@ export type AgencCoordination = {
             "name": "bump",
             "docs": [
               "Bump seed"
+            ],
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "bindingSpend",
+      "docs": [
+        "Binding spend account to prevent statement replay for the same",
+        "task/authority/commitment context.",
+        "PDA seeds: [\"binding_spend\", binding]"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "binding",
+            "docs": [
+              "Binding value committed in the private journal."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "task",
+            "docs": [
+              "The task where this binding was first used"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "agent",
+            "docs": [
+              "The agent who spent this binding"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "spentAt",
+            "docs": [
+              "Timestamp when binding was spent"
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "bump",
+            "docs": [
+              "Bump seed for PDA"
             ],
             "type": "u8"
           }
@@ -8246,20 +9099,53 @@ export type AgencCoordination = {
       }
     },
     {
-      "name": "nullifier",
+      "name": "multisigUpdated",
       "docs": [
-        "Nullifier account to prevent proof/knowledge reuse across tasks.",
-        "Once a nullifier is \"spent\" (account exists), the same proof/knowledge",
-        "combination cannot be used again.",
-        "PDA seeds: [\"nullifier\", nullifier_value]"
+        "Emitted when multisig signer set or threshold is updated."
       ],
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "nullifierValue",
+            "name": "oldThreshold",
+            "type": "u8"
+          },
+          {
+            "name": "newThreshold",
+            "type": "u8"
+          },
+          {
+            "name": "oldOwnerCount",
+            "type": "u8"
+          },
+          {
+            "name": "newOwnerCount",
+            "type": "u8"
+          },
+          {
+            "name": "updatedBy",
+            "type": "pubkey"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "nullifierSpend",
+      "docs": [
+        "Nullifier spend account to prevent global proof/knowledge replay.",
+        "PDA seeds: [\"nullifier_spend\", nullifier]"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "nullifier",
             "docs": [
-              "The nullifier value (derived from constraint_hash + agent_secret in ZK circuit)"
+              "Nullifier value committed in the private journal."
             ],
             "type": {
               "array": [
@@ -8379,11 +9265,15 @@ export type AgencCoordination = {
         "kind": "struct",
         "fields": [
           {
-            "name": "proofData",
+            "name": "sealBytes",
             "type": "bytes"
           },
           {
-            "name": "constraintHash",
+            "name": "journal",
+            "type": "bytes"
+          },
+          {
+            "name": "imageId",
             "type": {
               "array": [
                 "u8",
@@ -8392,7 +9282,7 @@ export type AgencCoordination = {
             }
           },
           {
-            "name": "outputCommitment",
+            "name": "bindingSeed",
             "type": {
               "array": [
                 "u8",
@@ -8401,20 +9291,7 @@ export type AgencCoordination = {
             }
           },
           {
-            "name": "expectedBinding",
-            "type": {
-              "array": [
-                "u8",
-                32
-              ]
-            }
-          },
-          {
-            "name": "nullifier",
-            "docs": [
-              "Nullifier to prevent proof/knowledge reuse across tasks.",
-              "Derived in the ZK circuit as: Poseidon(constraint_hash, agent_secret)"
-            ],
+            "name": "nullifierSeed",
             "type": {
               "array": [
                 "u8",
@@ -8765,8 +9642,7 @@ export type AgencCoordination = {
             "name": "treasury",
             "docs": [
               "Treasury address for protocol fees",
-              "Note: Cannot be updated after initialization.",
-              "Deploy new protocol if treasury change needed."
+              "Can be updated via multisig-gated `update_treasury`."
             ],
             "type": "pubkey"
           },
@@ -8947,16 +9823,12 @@ export type AgencCoordination = {
           {
             "name": "multisigOwners",
             "docs": [
-              "Multisig owners (immutable after init for security).",
+              "Multisig owners for admin-gated protocol changes.",
               "",
-              "# Security Note (see #464)",
-              "Multisig configuration **cannot be updated** after protocol initialization.",
-              "To change multisig, deploy new protocol.",
-              "",
-              "This is intentional:",
-              "- Prevents hostile takeover via multisig reconfiguration",
-              "- Ensures governance changes require protocol redeployment with proper ceremony",
-              "- The array is fully zeroed before population in `initialize_protocol`",
+              "Updated via multisig-gated `update_multisig` with strict validation:",
+              "- owner keys must be unique and non-default",
+              "- threshold must satisfy 0 < threshold < owners_len",
+              "- update tx must include threshold signers from the new owner set",
               "",
               "Only the first `multisig_owners_len` entries are valid; remaining slots",
               "are always `Pubkey::default()`."
@@ -9229,6 +10101,257 @@ export type AgencCoordination = {
               "Reason: 0=completion, 1=dispute_slash, 2=decay"
             ],
             "type": "u8"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "reputationDelegated",
+      "docs": [
+        "Emitted when an agent delegates reputation to a peer"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "delegator",
+            "type": "pubkey"
+          },
+          {
+            "name": "delegatee",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u16"
+          },
+          {
+            "name": "expiresAt",
+            "type": "i64"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "reputationDelegation",
+      "docs": [
+        "Reputation delegation — agent delegates reputation points to a trusted peer.",
+        "One delegation per (delegator, delegatee) pair. Revoke-and-redelegate pattern.",
+        "PDA seeds: [\"reputation_delegation\", delegator_pda, delegatee_pda]"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "delegator",
+            "docs": [
+              "Delegator agent PDA"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "delegatee",
+            "docs": [
+              "Delegatee agent PDA"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "docs": [
+              "Reputation points delegated (0-10000 scale)"
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "expiresAt",
+            "docs": [
+              "Expiration timestamp (0 = no expiry)"
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "createdAt",
+            "docs": [
+              "Delegation creation timestamp"
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "bump",
+            "docs": [
+              "Bump seed for PDA"
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "reserved",
+            "docs": [
+              "Reserved for future use"
+            ],
+            "type": {
+              "array": [
+                "u8",
+                8
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "reputationDelegationRevoked",
+      "docs": [
+        "Emitted when a reputation delegation is revoked"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "delegator",
+            "type": "pubkey"
+          },
+          {
+            "name": "delegatee",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u16"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "reputationStake",
+      "docs": [
+        "Reputation stake account — agent stakes SOL on their reputation.",
+        "SOL is stored as excess lamports on the PDA (same pattern as agent registration stake).",
+        "Account is never closed to preserve slash_count history (prevents reset exploit).",
+        "PDA seeds: [\"reputation_stake\", agent_pda]"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "agent",
+            "docs": [
+              "Agent PDA this stake belongs to"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "stakedAmount",
+            "docs": [
+              "SOL lamports currently staked"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "lockedUntil",
+            "docs": [
+              "Timestamp before which withdrawals are blocked"
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "slashCount",
+            "docs": [
+              "Historical count of slashes applied"
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "createdAt",
+            "docs": [
+              "Account creation timestamp"
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "bump",
+            "docs": [
+              "Bump seed for PDA"
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "reserved",
+            "docs": [
+              "Reserved for future use"
+            ],
+            "type": {
+              "array": [
+                "u8",
+                8
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "reputationStakeWithdrawn",
+      "docs": [
+        "Emitted when an agent withdraws staked SOL"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "agent",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "remainingStaked",
+            "type": "u64"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "reputationStaked",
+      "docs": [
+        "Emitted when an agent stakes SOL on their reputation"
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "agent",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "totalStaked",
+            "type": "u64"
+          },
+          {
+            "name": "lockedUntil",
+            "type": "i64"
           },
           {
             "name": "timestamp",
@@ -10368,6 +11491,33 @@ export type AgencCoordination = {
           },
           {
             "name": "competitive"
+          }
+        ]
+      }
+    },
+    {
+      "name": "treasuryUpdated",
+      "docs": [
+        "Emitted when protocol treasury is updated via multisig governance."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "oldTreasury",
+            "type": "pubkey"
+          },
+          {
+            "name": "newTreasury",
+            "type": "pubkey"
+          },
+          {
+            "name": "updatedBy",
+            "type": "pubkey"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
           }
         ]
       }

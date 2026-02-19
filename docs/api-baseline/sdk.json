@@ -818,7 +818,7 @@
     {
       "name": "verifyProofLocally",
       "kind": "function",
-      "signature": "(proof: Buffer, publicSignals: bigint[], circuitPath?: string): Promise<boolean>"
+      "signature": "(proof: Buffer, publicSignals: bigint[], proverEndpoint?: string): Promise<boolean>"
     },
     {
       "name": "VERSION",

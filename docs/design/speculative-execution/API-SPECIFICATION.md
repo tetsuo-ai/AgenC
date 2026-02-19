@@ -277,7 +277,7 @@ export interface ProofStatus {
   state: ProofState;
   
   /** Proof data (when generated) */
-  proofData?: Uint8Array;
+  sealBytes?: Uint8Array;
   
   /** Proof generation job ID */
   jobId?: string;

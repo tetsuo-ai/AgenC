@@ -26,7 +26,7 @@ sequenceDiagram
     else Generate new proof
         ProofEngine->>ProofEngine: Prepare circuit inputs
         ProofEngine->>ProofEngine: Compute Poseidon2 hashes
-        ProofEngine->>Nargo: nargo execute
+        ProofEngine->>Nargo: risc0-host-prover execute
         Nargo-->>ProofEngine: Witness data
         ProofEngine->>Sunspot: Generate Groth16 proof
         Sunspot-->>ProofEngine: Proof (256 bytes)
@@ -110,7 +110,7 @@ stateDiagram-v2
     Validate --> Return: TTL valid
     Validate --> CacheMiss: TTL expired
 
-    CacheMiss --> Generate: Call nargo + sunspot
+    CacheMiss --> Generate: Call risc0-host-prover + risc0-host-prover
     Generate --> Verify: Optional local verification
     Verify --> Store: Verification passed
     Verify --> Error: Verification failed
@@ -188,7 +188,7 @@ stateDiagram-v2
 | `InvalidOutputCommitment` | output_commitment == 0 or all zeros | Regenerate with valid inputs |
 | `ConstraintHashMismatch` | proof.constraint_hash != task.constraint_hash | Use correct task constraint |
 | `NullifierAlreadyExists` | Proof replay attempt | Cannot reuse proofs; generate new |
-| `ProofGenerationError` | Nargo/sunspot failure | Check circuit compilation, retry |
+| `ProofGenerationError` | Nargo/risc0-host-prover failure | Check circuit compilation, retry |
 | `ProofVerificationError` | Local verification failed | Fix inputs before submitting on-chain |
 
 ## Public Input Layout
@@ -210,7 +210,7 @@ stateDiagram-v2
 | Noir Circuit | `circuits/task_completion/src/main.nr` | Circuit definition, Poseidon2 usage |
 | SDK Proof Gen | `sdk/src/proofs.ts` | `generateProof()`, `verifyProofLocally()` |
 | On-chain Verification | `programs/agenc-coordination/src/instructions/complete_task_private.rs` | `handler()`, CPI verification |
-| Verifying Key | `programs/agenc-coordination/src/verifying_key.rs` | `VK_GAMMA_G2`, `VK_DELTA_G2` constants |
+| Verifying Key | `programs/agenc-coordination/src/legacy-verifier-key.rs` | `VK_GAMMA_G2`, `VK_DELTA_G2` constants |
 | Proof Engine | `runtime/src/proof/engine.ts` | `ProofEngine`, caching logic |
 | Proof Cache | `runtime/src/proof/cache.ts` | `ProofCache`, TTL + LRU eviction |
 

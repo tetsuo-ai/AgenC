@@ -18,7 +18,7 @@ describe('validateIdl', () => {
 
     it('does not throw for a minimal valid IDL', () => {
       const validIdl = {
-        address: 'EopUaCV2svxj9j4hd7KjbrWfdjkspmm2BCBe7jGpKzKZ',
+        address: '5j9ZbT3mnPX5QjWVMrDaWFuaGf8ddji6LW1HVJw6kUE7',
         metadata: { name: 'test', version: '0.1.0', spec: '0.1.0' },
         instructions: [{ name: 'test_instruction', discriminator: [], accounts: [], args: [] }],
         accounts: [],
@@ -84,7 +84,7 @@ describe('validateIdl', () => {
   describe('missing or empty instructions', () => {
     it('throws error when IDL has empty instructions array', () => {
       const idlEmptyInstructions = {
-        address: 'EopUaCV2svxj9j4hd7KjbrWfdjkspmm2BCBe7jGpKzKZ',
+        address: '5j9ZbT3mnPX5QjWVMrDaWFuaGf8ddji6LW1HVJw6kUE7',
         metadata: { name: 'test' },
         instructions: [],
       } as unknown as Idl;
@@ -96,7 +96,7 @@ describe('validateIdl', () => {
 
     it('throws error when IDL has null instructions', () => {
       const idlNullInstructions = {
-        address: 'EopUaCV2svxj9j4hd7KjbrWfdjkspmm2BCBe7jGpKzKZ',
+        address: '5j9ZbT3mnPX5QjWVMrDaWFuaGf8ddji6LW1HVJw6kUE7',
         metadata: { name: 'test' },
         instructions: null,
       } as unknown as Idl;
@@ -108,7 +108,7 @@ describe('validateIdl', () => {
 
     it('throws error when IDL has undefined instructions', () => {
       const idlUndefinedInstructions = {
-        address: 'EopUaCV2svxj9j4hd7KjbrWfdjkspmm2BCBe7jGpKzKZ',
+        address: '5j9ZbT3mnPX5QjWVMrDaWFuaGf8ddji6LW1HVJw6kUE7',
         metadata: { name: 'test' },
         instructions: undefined,
       } as unknown as Idl;
@@ -120,7 +120,7 @@ describe('validateIdl', () => {
 
     it('throws error when instructions field is missing entirely', () => {
       const idlMissingInstructions = {
-        address: 'EopUaCV2svxj9j4hd7KjbrWfdjkspmm2BCBe7jGpKzKZ',
+        address: '5j9ZbT3mnPX5QjWVMrDaWFuaGf8ddji6LW1HVJw6kUE7',
         metadata: { name: 'test' },
         // instructions is missing
       } as unknown as Idl;

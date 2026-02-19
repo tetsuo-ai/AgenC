@@ -71,7 +71,7 @@ describe("litesvm-poc", () => {
   describe("Phase 0: API Validation", () => {
     it("should have a valid program instance", () => {
       expect(program.programId).to.be.instanceOf(PublicKey);
-      expect(program.programId.toBase58()).to.equal("EopUaCV2svxj9j4hd7KjbrWfdjkspmm2BCBe7jGpKzKZ");
+      expect(program.programId.toBase58()).to.equal("5j9ZbT3mnPX5QjWVMrDaWFuaGf8ddji6LW1HVJw6kUE7");
     });
 
     it("should initialize protocol successfully", async () => {

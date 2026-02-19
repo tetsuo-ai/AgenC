@@ -14,7 +14,6 @@ import { registerProtocolTools } from './tools/protocol.js';
 import { registerDisputeTools } from './tools/disputes.js';
 import { registerConnectionTools } from './tools/connection.js';
 import { registerTestingTools } from './tools/testing.js';
-import { registerCircuitTools } from './tools/circuits.js';
 import { registerInspectorTools } from './tools/inspector.js';
 import { registerReplayTools } from './tools/replay.js';
 import { registerHumanFacingTools } from './tools/human-facing.js';
@@ -130,7 +129,6 @@ export function createServer(): McpServer {
   registerProtocolTools(server);
   registerDisputeTools(server);
   registerTestingTools(server);
-  registerCircuitTools(server);
   registerInspectorTools(server);
   registerReplayTools(server);
   registerHumanFacingTools(server);
@@ -328,7 +326,7 @@ ALL required capabilities set to claim a task.
 
 const PDA_SEEDS_REFERENCE = `# AgenC PDA Seeds
 
-All PDAs are derived from the program ID: EopUaCV2svxj9j4hd7KjbrWfdjkspmm2BCBe7jGpKzKZ
+All PDAs are derived from the program ID: 5j9ZbT3mnPX5QjWVMrDaWFuaGf8ddji6LW1HVJw6kUE7
 
 | Account          | Seeds                              | Notes                       |
 |------------------|------------------------------------|-----------------------------|

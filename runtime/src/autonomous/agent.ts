@@ -1293,7 +1293,7 @@ export class AutonomousAgent extends AgentRuntime {
       sealBytes: Uint8Array;
       journal: Uint8Array;
       imageId: Uint8Array;
-      bindingSeed: Uint8Array;
+      bindingValue: Uint8Array;
       nullifierSeed: Uint8Array;
       proofSize: number;
     };
@@ -1317,7 +1317,7 @@ export class AutonomousAgent extends AgentRuntime {
         sealBytes: new Uint8Array(generated.sealBytes),
         journal: new Uint8Array(generated.journal),
         imageId: new Uint8Array(generated.imageId),
-        bindingSeed: new Uint8Array(generated.bindingSeed),
+        bindingValue: new Uint8Array(generated.bindingValue),
         nullifierSeed: new Uint8Array(generated.nullifierSeed),
         proofSize: generated.proofSize,
       };
@@ -1335,7 +1335,7 @@ export class AutonomousAgent extends AgentRuntime {
     const escrowPda = findEscrowPda(task.pda, this.program.programId);
     const protocolPda = findProtocolPda(this.program.programId);
     const [bindingSpend] = PublicKey.findProgramAddressSync(
-      [BINDING_SPEND_SEED, Buffer.from(proofResult.bindingSeed)],
+      [BINDING_SPEND_SEED, Buffer.from(proofResult.bindingValue)],
       this.program.programId,
     );
     const [nullifierSpend] = PublicKey.findProgramAddressSync(
@@ -1366,7 +1366,7 @@ export class AutonomousAgent extends AgentRuntime {
           sealBytes: number[];
           journal: number[];
           imageId: number[];
-          bindingSeed: number[];
+          bindingValue: number[];
           nullifierSeed: number[];
         },
       ) => {
@@ -1381,7 +1381,7 @@ export class AutonomousAgent extends AgentRuntime {
         sealBytes: toAnchorBytes(proofResult.sealBytes),
         journal: toAnchorBytes(proofResult.journal),
         imageId: toAnchorBytes(proofResult.imageId),
-        bindingSeed: toAnchorBytes(proofResult.bindingSeed),
+        bindingValue: toAnchorBytes(proofResult.bindingValue),
         nullifierSeed: toAnchorBytes(proofResult.nullifierSeed),
       })
       .accountsPartial({

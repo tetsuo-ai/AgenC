@@ -33,7 +33,7 @@ if (!HELIUS_WEBHOOK_SECRET) {
   console.warn(chalk.yellow('  This is a security risk in production. Set HELIUS_WEBHOOK_SECRET to enable verification.'));
 }
 const VERIFIER_PROGRAM_ID = '8fHUGmjNzSh76r78v1rPt7BhWmAu2gXrvW9A2XXonwQQ';
-const AGENC_PROGRAM_ID = 'EopUaCV2svxj9j4hd7KjbrWfdjkspmm2BCBe7jGpKzKZ';
+const AGENC_PROGRAM_ID = '5j9ZbT3mnPX5QjWVMrDaWFuaGf8ddji6LW1HVJw6kUE7';
 const WEBHOOK_PORT = process.env.PORT || 3000;
 
 // Helius API endpoints

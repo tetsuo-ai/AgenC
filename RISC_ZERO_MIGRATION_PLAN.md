@@ -2,7 +2,7 @@
 
 ## 0. Scope and Constraints
 
-- Objective: fully replace current Circom/snarkjs/Groth16-inline flow with RISC Zero + Solana Verifier Router.
+- Objective: fully replace current Circom/risc0-host-prover/Groth16-inline flow with RISC Zero + Solana Verifier Router.
 - This is a hard cutover plan: no long-term legacy path.
 - GitHub Actions / workflow YAML changes are out of scope for now.
 - Local safety scripts are in scope only when they enforce proof-verification security invariants.
@@ -84,22 +84,22 @@ Migration must remove this ambiguity by implementing the explicit dual-spend mod
 
 ## 3.1 Hard Delete (remove from repo)
 
-- `programs/agenc-coordination/src/verifying_key.rs`
+- `programs/agenc-coordination/src/legacy-verifier-key.rs`
 - `circuits/README.md`
 - `circuits/demo.sh`
 - `circuits/hash_helper/src/main.nr`
 - `circuits/task_completion/Prover.toml`
 - `circuits/task_completion/src/main.nr`
 - `circuits/task_completion/Nargo.toml`
-- `circuits-circom/task_completion/CEREMONY.md`
-- `circuits-circom/task_completion/circuit.circom`
-- `circuits-circom/task_completion/package.json`
-- `circuits-circom/task_completion/input.example.json`
-- `circuits-circom/task_completion/scripts/ceremony.sh`
-- `circuits-circom/task_completion/scripts/generate_test_input.js`
-- `circuits-circom/task_completion/scripts/parse_vk_to_rust.js`
-- `circuits-circom/task_completion/scripts/test_circuit.js`
-- `circuits-circom/task_completion/target/verification_key.json`
+- `circuits-circuit/task_completion/CEREMONY.md`
+- `circuits-circuit/task_completion/circuit.circuit`
+- `circuits-circuit/task_completion/package.json`
+- `circuits-circuit/task_completion/input.example.json`
+- `circuits-circuit/task_completion/scripts/ceremony.sh`
+- `circuits-circuit/task_completion/scripts/generate_test_input.js`
+- `circuits-circuit/task_completion/scripts/parse_vk_to_rust.js`
+- `circuits-circuit/task_completion/scripts/test_circuit.js`
+- `circuits-circuit/task_completion/target/verification_key.json`
 - `scripts/deploy-verifier.sh`
 - `scripts/validate-verifying-key.sh`
 - `mcp/src/tools/circuits.ts`
@@ -113,14 +113,14 @@ Migration must remove this ambiguity by implementing the explicit dual-spend mod
 Also delete now-empty directories after file removal:
 
 - `circuits/`
-- `circuits-circom/`
+- `circuits-circuit/`
 - `examples/zk-proof-demo/`
 
 ## 3.2 On-chain Program: Replace In Place
 
 ### `programs/agenc-coordination/Cargo.toml`
 
-- Remove: `groth16-solana` dependency.
+- Remove: `verifier-router` dependency.
 - Add: pinned Verifier Router CPI integration using official release tags (or release commits), never floating versions or `main`.
 - Add: borsh/serialization deps only if strictly required.
 
@@ -156,7 +156,7 @@ Also delete now-empty directories after file removal:
 
 Replace entire verification section:
 
-- Remove all `Groth16Verifier` / `get_verifying_key` / inline pairing code.
+- Remove all `RouterVerifierAdapter` / `load_router_verifier_config` / inline pairing code.
 - Remove old `PrivateCompletionProof` fields (`proof_data`, `output_commitment`, `expected_binding`).
 - Enforce strict pre-decode envelope check: `seal_bytes.len() == RISC0_SEAL_BORSH_LEN`.
 - Add decode path for `seal_bytes -> Seal` with strict error handling.
@@ -219,8 +219,8 @@ Replace entire verification section:
 
 ### `sdk/package.json`
 
-- Remove dependencies: `snarkjs`, `poseidon-lite`.
-- Remove old ZK keywords (`circom`, `groth16`).
+- Remove dependencies: `risc0-host-prover`, `poseidon-lite`.
+- Remove old ZK keywords (`circuit`, `groth16`).
 - Add RISC0 host/prover client dependency only if required.
 
 ### `sdk/yarn.lock`
@@ -230,7 +230,7 @@ Replace entire verification section:
 ### `sdk/src/constants.ts`
 
 - Remove `VERIFIER_PROGRAM_ID` (legacy external verifier concept in this codebase).
-- Remove nargo/sunspot timeouts.
+- Remove risc0-host-prover/risc0-host-prover timeouts.
 - Add:
   - router program id
   - groth16 verifier program id (router target)
@@ -242,7 +242,7 @@ Replace entire verification section:
 
 Replace fully:
 
-- Remove snarkjs/circuit-path logic.
+- Remove risc0-host-prover/circuit-path logic.
 - Remove local Groth16 conversion code.
 - Implement RISC0 proof request path:
   - build private input payload
@@ -253,7 +253,7 @@ Replace fully:
 ### `sdk/src/tasks.ts`
 
 - Replace `PrivateCompletionProof` type with new RISC0 payload.
-- Remove `proofData`, `expectedBinding` fields from public API.
+- Remove `sealBytes`, `bindingValue` fields from public API.
 - `completeTaskPrivate()` must pass router accounts and new args (`binding_seed`, `nullifier_seed`).
 - Spend-account derivation must use journal binding/nullifier bytes only (no caller-chosen selector path).
 
@@ -261,12 +261,12 @@ Replace fully:
 
 - Replace checks:
   - old proof-size check -> seal decode + journal length check
-  - expectedBinding zero check -> parsed binding zero check
+  - bindingValue zero check -> parsed binding zero check
   - nullifier from payload field -> nullifier parsed from journal
 
 ### `sdk/src/client.ts`
 
-- Remove `circuitPath` plumbing.
+- Remove `proverEndpoint` plumbing.
 - Remove deprecated Noir/Sunspot path usage.
 - Keep only safe orchestration APIs for RISC0 flow.
 
@@ -297,7 +297,7 @@ Replace fully:
 
 ### `runtime/src/proof/types.ts`
 
-- Remove `circuitPath` config.
+- Remove `proverEndpoint` config.
 - Add `methodId`, `routerConfig`, prover backend config.
 
 ### `runtime/src/proof/index.ts`
@@ -318,13 +318,13 @@ Replace fully:
 
 ### `runtime/src/proof/engine.ts`
 
-- Remove `sdkGenerateProof(...circuitPath...)` calls.
+- Remove `sdkGenerateProof(...proverEndpoint...)` calls.
 - Replace with SDK RISC0 proof generation API.
-- Remove local snarkjs verification path.
+- Remove local risc0-host-prover verification path.
 
 ### `runtime/src/proof/engine.test.ts`
 
-- Replace all `circuitPath` and snarkjs expectations with RISC0 payload expectations.
+- Replace all `proverEndpoint` and risc0-host-prover expectations with RISC0 payload expectations.
 
 ### `runtime/src/task/types.ts`
 
@@ -358,13 +358,13 @@ Replace fully:
 
 ### `runtime/src/autonomous/agent.ts`
 
-- Remove direct `generateProof` + `circuitPath` coupling.
+- Remove direct `generateProof` + `proverEndpoint` coupling.
 - Always go through updated `ProofEngine` for private tasks.
 - Build completeTaskPrivate args from RISC0 payload.
 
 ### `runtime/src/autonomous/types.ts`
 
-- Remove `circuitPath` config field.
+- Remove `proverEndpoint` config field.
 - Add RISC0 prover config field(s).
 
 ### Generated/runtime type surfaces
@@ -541,8 +541,8 @@ Optional (only if npm lockfiles are adopted and tracked in git):
 | Phase | Goal | Primary surfaces | Hard gate to move forward |
 | --- | --- | --- | --- |
 | 1 | Build zkVM proof producer | `zkvm/`, host/guest journal schema | deterministic `seal_bytes + journal + image_id`; dev mode compile lock enabled |
-| 2 | Replace on-chain verification | `programs/agenc-coordination/src/**` | no `groth16-solana` / no `verifying_key.rs`; router verification passing |
-| 3 | Replace SDK proof API | `sdk/src/**` | SDK tests green; no `snarkjs`/`circuitPath`/legacy proof payload |
+| 2 | Replace on-chain verification | `programs/agenc-coordination/src/**` | no `verifier-router` / no `legacy-verifier-key.rs`; router verification passing |
+| 3 | Replace SDK proof API | `sdk/src/**` | SDK tests green; no `risc0-host-prover`/`proverEndpoint`/legacy proof payload |
 | 4 | Replace runtime execution path | `runtime/src/**`, `runtime/idl/**` | runtime private-flow tests green on new payload |
 | 5 | Replace external surfaces | `mcp/**`, `demo/**`, `examples/**`, `docs/**` | no user-facing legacy flow references |
 | 6 | Remove legacy stack | files in section 3.1 + lockfiles | strict zero-match legacy grep passes |
@@ -577,7 +577,7 @@ Exit criteria:
 
 Exit criteria:
 
-- Program compiles with no `groth16-solana` and no `verifying_key.rs`.
+- Program compiles with no `verifier-router` and no `legacy-verifier-key.rs`.
 - Unit tests for journal parsing and account constraints pass.
 - Selector policy is enforced on-chain and covered by negative tests (including valid-format but untrusted selector).
 - Replay semantics are finalized and implemented as specified in section 2.4, with regression tests for repeated-same-constraint behavior.
@@ -591,7 +591,7 @@ Exit criteria:
 Exit criteria:
 
 - SDK tests pass with new payload schema.
-- No `snarkjs`, `poseidon-lite`, or `circuitPath` left in SDK source.
+- No `risc0-host-prover`, `poseidon-lite`, or `proverEndpoint` left in SDK source.
 
 ## Phase 4: Runtime migration
 
@@ -611,7 +611,7 @@ Exit criteria:
 
 Exit criteria:
 
-- No user-facing docs mention Circom/snarkjs/Sunspot/Groth16-inline flow.
+- No user-facing docs mention Circom/risc0-host-prover/Sunspot/Groth16-inline flow.
 
 ## Phase 6: Legacy purge and strict repo-wide grep gate
 
@@ -621,7 +621,7 @@ Exit criteria:
 Required zero-match grep (strict scope, includes tests/docs/skills):
 
 ```bash
-rg -n --hidden "snarkjs|circom|nargo|sunspot|groth16-solana|verifying_key\\.rs|proofData|expectedBinding|circuitPath|PrivateCompletionProof|Groth16Verifier|get_verifying_key" \
+rg -n --hidden "risc0-host-prover|circuit|risc0-host-prover|risc0-host-prover|verifier-router|verifying_key\\.rs|sealBytes|bindingValue|proverEndpoint|PrivateCompletionProof|RouterVerifierAdapter|load_router_verifier_config" \
   . \
   --glob '!**/node_modules/**' \
   --glob '!**/dist/**' \

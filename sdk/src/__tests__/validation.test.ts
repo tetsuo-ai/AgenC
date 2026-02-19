@@ -57,7 +57,7 @@ describe('validateRisc0PayloadShape', () => {
       sealBytes: seal,
       journal: makeBytes(RISC0_JOURNAL_LEN, 1),
       imageId: makeBytes(RISC0_IMAGE_ID_LEN, 2),
-      bindingSeed: makeBytes(32, 3),
+      bindingValue: makeBytes(32, 3),
       nullifierSeed: makeBytes(32, 4),
     })).not.toThrow();
   });
@@ -67,7 +67,7 @@ describe('validateRisc0PayloadShape', () => {
       sealBytes: makeBytes(10, 1),
       journal: makeBytes(RISC0_JOURNAL_LEN, 1),
       imageId: makeBytes(RISC0_IMAGE_ID_LEN, 2),
-      bindingSeed: makeBytes(32, 3),
+      bindingValue: makeBytes(32, 3),
       nullifierSeed: makeBytes(32, 4),
     })).toThrow('sealBytes must be');
   });
@@ -80,7 +80,7 @@ describe('validateRisc0PayloadShape', () => {
       sealBytes: seal,
       journal: makeBytes(RISC0_JOURNAL_LEN, 1),
       imageId: makeBytes(RISC0_IMAGE_ID_LEN, 2),
-      bindingSeed: makeBytes(32, 3),
+      bindingValue: makeBytes(32, 3),
       nullifierSeed: makeBytes(32, 4),
     })).toThrow('trusted selector');
   });
@@ -92,7 +92,7 @@ describe('validateRisc0PayloadShape', () => {
       sealBytes: seal,
       journal: makeBytes(10, 1),
       imageId: makeBytes(RISC0_IMAGE_ID_LEN, 2),
-      bindingSeed: makeBytes(32, 3),
+      bindingValue: makeBytes(32, 3),
       nullifierSeed: makeBytes(32, 4),
     })).toThrow('journal must be');
   });

@@ -220,8 +220,8 @@ describe('proofs', () => {
       expect(result.constraintHash).toBeLessThan(FIELD_MODULUS);
       expect(result.outputCommitment).toBeGreaterThanOrEqual(0n);
       expect(result.outputCommitment).toBeLessThan(FIELD_MODULUS);
-      expect(result.expectedBinding).toBeGreaterThanOrEqual(0n);
-      expect(result.expectedBinding).toBeLessThan(FIELD_MODULUS);
+      expect(result.bindingValue).toBeGreaterThanOrEqual(0n);
+      expect(result.bindingValue).toBeLessThan(FIELD_MODULUS);
       expect(result.nullifier).toBeGreaterThanOrEqual(0n);
       expect(result.nullifier.toString(16).length).toBeLessThanOrEqual(64);
     });
@@ -238,11 +238,11 @@ describe('proofs', () => {
       const constraintHash = computeConstraintHash(output);
       // computeHashes uses computeCommitmentFromOutput (poseidon5), not the legacy computeCommitment
       const outputCommitment = computeCommitmentFromOutput(output, salt);
-      const expectedBinding = computeExpectedBinding(taskPda, agentPubkey, outputCommitment);
+      const bindingValue = computeExpectedBinding(taskPda, agentPubkey, outputCommitment);
 
       expect(result.constraintHash).toBe(constraintHash);
       expect(result.outputCommitment).toBe(outputCommitment);
-      expect(result.expectedBinding).toBe(expectedBinding);
+      expect(result.bindingValue).toBe(bindingValue);
       // computeHashes falls back to pubkeyToField when no agentSecret provided
       expect(result.nullifier).toBe(
         computeNullifierFromAgentSecret(
@@ -311,21 +311,21 @@ describe('proofs', () => {
       const outputCommitment = computeCommitmentFromOutput(output, salt);
 
       // Step 3: Compute expected binding
-      const expectedBinding = computeExpectedBinding(taskPda, agentPubkey, outputCommitment);
+      const bindingValue = computeExpectedBinding(taskPda, agentPubkey, outputCommitment);
 
       // All values should be valid field elements
       expect(constraintHash).toBeLessThan(FIELD_MODULUS);
       expect(outputCommitment).toBeLessThan(FIELD_MODULUS);
-      expect(expectedBinding).toBeLessThan(FIELD_MODULUS);
+      expect(bindingValue).toBeLessThan(FIELD_MODULUS);
 
       // Re-running should produce same results (deterministic)
       const constraintHash2 = computeConstraintHash(output);
       const outputCommitment2 = computeCommitmentFromOutput(output, salt);
-      const expectedBinding2 = computeExpectedBinding(taskPda, agentPubkey, outputCommitment2);
+      const bindingValue2 = computeExpectedBinding(taskPda, agentPubkey, outputCommitment2);
 
       expect(constraintHash2).toBe(constraintHash);
       expect(outputCommitment2).toBe(outputCommitment);
-      expect(expectedBinding2).toBe(expectedBinding);
+      expect(bindingValue2).toBe(bindingValue);
     });
 
     it('matches circuit computation for known values', () => {
@@ -348,12 +348,12 @@ describe('proofs', () => {
       // Compute values
       const constraintHash = computeConstraintHash(output);
       const outputCommitment = computeCommitmentFromOutput(output, salt);
-      const expectedBinding = computeExpectedBinding(taskPda, agentPubkey, outputCommitment);
+      const bindingValue = computeExpectedBinding(taskPda, agentPubkey, outputCommitment);
 
       // These should be non-zero and valid
       expect(constraintHash).toBeGreaterThan(0n);
       expect(outputCommitment).toBeGreaterThan(0n);
-      expect(expectedBinding).toBeGreaterThan(0n);
+      expect(bindingValue).toBeGreaterThan(0n);
     });
   });
 

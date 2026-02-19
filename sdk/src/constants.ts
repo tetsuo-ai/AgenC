@@ -9,7 +9,7 @@ import { PublicKey } from '@solana/web3.js';
 // ============================================================================
 
 /** AgenC Coordination Program ID */
-export const PROGRAM_ID = new PublicKey('EopUaCV2svxj9j4hd7KjbrWfdjkspmm2BCBe7jGpKzKZ');
+export const PROGRAM_ID = new PublicKey('5j9ZbT3mnPX5QjWVMrDaWFuaGf8ddji6LW1HVJw6kUE7');
 
 /** Privacy Cash Program ID */
 export const PRIVACY_CASH_PROGRAM_ID = new PublicKey('9fhQBbumKEFuXtMBDw8AaQyAjCorLGJQiS3skWZdQyQD');
@@ -50,7 +50,7 @@ export const OUTPUT_FIELD_COUNT = 4;
 // ZK Proof Constants
 // ============================================================================
 
-/** Proof size in bytes (Groth16 via groth16-solana) */
+/** Proof size in bytes (Groth16 via verifier-router) */
 export const PROOF_SIZE_BYTES = 256;
 
 /** RISC0 selector size in bytes */
@@ -84,10 +84,10 @@ export const TRUSTED_RISC0_IMAGE_ID = Uint8Array.from([
  */
 export const VERIFICATION_COMPUTE_UNITS = 50_000;
 
-/** Timeout for nargo execute in ms (2 minutes) */
+/** Timeout for risc0-host-prover execute in ms (2 minutes) */
 export const NARGO_EXECUTE_TIMEOUT_MS = 120_000;
 
-/** Timeout for sunspot prove in ms (5 minutes) */
+/** Timeout for risc0-host-prover prove in ms (5 minutes) */
 export const SUNSPOT_PROVE_TIMEOUT_MS = 300_000;
 
 /** Number of public inputs in the circuit (32 task_id bytes + 32 agent bytes + constraint_hash + output_commitment + expected_binding) */

@@ -5,7 +5,7 @@ Minimal example showing how to use the AgenC SDK for ZK proof generation.
 ## Prerequisites
 
 ```bash
-npm install snarkjs
+npm install risc0-host-prover
 ```
 
 ## Run
@@ -34,7 +34,7 @@ const agentPubkey = Keypair.generate().publicKey;
 const output = [1n, 2n, 3n, 4n];
 const salt = generateSalt();
 
-// Compute hashes (uses poseidon-lite, circomlib compatible)
+// Compute hashes (uses poseidon-lite, circuitlib compatible)
 const hashes = computeHashes(taskPda, agentPubkey, output, salt);
 
 // Generate proof
@@ -43,19 +43,19 @@ const result = await generateProof({
   agentPubkey,
   output,
   salt,
-  circuitPath: './circuits-circom/task_completion',
+  proverEndpoint: './circuits-circuit/task_completion',
 });
 
 // Verify
 const publicSignals = [
   hashes.constraintHash,
   hashes.outputCommitment,
-  hashes.expectedBinding,
+  hashes.bindingValue,
 ];
 const valid = await verifyProofLocally(
   result.proof,
   publicSignals,
-  './circuits-circom/task_completion'
+  './circuits-circuit/task_completion'
 );
 
 console.log('Valid:', valid);

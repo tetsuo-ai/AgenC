@@ -37,7 +37,7 @@ const METHOD_ID_LEN = 32;
 
 /**
  * Build the 68-element public signals array for local ZK proof verification.
- * Format: 32 task bytes + 32 agent bytes + constraintHash + outputCommitment + expectedBinding + nullifier
+ * Format: 32 task bytes + 32 agent bytes + constraintHash + outputCommitment + bindingValue + nullifier
  * Each byte of task/agent key becomes a separate bigint field element.
  */
 function buildPublicSignals(
@@ -60,7 +60,8 @@ function buildPublicSignals(
   // 3 scalar field elements
   signals.push(hashes.constraintHash);
   signals.push(hashes.outputCommitment);
-  signals.push(hashes.expectedBinding);
+  const bindingField = (hashes as { bindingValue?: bigint }).bindingValue ?? 0n;
+  signals.push(bindingField);
 
   // Nullifier field committed in the deterministic public signal layout
   signals.push(hashes.nullifier);
@@ -174,7 +175,7 @@ export class ProofEngine implements ProofGenerator {
       sealBytes: new Uint8Array(sdkResult.sealBytes),
       journal: new Uint8Array(sdkResult.journal),
       imageId: new Uint8Array(sdkResult.imageId),
-      bindingSeed: new Uint8Array(sdkResult.bindingSeed),
+      bindingValue: new Uint8Array(sdkResult.bindingValue),
       nullifierSeed: new Uint8Array(sdkResult.nullifierSeed),
       proofSize: sdkResult.sealBytes.length,
       generationTimeMs,
@@ -246,7 +247,7 @@ export class ProofEngine implements ProofGenerator {
   }
 
   /**
-   * Compute hashes (constraintHash, outputCommitment, expectedBinding) without generating a proof.
+   * Compute hashes (constraintHash, outputCommitment, bindingValue) without generating a proof.
    */
   computeHashes(inputs: ProofInputs): HashResult {
     return sdkComputeHashes(inputs.taskPda, inputs.agentPubkey, inputs.output, inputs.salt, inputs.agentSecret);

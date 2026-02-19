@@ -41,7 +41,7 @@ echo ""
 # 1. Verifying key security (issues #356, #358)
 echo "--- Verifying Key Security ---"
 
-VK_FILE="programs/agenc-coordination/src/verifying_key.rs"
+VK_FILE="programs/agenc-coordination/src/legacy-verifier-key.rs"
 if [ ! -f "$VK_FILE" ]; then
     fail "Verifying key file not found"
 else
@@ -143,7 +143,7 @@ echo ""
 
 # 5. Ceremony transcript (mainnet only)
 echo "--- MPC Ceremony (mainnet requirement) ---"
-CEREMONY_DIR="circuits-circom/task_completion/ceremony"
+CEREMONY_DIR="circuits-circuit/task_completion/ceremony"
 if [ "$NETWORK" = "mainnet" ]; then
     if [ -f "$CEREMONY_DIR/transcript.json" ]; then
         pass "Ceremony transcript found"

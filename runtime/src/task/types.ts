@@ -499,7 +499,7 @@ export function isPrivateExecutionResult(
     'sealBytes' in result &&
     'journal' in result &&
     'imageId' in result &&
-    'bindingSeed' in result &&
+    'bindingValue' in result &&
     'nullifierSeed' in result
   );
 }
@@ -607,7 +607,7 @@ export interface PrivateTaskExecutionResult {
   /** RISC0 image id */
   imageId: Uint8Array;
   /** Binding spend seed */
-  bindingSeed: Uint8Array;
+  bindingValue: Uint8Array;
   /** Nullifier spend seed */
   nullifierSeed: Uint8Array;
 }

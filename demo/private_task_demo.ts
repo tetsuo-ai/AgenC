@@ -12,7 +12,7 @@
  * Run: npx tsx demo/private_task_demo.ts
  *
  * Prerequisites:
- * - Noir installed (nargo)
+ * - Noir installed (risc0-host-prover)
  * - Sunspot installed
  * - Privacy Cash SDK installed (npm install in sdk/privacy-cash-sdk)
  * - HELIUS_API_KEY environment variable
@@ -328,7 +328,7 @@ function loadExistingProof(): { zkProof: Buffer; publicWitness: Buffer } | null 
 
 function isNoirToolchainAvailable(): boolean {
     try {
-        execSync('nargo --version', { stdio: 'pipe' });
+        execSync('risc0-host-prover --version', { stdio: 'pipe' });
         return true;
     } catch {
         return false;
@@ -345,8 +345,8 @@ async function runSimulationProof(
 ): Promise<{ proofBytes: number; generationTime: number; zkProof: Buffer; publicWitness: Buffer }> {
     console.log('  [SIMULATION] Noir/Sunspot toolchain not in PATH');
     console.log('  [SIMULATION] In production, would run:');
-    console.log('    nargo execute');
-    console.log('    sunspot prove ...');
+    console.log('    risc0-host-prover execute');
+    console.log('    risc0-host-prover prove ...');
     console.log('  [SIMULATION] Generating mock proof...');
 
     const mockProof = Buffer.alloc(324);
@@ -373,12 +373,12 @@ function ensureNoirArtifacts(): void {
 
     console.log('  Circuit artifacts not found. Running setup...');
     console.log('  (In production, these would be pre-deployed)');
-    execSync('nargo compile', { cwd: CIRCUIT_PATH, stdio: 'pipe' });
-    execSync('sunspot export target/task_completion.json -o target/task_completion.ccs', {
+    execSync('risc0-host-prover compile', { cwd: CIRCUIT_PATH, stdio: 'pipe' });
+    execSync('risc0-host-prover export target/task_completion.json -o target/task_completion.ccs', {
         cwd: CIRCUIT_PATH,
         stdio: 'pipe',
     });
-    execSync('sunspot setup target/task_completion.ccs -o target/task_completion', {
+    execSync('risc0-host-prover setup target/task_completion.ccs -o target/task_completion', {
         cwd: CIRCUIT_PATH,
         stdio: 'pipe',
     });
@@ -415,11 +415,11 @@ async function runNoirSunspotProof(params: {
     writeProverToml(params);
 
     console.log('  Executing Noir circuit...');
-    execSync('nargo execute', { cwd: CIRCUIT_PATH, stdio: 'pipe' });
+    execSync('risc0-host-prover execute', { cwd: CIRCUIT_PATH, stdio: 'pipe' });
 
     console.log('  Generating Groth16 proof via Sunspot...');
     execSync(
-        'sunspot prove target/task_completion.ccs target/task_completion.pk target/task_completion.gz -o target/task_completion.proof',
+        'risc0-host-prover prove target/task_completion.ccs target/task_completion.pk target/task_completion.gz -o target/task_completion.proof',
         { cwd: CIRCUIT_PATH, stdio: 'pipe' },
     );
 

@@ -46,7 +46,7 @@ This example demonstrates how Tetsuo AI agents integrate with AgenC to:
          |
          v
 +------------------+     +------------------+
-| groth16-solana   |---->|   Privacy Cash   |
+| verifier-router   |---->|   Privacy Cash   |
 |  (inline verify) |     |   (withdrawal)   |
 +--------+---------+     +--------+---------+
                                   |
@@ -163,14 +163,14 @@ const outputHash = await tetsuoClient.hashOutput(result);
 
 | Contract | Address |
 |----------|---------|
-| AgenC Program | `EopUaCV2svxj9j4hd7KjbrWfdjkspmm2BCBe7jGpKzKZ` |
+| AgenC Program | `5j9ZbT3mnPX5QjWVMrDaWFuaGf8ddji6LW1HVJw6kUE7` |
 | Privacy Cash | `9fhQBbumKEFuXtMBDw8AaQyAjCorLGJQiS3skWZdQyQD` |
 
-Note: ZK proof verification is inline via groth16-solana (no external verifier program).
+Note: ZK proof verification is inline via verifier-router (no external verifier program).
 
 ## Links
 
 - [Tetsuo AI](https://tetsuo.ai)
 - [AgenC SDK](https://github.com/tetsuo-ai/AgenC)
-- [Circom Language](https://docs.circom.io)
+- [Circom Language](https://docs.circuit.io)
 - [Privacy Cash](https://privacycash.io)

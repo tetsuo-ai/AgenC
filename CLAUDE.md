@@ -26,7 +26,7 @@ AgenC is a privacy-preserving AI agent coordination protocol built on Solana. It
 - **Docs MCP Server** (`docs-mcp/`) - MCP server providing AI-assisted architecture doc lookups per roadmap issue
 - **Demo App** (`demo-app/`) - React web interface for privacy workflow demonstration
 - **ZK Circuits** (`circuits/`) - Noir circuits for private task completion proofs (Groth16)
-- **MPC Ceremony** (`circuits-circom/`) - Trusted setup tooling for Groth16 verifying key generation
+- **MPC Ceremony** (`circuits-circuit/`) - Trusted setup tooling for Groth16 verifying key generation
 - **Test Infrastructure** (`tests/`) - LiteSVM-based integration tests, CU benchmarks, and Rust fuzz testing
 
 ## Quick Start
@@ -117,9 +117,9 @@ npm run build              # Production build (outputs to dist/)
 
 ```bash
 cd circuits/task_completion
-nargo compile              # Compile circuit
-nargo test                 # Run circuit tests
-nargo prove                # Generate proof (requires Prover.toml inputs)
+risc0-host-prover compile              # Compile circuit
+risc0-host-prover test                 # Run circuit tests
+risc0-host-prover prove                # Generate proof (requires Prover.toml inputs)
 ```
 
 ### Fuzz Tests
@@ -143,7 +143,7 @@ AgenC/
 │   │   ├── state.rs                 # Account structures
 │   │   ├── errors.rs                # Error definitions (161 codes; 6000-6160)
 │   │   ├── events.rs                # Event emissions (35 event types)
-│   │   ├── verifying_key.rs         # Groth16 verifying key
+│   │   ├── legacy-verifier-key.rs         # Groth16 verifying key
 │   │   ├── instructions/            # Instruction handlers
 │   │   │   ├── mod.rs               # Module exports (30 instruction + 9 helper modules)
 │   │   │   ├── register_agent.rs
@@ -246,7 +246,7 @@ AgenC/
 ├── docs-mcp/                        # Docs MCP Server (architecture doc lookups)
 ├── demo-app/                        # React + Vite web interface
 ├── circuits/task_completion/        # Noir ZK circuits
-├── circuits-circom/task_completion/ # Circom circuits + MPC ceremony tooling
+├── circuits-circuit/task_completion/ # Circom circuits + MPC ceremony tooling
 ├── examples/                        # autonomous-agent, dispute-arbiter, event-dashboard, helius-webhook, llm-agent, memory-agent, simple-usage, skill-jupiter, tetsuo-integration, zk-proof-demo
 ├── tests/                           # LiteSVM-based integration tests
 │   ├── test_1.ts                    # Main integration suite (140 tests)
@@ -603,7 +603,7 @@ import { InMemoryBackend, SqliteBackend, RedisBackend } from '@agenc/runtime';
 import { ProofEngine } from '@agenc/runtime';
 
 const engine = new ProofEngine({
-  circuitPath: './circuits-circom/task_completion',
+  proverEndpoint: './circuits-circuit/task_completion',
   verifyAfterGeneration: false,
   cache: { ttlMs: 300_000, maxEntries: 100 },
 });
@@ -863,9 +863,9 @@ claude mcp add agenc-dev \
 |-------|------------|---------|
 | Circuit | Noir | ZK circuit definition |
 | Prover | Sunspot (Groth16) | Off-chain proof generation |
-| Verifier | groth16-solana | On-chain proof verification |
+| Verifier | verifier-router | On-chain proof verification |
 | Hash | Poseidon2 | ZK-friendly hashing |
-| Ceremony | snarkjs | MPC trusted setup |
+| Ceremony | risc0-host-prover | MPC trusted setup |
 
 **Verifier Program ID:** `8fHUGmjNzSh76r78v1rPt7BhWmAu2gXrvW9A2XXonwQQ`
 **Expected Proof Size:** 256 bytes (Groth16)
@@ -875,7 +875,7 @@ claude mcp add agenc-dev \
 
 ```
 1. Agent computes task output locally
-2. Agent generates Noir proof via nargo/sunspot
+2. Agent generates Noir proof via risc0-host-prover/risc0-host-prover
 3. Agent submits proof on-chain via complete_task_private
 4. On-chain validates: binding, commitment, constraint hash, nullifier uniqueness
 5. Groth16 verifier validates proof (~100-130k CU)
@@ -1140,7 +1140,7 @@ before(() => { workerKeypair = Keypair.generate(); });
 | Constraint hash binding | `complete_task_private.rs` | ZK proofs verify `proof.constraint_hash == task.constraint_hash` |
 | Proof nullifier uniqueness | `complete_task_private.rs` | Nullifier PDA via `init` prevents proof reuse |
 | Proof binding non-zero | `complete_task_private.rs` | `expected_binding` and `output_commitment` must not be all zeros |
-| Verifying key integrity | `verifying_key.rs` | `VK_GAMMA_G2 != VK_DELTA_G2` |
+| Verifying key integrity | `legacy-verifier-key.rs` | `VK_GAMMA_G2 != VK_DELTA_G2` |
 | Rate limit enforcement | `create_task.rs`, `initiate_dispute.rs` | Check cooldown and 24h limits |
 
 ### Security Audit Checklist

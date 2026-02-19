@@ -89,7 +89,7 @@ After the implementer completes:
    # For TypeScript tests:
    npx tsc --noEmit
    # For Noir:
-   cd circuits/task_completion && nargo check
+   cd circuits/task_completion && risc0-host-prover check
    ```
 
 2. **Commit changes** if compilation passes:

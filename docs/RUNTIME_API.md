@@ -152,7 +152,7 @@ await monitor.stop();
 import { ProofEngine } from '@agenc/runtime';
 
 const engine = new ProofEngine({
-  circuitPath: './circuits-circom/task_completion',
+  proverEndpoint: './circuits-circuit/task_completion',
   verifyAfterGeneration: false,
   cache: { ttlMs: 300_000, maxEntries: 100 },
 });
@@ -310,7 +310,7 @@ Provider-specific additions:
 
 | Field | Type | Required | Default |
 |-------|------|----------|---------|
-| `circuitPath` | `string` | No | `./circuits-circom/task_completion` |
+| `proverEndpoint` | `string` | No | `./circuits-circuit/task_completion` |
 | `verifyAfterGeneration` | `boolean` | No | `false` |
 | `cache.ttlMs` | `number` | No | `300_000` |
 | `cache.maxEntries` | `number` | No | `100` |

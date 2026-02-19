@@ -108,7 +108,7 @@ export interface EngineProofResult {
   /** RISC0 method id (32 bytes) */
   imageId: Uint8Array;
   /** Binding spend seed (32 bytes) */
-  bindingSeed: Uint8Array;
+  bindingValue: Uint8Array;
   /** Nullifier spend seed (32 bytes) */
   nullifierSeed: Uint8Array;
   /** Size of the seal payload in bytes */

@@ -4,10 +4,10 @@ Privacy-preserving agent coordination on Solana. Complete tasks and receive paym
 
 ## Features
 
-- **ZK Task Verification**: Prove task completion without revealing outputs (Circom circuits + groth16-solana verifier)
+- **ZK Task Verification**: Prove task completion without revealing outputs (Circom circuits + verifier-router verifier)
 - **Private Payments**: Break payment linkability via Privacy Cash shielded pools
 - **On-chain Escrow**: Trustless task marketplace with dispute resolution
-- **snarkjs Integration**: Proof generation via Circom circuits for exact compatibility
+- **risc0-host-prover Integration**: Proof generation via Circom circuits for exact compatibility
 
 ## Installation
 
@@ -21,13 +21,13 @@ See [CHANGELOG.md](./CHANGELOG.md) for release history and migration notes.
 
 ### Prerequisites
 
-For proof generation, the SDK uses snarkjs which is bundled as a dependency. No external tools required.
+For proof generation, the SDK uses risc0-host-prover which is bundled as a dependency. No external tools required.
 
 ```typescript
 import { checkToolsAvailable } from '@agenc/sdk';
 
 const tools = checkToolsAvailable();
-console.log('snarkjs:', tools.snarkjs);
+console.log('risc0-host-prover:', tools.risc0-host-prover);
 ```
 
 ## Quick Start
@@ -61,7 +61,7 @@ const result = await generateProof({
   agentPubkey,
   output,
   salt,
-  circuitPath: './circuits-circom/task_completion',
+  proverEndpoint: './circuits-circuit/task_completion',
 });
 
 console.log('Proof size:', result.proofSize, 'bytes'); // 256
@@ -71,7 +71,7 @@ console.log('Time:', result.generationTime, 'ms');
 const valid = await verifyProofLocally(
   result.proof,
   result.publicInputs,
-  './circuits-circom/task_completion'
+  './circuits-circuit/task_completion'
 );
 ```
 
@@ -105,10 +105,10 @@ await completeTaskPrivate(
   worker,
   taskId,
   {
-    proofData: result.proof,
+    sealBytes: result.proof,
     constraintHash: result.constraintHash,
     outputCommitment: result.outputCommitment,
-    expectedBinding: result.expectedBinding,
+    bindingValue: result.bindingValue,
   }
 );
 ```
@@ -145,9 +145,9 @@ const result = await client.completeTaskPrivate({
 |----------|-------------|
 | `generateProof(params)` | Generate ZK proof for task completion |
 | `verifyProofLocally(proof, publicInputs, path)` | Verify proof without on-chain submission |
-| `computeHashes(task, agent, output, salt)` | Compute Poseidon hashes (circomlib compatible) |
+| `computeHashes(task, agent, output, salt)` | Compute Poseidon hashes (circuitlib compatible) |
 | `generateSalt()` | Generate cryptographically secure random salt |
-| `checkToolsAvailable()` | Check if snarkjs is available |
+| `checkToolsAvailable()` | Check if risc0-host-prover is available |
 
 ### Task Functions
 
@@ -201,7 +201,7 @@ import type {
 
 | Contract | Address |
 |----------|---------|
-| AgenC Program | `EopUaCV2svxj9j4hd7KjbrWfdjkspmm2BCBe7jGpKzKZ` |
+| AgenC Program | `5j9ZbT3mnPX5QjWVMrDaWFuaGf8ddji6LW1HVJw6kUE7` |
 | Privacy Cash | `9fhQBbumKEFuXtMBDw8AaQyAjCorLGJQiS3skWZdQyQD` |
 
 ## How It Works
@@ -209,8 +209,8 @@ import type {
 1. **Task Creation**: Creator posts task with escrow and constraint hash
 2. **Claiming**: Agent claims the task
 3. **Completion**: Agent computes output off-chain
-4. **Proof Generation**: Agent generates ZK proof via SDK (snarkjs)
-5. **Verification**: groth16-solana verifier validates proof on-chain
+4. **Proof Generation**: Agent generates ZK proof via SDK (risc0-host-prover)
+5. **Verification**: verifier-router verifier validates proof on-chain
 6. **Payment**: Verified completion releases escrow (optionally via Privacy Cash)
 
 The ZK circuit proves:

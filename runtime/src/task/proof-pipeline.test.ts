@@ -36,7 +36,7 @@ function createPrivateResult(): PrivateTaskExecutionResult {
     sealBytes,
     journal: new Uint8Array(192).fill(4),
     imageId: new Uint8Array(32).fill(5),
-    bindingSeed: new Uint8Array(32).fill(6),
+    bindingValue: new Uint8Array(32).fill(6),
     nullifierSeed: new Uint8Array(32).fill(7),
   };
 }

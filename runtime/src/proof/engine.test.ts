@@ -14,12 +14,12 @@ vi.mock('@agenc/sdk', () => {
       sealBytes: mockSeal,
       journal: mockJournal,
       imageId: mockImageId,
-      bindingSeed: mockBindingSeed,
+      bindingValue: mockBindingSeed,
       nullifierSeed: mockNullifierSeed,
       proof: Buffer.alloc(256, 0xaa),
       constraintHash: Buffer.alloc(32, 0x01),
       outputCommitment: Buffer.alloc(32, 0x02),
-      expectedBinding: Buffer.alloc(32, 0x03),
+      binding: Buffer.alloc(32, 0x03),
       nullifier: Buffer.alloc(32, 0x04),
       proofSize: 260,
       generationTime: 42,
@@ -28,12 +28,12 @@ vi.mock('@agenc/sdk', () => {
     computeHashes: vi.fn().mockReturnValue({
       constraintHash: 123n,
       outputCommitment: 456n,
-      expectedBinding: 789n,
+      bindingValue: 789n,
       nullifier: 101112n,
     }),
     generateSalt: vi.fn().mockReturnValue(999n),
     // Re-export types that the module expects
-    PROGRAM_ID: new PublicKey('EopUaCV2svxj9j4hd7KjbrWfdjkspmm2BCBe7jGpKzKZ'),
+    PROGRAM_ID: new PublicKey('5j9ZbT3mnPX5QjWVMrDaWFuaGf8ddji6LW1HVJw6kUE7'),
     DEVNET_RPC: 'https://api.devnet.solana.com',
     MAINNET_RPC: 'https://api.mainnet-beta.solana.com',
     SEEDS: {},
@@ -144,8 +144,8 @@ describe('ProofEngine', () => {
       expect(result.journal.length).toBe(192);
       expect(result.imageId).toBeInstanceOf(Uint8Array);
       expect(result.imageId.length).toBe(32);
-      expect(result.bindingSeed).toBeInstanceOf(Uint8Array);
-      expect(result.bindingSeed.length).toBe(32);
+      expect(result.bindingValue).toBeInstanceOf(Uint8Array);
+      expect(result.bindingValue.length).toBe(32);
       expect(result.nullifierSeed).toBeInstanceOf(Uint8Array);
       expect(result.nullifierSeed.length).toBe(32);
       expect(result.proofSize).toBe(260);
@@ -154,14 +154,14 @@ describe('ProofEngine', () => {
       expect(result.generationTimeMs).toBeGreaterThanOrEqual(0);
     });
 
-    it('does not pass legacy circuitPath to SDK', async () => {
+    it('does not pass legacy proverEndpoint to SDK', async () => {
       const engine = new ProofEngine();
       const inputs = makeInputs();
       await engine.generate(inputs);
 
       const args = vi.mocked(mockGenerateProof).mock.calls[0]?.[0];
       expect(args).toBeDefined();
-      expect(Object.prototype.hasOwnProperty.call(args, 'circuitPath')).toBe(false);
+      expect(Object.prototype.hasOwnProperty.call(args, 'proverEndpoint')).toBe(false);
     });
 
     it('enforces configured methodId against generated imageId', async () => {
@@ -174,17 +174,17 @@ describe('ProofEngine', () => {
     });
 
     it('wraps SDK errors in ProofGenerationError', async () => {
-      vi.mocked(mockGenerateProof).mockRejectedValueOnce(new Error('snarkjs boom'));
+      vi.mocked(mockGenerateProof).mockRejectedValueOnce(new Error('risc0-host-prover boom'));
       const engine = new ProofEngine();
 
       await expect(engine.generate(makeInputs())).rejects.toThrow(ProofGenerationError);
     });
 
     it('ProofGenerationError message includes SDK error details', async () => {
-      vi.mocked(mockGenerateProof).mockRejectedValueOnce(new Error('snarkjs boom'));
+      vi.mocked(mockGenerateProof).mockRejectedValueOnce(new Error('risc0-host-prover boom'));
       const engine = new ProofEngine();
 
-      await expect(engine.generate(makeInputs())).rejects.toThrow('snarkjs boom');
+      await expect(engine.generate(makeInputs())).rejects.toThrow('risc0-host-prover boom');
     });
 
     it('wraps non-Error SDK throws in ProofGenerationError', async () => {
@@ -374,7 +374,7 @@ describe('ProofEngine', () => {
       );
       expect(result.constraintHash).toBe(123n);
       expect(result.outputCommitment).toBe(456n);
-      expect(result.expectedBinding).toBe(789n);
+      expect(result.bindingValue).toBe(789n);
       expect(result.nullifier).toBe(101112n);
     });
   });
@@ -493,7 +493,7 @@ describe('ProofEngine', () => {
           sealBytes,
           journal: new Uint8Array(192),
           imageId: new Uint8Array(32),
-          bindingSeed: new Uint8Array(32),
+          bindingValue: new Uint8Array(32),
           nullifierSeed: new Uint8Array(32),
         },
       );
@@ -512,7 +512,7 @@ describe('ProofCache', () => {
       sealBytes: new Uint8Array(260).fill(0x01),
       journal: new Uint8Array(192).fill(0x02),
       imageId: new Uint8Array(32).fill(0x03),
-      bindingSeed: new Uint8Array(32).fill(0x04),
+      bindingValue: new Uint8Array(32).fill(0x04),
       nullifierSeed: new Uint8Array(32).fill(0x05),
       proofSize: 260,
       generationTimeMs: 100,

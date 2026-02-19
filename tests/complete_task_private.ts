@@ -78,9 +78,9 @@ describe("complete_task_private (router interface)", () => {
     )[0];
   }
 
-  function deriveBindingSpendPda(bindingSeed: Buffer): PublicKey {
+  function deriveBindingSpendPda(bindingValue: Buffer): PublicKey {
     return PublicKey.findProgramAddressSync(
-      [Buffer.from("binding_spend"), bindingSeed],
+      [Buffer.from("binding_spend"), bindingValue],
       program.programId
     )[0];
   }
@@ -101,11 +101,11 @@ describe("complete_task_private (router interface)", () => {
     authority: PublicKey;
     constraintHash: Buffer;
     outputCommitment?: Buffer;
-    bindingSeed?: Buffer;
+    bindingValue?: Buffer;
     nullifierSeed?: Buffer;
   }): Buffer {
     const outputCommitment = fields.outputCommitment ?? Buffer.alloc(HASH_SIZE, 0x22);
-    const bindingSeed = fields.bindingSeed ?? Buffer.alloc(HASH_SIZE, 0x33);
+    const bindingValue = fields.bindingValue ?? Buffer.alloc(HASH_SIZE, 0x33);
     const nullifierSeed = fields.nullifierSeed ?? Buffer.alloc(HASH_SIZE, 0x44);
 
     return Buffer.concat([
@@ -113,7 +113,7 @@ describe("complete_task_private (router interface)", () => {
       fields.authority.toBuffer(),
       fields.constraintHash,
       outputCommitment,
-      bindingSeed,
+      bindingValue,
       nullifierSeed,
     ]);
   }
@@ -123,16 +123,16 @@ describe("complete_task_private (router interface)", () => {
     authority: PublicKey;
     constraintHash: Buffer;
     sealBytesLen?: number;
-    bindingSeed?: Buffer;
+    bindingValue?: Buffer;
     nullifierSeed?: Buffer;
   }) {
-    const bindingSeed = params.bindingSeed ?? Buffer.alloc(HASH_SIZE, 0x33);
+    const bindingValue = params.bindingValue ?? Buffer.alloc(HASH_SIZE, 0x33);
     const nullifierSeed = params.nullifierSeed ?? Buffer.alloc(HASH_SIZE, 0x44);
     const journal = buildJournal({
       taskPda: params.taskPda,
       authority: params.authority,
       constraintHash: params.constraintHash,
-      bindingSeed,
+      bindingValue,
       nullifierSeed,
     });
 
@@ -144,7 +144,7 @@ describe("complete_task_private (router interface)", () => {
       sealBytes: Buffer.alloc(params.sealBytesLen ?? 260, 0xaa),
       journal,
       imageId: Array.from(TRUSTED_IMAGE_ID),
-      bindingSeed: Array.from(bindingSeed),
+      bindingValue: Array.from(bindingValue),
       nullifierSeed: Array.from(nullifierSeed),
     };
   }
@@ -205,7 +205,7 @@ describe("complete_task_private (router interface)", () => {
     claimPda: PublicKey;
     proof: ReturnType<typeof createProofPayload>;
   }) {
-    const bindingSeed = Buffer.from(input.proof.bindingSeed);
+    const bindingValue = Buffer.from(input.proof.bindingValue);
     const nullifierSeed = Buffer.from(input.proof.nullifierSeed);
     try {
       await program.methods
@@ -217,7 +217,7 @@ describe("complete_task_private (router interface)", () => {
           creator: creator.publicKey,
           worker: workerAgentPda,
           protocolConfig: protocolPda,
-          bindingSpend: deriveBindingSpendPda(bindingSeed),
+          bindingSpend: deriveBindingSpendPda(bindingValue),
           nullifierSpend: deriveNullifierSpendPda(nullifierSeed),
           treasury: treasuryPubkey,
           authority: worker.publicKey,
@@ -330,7 +330,7 @@ describe("complete_task_private (router interface)", () => {
     await expectCompletionFailure({ taskId, taskPda, escrowPda, claimPda, proof });
   });
 
-  it("accepts payload fields sealBytes/journal/imageId/bindingSeed/nullifierSeed", async () => {
+  it("accepts payload fields sealBytes/journal/imageId/bindingValue/nullifierSeed", async () => {
     const constraintHash = Buffer.alloc(HASH_SIZE, 0x72);
     const { taskId, taskPda, escrowPda, claimPda } = await createTaskAndClaim(constraintHash);
     const proof = createProofPayload({
