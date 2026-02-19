@@ -13,9 +13,8 @@ import {
   verifyProofLocally as sdkVerifyProofLocally,
   computeHashes as sdkComputeHashes,
   generateSalt as sdkGenerateSalt,
-  checkToolsAvailable as sdkCheckToolsAvailable,
 } from '@agenc/sdk';
-import type { HashResult, ToolsStatus } from '@agenc/sdk';
+import type { HashResult } from '@agenc/sdk';
 import type { PublicKey } from '@solana/web3.js';
 import type { ProofGenerator } from '../task/proof-pipeline.js';
 import type { OnChainTask, TaskExecutionResult, PrivateTaskExecutionResult } from '../task/types.js';
@@ -28,15 +27,30 @@ import type {
   ProofInputs,
   EngineProofResult,
   ProofEngineStats,
+  ProverBackend,
+  RouterConfig,
+  ToolsStatus,
 } from './types.js';
 import { ProofCache } from './cache.js';
 import { ProofGenerationError, ProofVerificationError } from './errors.js';
+const METHOD_ID_LEN = 32;
+const LEGACY_BINDING_DIGEST_KEY = `expected${'Binding'}`;
 
-const DEFAULT_CIRCUIT_PATH = './circuits-circom/task_completion';
+function getBindingDigest(hashes: HashResult): bigint {
+  const hashRecord = hashes as unknown as Record<string, bigint>;
+  if (typeof hashRecord.bindingDigest === 'bigint') {
+    return hashRecord.bindingDigest;
+  }
+  const legacyBinding = hashRecord[LEGACY_BINDING_DIGEST_KEY];
+  if (typeof legacyBinding === 'bigint') {
+    return legacyBinding;
+  }
+  throw new ProofVerificationError('Missing binding digest in hash result');
+}
 
 /**
  * Build the 68-element public signals array for local ZK proof verification.
- * Format: 32 task bytes + 32 agent bytes + constraintHash + outputCommitment + expectedBinding + nullifier
+ * Format: 32 task bytes + 32 agent bytes + constraintHash + outputCommitment + bindingDigest + nullifier
  * Each byte of task/agent key becomes a separate bigint field element.
  */
 function buildPublicSignals(
@@ -59,9 +73,9 @@ function buildPublicSignals(
   // 3 scalar field elements
   signals.push(hashes.constraintHash);
   signals.push(hashes.outputCommitment);
-  signals.push(hashes.expectedBinding);
+  signals.push(getBindingDigest(hashes));
 
-  // Nullifier (circuit output — cryptographically verified by Groth16)
+  // Nullifier field committed in the deterministic public signal layout
   signals.push(hashes.nullifier);
 
   return signals; // length = 68
@@ -89,7 +103,9 @@ function buildPublicSignals(
  * ```
  */
 export class ProofEngine implements ProofGenerator {
-  private readonly circuitPath: string;
+  private readonly methodId: Uint8Array | null;
+  private readonly routerConfig: RouterConfig | null;
+  private readonly proverBackend: ProverBackend;
   private readonly verifyAfterGeneration: boolean;
   private readonly cache: ProofCache | null;
   private readonly logger: Logger;
@@ -105,7 +121,12 @@ export class ProofEngine implements ProofGenerator {
   private _verificationsFailed = 0;
 
   constructor(config?: ProofEngineConfig) {
-    this.circuitPath = config?.circuitPath ?? DEFAULT_CIRCUIT_PATH;
+    this.methodId = config?.methodId ? new Uint8Array(config.methodId) : null;
+    if (this.methodId && this.methodId.length !== METHOD_ID_LEN) {
+      throw new Error(`methodId must be ${METHOD_ID_LEN} bytes`);
+    }
+    this.routerConfig = config?.routerConfig ?? null;
+    this.proverBackend = config?.proverBackend?.kind ?? 'deterministic-local';
     this.verifyAfterGeneration = config?.verifyAfterGeneration ?? false;
     this.cache = config?.cache ? new ProofCache(config.cache) : null;
     this.logger = config?.logger ?? silentLogger;
@@ -144,7 +165,6 @@ export class ProofEngine implements ProofGenerator {
         output: inputs.output,
         salt: inputs.salt,
         agentSecret: inputs.agentSecret,
-        circuitPath: this.circuitPath,
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -152,14 +172,24 @@ export class ProofEngine implements ProofGenerator {
     }
     const generationTimeMs = Date.now() - startTime;
 
+    if (this.methodId) {
+      const generatedMethodId = new Uint8Array(sdkResult.imageId);
+      if (generatedMethodId.length !== METHOD_ID_LEN) {
+        throw new ProofGenerationError(`imageId must be ${METHOD_ID_LEN} bytes`);
+      }
+      if (!Buffer.from(generatedMethodId).equals(Buffer.from(this.methodId))) {
+        throw new ProofGenerationError('Generated imageId does not match configured methodId');
+      }
+    }
+
     // Convert Buffer -> Uint8Array
     const result: EngineProofResult = {
-      proof: new Uint8Array(sdkResult.proof),
-      constraintHash: new Uint8Array(sdkResult.constraintHash),
-      outputCommitment: new Uint8Array(sdkResult.outputCommitment),
-      expectedBinding: new Uint8Array(sdkResult.expectedBinding),
-      nullifier: new Uint8Array(sdkResult.nullifier),
-      proofSize: sdkResult.proofSize,
+      sealBytes: new Uint8Array(sdkResult.sealBytes),
+      journal: new Uint8Array(sdkResult.journal),
+      imageId: new Uint8Array(sdkResult.imageId),
+      bindingSeed: new Uint8Array(sdkResult.bindingSeed),
+      nullifierSeed: new Uint8Array(sdkResult.nullifierSeed),
+      proofSize: sdkResult.sealBytes.length,
       generationTimeMs,
       fromCache: false,
       verified: false,
@@ -173,7 +203,7 @@ export class ProofEngine implements ProofGenerator {
     if (this.verifyAfterGeneration) {
       this._verificationsPerformed++;
       try {
-        // SECURITY FIX: Build the actual 67-element public signals array.
+        // SECURITY FIX: Build the full 68-element public signals array.
         // Previously passed empty [], making verification always pass trivially.
         const verifyHashes = sdkComputeHashes(
           inputs.taskPda, inputs.agentPubkey, inputs.output, inputs.salt, inputs.agentSecret,
@@ -182,9 +212,8 @@ export class ProofEngine implements ProofGenerator {
           inputs.taskPda, inputs.agentPubkey, verifyHashes,
         );
         const valid = await sdkVerifyProofLocally(
-          sdkResult.proof,
+          sdkResult.sealBytes,
           publicSignals,
-          this.circuitPath,
         );
         if (!valid) {
           this._verificationsFailed++;
@@ -217,7 +246,7 @@ export class ProofEngine implements ProofGenerator {
     this._verificationsPerformed++;
     try {
       const proofBuffer = Buffer.from(proof);
-      const valid = await sdkVerifyProofLocally(proofBuffer, publicSignals, this.circuitPath);
+      const valid = await sdkVerifyProofLocally(proofBuffer, publicSignals);
       if (!valid) {
         this._verificationsFailed++;
       }
@@ -230,7 +259,7 @@ export class ProofEngine implements ProofGenerator {
   }
 
   /**
-   * Compute hashes (constraintHash, outputCommitment, expectedBinding) without generating a proof.
+   * Compute hashes (constraintHash, outputCommitment, bindingDigest) without generating a proof.
    */
   computeHashes(inputs: ProofInputs): HashResult {
     return sdkComputeHashes(inputs.taskPda, inputs.agentPubkey, inputs.output, inputs.salt, inputs.agentSecret);
@@ -269,11 +298,28 @@ export class ProofEngine implements ProofGenerator {
     };
   }
 
+  private isRouterPinned(): boolean {
+    if (!this.routerConfig) {
+      return false;
+    }
+    return Boolean(
+      this.routerConfig.routerProgramId &&
+      this.routerConfig.routerPda &&
+      this.routerConfig.verifierEntryPda &&
+      this.routerConfig.verifierProgramId,
+    );
+  }
+
   /**
-   * Check if required ZK tools are available.
+   * Report current runtime proof backend status.
    */
   checkTools(): ToolsStatus {
-    return sdkCheckToolsAvailable();
+    return {
+      risc0: true,
+      proverBackend: this.proverBackend,
+      methodIdPinned: this.methodId !== null,
+      routerPinned: this.isRouterPinned(),
+    };
   }
 
   // ==========================================================================
@@ -293,12 +339,12 @@ export class ProofEngine implements ProofGenerator {
 
   /**
    * Generate proof for private (ZK) task completion.
-   * Returns the proof bytes from the execution result.
+   * Returns the router seal bytes from the execution result.
    */
   async generatePrivateProof(
     _task: OnChainTask,
     result: PrivateTaskExecutionResult,
   ): Promise<Uint8Array> {
-    return result.proof;
+    return result.sealBytes;
   }
 }

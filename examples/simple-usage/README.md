@@ -1,62 +1,48 @@
 # Simple Usage Example
 
-Minimal example showing how to use the AgenC SDK for ZK proof generation.
-
-## Prerequisites
-
-```bash
-npm install snarkjs
-```
+Minimal SDK example for the RISC0 private completion flow.
 
 ## Run
 
 ```bash
 npm install
-npm start
+npx tsx examples/simple-usage/index.ts
 ```
 
-## Code
+## What it demonstrates
 
-```typescript
-import { Keypair } from '@solana/web3.js';
-import {
-  generateSalt,
-  computeHashes,
-  generateProof,
-  verifyProofLocally,
-} from '@agenc/sdk';
+- Generate a private payload with:
+  - `sealBytes`
+  - `journal`
+  - `imageId`
+  - `bindingSeed`
+  - `nullifierSeed`
+- Derive required submission accounts:
+  - `routerProgram`
+  - `router`
+  - `verifierEntry`
+  - `verifierProgram`
+  - `bindingSpend`
+  - `nullifierSpend`
 
-// Your identities
-const taskPda = Keypair.generate().publicKey;
-const agentPubkey = Keypair.generate().publicKey;
+## Submission shape
 
-// Private output to prove
-const output = [1n, 2n, 3n, 4n];
-const salt = generateSalt();
-
-// Compute hashes (uses poseidon-lite, circomlib compatible)
-const hashes = computeHashes(taskPda, agentPubkey, output, salt);
-
-// Generate proof
-const result = await generateProof({
-  taskPda,
-  agentPubkey,
-  output,
-  salt,
-  circuitPath: './circuits-circom/task_completion',
-});
-
-// Verify
-const publicSignals = [
-  hashes.constraintHash,
-  hashes.outputCommitment,
-  hashes.expectedBinding,
-];
-const valid = await verifyProofLocally(
-  result.proof,
-  publicSignals,
-  './circuits-circom/task_completion'
-);
-
-console.log('Valid:', valid);
+```ts
+await program.methods
+  .completeTaskPrivate(taskIdU64, {
+    sealBytes: Array.from(proof.sealBytes),
+    journal: Array.from(proof.journal),
+    imageId: Array.from(proof.imageId),
+    bindingSeed: Array.from(proof.bindingSeed),
+    nullifierSeed: Array.from(proof.nullifierSeed),
+  })
+  .accountsPartial({
+    routerProgram,
+    router,
+    verifierEntry,
+    verifierProgram,
+    bindingSpend,
+    nullifierSpend,
+    // ...task + escrow + authority accounts
+  })
 ```

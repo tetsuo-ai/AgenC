@@ -36,6 +36,7 @@
 
 import { Connection, Keypair, PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js';
 import chalk from 'chalk';
+import crypto from 'crypto';
 
 // ============================================================================
 // PRODUCTION GUARD - Fail fast if demo code is used in production
@@ -60,11 +61,18 @@ if (!IS_DEMO_MODE) {
 
 // AgenC SDK imports (from @agenc/sdk)
 // In production, uncomment and use:
-// import { PrivacyClient, generateProof, generateSalt, VERIFIER_PROGRAM_ID } from '@agenc/sdk';
+// import { PrivacyClient, generateProof, generateSalt } from '@agenc/sdk';
 
 // Simulated imports for demo
-const VERIFIER_PROGRAM_ID = new PublicKey('8fHUGmjNzSh76r78v1rPt7BhWmAu2gXrvW9A2XXonwQQ');
 const AGENC_PROGRAM_ID = new PublicKey('EopUaCV2svxj9j4hd7KjbrWfdjkspmm2BCBe7jGpKzKZ');
+const ROUTER_PROGRAM_ID = new PublicKey('6JvFfBrvCcWgANKh1Eae9xDq4RC6cfJuBcf71rp2k9Y7');
+const VERIFIER_PROGRAM_ID = new PublicKey('THq1qFYQoh7zgcjXoMXduDBqiZRCPeg3PvvMbrVQUge');
+const TRUSTED_SELECTOR = Buffer.from('525a5631', 'hex');
+const TRUSTED_IMAGE_ID = Buffer.from('11'.repeat(32), 'hex');
+const ROUTER_SEED = Buffer.from('router');
+const VERIFIER_SEED = Buffer.from('verifier');
+const BINDING_SPEND_SEED = Buffer.from('binding_spend');
+const NULLIFIER_SPEND_SEED = Buffer.from('nullifier_spend');
 
 // ============================================================================
 // Tetsuo Agent Configuration
@@ -112,6 +120,23 @@ interface TaskResult {
     executionTimeMs: number;
     confidence: number;
   };
+}
+
+interface PrivatePayload {
+  sealBytes: Buffer;
+  journal: Buffer;
+  imageId: Buffer;
+  bindingSeed: Buffer;
+  nullifierSeed: Buffer;
+}
+
+interface PrivateSubmissionAccounts {
+  routerProgram: PublicKey;
+  router: PublicKey;
+  verifierEntry: PublicKey;
+  verifierProgram: PublicKey;
+  bindingSpend: PublicKey;
+  nullifierSpend: PublicKey;
 }
 
 // ============================================================================
@@ -290,86 +315,157 @@ class TetsuoAgent {
   }
 
   /**
-   * Generate ZK proof of task completion
+   * Generate private payload + account model for complete_task_private
    */
   async generateCompletionProof(
     taskId: number,
     result: TaskResult
-  ): Promise<{ proof: Buffer; publicWitness: Buffer }> {
+  ): Promise<{ payload: PrivatePayload; accounts: PrivateSubmissionAccounts }> {
     const task = this.activeTasks.get(taskId);
     if (!task) {
       throw new Error(`Task ${taskId} not found`);
     }
 
-    console.log(chalk.cyan(`\nGenerating ZK proof for task #${taskId}...`));
+    console.log(chalk.cyan(`\nGenerating private payload for task #${taskId}...`));
 
-    // Generate random salt for commitment
-    const salt = this.generateSalt();
+    // Generate random salt for commitment simulation
+    const salt = this.generateSalt().toString(16).padStart(64, '0');
+    const outputCommitment = Buffer.from(this.hashTaskOutput(`${result.output.join(',')}:${salt}`), 'hex');
+    const constraintHash = task.constraintHash.length === 32
+      ? Buffer.from(task.constraintHash)
+      : Buffer.alloc(32);
+
+    const bindingSeed = this.sha256(
+      Buffer.from('AGENC_V2_BINDING'),
+      Buffer.from([taskId & 0xff]),
+      this.config.wallet.publicKey.toBuffer(),
+      outputCommitment,
+    );
+    const nullifierSeed = this.sha256(
+      Buffer.from('AGENC_V2_NULLIFIER'),
+      constraintHash,
+      outputCommitment,
+      this.config.wallet.publicKey.toBuffer(),
+    );
+    const journal = Buffer.concat([
+      task.creator.toBuffer(),
+      this.config.wallet.publicKey.toBuffer(),
+      constraintHash,
+      outputCommitment,
+      bindingSeed,
+      nullifierSeed,
+    ]);
+    if (journal.length !== 192) {
+      throw new Error(`Invalid journal length: ${journal.length}`);
+    }
 
     // In production:
-    // const { proof, publicWitness } = await generateProof({
+    // const generated = await generateProof({
     //   taskId,
+    //   taskPda,
     //   agentPubkey: this.config.wallet.publicKey,
-    //   constraintHash: task.constraintHash,
-    //   outputCommitment: this.computeCommitment(result.output, salt),
     //   output: result.output,
     //   salt,
     // });
 
-    // SECURITY WARNING: Simulated proof for demo only!
-    // These zero-filled buffers will FAIL verification on-chain.
-    // In production, you MUST use actual proof generation:
-    //   const { proof, publicWitness } = await generateProof({...});
-    //
-    // A zero-filled proof cannot satisfy the ZK circuit constraints and
-    // will be rejected by the Sunspot verifier program.
+    // SECURITY WARNING: Simulated payload for demo only.
+    // In production, you MUST use actual payload generation from @agenc/sdk.
     if (process.env.NODE_ENV === 'production') {
-      throw new Error('Demo proof generation cannot be used in production. Implement real ZK proof generation.');
+      throw new Error('Demo payload generation cannot be used in production. Implement real RISC0 payload generation.');
     }
-    const proof = Buffer.alloc(256); // Groth16 proof size: 2 G1 points (64 bytes each) + 1 G2 point (128 bytes) (DEMO ONLY: zeros - will fail verification!)
-    const publicWitness = Buffer.alloc(35 * 32); // 35 public inputs (DEMO ONLY: zeros)
+    const sealProof = this.expandBytes(
+      this.sha256(Buffer.from('seal'), journal, TRUSTED_IMAGE_ID),
+      256,
+    );
+    const sealBytes = Buffer.concat([TRUSTED_SELECTOR, sealProof]);
+    const imageId = Buffer.from(TRUSTED_IMAGE_ID);
 
-    console.log(chalk.gray('  Proof size:'), proof.length, 'bytes');
-    console.log(chalk.gray('  Public inputs:'), 35);
-    console.log(chalk.green('  Proof generated successfully!'));
+    const [bindingSpend] = PublicKey.findProgramAddressSync(
+      [BINDING_SPEND_SEED, bindingSeed],
+      AGENC_PROGRAM_ID,
+    );
+    const [nullifierSpend] = PublicKey.findProgramAddressSync(
+      [NULLIFIER_SPEND_SEED, nullifierSeed],
+      AGENC_PROGRAM_ID,
+    );
+    const [router] = PublicKey.findProgramAddressSync(
+      [ROUTER_SEED],
+      ROUTER_PROGRAM_ID,
+    );
+    const [verifierEntry] = PublicKey.findProgramAddressSync(
+      [VERIFIER_SEED, TRUSTED_SELECTOR],
+      ROUTER_PROGRAM_ID,
+    );
 
-    return { proof, publicWitness };
+    console.log(chalk.gray('  sealBytes:'), sealBytes.length, 'bytes');
+    console.log(chalk.gray('  journal:'), journal.length, 'bytes');
+    console.log(chalk.green('  Payload generated successfully!'));
+
+    return {
+      payload: {
+        sealBytes,
+        journal,
+        imageId,
+        bindingSeed,
+        nullifierSeed,
+      },
+      accounts: {
+        routerProgram: ROUTER_PROGRAM_ID,
+        router,
+        verifierEntry,
+        verifierProgram: VERIFIER_PROGRAM_ID,
+        bindingSpend,
+        nullifierSpend,
+      },
+    };
   }
 
   /**
-   * Submit proof and receive private payment
+   * Submit payload and receive private payment
    */
   async submitProofAndGetPaid(
     taskId: number,
-    proof: Buffer,
-    publicWitness: Buffer
+    payload: PrivatePayload,
+    accounts: PrivateSubmissionAccounts,
   ): Promise<{ txSignature: string; paymentReceived: boolean }> {
     const task = this.activeTasks.get(taskId);
     if (!task) {
       throw new Error(`Task ${taskId} not found`);
     }
 
-    // SECURITY: Validate proof parameters before submission
+    // SECURITY: Validate payload parameters before submission
     // These validations ensure the parameters are properly formed
-    if (proof.length !== 256) {
-      throw new Error(`Invalid proof size: expected 256 bytes, got ${proof.length}`);
+    if (payload.sealBytes.length !== 260) {
+      throw new Error(`Invalid sealBytes size: expected 260 bytes, got ${payload.sealBytes.length}`);
     }
-    if (publicWitness.length !== 35 * 32) {
-      throw new Error(`Invalid public witness size: expected ${35 * 32} bytes, got ${publicWitness.length}`);
+    if (payload.journal.length !== 192) {
+      throw new Error(`Invalid journal size: expected 192 bytes, got ${payload.journal.length}`);
+    }
+    if (payload.imageId.length !== 32 || payload.bindingSeed.length !== 32 || payload.nullifierSeed.length !== 32) {
+      throw new Error('Invalid private payload field lengths');
     }
 
-    console.log(chalk.cyan(`\nSubmitting proof for task #${taskId}...`));
-    console.log(chalk.gray('  Proof size:'), proof.length, 'bytes');
-    console.log(chalk.gray('  Public witness size:'), publicWitness.length, 'bytes');
+    console.log(chalk.cyan(`\nSubmitting private payload for task #${taskId}...`));
+    console.log(chalk.gray('  sealBytes:'), payload.sealBytes.length, 'bytes');
+    console.log(chalk.gray('  journal:'), payload.journal.length, 'bytes');
+    console.log(chalk.gray('  router:'), accounts.router.toBase58());
+    console.log(chalk.gray('  verifierEntry:'), accounts.verifierEntry.toBase58());
 
     // In production:
-    // 1. Submit proof to on-chain verifier
+    // 1. Submit private completion payload
     // const verifyTx = await program.methods.completeTaskPrivate(taskId, {
-    //   zkProof: Array.from(proof),
-    //   publicWitness: Array.from(publicWitness),
+    //   sealBytes: Array.from(payload.sealBytes),
+    //   journal: Array.from(payload.journal),
+    //   imageId: Array.from(payload.imageId),
+    //   bindingSeed: Array.from(payload.bindingSeed),
+    //   nullifierSeed: Array.from(payload.nullifierSeed),
     // }).accounts({
-    //   worker: this.config.wallet.publicKey,
-    //   zkVerifier: VERIFIER_PROGRAM_ID,
+    //   routerProgram: accounts.routerProgram,
+    //   router: accounts.router,
+    //   verifierEntry: accounts.verifierEntry,
+    //   verifierProgram: accounts.verifierProgram,
+    //   bindingSpend: accounts.bindingSpend,
+    //   nullifierSpend: accounts.nullifierSpend,
     //   ...
     // }).rpc();
 
@@ -381,7 +477,7 @@ class TetsuoAgent {
 
     const txSignature = 'simulated_tx_' + Date.now();
 
-    console.log(chalk.gray('  Proof verified on-chain'));
+    console.log(chalk.gray('  Payload verified on-chain'));
     console.log(chalk.gray('  Payment received via Privacy Cash'));
     console.log(chalk.gray('  Amount:'), (task.rewardLamports / LAMPORTS_PER_SOL).toFixed(4), 'SOL');
     console.log(chalk.green('  Transaction:'), txSignature.slice(0, 20) + '...');
@@ -416,15 +512,15 @@ class TetsuoAgent {
     // 4. Execute task with AI
     const result = await this.executeTask(selectedTask.id);
 
-    // 5. Generate ZK proof (for private tasks)
+    // 5. Generate private payload (for private tasks)
     if (selectedTask.isPrivate) {
-      const { proof, publicWitness } = await this.generateCompletionProof(
+      const { payload, accounts } = await this.generateCompletionProof(
         selectedTask.id,
         result
       );
 
-      // 6. Submit proof and receive private payment
-      await this.submitProofAndGetPaid(selectedTask.id, proof, publicWitness);
+      // 6. Submit private payload and receive private payment
+      await this.submitProofAndGetPaid(selectedTask.id, payload, accounts);
     } else {
       // Standard (non-private) completion
       console.log(chalk.cyan('\nSubmitting standard completion...'));
@@ -435,6 +531,28 @@ class TetsuoAgent {
   }
 
   // Helper methods
+  private sha256(...chunks: Buffer[]): Buffer {
+    const hasher = crypto.createHash('sha256');
+    for (const chunk of chunks) {
+      hasher.update(chunk);
+    }
+    return hasher.digest();
+  }
+
+  private expandBytes(seed: Buffer, length: number): Buffer {
+    const out = Buffer.alloc(length);
+    let offset = 0;
+    let cursor = seed;
+    while (offset < length) {
+      cursor = this.sha256(cursor);
+      const remaining = length - offset;
+      const chunkSize = Math.min(cursor.length, remaining);
+      cursor.copy(out, offset, 0, chunkSize);
+      offset += chunkSize;
+    }
+    return out;
+  }
+
   private hashTaskOutput(input: string): string {
     // SECURITY WARNING: This is a NON-CRYPTOGRAPHIC demo hash!
     // It provides NO security guarantees and is trivially reversible.
@@ -519,7 +637,8 @@ async function main() {
   console.log();
   console.log(chalk.gray('Contracts:'));
   console.log(chalk.gray('  AgenC:'), AGENC_PROGRAM_ID.toBase58());
-  console.log(chalk.gray('  Verifier:'), VERIFIER_PROGRAM_ID.toBase58());
+  console.log(chalk.gray('  Router Program:'), ROUTER_PROGRAM_ID.toBase58());
+  console.log(chalk.gray('  Verifier Program:'), VERIFIER_PROGRAM_ID.toBase58());
   console.log();
 }
 

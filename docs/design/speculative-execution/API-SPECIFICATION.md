@@ -276,8 +276,14 @@ export interface ProofStatus {
   /** Current state of proof generation */
   state: ProofState;
   
-  /** Proof data (when generated) */
-  proofData?: Uint8Array;
+  /** Private payload (when generated) */
+  privatePayload?: {
+    sealBytes: Uint8Array;
+    journal: Uint8Array;
+    imageId: Uint8Array;
+    bindingSeed: Uint8Array;
+    nullifierSeed: Uint8Array;
+  };
   
   /** Proof generation job ID */
   jobId?: string;

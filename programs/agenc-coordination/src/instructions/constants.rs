@@ -41,27 +41,6 @@ pub const REPUTATION_DECAY_PERIOD: i64 = 2_592_000;
 pub const REPUTATION_DECAY_MIN: u16 = 1000;
 
 // ============================================================================
-// ZK Witness Constants
-// ============================================================================
-// Distinct from verifying_key.rs::PUBLIC_INPUTS_COUNT (67, verifier-level).
-// The witness has 68 field elements: 32 (task_id bytes) + 32 (agent bytes) + 4 (hashes).
-
-/// Number of field elements in the ZK public witness
-pub const ZK_WITNESS_FIELD_COUNT: usize = 68;
-
-/// Expected Groth16 proof size in bytes (2 G1 + 1 G2 on BN254, compressed)
-pub const ZK_EXPECTED_PROOF_SIZE: usize = 256;
-
-/// G1 point size (proof component A)
-pub const ZK_PROOF_A_SIZE: usize = 64;
-
-/// G2 point size (proof component B)
-pub const ZK_PROOF_B_SIZE: usize = 128;
-
-/// G1 point size (proof component C)
-pub const ZK_PROOF_C_SIZE: usize = 64;
-
-// ============================================================================
 // Dispute Resolution Constants
 // ============================================================================
 

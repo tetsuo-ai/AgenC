@@ -17,7 +17,19 @@ import {
   TOKEN_PROGRAM_ID,
   ASSOCIATED_TOKEN_PROGRAM_ID,
 } from '@solana/spl-token';
-import { PROGRAM_ID, SEEDS, TaskState, DISCRIMINATOR_SIZE, PERCENT_BASE, DEFAULT_FEE_PERCENT } from './constants';
+import {
+  PROGRAM_ID,
+  SEEDS,
+  TaskState,
+  DISCRIMINATOR_SIZE,
+  PERCENT_BASE,
+  DEFAULT_FEE_PERCENT,
+  HASH_SIZE,
+  RISC0_SEAL_BORSH_LEN,
+  RISC0_JOURNAL_LEN,
+  RISC0_IMAGE_ID_LEN,
+  TRUSTED_RISC0_SELECTOR,
+} from './constants';
 import { getAccount } from './anchor-utils';
 import { getSdkLogger } from './logger';
 import { getDependentTaskCount } from './queries';
@@ -83,17 +95,17 @@ export interface TaskStatus {
   rewardMint: PublicKey | null;
 }
 
-export interface PrivateCompletionProof {
-  /** Groth16 proof data (256 bytes) */
-  proofData: Buffer | Uint8Array;
-  /** Constraint hash — Poseidon hash of output (32 bytes) */
-  constraintHash: Buffer | Uint8Array;
-  /** Output commitment — Poseidon(constraintHash, salt) (32 bytes) */
-  outputCommitment: Buffer | Uint8Array;
-  /** Expected binding for anti-replay (32 bytes) */
-  expectedBinding: Buffer | Uint8Array;
-  /** Nullifier to prevent proof reuse (32 bytes) */
-  nullifier: Buffer | Uint8Array;
+export interface PrivateCompletionPayload {
+  /** Borsh-encoded router seal bytes (selector + proof = 260 bytes) */
+  sealBytes: Buffer | Uint8Array;
+  /** Fixed private journal bytes (192 bytes) */
+  journal: Buffer | Uint8Array;
+  /** RISC0 image ID (32 bytes) */
+  imageId: Buffer | Uint8Array;
+  /** Binding spend seed (32 bytes) */
+  bindingSeed: Buffer | Uint8Array;
+  /** Nullifier spend seed (32 bytes) */
+  nullifierSeed: Buffer | Uint8Array;
 }
 
 export interface CompleteTaskPrivateWithPreflightOptions {
@@ -249,6 +261,21 @@ interface TaskCreationContext {
   idBytes: Uint8Array;
   mint: PublicKey | null;
   tokenAccounts: TaskTokenAccounts;
+}
+
+const BINDING_SPEND_SEED = Buffer.from('binding_spend');
+const NULLIFIER_SPEND_SEED = Buffer.from('nullifier_spend');
+const ROUTER_SEED = Buffer.from('router');
+const VERIFIER_SEED = Buffer.from('verifier');
+const TRUSTED_RISC0_ROUTER_PROGRAM_ID = new PublicKey('6JvFfBrvCcWgANKh1Eae9xDq4RC6cfJuBcf71rp2k9Y7');
+const TRUSTED_RISC0_VERIFIER_PROGRAM_ID = new PublicKey('THq1qFYQoh7zgcjXoMXduDBqiZRCPeg3PvvMbrVQUge');
+
+function toFixedBytes(value: Uint8Array | Buffer, expectedLen: number, label: string): Buffer {
+  const bytes = Buffer.from(value);
+  if (bytes.length !== expectedLen) {
+    throw new Error(`${label} must be exactly ${expectedLen} bytes, got ${bytes.length}`);
+  }
+  return bytes;
 }
 
 function normalizeTaskId(taskId: Uint8Array | number[]): Uint8Array {
@@ -605,21 +632,34 @@ export async function completeTaskPrivate(
   worker: Keypair,
   workerAgentId: Uint8Array | number[],
   taskPda: PublicKey,
-  proof: PrivateCompletionProof,
+  proof: PrivateCompletionPayload,
 ): Promise<{ txSignature: string }> {
   const programId = program.programId;
   const workerAgentPda = deriveAgentPda(workerAgentId, programId);
   const claimPda = deriveClaimPda(taskPda, workerAgentPda, programId);
   const escrowPda = deriveEscrowPda(taskPda, programId);
   const protocolPda = deriveProtocolPda(programId);
+  const sealBytes = toFixedBytes(proof.sealBytes, RISC0_SEAL_BORSH_LEN, 'sealBytes');
+  const journal = toFixedBytes(proof.journal, RISC0_JOURNAL_LEN, 'journal');
+  const imageId = toFixedBytes(proof.imageId, RISC0_IMAGE_ID_LEN, 'imageId');
+  const bindingSeed = toFixedBytes(proof.bindingSeed, HASH_SIZE, 'bindingSeed');
+  const nullifierSeed = toFixedBytes(proof.nullifierSeed, HASH_SIZE, 'nullifierSeed');
 
-  // Derive nullifier PDA
-  const nullifierBytes = proof.nullifier instanceof Uint8Array
-    ? proof.nullifier
-    : Buffer.from(proof.nullifier);
-  const [nullifierAccount] = PublicKey.findProgramAddressSync(
-    [SEEDS.NULLIFIER, nullifierBytes],
+  const [bindingSpend] = PublicKey.findProgramAddressSync(
+    [BINDING_SPEND_SEED, bindingSeed],
     programId,
+  );
+  const [nullifierSpend] = PublicKey.findProgramAddressSync(
+    [NULLIFIER_SPEND_SEED, nullifierSeed],
+    programId,
+  );
+  const [router] = PublicKey.findProgramAddressSync(
+    [ROUTER_SEED],
+    TRUSTED_RISC0_ROUTER_PROGRAM_ID,
+  );
+  const [verifierEntry] = PublicKey.findProgramAddressSync(
+    [VERIFIER_SEED, Buffer.from(TRUSTED_RISC0_SELECTOR)],
+    TRUSTED_RISC0_ROUTER_PROGRAM_ID,
   );
 
   // Fetch task to get creator, taskId, and reward_mint
@@ -662,11 +702,11 @@ export async function completeTaskPrivate(
 
   const tx = await program.methods
     .completeTaskPrivate(taskIdU64, {
-      proofData: Array.from(proof.proofData),
-      constraintHash: Array.from(proof.constraintHash),
-      outputCommitment: Array.from(proof.outputCommitment),
-      expectedBinding: Array.from(proof.expectedBinding),
-      nullifier: Array.from(proof.nullifier),
+      sealBytes: Array.from(sealBytes),
+      journal: Array.from(journal),
+      imageId: Array.from(imageId),
+      bindingSeed: Array.from(bindingSeed),
+      nullifierSeed: Array.from(nullifierSeed),
     })
     .accountsPartial({
       task: taskPda,
@@ -675,9 +715,14 @@ export async function completeTaskPrivate(
       creator: task.creator,
       worker: workerAgentPda,
       protocolConfig: protocolPda,
-      nullifierAccount,
+      bindingSpend,
+      nullifierSpend,
       treasury: protocolConfig.treasury,
       authority: worker.publicKey,
+      routerProgram: TRUSTED_RISC0_ROUTER_PROGRAM_ID,
+      router,
+      verifierEntry,
+      verifierProgram: TRUSTED_RISC0_VERIFIER_PROGRAM_ID,
       systemProgram: SystemProgram.programId,
       ...tokenAccounts,
     })
@@ -702,16 +747,16 @@ export async function completeTaskPrivateWithPreflight(
   worker: Keypair,
   workerAgentId: Uint8Array | number[],
   taskPda: PublicKey,
-  proof: PrivateCompletionProof,
+  proof: PrivateCompletionPayload,
   options: CompleteTaskPrivateWithPreflightOptions = {},
 ): Promise<{ txSignature: string; preflightResult?: ProofSubmissionPreflightResult }> {
-  if (options.nullifierCache?.isUsed(proof.nullifier)) {
+  if (options.nullifierCache?.isUsed(proof.nullifierSeed)) {
     throw new Error('Nullifier already submitted in this session');
   }
 
   // SECURITY FIX: Mark nullifier as used BEFORE submission to prevent concurrent
   // duplicate submissions. On failure, remove it to allow retry.
-  options.nullifierCache?.markUsed(proof.nullifier);
+  options.nullifierCache?.markUsed(proof.nullifierSeed);
 
   const shouldRunPreflight = options.runProofSubmissionPreflight ?? true;
   let preflightResult: ProofSubmissionPreflightResult | undefined;
@@ -722,6 +767,7 @@ export async function completeTaskPrivateWithPreflight(
       preflightResult = await runProofSubmissionPreflight(connection, program, {
         taskPda,
         workerAgentPda,
+        authorityPubkey: worker.publicKey,
         proof,
         proofGeneratedAtMs: options.proofGeneratedAtMs,
         maxProofAgeMs: options.maxProofAgeMs,
@@ -747,7 +793,7 @@ export async function completeTaskPrivateWithPreflight(
     };
   } catch (err) {
     // Rollback: allow retry with same nullifier after failure
-    options.nullifierCache?.remove(proof.nullifier);
+    options.nullifierCache?.remove(proof.nullifierSeed);
     throw err;
   }
 }
@@ -761,7 +807,7 @@ export async function completeTaskPrivateSafe(
   worker: Keypair,
   workerAgentId: Uint8Array | number[],
   taskPda: PublicKey,
-  proof: PrivateCompletionProof,
+  proof: PrivateCompletionPayload,
   options: CompleteTaskPrivateSafeOptions = {},
 ): Promise<{ txSignature: string; validationResult?: ProofPreconditionResult }> {
   const runProofSubmissionPreflightOption = options.runProofSubmissionPreflight

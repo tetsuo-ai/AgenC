@@ -30,12 +30,14 @@ function createPublicResult(): TaskExecutionResult {
 }
 
 function createPrivateResult(): PrivateTaskExecutionResult {
+  const sealBytes = new Uint8Array(260).fill(3);
+  sealBytes.set([0x52, 0x5a, 0x56, 0x4d], 0);
   return {
-    proof: new Uint8Array(388).fill(3),
-    constraintHash: new Uint8Array(32).fill(4),
-    outputCommitment: new Uint8Array(32).fill(5),
-    expectedBinding: new Uint8Array(32).fill(6),
-    nullifier: new Uint8Array(32).fill(7),
+    sealBytes,
+    journal: new Uint8Array(192).fill(4),
+    imageId: new Uint8Array(32).fill(5),
+    bindingSeed: new Uint8Array(32).fill(6),
+    nullifierSeed: new Uint8Array(32).fill(7),
   };
 }
 
@@ -572,7 +574,7 @@ describe('ProofPipeline', () => {
     it('should use custom proof generator when provided', async () => {
       const customGenerator: ProofGenerator = {
         generatePublicProof: vi.fn().mockResolvedValue(new Uint8Array(32).fill(99)),
-        generatePrivateProof: vi.fn().mockResolvedValue(new Uint8Array(388).fill(99)),
+        generatePrivateProof: vi.fn().mockResolvedValue(new Uint8Array(260).fill(99)),
       };
 
       pipeline = new ProofPipeline(config, events, operations, customGenerator);
@@ -599,7 +601,7 @@ describe('DefaultProofGenerator', () => {
     expect(proof).toEqual(result.proofHash);
   });
 
-  it('should return proof for private tasks', async () => {
+  it('should return seal bytes for private tasks', async () => {
     const task = createTask({
       constraintHash: new Uint8Array(32).fill(1), // Non-zero = private
     });
@@ -607,6 +609,6 @@ describe('DefaultProofGenerator', () => {
 
     const proof = await generator.generatePrivateProof(task, result);
 
-    expect(proof).toEqual(result.proof);
+    expect(proof).toEqual(result.sealBytes);
   });
 });

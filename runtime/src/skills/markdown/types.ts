@@ -45,7 +45,7 @@ export interface MarkdownSkillMetadata {
 
 /** Runtime requirements for a skill. */
 export interface SkillRequirements {
-  /** Required binary executables (e.g. 'nargo', 'node'). */
+  /** Required binary executables (e.g. 'risc0-prover', 'node'). */
   readonly binaries: readonly string[];
   /** Required environment variables. */
   readonly env: readonly string[];

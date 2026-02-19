@@ -1,8 +1,34 @@
 import { Connection, PublicKey } from '@solana/web3.js';
 import { type Program } from '@coral-xyz/anchor';
-import { PROOF_SIZE_BYTES, SEEDS } from './constants';
-import { getTask, deriveClaimPda, TaskState, type PrivateCompletionProof } from './tasks';
+import {
+  HASH_SIZE,
+  RISC0_IMAGE_ID_LEN,
+  RISC0_JOURNAL_LEN,
+  RISC0_SEAL_BORSH_LEN,
+  RISC0_SELECTOR_LEN,
+  TRUSTED_RISC0_IMAGE_ID,
+  TRUSTED_RISC0_SELECTOR,
+} from './constants';
+import { getTask, deriveClaimPda, TaskState, type PrivateCompletionPayload } from './tasks';
 import { getAccount } from './anchor-utils';
+
+const BINDING_SPEND_SEED = Buffer.from('binding_spend');
+const NULLIFIER_SPEND_SEED = Buffer.from('nullifier_spend');
+const JOURNAL_TASK_OFFSET = 0;
+const JOURNAL_AUTHORITY_OFFSET = 32;
+const JOURNAL_CONSTRAINT_OFFSET = 64;
+const JOURNAL_COMMITMENT_OFFSET = 96;
+const JOURNAL_BINDING_OFFSET = 128;
+const JOURNAL_NULLIFIER_OFFSET = 160;
+
+interface ParsedPrivateJournal {
+  taskPda: Uint8Array;
+  agentAuthority: Uint8Array;
+  constraintHash: Uint8Array;
+  outputCommitment: Uint8Array;
+  binding: Uint8Array;
+  nullifier: Uint8Array;
+}
 
 /**
  * Result of best-effort client-side checks before submitting `completeTaskPrivate`.
@@ -31,9 +57,10 @@ export interface ProofSubmissionPreflightWarning {
 export interface ProofSubmissionPreflightParams {
   taskPda: PublicKey;
   workerAgentPda: PublicKey;
+  authorityPubkey?: PublicKey;
   proof: Pick<
-    PrivateCompletionProof,
-    'constraintHash' | 'outputCommitment' | 'expectedBinding' | 'nullifier' | 'proofData'
+    PrivateCompletionPayload,
+    'sealBytes' | 'journal' | 'imageId' | 'bindingSeed' | 'nullifierSeed'
   >;
   proofGeneratedAtMs?: number;
   maxProofAgeMs?: number;
@@ -88,6 +115,21 @@ function toNumber(value: unknown): number {
   return 0;
 }
 
+function readJournalField(journal: Uint8Array, offset: number): Uint8Array {
+  return journal.slice(offset, offset + HASH_SIZE);
+}
+
+function parsePrivateJournal(journal: Uint8Array): ParsedPrivateJournal {
+  return {
+    taskPda: readJournalField(journal, JOURNAL_TASK_OFFSET),
+    agentAuthority: readJournalField(journal, JOURNAL_AUTHORITY_OFFSET),
+    constraintHash: readJournalField(journal, JOURNAL_CONSTRAINT_OFFSET),
+    outputCommitment: readJournalField(journal, JOURNAL_COMMITMENT_OFFSET),
+    binding: readJournalField(journal, JOURNAL_BINDING_OFFSET),
+    nullifier: readJournalField(journal, JOURNAL_NULLIFIER_OFFSET),
+  };
+}
+
 export async function runProofSubmissionPreflight(
   connection: Connection,
   program: Program,
@@ -96,42 +138,126 @@ export async function runProofSubmissionPreflight(
   const failures: ProofSubmissionPreflightFailure[] = [];
   const warnings: ProofSubmissionPreflightWarning[] = [];
 
-  const proofData = toBytes(params.proof.proofData);
-  const expectedBinding = toBytes(params.proof.expectedBinding);
-  const outputCommitment = toBytes(params.proof.outputCommitment);
-  const nullifier = toBytes(params.proof.nullifier);
-  const constraintHash = toBytes(params.proof.constraintHash);
+  const sealBytes = toBytes(params.proof.sealBytes);
+  const journalBytes = toBytes(params.proof.journal);
+  const imageId = toBytes(params.proof.imageId);
+  const bindingSeed = toBytes(params.proof.bindingSeed);
+  const nullifierSeed = toBytes(params.proof.nullifierSeed);
 
-  if (proofData.length !== PROOF_SIZE_BYTES) {
+  if (sealBytes.length !== RISC0_SEAL_BORSH_LEN) {
     failures.push({
-      check: 'proof_size',
-      message: `Proof data must be ${PROOF_SIZE_BYTES} bytes, got ${proofData.length}`,
+      check: 'seal_length',
+      message: `sealBytes must be ${RISC0_SEAL_BORSH_LEN} bytes, got ${sealBytes.length}`,
+      retriable: false,
+    });
+  } else {
+    const selector = sealBytes.subarray(0, RISC0_SELECTOR_LEN);
+    if (!bytesEqual(selector, TRUSTED_RISC0_SELECTOR)) {
+      failures.push({
+        check: 'trusted_selector',
+        message: 'sealBytes selector does not match trusted selector',
+        retriable: false,
+      });
+    }
+  }
+
+  if (journalBytes.length !== RISC0_JOURNAL_LEN) {
+    failures.push({
+      check: 'journal_length',
+      message: `journal must be ${RISC0_JOURNAL_LEN} bytes, got ${journalBytes.length}`,
       retriable: false,
     });
   }
 
-  if (isAllZeros(expectedBinding)) {
+  if (imageId.length !== RISC0_IMAGE_ID_LEN) {
     failures.push({
-      check: 'binding_nonzero',
-      message: 'expectedBinding cannot be all zeros',
+      check: 'image_id_length',
+      message: `imageId must be ${RISC0_IMAGE_ID_LEN} bytes, got ${imageId.length}`,
+      retriable: false,
+    });
+  } else if (!bytesEqual(imageId, TRUSTED_RISC0_IMAGE_ID)) {
+    failures.push({
+      check: 'trusted_image_id',
+      message: 'imageId does not match trusted image ID',
       retriable: false,
     });
   }
 
-  if (isAllZeros(outputCommitment)) {
+  if (bindingSeed.length !== HASH_SIZE) {
     failures.push({
-      check: 'commitment_nonzero',
-      message: 'outputCommitment cannot be all zeros',
+      check: 'binding_seed_length',
+      message: `bindingSeed must be ${HASH_SIZE} bytes, got ${bindingSeed.length}`,
       retriable: false,
     });
   }
 
-  if (isAllZeros(nullifier)) {
+  if (nullifierSeed.length !== HASH_SIZE) {
     failures.push({
-      check: 'nullifier_nonzero',
-      message: 'nullifier cannot be all zeros',
+      check: 'nullifier_seed_length',
+      message: `nullifierSeed must be ${HASH_SIZE} bytes, got ${nullifierSeed.length}`,
       retriable: false,
     });
+  }
+
+  let journal: ParsedPrivateJournal | null = null;
+  if (journalBytes.length === RISC0_JOURNAL_LEN) {
+    journal = parsePrivateJournal(journalBytes);
+
+    if (isAllZeros(journal.outputCommitment)) {
+      failures.push({
+        check: 'commitment_nonzero',
+        message: 'journal output commitment cannot be all zeros',
+        retriable: false,
+      });
+    }
+
+    if (isAllZeros(journal.binding)) {
+      failures.push({
+        check: 'binding_nonzero',
+        message: 'journal binding cannot be all zeros',
+        retriable: false,
+      });
+    }
+
+    if (isAllZeros(journal.nullifier)) {
+      failures.push({
+        check: 'nullifier_nonzero',
+        message: 'journal nullifier cannot be all zeros',
+        retriable: false,
+      });
+    }
+
+    if (!bytesEqual(journal.taskPda, params.taskPda.toBytes())) {
+      failures.push({
+        check: 'journal_task_match',
+        message: 'journal task PDA does not match provided task PDA',
+        retriable: false,
+      });
+    }
+
+    if (params.authorityPubkey && !bytesEqual(journal.agentAuthority, params.authorityPubkey.toBytes())) {
+      failures.push({
+        check: 'journal_authority_match',
+        message: 'journal authority does not match submitting authority',
+        retriable: false,
+      });
+    }
+
+    if (bindingSeed.length === HASH_SIZE && !bytesEqual(journal.binding, bindingSeed)) {
+      failures.push({
+        check: 'binding_seed_match',
+        message: 'journal binding does not match bindingSeed',
+        retriable: false,
+      });
+    }
+
+    if (nullifierSeed.length === HASH_SIZE && !bytesEqual(journal.nullifier, nullifierSeed)) {
+      failures.push({
+        check: 'nullifier_seed_match',
+        message: 'journal nullifier does not match nullifierSeed',
+        retriable: false,
+      });
+    }
   }
 
   if (params.proofGeneratedAtMs !== undefined) {
@@ -177,10 +303,10 @@ export async function runProofSubmissionPreflight(
       message: 'Task has no constraint hash and is not private',
       retriable: false,
     });
-  } else if (!bytesEqual(task.constraintHash, constraintHash)) {
+  } else if (journal && !bytesEqual(task.constraintHash, journal.constraintHash)) {
     failures.push({
       check: 'constraint_hash_match',
-      message: 'Proof constraint hash does not match task constraint hash',
+      message: 'Journal constraint hash does not match task constraint hash',
       retriable: false,
     });
   }
@@ -256,17 +382,34 @@ export async function runProofSubmissionPreflight(
     });
   }
 
-  const [nullifierPda] = PublicKey.findProgramAddressSync(
-    [SEEDS.NULLIFIER, nullifier],
-    program.programId,
-  );
-  const nullifierInfo = await connection.getAccountInfo(nullifierPda);
-  if (nullifierInfo !== null) {
-    failures.push({
-      check: 'nullifier_not_spent',
-      message: 'Nullifier has already been spent',
-      retriable: false,
-    });
+  if (bindingSeed.length === HASH_SIZE) {
+    const [bindingSpendPda] = PublicKey.findProgramAddressSync(
+      [BINDING_SPEND_SEED, bindingSeed],
+      program.programId,
+    );
+    const bindingSpendInfo = await connection.getAccountInfo(bindingSpendPda);
+    if (bindingSpendInfo !== null) {
+      failures.push({
+        check: 'binding_not_spent',
+        message: 'Binding has already been spent',
+        retriable: false,
+      });
+    }
+  }
+
+  if (nullifierSeed.length === HASH_SIZE) {
+    const [nullifierSpendPda] = PublicKey.findProgramAddressSync(
+      [NULLIFIER_SPEND_SEED, nullifierSeed],
+      program.programId,
+    );
+    const nullifierSpendInfo = await connection.getAccountInfo(nullifierSpendPda);
+    if (nullifierSpendInfo !== null) {
+      failures.push({
+        check: 'nullifier_not_spent',
+        message: 'Nullifier has already been spent',
+        retriable: false,
+      });
+    }
   }
 
   return {

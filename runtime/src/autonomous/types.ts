@@ -495,12 +495,6 @@ export interface AutonomousAgentConfig extends AgentRuntimeConfig {
   generateProofs?: boolean;
 
   /**
-   * Path to circuit files (for proof generation)
-   * @default './circuits-circom/task_completion'
-   */
-  circuitPath?: string;
-
-  /**
    * Optional ProofEngine for cached, stats-tracked proof generation.
    * When provided, completeTaskPrivate() delegates to this engine
    * instead of calling SDK generateProof() directly.

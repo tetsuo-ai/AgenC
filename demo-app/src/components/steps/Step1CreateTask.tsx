@@ -24,6 +24,18 @@ export default function Step1CreateTask({ taskState, updateTaskState, onNext }: 
       requirements,
       escrowAmount,
       constraintHash,
+      outputCommitment: '',
+      sealBytes: '',
+      journal: '',
+      imageId: '',
+      bindingSeed: '',
+      nullifierSeed: '',
+      routerProgram: '',
+      router: '',
+      verifierEntry: '',
+      verifierProgram: '',
+      bindingSpend: '',
+      nullifierSpend: '',
       txSignatures: {
         ...taskState.txSignatures,
         createTask: 'sim_' + Math.random().toString(36).substring(2, 15),
@@ -37,7 +49,7 @@ export default function Step1CreateTask({ taskState, updateTaskState, onNext }: 
   return (
     <StepCard
       title="Create Task"
-      description="Define task requirements and set escrow amount. The constraint hash commits to the expected output without revealing it."
+      description="Define task requirements and set escrow amount. The constraint hash is the public anchor for the later RISC0 journal and spend-seed checks."
       icon={
         <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />

@@ -19,7 +19,7 @@ metadata:
     primaryEnv: NARGO_HOME
     requires:
       binaries:
-        - nargo
+        - risc0-prover
         - bb
       env:
         - NARGO_HOME
@@ -30,7 +30,7 @@ metadata:
         - macos
     install:
       - type: brew
-        package: noir-lang/noir/nargo
+        package: noir-lang/noir/risc0-prover
       - type: download
         url: https://example.com/bb
         path: /usr/local/bin/bb
@@ -48,7 +48,7 @@ This skill provides ZK proof generation.
 
 ## Usage
 
-Call \`nargo prove\` with the circuit path.
+Call \`risc0-prover prove\` with the circuit path.
 `;
 
 const MINIMAL_SKILL_MD = `---
@@ -125,7 +125,7 @@ describe('parseSkillContent', () => {
     );
 
     // Requirements
-    expect(skill.metadata.requires.binaries).toEqual(['nargo', 'bb']);
+    expect(skill.metadata.requires.binaries).toEqual(['risc0-prover', 'bb']);
     expect(skill.metadata.requires.env).toEqual(['NARGO_HOME']);
     expect(skill.metadata.requires.channels).toEqual(['solana']);
     expect(skill.metadata.requires.os).toEqual(['linux', 'macos']);
@@ -134,7 +134,7 @@ describe('parseSkillContent', () => {
     expect(skill.metadata.install).toHaveLength(2);
     expect(skill.metadata.install[0]).toEqual({
       type: 'brew',
-      package: 'noir-lang/noir/nargo',
+      package: 'noir-lang/noir/risc0-prover',
     });
     expect(skill.metadata.install[1]).toEqual({
       type: 'download',
@@ -183,7 +183,7 @@ describe('parseSkillContent', () => {
 
     expect(skill.body).toContain('# Noir Prover');
     expect(skill.body).toContain('## Usage');
-    expect(skill.body).toContain('`nargo prove`');
+    expect(skill.body).toContain('`risc0-prover prove`');
   });
 
   it('parses install instructions', () => {
@@ -197,7 +197,7 @@ metadata:
       - type: npm
         package: "@agenc/sdk"
       - type: cargo
-        package: nargo
+        package: risc0-prover
       - type: apt
         package: build-essential
 ---
@@ -206,7 +206,7 @@ metadata:
 
     expect(skill.metadata.install).toHaveLength(3);
     expect(skill.metadata.install[0]).toEqual({ type: 'npm', package: '@agenc/sdk' });
-    expect(skill.metadata.install[1]).toEqual({ type: 'cargo', package: 'nargo' });
+    expect(skill.metadata.install[1]).toEqual({ type: 'cargo', package: 'risc0-prover' });
     expect(skill.metadata.install[2]).toEqual({ type: 'apt', package: 'build-essential' });
   });
 

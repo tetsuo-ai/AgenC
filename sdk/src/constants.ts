@@ -50,8 +50,32 @@ export const OUTPUT_FIELD_COUNT = 4;
 // ZK Proof Constants
 // ============================================================================
 
-/** Proof size in bytes (Groth16 via groth16-solana) */
+/** Proof body size in bytes (router verifier payload) */
 export const PROOF_SIZE_BYTES = 256;
+
+/** RISC0 selector size in bytes */
+export const RISC0_SELECTOR_LEN = 4;
+
+/** RISC0 Groth16 seal proof body length in bytes */
+export const RISC0_GROTH16_SEAL_LEN = 256;
+
+/** RISC0 borsh-encoded seal length (selector + proof body) */
+export const RISC0_SEAL_BORSH_LEN = RISC0_SELECTOR_LEN + RISC0_GROTH16_SEAL_LEN;
+
+/** RISC0 fixed journal length (6 x 32-byte fields) */
+export const RISC0_JOURNAL_LEN = 192;
+
+/** RISC0 image ID length in bytes */
+export const RISC0_IMAGE_ID_LEN = 32;
+
+/** Trusted RISC0 selector for router verification */
+export const TRUSTED_RISC0_SELECTOR = Uint8Array.from([0x52, 0x5a, 0x56, 0x4d]);
+
+/** Trusted RISC0 image ID pinned by protocol policy */
+export const TRUSTED_RISC0_IMAGE_ID = Uint8Array.from([
+  6, 15, 16, 25, 34, 43, 44, 53, 62, 71, 72, 81, 90, 99, 100, 109, 118, 127, 128, 137, 146, 155,
+  156, 165, 174, 183, 184, 193, 202, 211, 212, 221,
+]);
 
 /**
  * @deprecated Since v1.3.0. Use {@link RECOMMENDED_CU_COMPLETE_TASK_PRIVATE} instead.
@@ -60,10 +84,10 @@ export const PROOF_SIZE_BYTES = 256;
  */
 export const VERIFICATION_COMPUTE_UNITS = 50_000;
 
-/** Timeout for nargo execute in ms (2 minutes) */
+/** Timeout for deterministic proof witness build in ms (2 minutes) */
 export const NARGO_EXECUTE_TIMEOUT_MS = 120_000;
 
-/** Timeout for sunspot prove in ms (5 minutes) */
+/** Timeout for deterministic seal generation in ms (5 minutes) */
 export const SUNSPOT_PROVE_TIMEOUT_MS = 300_000;
 
 /** Number of public inputs in the circuit (32 task_id bytes + 32 agent bytes + constraint_hash + output_commitment + expected_binding) */

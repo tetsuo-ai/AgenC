@@ -14,7 +14,6 @@ import { registerProtocolTools } from './tools/protocol.js';
 import { registerDisputeTools } from './tools/disputes.js';
 import { registerConnectionTools } from './tools/connection.js';
 import { registerTestingTools } from './tools/testing.js';
-import { registerCircuitTools } from './tools/circuits.js';
 import { registerInspectorTools } from './tools/inspector.js';
 import { registerReplayTools } from './tools/replay.js';
 import { registerHumanFacingTools } from './tools/human-facing.js';
@@ -130,7 +129,6 @@ export function createServer(): McpServer {
   registerProtocolTools(server);
   registerDisputeTools(server);
   registerTestingTools(server);
-  registerCircuitTools(server);
   registerInspectorTools(server);
   registerReplayTools(server);
   registerHumanFacingTools(server);

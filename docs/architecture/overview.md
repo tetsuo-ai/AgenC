@@ -23,8 +23,8 @@ flowchart TB
     end
 
     subgraph ZK["Zero-Knowledge"]
-        Circuits["Noir Circuits\ntask_completion\nPoseidon2 hashing"]
-        Circom["Circom Circuits\nMPC ceremony\nGroth16 setup"]
+        zkVM["RISC0 Guest Method\nFixed 192-byte journal"]
+        RouterModel["Router Verification Model\nselector + image checks"]
     end
 
     Runtime -->|"depends on"| SDK
@@ -33,12 +33,13 @@ flowchart TB
     DocsMCP -.->|"reads"| Docs["docs/architecture/"]
 
     SDK -->|"transactions"| Program
-    SDK -->|"proofs"| Verifier
+    SDK -->|"private payloads"| Verifier
     Runtime -->|"via SDK"| Program
     Demo -->|"via SDK"| Program
 
-    Circuits -->|"compiled to"| Circom
-    Circom -->|"verifying key"| Program
+    zkVM -->|"sealBytes + journal + imageId"| SDK
+    RouterModel -->|"bindingSeed/nullifierSeed"| SDK
+    SDK -->|"bindingSeed/nullifierSeed + router accounts"| Program
 
     Program -->|"events"| Runtime
     Program -->|"CPI"| Verifier
@@ -48,7 +49,7 @@ flowchart TB
 
 | Package | Depends On | Provides |
 |---------|-----------|----------|
-| **Program** | Solana runtime, groth16-solana | On-chain state, instructions, events |
+| **Program** | Solana runtime, RISC0 router/verifier CPI | On-chain state, instructions, events |
 | **SDK** | @solana/web3.js, @coral-xyz/anchor | Transaction builders, proof functions, type definitions |
 | **Runtime** | SDK, @solana/web3.js, @coral-xyz/anchor | Agent lifecycle, LLM adapters, tools, memory, autonomous execution |
 | **MCP Server** | SDK, Runtime, @modelcontextprotocol/sdk | MCP tools for protocol operations |

@@ -1,5 +1,5 @@
 /**
- * Type definitions for the ProofEngine module (Phase 7).
+ * Type definitions for the ProofEngine module.
  *
  * @module
  */
@@ -10,7 +10,39 @@ import type { MetricsProvider } from '../task/types.js';
 
 // Re-export HashResult from SDK for convenience
 export type { HashResult } from '@agenc/sdk';
-export type { ToolsStatus } from '@agenc/sdk';
+
+export type ProverBackend = 'deterministic-local' | 'remote';
+
+export interface RouterConfig {
+  /** Trusted verifier-router program id */
+  routerProgramId?: PublicKey;
+  /** Router PDA account */
+  routerPda?: PublicKey;
+  /** Verifier-entry PDA account */
+  verifierEntryPda?: PublicKey;
+  /** Trusted verifier program id */
+  verifierProgramId?: PublicKey;
+}
+
+export interface ProverBackendConfig {
+  /** Prover backend kind */
+  kind?: ProverBackend;
+  /** Optional prover endpoint for remote backends */
+  endpoint?: string;
+  /** Optional prover timeout */
+  timeoutMs?: number;
+}
+
+export interface ToolsStatus {
+  /** Runtime currently has a RISC0-capable SDK backend wired */
+  risc0: boolean;
+  /** Active prover backend mode */
+  proverBackend: ProverBackend;
+  /** Whether a method id is explicitly pinned in config */
+  methodIdPinned: boolean;
+  /** Whether router/verifier account ids are explicitly pinned in config */
+  routerPinned: boolean;
+}
 
 /**
  * Configuration for the proof cache.
@@ -26,8 +58,12 @@ export interface ProofCacheConfig {
  * Configuration for the ProofEngine.
  */
 export interface ProofEngineConfig {
-  /** Path to the circuit directory. Default: './circuits-circom/task_completion' */
-  circuitPath?: string;
+  /** Optional pinned RISC0 method id (image id, 32 bytes) */
+  methodId?: Uint8Array;
+  /** Optional trusted router/verifier account config */
+  routerConfig?: RouterConfig;
+  /** Optional prover backend config */
+  proverBackend?: ProverBackendConfig;
   /** Whether to verify proofs after generation. Default: false */
   verifyAfterGeneration?: boolean;
   /** Cache configuration. Omit to disable caching. */
@@ -52,7 +88,7 @@ export interface ProofInputs {
   salt: bigint;
   /**
    * Private witness for the circuit's `agent_secret` input.
-   * Used to derive the nullifier: `Poseidon(constraint_hash, agent_secret)`.
+   * Used to derive nullifier seed bytes in SDK proof generation.
    *
    * SECURITY: If omitted, the SDK falls back to `pubkeyToField(agentPubkey)`,
    * which makes the nullifier predictable by anyone who knows the agent's
@@ -65,17 +101,17 @@ export interface ProofInputs {
  * Result from the ProofEngine's generate() method.
  */
 export interface EngineProofResult {
-  /** Generated proof bytes (256 bytes Groth16) */
-  proof: Uint8Array;
-  /** Constraint hash (32 bytes) */
-  constraintHash: Uint8Array;
-  /** Output commitment (32 bytes) */
-  outputCommitment: Uint8Array;
-  /** Expected binding (32 bytes) */
-  expectedBinding: Uint8Array;
-  /** Nullifier to prevent proof/knowledge reuse (32 bytes) */
-  nullifier: Uint8Array;
-  /** Size of the proof in bytes */
+  /** Router seal bytes (selector + proof, typically 260 bytes) */
+  sealBytes: Uint8Array;
+  /** Fixed-size journal bytes (192 bytes) */
+  journal: Uint8Array;
+  /** RISC0 method id (32 bytes) */
+  imageId: Uint8Array;
+  /** Binding spend seed (32 bytes) */
+  bindingSeed: Uint8Array;
+  /** Nullifier spend seed (32 bytes) */
+  nullifierSeed: Uint8Array;
+  /** Size of the seal payload in bytes */
   proofSize: number;
   /** Time taken for proof generation in milliseconds */
   generationTimeMs: number;
