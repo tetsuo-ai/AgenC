@@ -11,6 +11,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { PublicKey, Keypair } from '@solana/web3.js';
+import { PROGRAM_ID } from '@agenc/sdk';
 import { validateWorkflow, topologicalSort } from './validation.js';
 import { WorkflowValidationError, WorkflowSubmissionError, WorkflowStateError } from './errors.js';
 import { DAGSubmitter } from './submitter.js';
@@ -65,7 +66,7 @@ function makeMockProgram() {
   };
 
   const program = {
-    programId: new PublicKey('EopUaCV2svxj9j4hd7KjbrWfdjkspmm2BCBe7jGpKzKZ'),
+    programId: PROGRAM_ID,
     provider: {
       publicKey: authority.publicKey,
     },

@@ -21,7 +21,6 @@
     "prebuild": "npm run build --prefix ../sdk && npm run build --prefix ../runtime",
     "build": "tsup",
     "test": "node --import tsx --test src/**/*.test.ts",
-    "pretypecheck": "npm install --no-save --no-package-lock --no-audit --no-fund",
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "npm run build"
   },

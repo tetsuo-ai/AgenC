@@ -11,13 +11,6 @@ use anchor_lang::prelude::*;
 /// Returns `Ok(())` immediately if `amount == 0` (no-op).
 /// Returns `CoordinationError::ArithmeticOverflow` on underflow or overflow.
 ///
-/// # Example
-///
-/// ```ignore
-/// let escrow_info = escrow.to_account_info();
-/// let creator_info = ctx.accounts.creator.to_account_info();
-/// transfer_lamports(&escrow_info, &creator_info, remaining_funds)?;
-/// ```
 pub fn transfer_lamports<'info>(
     from: &AccountInfo<'info>,
     to: &AccountInfo<'info>,

@@ -13,8 +13,32 @@ import {
 } from './index.js';
 
 const hasSqliteDependency = (() => {
+  const require = createRequire(import.meta.url);
   try {
-    createRequire(import.meta.url).resolve('better-sqlite3');
+    require.resolve('better-sqlite3');
+    const loaded = require('better-sqlite3') as
+      | (new (path: string) => {
+          close?: () => void;
+          prepare?: (sql: string) => { get?: () => unknown };
+        })
+      | {
+          default?: new (path: string) => {
+            close?: () => void;
+            prepare?: (sql: string) => { get?: () => unknown };
+          };
+        };
+    const Database =
+      typeof loaded === 'function'
+        ? loaded
+        : typeof loaded.default === 'function'
+          ? loaded.default
+          : null;
+    if (!Database) {
+      return false;
+    }
+    const db = new Database(':memory:');
+    db.prepare?.('select 1').get?.();
+    db.close?.();
     return true;
   } catch (_error) {
     return false;

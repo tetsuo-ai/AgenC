@@ -73,7 +73,7 @@ describe("minimal-debug", () => {
         )
         .accountsPartial({
           protocolConfig: protocolPda,
-          treasury: treasury.publicKey,
+          treasury: secondSigner.publicKey,
           authority: provider.wallet.publicKey,
           secondSigner: secondSigner.publicKey,  // new account (fix #556)
           systemProgram: SystemProgram.programId,
@@ -90,7 +90,14 @@ describe("minimal-debug", () => {
         console.error("  Logs:");
         e.logs.forEach((log: string) => console.error("    ", log));
       }
-      throw e;
+      if (
+        e?.message?.includes("already in use") ||
+        e?.message?.includes("ProtocolAlreadyInitialized")
+      ) {
+        console.log("Protocol already initialized, continuing with existing config");
+      } else {
+        throw e;
+      }
     }
 
     // Verify it was created

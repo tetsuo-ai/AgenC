@@ -417,11 +417,21 @@ describe("AgenC Devnet Smoke Tests", () => {
           TASK_TYPE_EXCLUSIVE,
           null, // constraint_hash
           0, // min_reputation
+          null, // reward_mint
         )
         .accountsPartial({
+          task: taskPda,
+          escrow: escrowPda,
+          protocolConfig: protocolConfigPda,
           creatorAgent: creatorAgentPda,
           authority: taskCreator.publicKey,
           creator: taskCreator.publicKey,
+          systemProgram: anchor.web3.SystemProgram.programId,
+          rewardMint: null,
+          creatorTokenAccount: null,
+          tokenEscrowAta: null,
+          tokenProgram: null,
+          associatedTokenProgram: null,
         })
         .signers([taskCreator])
         .rpc();
@@ -491,8 +501,11 @@ describe("AgenC Devnet Smoke Tests", () => {
           .claimTask()
           .accountsPartial({
             task: taskPda,
+            claim: deriveClaimPda(taskPda, invalidWorkerAgentPda, program.programId),
+            protocolConfig: protocolConfigPda,
             worker: invalidWorkerAgentPda,
             authority: agent2Authority.publicKey,
+            systemProgram: anchor.web3.SystemProgram.programId,
           })
           .signers([agent2Authority])
           .rpc();
@@ -516,8 +529,11 @@ describe("AgenC Devnet Smoke Tests", () => {
         .claimTask()
         .accountsPartial({
           task: taskPda,
+          claim: claimPda,
+          protocolConfig: protocolConfigPda,
           worker: workerAgentPda,
           authority: agent1Authority.publicKey,
+          systemProgram: anchor.web3.SystemProgram.programId,
         })
         .signers([agent1Authority])
         .rpc();
@@ -594,8 +610,15 @@ describe("AgenC Devnet Smoke Tests", () => {
           escrow: escrowPda,
           creator: taskCreator.publicKey,
           worker: workerAgentPda,
+          protocolConfig: protocolConfigPda,
           treasury: protocol.treasury,
           authority: agent1Authority.publicKey,
+          systemProgram: anchor.web3.SystemProgram.programId,
+          tokenEscrowAta: null,
+          workerTokenAccount: null,
+          treasuryTokenAccount: null,
+          rewardMint: null,
+          tokenProgram: null,
         })
         .signers([agent1Authority])
         .rpc();
@@ -669,11 +692,21 @@ describe("AgenC Devnet Smoke Tests", () => {
           TASK_TYPE_EXCLUSIVE,
           null,
           0, // min_reputation
+          null, // reward_mint
         )
         .accountsPartial({
+          task: cancelTaskPda,
+          escrow: cancelEscrowPda,
+          protocolConfig: protocolConfigPda,
           creatorAgent: creatorAgentPda,
           authority: taskCreator.publicKey,
           creator: taskCreator.publicKey,
+          systemProgram: anchor.web3.SystemProgram.programId,
+          rewardMint: null,
+          creatorTokenAccount: null,
+          tokenEscrowAta: null,
+          tokenProgram: null,
+          associatedTokenProgram: null,
         })
         .signers([taskCreator])
         .rpc();
@@ -696,6 +729,12 @@ describe("AgenC Devnet Smoke Tests", () => {
           task: cancelTaskPda,
           escrow: cancelEscrowPda,
           creator: taskCreator.publicKey,
+          protocolConfig: protocolConfigPda,
+          systemProgram: anchor.web3.SystemProgram.programId,
+          tokenEscrowAta: null,
+          creatorTokenAccount: null,
+          rewardMint: null,
+          tokenProgram: null,
         })
         .signers([taskCreator])
         .rpc();

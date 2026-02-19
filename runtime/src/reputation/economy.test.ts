@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { PublicKey, Keypair } from '@solana/web3.js';
+import { PROGRAM_ID } from '@agenc/sdk';
 import { ReputationEconomyOperations } from './economy.js';
 import {
   parseOnChainReputationStake,
@@ -80,7 +81,7 @@ function createMockProgram(overrides: Record<string, any> = {}) {
     methods: methodProxy,
     account: accountProxy,
     provider,
-    programId: new PublicKey('EopUaCV2svxj9j4hd7KjbrWfdjkspmm2BCBe7jGpKzKZ'),
+    programId: PROGRAM_ID,
   } as any;
 }
 
@@ -109,7 +110,7 @@ function createFailingMockProgram(errorMsg: string) {
       },
     }),
     provider,
-    programId: new PublicKey('EopUaCV2svxj9j4hd7KjbrWfdjkspmm2BCBe7jGpKzKZ'),
+    programId: PROGRAM_ID,
   } as any;
 }
 
@@ -600,7 +601,7 @@ describe('ReputationEconomyOperations - portability', () => {
     expect(proof.nonce).toHaveLength(32); // 16 bytes hex
     expect(proof.chainId).toBe('solana-devnet');
     expect(proof.signature.length).toBe(64); // ed25519 signature
-    expect(proof.programId).toBe('EopUaCV2svxj9j4hd7KjbrWfdjkspmm2BCBe7jGpKzKZ');
+    expect(proof.programId).toBe(PROGRAM_ID.toBase58());
   });
 
   it('includes stake amount when stake exists', async () => {

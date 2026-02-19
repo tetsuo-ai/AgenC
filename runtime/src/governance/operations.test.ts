@@ -12,6 +12,7 @@ import {
 } from './types.js';
 import { deriveProposalPda, deriveGovernanceVotePda, deriveGovernanceConfigPda, findProposalPda, findGovernanceVotePda, findGovernanceConfigPda } from './pda.js';
 import { GovernanceProposalNotFoundError, GovernanceVoteError, GovernanceExecutionError } from './errors.js';
+import { AnchorErrorCodes } from '../types/errors.js';
 import { PROGRAM_ID } from '@agenc/sdk';
 
 // ============================================================================
@@ -304,7 +305,7 @@ describe('GovernanceOperations', () => {
     });
 
     it('throws GovernanceVoteError for ProposalNotActive', async () => {
-      const rpcMock = vi.fn().mockRejectedValue({ code: 6147 });
+      const rpcMock = vi.fn().mockRejectedValue({ code: AnchorErrorCodes.ProposalNotActive });
       mockProgram.methods.voteProposal.mockReturnValue({
         accountsPartial: vi.fn().mockReturnValue({ rpc: rpcMock }),
       });
@@ -315,7 +316,7 @@ describe('GovernanceOperations', () => {
     });
 
     it('throws GovernanceVoteError for ProposalVotingEnded', async () => {
-      const rpcMock = vi.fn().mockRejectedValue({ code: 6149 });
+      const rpcMock = vi.fn().mockRejectedValue({ code: AnchorErrorCodes.ProposalVotingEnded });
       mockProgram.methods.voteProposal.mockReturnValue({
         accountsPartial: vi.fn().mockReturnValue({ rpc: rpcMock }),
       });
@@ -335,7 +336,9 @@ describe('GovernanceOperations', () => {
     });
 
     it('throws GovernanceExecutionError for insufficient quorum', async () => {
-      const rpcMock = vi.fn().mockRejectedValue({ code: 6151 });
+      const rpcMock = vi
+        .fn()
+        .mockRejectedValue({ code: AnchorErrorCodes.ProposalInsufficientQuorum });
       mockProgram.methods.executeProposal.mockReturnValue({
         accountsPartial: vi.fn().mockReturnValue({ rpc: rpcMock }),
       });
@@ -346,7 +349,7 @@ describe('GovernanceOperations', () => {
     });
 
     it('throws GovernanceExecutionError for not approved', async () => {
-      const rpcMock = vi.fn().mockRejectedValue({ code: 6152 });
+      const rpcMock = vi.fn().mockRejectedValue({ code: AnchorErrorCodes.ProposalNotApproved });
       mockProgram.methods.executeProposal.mockReturnValue({
         accountsPartial: vi.fn().mockReturnValue({ rpc: rpcMock }),
       });
@@ -473,7 +476,14 @@ describe('GovernanceOperations extended methods', () => {
 
     it('maps ProposalNotActive to GovernanceProposalNotFoundError', async () => {
       const rpcMock = vi.fn().mockRejectedValue(
-        Object.assign(new Error(), { error: { errorCode: { code: 'ProposalNotActive', number: 6147 } } }),
+        Object.assign(new Error(), {
+          error: {
+            errorCode: {
+              code: 'ProposalNotActive',
+              number: AnchorErrorCodes.ProposalNotActive,
+            },
+          },
+        }),
       );
       mockProgram.methods.cancelProposal.mockReturnValue({
         accountsPartial: vi.fn().mockReturnValue({ rpc: rpcMock }),
@@ -485,7 +495,14 @@ describe('GovernanceOperations extended methods', () => {
 
     it('maps ProposalUnauthorizedCancel to GovernanceExecutionError', async () => {
       const rpcMock = vi.fn().mockRejectedValue(
-        Object.assign(new Error(), { error: { errorCode: { code: 'ProposalUnauthorizedCancel', number: 6153 } } }),
+        Object.assign(new Error(), {
+          error: {
+            errorCode: {
+              code: 'ProposalUnauthorizedCancel',
+              number: AnchorErrorCodes.ProposalUnauthorizedCancel,
+            },
+          },
+        }),
       );
       mockProgram.methods.cancelProposal.mockReturnValue({
         accountsPartial: vi.fn().mockReturnValue({ rpc: rpcMock }),

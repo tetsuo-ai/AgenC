@@ -197,9 +197,10 @@ describe('AgentRuntime', () => {
       expect(id1).not.toBe(id2);
 
       // Mutating the returned value should not affect the internal state
-      id1[0] = 0xff;
+      const originalFirstByte = id2[0];
+      id1[0] = originalFirstByte === 0xff ? 0x00 : 0xff;
       const id3 = runtime.getAgentId();
-      expect(id3[0]).not.toBe(0xff);
+      expect(id3[0]).toBe(originalFirstByte);
     });
   });
 
