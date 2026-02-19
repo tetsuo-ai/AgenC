@@ -226,7 +226,27 @@ export class ChatExecutor {
 
     // Append history and user message
     messages.push(...history);
-    messages.push({ role: 'user', content: message.content });
+
+    // Build user message — multimodal if attachments with image data are present
+    const imageAttachments = (message.attachments ?? []).filter(
+      (a) => a.data && a.mimeType.startsWith('image/'),
+    );
+    if (imageAttachments.length > 0) {
+      const contentParts: import('./types.js').LLMContentPart[] = [];
+      if (message.content) {
+        contentParts.push({ type: 'text', text: message.content });
+      }
+      for (const att of imageAttachments) {
+        const base64 = Buffer.from(att.data!).toString('base64');
+        contentParts.push({
+          type: 'image_url',
+          image_url: { url: `data:${att.mimeType};base64,${base64}` },
+        });
+      }
+      messages.push({ role: 'user', content: contentParts });
+    } else {
+      messages.push({ role: 'user', content: message.content });
+    }
 
     // First LLM call
     const cumulativeUsage: LLMUsage = { promptTokens: 0, completionTokens: 0, totalTokens: 0 };

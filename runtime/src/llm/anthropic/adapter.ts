@@ -183,7 +183,9 @@ export class AnthropicProvider implements LLMProvider {
     const conversationMessages: LLMMessage[] = [];
     for (const msg of messages) {
       if (msg.role === 'system') {
-        systemPrompt = msg.content;
+        systemPrompt = typeof msg.content === 'string'
+          ? msg.content
+          : msg.content.filter((p) => p.type === 'text').map((p) => (p as { type: 'text'; text: string }).text).join('\n');
       } else {
         conversationMessages.push(msg);
       }
@@ -219,19 +221,44 @@ export class AnthropicProvider implements LLMProvider {
   }
 
   private toAnthropicMessage(msg: LLMMessage): Record<string, unknown> {
+    const textContent = typeof msg.content === 'string'
+      ? msg.content
+      : msg.content.filter((p) => p.type === 'text').map((p) => (p as { type: 'text'; text: string }).text).join('\n');
+
     if (msg.role === 'tool') {
       return {
         role: 'user',
         content: [{
           type: 'tool_result',
           tool_use_id: msg.toolCallId,
-          content: msg.content,
+          content: textContent,
         }],
       };
     }
 
     if (msg.role === 'assistant') {
-      return { role: 'assistant', content: msg.content };
+      return { role: 'assistant', content: textContent };
+    }
+
+    // User messages — support multimodal (images)
+    if (Array.isArray(msg.content)) {
+      const parts: Record<string, unknown>[] = [];
+      for (const part of msg.content) {
+        if (part.type === 'text') {
+          parts.push({ type: 'text', text: part.text });
+        } else if (part.type === 'image_url') {
+          // Convert OpenAI-style image_url to Anthropic base64 source
+          const url = part.image_url.url;
+          const match = url.match(/^data:([^;]+);base64,(.+)$/);
+          if (match) {
+            parts.push({
+              type: 'image',
+              source: { type: 'base64', media_type: match[1], data: match[2] },
+            });
+          }
+        }
+      }
+      return { role: 'user', content: parts };
     }
 
     return { role: 'user', content: msg.content };

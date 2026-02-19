@@ -11,7 +11,7 @@
 
 import { BaseChannelPlugin } from '../../gateway/channel.js';
 import type { ChannelContext } from '../../gateway/channel.js';
-import type { OutboundMessage } from '../../gateway/message.js';
+import type { OutboundMessage, MessageAttachment } from '../../gateway/message.js';
 import { createGatewayMessage } from '../../gateway/message.js';
 import { deriveSessionId } from '../../gateway/session.js';
 import { DEFAULT_WORKSPACE_ID } from '../../gateway/workspace.js';
@@ -255,7 +255,11 @@ export class WebChatChannel extends BaseChannelPlugin implements WebChatHandler 
     send: SendFn,
   ): void {
     const content = (payload as Record<string, unknown> | undefined)?.content ?? (payload as unknown);
-    if (typeof content !== 'string' || content.trim().length === 0) {
+    const rawAttachments = (payload as Record<string, unknown> | undefined)?.attachments;
+
+    // Allow empty content if attachments are present
+    const hasAttachments = Array.isArray(rawAttachments) && rawAttachments.length > 0;
+    if (typeof content !== 'string' || (content.trim().length === 0 && !hasAttachments)) {
       send({ type: 'error', error: 'Missing or empty content in chat.message', id });
       return;
     }
@@ -270,6 +274,35 @@ export class WebChatChannel extends BaseChannelPlugin implements WebChatHandler 
       timestamp: Date.now(),
     });
 
+    // Convert base64 attachments from the WebSocket payload to MessageAttachment[]
+    let attachments: MessageAttachment[] | undefined;
+    if (hasAttachments) {
+      attachments = (rawAttachments as Array<Record<string, unknown>>)
+        .map((att): MessageAttachment | null => {
+          const filename = typeof att.filename === 'string' ? att.filename : undefined;
+          const mimeType = typeof att.mimeType === 'string' ? att.mimeType : 'application/octet-stream';
+          const base64 = typeof att.data === 'string' ? att.data : undefined;
+          const sizeBytes = typeof att.sizeBytes === 'number' ? att.sizeBytes : undefined;
+
+          let data: Uint8Array | undefined;
+          if (base64) {
+            try {
+              const binary = Buffer.from(base64, 'base64');
+              data = new Uint8Array(binary);
+            } catch {
+              return null;
+            }
+          }
+
+          const type = mimeType.startsWith('image/') ? 'image'
+            : mimeType.startsWith('audio/') ? 'audio'
+            : 'file';
+
+          return { type, mimeType, data, filename, sizeBytes };
+        })
+        .filter((a): a is MessageAttachment => a !== null);
+    }
+
     // Create a GatewayMessage and deliver to the Gateway pipeline
     const gatewayMsg = createGatewayMessage({
       channel: 'webchat',
@@ -278,6 +311,7 @@ export class WebChatChannel extends BaseChannelPlugin implements WebChatHandler 
       sessionId,
       content: content as string,
       scope: 'dm',
+      ...(attachments && attachments.length > 0 ? { attachments } : {}),
     });
 
     this.context.onMessage(gatewayMsg).catch((err) => {

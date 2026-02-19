@@ -19,4 +19,6 @@ export interface GrokProviderConfig extends LLMProviderConfig {
   webSearch?: boolean;
   /** Search mode when web search is enabled */
   searchMode?: 'auto' | 'on' | 'off';
+  /** Vision-capable model to auto-switch to when images are present (default: 'grok-2-vision-1212') */
+  visionModel?: string;
 }

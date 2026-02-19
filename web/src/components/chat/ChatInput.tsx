@@ -3,7 +3,7 @@ import type { VoiceState, VoiceMode } from '../../types';
 import { VoiceButton } from './VoiceButton';
 
 interface ChatInputProps {
-  onSend: (content: string) => void;
+  onSend: (content: string, attachments?: File[]) => void;
   disabled?: boolean;
   voiceState?: VoiceState;
   voiceMode?: VoiceMode;
@@ -23,19 +23,36 @@ export function ChatInput({
 }: ChatInputProps) {
   const [value, setValue] = useState('');
   const [showEmoji, setShowEmoji] = useState(false);
+  const [attachments, setAttachments] = useState<File[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const emojiRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleSubmit = useCallback(() => {
     const trimmed = value.trim();
-    if (!trimmed || disabled) return;
-    onSend(trimmed);
+    if (!trimmed && attachments.length === 0) return;
+    if (disabled) return;
+    onSend(trimmed, attachments.length > 0 ? attachments : undefined);
     setValue('');
+    setAttachments([]);
 
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
     }
-  }, [value, disabled, onSend]);
+  }, [value, disabled, onSend, attachments]);
+
+  const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (files && files.length > 0) {
+      setAttachments((prev) => [...prev, ...Array.from(files)]);
+    }
+    // Reset so the same file can be re-selected
+    e.target.value = '';
+  }, []);
+
+  const removeAttachment = useCallback((index: number) => {
+    setAttachments((prev) => prev.filter((_, i) => i !== index));
+  }, []);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -77,14 +94,55 @@ export function ChatInput({
     <div className="px-3 pb-3 md:px-6 md:pb-5">
       {/* Input container */}
       <div className="border border-tetsuo-200 rounded-2xl bg-surface shadow-sm overflow-visible relative">
+        {/* Hidden file input */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          className="hidden"
+          onChange={handleFileSelect}
+          accept="image/*,.pdf,.txt,.md,.json,.csv,.doc,.docx"
+        />
+
+        {/* Attachment chips */}
+        {attachments.length > 0 && (
+          <div className="flex flex-wrap gap-2 px-4 pt-3">
+            {attachments.map((file, i) => (
+              <span
+                key={`${file.name}-${i}`}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-tetsuo-100 text-tetsuo-700 text-xs font-medium"
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                  <polyline points="14 2 14 8 20 8" />
+                </svg>
+                {file.name}
+                <button
+                  onClick={() => removeAttachment(i)}
+                  className="ml-0.5 text-tetsuo-400 hover:text-tetsuo-700 transition-colors"
+                >
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                    <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+                  </svg>
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+
         {/* Top row: attachment icon + textarea */}
         <div className="flex items-start gap-3 px-4 pt-4 pb-2">
-          {/* Attachment icon */}
-          <div className="shrink-0 mt-0.5 text-accent">
+          {/* Attachment button */}
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={disabled}
+            className="shrink-0 mt-0.5 text-accent hover:text-accent-dark transition-colors disabled:opacity-40"
+            title="Attach file"
+          >
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
             </svg>
-          </div>
+          </button>
 
           {/* Textarea */}
           <textarea
@@ -136,7 +194,7 @@ export function ChatInput({
           {/* Send button — pill with text + arrow */}
           <button
             onClick={handleSubmit}
-            disabled={disabled || !value.trim()}
+            disabled={disabled || (!value.trim() && attachments.length === 0)}
             className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-accent text-white text-sm font-medium hover:bg-accent-dark transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             title="Send message"
           >

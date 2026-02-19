@@ -97,6 +97,35 @@ export function ChatMessage({ message, theme = 'light' }: ChatMessageProps) {
           {message.toolCalls?.map((tc, i) => (
             <ToolCallCard key={`${tc.toolName}-${i}`} toolCall={tc} />
           ))}
+
+          {/* Attachment display */}
+          {message.attachments && message.attachments.length > 0 && (
+            <div className="flex flex-wrap gap-2 mt-2">
+              {message.attachments.map((att, i) =>
+                att.dataUrl ? (
+                  <img
+                    key={`${att.filename}-${i}`}
+                    src={att.dataUrl}
+                    alt={att.filename}
+                    className="max-w-[200px] max-h-[150px] rounded-lg object-cover border border-tetsuo-200"
+                  />
+                ) : (
+                  <span
+                    key={`${att.filename}-${i}`}
+                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium ${
+                      isUser ? 'bg-white/20 text-white' : 'bg-tetsuo-100 text-tetsuo-600'
+                    }`}
+                  >
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                      <polyline points="14 2 14 8 20 8" />
+                    </svg>
+                    {att.filename}
+                  </span>
+                ),
+              )}
+            </div>
+          )}
         </div>
 
         {/* Action toolbar (agent messages only) */}

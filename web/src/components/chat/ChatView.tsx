@@ -6,7 +6,7 @@ import { VoiceIndicator } from './VoiceIndicator';
 interface ChatViewProps {
   messages: ChatMessage[];
   isTyping: boolean;
-  onSend: (content: string) => void;
+  onSend: (content: string, attachments?: File[]) => void;
   connected: boolean;
   voiceState?: VoiceState;
   voiceTranscript?: string;

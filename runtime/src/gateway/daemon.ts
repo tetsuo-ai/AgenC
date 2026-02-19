@@ -664,7 +664,8 @@ export class DaemonManager {
     } = params;
 
     return async (msg: GatewayMessage): Promise<void> => {
-      if (!msg.content.trim()) {
+      const hasAttachments = msg.attachments && msg.attachments.length > 0;
+      if (!msg.content.trim() && !hasAttachments) {
         return;
       }
 

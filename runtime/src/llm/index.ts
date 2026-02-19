@@ -11,6 +11,7 @@
 export type {
   LLMProvider,
   LLMProviderConfig,
+  LLMContentPart,
   LLMMessage,
   LLMResponse,
   LLMStreamChunk,
