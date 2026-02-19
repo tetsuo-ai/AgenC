@@ -338,12 +338,22 @@ export class DaemonManager {
     gateway.setWebChatHandler(webChat);
     this._webChatChannel = webChat;
 
-    // Hot-swap LLM provider when config changes at runtime
+    // Hot-swap LLM provider and voice bridge when config changes at runtime
     gateway.on('configReloaded', (...args: unknown[]) => {
       const diff = args[0] as ConfigDiff;
       const llmChanged = diff.safe.some((key) => key.startsWith('llm.'));
       if (llmChanged) {
         void this.hotSwapLLMProvider(gateway.config, skillInjector, memoryRetriever);
+      }
+      const voiceChanged = diff.safe.some((key) => key.startsWith('voice.') || key.startsWith('llm.apiKey'));
+      if (voiceChanged) {
+        void this._voiceBridge?.stopAll();
+        const newBridge = this.createOptionalVoiceBridge(gateway.config, llmTools, baseToolHandler, systemPrompt);
+        this._voiceBridge = newBridge ?? null;
+        if (this._webChatChannel) {
+          this._webChatChannel.updateVoiceBridge(newBridge ?? null);
+        }
+        this.logger.info(`Voice bridge ${newBridge ? 'recreated' : 'disabled'}`);
       }
     });
 
@@ -633,21 +643,18 @@ export class DaemonManager {
     toolHandler: ToolHandler,
     systemPrompt: string,
   ): VoiceBridge | undefined {
-    if (
-      config.llm?.provider !== 'grok'
-      || !config.llm.apiKey
-      || config.voice?.enabled === false
-    ) {
+    const voiceApiKey = config.voice?.apiKey || config.llm?.apiKey;
+    if (!voiceApiKey || config.voice?.enabled === false) {
       return undefined;
     }
 
     return new VoiceBridge({
-      apiKey: config.llm.apiKey,
+      apiKey: voiceApiKey,
       tools: llmTools,
       toolHandler,
       systemPrompt,
       voice: config.voice?.voice ?? 'Ara',
-      model: config.llm.model ?? DEFAULT_GROK_MODEL,
+      model: config.llm?.model ?? DEFAULT_GROK_MODEL,
       mode: config.voice?.mode ?? 'vad',
       logger: this.logger,
     });

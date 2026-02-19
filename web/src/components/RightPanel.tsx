@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import type { UseSettingsReturn, GatewaySettings } from '../hooks/useSettings';
+import type { UseSettingsReturn, GatewaySettings, VoiceName } from '../hooks/useSettings';
 import type { UseWalletReturn } from '../hooks/useWallet';
 import type { ChatSessionInfo } from '../hooks/useChat';
 
@@ -20,23 +20,16 @@ const LLM_PROVIDERS = [
   {
     value: 'grok',
     label: 'Grok (x.ai)',
-    defaultModel: 'grok-3-fast',
+    defaultModel: 'grok-4-fast-reasoning',
     defaultBaseUrl: 'https://api.x.ai/v1',
-    models: ['grok-3-fast', 'grok-3', 'grok-3-mini', 'grok-4-1-fast-reasoning'],
-  },
-  {
-    value: 'anthropic',
-    label: 'Anthropic',
-    defaultModel: 'claude-sonnet-4-5-20250929',
-    defaultBaseUrl: '',
-    models: ['claude-sonnet-4-5-20250929', 'claude-opus-4-6', 'claude-haiku-4-5-20251001'],
+    models: ['grok-4', 'grok-4-fast-reasoning', 'grok-4-fast-non-reasoning', 'grok-code-fast-1', 'grok-3'],
   },
   {
     value: 'ollama',
     label: 'Ollama (local)',
     defaultModel: 'llama3',
     defaultBaseUrl: 'http://localhost:11434',
-    models: ['llama3', 'llama3.1', 'mistral', 'codellama', 'phi3', 'gemma2'],
+    models: [],
   },
 ] as const;
 
@@ -276,13 +269,16 @@ function MainTab({ sessions, activeSessionId, onSelectSession, onNewChat }: Main
 // =============================================================================
 
 function SettingsTab({ settings }: { settings: UseSettingsReturn }) {
-  const { settings: config, loaded, saving, lastError, save } = settings;
+  const { settings: config, loaded, saving, lastError, save, ollamaModels, ollamaError, fetchOllamaModels } = settings;
 
   const [provider, setProvider] = useState(config.llm.provider);
   const [apiKey, setApiKey] = useState('');
   const [model, setModel] = useState(config.llm.model);
   const [voiceEnabled, setVoiceEnabled] = useState(config.voice.enabled);
   const [voiceMode, setVoiceMode] = useState(config.voice.mode);
+  const [voiceName, setVoiceName] = useState<VoiceName>(config.voice.voice);
+  const [voiceApiKey, setVoiceApiKey] = useState('');
+  const [useCustomVoiceKey, setUseCustomVoiceKey] = useState(!!config.voice.apiKey);
   const [memoryBackend, setMemoryBackend] = useState(config.memory.backend);
   const [rpcCluster, setRpcCluster] = useState<'devnet' | 'mainnet' | 'custom'>(
     config.connection.rpcUrl.includes('mainnet') ? 'mainnet' : 'devnet',
@@ -291,11 +287,23 @@ function SettingsTab({ settings }: { settings: UseSettingsReturn }) {
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
+    if (provider === 'ollama') fetchOllamaModels();
+  }, [provider, fetchOllamaModels]);
+
+  useEffect(() => {
+    if (provider === 'ollama' && ollamaModels.length > 0 && !ollamaModels.includes(model)) {
+      setModel(ollamaModels[0]);
+    }
+  }, [provider, ollamaModels, model]);
+
+  useEffect(() => {
     if (!loaded) return;
     setProvider(config.llm.provider);
     setModel(config.llm.model);
     setVoiceEnabled(config.voice.enabled);
     setVoiceMode(config.voice.mode);
+    setVoiceName(config.voice.voice);
+    setUseCustomVoiceKey(!!config.voice.apiKey);
     setMemoryBackend(config.memory.backend);
     setRpcCluster(config.connection.rpcUrl.includes('mainnet') ? 'mainnet' : 'devnet');
   }, [loaded, config]);
@@ -304,8 +312,12 @@ function SettingsTab({ settings }: { settings: UseSettingsReturn }) {
 
   const handleProviderChange = (p: typeof provider) => {
     setProvider(p);
-    const match = LLM_PROVIDERS.find((lp) => lp.value === p);
-    if (match) setModel(match.defaultModel);
+    if (p === 'ollama') {
+      setModel(ollamaModels.length > 0 ? ollamaModels[0] : '');
+    } else {
+      const match = LLM_PROVIDERS.find((lp) => lp.value === p);
+      if (match) setModel(match.defaultModel);
+    }
     setApiKey('');
     markDirty();
   };
@@ -322,7 +334,14 @@ function SettingsTab({ settings }: { settings: UseSettingsReturn }) {
         baseUrl,
         apiKey: apiKey && !apiKey.startsWith('****') ? apiKey : config.llm.apiKey,
       },
-      voice: { enabled: voiceEnabled, mode: voiceMode },
+      voice: {
+        enabled: voiceEnabled,
+        mode: voiceMode,
+        voice: voiceName,
+        apiKey: useCustomVoiceKey && voiceApiKey && !voiceApiKey.startsWith('****')
+          ? voiceApiKey
+          : useCustomVoiceKey ? config.voice.apiKey : '',
+      },
       memory: { backend: memoryBackend },
       connection: { rpcUrl },
     };
@@ -383,7 +402,7 @@ function SettingsTab({ settings }: { settings: UseSettingsReturn }) {
             value={apiKey || config.llm.apiKey}
             onChange={(e) => { setApiKey(e.target.value); markDirty(); }}
             onFocus={() => { if (!apiKey) setApiKey(''); }}
-            placeholder={`Enter ${provider === 'grok' ? 'x.ai' : 'Anthropic'} API key`}
+            placeholder="Enter x.ai API key"
             className="w-full bg-tetsuo-50 border border-tetsuo-200 rounded-lg px-3 py-2 text-sm text-tetsuo-700 font-mono placeholder:text-tetsuo-400 focus:outline-none focus:border-accent focus:shadow-[0_0_0_3px_rgba(var(--accent),0.1)] transition-all duration-200"
           />
           <p className="text-xs text-tetsuo-400 mt-1.5">
@@ -397,12 +416,15 @@ function SettingsTab({ settings }: { settings: UseSettingsReturn }) {
       {/* Model */}
       <div className="animate-list-item" style={{ animationDelay: sectionDelay() }}>
         <div className="text-xs text-tetsuo-400 uppercase tracking-wider mb-2">Model</div>
+        {provider === 'ollama' && ollamaError && (
+          <p className="text-xs text-amber-500 mb-2">{ollamaError}</p>
+        )}
         <select
           value={model}
           onChange={(e) => { setModel(e.target.value); markDirty(); }}
           className="w-full bg-tetsuo-50 border border-tetsuo-200 rounded-lg px-3 py-2 text-sm text-tetsuo-700 font-mono focus:outline-none focus:border-accent focus:shadow-[0_0_0_3px_rgba(var(--accent),0.1)] transition-all duration-200"
         >
-          {(LLM_PROVIDERS.find((p) => p.value === provider)?.models ?? []).map((m) => (
+          {(provider === 'ollama' ? ollamaModels : LLM_PROVIDERS.find((p) => p.value === provider)?.models ?? []).map((m) => (
             <option key={m} value={m}>{m}</option>
           ))}
         </select>
@@ -417,17 +439,55 @@ function SettingsTab({ settings }: { settings: UseSettingsReturn }) {
             on={voiceEnabled}
             onChange={(v) => { setVoiceEnabled(v); markDirty(); }}
           />
-          <div className="flex items-center justify-between">
-            <span className="text-sm text-tetsuo-600">Mode</span>
-            <select
-              value={voiceMode}
-              onChange={(e) => { setVoiceMode(e.target.value as 'vad' | 'push-to-talk'); markDirty(); }}
-              className="bg-tetsuo-50 border border-tetsuo-200 rounded-lg px-2.5 py-1.5 text-sm text-tetsuo-700 focus:outline-none focus:border-accent transition-all duration-200"
-            >
-              <option value="vad">VAD (auto-detect)</option>
-              <option value="push-to-talk">Push-to-talk</option>
-            </select>
+          <div className="grid gap-3 grid-cols-2">
+            <div>
+              <span className="text-xs text-tetsuo-400 mb-1 block">Voice</span>
+              <select
+                value={voiceName}
+                onChange={(e) => { setVoiceName(e.target.value as VoiceName); markDirty(); }}
+                className="w-full bg-tetsuo-50 border border-tetsuo-200 rounded-lg px-2.5 py-1.5 text-sm text-tetsuo-700 focus:outline-none focus:border-accent transition-all duration-200"
+              >
+                <option value="Ara">Ara</option>
+                <option value="Rex">Rex</option>
+                <option value="Sal">Sal</option>
+                <option value="Eve">Eve</option>
+                <option value="Leo">Leo</option>
+              </select>
+            </div>
+            <div>
+              <span className="text-xs text-tetsuo-400 mb-1 block">Mode</span>
+              <select
+                value={voiceMode}
+                onChange={(e) => { setVoiceMode(e.target.value as 'vad' | 'push-to-talk'); markDirty(); }}
+                className="w-full bg-tetsuo-50 border border-tetsuo-200 rounded-lg px-2.5 py-1.5 text-sm text-tetsuo-700 focus:outline-none focus:border-accent transition-all duration-200"
+              >
+                <option value="vad">VAD (auto)</option>
+                <option value="push-to-talk">Push-to-talk</option>
+              </select>
+            </div>
           </div>
+          <SettingToggle
+            label="Separate voice API key"
+            on={useCustomVoiceKey}
+            onChange={(v) => { setUseCustomVoiceKey(v); markDirty(); }}
+          />
+          {useCustomVoiceKey && (
+            <div>
+              <input
+                type="password"
+                value={voiceApiKey || config.voice.apiKey}
+                onChange={(e) => { setVoiceApiKey(e.target.value); markDirty(); }}
+                onFocus={() => { if (!voiceApiKey) setVoiceApiKey(''); }}
+                placeholder="Enter voice API key (x.ai)"
+                className="w-full bg-tetsuo-50 border border-tetsuo-200 rounded-lg px-3 py-2 text-sm text-tetsuo-700 font-mono placeholder:text-tetsuo-400 focus:outline-none focus:border-accent focus:shadow-[0_0_0_3px_rgba(var(--accent),0.1)] transition-all duration-200"
+              />
+              <p className="text-xs text-tetsuo-400 mt-1">
+                {config.voice.apiKey && config.voice.apiKey.startsWith('****')
+                  ? `Voice key configured (ending ...${config.voice.apiKey.slice(-4)})`
+                  : 'Uses main API key when empty'}
+              </p>
+            </div>
+          )}
         </div>
       </div>
 

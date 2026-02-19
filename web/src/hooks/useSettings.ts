@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { WSMessage } from '../types';
 
+export type VoiceName = 'Ara' | 'Rex' | 'Sal' | 'Eve' | 'Leo';
+
 export interface GatewaySettings {
   llm: {
-    provider: 'grok' | 'anthropic' | 'ollama';
+    provider: 'grok' | 'ollama';
     apiKey: string;
     model: string;
     baseUrl: string;
@@ -11,6 +13,8 @@ export interface GatewaySettings {
   voice: {
     enabled: boolean;
     mode: 'vad' | 'push-to-talk';
+    voice: VoiceName;
+    apiKey: string;
   };
   memory: {
     backend: 'memory' | 'sqlite' | 'redis';
@@ -24,8 +28,8 @@ export interface GatewaySettings {
 }
 
 const DEFAULT_SETTINGS: GatewaySettings = {
-  llm: { provider: 'grok', apiKey: '', model: 'grok-3-fast', baseUrl: 'https://api.x.ai/v1' },
-  voice: { enabled: true, mode: 'vad' },
+  llm: { provider: 'grok', apiKey: '', model: 'grok-4-fast-reasoning', baseUrl: 'https://api.x.ai/v1' },
+  voice: { enabled: true, mode: 'vad', voice: 'Ara', apiKey: '' },
   memory: { backend: 'memory' },
   connection: { rpcUrl: 'https://api.devnet.solana.com' },
   logging: { level: 'info' },
@@ -138,6 +142,8 @@ function parseConfig(raw: Record<string, unknown>): GatewaySettings {
     voice: {
       enabled: voice.enabled !== false,
       mode: (voice.mode as 'vad' | 'push-to-talk') ?? 'vad',
+      voice: (voice.voice as VoiceName) ?? 'Ara',
+      apiKey: (voice.apiKey as string) ?? '',
     },
     memory: {
       backend: (memory.backend as GatewaySettings['memory']['backend']) ?? 'memory',

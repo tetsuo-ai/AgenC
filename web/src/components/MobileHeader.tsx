@@ -4,15 +4,11 @@ interface MobileHeaderProps {
 
 export function MobileHeader({ onMenuToggle }: MobileHeaderProps) {
   return (
-    <div className="relative flex md:hidden items-center justify-center px-4 py-3 bg-tetsuo-50 border-b border-tetsuo-200">
-      {/* Centered wordmark */}
-      <img src="/assets/agenc-wordmark.svg" alt="AgenC" className="h-4 dark:hidden" />
-      <img src="/assets/agenc-wordmark-white.svg" alt="AgenC" className="h-4 hidden dark:block" />
-
-      {/* Menu button — absolute right */}
+    <div className="relative flex md:hidden items-center justify-end px-4 py-3 bg-tetsuo-50 border-b border-tetsuo-200">
+      {/* Menu button */}
       <button
         onClick={onMenuToggle}
-        className="absolute right-3 w-10 h-10 rounded-full flex items-center justify-center text-tetsuo-500 hover:bg-tetsuo-100 transition-colors"
+        className="w-10 h-10 rounded-full flex items-center justify-center text-tetsuo-500 hover:bg-tetsuo-100 transition-colors"
       >
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
           <line x1="3" y1="6" x2="21" y2="6" />

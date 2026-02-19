@@ -73,6 +73,8 @@ export interface GatewayVoiceConfig {
   enabled?: boolean;
   voice?: 'Ara' | 'Rex' | 'Sal' | 'Eve' | 'Leo';
   mode?: 'vad' | 'push-to-talk';
+  /** Separate API key for voice. Falls back to llm.apiKey when not set. */
+  apiKey?: string;
 }
 
 export interface GatewayTelemetryConfig {
