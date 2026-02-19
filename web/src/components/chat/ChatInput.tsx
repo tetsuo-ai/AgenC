@@ -160,8 +160,8 @@ export function ChatInput({
 
         {/* Bottom row: emoji, mic, send */}
         <div className="flex items-center justify-end gap-2 px-4 pb-2.5">
-          {/* Emoji */}
-          <div className="relative" ref={emojiRef}>
+          {/* Emoji (desktop only) */}
+          <div className="relative hidden md:block" ref={emojiRef}>
             <button
               onClick={() => setShowEmoji((v) => !v)}
               className={`w-9 h-9 rounded-lg flex items-center justify-center transition-colors ${
