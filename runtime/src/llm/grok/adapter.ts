@@ -185,13 +185,19 @@ export class GrokProvider implements LLMProvider {
   }
 
   private buildParams(messages: LLMMessage[]): Record<string, unknown> {
+    // Auto-upgrade to a vision model when messages contain image content
+    const hasImages = messages.some(
+      (m) => Array.isArray(m.content) && m.content.some((p) => p.type === 'image_url'),
+    );
+    const model = hasImages ? (this.config.visionModel ?? 'grok-2-vision-1212') : this.config.model;
+
     const params: Record<string, unknown> = {
-      model: this.config.model,
+      model,
       messages: messages.map((m) => this.toOpenAIMessage(m)),
     };
     if (this.config.temperature !== undefined) params.temperature = this.config.temperature;
     if (this.config.maxTokens !== undefined) params.max_tokens = this.config.maxTokens;
-    if (this.tools.length > 0) params.tools = this.tools;
+    if (this.tools.length > 0 && !hasImages) params.tools = this.tools;
     return params;
   }
 

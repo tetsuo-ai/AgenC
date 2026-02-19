@@ -13,11 +13,22 @@
 export type MessageRole = 'system' | 'user' | 'assistant' | 'tool';
 
 /**
- * A single message in an LLM conversation
+ * A content part for multimodal messages (OpenAI/Grok-compatible format).
+ */
+export type LLMContentPart =
+  | { type: 'text'; text: string }
+  | { type: 'image_url'; image_url: { url: string } };
+
+/**
+ * A single message in an LLM conversation.
+ *
+ * `content` may be a plain string or an array of content parts for multimodal
+ * messages (e.g. text + images). Providers that don't support multimodal should
+ * extract the text parts and ignore image parts.
  */
 export interface LLMMessage {
   role: MessageRole;
-  content: string;
+  content: string | LLMContentPart[];
   /** For tool result messages — the ID of the tool call being responded to */
   toolCallId?: string;
   /** For tool result messages — the name of the tool */

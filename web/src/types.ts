@@ -15,6 +15,13 @@ export type ConnectionState = 'connecting' | 'authenticating' | 'connected' | 'd
 // Chat Messages
 // ============================================================================
 
+export interface ChatMessageAttachment {
+  filename: string;
+  mimeType: string;
+  /** Base64 data URL for display (images). */
+  dataUrl?: string;
+}
+
 export interface ChatMessage {
   id: string;
   content: string;
@@ -22,6 +29,8 @@ export interface ChatMessage {
   timestamp: number;
   /** Tool calls associated with this message. */
   toolCalls?: ToolCall[];
+  /** File attachments on this message. */
+  attachments?: ChatMessageAttachment[];
 }
 
 export interface ToolCall {

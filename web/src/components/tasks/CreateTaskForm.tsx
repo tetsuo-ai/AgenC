@@ -28,7 +28,7 @@ export function CreateTaskForm({ onCreate }: CreateTaskFormProps) {
     return (
       <button
         onClick={() => setExpanded(true)}
-        className="w-full px-4 py-2.5 border border-dashed border-tetsuo-600 rounded-lg text-sm text-tetsuo-400 hover:border-accent hover:text-accent transition-colors"
+        className="w-full px-4 py-2.5 border border-dashed border-tetsuo-300 rounded-lg text-sm text-tetsuo-500 hover:border-accent hover:text-accent transition-colors"
       >
         + Create Task
       </button>
@@ -36,13 +36,13 @@ export function CreateTaskForm({ onCreate }: CreateTaskFormProps) {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-3 p-4 bg-tetsuo-800 rounded-lg border border-tetsuo-700">
+    <form onSubmit={handleSubmit} className="space-y-3 p-4 bg-tetsuo-50 rounded-lg border border-tetsuo-200">
       <div>
         <label className="text-xs text-tetsuo-500 block mb-1">Description</label>
         <textarea
           value={description}
           onChange={(e) => setDescription(e.target.value)}
-          className="w-full bg-tetsuo-900 text-tetsuo-100 border border-tetsuo-600 rounded px-3 py-2 text-sm resize-none focus:outline-none focus:border-accent"
+          className="w-full bg-surface text-tetsuo-800 border border-tetsuo-200 rounded px-3 py-2 text-sm resize-none focus:outline-none focus:border-accent"
           rows={3}
           placeholder="Task description..."
         />
@@ -53,7 +53,7 @@ export function CreateTaskForm({ onCreate }: CreateTaskFormProps) {
           type="number"
           value={reward}
           onChange={(e) => setReward(e.target.value)}
-          className="w-full bg-tetsuo-900 text-tetsuo-100 border border-tetsuo-600 rounded px-3 py-2 text-sm focus:outline-none focus:border-accent"
+          className="w-full bg-surface text-tetsuo-800 border border-tetsuo-200 rounded px-3 py-2 text-sm focus:outline-none focus:border-accent"
           placeholder="0"
         />
       </div>
@@ -67,7 +67,7 @@ export function CreateTaskForm({ onCreate }: CreateTaskFormProps) {
         <button
           type="button"
           onClick={() => setExpanded(false)}
-          className="px-4 py-2 text-tetsuo-400 text-sm hover:text-tetsuo-200 transition-colors"
+          className="px-4 py-2 text-tetsuo-500 text-sm hover:text-tetsuo-700 transition-colors"
         >
           Cancel
         </button>

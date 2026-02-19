@@ -11,10 +11,10 @@ export function ToolCallCard({ toolCall }: ToolCallCardProps) {
   const isExecuting = toolCall.status === 'executing';
 
   return (
-    <div className="mt-2 rounded border border-tetsuo-600 bg-tetsuo-900 text-xs overflow-hidden">
+    <div className="mt-2 rounded-xl border border-tetsuo-200 bg-surface text-xs overflow-hidden">
       <button
         onClick={() => setExpanded(!expanded)}
-        className="w-full flex items-center justify-between px-3 py-2 hover:bg-tetsuo-800 transition-colors"
+        className="w-full flex items-center justify-between px-3 py-2.5 hover:bg-tetsuo-50 transition-colors"
       >
         <div className="flex items-center gap-2">
           {isExecuting ? (
@@ -24,9 +24,9 @@ export function ToolCallCard({ toolCall }: ToolCallCardProps) {
           ) : (
             <span className="w-2 h-2 rounded-full bg-green-500" />
           )}
-          <span className="text-accent-light font-medium">{toolCall.toolName}</span>
+          <span className="text-accent font-semibold">{toolCall.toolName}</span>
         </div>
-        <div className="flex items-center gap-2 text-tetsuo-500">
+        <div className="flex items-center gap-2 text-tetsuo-400">
           {toolCall.durationMs !== undefined && (
             <span>{toolCall.durationMs}ms</span>
           )}
@@ -35,21 +35,21 @@ export function ToolCallCard({ toolCall }: ToolCallCardProps) {
       </button>
 
       {expanded && (
-        <div className="border-t border-tetsuo-700 px-3 py-2 space-y-2">
+        <div className="border-t border-tetsuo-200 px-3 py-2.5 space-y-2">
           {Object.keys(toolCall.args).length > 0 && (
             <div>
-              <div className="text-tetsuo-500 mb-1">Arguments:</div>
-              <pre className="text-tetsuo-300 whitespace-pre-wrap break-all bg-tetsuo-950 rounded p-2">
+              <div className="text-tetsuo-400 mb-1 font-medium">Arguments:</div>
+              <pre className="text-tetsuo-600 whitespace-pre-wrap break-all bg-tetsuo-50 rounded-lg p-2.5">
                 {JSON.stringify(toolCall.args, null, 2)}
               </pre>
             </div>
           )}
           {toolCall.result && (
             <div>
-              <div className="text-tetsuo-500 mb-1">
+              <div className="text-tetsuo-400 mb-1 font-medium">
                 {toolCall.isError ? 'Error:' : 'Result:'}
               </div>
-              <pre className={`whitespace-pre-wrap break-all rounded p-2 bg-tetsuo-950 ${toolCall.isError ? 'text-red-400' : 'text-tetsuo-300'}`}>
+              <pre className={`whitespace-pre-wrap break-all rounded-lg p-2.5 bg-tetsuo-50 ${toolCall.isError ? 'text-red-500' : 'text-tetsuo-600'}`}>
                 {toolCall.result}
               </pre>
             </div>

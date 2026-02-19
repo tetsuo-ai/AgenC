@@ -21,7 +21,7 @@ function formatUptime(ms: number): string {
 export function AgentStatusView({ status, onRefresh }: AgentStatusViewProps) {
   if (!status) {
     return (
-      <div className="flex items-center justify-center h-full text-tetsuo-500 text-sm">
+      <div className="flex items-center justify-center h-full text-tetsuo-400 text-sm">
         Waiting for status...
       </div>
     );
@@ -29,11 +29,11 @@ export function AgentStatusView({ status, onRefresh }: AgentStatusViewProps) {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center justify-between px-4 py-3 border-b border-tetsuo-700">
-        <h2 className="text-sm font-semibold text-tetsuo-200">Agent Status</h2>
+      <div className="flex items-center justify-between px-4 py-3 border-b border-tetsuo-200">
+        <h2 className="text-sm font-semibold text-tetsuo-800">Agent Status</h2>
         <button
           onClick={onRefresh}
-          className="text-xs text-accent hover:text-accent-light transition-colors"
+          className="text-xs text-accent hover:text-accent-dark transition-colors"
         >
           Refresh
         </button>
@@ -42,8 +42,8 @@ export function AgentStatusView({ status, onRefresh }: AgentStatusViewProps) {
       <div className="p-4 space-y-6 overflow-y-auto">
         {status.agentName && (
           <div>
-            <div className="text-xs text-tetsuo-500 uppercase tracking-wider mb-1">Agent</div>
-            <div className="text-lg font-semibold text-tetsuo-100">{status.agentName}</div>
+            <div className="text-xs text-tetsuo-400 uppercase tracking-wider mb-1">Agent</div>
+            <div className="text-lg font-semibold text-tetsuo-800">{status.agentName}</div>
           </div>
         )}
 
@@ -55,15 +55,15 @@ export function AgentStatusView({ status, onRefresh }: AgentStatusViewProps) {
         </div>
 
         <div>
-          <div className="text-xs text-tetsuo-500 uppercase tracking-wider mb-2">Channels</div>
+          <div className="text-xs text-tetsuo-400 uppercase tracking-wider mb-2">Channels</div>
           {status.channels.length === 0 ? (
-            <div className="text-sm text-tetsuo-500">No channels connected</div>
+            <div className="text-sm text-tetsuo-400">No channels connected</div>
           ) : (
             <div className="space-y-1">
               {status.channels.map((ch) => (
                 <div
                   key={ch}
-                  className="flex items-center gap-2 px-3 py-2 bg-tetsuo-800 rounded border border-tetsuo-700 text-sm"
+                  className="flex items-center gap-2 px-3 py-2 bg-tetsuo-50 rounded-lg border border-tetsuo-200 text-sm"
                 >
                   <span className="w-2 h-2 rounded-full bg-green-500" />
                   {ch}

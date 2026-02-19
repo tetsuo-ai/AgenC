@@ -4,14 +4,14 @@ import { VOICE_SAMPLE_RATE, VOICE_CHUNK_INTERVAL_MS } from '../constants';
 /**
  * Low-level mic capture hook.
  *
- * Captures audio from the user's microphone via getUserMedia + AudioWorklet/ScriptProcessor,
+ * Captures audio from the user's microphone via AudioWorklet,
  * converts Float32 → Int16 LE, base64-encodes, and delivers chunks every ~100ms.
  */
 export function useAudioRecorder() {
   const [isRecording, setIsRecording] = useState(false);
   const streamRef = useRef<MediaStream | null>(null);
   const contextRef = useRef<AudioContext | null>(null);
-  const processorRef = useRef<ScriptProcessorNode | null>(null);
+  const workletRef = useRef<AudioWorkletNode | null>(null);
   const callbackRef = useRef<((base64: string) => void) | null>(null);
   const bufferRef = useRef<Int16Array[]>([]);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -53,21 +53,20 @@ export function useAudioRecorder() {
     const ctx = new AudioContext({ sampleRate: VOICE_SAMPLE_RATE });
     const source = ctx.createMediaStreamSource(stream);
 
-    // ScriptProcessorNode for wide browser support (AudioWorklet is better but
-    // requires a separate worker file which complicates the build)
-    const processor = ctx.createScriptProcessor(4096, 1, 1);
-    processor.onaudioprocess = (e) => {
-      const float32 = e.inputBuffer.getChannelData(0);
-      const int16 = float32ToInt16(float32);
-      bufferRef.current.push(int16);
+    // Register AudioWorklet processor module
+    await ctx.audioWorklet.addModule('/audio-worklet-processor.js');
+
+    const worklet = new AudioWorkletNode(ctx, 'mic-processor');
+    worklet.port.onmessage = (e: MessageEvent<Int16Array>) => {
+      bufferRef.current.push(e.data);
     };
 
-    source.connect(processor);
-    processor.connect(ctx.destination);
+    source.connect(worklet);
+    worklet.connect(ctx.destination);
 
     streamRef.current = stream;
     contextRef.current = ctx;
-    processorRef.current = processor;
+    workletRef.current = worklet;
 
     // Flush accumulated audio at regular intervals
     timerRef.current = setInterval(flush, VOICE_CHUNK_INTERVAL_MS);
@@ -84,9 +83,9 @@ export function useAudioRecorder() {
     // Flush remaining audio
     flush();
 
-    if (processorRef.current) {
-      processorRef.current.disconnect();
-      processorRef.current = null;
+    if (workletRef.current) {
+      workletRef.current.disconnect();
+      workletRef.current = null;
     }
     if (contextRef.current) {
       void contextRef.current.close();
@@ -110,16 +109,6 @@ export function useAudioRecorder() {
 // ============================================================================
 // Helpers
 // ============================================================================
-
-/** Convert Float32 audio samples (-1..1) to Int16 LE. */
-function float32ToInt16(float32: Float32Array): Int16Array {
-  const int16 = new Int16Array(float32.length);
-  for (let i = 0; i < float32.length; i++) {
-    const s = Math.max(-1, Math.min(1, float32[i]));
-    int16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
-  }
-  return int16;
-}
 
 /** Uint8Array to base64 string (browser). */
 function uint8ToBase64(bytes: Uint8Array): string {

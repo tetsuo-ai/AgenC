@@ -25,11 +25,11 @@ export function SkillsView({ skills, onRefresh, onToggle }: SkillsViewProps) {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center justify-between px-4 py-3 border-b border-tetsuo-700">
-        <h2 className="text-sm font-semibold text-tetsuo-200">Skills</h2>
+      <div className="flex items-center justify-between px-4 py-3 border-b border-tetsuo-200">
+        <h2 className="text-sm font-semibold text-tetsuo-800">Skills</h2>
         <button
           onClick={onRefresh}
-          className="text-xs text-accent hover:text-accent-light transition-colors"
+          className="text-xs text-accent hover:text-accent-dark transition-colors"
         >
           Refresh
         </button>
@@ -41,13 +41,13 @@ export function SkillsView({ skills, onRefresh, onToggle }: SkillsViewProps) {
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
           placeholder="Search skills..."
-          className="w-full bg-tetsuo-800 text-tetsuo-100 border border-tetsuo-600 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-accent placeholder:text-tetsuo-500"
+          className="w-full bg-surface text-tetsuo-800 border border-tetsuo-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-accent placeholder:text-tetsuo-400"
         />
       </div>
 
       <div className="flex-1 overflow-y-auto px-4 pb-4 space-y-2">
         {filtered.length === 0 ? (
-          <div className="text-center text-tetsuo-500 text-sm py-8">
+          <div className="text-center text-tetsuo-400 text-sm py-8">
             {skills.length === 0 ? 'No skills registered' : 'No skills match your search'}
           </div>
         ) : (

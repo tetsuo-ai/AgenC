@@ -1,6 +1,5 @@
 import type { ViewId, ConnectionState } from '../types';
 import { ConnectionStatus } from './ConnectionStatus';
-import { WorkspaceSwitcher } from './workspace/WorkspaceSwitcher';
 
 interface SidebarProps {
   currentView: ViewId;
@@ -13,69 +12,119 @@ interface SidebarProps {
 interface NavItem {
   id: ViewId;
   label: string;
-  icon: string;
+  icon: React.ReactNode;
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { id: 'chat', label: 'Chat', icon: '\u{1F4AC}' },
-  { id: 'status', label: 'Status', icon: '\u{1F4CA}' },
-  { id: 'skills', label: 'Skills', icon: '\u{1F9E9}' },
-  { id: 'tasks', label: 'Tasks', icon: '\u{1F4CB}' },
-  { id: 'memory', label: 'Memory', icon: '\u{1F4BE}' },
-  { id: 'activity', label: 'Activity', icon: '\u{1F4E1}' },
+  { id: 'chat', label: 'Chat', icon: <ChatIcon /> },
+  { id: 'status', label: 'Status', icon: <StatusIcon /> },
+  { id: 'skills', label: 'Skills', icon: <SkillsIcon /> },
+  { id: 'tasks', label: 'Tasks', icon: <TasksIcon /> },
+  { id: 'memory', label: 'Memory', icon: <MemoryIcon /> },
+  { id: 'activity', label: 'Activity', icon: <ActivityIcon /> },
 ];
 
 export function Sidebar({
   currentView,
   onNavigate,
   connectionState,
-  workspace,
   pendingApprovals,
 }: SidebarProps) {
   return (
-    <div className="w-56 bg-tetsuo-900 border-r border-tetsuo-700 flex flex-col h-full">
-      {/* Header */}
-      <div className="px-4 py-4 border-b border-tetsuo-700">
-        <div className="text-sm font-bold text-tetsuo-100 tracking-wide">AgenC</div>
-        <div className="text-xs text-tetsuo-500 mt-0.5">WebChat</div>
+    <div className="w-20 h-full bg-tetsuo-50 border-r border-tetsuo-200 flex flex-col items-center py-4">
+      {/* Brand Logo */}
+      <div className="w-10 h-10 rounded-xl flex items-center justify-center mb-6">
+        <img src="/assets/agenc-logo.svg" alt="AgenC" className="w-8 h-8 dark:hidden" />
+        <img src="/assets/agenc-logo-white.svg" alt="AgenC" className="w-8 h-8 hidden dark:block" />
       </div>
 
-      {/* Workspace */}
-      <div className="border-b border-tetsuo-700">
-        <WorkspaceSwitcher
-          current={workspace}
-          workspaces={['default']}
-          onSwitch={() => {/* MVP: single workspace */}}
-        />
-      </div>
-
-      {/* Navigation */}
-      <nav className="flex-1 py-2">
-        {NAV_ITEMS.map((item) => (
-          <button
-            key={item.id}
-            onClick={() => onNavigate(item.id)}
-            className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm transition-colors ${
-              currentView === item.id
-                ? 'bg-tetsuo-800 text-accent-light border-r-2 border-accent'
-                : 'text-tetsuo-400 hover:text-tetsuo-200 hover:bg-tetsuo-800/50'
-            }`}
-          >
-            <span className="text-base">{item.icon}</span>
-            <span>{item.label}</span>
-            {item.id === 'chat' && pendingApprovals > 0 && (
-              <span className="ml-auto bg-yellow-500 text-yellow-900 text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center">
-                {pendingApprovals}
-              </span>
-            )}
-          </button>
-        ))}
+      {/* Nav Icons */}
+      <nav className="flex-1 flex flex-col items-center gap-1">
+        {NAV_ITEMS.map((item) => {
+          const isActive = currentView === item.id;
+          return (
+            <button
+              key={item.id}
+              onClick={() => onNavigate(item.id)}
+              title={item.label}
+              className={`relative w-12 h-12 rounded-xl flex items-center justify-center transition-all duration-200 active:scale-90 ${
+                isActive
+                  ? 'bg-accent-bg text-accent shadow-[0_0_12px_rgba(var(--accent),0.25)]'
+                  : 'text-tetsuo-400 hover:text-tetsuo-600 hover:bg-tetsuo-100 hover:scale-105'
+              }`}
+            >
+              {item.icon}
+              {isActive && (
+                <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-6 rounded-r-full bg-accent transition-all duration-300" />
+              )}
+              {item.id === 'chat' && pendingApprovals > 0 && (
+                <span className="absolute top-1 right-1 w-4 h-4 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center">
+                  {pendingApprovals}
+                </span>
+              )}
+            </button>
+          );
+        })}
       </nav>
 
-      {/* Connection status */}
-      <div className="border-t border-tetsuo-700">
-        <ConnectionStatus state={connectionState} />
+      {/* Bottom: Connection */}
+      <div className="flex flex-col items-center gap-2 mt-auto">
+        <ConnectionStatus state={connectionState} compact />
       </div>
     </div>
   );
 }
+
+// SVG Icons
+function ChatIcon() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+    </svg>
+  );
+}
+
+function StatusIcon() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M18 20V10M12 20V4M6 20v-6" />
+    </svg>
+  );
+}
+
+function SkillsIcon() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
+    </svg>
+  );
+}
+
+function TasksIcon() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="3" width="7" height="7" rx="1" />
+      <rect x="14" y="3" width="7" height="7" rx="1" />
+      <rect x="3" y="14" width="7" height="7" rx="1" />
+      <rect x="14" y="14" width="7" height="7" rx="1" />
+    </svg>
+  );
+}
+
+function MemoryIcon() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+      <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+    </svg>
+  );
+}
+
+function ActivityIcon() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
+    </svg>
+  );
+}
+

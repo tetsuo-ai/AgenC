@@ -518,6 +518,34 @@ export class Gateway {
         break;
       }
 
+      case 'config.get':
+        this.sendResponse(socket, {
+          type: 'config.get',
+          payload: maskConfigSecrets(this._config),
+          id,
+        });
+        break;
+
+      case 'config.set':
+        if (!this.configPath) {
+          this.sendResponse(socket, {
+            type: 'config.set',
+            error: 'No config path configured',
+            id,
+          });
+        } else {
+          void this.handleConfigSet(socket, msg.payload, id);
+        }
+        break;
+
+      case 'wallet.info':
+        void this.handleWalletInfo(socket, id);
+        break;
+
+      case 'wallet.airdrop':
+        void this.handleWalletAirdrop(socket, msg.payload, id);
+        break;
+
       default: {
         // msg.type is narrowed to `never` here by exhaustive switch,
         // but at runtime unknown types arrive as plain strings.
@@ -563,6 +591,121 @@ export class Gateway {
         error: (err as Error).message,
         id,
       });
+    }
+  }
+
+  private async handleConfigSet(socket: WsWebSocket, payload: unknown, id?: string): Promise<void> {
+    try {
+      if (!isRecord(payload)) {
+        this.sendResponse(socket, { type: 'config.set', error: 'Payload must be an object', id });
+        return;
+      }
+      // Strip masked secrets (****...) so they don't overwrite real values on disk
+      const cleaned = stripMaskedSecrets(payload as Record<string, unknown>);
+      // Read current config from disk
+      const current = await loadGatewayConfig(this.configPath!);
+      // Deep-merge payload into current (only known top-level sections)
+      const merged = { ...current } as Record<string, unknown>;
+      for (const key of Object.keys(cleaned)) {
+        if (isRecord(cleaned[key]) && isRecord(merged[key])) {
+          merged[key] = { ...(merged[key] as Record<string, unknown>), ...(cleaned[key] as Record<string, unknown>) };
+        } else {
+          merged[key] = cleaned[key];
+        }
+      }
+      // Validate
+      const result = validateGatewayConfig(merged);
+      if (!result.valid) {
+        this.sendResponse(socket, { type: 'config.set', error: result.errors.join('; '), id });
+        return;
+      }
+      // Write to disk
+      const { writeFile } = await import('node:fs/promises');
+      await writeFile(this.configPath!, JSON.stringify(merged, null, 2), 'utf-8');
+      // Reload in-place
+      const diff = this.reloadConfig(merged as unknown as import('./types.js').GatewayConfig);
+      this.sendResponse(socket, {
+        type: 'config.set',
+        payload: { applied: true, diff, config: maskConfigSecrets(merged as unknown as import('./types.js').GatewayConfig) },
+        id,
+      });
+    } catch (err) {
+      this.sendResponse(socket, { type: 'config.set', error: (err as Error).message, id });
+    }
+  }
+
+  // --------------------------------------------------------------------------
+  // Wallet
+  // --------------------------------------------------------------------------
+
+  private async handleWalletInfo(socket: WsWebSocket, id?: string): Promise<void> {
+    try {
+      const { Connection, LAMPORTS_PER_SOL } = await import('@solana/web3.js');
+      const { loadKeypairFromFile, getDefaultKeypairPath } = await import('../types/wallet.js');
+
+      const keypairPath = this._config.connection.keypairPath || getDefaultKeypairPath();
+      const keypair = await loadKeypairFromFile(keypairPath);
+      const rpcUrl = this._config.connection.rpcUrl;
+      const connection = new Connection(rpcUrl, 'confirmed');
+      const lamports = await connection.getBalance(keypair.publicKey);
+
+      const isDevnet = rpcUrl.includes('devnet');
+      const isMainnet = rpcUrl.includes('mainnet');
+      const network = isMainnet ? 'mainnet-beta' : isDevnet ? 'devnet' : 'custom';
+
+      this.sendResponse(socket, {
+        type: 'wallet.info',
+        payload: {
+          address: keypair.publicKey.toBase58(),
+          lamports,
+          sol: lamports / LAMPORTS_PER_SOL,
+          network,
+          rpcUrl,
+          explorerUrl: `https://explorer.solana.com/address/${keypair.publicKey.toBase58()}?cluster=${network}`,
+        },
+        id,
+      });
+    } catch (err) {
+      this.sendResponse(socket, { type: 'wallet.info', error: (err as Error).message, id });
+    }
+  }
+
+  private async handleWalletAirdrop(socket: WsWebSocket, payload: unknown, id?: string): Promise<void> {
+    try {
+      const { Connection, LAMPORTS_PER_SOL } = await import('@solana/web3.js');
+      const { loadKeypairFromFile, getDefaultKeypairPath } = await import('../types/wallet.js');
+
+      const rpcUrl = this._config.connection.rpcUrl;
+      if (rpcUrl.includes('mainnet')) {
+        this.sendResponse(socket, { type: 'wallet.airdrop', error: 'Airdrop not available on mainnet', id });
+        return;
+      }
+
+      const amount = isRecord(payload) ? Number(payload.amount ?? 1) : 1;
+      const lamports = Math.floor(Math.min(amount, 2) * LAMPORTS_PER_SOL); // max 2 SOL per airdrop
+
+      const keypairPath = this._config.connection.keypairPath || getDefaultKeypairPath();
+      const keypair = await loadKeypairFromFile(keypairPath);
+      const connection = new Connection(rpcUrl, 'confirmed');
+
+      const sig = await connection.requestAirdrop(keypair.publicKey, lamports);
+      await connection.confirmTransaction(sig, 'confirmed');
+
+      // Fetch updated balance
+      const newLamports = await connection.getBalance(keypair.publicKey);
+
+      this.sendResponse(socket, {
+        type: 'wallet.airdrop',
+        payload: {
+          signature: sig,
+          amount: lamports / LAMPORTS_PER_SOL,
+          newBalance: newLamports / LAMPORTS_PER_SOL,
+          newLamports,
+        },
+        id,
+      });
+    } catch (err) {
+      this.sendResponse(socket, { type: 'wallet.airdrop', error: (err as Error).message, id });
     }
   }
 
@@ -624,4 +767,42 @@ function mergeSafeConfig(
   }
 
   return merged;
+}
+
+/** Returns a copy of config with sensitive fields (API keys, passwords) masked. */
+function maskConfigSecrets(config: GatewayConfig): Record<string, unknown> {
+  const clone = JSON.parse(JSON.stringify(config)) as Record<string, unknown>;
+  const llm = clone.llm as Record<string, unknown> | undefined;
+  if (llm?.apiKey && typeof llm.apiKey === 'string') {
+    llm.apiKey = llm.apiKey.length > 8
+      ? '****' + llm.apiKey.slice(-4)
+      : '********';
+  }
+  if (Array.isArray(llm?.fallback)) {
+    for (const fb of llm.fallback as Record<string, unknown>[]) {
+      if (fb.apiKey && typeof fb.apiKey === 'string') {
+        fb.apiKey = fb.apiKey.length > 8 ? '****' + fb.apiKey.slice(-4) : '********';
+      }
+    }
+  }
+  const mem = clone.memory as Record<string, unknown> | undefined;
+  if (mem?.password) mem.password = '********';
+  if (mem?.encryptionKey) mem.encryptionKey = '********';
+  const auth = clone.auth as Record<string, unknown> | undefined;
+  if (auth?.secret) auth.secret = '********';
+  return clone;
+}
+
+/** Strip values that look like masked secrets (****...) so they don't overwrite real values on disk. */
+function stripMaskedSecrets(obj: Record<string, unknown>): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(obj)) {
+    if (typeof value === 'string' && value.startsWith('****')) continue;
+    if (isRecord(value)) {
+      result[key] = stripMaskedSecrets(value as Record<string, unknown>);
+    } else {
+      result[key] = value;
+    }
+  }
+  return result;
 }
