@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import type { UseSettingsReturn, GatewaySettings } from '../../hooks/useSettings';
 
 interface LLMProviderDef {
@@ -38,7 +38,7 @@ interface SettingsViewProps {
 }
 
 export function SettingsView({ settings }: SettingsViewProps) {
-  const { settings: config, loaded, saving, lastError, save } = settings;
+  const { settings: config, loaded, saving, lastError, save, ollamaModels, ollamaError, fetchOllamaModels } = settings;
 
   const [provider, setProvider] = useState(config.llm.provider);
   const [apiKey, setApiKey] = useState('');
@@ -51,31 +51,19 @@ export function SettingsView({ settings }: SettingsViewProps) {
   );
   const [dirty, setDirty] = useState(false);
   const [saved, setSaved] = useState(false);
-  const [ollamaModels, setOllamaModels] = useState<string[]>([]);
-  const [ollamaError, setOllamaError] = useState<string | null>(null);
-
-  const fetchOllamaModels = useCallback(async () => {
-    setOllamaError(null);
-    try {
-      const res = await fetch('http://localhost:11434/api/tags');
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json() as { models?: { name: string }[] };
-      const names = (data.models ?? []).map((m) => m.name);
-      setOllamaModels(names);
-      if (names.length > 0 && !names.includes(model)) {
-        setModel(names[0]);
-      }
-    } catch {
-      setOllamaModels([]);
-      setOllamaError('Cannot reach Ollama at localhost:11434');
-    }
-  }, [model]);
 
   useEffect(() => {
     if (provider === 'ollama') {
-      void fetchOllamaModels();
+      fetchOllamaModels();
     }
   }, [provider, fetchOllamaModels]);
+
+  // Auto-select first Ollama model when list arrives
+  useEffect(() => {
+    if (provider === 'ollama' && ollamaModels.length > 0 && !ollamaModels.includes(model)) {
+      setModel(ollamaModels[0]);
+    }
+  }, [provider, ollamaModels, model]);
 
   useEffect(() => {
     if (!loaded) return;

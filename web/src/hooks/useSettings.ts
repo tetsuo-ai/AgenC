@@ -41,8 +41,11 @@ export interface UseSettingsReturn {
   loaded: boolean;
   saving: boolean;
   lastError: string | null;
+  ollamaModels: string[];
+  ollamaError: string | null;
   refresh: () => void;
   save: (partial: Partial<GatewaySettings>) => void;
+  fetchOllamaModels: () => void;
   handleMessage: (msg: WSMessage) => void;
 }
 
@@ -51,10 +54,17 @@ export function useSettings({ send, connected }: UseSettingsOptions): UseSetting
   const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
   const [lastError, setLastError] = useState<string | null>(null);
+  const [ollamaModels, setOllamaModels] = useState<string[]>([]);
+  const [ollamaError, setOllamaError] = useState<string | null>(null);
   const requestedRef = useRef(false);
 
   const refresh = useCallback(() => {
     send({ type: 'config.get' });
+  }, [send]);
+
+  const fetchOllamaModels = useCallback(() => {
+    setOllamaError(null);
+    send({ type: 'ollama.models' });
   }, [send]);
 
   // Auto-fetch config on connect
@@ -95,9 +105,20 @@ export function useSettings({ send, connected }: UseSettingsOptions): UseSetting
         setLastError(null);
       }
     }
+    if (msg.type === 'ollama.models') {
+      if (msg.error) {
+        setOllamaModels([]);
+        setOllamaError(msg.error);
+      } else {
+        const p = msg.payload as { models?: string[] } | undefined;
+        const models = p?.models ?? [];
+        setOllamaModels(models);
+        setOllamaError(models.length === 0 ? 'No models installed in Ollama' : null);
+      }
+    }
   }, []);
 
-  return { settings, loaded, saving, lastError, refresh, save, handleMessage };
+  return { settings, loaded, saving, lastError, ollamaModels, ollamaError, refresh, save, fetchOllamaModels, handleMessage };
 }
 
 function parseConfig(raw: Record<string, unknown>): GatewaySettings {
