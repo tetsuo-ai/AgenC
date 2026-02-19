@@ -16,7 +16,7 @@ import { Gateway } from './gateway.js';
 import { loadGatewayConfig } from './config-watcher.js';
 import { GatewayLifecycleError, GatewayStateError } from './errors.js';
 import { toErrorMessage } from '../utils/async.js';
-import type { GatewayConfig, GatewayLLMConfig, GatewayStatus } from './types.js';
+import type { GatewayConfig, GatewayLLMConfig, GatewayStatus, ConfigDiff } from './types.js';
 import type { Logger } from '../utils/logger.js';
 import { silentLogger } from '../utils/logger.js';
 import { WebChatChannel } from '../channels/webchat/plugin.js';
@@ -186,6 +186,9 @@ export class DaemonManager {
   private _telemetry: UnifiedTelemetryCollector | null = null;
   private _hookDispatcher: HookDispatcher | null = null;
   private _connectionManager: ConnectionManager | null = null;
+  private _chatExecutor: ChatExecutor | null = null;
+  private _llmTools: LLMTool[] = [];
+  private _baseToolHandler: ToolHandler | null = null;
   private shutdownInProgress = false;
   private startedAt = 0;
   private signalHandlersRegistered = false;
@@ -275,12 +278,14 @@ export class DaemonManager {
 
     const llmTools = registry.toLLMTools();
     const baseToolHandler = registry.createToolHandler();
+    this._llmTools = llmTools;
+    this._baseToolHandler = baseToolHandler;
     const providers = await this.createLLMProviders(config, llmTools);
     const skillInjector = this.createSkillInjector(availableSkills);
     const memoryBackend = await this.createMemoryBackend(config, telemetry ?? undefined);
     this._memoryBackend = memoryBackend;
     const memoryRetriever = this.createMemoryRetriever(memoryBackend);
-    const chatExecutor = providers.length > 0 ? new ChatExecutor({
+    this._chatExecutor = providers.length > 0 ? new ChatExecutor({
       providers,
       toolHandler: baseToolHandler,
       skillInjector,
@@ -317,7 +322,7 @@ export class DaemonManager {
     const onMessage = this.createWebChatMessageHandler({
       webChat,
       commandRegistry,
-      chatExecutor,
+      getChatExecutor: () => this._chatExecutor,
       hooks,
       sessionMgr,
       systemPrompt,
@@ -333,6 +338,15 @@ export class DaemonManager {
     gateway.setWebChatHandler(webChat);
     this._webChatChannel = webChat;
 
+    // Hot-swap LLM provider when config changes at runtime
+    gateway.on('configReloaded', (...args: unknown[]) => {
+      const diff = args[0] as ConfigDiff;
+      const llmChanged = diff.safe.some((key) => key.startsWith('llm.'));
+      if (llmChanged) {
+        void this.hotSwapLLMProvider(gateway.config, skillInjector, memoryRetriever);
+      }
+    });
+
     const toolCount = registry.size;
     const skillCount = availableSkills.length;
     const providerNames = providers.map((p) => p.name).join(' → ') || 'none';
@@ -347,6 +361,32 @@ export class DaemonManager {
       (voiceBridge ? ', voice' : '') +
       ', hooks, sessions, approvals',
     );
+  }
+
+  /**
+   * Hot-swap the LLM provider when config.set changes llm.* fields.
+   * Re-creates the provider chain and ChatExecutor without restarting the gateway.
+   */
+  private async hotSwapLLMProvider(
+    newConfig: GatewayConfig,
+    skillInjector: SkillInjector,
+    memoryRetriever: MemoryRetriever,
+  ): Promise<void> {
+    try {
+      const providers = await this.createLLMProviders(newConfig, this._llmTools);
+      this._chatExecutor = providers.length > 0 ? new ChatExecutor({
+        providers,
+        toolHandler: this._baseToolHandler!,
+        skillInjector,
+        memoryRetriever,
+        sessionTokenBudget: newConfig.llm?.sessionTokenBudget || undefined,
+      }) : null;
+
+      const providerNames = providers.map((p) => p.name).join(' → ') || 'none';
+      this.logger.info(`LLM provider hot-swapped to [${providerNames}]`);
+    } catch (err) {
+      this.logger.error('Failed to hot-swap LLM provider:', err);
+    }
   }
 
   private async createHookDispatcher(config: GatewayConfig): Promise<HookDispatcher> {
@@ -641,7 +681,7 @@ export class DaemonManager {
   private createWebChatMessageHandler(params: {
     webChat: WebChatChannel;
     commandRegistry: SlashCommandRegistry;
-    chatExecutor: ChatExecutor | null;
+    getChatExecutor: () => ChatExecutor | null;
     hooks: HookDispatcher;
     sessionMgr: SessionManager;
     systemPrompt: string;
@@ -653,7 +693,7 @@ export class DaemonManager {
     const {
       webChat,
       commandRegistry,
-      chatExecutor,
+      getChatExecutor,
       hooks,
       sessionMgr,
       systemPrompt,
@@ -683,6 +723,7 @@ export class DaemonManager {
         return;
       }
 
+      const chatExecutor = getChatExecutor();
       if (!chatExecutor) {
         await webChat.send({
           sessionId: msg.sessionId,
