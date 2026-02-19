@@ -36,14 +36,12 @@ export function ChatMessage({ message, theme = 'light', searchQuery = '' }: Chat
 
       {/* Message content */}
       <div className={`flex flex-col gap-1 max-w-[75%] ${isUser ? 'items-end' : 'items-start'}`}>
-        <div className="flex items-center gap-2 text-xs text-tetsuo-400">
-          {isUser ? (
-            <span className="font-medium text-tetsuo-600">You</span>
-          ) : (
+        {!isUser && (
+          <div className="flex items-center gap-2 text-xs text-tetsuo-400">
             <img src="/assets/agenc-wordmark.svg" alt="AgenC" className="h-3 dark:invert opacity-90" />
-          )}
-          <span>{time}</span>
-        </div>
+            <span>{time}</span>
+          </div>
+        )}
 
         <div
           className={`rounded-2xl px-4 py-3 text-sm leading-relaxed ${
