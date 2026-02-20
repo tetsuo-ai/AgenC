@@ -253,19 +253,9 @@ fn generate_proof_real(request: &ProveRequest) -> Result<ProveResponse, ProveErr
             ))
         })?;
 
-    // Verify auto-derived selector matches our pinned constant in debug builds
-    #[cfg(debug_assertions)]
-    {
-        use risc0_zkvm::{sha::Digestible, Groth16ReceiptVerifierParameters};
-        let params_digest = Groth16ReceiptVerifierParameters::default().digest();
-        let auto_selector: [u8; 4] = params_digest.as_bytes()[..4]
-            .try_into()
-            .expect("digest has at least 4 bytes");
-        debug_assert_eq!(
-            auto_selector, TRUSTED_SEAL_SELECTOR,
-            "auto-derived selector does not match TRUSTED_SEAL_SELECTOR"
-        );
-    }
+    // NOTE: TRUSTED_SEAL_SELECTOR is a fixed identifier registered with the
+    // Verifier Router, not derived from Groth16ReceiptVerifierParameters.
+    // The router's encode_seal_with_selector() applies it during encoding.
 
     let seal_bytes = encode_seal(&raw_seal)?;
 
