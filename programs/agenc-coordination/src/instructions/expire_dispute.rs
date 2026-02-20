@@ -146,9 +146,18 @@ pub fn handler(ctx: Context<ExpireDispute>) -> Result<()> {
     // Fix #574: Allow expiration when EITHER expires_at OR voting_deadline has passed.
     // This closes the gap between voting_deadline and expires_at where disputes
     // could get stuck with funds locked if no one called resolve_dispute.
+    //
+    // Grace period: expire_dispute requires voting_deadline + 2 minutes, giving
+    // resolve_dispute priority at the boundary. This prevents front-running attacks
+    // where an attacker calls expire_dispute at exactly voting_deadline to get a
+    // more favorable fund distribution than resolve_dispute would provide.
+    const VOTING_DEADLINE_GRACE: i64 = 120;
     require!(
         clock.unix_timestamp > dispute.expires_at
-            || clock.unix_timestamp >= dispute.voting_deadline,
+            || clock.unix_timestamp
+                >= dispute
+                    .voting_deadline
+                    .saturating_add(VOTING_DEADLINE_GRACE),
         CoordinationError::DisputeNotExpired
     );
 

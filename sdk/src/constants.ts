@@ -14,8 +14,8 @@ export const PROGRAM_ID = new PublicKey('5j9ZbT3mnPX5QjWVMrDaWFuaGf8ddji6LW1HVJw
 /** Privacy Cash Program ID */
 export const PRIVACY_CASH_PROGRAM_ID = new PublicKey('9fhQBbumKEFuXtMBDw8AaQyAjCorLGJQiS3skWZdQyQD');
 
-/** AgenC verifier program ID */
-export const VERIFIER_PROGRAM_ID = new PublicKey('8fHUGmjNzSh76r78v1rPt7BhWmAu2gXrvW9A2XXonwQQ');
+/** AgenC verifier program ID — must match TRUSTED_RISC0_VERIFIER_PROGRAM_ID on-chain */
+export const VERIFIER_PROGRAM_ID = new PublicKey('THq1qFYQoh7zgcjXoMXduDBqiZRCPeg3PvvMbrVQUge');
 
 // ============================================================================
 // RPC Endpoints

@@ -94,3 +94,29 @@ pub fn validate_token_account(
     );
     Ok(())
 }
+
+/// Validate an UncheckedAccount is a valid SPL token account with the expected mint.
+///
+/// Used for worker_token_account which is UncheckedAccount to allow flexible
+/// destination, but must still be a valid token account with the correct mint.
+pub fn validate_unchecked_token_mint(
+    account: &AccountInfo,
+    expected_mint: &Pubkey,
+) -> Result<()> {
+    require!(
+        account.owner == &anchor_spl::token::ID,
+        CoordinationError::InvalidTokenEscrow
+    );
+    let data = account.try_borrow_data()?;
+    // SPL TokenAccount layout: mint is first 32 bytes after nothing (offset 0)
+    require!(data.len() >= 72, CoordinationError::InvalidTokenEscrow);
+    let mint_bytes: [u8; 32] = data[0..32]
+        .try_into()
+        .map_err(|_| error!(CoordinationError::InvalidTokenEscrow))?;
+    let mint = Pubkey::new_from_array(mint_bytes);
+    require!(
+        mint == *expected_mint,
+        CoordinationError::InvalidTokenMint
+    );
+    Ok(())
+}

@@ -151,6 +151,12 @@ pub fn update_min_version_handler(
         CoordinationError::InvalidMinVersion
     );
 
+    // Enforce monotonically increasing min_version to prevent rollback attacks
+    require!(
+        new_min_version >= config.min_supported_version,
+        CoordinationError::InvalidMinVersion
+    );
+
     let old_min = config.min_supported_version;
     config.min_supported_version = new_min_version;
 
