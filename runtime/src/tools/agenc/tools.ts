@@ -177,10 +177,15 @@ async function resolveCreatorAgentPda(
     return [pda, err];
   }
 
-  const accounts = await program.account.agentRegistration.all();
-  const matches = accounts.filter((acc) => {
-    const account = acc.account as unknown as { authority?: PublicKey };
-    return account.authority?.equals(creator) ?? false;
+  // Use raw getProgramAccounts to bypass Anchor deserialization bug with enum repr
+  const bs58 = await import('bs58');
+  const AGENT_DISCRIMINATOR = Buffer.from([130, 53, 100, 103, 121, 77, 148, 19]);
+  const AGENT_AUTHORITY_OFFSET = 40; // 8 (disc) + 32 (agent_id)
+  const matches = await program.provider.connection.getProgramAccounts(program.programId, {
+    filters: [
+      { memcmp: { offset: 0, bytes: bs58.default.encode(AGENT_DISCRIMINATOR) } },
+      { memcmp: { offset: AGENT_AUTHORITY_OFFSET, bytes: creator.toBase58() } },
+    ],
   });
 
   if (matches.length === 0) {
@@ -190,7 +195,7 @@ async function resolveCreatorAgentPda(
     return [null, errorResult('Multiple agent registrations found. Provide creatorAgentPda.')];
   }
 
-  return [matches[0].publicKey, null];
+  return [matches[0].pubkey, null];
 }
 
 function isMissingAccountError(err: unknown): boolean {
@@ -521,7 +526,7 @@ export function createCreateTaskTool(
         },
         reward: {
           type: 'string',
-          description: 'Reward amount in lamports or token base units (integer string)',
+          description: 'Reward in lamports (1 SOL = 1000000000 lamports). E.g. for 0.05 SOL pass "50000000".',
         },
         requiredCapabilities: {
           type: 'string',
@@ -642,7 +647,22 @@ export function createCreateTaskTool(
         const taskPda = findTaskPda(creator, taskId, program.programId);
         const escrowPda = findEscrowPda(taskPda, program.programId);
         const protocolPda = findProtocolPda(program.programId);
-        const tokenAccounts = buildCreateTaskTokenAccounts(rewardMint, escrowPda, creator);
+
+        const accounts: Record<string, PublicKey | null> = {
+          task: taskPda,
+          escrow: escrowPda,
+          protocolConfig: protocolPda,
+          creatorAgent: creatorAgentPda,
+          authority: creator,
+          creator,
+          systemProgram: SystemProgram.programId,
+        };
+
+        // Only include token accounts when a reward mint is specified
+        if (rewardMint) {
+          const tokenAccounts = buildCreateTaskTokenAccounts(rewardMint, escrowPda, creator);
+          Object.assign(accounts, tokenAccounts);
+        }
 
         const txSignature = await program.methods
           .createTask(
@@ -657,16 +677,7 @@ export function createCreateTaskTool(
             minReputation,
             rewardMint,
           )
-          .accountsPartial({
-            task: taskPda,
-            escrow: escrowPda,
-            protocolConfig: protocolPda,
-            creatorAgent: creatorAgentPda,
-            authority: creator,
-            creator,
-            systemProgram: SystemProgram.programId,
-            ...tokenAccounts,
-          })
+          .accountsPartial(accounts)
           .rpc();
 
         return {
@@ -683,6 +694,16 @@ export function createCreateTaskTool(
       } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
         logger.error(`agenc.createTask failed: ${msg}`);
+
+        // Detect on-chain rate-limit cooldown — non-retriable, tell the LLM to wait
+        if (msg.includes('CooldownNotElapsed') || msg.includes('6072')) {
+          return errorResult(
+            'RATE LIMITED: The on-chain 60-second cooldown between task creations has not elapsed. ' +
+            'Do NOT retry — wait at least 60 seconds before creating the next task. ' +
+            'Tell the user to try again in about a minute.',
+          );
+        }
+
         return errorResult(msg);
       }
     },

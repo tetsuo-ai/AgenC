@@ -50,7 +50,7 @@ export function CreateTaskForm({ onCreate }: CreateTaskFormProps) {
         />
       </div>
       <div>
-        <label className="text-[10px] text-tetsuo-400 uppercase tracking-[0.15em] font-medium block mb-1.5">Reward (lamports)</label>
+        <label className="text-[10px] text-tetsuo-400 uppercase tracking-[0.15em] font-medium block mb-1.5">Reward (SOL)</label>
         <input
           type="number"
           value={reward}
