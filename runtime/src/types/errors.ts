@@ -216,7 +216,7 @@ export const RuntimeErrorCodes = {
 export type RuntimeErrorCode = (typeof RuntimeErrorCodes)[keyof typeof RuntimeErrorCodes];
 
 // ============================================================================
-// Anchor Error Codes (192 codes: 6000-6191)
+// Anchor Error Codes (194 codes: 6000-6193)
 // ============================================================================
 
 /**
@@ -416,6 +416,8 @@ export const AnchorErrorCodes = {
   ReputationAgentNotActive: 6189,
   ReputationDisputesPending: 6190,
   PrivateTaskRequiresZkProof: 6191,
+  InvalidTokenAccountOwner: 6192,
+  InsufficientSeedEntropy: 6193,
 } as const;
 
 /** Union type of all Anchor error code values */
@@ -622,10 +624,12 @@ const AnchorErrorMessages: Record<AnchorErrorCode, string> = {
   6189: "Agent must be Active to participate in reputation economy",
   6190: "Agent has pending disputes as defendant: cannot withdraw stake",
   6191: "Private tasks (non-zero constraint_hash) must use complete_task_private",
+  6192: "Token account owner does not match expected authority",
+  6193: "Binding or nullifier seed has insufficient byte diversity (min 8 distinct bytes required)",
 };
 
 const ANCHOR_ERROR_MIN_CODE = 6000;
-const ANCHOR_ERROR_MAX_CODE = 6191;
+const ANCHOR_ERROR_MAX_CODE = 6193;
 
 // ============================================================================
 // Validation Helpers

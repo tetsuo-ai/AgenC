@@ -32,9 +32,6 @@ const BITS_PER_BYTE = 8n;
 
 const PROOF_XOR_MULTIPLIER = 13;
 const JOURNAL_FIELDS = 6;
-const SIGNAL_BYTES = 32 + 32;
-const SIGNAL_SCALARS = 4;
-const EXPECTED_PUBLIC_SIGNALS_LEN = SIGNAL_BYTES + SIGNAL_SCALARS;
 const NULLIFIER_DOMAIN_TAG = Buffer.from('AGENC_V2_NULLIFIER', 'utf8');
 const CONSTRAINT_HASH_DOMAIN_TAG = Buffer.from('AGENC_V2_CONSTRAINT_HASH', 'utf8');
 const OUTPUT_COMMITMENT_DOMAIN_TAG = Buffer.from('AGENC_V2_OUTPUT_COMMITMENT', 'utf8');
@@ -357,6 +354,14 @@ export async function generateProof(params: ProofGenerationParams): Promise<Proo
     agentSecret
   );
 
+  // Validate computed hashes are non-zero (on-chain rejects zero values)
+  if (hashes.constraintHash === 0n) {
+    throw new Error('Computed constraint hash is zero — task may not be configured for private completion');
+  }
+  if (hashes.outputCommitment === 0n) {
+    throw new Error('Computed output commitment is zero');
+  }
+
   const constraintHash = bigintToBytes32(hashes.constraintHash);
   const outputCommitment = bigintToBytes32(hashes.outputCommitment);
   const bindingSeed = bigintToBytes32(hashes.binding);
@@ -405,60 +410,23 @@ export async function generateProof(params: ProofGenerationParams): Promise<Proo
   };
 }
 
-function byteFromSignal(value: bigint, label: string): number {
-  if (value < 0n || value > 255n) {
-    throw new Error(`${label} must be an 8-bit value`);
-  }
-  return Number(value);
-}
-
-function signalToFieldBytes(value: bigint): Buffer {
-  return bigintToBytes32(value);
-}
-
-function buildJournalFromPublicSignals(publicSignals: bigint[]): Buffer {
-  if (publicSignals.length !== EXPECTED_PUBLIC_SIGNALS_LEN) {
-    throw new Error(
-      `publicSignals must contain exactly ${EXPECTED_PUBLIC_SIGNALS_LEN} elements`
-    );
-  }
-
-  const taskPda = Buffer.alloc(HASH_SIZE);
-  const agentAuthority = Buffer.alloc(HASH_SIZE);
-  for (let i = 0; i < HASH_SIZE; i++) {
-    taskPda[i] = byteFromSignal(publicSignals[i], `publicSignals[${i}]`);
-    agentAuthority[i] = byteFromSignal(publicSignals[i + HASH_SIZE], `publicSignals[${i + HASH_SIZE}]`);
-  }
-
-  const constraintHash = signalToFieldBytes(publicSignals[64]);
-  const outputCommitment = signalToFieldBytes(publicSignals[65]);
-  const bindingSeed = signalToFieldBytes(publicSignals[66]);
-  const nullifierSeed = signalToFieldBytes(publicSignals[67]);
-
-  return buildJournalBytes({
-    taskPda,
-    agentAuthority,
-    constraintHash,
-    outputCommitment,
-    bindingSeed,
-    nullifierSeed,
-  });
-}
-
 /**
  * Verify locally that seal bytes match the deterministic SDK proving transform.
  *
- * For compatibility with existing callers, this accepts either:
+ * Accepts either:
  * - 256-byte `proof` (legacy alias, selector assumed trusted), or
  * - 260-byte `sealBytes` (selector + proof).
  *
  * NOTE: This only verifies the simulated SDK transform. Real RISC Zero proofs
  * produced by `generateProofWithProver()` will return `false` — that is expected.
  * On-chain verification via the Verifier Router is the authoritative check.
+ *
+ * @param proof - Seal bytes (260) or proof body (256)
+ * @param journal - The 192-byte RISC Zero journal
  */
 export async function verifyProofLocally(
   proof: Buffer,
-  publicSignals: bigint[]
+  journal: Buffer
 ): Promise<boolean> {
   try {
     const raw = Buffer.from(proof);
@@ -477,8 +445,9 @@ export async function verifyProofLocally(
 
     validateSelector(selector);
     assertByteLength(proofBody, RISC0_GROTH16_SEAL_LEN, 'proof');
-    const journal = buildJournalFromPublicSignals(publicSignals);
-    const expected = simulateSealProofBytes(journal, Buffer.from(TRUSTED_RISC0_IMAGE_ID));
+    const journalBuf = Buffer.from(journal);
+    assertByteLength(journalBuf, RISC0_JOURNAL_LEN, 'journal');
+    const expected = simulateSealProofBytes(journalBuf, Buffer.from(TRUSTED_RISC0_IMAGE_ID));
     return proofBody.equals(expected);
   } catch {
     return false;

@@ -7440,6 +7440,11 @@
       "code": 6192,
       "name": "InvalidTokenAccountOwner",
       "msg": "Token account owner does not match expected authority"
+    },
+    {
+      "code": 6193,
+      "name": "InsufficientSeedEntropy",
+      "msg": "Binding or nullifier seed has insufficient byte diversity (min 8 distinct bytes required)"
     }
   ],
   "types": [

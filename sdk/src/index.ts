@@ -209,8 +209,15 @@ export {
 } from './errors';
 
 export {
-  validateProofPreconditions,
+  // Current API
+  runProofSubmissionPreflight,
   DEFAULT_MAX_PROOF_AGE_MS,
+  type ProofSubmissionPreflightResult,
+  type ProofSubmissionPreflightFailure,
+  type ProofSubmissionPreflightWarning,
+  type ProofSubmissionPreflightParams,
+  // Deprecated aliases (v1.6.0)
+  validateProofPreconditions,
   type ProofPreconditionResult,
   type ProofPreconditionFailure,
   type ProofPreconditionWarning,
@@ -304,6 +311,17 @@ export {
   type SkillRatingState,
   type PurchaseRecordState,
 } from './skills';
+
+export {
+  PrivacyClient,
+  type PrivacyClientConfig,
+} from './client';
+
+export {
+  validateProverEndpoint,
+  validateRisc0PayloadShape,
+  type Risc0PayloadLike,
+} from './validation';
 
 // Version info
 export const VERSION = '1.3.0';
