@@ -79,6 +79,29 @@ export {
   WELL_KNOWN_TOKENS,
 } from './jupiter/index.js';
 
+// PumpTracks skill
+export {
+  PumpTracksSkill,
+  PumpTracksClient,
+  PumpTracksApiError,
+  type PumpTracksClientConfig,
+  type PumpTracksSkillConfig,
+  type ListTracksParams,
+  type SearchTracksParams,
+  type MintTrackParams,
+  type Track,
+  type Artist,
+  type MintResult,
+  type PrepareResult,
+  PUMPTRACKS_API_BASE_URL,
+  DEFAULT_TIMEOUT_MS,
+  SUPPORTED_AUDIO_TYPES,
+  SUPPORTED_IMAGE_TYPES,
+  MAX_AUDIO_SIZE,
+  MAX_ARTWORK_SIZE,
+  MIN_MINT_SOL,
+} from './pumptracks/index.js';
+
 // Markdown SKILL.md parser
 export {
   type MarkdownSkill,
