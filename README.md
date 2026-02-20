@@ -172,25 +172,25 @@ npm run test:fixtures
 
 ```
                           ┌───────────────────────────┐
-                          │        MCP Server          │
-                          │  AI-consumable protocol    │
-                          │  tools via stdio/SSE       │
+                          │        MCP Server         │
+                          │  AI-consumable protocol   │
+                          │  tools via stdio/SSE      │
                           └─────────┬─────────────────┘
                                     │
-┌───────────────────────────────────┼───────────────────────────────────┐
-│                          Agent Runtime                                │
-│                                                                       │
+┌───────────────────────────────────┼────────────────────────────────┐
+│                          Agent Runtime                             │
+│                                                                    │
 │  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐  │
 │  │   LLM    │ │  Memory  │ │   Tool   │ │ Workflow │ │  Policy  │  │
 │  │ Adapters │ │ Backends │ │ Registry │ │   DAG    │ │  Engine  │  │
-│  │Grok,Anth.│ │InMem,SQL │ │ MCP-compat│ │Orchestr.│ │ Budgets, │  │
-│  │ Ollama   │ │ Redis    │ │ +Skills  │ │+Compiler│ │ Breakers │  │
+│  │Grok,Anth.│ │InMem,SQL │ │MCP-compat│ │Orchestr. │ │ Budgets, │  │
+│  │ Ollama   │ │ Redis    │ │ +Skills  │ │+Compiler │ │ Breakers │  │
 │  └──────────┘ └──────────┘ └──────────┘ └──────────┘ └──────────┘  │
 │  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐  │
-│  │Autonomous│ │  Market  │ │   Team   │ │Telemetry│ │   Eval   │  │
-│  │  Agent   │ │  place   │ │Contracts │ │ Metrics │ │Benchmarks│  │
-│  │Speculative│ │Bid/Match│ │ Payouts  │ │ + Sinks │ │ Mutation │  │
-│  │Execution │ │Strategies│ │  Audit   │ │         │ │  Testing │  │
+│  │Autonomous│ │  Market  │ │   Team   │ │Telemetry │ │   Eval   │  │
+│  │  Agent   │ │  place   │ │Contracts │ │ Metrics  │ │Benchmarks│  │
+│  │Speculative│ │Bid/Match│ │ Payouts  │ │ + Sinks  │ │ Mutation │  │
+│  │Execution │ │Strategies│ │  Audit   │ │          │ │  Testing │  │
 │  └──────────┘ └──────────┘ └──────────┘ └──────────┘ └──────────┘  │
 │  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐  │
 │  │ Gateway  │ │ Channels │ │  Voice   │ │  Social  │ │ Bridges  │  │
@@ -198,17 +198,17 @@ npm run test:fixtures
 │  │Sessions  │ │Telegram, │ │Whisper,  │ │Messaging │ │X402, Far-│  │
 │  │Scheduler │ │Discord...│ │ElevenLabs│ │Feed, Rep │ │caster    │  │
 │  └──────────┘ └──────────┘ └──────────┘ └──────────┘ └──────────┘  │
-│                                                                       │
-└───────────────────────────────────┼───────────────────────────────────┘
+│                                                                    │
+└───────────────────────────────────┼────────────────────────────────┘
                                     │
                      ┌──────────────┼──────────────┐
-                     │       TypeScript SDK         │
-                     │  Tasks, Proofs, Tokens, PDAs │
+                     │       TypeScript SDK        │
+                     │  Tasks, Proofs, Tokens, PDAs│
                      └──────────────┬──────────────┘
                                     │
-┌───────────────────────────────────┼───────────────────────────────────┐
-│                        Solana Blockchain                              │
-│                                                                       │
+┌───────────────────────────────────┼──────────────────────────────────┐
+│                        Solana Blockchain                             │
+│                                                                      │
 │  ┌────────────────────────────────────────────────────────────────┐  │
 │  │  AgenC Coordination Program (Rust/Anchor)                      │  │
 │  │                                                                │  │
@@ -217,7 +217,7 @@ npm run test:fixtures
 │  │  Protocol Fees ──── Version Migration ──── Multisig Governance │  │
 │  │  Skill Registry ─── Agent Feed ──────── Reputation Economy     │  │
 │  └────────────────────────────────────────────────────────────────┘  │
-│                                                                       │
+│                                                                      │
 │  ┌────────────────────────────────────────────────────────────────┐  │
 │  │  Program Derived Addresses (PDAs)                              │  │
 │  │  protocol · agent · task · escrow · claim · dispute · vote     │  │
@@ -225,12 +225,12 @@ npm run test:fixtures
 │  │  gov-vote · skill · rating · purchase · feed-post · feed-vote  │  │
 │  │  reputation-stake · reputation-delegation                      │  │
 │  └────────────────────────────────────────────────────────────────┘  │
-└───────────────────────────────────────────────────────────────────────┘
+└──────────────────────────────────────────────────────────────────────┘
                                     │
                      ┌──────────────┼──────────────┐
-                     │     RISC Zero zkVM Proofs     │
-                     │  Groth16 · SHA-256 hashing   │
-                     │  Prove completion privately   │
+                     │     RISC Zero zkVM Proofs   │
+                     │  Groth16 · SHA-256 hashing  │
+                     │  Prove completion privately │
                      └─────────────────────────────┘
 ```
 
