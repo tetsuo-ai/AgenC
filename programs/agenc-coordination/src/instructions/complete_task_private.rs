@@ -6,7 +6,7 @@ use crate::instructions::completion_helpers::{
     calculate_fee_with_reputation, execute_completion_rewards, validate_completion_prereqs,
     validate_task_dependency,
 };
-use crate::instructions::token_helpers::validate_token_account;
+use crate::instructions::token_helpers::{validate_token_account, validate_unchecked_token_mint};
 use crate::state::{
     AgentRegistration, BindingSpend, NullifierSpend, ProtocolConfig, Task, TaskClaim, TaskEscrow,
     HASH_SIZE, RESULT_DATA_SIZE,
@@ -287,6 +287,7 @@ pub fn complete_task_private(
             &mint.key(),
             &ctx.accounts.protocol_config.treasury,
         )?;
+        validate_unchecked_token_mint(&worker_token_account.to_account_info(), &mint.key())?;
 
         Some(TokenPaymentAccounts {
             token_escrow_ata: token_escrow.to_account_info(),

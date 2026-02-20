@@ -221,9 +221,13 @@ pub fn handler(ctx: Context<CancelTask>) -> Result<()> {
             .lamports()
             .checked_add(claim_lamports)
             .ok_or(CoordinationError::ArithmeticOverflow)?;
-        // Zero out data and set discriminator to closed
+        // Zero out data then write CLOSED_ACCOUNT_DISCRIMINATOR to prevent
+        // init_if_needed from re-initializing the claim after cancellation.
+        // Without this, claim_data is all zeros which matches a fresh account,
+        // allowing a worker to re-claim via init_if_needed bypass.
         let mut claim_data = claim_info.try_borrow_mut_data()?;
         claim_data.fill(0);
+        claim_data[..8].copy_from_slice(&[255u8; 8]);
     }
 
     // Reset current_workers since all workers are removed on cancel

@@ -406,12 +406,8 @@ pub fn execute_completion_rewards<'info>(
 ) -> Result<()> {
     let (worker_reward, protocol_fee) = calculate_reward_split(task, protocol_fee_bps)?;
 
-    if let Some(ref ta) = token_accounts {
-        // Token path: transfer via SPL token CPI
-        transfer_token_rewards(ta, worker_reward, protocol_fee)?;
-    } else {
-        // SOL path: existing lamport transfer (unchanged)
-        // Validate escrow has sufficient balance
+    // Checks: validate escrow balance for SOL path before any state mutations.
+    if token_accounts.is_none() {
         let total = worker_reward
             .checked_add(protocol_fee)
             .ok_or(CoordinationError::ArithmeticOverflow)?;
@@ -419,15 +415,11 @@ pub fn execute_completion_rewards<'info>(
             escrow.to_account_info().lamports() >= total,
             CoordinationError::InsufficientEscrowBalance
         );
-        transfer_rewards(
-            escrow,
-            authority_info,
-            treasury_info,
-            worker_reward,
-            protocol_fee,
-        )?;
     }
 
+    // Effects: update all internal state BEFORE external CPIs.
+    // This follows the checks-effects-interactions pattern to prevent
+    // stale state reads via Token-2022 transfer hooks or future CPI callbacks.
     update_claim_state(claim, escrow, worker_reward, protocol_fee)?;
     let task_completed =
         update_task_state(task, clock.unix_timestamp, escrow, result_data_for_task)?;
@@ -463,6 +455,19 @@ pub fn execute_completion_rewards<'info>(
         protocol_fee,
         timestamp: clock.unix_timestamp,
     });
+
+    // Interactions: external CPIs AFTER all state updates and events.
+    if let Some(ref ta) = token_accounts {
+        transfer_token_rewards(ta, worker_reward, protocol_fee)?;
+    } else {
+        transfer_rewards(
+            escrow,
+            authority_info,
+            treasury_info,
+            worker_reward,
+            protocol_fee,
+        )?;
+    }
 
     // Only close escrow when task is fully completed (all required completions done).
     // For collaborative tasks with max_workers > 1, this keeps the escrow open

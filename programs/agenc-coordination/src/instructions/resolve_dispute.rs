@@ -199,8 +199,8 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
             .checked_mul(PERCENT_BASE)
             .ok_or(CoordinationError::ArithmeticOverflow)?
             .checked_div(total_votes)
-            .ok_or(CoordinationError::ArithmeticOverflow)? as u8;
-        let is_approved = approval_pct >= config.dispute_threshold;
+            .ok_or(CoordinationError::ArithmeticOverflow)?;
+        let is_approved = approval_pct >= config.dispute_threshold as u64;
         let outcome = if is_approved {
             dispute_outcome::APPROVED
         } else {
