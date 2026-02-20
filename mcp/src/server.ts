@@ -233,7 +233,7 @@ const ERROR_CODES_REFERENCE = `# AgenC Error Codes (6000-6077)
 - 6027 ClaimNotExpired: Claim has not expired yet
 - 6028 InvalidProof: Invalid proof of work
 - 6029 ZkVerificationFailed: ZK proof verification failed
-- 6030 InvalidProofSize: Invalid proof size - expected 388 bytes for Groth16
+- 6030 InvalidProofSize: Invalid proof size - expected 260 bytes for RISC Zero seal
 - 6031 InvalidProofBinding: Invalid proof binding: expected_binding cannot be all zeros
 - 6032 InvalidOutputCommitment: Invalid output commitment: output_commitment cannot be all zeros
 

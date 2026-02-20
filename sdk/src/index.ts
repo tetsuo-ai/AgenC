@@ -15,7 +15,7 @@ export {
   pubkeyToField,
   FIELD_MODULUS,
   // Hash computation functions
-  computeBindingDigest,
+  computeBinding,
   computeConstraintHash,
   // Types
   ProofGenerationParams,

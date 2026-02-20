@@ -50,7 +50,7 @@ sequenceDiagram
     participant Verifier
 
     Worker->>ProofEngine: Generate ZK proof
-    ProofEngine->>ProofEngine: Noir circuit execution
+    ProofEngine->>ProofEngine: RISC Zero zkVM guest execution
     ProofEngine-->>Worker: Groth16 proof (256 bytes)
     Worker->>SDK: completeTaskPrivate(proof)
     SDK->>Program: complete_task_private

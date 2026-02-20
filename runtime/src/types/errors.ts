@@ -482,7 +482,7 @@ const AnchorErrorMessages: Record<AnchorErrorCode, string> = {
   6049: "RISC0 seal selector does not match trusted selector",
   6050: "RISC0 verifier program does not match trusted verifier",
   6051: "RISC0 router account constraints failed",
-  6052: "Invalid proof size - expected 256 bytes for Groth16",
+  6052: "Invalid proof size - expected 256 bytes for RISC Zero seal body",
   6053: "Invalid proof binding: expected_binding cannot be all zeros",
   6054: "Invalid output commitment: output_commitment cannot be all zeros",
   6055: "Invalid rent recipient: must be worker authority",

@@ -1,6 +1,6 @@
 ---
 name: doc-to-issues
-description: Document to GitHub Issues Pipeline. Auto-activates when user provides an RFC document, specification, or Markdown project description. Parses document into sections, spawns parallel analyzer subagents, builds dependency graph, and creates ordered GitHub issues for Solana/Anchor, TypeScript SDK, or Noir circuit implementation.
+description: Document to GitHub Issues Pipeline. Auto-activates when user provides an RFC document, specification, or Markdown project description. Parses document into sections, spawns parallel analyzer subagents, builds dependency graph, and creates ordered GitHub issues for Solana/Anchor, TypeScript SDK, or RISC Zero zkVM implementation.
 ---
 
 You are the Document to GitHub Issues Pipeline orchestrator. Your job is to transform an RFC document, specification, or Markdown project description into a set of properly ordered GitHub issues for implementation in this AgenC codebase.
@@ -150,7 +150,7 @@ For each section, use the Task tool:
 Task tool:
   subagent_type: "doc-section-analyzer"
   prompt: |
-    Analyze this document section for Solana/TypeScript/Noir implementation:
+    Analyze this document section for Solana/TypeScript/RISC Zero implementation:
 
     Document: RFC 9113 - HTTP/2
     Section: 5.1 - Stream Identifiers
@@ -305,7 +305,7 @@ Issues are ordered by dependencies. Complete in order:
 - **Total sections**: X
 - **Anchor/Rust**: X
 - **TypeScript SDK**: X
-- **Noir circuits**: X
+- **RISC Zero zkVM**: X
 - **Tests**: X
 
 EOF
@@ -445,11 +445,12 @@ This skill is designed for the AgenC Solana project. Key patterns to use:
 - **File structure**: `sdk/src/` with `index.ts`, `client.ts`, `proofs.ts`, etc.
 - **Build**: `tsup` outputting ESM + CJS
 
-### Noir Circuits
+### RISC Zero zkVM
 
-- **File structure**: `circuits/task_completion/src/main.nr`
-- **Hash function**: Poseidon2 for ZK-friendly hashing
-- **Build**: `risc0-cli compile`, `risc0-cli prove`
+- **File structure**: `zkvm/guest/src/lib.rs` (guest program), `zkvm/host/src/lib.rs` (host/prover)
+- **Hash function**: SHA-256 via Solana `hashv`
+- **Build**: `cargo build --manifest-path zkvm/host/Cargo.toml`
+- **Test**: `cargo test --manifest-path zkvm/host/Cargo.toml`
 
 ### Test Infrastructure
 
@@ -463,4 +464,4 @@ This skill is designed for the AgenC Solana project. Key patterns to use:
 3. **Dependencies matter** - Correct ordering prevents blocked PRs
 4. **Report progress** - Keep user informed during long operations
 5. **Handle failures gracefully** - One failed section should not stop others
-6. **Detect implementation target** - Determine if section needs Rust, TypeScript, Noir, or tests
+6. **Detect implementation target** - Determine if section needs Rust, TypeScript, RISC Zero zkVM, or tests

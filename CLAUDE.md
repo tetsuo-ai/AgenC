@@ -25,8 +25,7 @@ AgenC is a privacy-preserving AI agent coordination protocol built on Solana. It
 - **MCP Server** (`mcp/`) - Model Context Protocol server exposing protocol operations as MCP tools (`@agenc/mcp` v0.1.0)
 - **Docs MCP Server** (`docs-mcp/`) - MCP server providing AI-assisted architecture doc lookups per roadmap issue
 - **Demo App** (`demo-app/`) - React web interface for privacy workflow demonstration
-- **ZK Circuits** (`circuits/`) - Noir circuits for private task completion proofs (Groth16)
-- **MPC Ceremony** (`circuits-legacy-circuit/`) - Trusted setup tooling for Groth16 verifying key generation
+- **ZK VM** (`zkvm/`) - RISC Zero guest/host programs for private task completion proofs (Groth16 via Verifier Router CPI)
 - **Test Infrastructure** (`tests/`) - LiteSVM-based integration tests, CU benchmarks, and Rust fuzz testing
 
 ## Quick Start
@@ -113,13 +112,11 @@ npm run dev                # Development server
 npm run build              # Production build (outputs to dist/)
 ```
 
-### ZK Circuits (Noir)
+### ZK VM (RISC Zero)
 
 ```bash
-cd circuits/task_completion
-risc0-cli compile              # Compile circuit
-risc0-cli test                 # Run circuit tests
-risc0-cli prove                # Generate proof (requires Prover.toml inputs)
+# Run zkVM host tests (includes guest verification)
+cargo test --manifest-path zkvm/host/Cargo.toml
 ```
 
 ### Fuzz Tests
@@ -245,8 +242,7 @@ AgenC/
 │   └── dist/                        # Build output
 ├── docs-mcp/                        # Docs MCP Server (architecture doc lookups)
 ├── demo-app/                        # React + Vite web interface
-├── circuits/task_completion/        # Noir ZK circuits
-├── circuits-legacy-circuit/task_completion/ # Circom circuits + MPC ceremony tooling
+├── zkvm/                           # RISC Zero guest/host programs for ZK proofs
 ├── examples/                        # autonomous-agent, dispute-arbiter, event-dashboard, helius-webhook, llm-agent, memory-agent, simple-usage, skill-jupiter, tetsuo-integration, zk-proof-demo
 ├── tests/                           # LiteSVM-based integration tests
 │   ├── test_1.ts                    # Main integration suite (140 tests)
@@ -427,9 +423,6 @@ RECOMMENDED_CU_COMPLETE_TASK_TOKEN = 100_000
 RECOMMENDED_CU_COMPLETE_TASK_PRIVATE_TOKEN = 250_000
 RECOMMENDED_CU_CANCEL_TASK_TOKEN = 80_000
 
-// Tool timeouts
-NARGO_EXECUTE_TIMEOUT_MS = 120_000
-SUNSPOT_PROVE_TIMEOUT_MS = 300_000
 ```
 
 ### Path Validation (Single Source of Truth)
@@ -603,7 +596,7 @@ import { InMemoryBackend, SqliteBackend, RedisBackend } from '@agenc/runtime';
 import { ProofEngine } from '@agenc/runtime';
 
 const engine = new ProofEngine({
-  proofProgramPath: './circuits-legacy-circuit/task_completion',
+  methodId: new Uint8Array(32), // RISC Zero image ID
   verifyAfterGeneration: false,
   cache: { ttlMs: 300_000, maxEntries: 100 },
 });
@@ -861,25 +854,26 @@ claude mcp add agenc-dev \
 
 | Layer | Technology | Purpose |
 |-------|------------|---------|
-| Circuit | Noir | ZK circuit definition |
-| Prover | Sunspot (Groth16) | Off-chain proof generation |
-| Verifier | router-verifier-crate | On-chain proof verification |
-| Hash | Poseidon2 | ZK-friendly hashing |
-| Ceremony | legacy-js-prover | MPC trusted setup |
+| zkVM Guest | RISC Zero guest program | Proof logic (journal output) |
+| zkVM Host | RISC Zero host program | Off-chain proof generation |
+| Verifier Router | RISC Zero Solana Verifier Router CPI | On-chain proof verification |
+| Hash | SHA-256 (Solana `hashv`) | Commitment and binding hashing |
 
-**Verifier Program ID:** `8fHUGmjNzSh76r78v1rPt7BhWmAu2gXrvW9A2XXonwQQ`
-**Expected Proof Size:** 256 bytes (Groth16)
-**Public Inputs Count:** 67
+**Router Program ID:** `6JvFfBrvCcWgANKh1Eae9xDq4RC6cfJuBcf71rp2k9Y7`
+**Verifier Program ID:** `THq1qFYQoh7zgcjXoMXduDBqiZRCPeg3PvvMbrVQUge`
+**Journal Size:** 192 bytes (6 x 32-byte fields)
+**Seal Size:** 260 bytes (4-byte selector + 256-byte Groth16 proof)
 
 ### Proof Flow
 
 ```
 1. Agent computes task output locally
-2. Agent generates Noir proof via risc0-cli/risc0-prover-cli
-3. Agent submits proof on-chain via complete_task_private
-4. On-chain validates: binding, commitment, constraint hash, nullifier uniqueness
-5. Groth16 verifier validates proof (~100-130k CU)
-6. If valid, agent receives reward without revealing output
+2. Host program generates RISC Zero proof (seal + journal)
+3. Agent submits seal + journal + imageId on-chain via complete_task_private
+4. On-chain: Verifier Router CPI validates the seal against the journal and image ID
+5. On-chain: Journal fields parsed and validated (binding, commitment, constraint hash)
+6. On-chain: BindingSpend + NullifierSpend PDAs prevent replay
+7. If valid, agent receives reward without revealing output
 ```
 
 ### Verifying Key Security

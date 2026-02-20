@@ -37,7 +37,7 @@ Task tool parameters:
 
     Then analyze this file:
     - file_path: {absolute_file_path}
-    - language: {rust|typescript|noir}
+    - language: {rust|typescript|zkvm}
 
     Output a YAML remediation plan as specified in your agent definition.
 ```
@@ -66,7 +66,7 @@ Task tool parameters:
 
     Then implement these fixes:
     - file_path: {absolute_file_path}
-    - language: {rust|typescript|noir}
+    - language: {rust|typescript|zkvm}
     - remediation_plan: |
         {paste the YAML plan here}
 
@@ -88,8 +88,8 @@ After the implementer completes:
    cd sdk && npx tsc --noEmit
    # For TypeScript tests:
    npx tsc --noEmit
-   # For Noir:
-   cd circuits/task_completion && risc0-cli check
+   # For RISC Zero zkVM:
+   cargo test --manifest-path zkvm/host/Cargo.toml
    ```
 
 2. **Commit changes** if compilation passes:
@@ -133,7 +133,7 @@ files:
 Determine language from file extension:
 - `.rs` → `rust`
 - `.ts`, `.tsx` → `typescript`
-- `.nr` → `noir`
+- `.nr` → `zkvm` (legacy; new zkVM code is `.rs` in `zkvm/`)
 
 ## File Processing Order
 
@@ -213,6 +213,6 @@ group_coordination_report:
 | migrations-ts | typescript | migrations/*.ts |
 | migrations-rust | rust | migrations/*.rs |
 | examples | typescript | examples/**/*.ts |
-| zk-circuits | noir | circuits/task_completion/src/*.nr |
+| zk-circuits | rust (zkvm) | zkvm/guest/src/*.rs, zkvm/host/src/*.rs |
 
 Begin coordination when you receive the group_id, worktree_path, and file list via $ARGUMENTS.

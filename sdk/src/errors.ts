@@ -79,7 +79,7 @@ export const COORDINATION_ERROR_MAP: Record<number, CoordinationErrorEntry> = {
   6040: { name: 'InvalidExpiration', message: 'Invalid expiration: expires_at cannot be zero', category: 'claim' },
   6041: { name: 'InvalidProof', message: 'Invalid proof of work', category: 'claim' },
   6042: { name: 'ZkVerificationFailed', message: 'ZK proof verification failed', category: 'claim' },
-  6043: { name: 'InvalidProofSize', message: 'Invalid proof size - expected 256 bytes for Groth16', category: 'claim' },
+  6043: { name: 'InvalidProofSize', message: 'Invalid proof size - expected 256 bytes for RISC Zero seal body', category: 'claim' },
   6044: { name: 'InvalidProofBinding', message: 'Invalid proof binding: expected_binding cannot be all zeros', category: 'claim' },
   6045: { name: 'InvalidOutputCommitment', message: 'Invalid output commitment: output_commitment cannot be all zeros', category: 'claim' },
   6046: { name: 'InvalidRentRecipient', message: 'Invalid rent recipient: must be worker authority', category: 'claim' },

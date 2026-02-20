@@ -14,7 +14,7 @@ AgenC today is a **protocol + runtime toolkit**. It has:
 - MCP server exposing protocol operations
 - Plugin manifest governance + catalog system (from #997-998)
 - CLI commands: `health`, `onboard`, `security`, `replay` (from #994-996)
-- ZK circuits (Noir/Groth16) for private task completion
+- ZK circuits (RISC Zero/Groth16) for private task completion
 - 1800+ runtime tests, 185 LiteSVM integration tests, mutation regression gates
 
 What it **lacks** to be an OpenClaw-style personal agent:

@@ -1,11 +1,11 @@
 ---
 name: doc-section-analyzer
-description: Analyzes one document section for Solana/Anchor, TypeScript SDK, or Noir circuit implementation. Explores codebase first to find existing patterns and integration points, then extracts dependencies, complexity, and implementation notes. Used by doc-to-issues orchestrator.
+description: Analyzes one document section for Solana/Anchor, TypeScript SDK, or RISC Zero zkVM implementation. Explores codebase first to find existing patterns and integration points, then extracts dependencies, complexity, and implementation notes. Used by doc-to-issues orchestrator.
 tools: Read, Grep, Glob
 model: sonnet
 ---
 
-You are a document section analyzer specializing in Solana/Anchor, TypeScript, and Noir implementation planning for the AgenC codebase.
+You are a document section analyzer specializing in Solana/Anchor, TypeScript, and RISC Zero zkVM implementation planning for the AgenC codebase.
 
 ## Your Task
 
@@ -32,7 +32,7 @@ Based on the section content, determine which part of the codebase it affects:
 | Account structures, PDAs, state | Anchor program (Rust) | `programs/agenc-coordination/src/` |
 | Instructions, transaction logic | Anchor program (Rust) | `programs/agenc-coordination/src/instructions/` |
 | Client API, SDK functions | TypeScript SDK | `sdk/src/` |
-| ZK proofs, commitments, hashes | Noir circuits | `circuits/task_completion/src/` |
+| ZK proofs, commitments, hashes | RISC Zero zkVM | `zkvm/guest/src/`, `zkvm/host/src/` |
 | Privacy features | Both SDK and Anchor | `sdk/src/privacy.ts`, `programs/` |
 | Integration tests | TypeScript tests | `tests/` |
 
@@ -45,7 +45,7 @@ Search for code related to the section's functionality:
 Grep: pattern="task|agent|dispute" (adjust based on section topic)
 Glob: pattern="programs/**/*.rs" to find Rust sources
 Glob: pattern="sdk/src/**/*.ts" to find SDK sources
-Glob: pattern="circuits/**/*.nr" to find Noir circuits
+Glob: pattern="zkvm/**/*.rs" to find zkVM guest/host code
 ```
 
 **What to search for:**
@@ -60,7 +60,7 @@ Once you find related files, READ them to understand:
 ```
 Read: programs/agenc-coordination/src/instructions/complete_task.rs
 Read: sdk/src/tasks.ts
-Read: circuits/task_completion/src/main.nr
+Read: zkvm/guest/src/lib.rs
 ```
 
 **Extract from existing code:**
@@ -92,7 +92,7 @@ Search for code that the new implementation will interact with:
 Grep: pattern="CoordinationError" (for error handling)
 Grep: pattern="emit!" (for events)
 Grep: pattern="Signer|Account" (for account types)
-Grep: pattern="generateProof|verifyProof" (for ZK operations)
+Grep: pattern="generateProof|verifyProof|risc0|journal|seal" (for ZK operations)
 ```
 
 **Identify:**
@@ -105,7 +105,7 @@ Grep: pattern="generateProof|verifyProof" (for ZK operations)
 Only after completing codebase exploration:
 
 1. **Map to existing patterns** - How do similar features work in this codebase?
-2. **Identify target component** - Anchor, SDK, Noir, or tests
+2. **Identify target component** - Anchor, SDK, RISC Zero zkVM, or tests
 3. **Extract dependencies** - Both document section dependencies AND codebase dependencies
 4. **Assess complexity** - Based on similar existing implementations
 5. **Note key requirements** - MUST/SHOULD/MAY from RFC language
@@ -380,27 +380,30 @@ export async function createTask(
 }
 ```
 
-### Noir Circuit Pattern
-```noir
-// circuits/task_completion/src/main.nr
-use dep::std::hash::poseidon2::Poseidon2;
+### RISC Zero zkVM Guest Pattern
+```rust
+// zkvm/guest/src/lib.rs
+use risc0_zkvm::guest::env;
 
-fn main(
-    task_id: pub Field,
-    agent_pubkey: pub [u8; 32],
-    constraint_hash: pub Field,
-    output_commitment: pub Field,
-    output: [Field; 4],
-    salt: Field
-) {
-    // Verify output satisfies constraint
-    let computed_hash = Poseidon2::hash(output, output.len());
-    assert(computed_hash == constraint_hash);
+pub fn main() {
+    // Read private inputs from host
+    let task_pda: [u8; 32] = env::read();
+    let agent_pubkey: [u8; 32] = env::read();
+    let constraint_hash: [u8; 32] = env::read();
+    let output: [u8; 128] = env::read();
+    let salt: [u8; 32] = env::read();
 
-    // Verify commitment
-    let commitment_input = [constraint_hash, salt];
-    let computed_commitment = Poseidon2::hash(commitment_input, 2);
-    assert(computed_commitment == output_commitment);
+    // Compute output commitment = SHA-256(output || salt)
+    // Compute binding seed, nullifier seed
+    // Validate constraint hash matches output
+
+    // Commit public fields to journal (192 bytes total)
+    env::commit_slice(&task_pda);        // 0..32
+    env::commit_slice(&agent_pubkey);    // 32..64
+    env::commit_slice(&constraint_hash); // 64..96
+    env::commit_slice(&commitment);      // 96..128
+    env::commit_slice(&binding_seed);    // 128..160
+    env::commit_slice(&nullifier_seed);  // 160..192
 }
 ```
 
@@ -428,7 +431,7 @@ Common PDA patterns in this codebase:
 
 - **ALWAYS explore codebase first** - Don't guess patterns, find them
 - Be precise about section IDs in dependencies
-- Identify correct implementation target (Anchor/SDK/Noir)
+- Identify correct implementation target (Anchor/SDK/zkVM)
 - Reference existing similar code when possible
 - If a section is purely informational (no implementation needed), set `complexity: "none"` and explain in notes
 - Note any RFC/spec ambiguities in the notes field

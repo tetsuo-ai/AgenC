@@ -63,14 +63,14 @@ export interface SpeculativeCommitment {
   
   /** 
    * Hash of the speculated output.
-   * Poseidon hash of the predicted task result.
+   * SHA-256 hash of the predicted task result.
    * @format 32-byte buffer
    */
   readonly outputHash: Buffer;
   
   /**
    * Cryptographic commitment to the speculation parameters.
-   * commit(outputHash, salt, committer) using Poseidon.
+   * commit(outputHash, salt, committer) using SHA-256.
    * @format 32-byte buffer
    */
   readonly commitment: Buffer;
@@ -334,7 +334,7 @@ export interface CreateCommitmentParams {
   readonly taskId: number;
   
   /**
-   * Predicted output hash (Poseidon hash of expected result).
+   * Predicted output hash (SHA-256 hash of expected result).
    * @format 32-byte buffer
    * @validation Must be non-zero.
    */
@@ -1224,7 +1224,7 @@ export interface FraudProofValidationResult {
 
 ```typescript
 /**
- * Compute Poseidon commitment hash.
+ * Compute SHA-256 commitment hash.
  * commit(outputHash, salt, committer) → 32-byte hash
  */
 export type CommitmentHashFn = (

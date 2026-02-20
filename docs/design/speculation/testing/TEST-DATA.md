@@ -444,7 +444,7 @@ export const MOCK_CL_CONFIG = {
   REQUIRE_NONCE_VALIDATION: true,
   
   // Hash algorithm
-  HASH_ALGORITHM: 'poseidon2',
+  HASH_ALGORITHM: 'sha256',
   
   // Test mode settings
   TEST_MODE: {
@@ -751,7 +751,7 @@ const expectedOutput = {
   commitmentId: 'commit-uuid-generated',
   taskId: 'task-789',
   agentPubkey: '4zXMtBjHgUfTRqMwYbGSvfqPkGGPE4CjJFPDvVVVVVVV',
-  commitmentHash: '0x333...',  // Poseidon2(outputHash || salt)
+  commitmentHash: '0x333...',  // SHA-256(outputHash || salt)
   merkleIndex: 42,
   merkleRoot: '0x444...',
   status: 'PENDING',
@@ -1402,7 +1402,7 @@ function determineCriticalPath(tasks: any[]): string[] {
 ```typescript
 // tests/generators/speculation/commitment-generator.ts
 
-import { poseidon2 } from '@zkpassport/poseidon2';
+import { createHash } from 'crypto';
 import { randomBytes } from 'crypto';
 import { Keypair } from '@solana/web3.js';
 import nacl from 'tweetnacl';
@@ -1414,6 +1414,10 @@ export interface CommitmentGeneratorConfig {
   includeSignature?: boolean;
 }
 
+function sha256Hash(data: Buffer): Buffer {
+  return createHash('sha256').update(data).digest();
+}
+
 export function generateCommitment(config: CommitmentGeneratorConfig) {
   const output = config.outputData || [
     BigInt('0x' + randomBytes(8).toString('hex')),
@@ -1421,10 +1425,10 @@ export function generateCommitment(config: CommitmentGeneratorConfig) {
     BigInt('0x' + randomBytes(8).toString('hex')),
     BigInt('0x' + randomBytes(8).toString('hex'))
   ];
-  
+
   const salt = BigInt('0x' + randomBytes(32).toString('hex'));
-  const outputHash = poseidon2(output);
-  const commitmentHash = poseidon2([outputHash, salt]);
+  const outputHash = sha256Hash(Buffer.from(output.map(b => b.toString(16).padStart(16, '0')).join(''), 'hex'));
+  const commitmentHash = sha256Hash(Buffer.concat([outputHash, Buffer.from(salt.toString(16).padStart(64, '0'), 'hex')]));
   
   const nonce = Date.now();
   const timestamp = Date.now();
@@ -1717,7 +1721,7 @@ export const TEST_HASHES = {
   MAX_HASH: '0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff',
   SAMPLE_CONSTRAINT_HASH: '0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef',
   SAMPLE_OUTPUT_HASH: '0xabcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789',
-  POSEIDON_EMPTY: '0x2098f5fb9e239eab3ceac3f27b81e481dc3124d55ffed523a839ee8446b64864'
+  SHA256_EMPTY: '0xe3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'
 };
 ```
 

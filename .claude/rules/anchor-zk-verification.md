@@ -5,58 +5,106 @@ paths:
   - "programs/**/*zk*.rs"
 ---
 
-# Anchor ZK Proof Verification Rules
+# Anchor ZK Proof Verification Rules (RISC Zero)
 
-## Verifier Program
+## Verifier Router CPI
 
-ZK proofs are verified via CPI to the Sunspot Groth16 verifier:
-```rust
-pub const ZK_VERIFIER_PROGRAM_ID: Pubkey = pubkey!("8fHUGmjNzSh76r78v1rPt7BhWmAu2gXrvW9A2XXonwQQ");
-```
+ZK proofs are verified via CPI to the RISC Zero Verifier Router, NOT inline pairing math.
 
-## Proof Structure
+### Trusted Program IDs (Pinned Constants)
 
 ```rust
-pub struct PrivateCompletionPayload {
-    pub proof_data: Vec<u8>,         // Groth16 proof (~256 bytes for BN254)
-    pub constraint_hash: [u8; 32],   // Public: task constraint hash
-    pub output_commitment: [u8; 32], // Public: commitment to private output
-}
+/// RISC Zero Verifier Router
+pub const ROUTER_PROGRAM_ID: Pubkey = pubkey!("6JvFfBrvCcWgANKh1Eae9xDq4RC6cfJuBcf71rp2k9Y7");
+
+/// RISC Zero Groth16 Verifier
+pub const VERIFIER_PROGRAM_ID: Pubkey = pubkey!("THq1qFYQoh7zgcjXoMXduDBqiZRCPeg3PvvMbrVQUge");
 ```
 
-## Public Witness Format
+These are pinned as constants on-chain. The instruction validates that the passed program accounts match these IDs.
 
-35 public inputs (matching Noir circuit):
-1. `task_id` (32 bytes) - Task key as field element
-2. `agent_pubkey` (32 x 32 bytes) - Each byte as separate field element
-3. `constraint_hash` (32 bytes)
-4. `output_commitment` (32 bytes)
+## Seal Decode
 
-Header format: 12 bytes (4 bytes nr_inputs LE + 8 bytes padding)
+The seal is 260 bytes total:
+- **4 bytes:** Selector (identifies which verifier to route to)
+- **256 bytes:** Groth16 proof data
+
+```rust
+// Decode seal
+let selector = &seal[0..4];       // Route to correct verifier
+let proof_data = &seal[4..260];   // Groth16 proof
+```
+
+## Journal Parse
+
+The journal is 192 bytes total (6 x 32-byte fields):
+
+| Offset | Field | Validation |
+|--------|-------|------------|
+| 0..32 | Task PDA | Must match `task.key()` |
+| 32..64 | Agent pubkey | Must match signer |
+| 64..96 | Constraint hash | Must match `task.constraint_hash` |
+| 96..128 | Output commitment | Must not be all zeros |
+| 128..160 | Binding seed | Used for BindingSpend PDA |
+| 160..192 | Nullifier seed | Used for NullifierSpend PDA |
+
+```rust
+// Parse journal fields
+let journal_task_pda = &journal[0..32];
+let journal_agent = &journal[32..64];
+let journal_constraint = &journal[64..96];
+let journal_commitment = &journal[96..128];
+let journal_binding = &journal[128..160];
+let journal_nullifier = &journal[160..192];
+```
 
 ## Verification via CPI
 
 ```rust
-let ix = Instruction {
-    program_id: verifier.key(),
-    accounts: vec![],
-    data: instruction_data,  // proof_bytes + public_witness
-};
-invoke(&ix, &[])?;  // Returns error if proof invalid
+// Build CPI to Verifier Router
+let verify_ix = risc0_solana::verify_instruction(
+    &image_id,
+    &journal,
+    &seal,
+);
+invoke(&verify_ix, &[router_program.clone(), verifier_program.clone()])?;
 ```
 
-## Security Requirements
+## Dual Replay Protection
 
-- Always validate `zk_verifier.key() == ZK_VERIFIER_PROGRAM_ID`
-- Log public inputs for transparency/debugging
-- Store commitment (not result) for private completions
-- Verify task state before accepting proof
+Two PDAs are initialized during private completion to prevent replay:
+
+### BindingSpend PDA
+- **Seeds:** `["binding_spend", binding_seed]`
+- **Purpose:** Prevents the same binding (task+agent combination) from being used twice
+- **Initialized via `init`:** Transaction fails if PDA already exists
+
+### NullifierSpend PDA
+- **Seeds:** `["nullifier_spend", nullifier_seed]`
+- **Purpose:** Prevents the same proof from being submitted twice
+- **Initialized via `init`:** Transaction fails if PDA already exists
+
+Both PDAs are rent-exempt accounts created during the instruction. The `init` constraint ensures uniqueness -- attempting to create an already-existing PDA causes an Anchor error.
+
+## Error Codes
+
+| Error | Description |
+|-------|-------------|
+| `InvalidSealEncoding` | Seal bytes wrong length or malformed |
+| `InvalidJournalLength` | Journal is not exactly 192 bytes |
+| `InvalidJournalBinding` | Journal task PDA or agent pubkey mismatch |
+| `InvalidConstraintHash` | Journal constraint hash does not match task |
+| `InvalidOutputCommitment` | Output commitment is all zeros |
+| `NullifierAlreadySpent` | NullifierSpend PDA already exists (replay) |
+| `BindingAlreadySpent` | BindingSpend PDA already exists (replay) |
+| `InvalidRouterProgram` | Router program ID does not match pinned constant |
+| `InvalidVerifierProgram` | Verifier program ID does not match pinned constant |
 
 ## NOT Affected by April 2025 Solana ZK Vulnerability
 
 This codebase uses:
-- Noir circuits (not Solana's ZK ElGamal)
-- Sunspot/Groth16 verifier (not Token-2022)
-- Poseidon2 hashing (not ElGamal encryption)
+- RISC Zero zkVM (not Solana's ZK ElGamal)
+- Verifier Router CPI / Groth16 (not Token-2022)
+- SHA-256 hashing via Solana `hashv` (not ElGamal encryption)
 
 The Solana ZK ElGamal vulnerability does NOT apply here.
