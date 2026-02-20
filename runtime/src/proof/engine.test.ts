@@ -324,7 +324,7 @@ describe('ProofEngine', () => {
       vi.mocked(mockVerifyProofLocally).mockResolvedValueOnce(true);
       const engine = new ProofEngine();
 
-      const valid = await engine.verify(new Uint8Array(256), [1n, 2n]);
+      const valid = await engine.verify(new Uint8Array(256), new Uint8Array(192));
       expect(valid).toBe(true);
       expect(mockVerifyProofLocally).toHaveBeenCalledOnce();
     });
@@ -333,7 +333,7 @@ describe('ProofEngine', () => {
       vi.mocked(mockVerifyProofLocally).mockResolvedValueOnce(true);
       const engine = new ProofEngine();
 
-      await engine.verify(new Uint8Array(256), []);
+      await engine.verify(new Uint8Array(256), new Uint8Array(192));
       const stats = engine.getStats();
       expect(stats.verificationsPerformed).toBe(1);
       expect(stats.verificationsFailed).toBe(0);
@@ -343,7 +343,7 @@ describe('ProofEngine', () => {
       vi.mocked(mockVerifyProofLocally).mockResolvedValueOnce(false);
       const engine = new ProofEngine();
 
-      await engine.verify(new Uint8Array(256), []);
+      await engine.verify(new Uint8Array(256), new Uint8Array(192));
       const stats = engine.getStats();
       expect(stats.verificationsPerformed).toBe(1);
       expect(stats.verificationsFailed).toBe(1);
@@ -353,7 +353,7 @@ describe('ProofEngine', () => {
       vi.mocked(mockVerifyProofLocally).mockRejectedValueOnce(new Error('boom'));
       const engine = new ProofEngine();
 
-      await expect(engine.verify(new Uint8Array(256), [])).rejects.toThrow(
+      await expect(engine.verify(new Uint8Array(256), new Uint8Array(192))).rejects.toThrow(
         ProofVerificationError,
       );
     });
