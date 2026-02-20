@@ -931,7 +931,7 @@ export class TaskNotClaimableError extends RuntimeError {
  *
  * @example
  * ```typescript
- * throw new TaskExecutionError(taskPda, 'Circuit generation failed');
+ * throw new TaskExecutionError(taskPda, 'Proof generation failed');
  * ```
  */
 export class TaskExecutionError extends RuntimeError {
