@@ -1,7 +1,8 @@
 /**
  * High-level Privacy Client for AgenC
  *
- * Provides a simplified interface for privacy-preserving task operations
+ * Provides a simplified interface for privacy-preserving task operations.
+ * Wraps the lower-level proof generation and task completion APIs.
  */
 
 import { Connection, PublicKey, Keypair, LAMPORTS_PER_SOL } from '@solana/web3.js';
@@ -9,22 +10,8 @@ import { type Idl, Program, AnchorProvider, Wallet } from '@coral-xyz/anchor';
 import { DEVNET_RPC, MAINNET_RPC } from './constants';
 import { validateProverEndpoint } from './validation';
 import { createLogger, silentLogger, type Logger, type LogLevel } from './logger';
-
-interface PrivacyOperationsClient {
-  initPrivacyCash(wallet: Keypair): Promise<void>;
-  shieldEscrow(wallet: Keypair, lamports: number): Promise<{ txSignature: string; shieldedAmount: number }>;
-  getShieldedBalance(): Promise<{ lamports: number }>;
-  completeTaskPrivate(
-    params: {
-      taskId: number;
-      output: bigint[];
-      salt: bigint;
-      recipientWallet: PublicKey;
-      escrowLamports: number;
-    },
-    wallet: Keypair,
-  ): Promise<{ proofTxSignature: string; withdrawResult: any }>;
-}
+import { generateProof, generateSalt, type ProofGenerationParams } from './proofs';
+import { completeTaskPrivate as submitCompleteTaskPrivate } from './tasks';
 
 export interface PrivacyClientConfig {
   /** Solana RPC endpoint URL */
@@ -35,6 +22,8 @@ export interface PrivacyClientConfig {
   proverEndpoint?: string;
   /** Owner wallet keypair */
   wallet?: Keypair;
+  /** Agent ID (32 bytes) — required for completeTaskPrivate */
+  agentId?: Uint8Array | number[];
   /** Enable debug logging */
   debug?: boolean;
   /** Log level (overrides debug flag if set) */
@@ -46,9 +35,9 @@ export interface PrivacyClientConfig {
 export class PrivacyClient {
   private connection: Connection;
   private program: Program | null = null;
-  private privacyClient: PrivacyOperationsClient | null = null;
   private config: PrivacyClientConfig;
   private wallet: Keypair | null = null;
+  private agentId: Uint8Array | number[] | null = null;
   private logger: Logger;
 
   constructor(config: PrivacyClientConfig = {}) {
@@ -96,6 +85,9 @@ export class PrivacyClient {
     if (config.wallet) {
       this.wallet = config.wallet;
     }
+    if (config.agentId) {
+      this.agentId = config.agentId;
+    }
 
     // Security: Only log non-sensitive info in debug mode
     this.logger.debug('PrivacyClient initialized');
@@ -133,13 +125,6 @@ export class PrivacyClient {
     // Security: Truncate public key to avoid full exposure in logs
     const pubkey = wallet.publicKey.toBase58();
     this.logger.debug(`Wallet initialized: ${pubkey.substring(0, 8)}...${pubkey.substring(pubkey.length - 4)}`);
-
-    // The legacy embedded privacy client was removed from the SDK package.
-    // Use explicit task/proof APIs for private completion flows.
-    if (this.program) {
-      this.logger.warn('Embedded privacy client is unavailable in this build');
-      this.privacyClient = null;
-    }
   }
 
   /**
@@ -157,87 +142,76 @@ export class PrivacyClient {
   }
 
   /**
-   * Shield SOL into the privacy pool
-   * @param lamports - Amount in lamports to shield (must be positive integer)
-   * @throws Error if lamports is invalid or client not initialized
-   */
-  async shield(lamports: number): Promise<{ txSignature: string; amount: number }> {
-    if (!this.wallet || !this.privacyClient) {
-      throw new Error('Client not initialized. Call init() first.');
-    }
-
-    // Security: Validate lamports input to prevent unexpected behavior
-    if (!Number.isInteger(lamports) || lamports <= 0) {
-      throw new Error('Invalid lamports amount: must be a positive integer');
-    }
-    if (lamports > Number.MAX_SAFE_INTEGER) {
-      throw new Error('Lamports amount exceeds safe integer limit');
-    }
-
-    const result = await this.privacyClient.shieldEscrow(this.wallet, lamports);
-    return {
-      txSignature: result.txSignature,
-      amount: result.shieldedAmount,
-    };
-  }
-
-  /**
-   * Get shielded balance
-   */
-  async getShieldedBalance(): Promise<number> {
-    if (!this.privacyClient) {
-      throw new Error('Client not initialized. Call init() first.');
-    }
-
-    const { lamports } = await this.privacyClient.getShieldedBalance();
-    return lamports;
-  }
-
-  /**
-   * Complete a task privately with ZK proof
+   * Complete a task privately with ZK proof.
+   *
+   * Generates a RISC Zero proof from the provided outputs and submits
+   * the proof on-chain via `complete_task_private`.
+   *
+   * Requires `init()` with an IDL and `agentId` in config.
    */
   async completeTaskPrivate(params: {
-    taskId: number;
+    taskPda: PublicKey;
     output: bigint[];
-    salt: bigint;
-    recipientWallet: PublicKey;
-    escrowLamports: number;
-  }): Promise<{ proofTxSignature: string; withdrawResult: any }> {
-    if (!this.wallet || !this.privacyClient) {
+    salt?: bigint;
+    agentSecret?: bigint;
+  }): Promise<{ txSignature: string }> {
+    if (!this.wallet) {
       throw new Error('Client not initialized. Call init() first.');
     }
+    if (!this.program) {
+      throw new Error('Program not initialized. Provide an IDL via init() or config.');
+    }
+    if (!this.agentId) {
+      throw new Error('Agent ID not provided. Set agentId in PrivacyClientConfig.');
+    }
 
-    // Validate output array length (must be exactly 4 field elements for BN254)
+    // Validate output array (must be exactly 4 field elements)
     if (!Array.isArray(params.output) || params.output.length !== 4) {
       throw new Error('Invalid output: must be an array of exactly 4 bigint field elements');
     }
-
-    // Validate output elements are non-negative and within BN254 field
-    const BN254_FIELD_MODULUS = 21888242871839275222246405745257275088548364400416034343698204186575808495617n;
     for (let i = 0; i < params.output.length; i++) {
-      if (typeof params.output[i] !== 'bigint' || params.output[i] < 0n || params.output[i] >= BN254_FIELD_MODULUS) {
-        throw new Error(`Invalid output[${i}]: must be a non-negative bigint less than BN254 field modulus`);
+      if (typeof params.output[i] !== 'bigint' || params.output[i] < 0n) {
+        throw new Error(`Invalid output[${i}]: must be a non-negative bigint`);
       }
     }
 
+    // Generate or use provided salt
+    const salt = params.salt ?? generateSalt();
+
     // Validate salt is non-zero (zero salt = deterministic commitment, defeats privacy)
-    if (params.salt === 0n) {
+    if (salt === 0n) {
       throw new Error('Invalid salt: must be non-zero for privacy preservation');
     }
 
-    // Validate escrowLamports
-    if (!Number.isInteger(params.escrowLamports) || params.escrowLamports <= 0) {
-      throw new Error('Invalid escrowLamports: must be a positive integer');
-    }
+    // Generate the ZK proof
+    const proofParams: ProofGenerationParams = {
+      taskPda: params.taskPda,
+      agentPubkey: this.wallet.publicKey,
+      output: params.output,
+      salt,
+      agentSecret: params.agentSecret,
+    };
+    const proofResult = await generateProof(proofParams);
 
-    return await this.privacyClient.completeTaskPrivate(params, this.wallet);
-  }
+    this.logger.debug(`Proof generated in ${proofResult.generationTime}ms`);
 
-  /**
-   * Get the underlying privacy operations client for advanced operations
-   */
-  getPrivacyClient(): PrivacyOperationsClient | null {
-    return this.privacyClient;
+    // Submit private completion on-chain
+    const result = await submitCompleteTaskPrivate(
+      this.connection,
+      this.program,
+      this.wallet,
+      this.agentId,
+      params.taskPda,
+      {
+        sealBytes: proofResult.sealBytes,
+        journal: proofResult.journal,
+        imageId: proofResult.imageId,
+        bindingSeed: proofResult.bindingSeed,
+        nullifierSeed: proofResult.nullifierSeed,
+      },
+    );
+
+    return result;
   }
 
   /**

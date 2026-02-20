@@ -32,16 +32,12 @@ const TRUSTED_RISC0_ROUTER_PROGRAM_ID: Pubkey =
     Pubkey::from_str_const("6JvFfBrvCcWgANKh1Eae9xDq4RC6cfJuBcf71rp2k9Y7");
 const TRUSTED_RISC0_VERIFIER_PROGRAM_ID: Pubkey =
     Pubkey::from_str_const("THq1qFYQoh7zgcjXoMXduDBqiZRCPeg3PvvMbrVQUge");
-// TODO(CRIT-3): Arithmetic placeholder — not a real SHA-256 digest of the guest ELF.
-// To compute the real value:
-//   1. Install rzup: curl -L https://risczero.com/install | bash && rzup install
-//   2. Run: cargo run -p agenc-zkvm-host --features production-prover -- image-id
-//   3. Copy the Rust constant output here
-//   4. Copy the TypeScript constant to sdk/src/constants.ts
-// Both values MUST match exactly or complete_task_private will reject all proofs.
+// SHA-256 digest of the RISC Zero guest ELF (agenc-zkvm-methods AGENC_GUEST_ID).
+// Regenerate with: cargo run -p agenc-zkvm-host --features production-prover -- image-id
+// This value MUST match TRUSTED_RISC0_IMAGE_ID in sdk/src/constants.ts exactly.
 const TRUSTED_RISC0_IMAGE_ID: [u8; RISC0_IMAGE_ID_LEN] = [
-    6, 15, 16, 25, 34, 43, 44, 53, 62, 71, 72, 81, 90, 99, 100, 109, 118, 127, 128, 137, 146, 155,
-    156, 165, 174, 183, 184, 193, 202, 211, 212, 221,
+    202, 175, 194, 115, 244, 76, 8, 9, 197, 55, 54, 103, 21, 34, 178, 245,
+    211, 97, 58, 48, 7, 14, 121, 214, 109, 60, 64, 137, 170, 156, 79, 219,
 ];
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
