@@ -10,6 +10,7 @@
 
 import { PublicKey } from '@solana/web3.js';
 import { createHash } from 'node:crypto';
+import type { ProverConfig } from './prover.js';
 import {
   HASH_SIZE,
   OUTPUT_FIELD_COUNT,
@@ -445,6 +446,10 @@ function buildJournalFromPublicSignals(publicSignals: bigint[]): Buffer {
  * For compatibility with existing callers, this accepts either:
  * - 256-byte `proof` (legacy alias, selector assumed trusted), or
  * - 260-byte `sealBytes` (selector + proof).
+ *
+ * NOTE: This only verifies the simulated SDK transform. Real RISC Zero proofs
+ * produced by `generateProofWithProver()` will return `false` — that is expected.
+ * On-chain verification via the Verifier Router is the authoritative check.
  */
 export async function verifyProofLocally(
   proof: Buffer,
@@ -473,4 +478,87 @@ export async function verifyProofLocally(
   } catch {
     return false;
   }
+}
+
+/**
+ * Generate a real RISC Zero Groth16 proof via an external prover backend.
+ *
+ * This function computes all hashes locally (same as the simulated path), then
+ * delegates proof generation to a local binary or remote prover. The returned
+ * journal is validated against locally computed fields to ensure integrity.
+ *
+ * `params.imageId` and `params.sealSelector` are ignored — the real image ID
+ * comes from the prover's compiled guest ELF.
+ *
+ * @param params - Same proof generation parameters as `generateProof()`
+ * @param proverConfig - Backend configuration (local-binary or remote)
+ */
+export async function generateProofWithProver(
+  params: ProofGenerationParams,
+  proverConfig: ProverConfig,
+): Promise<ProofResult> {
+  const startTime = Date.now();
+
+  if (params.agentSecret === undefined) {
+    console.warn(
+      'SECURITY WARNING: agentSecret not provided to generateProofWithProver(). Falling back to ' +
+      'pubkeyToField(agentPubkey), which makes the nullifier predictable by anyone. ' +
+      'Pass an explicit agentSecret for production use.'
+    );
+  }
+  const agentSecret = params.agentSecret ?? pubkeyToField(params.agentPubkey);
+  const hashes = computeHashes(
+    params.taskPda,
+    params.agentPubkey,
+    params.output,
+    params.salt,
+    agentSecret,
+  );
+
+  const constraintHashBuf = bigintToBytes32(hashes.constraintHash);
+  const outputCommitmentBuf = bigintToBytes32(hashes.outputCommitment);
+  const bindingSeedBuf = bigintToBytes32(hashes.binding);
+  const nullifierSeedBuf = bigintToBytes32(hashes.nullifier);
+
+  const proverInput = {
+    taskPda: new Uint8Array(params.taskPda.toBytes()),
+    agentAuthority: new Uint8Array(params.agentPubkey.toBytes()),
+    constraintHash: new Uint8Array(constraintHashBuf),
+    outputCommitment: new Uint8Array(outputCommitmentBuf),
+    binding: new Uint8Array(bindingSeedBuf),
+    nullifier: new Uint8Array(nullifierSeedBuf),
+  };
+
+  const { prove } = await import('./prover.js');
+  const { sealBytes, journal, imageId } = await prove(proverInput, proverConfig);
+
+  // Validate returned journal matches locally computed fields
+  const expectedJournal = buildJournalBytes({
+    taskPda: params.taskPda.toBytes(),
+    agentAuthority: params.agentPubkey.toBytes(),
+    constraintHash: constraintHashBuf,
+    outputCommitment: outputCommitmentBuf,
+    bindingSeed: bindingSeedBuf,
+    nullifierSeed: nullifierSeedBuf,
+  });
+  if (!expectedJournal.equals(journal)) {
+    throw new Error('Prover returned journal that does not match computed fields');
+  }
+
+  const proof = Buffer.from(sealBytes.subarray(RISC0_SELECTOR_LEN));
+
+  return {
+    sealBytes,
+    journal,
+    imageId,
+    bindingSeed: bindingSeedBuf,
+    nullifierSeed: nullifierSeedBuf,
+    proof,
+    constraintHash: constraintHashBuf,
+    outputCommitment: outputCommitmentBuf,
+    binding: Buffer.from(bindingSeedBuf),
+    nullifier: Buffer.from(nullifierSeedBuf),
+    proofSize: proof.length,
+    generationTime: Date.now() - startTime,
+  };
 }
