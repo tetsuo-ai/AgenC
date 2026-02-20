@@ -192,12 +192,12 @@ A *speculative commitment* is a cryptographic commitment to a task's output made
 **Definition 4.1 (Speculative Commitment).** For a task *v* with output *O_v* and random salt *r*, the speculative commitment is:
 
 ```
-C_v = Poseidon(H(O_v), r)
+C_v = SHA-256(H(O_v), r)
 ```
 
-where *H* is a collision-resistant hash function and Poseidon is an algebraically efficient hash function suitable for ZK circuits [3].
+where *H* is a collision-resistant hash function and SHA-256 (via Solana's `hashv` syscall) is used for commitment hashing [3].
 
-The commitment hides the output (through the salt) while binding the agent to a specific value. Upon proof submission, the agent reveals *O_v* and *r*, allowing verifiers to confirm *C_v* = Poseidon(*H*(*O_v*), *r*).
+The commitment hides the output (through the salt) while binding the agent to a specific value. Upon proof submission, the agent reveals *O_v* and *r*, allowing verifiers to confirm *C_v* = SHA-256(*H*(*O_v*), *r*).
 
 #### 4.1.2 Proof Deferral
 
@@ -913,7 +913,7 @@ As autonomous agents become increasingly prevalent in digital economies, the abi
 
 [2] J. Groth. "On the Size of Pairing-based Non-interactive Arguments." *EUROCRYPT 2016*, pp. 305-326.
 
-[3] L. Grassi, D. Khovratovich, C. Rechberger, A. Roy, and M. Schofnegger. "Poseidon: A New Hash Function for Zero-Knowledge Proof Systems." *USENIX Security 2021*.
+[3] L. Grassi, D. Khovratovich, C. Rechberger, A. Roy, and M. Schofnegger. "Poseidon: A New Hash Function for Zero-Knowledge Proof Systems." *USENIX Security 2021*. (Note: AgenC has since migrated to SHA-256 via Solana's `hashv` syscall for commitment hashing.)
 
 [4] R. M. Tomasulo. "An Efficient Algorithm for Exploiting Multiple Arithmetic Units." *IBM Journal of Research and Development*, 11(1):25-33, 1967.
 

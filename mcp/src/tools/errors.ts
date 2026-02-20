@@ -55,7 +55,7 @@ const ERROR_TABLE: ErrorEntry[] = [
   { code: 6028, name: 'ClaimNotExpired', message: 'Claim has not expired yet', category: 'Claim', rustVariant: 'ClaimNotExpired' },
   { code: 6029, name: 'InvalidProof', message: 'Invalid proof of work', category: 'Claim', rustVariant: 'InvalidProof' },
   { code: 6030, name: 'ZkVerificationFailed', message: 'ZK proof verification failed', category: 'Claim', rustVariant: 'ZkVerificationFailed' },
-  { code: 6031, name: 'InvalidProofSize', message: 'Invalid proof size - expected 256 bytes for Groth16', category: 'Claim', rustVariant: 'InvalidProofSize' },
+  { code: 6031, name: 'InvalidProofSize', message: 'Invalid proof size - expected 256 bytes for RISC Zero seal body', category: 'Claim', rustVariant: 'InvalidProofSize' },
   { code: 6032, name: 'InvalidProofBinding', message: 'Invalid proof binding: expected_binding cannot be all zeros', category: 'Claim', rustVariant: 'InvalidProofBinding' },
   { code: 6033, name: 'InvalidOutputCommitment', message: 'Invalid output commitment: output_commitment cannot be all zeros', category: 'Claim', rustVariant: 'InvalidOutputCommitment' },
 

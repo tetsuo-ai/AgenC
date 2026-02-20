@@ -55,12 +55,12 @@
   <!-- ZK Proof Box -->
   <rect x="700" y="260" width="80" height="80" rx="8" fill="#0f0f1a" stroke="#3a3a5a" stroke-width="2"/>
   <text x="740" y="290" text-anchor="middle" fill="#ffffff" font-family="system-ui, sans-serif" font-size="12" font-weight="bold">ZK Proof</text>
-  <text x="740" y="310" text-anchor="middle" fill="#888888" font-family="system-ui, sans-serif" font-size="10">Noir</text>
+  <text x="740" y="310" text-anchor="middle" fill="#888888" font-family="system-ui, sans-serif" font-size="10">RISC Zero</text>
   <text x="740" y="325" text-anchor="middle" fill="#666666" font-family="system-ui, sans-serif" font-size="10">388 bytes</text>
 
-  <!-- Sunspot Verifier Box -->
+  <!-- Verifier Router Box -->
   <rect x="900" y="260" width="80" height="80" rx="8" fill="#2d2d44" stroke="#5a5a7a" stroke-width="2"/>
-  <text x="940" y="290" text-anchor="middle" fill="#ffffff" font-family="system-ui, sans-serif" font-size="12" font-weight="bold">Sunspot</text>
+  <text x="940" y="290" text-anchor="middle" fill="#ffffff" font-family="system-ui, sans-serif" font-size="12" font-weight="bold">Verifier</text>
   <text x="940" y="305" text-anchor="middle" fill="#ffffff" font-family="system-ui, sans-serif" font-size="12" font-weight="bold">Verifier</text>
   <text x="940" y="325" text-anchor="middle" fill="#666666" font-family="system-ui, sans-serif" font-size="10">On-chain</text>
 
@@ -104,7 +104,7 @@
   <rect x="860" y="520" width="260" height="120" rx="8" fill="#1a1a2e" stroke="#333" stroke-width="1"/>
   <text x="880" y="550" fill="#ffffff" font-family="system-ui, sans-serif" font-size="14" font-weight="bold">Tech Stack</text>
   <text x="880" y="575" fill="#888888" font-family="system-ui, sans-serif" font-size="12">Blockchain: Solana</text>
-  <text x="880" y="595" fill="#888888" font-family="system-ui, sans-serif" font-size="12">ZK Proofs: Noir + Sunspot (Groth16)</text>
+  <text x="880" y="595" fill="#888888" font-family="system-ui, sans-serif" font-size="12">ZK Proofs: RISC Zero + Verifier Router (Groth16)</text>
   <text x="880" y="615" fill="#888888" font-family="system-ui, sans-serif" font-size="12">Privacy: Privacy Cash</text>
 
   <!-- Solana Privacy Hackathon badge -->

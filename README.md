@@ -49,7 +49,7 @@ AgenC is a decentralized protocol for coordinating AI agents on Solana. Agents r
 
 - **On-chain Agent Registry** — Agents register with capability bitmasks, stake, and endpoints
 - **Task Marketplace** — Create, discover, bid on, and complete tasks with SOL or SPL token escrow
-- **Zero-Knowledge Proofs** — Prove task completion without revealing outputs (Noir circuits + Groth16)
+- **Zero-Knowledge Proofs** — Prove task completion without revealing outputs (RISC Zero + Verifier Router CPI)
 - **Autonomous Agents** — Self-operating agents with LLM reasoning, tool use, and speculative execution
 - **Dispute Resolution** — Arbiter-based governance with symmetric slashing for frivolous disputes
 - **Multi-Agent Workflows** — DAG-based task orchestration with dependency tracking
@@ -65,7 +65,7 @@ AgenC is a decentralized protocol for coordinating AI agents on Solana. Agents r
 | [`@agenc/runtime`](runtime/) | 0.1.0 | Agent runtime (~90k lines) — LLM adapters, memory, workflows, marketplace |
 | [`@agenc/mcp`](mcp/) | 0.1.0 | MCP server — protocol operations as AI-consumable tools |
 | [`demo-app`](demo-app/) | — | React web interface for privacy workflow demonstration |
-| [`circuits`](circuits/) | — | Noir ZK circuits for private task completion proofs |
+| [`zkvm`](zkvm/) | — | RISC Zero guest/host programs for private task completion proofs |
 
 ## Quick Start
 
@@ -75,7 +75,7 @@ AgenC is a decentralized protocol for coordinating AI agents on Solana. Agents r
 - **Solana CLI** 3.0.13+
 - **Anchor CLI** 0.32.1
 - **Node.js** 18+
-- **Noir** (optional, for ZK circuits)
+- **RISC Zero** (optional, for ZK proofs — `risc0-zkvm` v2.3.2)
 
 ### Install & Build
 
@@ -214,8 +214,8 @@ npm run test:fixtures
 └───────────────────────────────────────────────────────────────────────┘
                                     │
                      ┌──────────────┼──────────────┐
-                     │      Noir ZK Circuits        │
-                     │  Groth16 · Poseidon2 hashing │
+                     │     RISC Zero zkVM Proofs     │
+                     │  Groth16 · SHA-256 hashing   │
                      │  Prove completion privately   │
                      └─────────────────────────────┘
 ```
@@ -305,8 +305,8 @@ Tasks can be completed privately using zero-knowledge proofs. The agent proves t
 ```
 ┌─────────────┐     ┌──────────────┐     ┌──────────────┐     ┌───────────┐
 │ Task Creator │────▶│ Agent works  │────▶│ ZK proof via │────▶│  On-chain │
-│ sets         │     │ off-chain,   │     │ Noir/Sunspot │     │ Groth16   │
-│ constraint   │     │ generates    │     │ (Groth16)    │     │ verifier  │
+│ sets         │     │ off-chain,   │     │ RISC Zero    │     │ Verifier  │
+│ constraint   │     │ generates    │     │ (Groth16)    │     │ Router    │
 │ hash         │     │ output+salt  │     │              │     │ validates │
 └─────────────┘     └──────────────┘     └──────────────┘     └───────────┘
                                                                      │
@@ -334,10 +334,10 @@ await program.methods
 
 | Component | Technology | Purpose |
 |-----------|------------|---------|
-| Circuit | [Noir](https://noir-lang.org/) | ZK circuit definition |
-| Prover | Sunspot (Groth16) | Off-chain proof generation |
-| Verifier | Sunspot on Solana | On-chain proof verification (~100-130k CU) |
-| Hash | Poseidon2 | ZK-friendly hashing |
+| zkVM Guest | RISC Zero guest program | Proof logic (journal output) |
+| zkVM Host | RISC Zero host program | Off-chain proof generation |
+| Verifier Router | [RISC Zero Solana Verifier Router](https://github.com/boundless-xyz/risc0-solana) CPI | On-chain proof verification |
+| Hash | SHA-256 (Solana `hashv`) | Commitment and binding hashing |
 
 ## Agent Runtime
 
@@ -543,7 +543,7 @@ The project runs a comprehensive CI pipeline via GitHub Actions:
 | [Security Audit (Mainnet)](docs/SECURITY_AUDIT_MAINNET.md) | Mainnet security audit report |
 | [Static Analysis](docs/STATIC_ANALYSIS.md) | Static analysis results |
 | [Privacy Guide](docs/PRIVACY_README.md) | Privacy features deep-dive |
-| [Noir Reference](docs/NOIR_REFERENCE.md) | Noir circuit language reference |
+| [ZK Architecture](docs/ZK_ARCHITECTURE.md) | RISC Zero proof system reference |
 | [Sprint Issue Map (959-999)](docs/ISSUES_959_999.md) | Issue-to-PR mapping snapshot for the 959-999 backlog |
 | [Whitepaper](WHITEPAPER.md) | Protocol vision and design |
 

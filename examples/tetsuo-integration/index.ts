@@ -54,7 +54,7 @@ if (!IS_DEMO_MODE) {
   console.error(chalk.yellow('\nTo use AgenC in production, implement:'));
   console.error(chalk.yellow('  1. Secure keypair storage (hardware wallet, KMS, etc.)'));
   console.error(chalk.yellow('  2. Real ZK proof generation via @agenc/sdk'));
-  console.error(chalk.yellow('  3. Poseidon2 or SHA-256 for cryptographic hashing'));
+  console.error(chalk.yellow('  3. SHA-256 for cryptographic hashing'));
   console.error(chalk.red('============================================================================\n'));
   process.exit(1);
 }
@@ -561,7 +561,7 @@ class TetsuoAgent {
     //   import { createHash } from 'crypto';
     //   return createHash('sha256').update(input).digest('hex');
     //
-    // Or for ZK-friendly hashing, use Poseidon2 from the SDK.
+    // Or for ZK-friendly hashing, uses SHA-256 via Solana hashv.
     if (process.env.NODE_ENV === 'production') {
       throw new Error('Demo hash function cannot be used in production. Implement cryptographic hashing.');
     }

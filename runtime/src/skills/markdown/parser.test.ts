@@ -10,19 +10,19 @@ import {
 } from './parser.js';
 
 const FULL_SKILL_MD = `---
-name: noir-prover
-description: Generate and verify Noir ZK proofs
+name: zk-prover
+description: Generate and verify ZK proofs
 version: 1.0.0
 metadata:
   agenc:
     emoji: "\u{1F50F}"
-    primaryEnv: NARGO_HOME
+    primaryEnv: ZK_PROVER_HOME
     requires:
       binaries:
         - risc0-prover
         - bb
       env:
-        - NARGO_HOME
+        - ZK_PROVER_HOME
       channels:
         - solana
       os:
@@ -30,19 +30,19 @@ metadata:
         - macos
     install:
       - type: brew
-        package: noir-lang/noir/risc0-prover
+        package: risc0/tap/risc0-prover
       - type: download
         url: https://example.com/bb
         path: /usr/local/bin/bb
     tags:
       - zk
       - privacy
-      - noir
+      - risc0
     requiredCapabilities: "0x03"
     onChainAuthor: 5FHwkrdxPp8A5yjft7QsiqU3Y95JyB1vKNpkaLBjj7Gk
     contentHash: QmXoypizjW3WknFiJnKLwHCnL72vedxjQkDDP1mXWo6uco
 ---
-# Noir Prover
+# ZK Prover
 
 This skill provides ZK proof generation.
 
@@ -107,15 +107,15 @@ describe('isSkillMarkdown', () => {
 
 describe('parseSkillContent', () => {
   it('parses valid SKILL.md with all fields', () => {
-    const skill = parseSkillContent(FULL_SKILL_MD, '/skills/noir-prover/SKILL.md');
+    const skill = parseSkillContent(FULL_SKILL_MD, '/skills/zk-prover/SKILL.md');
 
-    expect(skill.name).toBe('noir-prover');
-    expect(skill.description).toBe('Generate and verify Noir ZK proofs');
+    expect(skill.name).toBe('zk-prover');
+    expect(skill.description).toBe('Generate and verify ZK proofs');
     expect(skill.version).toBe('1.0.0');
-    expect(skill.sourcePath).toBe('/skills/noir-prover/SKILL.md');
+    expect(skill.sourcePath).toBe('/skills/zk-prover/SKILL.md');
 
     expect(skill.metadata.emoji).toBe('\u{1F50F}');
-    expect(skill.metadata.primaryEnv).toBe('NARGO_HOME');
+    expect(skill.metadata.primaryEnv).toBe('ZK_PROVER_HOME');
     expect(skill.metadata.requiredCapabilities).toBe('0x03');
     expect(skill.metadata.onChainAuthor).toBe(
       '5FHwkrdxPp8A5yjft7QsiqU3Y95JyB1vKNpkaLBjj7Gk',
@@ -126,7 +126,7 @@ describe('parseSkillContent', () => {
 
     // Requirements
     expect(skill.metadata.requires.binaries).toEqual(['risc0-prover', 'bb']);
-    expect(skill.metadata.requires.env).toEqual(['NARGO_HOME']);
+    expect(skill.metadata.requires.env).toEqual(['ZK_PROVER_HOME']);
     expect(skill.metadata.requires.channels).toEqual(['solana']);
     expect(skill.metadata.requires.os).toEqual(['linux', 'macos']);
 
@@ -134,7 +134,7 @@ describe('parseSkillContent', () => {
     expect(skill.metadata.install).toHaveLength(2);
     expect(skill.metadata.install[0]).toEqual({
       type: 'brew',
-      package: 'noir-lang/noir/risc0-prover',
+      package: 'risc0/tap/risc0-prover',
     });
     expect(skill.metadata.install[1]).toEqual({
       type: 'download',
@@ -143,7 +143,7 @@ describe('parseSkillContent', () => {
     });
 
     // Tags
-    expect(skill.metadata.tags).toEqual(['zk', 'privacy', 'noir']);
+    expect(skill.metadata.tags).toEqual(['zk', 'privacy', 'risc0']);
   });
 
   it('parses minimal frontmatter (name, description, version only)', () => {
@@ -181,7 +181,7 @@ describe('parseSkillContent', () => {
   it('body preserves markdown formatting', () => {
     const skill = parseSkillContent(FULL_SKILL_MD);
 
-    expect(skill.body).toContain('# Noir Prover');
+    expect(skill.body).toContain('# ZK Prover');
     expect(skill.body).toContain('## Usage');
     expect(skill.body).toContain('`risc0-prover prove`');
   });

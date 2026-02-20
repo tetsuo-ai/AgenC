@@ -485,7 +485,7 @@ describe("security-audit-fixes", () => {
     function createTestProof(overrides: {
       constraintHash?: Buffer;
       outputCommitment?: Buffer;
-      bindingDigest?: Buffer;
+      binding?: Buffer;
       nullifier?: Buffer;
       sealBytes?: Buffer;
     } = {}) {
@@ -493,7 +493,7 @@ describe("security-audit-fixes", () => {
         sealBytes: overrides.sealBytes ?? Buffer.alloc(256, 0xAA),
         constraintHash: Array.from(overrides.constraintHash ?? Buffer.alloc(HASH_SIZE, 0x11)),
         outputCommitment: Array.from(overrides.outputCommitment ?? Buffer.alloc(HASH_SIZE, 0x22)),
-        bindingDigest: Array.from(overrides.bindingDigest ?? Buffer.alloc(HASH_SIZE, 0x33)),
+        binding: Array.from(overrides.binding ?? Buffer.alloc(HASH_SIZE, 0x33)),
         nullifier: Array.from(overrides.nullifier ?? Buffer.alloc(HASH_SIZE, 0x44)),
       };
     }
@@ -618,7 +618,7 @@ describe("security-audit-fixes", () => {
       const nullifierBytes = Buffer.alloc(HASH_SIZE, 0x55);
       const proof = createTestProof({
         constraintHash,
-        bindingDigest: Buffer.alloc(HASH_SIZE, 0), // All zeros
+        binding: Buffer.alloc(HASH_SIZE, 0), // All zeros
         nullifier: nullifierBytes,
       });
 

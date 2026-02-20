@@ -156,13 +156,13 @@ pub struct SpeculativeCommitment {
     /// Agent who made the commitment.
     pub committer: Pubkey,
     
-    /// Poseidon hash of the predicted output.
+    /// SHA-256 hash of the predicted output.
     /// H(output_data) where output_data is the predicted task result.
     #[max_len(32)]
     pub output_hash: [u8; 32],
-    
+
     /// Cryptographic commitment hiding the prediction.
-    /// commit(output_hash, salt, committer) using Poseidon.
+    /// commit(output_hash, salt, committer) using SHA-256.
     #[max_len(32)]
     pub commitment: [u8; 32],
     
@@ -638,7 +638,7 @@ pub struct CreateSpeculativeCommitment<'info> {
 pub struct CreateCommitmentParams {
     /// Task ID to speculate on.
     pub task_id: u64,
-    /// Poseidon hash of predicted output.
+    /// SHA-256 hash of predicted output.
     pub output_hash: [u8; 32],
     /// Hiding commitment: commit(output_hash, salt, committer).
     pub commitment: [u8; 32],
@@ -849,7 +849,7 @@ pub struct SlashSpeculationStake<'info> {
 
 #[derive(AnchorSerialize, AnchorDeserialize)]
 pub struct SlashParams {
-    /// Poseidon hash of the actual task output.
+    /// SHA-256 hash of the actual task output.
     pub actual_output_hash: [u8; 32],
     /// Optional ZK fraud proof (for whistleblowers).
     pub fraud_proof: Option<Vec<u8>>,
@@ -1814,7 +1814,7 @@ pub enum SpeculationError {
 
 ### Fraud Prevention
 
-1. **Hiding Commitment**: Poseidon commitment hides prediction until reveal
+1. **Hiding Commitment**: SHA-256 commitment hides prediction until reveal
 2. **Fraud Proofs**: ZK proofs enable trustless verification of misprediction
 3. **Whistleblower Incentive**: Percentage of slash rewards fraud detection
 4. **Grace Period**: Time window after completion allows fraud detection

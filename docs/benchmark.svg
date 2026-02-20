@@ -30,7 +30,7 @@
   <text x="465" y="175" text-anchor="middle" fill="#888888" font-family="system-ui, sans-serif" font-size="14" font-weight="500">VERIFICATION</text>
   <text x="465" y="240" text-anchor="middle" fill="#ffffff" font-family="system-ui, sans-serif" font-size="56" font-weight="bold">~50k</text>
   <text x="465" y="275" text-anchor="middle" fill="#666666" font-family="system-ui, sans-serif" font-size="20">compute units</text>
-  <text x="465" y="300" text-anchor="middle" fill="#4a9" font-family="system-ui, sans-serif" font-size="12">On-chain Sunspot verifier</text>
+  <text x="465" y="300" text-anchor="middle" fill="#4a9" font-family="system-ui, sans-serif" font-size="12">On-chain Verifier Router</text>
 
   <!-- Stat 3: Public Inputs -->
   <rect x="620" y="130" width="250" height="180" rx="12" fill="#1a1a2e" stroke="#3a3a5a" stroke-width="2"/>
@@ -60,7 +60,7 @@
 
   <!-- AgenC Row (highlighted) -->
   <rect x="100" y="435" width="1000" height="45" rx="0" fill="#1a2a1a" stroke="#4a9" stroke-width="1"/>
-  <text x="200" y="463" text-anchor="middle" fill="#4a9" font-family="system-ui, sans-serif" font-size="14" font-weight="bold">AgenC (Noir+Sunspot)</text>
+  <text x="200" y="463" text-anchor="middle" fill="#4a9" font-family="system-ui, sans-serif" font-size="14" font-weight="bold">AgenC (RISC Zero+Groth16)</text>
   <text x="380" y="463" text-anchor="middle" fill="#ffffff" font-family="system-ui, sans-serif" font-size="14">388 bytes</text>
   <text x="540" y="463" text-anchor="middle" fill="#ffffff" font-family="system-ui, sans-serif" font-size="14">~1ms</text>
   <text x="700" y="463" text-anchor="middle" fill="#ffffff" font-family="system-ui, sans-serif" font-size="14">50k CU</text>
@@ -96,14 +96,14 @@
 
   <!-- Footer -->
   <line x1="100" y1="620" x2="1100" y2="620" stroke="#333" stroke-width="1"/>
-  <text x="600" y="650" text-anchor="middle" fill="#555555" font-family="system-ui, sans-serif" font-size="14">Solana Privacy Hackathon 2026 | github.com/tetsuo-ai/AgenC | Noir + Sunspot + Privacy Cash</text>
+  <text x="600" y="650" text-anchor="middle" fill="#555555" font-family="system-ui, sans-serif" font-size="14">Solana Privacy Hackathon 2026 | github.com/tetsuo-ai/AgenC | RISC Zero + Verifier Router + Privacy Cash</text>
 
   <!-- Tech Stack Icons (simplified) -->
   <rect x="100" y="620" width="80" height="25" rx="4" fill="#2a2a3e"/>
-  <text x="140" y="638" text-anchor="middle" fill="#888888" font-family="system-ui, sans-serif" font-size="11">Noir</text>
+  <text x="140" y="638" text-anchor="middle" fill="#888888" font-family="system-ui, sans-serif" font-size="11">RISC Zero</text>
 
-  <rect x="190" y="620" width="80" height="25" rx="4" fill="#2a2a3e"/>
-  <text x="230" y="638" text-anchor="middle" fill="#888888" font-family="system-ui, sans-serif" font-size="11">Sunspot</text>
+  <rect x="190" y="620" width="100" height="25" rx="4" fill="#2a2a3e"/>
+  <text x="240" y="638" text-anchor="middle" fill="#888888" font-family="system-ui, sans-serif" font-size="11">Verifier Router</text>
 
   <rect x="280" y="620" width="100" height="25" rx="4" fill="#2a2a3e"/>
   <text x="330" y="638" text-anchor="middle" fill="#888888" font-family="system-ui, sans-serif" font-size="11">Privacy Cash</text>

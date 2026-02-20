@@ -99,7 +99,7 @@ export default function CompletionSummary({ taskState, onReset }: Props) {
                   </div>
                   <div>
                     <p className="text-sm font-medium text-tetsuo-200">Verify ZK Proof</p>
-                    <p className="text-xs text-tetsuo-500">Groth16 proof verified on-chain</p>
+                    <p className="text-xs text-tetsuo-500">RISC Zero proof verified on-chain</p>
                   </div>
                 </div>
                 <div className="text-right">
@@ -227,11 +227,11 @@ export default function CompletionSummary({ taskState, onReset }: Props) {
         <div className="p-4 bg-tetsuo-800/30 rounded-lg border border-tetsuo-700">
           <h4 className="text-sm font-medium text-tetsuo-300 mb-3">Technology Stack</h4>
           <div className="flex flex-wrap gap-2">
-            <span className="px-3 py-1 bg-tetsuo-800 rounded-full text-xs text-tetsuo-400">Noir Circuits</span>
+            <span className="px-3 py-1 bg-tetsuo-800 rounded-full text-xs text-tetsuo-400">RISC Zero zkVM</span>
             <span className="px-3 py-1 bg-tetsuo-800 rounded-full text-xs text-tetsuo-400">Groth16 Proofs</span>
-            <span className="px-3 py-1 bg-tetsuo-800 rounded-full text-xs text-tetsuo-400">Sunspot Verifier</span>
+            <span className="px-3 py-1 bg-tetsuo-800 rounded-full text-xs text-tetsuo-400">Verifier Router</span>
             <span className="px-3 py-1 bg-tetsuo-800 rounded-full text-xs text-tetsuo-400">Privacy Cash</span>
-            <span className="px-3 py-1 bg-tetsuo-800 rounded-full text-xs text-tetsuo-400">Poseidon2 Hash</span>
+            <span className="px-3 py-1 bg-tetsuo-800 rounded-full text-xs text-tetsuo-400">SHA-256 Hash</span>
             <span className="px-3 py-1 bg-tetsuo-800 rounded-full text-xs text-tetsuo-400">Solana Devnet</span>
           </div>
         </div>

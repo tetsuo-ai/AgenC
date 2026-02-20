@@ -187,7 +187,7 @@ Our design addresses these through **stake-based commitments** and **economic bo
 2. **Anchor 0.32+ Compatibility** — Must use stable Anchor features
 3. **Solana CU Limits** — Operations must fit within 200k CU budget
 4. **Privacy Cash Integration** — Must work with existing privacy pool
-5. **ZK Circuit Compatibility** — No changes to existing Circom circuits
+5. **ZK Circuit Compatibility** — No changes to existing RISC Zero circuits
 
 ---
 
@@ -211,7 +211,7 @@ C4Context
     }
     
     System_Ext(solana, "Solana", "L1 blockchain")
-    System_Ext(zk, "ZK Infrastructure", "Circom + groth16")
+    System_Ext(zk, "ZK Infrastructure", "RISC Zero + Groth16")
     
     Rel(creator, coordination, "Creates tasks")
     Rel(agent, speculation, "Claims speculatively")
@@ -228,7 +228,7 @@ C4Context
 | **Coordination Program** | Bidirectional | Task state, proof submission, claims |
 | **Privacy Cash** | Outbound | Payment authorization after confirmation |
 | **Agent SDK** | Bidirectional | Speculation decisions, execution results |
-| **Circom Circuits** | Outbound | Batch proof requests |
+| **RISC Zero Circuits** | Outbound | Batch proof requests |
 | **Event System** | Outbound | Observability events |
 
 ### Interaction with Existing Components
