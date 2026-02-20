@@ -9,21 +9,24 @@ vi.mock('@agenc/sdk', () => {
   const mockBindingSeed = Buffer.alloc(32, 0x12);
   const mockNullifierSeed = Buffer.alloc(32, 0x34);
 
+  const mockProofResult = {
+    sealBytes: mockSeal,
+    journal: mockJournal,
+    imageId: mockImageId,
+    bindingSeed: mockBindingSeed,
+    nullifierSeed: mockNullifierSeed,
+    proof: Buffer.alloc(256, 0xaa),
+    constraintHash: Buffer.alloc(32, 0x01),
+    outputCommitment: Buffer.alloc(32, 0x02),
+    binding: Buffer.alloc(32, 0x03),
+    nullifier: Buffer.alloc(32, 0x04),
+    proofSize: 260,
+    generationTime: 42,
+  };
+
   return {
-    generateProof: vi.fn().mockResolvedValue({
-      sealBytes: mockSeal,
-      journal: mockJournal,
-      imageId: mockImageId,
-      bindingSeed: mockBindingSeed,
-      nullifierSeed: mockNullifierSeed,
-      proof: Buffer.alloc(256, 0xaa),
-      constraintHash: Buffer.alloc(32, 0x01),
-      outputCommitment: Buffer.alloc(32, 0x02),
-      binding: Buffer.alloc(32, 0x03),
-      nullifier: Buffer.alloc(32, 0x04),
-      proofSize: 260,
-      generationTime: 42,
-    }),
+    generateProof: vi.fn().mockResolvedValue({ ...mockProofResult }),
+    generateProofWithProver: vi.fn().mockResolvedValue({ ...mockProofResult }),
     verifyProofLocally: vi.fn().mockResolvedValue(true),
     computeHashes: vi.fn().mockReturnValue({
       constraintHash: 123n,
@@ -70,11 +73,12 @@ vi.mock('@agenc/sdk', () => {
 
 import {
   generateProof as mockGenerateProof,
+  generateProofWithProver as mockGenerateProofWithProver,
   verifyProofLocally as mockVerifyProofLocally,
   computeHashes as mockComputeHashes,
   generateSalt as mockGenerateSalt,
 } from '@agenc/sdk';
-import { ProofEngine } from './engine.js';
+import { ProofEngine, buildSdkProverConfig } from './engine.js';
 import { ProofCache, deriveCacheKey } from './cache.js';
 import { ProofGenerationError, ProofVerificationError, ProofCacheError } from './errors.js';
 import { RuntimeErrorCodes, RuntimeError } from '../types/errors.js';
@@ -499,6 +503,206 @@ describe('ProofEngine', () => {
       );
       expect(result).toBe(sealBytes);
     });
+  });
+});
+
+// =============================================================================
+// buildSdkProverConfig unit tests
+// =============================================================================
+
+describe('buildSdkProverConfig', () => {
+  it('maps local-binary config correctly', () => {
+    const result = buildSdkProverConfig({
+      kind: 'local-binary',
+      binaryPath: '/usr/bin/agenc-zkvm-host',
+      timeoutMs: 60_000,
+    });
+    expect(result).toEqual({
+      kind: 'local-binary',
+      binaryPath: '/usr/bin/agenc-zkvm-host',
+      timeoutMs: 60_000,
+    });
+  });
+
+  it('maps remote config correctly with headers', () => {
+    const result = buildSdkProverConfig({
+      kind: 'remote',
+      endpoint: 'https://prover.example.com',
+      timeoutMs: 120_000,
+      headers: { Authorization: 'Bearer token123' },
+    });
+    expect(result).toEqual({
+      kind: 'remote',
+      endpoint: 'https://prover.example.com',
+      timeoutMs: 120_000,
+      headers: { Authorization: 'Bearer token123' },
+    });
+  });
+
+  it('throws ProofGenerationError when binaryPath missing for local-binary', () => {
+    expect(() => buildSdkProverConfig({ kind: 'local-binary' })).toThrow(
+      ProofGenerationError,
+    );
+    expect(() => buildSdkProverConfig({ kind: 'local-binary' })).toThrow(
+      'binaryPath is required',
+    );
+  });
+
+  it('throws ProofGenerationError when endpoint missing for remote', () => {
+    expect(() => buildSdkProverConfig({ kind: 'remote' })).toThrow(
+      ProofGenerationError,
+    );
+    expect(() => buildSdkProverConfig({ kind: 'remote' })).toThrow(
+      'endpoint is required',
+    );
+  });
+
+  it('throws for unsupported kind', () => {
+    expect(() => buildSdkProverConfig({ kind: 'deterministic-local' as any })).toThrow(
+      'unsupported kind',
+    );
+  });
+});
+
+// =============================================================================
+// ProofEngine with real prover backends
+// =============================================================================
+
+describe('ProofEngine with local-binary backend', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('calls generateProofWithProver instead of generateProof', async () => {
+    const engine = new ProofEngine({
+      proverBackend: { kind: 'local-binary', binaryPath: '/usr/bin/agenc-zkvm-host' },
+    });
+    await engine.generate(makeInputs());
+
+    expect(mockGenerateProofWithProver).toHaveBeenCalledOnce();
+    expect(mockGenerateProof).not.toHaveBeenCalled();
+  });
+
+  it('passes correct prover config to SDK', async () => {
+    const engine = new ProofEngine({
+      proverBackend: {
+        kind: 'local-binary',
+        binaryPath: '/usr/bin/agenc-zkvm-host',
+        timeoutMs: 60_000,
+      },
+    });
+    await engine.generate(makeInputs());
+
+    const args = vi.mocked(mockGenerateProofWithProver).mock.calls[0];
+    expect(args[1]).toEqual({
+      kind: 'local-binary',
+      binaryPath: '/usr/bin/agenc-zkvm-host',
+      timeoutMs: 60_000,
+    });
+  });
+
+  it('throws ProofGenerationError when binaryPath is missing', async () => {
+    const engine = new ProofEngine({
+      proverBackend: { kind: 'local-binary' },
+    });
+
+    await expect(engine.generate(makeInputs())).rejects.toThrow(ProofGenerationError);
+    await expect(engine.generate(makeInputs())).rejects.toThrow('binaryPath is required');
+  });
+});
+
+describe('ProofEngine with remote backend', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('calls generateProofWithProver with remote config', async () => {
+    const engine = new ProofEngine({
+      proverBackend: {
+        kind: 'remote',
+        endpoint: 'https://prover.example.com',
+        headers: { Authorization: 'Bearer abc' },
+      },
+    });
+    await engine.generate(makeInputs());
+
+    expect(mockGenerateProofWithProver).toHaveBeenCalledOnce();
+    expect(mockGenerateProof).not.toHaveBeenCalled();
+
+    const args = vi.mocked(mockGenerateProofWithProver).mock.calls[0];
+    expect(args[1]).toEqual({
+      kind: 'remote',
+      endpoint: 'https://prover.example.com',
+      headers: { Authorization: 'Bearer abc' },
+      timeoutMs: undefined,
+    });
+  });
+
+  it('throws ProofGenerationError when endpoint is missing', async () => {
+    const engine = new ProofEngine({
+      proverBackend: { kind: 'remote' },
+    });
+
+    await expect(engine.generate(makeInputs())).rejects.toThrow(ProofGenerationError);
+    await expect(engine.generate(makeInputs())).rejects.toThrow('endpoint is required');
+  });
+});
+
+describe('ProofEngine real backend skips verification', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('does not call verifyProofLocally for local-binary backend', async () => {
+    const engine = new ProofEngine({
+      proverBackend: { kind: 'local-binary', binaryPath: '/usr/bin/agenc-zkvm-host' },
+      verifyAfterGeneration: true,
+    });
+    const result = await engine.generate(makeInputs());
+
+    expect(mockVerifyProofLocally).not.toHaveBeenCalled();
+    expect(result.verified).toBe(false);
+  });
+
+  it('does not call verifyProofLocally for remote backend', async () => {
+    const engine = new ProofEngine({
+      proverBackend: { kind: 'remote', endpoint: 'https://prover.example.com' },
+      verifyAfterGeneration: true,
+    });
+    const result = await engine.generate(makeInputs());
+
+    expect(mockVerifyProofLocally).not.toHaveBeenCalled();
+    expect(result.verified).toBe(false);
+  });
+
+  it('logs a warning when verifyAfterGeneration is set with real backend', async () => {
+    const warnFn = vi.fn();
+    const engine = new ProofEngine({
+      proverBackend: { kind: 'local-binary', binaryPath: '/usr/bin/agenc-zkvm-host' },
+      verifyAfterGeneration: true,
+      logger: { debug: vi.fn(), info: vi.fn(), warn: warnFn, error: vi.fn(), setLevel: vi.fn() },
+    });
+    await engine.generate(makeInputs());
+
+    expect(warnFn).toHaveBeenCalledWith(
+      expect.stringContaining('verifyAfterGeneration is not supported with real prover backends'),
+    );
+  });
+});
+
+describe('checkTools with new backend kinds', () => {
+  it('reports local-binary backend', () => {
+    const engine = new ProofEngine({
+      proverBackend: { kind: 'local-binary', binaryPath: '/usr/bin/agenc-zkvm-host' },
+    });
+    expect(engine.checkTools().proverBackend).toBe('local-binary');
+  });
+
+  it('reports remote backend', () => {
+    const engine = new ProofEngine({
+      proverBackend: { kind: 'remote', endpoint: 'https://prover.example.com' },
+    });
+    expect(engine.checkTools().proverBackend).toBe('remote');
   });
 });
 
