@@ -22,7 +22,6 @@ import { findTaskPda, findEscrowPda } from '../../task/pda.js';
 import { findProtocolPda } from '../../agent/pda.js';
 import { lamportsToSol, toAnchorBytes } from '../../utils/encoding.js';
 import { loadKeypairFromFile, getDefaultKeypairPath } from '../../types/wallet.js';
-import { fetchTreasury } from '../../utils/treasury.js';
 import { IDL } from '../../idl.js';
 import { AgentStatus, agentStatusToString } from '../../agent/types.js';
 import { getCapabilityNames } from '../../agent/capabilities.js';
@@ -127,17 +126,17 @@ export function handleSkillsToggle(
 // ============================================================================
 
 /**
- * Task account binary layout offsets.
+ * Task account binary layout offsets (devnet program).
  * Layout: 8 (discriminator) + 32 (task_id) + 32 (creator) + 8 (capabilities)
- *       + 64 (description) + 32 (constraint_hash) + 8 (reward_amount)
- *       + 1 (max_workers) + 1 (current_workers) = status at offset 186
+ *       + 64 (description) + 8 (reward_amount)
+ *       + 1 (max_workers) + 1 (current_workers) + 1 (status)
  */
 const TASK_DISCRIMINATOR = Buffer.from([79, 34, 229, 55, 88, 90, 55, 84]);
 const TASK_CREATOR_OFFSET = 40;
 const TASK_DESCRIPTION_OFFSET = 80;
-const TASK_REWARD_OFFSET = 176;
-const TASK_CURRENT_WORKERS_OFFSET = 185;
-const TASK_STATUS_OFFSET = 186;
+const TASK_REWARD_OFFSET = 144;
+const TASK_CURRENT_WORKERS_OFFSET = 153;
+const TASK_STATUS_OFFSET = 154;
 
 /** Parse a raw Task account buffer into the fields we need. */
 function parseRawTaskAccount(data: Buffer): {
@@ -150,7 +149,7 @@ function parseRawTaskAccount(data: Buffer): {
   const statusByte = data[TASK_STATUS_OFFSET];
   const currentWorkers = data[TASK_CURRENT_WORKERS_OFFSET];
   const creator = new PublicKey(data.subarray(TASK_CREATOR_OFFSET, TASK_CREATOR_OFFSET + 32));
-  // reward_amount is u64 little-endian at offset 176
+  // reward_amount is u64 little-endian at offset 144
   const rewardSlice = data.subarray(TASK_REWARD_OFFSET, TASK_REWARD_OFFSET + 8);
   const reward = rewardSlice.readBigUInt64LE(0);
   // description is 64 bytes at offset 80, trim trailing nulls
@@ -231,7 +230,6 @@ export async function handleTasksCreate(
     const provider = createWalletProvider(deps.connection, keypair);
     const program = createProgram(provider);
     const creator = keypair.publicKey;
-    const bs58Mod = await import('bs58');
 
     const descStr = typeof (params as Record<string, unknown>).description === 'string'
       ? (params as Record<string, unknown>).description as string
@@ -251,21 +249,6 @@ export async function handleTasksCreate(
     const encoded = new TextEncoder().encode(descStr.slice(0, 64));
     descBytes.set(encoded);
 
-    // Resolve creator's agent PDA using raw getProgramAccounts (bypasses Anchor deserialization bug)
-    const AGENT_DISCRIMINATOR = Buffer.from([130, 53, 100, 103, 121, 77, 148, 19]);
-    const AGENT_AUTHORITY_OFFSET = 40; // 8 (disc) + 32 (agent_id)
-    const agentAccounts = await deps.connection.getProgramAccounts(program.programId, {
-      filters: [
-        { memcmp: { offset: 0, bytes: bs58Mod.default.encode(AGENT_DISCRIMINATOR) } },
-        { memcmp: { offset: AGENT_AUTHORITY_OFFSET, bytes: creator.toBase58() } },
-      ],
-    });
-    if (agentAccounts.length === 0) {
-      send({ type: 'error', error: 'No agent registration found for this wallet. Register an agent first.', id });
-      return;
-    }
-    const creatorAgentPda = agentAccounts[0].pubkey;
-
     // Derive PDAs
     const taskPda = findTaskPda(creator, taskId, program.programId);
     const escrowPda = findEscrowPda(taskPda, program.programId);
@@ -273,6 +256,7 @@ export async function handleTasksCreate(
 
     const deadline = Math.floor(Date.now() / 1000) + 3600; // 1 hour from now
 
+    // Devnet program: 7 args (no constraintHash, minReputation, rewardMint)
     await program.methods
       .createTask(
         toAnchorBytes(taskId),
@@ -282,16 +266,11 @@ export async function handleTasksCreate(
         1,                                          // maxWorkers
         new anchor.BN(deadline),                    // deadline
         0,                                          // taskType: exclusive
-        null,                                       // constraintHash (public task)
-        0,                                          // minReputation
-        null,                                       // rewardMint (SOL)
       )
       .accountsPartial({
         task: taskPda,
         escrow: escrowPda,
         protocolConfig: protocolPda,
-        creatorAgent: creatorAgentPda,
-        authority: creator,
         creator,
         systemProgram: SystemProgram.programId,
       })
@@ -329,17 +308,14 @@ export async function handleTasksCancel(
     const taskPda = new PublicKey(taskId);
 
     const escrowPda = findEscrowPda(taskPda, program.programId);
-    const protocolPda = findProtocolPda(program.programId);
-    const treasury = await fetchTreasury(program, program.programId);
 
+    // Devnet cancel_task: only 4 accounts (task, escrow, creator, system_program)
     await program.methods
       .cancelTask()
       .accountsPartial({
         creator: keypair.publicKey,
         task: taskPda,
         escrow: escrowPda,
-        protocolConfig: protocolPda,
-        treasury,
         systemProgram: SystemProgram.programId,
       })
       .rpc();

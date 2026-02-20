@@ -290,6 +290,7 @@ export class DaemonManager {
       toolHandler: baseToolHandler,
       skillInjector,
       memoryRetriever,
+      maxToolRounds: config.llm?.maxToolRounds ?? 3,
       sessionTokenBudget: config.llm?.sessionTokenBudget || undefined,
     }) : null;
 
@@ -391,6 +392,7 @@ export class DaemonManager {
         toolHandler: this._baseToolHandler!,
         skillInjector,
         memoryRetriever,
+        maxToolRounds: newConfig.llm?.maxToolRounds ?? 3,
         sessionTokenBudget: newConfig.llm?.sessionTokenBudget || undefined,
       }) : null;
 

@@ -11,7 +11,7 @@
  * IDL can be found at `target/idl/agenc_coordination.json`.
  */
 export type AgencCoordination = {
-  "address": "5j9ZbT3mnPX5QjWVMrDaWFuaGf8ddji6LW1HVJw6kUE7",
+  "address": "EopUaCV2svxj9j4hd7KjbrWfdjkspmm2BCBe7jGpKzKZ",
   "metadata": {
     "name": "agencCoordination",
     "version": "0.1.0",

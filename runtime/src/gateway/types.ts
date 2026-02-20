@@ -20,6 +20,8 @@ export interface GatewayLLMConfig {
   baseUrl?: string;
   /** Maximum token budget per session. 0 or undefined = unlimited. */
   sessionTokenBudget?: number;
+  /** Maximum tool call rounds per message. Default: 5. */
+  maxToolRounds?: number;
   /** Additional LLM providers for fallback (tried in order after primary fails). */
   fallback?: GatewayLLMConfig[];
 }

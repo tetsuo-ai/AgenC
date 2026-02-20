@@ -53,6 +53,14 @@ const DESCRIPTION_BYTES = 64;
 const TASK_ID_BYTES = 32;
 const MAX_U64 = (1n << 64n) - 1n;
 
+/**
+ * Dedup guard for createTask — prevents the LLM from calling createTask
+ * multiple times with the same description in a single conversation turn.
+ * Entries auto-expire after 30 seconds.
+ */
+const recentCreateTaskCalls = new Map<string, number>();
+const CREATE_TASK_DEDUP_TTL_MS = 30_000;
+
 const KNOWN_MINTS: Record<string, { symbol: string; decimals: number }> = {
   EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v: { symbol: 'USDC', decimals: 6 },
   Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB: { symbol: 'USDT', decimals: 6 },
@@ -275,11 +283,9 @@ async function fetchProtocolConfigForAction(
 ): Promise<[PublicKey, ProtocolConfig | null, ToolResult | null]> {
   const protocolPda = findProtocolPda(program.programId);
   try {
-    const raw = await program.account.protocolConfig.fetch(protocolPda);
-    const config = parseProtocolConfig(raw);
-    return [protocolPda, config, null];
-  } catch (error) {
-    if (isMissingAccountError(error)) {
+    // Use raw account fetch to avoid IDL mismatch with devnet program
+    const accountInfo = await program.provider.connection.getAccountInfo(protocolPda);
+    if (!accountInfo) {
       return [
         protocolPda,
         null,
@@ -289,6 +295,39 @@ async function fetchProtocolConfigForAction(
         ),
       ];
     }
+    // Parse treasury from raw data: offset 8 (discriminator) + 32 (authority) = 40
+    const data = accountInfo.data;
+    const treasury = new PublicKey(data.subarray(40, 72));
+    const config: ProtocolConfig = {
+      authority: new PublicKey(data.subarray(8, 40)),
+      treasury,
+      disputeThreshold: data[72],
+      protocolFeeBps: data.readUInt16LE(73),
+      minArbiterStake: 0n,
+      minAgentStake: 0n,
+      maxClaimDuration: 0n,
+      maxDisputeDuration: 0n,
+      totalAgents: 0n,
+      totalTasks: 0n,
+      completedTasks: 0n,
+      totalValueDistributed: 0n,
+      bump: 0,
+      multisigThreshold: 0,
+      multisigOwnersLen: 0,
+      multisigOwners: [],
+      taskCreationCooldown: 0n,
+      maxTasksPer24h: 0,
+      disputeInitiationCooldown: 0n,
+      maxDisputesPer24h: 0,
+      minStakeForDispute: 0n,
+      slashPercentage: 0,
+      stateUpdateCooldown: 0n,
+      votingPeriod: 0n,
+      protocolVersion: 0,
+      minSupportedVersion: 0,
+    };
+    return [protocolPda, config, null];
+  } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
     return [protocolPda, null, errorResult(msg)];
   }
@@ -683,28 +722,7 @@ export function createRegisterAgentTool(
           }
         }
 
-        const [protocolPda, config, configErr] = await fetchProtocolConfigForAction(
-          program,
-          'register an agent',
-        );
-        if (configErr || !config) {
-          return configErr ?? errorResult('Unable to load protocol config');
-        }
-
-        const [stakeAmount, stakeErr] = parseBigIntInput(
-          args.stakeAmount ?? config.minAgentStake.toString(),
-          'stakeAmount',
-        );
-        if (stakeErr || stakeAmount === null) {
-          return stakeErr ?? errorResult('Invalid stakeAmount');
-        }
-        if (stakeAmount < config.minAgentStake) {
-          return errorResult(
-            `stakeAmount must be at least minAgentStake (${config.minAgentStake.toString()} lamports)`,
-          );
-        }
-        const stakeRangeErr = validateU64(stakeAmount, 'stakeAmount');
-        if (stakeRangeErr) return stakeRangeErr;
+        const protocolPda = findProtocolPda(program.programId);
 
         const [agentId, agentIdErr] = parseAgentId(args.agentId);
         if (agentIdErr || !agentId) {
@@ -718,7 +736,6 @@ export function createRegisterAgentTool(
             new anchor.BN(capabilities.toString()),
             endpoint,
             metadataUri,
-            new anchor.BN(stakeAmount.toString()),
           )
           .accountsPartial({
             agent: agentPda,
@@ -735,8 +752,6 @@ export function createRegisterAgentTool(
             capabilities: capabilities.toString(),
             endpoint,
             metadataUri,
-            stakeAmount: stakeAmount.toString(),
-            stakeSol: lamportsToSol(stakeAmount),
             transactionSignature: txSignature,
           }),
         };
@@ -818,6 +833,17 @@ export function createCreateTaskTool(
         }
         const creator = program.provider.publicKey;
 
+        // Dedup guard — prevent LLM from calling createTask multiple times
+        const dedupKey = String(args.description ?? '').trim().toLowerCase();
+        const dedupNow = Date.now();
+        const lastCall = recentCreateTaskCalls.get(dedupKey);
+        if (lastCall && dedupNow - lastCall < CREATE_TASK_DEDUP_TTL_MS) {
+          return errorResult(
+            'Task with this description was already created moments ago. ' +
+            'Do NOT call createTask again. Report the previous result to the user.',
+          );
+        }
+
         const [taskId, taskIdErr] = parseTaskId(args.taskId);
         if (taskIdErr || !taskId) return taskIdErr ?? errorResult('Invalid taskId');
 
@@ -885,37 +911,9 @@ export function createCreateTaskTool(
         const [rewardMint, rewardMintErr] = parseKnownRewardMint(args.rewardMint);
         if (rewardMintErr) return rewardMintErr;
 
-        const [creatorAgentPda, creatorAgentErr] = await resolveCreatorAgentPda(
-          program,
-          creator,
-          args.creatorAgentPda,
-        );
-        if (creatorAgentErr || !creatorAgentPda) {
-          if (isNoRegistrationError(creatorAgentErr)) {
-            return await buildMissingRegistrationResult(program);
-          }
-          return creatorAgentErr ?? errorResult('Unable to resolve creator agent');
-        }
-
         const taskPda = findTaskPda(creator, taskId, program.programId);
         const escrowPda = findEscrowPda(taskPda, program.programId);
         const protocolPda = findProtocolPda(program.programId);
-
-        const accounts: Record<string, PublicKey | null> = {
-          task: taskPda,
-          escrow: escrowPda,
-          protocolConfig: protocolPda,
-          creatorAgent: creatorAgentPda,
-          authority: creator,
-          creator,
-          systemProgram: SystemProgram.programId,
-        };
-
-        // Only include token accounts when a reward mint is specified
-        if (rewardMint) {
-          const tokenAccounts = buildCreateTaskTokenAccounts(rewardMint, escrowPda, creator);
-          Object.assign(accounts, tokenAccounts);
-        }
 
         const txSignature = await program.methods
           .createTask(
@@ -926,21 +924,28 @@ export function createCreateTaskTool(
             maxWorkers,
             new anchor.BN(deadline),
             taskType,
-            constraintHash ? toAnchorBytes(constraintHash) : null,
-            minReputation,
-            rewardMint,
           )
-          .accountsPartial(accounts)
+          .accountsPartial({
+            task: taskPda,
+            escrow: escrowPda,
+            protocolConfig: protocolPda,
+            creator,
+            systemProgram: SystemProgram.programId,
+          })
           .rpc();
+
+        // Mark as created to prevent LLM from calling again
+        recentCreateTaskCalls.set(dedupKey, Date.now());
+        // Clean up old entries
+        for (const [key, ts] of recentCreateTaskCalls) {
+          if (Date.now() - ts > CREATE_TASK_DEDUP_TTL_MS) recentCreateTaskCalls.delete(key);
+        }
 
         return {
           content: safeStringify({
             taskPda: taskPda.toBase58(),
             escrowPda: escrowPda.toBase58(),
-            creatorAgentPda: creatorAgentPda.toBase58(),
             taskId: bytesToHex(taskId),
-            rewardMint: rewardMint?.toBase58() ?? null,
-            rewardSymbol: getRewardSymbol(rewardMint),
             transactionSignature: txSignature,
           }),
         };
