@@ -34,6 +34,15 @@ function makeBytes(length: number, fill: number): Uint8Array {
   return new Uint8Array(length).fill(fill);
 }
 
+/** Build a Uint8Array with high byte diversity (sequential bytes offset by base). */
+function makeDiverseBytes(length: number, base: number): Uint8Array {
+  const out = new Uint8Array(length);
+  for (let i = 0; i < length; i++) {
+    out[i] = (base + i) & 0xff;
+  }
+  return out;
+}
+
 function makeJournal(fields: {
   taskPda: Uint8Array;
   authority: Uint8Array;
@@ -70,8 +79,8 @@ function makeProof(
   const authorityPubkey = overrides.authorityPubkey ?? Keypair.generate().publicKey;
   const constraintHash = overrides.constraintHash ?? makeBytes(32, 1);
   const outputCommitment = overrides.outputCommitment ?? makeBytes(32, 2);
-  const bindingSeed = overrides.bindingSeed ?? makeBytes(32, 3);
-  const nullifierSeed = overrides.nullifierSeed ?? makeBytes(32, 4);
+  const bindingSeed = overrides.bindingSeed ?? makeDiverseBytes(32, 170);
+  const nullifierSeed = overrides.nullifierSeed ?? makeDiverseBytes(32, 210);
   const bindingFromJournal = overrides.bindingFromJournal ?? Uint8Array.from(bindingSeed);
   const nullifierFromJournal = overrides.nullifierFromJournal ?? Uint8Array.from(nullifierSeed);
 
@@ -336,12 +345,62 @@ describe('runProofSubmissionPreflight', () => {
     expect(result.failures.some((f) => f.check === 'nullifier_nonzero')).toBe(true);
   });
 
+  it('fails binding_entropy when journal binding has low byte diversity', async () => {
+    const harness = makeValidationHarness();
+    const lowEntropy = makeBytes(32, 0xAA); // constant fill = 1 distinct byte
+    const proof = makeProof({
+      taskPda: harness.taskPda,
+      bindingFromJournal: lowEntropy,
+      bindingSeed: lowEntropy,
+    });
+    const result = await runProofSubmissionPreflight(harness.connection as any, harness.program, {
+      taskPda: harness.taskPda,
+      workerAgentPda: harness.workerAgentPda,
+      proof,
+    });
+    expect(result.failures.some((f) => f.check === 'binding_entropy')).toBe(true);
+  });
+
+  it('fails nullifier_entropy when journal nullifier has low byte diversity', async () => {
+    const harness = makeValidationHarness();
+    const lowEntropy = makeBytes(32, 0xBB); // constant fill
+    const proof = makeProof({
+      taskPda: harness.taskPda,
+      nullifierFromJournal: lowEntropy,
+      nullifierSeed: lowEntropy,
+    });
+    const result = await runProofSubmissionPreflight(harness.connection as any, harness.program, {
+      taskPda: harness.taskPda,
+      workerAgentPda: harness.workerAgentPda,
+      proof,
+    });
+    expect(result.failures.some((f) => f.check === 'nullifier_entropy')).toBe(true);
+  });
+
+  it('passes entropy check for diverse binding/nullifier', async () => {
+    const harness = makeValidationHarness();
+    const proof = makeProof({
+      taskPda: harness.taskPda,
+      bindingSeed: makeDiverseBytes(32, 100),
+      bindingFromJournal: makeDiverseBytes(32, 100),
+      nullifierSeed: makeDiverseBytes(32, 200),
+      nullifierFromJournal: makeDiverseBytes(32, 200),
+    });
+    const result = await runProofSubmissionPreflight(harness.connection as any, harness.program, {
+      taskPda: harness.taskPda,
+      workerAgentPda: harness.workerAgentPda,
+      proof,
+    });
+    expect(result.failures.some((f) => f.check === 'binding_entropy')).toBe(false);
+    expect(result.failures.some((f) => f.check === 'nullifier_entropy')).toBe(false);
+  });
+
   it('fails binding_seed_match when journal binding differs from bindingSeed', async () => {
     const harness = makeValidationHarness();
     const proof = makeProof({
       taskPda: harness.taskPda,
-      bindingFromJournal: makeBytes(32, 8),
-      bindingSeed: makeBytes(32, 3),
+      bindingFromJournal: makeDiverseBytes(32, 80),
+      bindingSeed: makeDiverseBytes(32, 170),
     });
     const result = await runProofSubmissionPreflight(harness.connection as any, harness.program, {
       taskPda: harness.taskPda,
