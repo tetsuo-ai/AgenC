@@ -1417,7 +1417,7 @@ export interface DeferredProof {
   commitmentId: string;
   /** 388-byte Groth16 proof */
   proof: Uint8Array;
-  /** Circuit public inputs */
+  /** Proof public inputs (journal fields) */
   publicInputs: bigint[];
   /** Ancestor task IDs that must confirm first */
   ancestors: Uint8Array[];
