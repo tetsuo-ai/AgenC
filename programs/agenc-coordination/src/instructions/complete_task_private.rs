@@ -23,6 +23,14 @@ const RISC0_SELECTOR_LEN: usize = 4;
 const RISC0_IMAGE_ID_LEN: usize = 32;
 const RISC0_GROTH16_SEAL_LEN: usize = 256;
 const RISC0_SEAL_BORSH_LEN: usize = RISC0_SELECTOR_LEN + RISC0_GROTH16_SEAL_LEN;
+
+// Journal field offsets (each field is HASH_SIZE=32 bytes)
+const JOURNAL_TASK_PDA_OFFSET: usize = 0;
+const JOURNAL_AUTHORITY_OFFSET: usize = HASH_SIZE;       // 32
+const JOURNAL_CONSTRAINT_OFFSET: usize = 2 * HASH_SIZE;  // 64
+const JOURNAL_COMMITMENT_OFFSET: usize = 3 * HASH_SIZE;  // 96
+const JOURNAL_BINDING_OFFSET: usize = 4 * HASH_SIZE;     // 128
+const JOURNAL_NULLIFIER_OFFSET: usize = 5 * HASH_SIZE;   // 160
 const ROUTER_VERIFY_IX_DISCRIMINATOR: [u8; 8] = [133, 161, 141, 48, 120, 198, 88, 150];
 const VERIFIER_ENTRY_DISCRIMINATOR: [u8; 8] = [102, 247, 148, 158, 33, 153, 100, 93];
 const VERIFIER_ENTRY_ACCOUNT_LEN: usize = 8 + RISC0_SELECTOR_LEN + 32 + 1;
@@ -387,12 +395,12 @@ fn parse_and_validate_journal(journal: &[u8]) -> Result<ParsedJournal> {
         CoordinationError::InvalidJournalLength
     );
 
-    let task_pda = read_journal_field(journal, 0)?;
-    let agent_authority = read_journal_field(journal, 32)?;
-    let constraint_hash = read_journal_field(journal, 64)?;
-    let output_commitment = read_journal_field(journal, 96)?;
-    let binding = read_journal_field(journal, 128)?;
-    let nullifier = read_journal_field(journal, 160)?;
+    let task_pda = read_journal_field(journal, JOURNAL_TASK_PDA_OFFSET)?;
+    let agent_authority = read_journal_field(journal, JOURNAL_AUTHORITY_OFFSET)?;
+    let constraint_hash = read_journal_field(journal, JOURNAL_CONSTRAINT_OFFSET)?;
+    let output_commitment = read_journal_field(journal, JOURNAL_COMMITMENT_OFFSET)?;
+    let binding = read_journal_field(journal, JOURNAL_BINDING_OFFSET)?;
+    let nullifier = read_journal_field(journal, JOURNAL_NULLIFIER_OFFSET)?;
 
     require!(
         output_commitment != [0u8; HASH_SIZE],

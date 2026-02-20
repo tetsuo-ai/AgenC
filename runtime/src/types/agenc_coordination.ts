@@ -7452,6 +7452,11 @@ export type AgencCoordination = {
       "code": 6192,
       "name": "invalidTokenAccountOwner",
       "msg": "Token account owner does not match expected authority"
+    },
+    {
+      "code": 6193,
+      "name": "insufficientSeedEntropy",
+      "msg": "Binding or nullifier seed has insufficient byte diversity (min 8 distinct bytes required)"
     }
   ],
   "types": [

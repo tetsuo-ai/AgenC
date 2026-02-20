@@ -35,6 +35,7 @@ import { getSdkLogger } from './logger';
 import { getDependentTaskCount } from './queries';
 import { runProofSubmissionPreflight, type ProofSubmissionPreflightResult, type ProofPreconditionResult } from './proof-validation';
 import { NullifierCache } from './nullifier-cache';
+import { validateRisc0PayloadShape } from './validation';
 
 export { TaskState };
 
@@ -644,6 +645,9 @@ export async function completeTaskPrivate(
   const imageId = toFixedBytes(proof.imageId, RISC0_IMAGE_ID_LEN, 'imageId');
   const bindingSeed = toFixedBytes(proof.bindingSeed, HASH_SIZE, 'bindingSeed');
   const nullifierSeed = toFixedBytes(proof.nullifierSeed, HASH_SIZE, 'nullifierSeed');
+
+  // Defense-in-depth: validate payload shape (sizes + trusted selector)
+  validateRisc0PayloadShape({ sealBytes, journal, imageId, bindingSeed, nullifierSeed });
 
   const [bindingSpend] = PublicKey.findProgramAddressSync(
     [BINDING_SPEND_SEED, bindingSeed],
