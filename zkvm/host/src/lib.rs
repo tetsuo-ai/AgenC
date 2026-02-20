@@ -456,16 +456,34 @@ mod tests {
     }
 
     #[test]
-    fn deployment_allowlist_rejects_unknown_cluster() {
-        let err = ensure_allowlisted_deployment("devnet")
+    fn deployment_allowlist_rejects_non_allowlisted_cluster() {
+        let err = ensure_allowlisted_deployment("testnet")
             .expect_err("non-allowlisted cluster must be rejected");
 
         assert_eq!(
             err,
             ProveError::ClusterNotAllowlisted {
-                cluster: "devnet".to_string(),
+                cluster: "testnet".to_string(),
             }
         );
+    }
+
+    #[test]
+    fn deployment_allowlist_accepts_devnet() {
+        let deployment = config::require_allowlisted_deployment("devnet")
+            .expect("devnet must be allowlisted");
+
+        assert_eq!(deployment.router_program_id, config::TRUSTED_ROUTER_PROGRAM_ID);
+        assert_eq!(deployment.verifier_program_id, config::TRUSTED_VERIFIER_PROGRAM_ID);
+    }
+
+    #[test]
+    fn deployment_allowlist_accepts_mainnet_beta() {
+        let deployment = config::require_allowlisted_deployment("mainnet-beta")
+            .expect("mainnet-beta must be allowlisted");
+
+        assert_eq!(deployment.router_program_id, config::TRUSTED_ROUTER_PROGRAM_ID);
+        assert_eq!(deployment.verifier_program_id, config::TRUSTED_VERIFIER_PROGRAM_ID);
     }
 
     // -------------------------------------------------------------------

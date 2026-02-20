@@ -32,6 +32,9 @@ const TRUSTED_RISC0_ROUTER_PROGRAM_ID: Pubkey =
     Pubkey::from_str_const("6JvFfBrvCcWgANKh1Eae9xDq4RC6cfJuBcf71rp2k9Y7");
 const TRUSTED_RISC0_VERIFIER_PROGRAM_ID: Pubkey =
     Pubkey::from_str_const("THq1qFYQoh7zgcjXoMXduDBqiZRCPeg3PvvMbrVQUge");
+// TODO(CRIT-3): Arithmetic placeholder — not a real SHA-256 digest of the guest ELF.
+// To compute the real value: build with `production-prover`, extract AGENC_GUEST_ID,
+// convert via guest_id_to_image_id(). Must match sdk/src/constants.ts exactly.
 const TRUSTED_RISC0_IMAGE_ID: [u8; RISC0_IMAGE_ID_LEN] = [
     6, 15, 16, 25, 34, 43, 44, 53, 62, 71, 72, 81, 90, 99, 100, 109, 118, 127, 128, 137, 146, 155,
     156, 165, 174, 183, 184, 193, 202, 211, 212, 221,

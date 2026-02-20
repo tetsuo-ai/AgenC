@@ -71,7 +71,20 @@ export const RISC0_IMAGE_ID_LEN = 32;
 /** Trusted RISC0 selector for router verification */
 export const TRUSTED_RISC0_SELECTOR = Uint8Array.from([0x52, 0x5a, 0x56, 0x4d]);
 
-/** Trusted RISC0 image ID pinned by protocol policy */
+/**
+ * Trusted RISC0 image ID pinned by protocol policy.
+ *
+ * TODO(CRIT-3): This is an arithmetic placeholder, not a real SHA-256 digest of
+ * the guest ELF. To compute the real image ID:
+ *   1. Install rzup (RISC Zero toolchain manager)
+ *   2. Build zkvm workspace with `production-prover` feature:
+ *      cargo build -p agenc-zkvm-host --features production-prover
+ *   3. Extract AGENC_GUEST_ID from agenc-zkvm-methods crate
+ *   4. Convert via guest_id_to_image_id() (LE u32x8 → [u8; 32])
+ *   5. Update this constant AND the on-chain TRUSTED_RISC0_IMAGE_ID in
+ *      programs/agenc-coordination/src/instructions/complete_task_private.rs
+ *   Both values MUST match exactly or complete_task_private will reject all proofs.
+ */
 export const TRUSTED_RISC0_IMAGE_ID = Uint8Array.from([
   6, 15, 16, 25, 34, 43, 44, 53, 62, 71, 72, 81, 90, 99, 100, 109, 118, 127, 128, 137, 146, 155,
   156, 165, 174, 183, 184, 193, 202, 211, 212, 221,

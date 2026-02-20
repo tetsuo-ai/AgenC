@@ -917,6 +917,9 @@ export {
   // Core types
   type ProofEngineConfig,
   type ProofCacheConfig,
+  type ProverBackend,
+  type ProverBackendConfig,
+  type RouterConfig,
   type ProofInputs,
   type EngineProofResult,
   type ProofEngineStats,
@@ -931,6 +934,7 @@ export {
   deriveCacheKey,
   // Engine
   ProofEngine,
+  buildSdkProverConfig,
 } from './proof/index.js';
 
 // Memory Backends (Phase 6)
