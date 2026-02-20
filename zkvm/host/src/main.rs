@@ -71,18 +71,50 @@ fn print_image_id() -> Result<(), String> {
         let image_id = agenc_zkvm_host::guest_id_to_image_id(
             &agenc_zkvm_methods::AGENC_GUEST_ID,
         );
-        print!("[");
+
+        println!("=== RISC Zero Image ID (from guest ELF) ===\n");
+
+        // Rust constant format (for complete_task_private.rs)
+        println!("// Rust (programs/.../complete_task_private.rs)");
+        print!("const TRUSTED_RISC0_IMAGE_ID: [u8; RISC0_IMAGE_ID_LEN] = [\n    ");
         for (i, byte) in image_id.iter().enumerate() {
-            if i > 0 {
+            if i > 0 && i % 11 == 0 {
+                print!("\n    ");
+            } else if i > 0 {
                 print!(", ");
             }
-            print!("0x{byte:02x}");
+            print!("{byte}");
         }
-        println!("]");
+        println!(",\n];\n");
+
+        // TypeScript constant format (for sdk/src/constants.ts)
+        println!("// TypeScript (sdk/src/constants.ts)");
+        print!("export const TRUSTED_RISC0_IMAGE_ID = Uint8Array.from([\n  ");
+        for (i, byte) in image_id.iter().enumerate() {
+            if i > 0 && i % 11 == 0 {
+                print!("\n  ");
+            } else if i > 0 {
+                print!(", ");
+            }
+            print!("{byte}");
+        }
+        println!(",\n]);\n");
+
+        // Raw hex for verification
+        print!("// Hex: ");
+        for byte in &image_id {
+            print!("{byte:02x}");
+        }
+        println!();
+
         Ok(())
     }
     #[cfg(not(feature = "production-prover"))]
     {
-        Err("image-id requires --features production-prover (needs rzup toolchain)".into())
+        Err(concat!(
+            "image-id requires --features production-prover (needs rzup toolchain).\n",
+            "Install: curl -L https://risczero.com/install | bash && rzup install\n",
+            "Then: cargo run -p agenc-zkvm-host --features production-prover -- image-id"
+        ).into())
     }
 }

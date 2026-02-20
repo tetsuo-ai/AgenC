@@ -6739,7 +6739,7 @@
     {
       "code": 6052,
       "name": "InvalidProofSize",
-      "msg": "Invalid proof size - expected 256 bytes for Groth16"
+      "msg": "Invalid proof size - expected 256 bytes for RISC Zero seal body"
     },
     {
       "code": 6053,
@@ -7435,6 +7435,11 @@
       "code": 6191,
       "name": "PrivateTaskRequiresZkProof",
       "msg": "Private tasks (non-zero constraint_hash) must use complete_task_private"
+    },
+    {
+      "code": 6192,
+      "name": "InvalidTokenAccountOwner",
+      "msg": "Token account owner does not match expected authority"
     }
   ],
   "types": [
