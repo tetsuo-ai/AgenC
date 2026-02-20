@@ -82,18 +82,6 @@ export const TRUSTED_RISC0_IMAGE_ID = Uint8Array.from([
   211, 97, 58, 48, 7, 14, 121, 214, 109, 60, 64, 137, 170, 156, 79, 219,
 ]);
 
-/**
- * @deprecated Since v1.3.0. Use {@link RECOMMENDED_CU_COMPLETE_TASK_PRIVATE} instead.
- * Will be removed in v2.0.0.
- * See: https://github.com/tetsuo-ai/AgenC/issues/983
- */
-export const VERIFICATION_COMPUTE_UNITS = 50_000;
-
-/**
- * @deprecated Since v1.3.0. Noir circuit artifact — not used by RISC Zero proof path.
- * Will be removed in v2.0.0.
- */
-export const PUBLIC_INPUTS_COUNT = 67;
 
 // ============================================================================
 // Recommended Compute Unit Budgets (issue #40)
