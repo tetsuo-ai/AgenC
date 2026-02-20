@@ -1,3 +1,4 @@
 [workspace]
-members = ["guest", "host"]
+members = ["guest", "host", "methods"]
+default-members = ["guest", "host"]
 resolver = "2"

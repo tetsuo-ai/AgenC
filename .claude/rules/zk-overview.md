@@ -9,7 +9,7 @@
 | Verifier Router | RISC Zero Solana Verifier Router CPI | On-chain proof verification |
 | Hash | SHA-256 (Solana `hashv`) | Commitment and binding hashing |
 
-**Source:** boundless-xyz/risc0-solana tag v3.0.0, risc0-zkvm = 2.3.2
+**Source:** boundless-xyz/risc0-solana tag v3.0.0, risc0-zkvm ~3.0
 
 ## Privacy Model
 

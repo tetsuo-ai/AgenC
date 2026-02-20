@@ -919,9 +919,10 @@ claude mcp add agenc-dev \
 
 ### zkVM Crates
 
-- **Guest** (`zkvm/guest/`): Journal schema library — `JournalFields` struct, `serialize_journal()`, `placeholder_journal()`. Not a runnable guest program binary; shared type definitions.
-- **Host** (`zkvm/host/`): Proof generation — `generate_proof()`, dev mode guard (refuses if `RISC0_DEV_MODE` set), deployment allowlist (only `localnet` allowlisted), Borsh-encoded seal output.
-- **Pinned deps:** `risc0-zkvm` 2.3.2, `verifier_router` from `boundless-xyz/risc0-solana` tag v3.0.0
+- **Guest** (`zkvm/guest/`): Journal schema library — `JournalFields` struct, `serialize_journal()`, `placeholder_journal()`. Shared type definitions used by both the guest binary and the host.
+- **Methods** (`zkvm/methods/`): Bridge crate that compiles the guest ELF at build time via `risc0-build` and exposes `AGENC_GUEST_ELF` + `AGENC_GUEST_ID` constants. Only built when `production-prover` feature is enabled.
+- **Host** (`zkvm/host/`): Proof generation — `generate_proof()`, dev mode guard (refuses if `RISC0_DEV_MODE` set), deployment allowlist (only `localnet` allowlisted), Borsh-encoded seal output. Real Groth16 prover behind `production-prover` feature flag.
+- **Pinned deps:** `risc0-zkvm ~3.0` (resolves to 3.0.5), `verifier_router` from `boundless-xyz/risc0-solana` tag v3.0.0
 
 ### Proof Flow
 
