@@ -26,6 +26,7 @@ function makeKeypair(seed: number): Keypair {
 function makeProgram(methodNames: string[], rpcValue: string): unknown {
   const builder = {
     accountsPartial: vi.fn().mockReturnThis(),
+    preInstructions: vi.fn().mockReturnThis(),
     signers: vi.fn().mockReturnThis(),
     rpc: vi.fn().mockResolvedValue(rpcValue),
   };

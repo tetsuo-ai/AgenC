@@ -176,8 +176,10 @@ function makeValidationHarness(options?: {
     methods: {
       completeTaskPrivate: vi.fn().mockReturnValue({
         accountsPartial: vi.fn().mockReturnValue({
-          signers: vi.fn().mockReturnValue({
-            rpc: vi.fn().mockResolvedValue('tx-sig'),
+          preInstructions: vi.fn().mockReturnValue({
+            signers: vi.fn().mockReturnValue({
+              rpc: vi.fn().mockResolvedValue('tx-sig'),
+            }),
           }),
         }),
       }),
