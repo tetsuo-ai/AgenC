@@ -336,8 +336,8 @@ describe('proofs', () => {
       expect(binding2).toBe(binding);
     });
 
-    it('matches circuit computation for known values', () => {
-      // These test values should match the circuit test fixtures
+    it('matches RISC Zero computation for known values', () => {
+      // These test values should match the RISC Zero guest test fixtures
       // Task ID: 42 (0x2a) as 32-byte big-endian
       const taskIdBytes = Buffer.alloc(32, 0);
       taskIdBytes[31] = 0x2a;

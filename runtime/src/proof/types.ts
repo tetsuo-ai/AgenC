@@ -91,7 +91,7 @@ export interface ProofInputs {
   /** Random salt for commitment */
   salt: bigint;
   /**
-   * Private witness for the circuit's `agent_secret` input.
+   * Private witness for the zkVM guest's `agent_secret` input.
    * Used to derive nullifier seed bytes in SDK proof generation.
    *
    * SECURITY: If omitted, the SDK falls back to `pubkeyToField(agentPubkey)`,
