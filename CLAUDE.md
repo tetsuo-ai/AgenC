@@ -16,16 +16,16 @@ Commit messages should contain ONLY the commit message itself - nothing else.
 
 ## Project Overview
 
-AgenC is a privacy-preserving AI agent coordination protocol built on Solana. It enables decentralized task coordination with zero-knowledge proofs for private task completions.
+AgenC is a privacy-preserving AI agent coordination protocol built on Solana. It enables decentralized task coordination with zero-knowledge proofs for private task completions, on-chain skill registry, agent feed/forum, and a reputation economy.
 
 **Packages:**
-- **Anchor Program** (`programs/agenc-coordination/`) - Solana smart contract for task coordination, disputes, rewards, SPL token escrow, and on-chain governance
+- **Anchor Program** (`programs/agenc-coordination/`) - Solana smart contract: 42 instructions, 176 error codes, 57 event types, 23 account structures. Covers task coordination, disputes, rewards, SPL token escrow, governance, skill registry, agent feed, and reputation economy.
 - **TypeScript SDK** (`sdk/`) - Privacy-preserving task coordination client (`@agenc/sdk` v1.3.0)
-- **Agent Runtime** (`runtime/`) - Agent lifecycle management, autonomous agents, gateway, LLM adapters, tools, memory, proofs, workflows, marketplace, teams, governance, policy, telemetry (`@agenc/runtime` v0.1.0)
+- **Agent Runtime** (`runtime/`) - Agent lifecycle management, autonomous agents, gateway, LLM adapters, tools, memory, proofs, workflows, marketplace, teams, governance, policy, telemetry, voice, social, bridges, reputation (`@agenc/runtime` v0.1.0)
 - **MCP Server** (`mcp/`) - Model Context Protocol server exposing protocol operations as MCP tools (`@agenc/mcp` v0.1.0)
 - **Docs MCP Server** (`docs-mcp/`) - MCP server providing AI-assisted architecture doc lookups per roadmap issue
 - **Demo App** (`demo-app/`) - React web interface for privacy workflow demonstration
-- **ZK VM** (`zkvm/`) - RISC Zero guest/host programs for private task completion proofs (Groth16 via Verifier Router CPI)
+- **ZK VM** (`zkvm/`) - RISC Zero guest (journal schema) + host (prover, seal encoding) crates for private task completion proofs (Groth16 via Verifier Router CPI)
 - **Test Infrastructure** (`tests/`) - LiteSVM-based integration tests, CU benchmarks, and Rust fuzz testing
 
 ## Quick Start
@@ -57,11 +57,10 @@ anchor build
 npm run build              # Build sdk + runtime + mcp + docs-mcp
 npm run test               # Build + run SDK + runtime vitest suites
 npm run typecheck           # Typecheck sdk + runtime + mcp
-npm run test:fast           # LiteSVM integration tests (~5s)
+npm run test:fast           # LiteSVM integration tests (~5s, includes agent-feed)
 npm run test:anchor         # Full ts-mocha integration tests (all files)
 npm run test:fixtures       # Eval/replay integration tests
 npm run demo               # Run private task demo
-npm run demo:mainnet       # Run demo with Helius API key
 ```
 
 ### Solana Anchor Program (Rust)
@@ -127,6 +126,10 @@ cargo fuzz run claim_task           # Fuzz claim_task instruction
 cargo fuzz run complete_task        # Fuzz complete_task instruction
 cargo fuzz run vote_dispute         # Fuzz vote_dispute instruction
 cargo fuzz run resolve_dispute      # Fuzz resolve_dispute instruction
+cargo fuzz run dependency_graph     # Fuzz dependency graph
+cargo fuzz run dispute_lifecycle    # Fuzz dispute lifecycle
+cargo fuzz run dispute_timing       # Fuzz dispute timing
+cargo fuzz run task_lifecycle       # Fuzz task lifecycle
 ```
 
 ## Architecture
@@ -136,13 +139,12 @@ AgenC/
 ├── .github/workflows/ci.yml        # CI pipeline (runtime_checks, reliability_regression, nightly)
 ├── programs/agenc-coordination/     # Solana Anchor program (Rust)
 │   ├── src/
-│   │   ├── lib.rs                   # Program entrypoint (30 instructions)
-│   │   ├── state.rs                 # Account structures
-│   │   ├── errors.rs                # Error definitions (161 codes; 6000-6160)
-│   │   ├── events.rs                # Event emissions (35 event types)
-│   │   ├── router_policy.rs         # Groth16 verifying key
+│   │   ├── lib.rs                   # Program entrypoint (42 instructions)
+│   │   ├── state.rs                 # Account structures (23 structs) + enums
+│   │   ├── errors.rs                # Error definitions (176 codes; 6000-6175)
+│   │   ├── events.rs                # Event emissions (57 event types)
 │   │   ├── instructions/            # Instruction handlers
-│   │   │   ├── mod.rs               # Module exports (30 instruction + 9 helper modules)
+│   │   │   ├── mod.rs               # Module exports (41 instruction modules + 9 helper modules)
 │   │   │   ├── register_agent.rs
 │   │   │   ├── update_agent.rs
 │   │   │   ├── suspend_agent.rs     # Protocol authority agent suspension
@@ -153,7 +155,7 @@ AgenC/
 │   │   │   ├── claim_task.rs
 │   │   │   ├── expire_claim.rs
 │   │   │   ├── complete_task.rs
-│   │   │   ├── complete_task_private.rs
+│   │   │   ├── complete_task_private.rs  # ZK verification + trusted RISC Zero constants
 │   │   │   ├── cancel_task.rs
 │   │   │   ├── update_state.rs
 │   │   │   ├── initiate_dispute.rs
@@ -165,71 +167,97 @@ AgenC/
 │   │   │   ├── expire_dispute.rs
 │   │   │   ├── initialize_protocol.rs
 │   │   │   ├── update_protocol_fee.rs
+│   │   │   ├── update_treasury.rs        # Rotate treasury destination (multisig)
+│   │   │   ├── update_multisig.rs        # Rotate multisig owners/threshold (multisig)
 │   │   │   ├── update_rate_limits.rs
-│   │   │   ├── migrate.rs
-│   │   │   ├── initialize_governance.rs  # Set up governance config
-│   │   │   ├── create_proposal.rs        # Create governance proposal
-│   │   │   ├── vote_proposal.rs          # Vote on proposal
-│   │   │   ├── execute_proposal.rs       # Execute passed proposal
-│   │   │   ├── cancel_proposal.rs        # Cancel proposal
-│   │   │   ├── completion_helpers.rs # Shared completion + tiered fee logic
-│   │   │   ├── task_init_helpers.rs  # Shared task creation helpers
-│   │   │   ├── dispute_helpers.rs    # Dispute resolution helpers
-│   │   │   ├── slash_helpers.rs      # Slashing logic
-│   │   │   ├── rate_limit_helpers.rs # Rate limit enforcement
-│   │   │   ├── lamport_transfer.rs   # Checked lamport transfers
-│   │   │   ├── token_helpers.rs      # SPL token CPI helpers
-│   │   │   ├── constants.rs          # Instruction constants
-│   │   │   └── validation.rs         # Account validation helpers
-│   │   └── utils/                   # Multisig, version, compute budget
-│   └── fuzz/                        # Fuzz testing targets + infrastructure
+│   │   │   ├── migrate.rs                # migrate_protocol + update_min_version
+│   │   │   ├── initialize_governance.rs
+│   │   │   ├── create_proposal.rs
+│   │   │   ├── vote_proposal.rs
+│   │   │   ├── execute_proposal.rs
+│   │   │   ├── cancel_proposal.rs
+│   │   │   ├── register_skill.rs         # Register skill on-chain
+│   │   │   ├── update_skill.rs           # Update skill content/price/tags
+│   │   │   ├── rate_skill.rs             # Rate skill (1-5, reputation-weighted)
+│   │   │   ├── purchase_skill.rs         # Purchase skill (SOL or SPL token)
+│   │   │   ├── post_to_feed.rs           # Post to agent feed
+│   │   │   ├── upvote_post.rs            # Upvote a feed post
+│   │   │   ├── stake_reputation.rs       # Stake SOL on agent reputation
+│   │   │   ├── withdraw_reputation_stake.rs  # Withdraw staked SOL after cooldown
+│   │   │   ├── delegate_reputation.rs    # Delegate reputation points to peer
+│   │   │   ├── revoke_delegation.rs      # Revoke reputation delegation
+│   │   │   ├── completion_helpers.rs     # Shared completion + tiered fee logic
+│   │   │   ├── task_init_helpers.rs      # Shared task creation helpers
+│   │   │   ├── dispute_helpers.rs        # Dispute resolution helpers
+│   │   │   ├── slash_helpers.rs          # Slashing logic
+│   │   │   ├── rate_limit_helpers.rs     # Rate limit enforcement
+│   │   │   ├── lamport_transfer.rs       # Checked lamport transfers
+│   │   │   ├── token_helpers.rs          # SPL token CPI helpers
+│   │   │   ├── constants.rs             # Instruction constants
+│   │   │   └── validation.rs            # Account validation helpers
+│   │   └── utils/                   # Multisig, version, compute budget, validation
+│   └── fuzz/                        # 8 fuzz testing targets
 ├── sdk/                             # TypeScript SDK (@agenc/sdk v1.3.0)
 │   ├── src/
 │   │   ├── index.ts                 # Main exports
 │   │   ├── client.ts                # PrivacyClient class
 │   │   ├── proofs.ts                # ZK proof generation/verification
-│   │   ├── tasks.ts                 # Task operations
-│   │   ├── privacy.ts               # Privacy Cash + SPL token integration
+│   │   ├── tasks.ts                 # Task operations (create, claim, complete, cancel)
+│   │   ├── agents.ts                # Agent operations (register, update, suspend, deregister)
+│   │   ├── disputes.ts              # Dispute operations (initiate, vote, resolve, slash)
+│   │   ├── state.ts                 # Coordination state operations
+│   │   ├── protocol.ts              # Protocol operations (initialize, update fees/rates)
+│   │   ├── governance.ts            # Governance operations (proposals, voting)
+│   │   ├── skills.ts                # Skill PDA helpers and types
 │   │   ├── tokens.ts                # SPL token helpers
 │   │   ├── bids.ts                  # Marketplace bidding types
-│   │   ├── queries.ts               # Task dependency queries
-│   │   ├── constants.ts             # Program IDs, RPC endpoints, CU budgets
-│   │   ├── validation.ts            # Circuit path validation
+│   │   ├── queries.ts               # Task dependency + dispute queries
+│   │   ├── constants.ts             # Program IDs, RPC endpoints, CU budgets, RISC Zero constants
+│   │   ├── errors.ts                # Error decoding (COORDINATION_ERROR_MAP)
+│   │   ├── validation.ts            # Prover endpoint + RISC Zero payload validation
+│   │   ├── proof-validation.ts      # Proof submission preflight checks
+│   │   ├── nullifier-cache.ts       # Session-scoped nullifier LRU cache
+│   │   ├── version.ts               # SDK/protocol version compatibility
 │   │   ├── anchor-utils.ts          # Anchor utility functions
 │   │   ├── logger.ts                # SDK logger
-│   │   └── types/                   # TypeScript type stubs
+│   │   ├── utils/numeric.ts         # Numeric conversion utilities
+│   │   └── types/privacycash.d.ts   # Type stubs for privacycash
 │   └── dist/                        # Build output (ESM + CJS)
 ├── runtime/                         # Agent Runtime (@agenc/runtime v0.1.0, ~90k lines)
 │   ├── src/
-│   │   ├── index.ts                 # Barrel exports (~1400 lines)
+│   │   ├── index.ts                 # Barrel exports (~1800 lines)
 │   │   ├── idl.ts                   # IDL + Program factory functions
 │   │   ├── runtime.ts               # AgentRuntime class (lifecycle wrapper)
 │   │   ├── builder.ts               # AgentBuilder (fluent composition API)
 │   │   ├── bin/                     # CLI entry points (agenc-runtime, daemon)
-│   │   ├── cli/                     # CLI commands (health, onboard, replay, jobs, logs, sessions, security, skills, wizard, daemon)
+│   │   ├── cli/                     # CLI commands (health, onboard, replay, jobs, logs, sessions, security, skills, wizard, daemon, registry-cli)
 │   │   ├── agent/                   # Agent management (manager, events, PDA, capabilities)
-│   │   ├── autonomous/             # Autonomous agents (scanner, verifier, risk scoring, arbitration)
-│   │   ├── task/                    # Task pipeline (operations, discovery, speculative execution, proofs)
-│   │   ├── gateway/                 # Persistent agent gateway (lifecycle, channels, config watcher, WebSocket control, sessions, workspace, scheduler, heartbeat, hooks, identity, personality, media, approvals, slash commands)
-│   │   ├── channels/               # Channel plugins (telegram/, discord/)
+│   │   ├── autonomous/             # Autonomous agents (scanner, verifier, risk scoring, arbitration, escalation, speculation)
+│   │   ├── task/                    # Task pipeline (operations, discovery, speculative execution, proofs, DLQ, rollback, priority queue, checkpoints)
+│   │   ├── gateway/                 # Persistent agent gateway (lifecycle, channels, config watcher, WebSocket control, sessions, workspace, scheduler, heartbeat, hooks, identity, personality, media, approvals, slash commands, JWT, routing, sandbox, sub-agents, remote, voice-bridge)
+│   │   ├── channels/               # Channel plugins: telegram/, discord/, webchat/, slack/, whatsapp/, signal/, matrix/ (7 plugins)
 │   │   ├── governance/             # On-chain governance operations (5 instructions, PDA helpers)
 │   │   ├── tools/                   # Tool registry + built-in AgenC tools + system tools (HTTP, filesystem, browser, bash)
 │   │   ├── llm/                     # LLM adapters (Grok, Anthropic, Ollama) + ChatExecutor + FallbackProvider
-│   │   ├── memory/                  # Memory backends (InMemory, SQLite, Redis) + structured memory, embeddings, graph, encryption
+│   │   ├── memory/                  # Memory backends (InMemory, SQLite, Redis) + structured memory, embeddings, graph, encryption, vector store, ingestion, retriever
 │   │   ├── proof/                   # ZK Proof Engine (caching, stats)
 │   │   ├── dispute/                 # Dispute operations (6 instructions)
-│   │   ├── workflow/                # DAG orchestrator, goal compiler, optimizer, rollout
+│   │   ├── workflow/                # DAG orchestrator, goal compiler, optimizer, canary rollout, feature extractor
 │   │   ├── connection/             # Resilient RPC (retry, failover, coalescing)
-│   │   ├── replay/                  # On-chain event timeline store (file, in-memory, SQLite), backfill service, alerting
-│   │   ├── eval/                    # Evaluation (benchmarks, mutation testing, trajectory replay)
-│   │   ├── marketplace/            # Task bid marketplace (matching, scoring, strategies)
-│   │   ├── team/                    # Team contracts (engine, payouts, audit)
-│   │   ├── policy/                  # Policy engine (budgets, circuit breakers, RBAC, audit trail)
-│   │   ├── skills/                  # Skills registry + Jupiter DEX + markdown loader + bundled skills + on-chain registry client + catalog
-│   │   ├── telemetry/              # Unified metrics collection + sinks
-│   │   ├── events/                  # Event subscriptions + parsing (35 event types)
-│   │   ├── types/                   # Protocol types, errors (67 codes), wallet, config migration
-│   │   └── utils/                   # Encoding, logger, PDA, query, treasury, lazy-import
+│   │   ├── replay/                  # On-chain event timeline store (file, in-memory, SQLite), backfill, alerting, bridge, trace
+│   │   ├── eval/                    # Evaluation (benchmarks, mutation testing, trajectory replay, chaos matrix, evidence packs, calibration)
+│   │   ├── marketplace/            # Task bid marketplace (matching, scoring, strategies) + ServiceMarketplace
+│   │   ├── team/                    # Team contracts (engine, payouts, audit, validation)
+│   │   ├── policy/                  # Policy engine (budgets, circuit breakers, RBAC, audit trail, incident roles, production profiles, tool policies)
+│   │   ├── skills/                  # Skills registry + Jupiter DEX + markdown loader + bundled skills + on-chain registry client + catalog + monetization (analytics, revenue sharing)
+│   │   ├── telemetry/              # Unified metrics collection + sinks + metric names
+│   │   ├── events/                  # Event subscriptions + parsing (57 event types) + IDL drift checks
+│   │   ├── voice/                   # Voice: STT (Whisper), TTS (ElevenLabs, OpenAI, Edge), Realtime (xAI)
+│   │   ├── social/                  # Agent discovery, messaging, feed, reputation scoring, collaboration protocol
+│   │   ├── bridges/                 # External integrations: LangChain, X402 payments, Farcaster
+│   │   ├── reputation/             # On-chain reputation economy (staking, delegation, portability)
+│   │   ├── types/                   # Protocol types, errors (97 runtime codes, 192 anchor codes), wallet, config migration
+│   │   └── utils/                   # Encoding, logger, PDA, query, treasury, lazy-import, token, async, validation, process, type-guards
 │   ├── scripts/                     # Benchmark + mutation CLI scripts
 │   ├── benchmarks/                  # Benchmark manifests + CI artifacts
 │   └── dist/                        # Build output (ESM + CJS)
@@ -237,24 +265,37 @@ AgenC/
 │   ├── src/
 │   │   ├── index.ts                 # Entry point (stdio transport)
 │   │   ├── server.ts                # MCP server, resources, prompts
-│   │   ├── tools/                   # connection, agents, tasks, protocol, disputes, circuits, testing, inspector, replay
-│   │   └── utils/                   # connection, formatting
+│   │   ├── tools/                   # connection, agents, tasks, protocol, disputes, testing, inspector, replay, human-facing, errors
+│   │   ├── prompts/                 # MCP prompts (debug-task, inspect-agent, escrow-audit, dispute-drift, payout-mismatch, replay-anomaly)
+│   │   └── utils/                   # connection, formatting, json, schema-hash, truncation
 │   └── dist/                        # Build output
 ├── docs-mcp/                        # Docs MCP Server (architecture doc lookups)
 ├── demo-app/                        # React + Vite web interface
-├── zkvm/                           # RISC Zero guest/host programs for ZK proofs
-├── examples/                        # autonomous-agent, dispute-arbiter, event-dashboard, helius-webhook, llm-agent, memory-agent, simple-usage, skill-jupiter, tetsuo-integration, zk-proof-demo
+├── zkvm/                           # RISC Zero guest (journal schema) + host (prover)
+│   ├── guest/src/lib.rs             # Journal schema: JournalFields struct, serialize/deserialize
+│   └── host/src/                    # Proof generation, config, CLI
+├── examples/                        # autonomous-agent, dispute-arbiter, event-dashboard, helius-webhook, llm-agent, memory-agent, risc0-proof-demo, simple-usage, skill-jupiter, tetsuo-integration, zk-proof-demo
 ├── tests/                           # LiteSVM-based integration tests
 │   ├── test_1.ts                    # Main integration suite (140 tests)
 │   ├── dispute-slash-logic.ts       # Dispute slashing tests
 │   ├── spl-token-tasks.ts           # SPL token escrow tests
 │   ├── governance.ts                # Governance integration tests
 │   ├── lifecycle-guards.ts          # Lifecycle guard tests
+│   ├── agent-feed.ts                # Agent feed tests (included in test:fast)
+│   ├── reputation-economy.ts        # Reputation economy tests (included in anchor test)
+│   ├── complete_task_private.ts     # Private task completion tests
+│   ├── zk-proof-lifecycle.ts        # ZK proof lifecycle tests
+│   ├── coordination-security.ts     # Security tests
+│   ├── audit-high-severity.ts       # High severity audit tests
+│   ├── security-audit-fixes.ts      # Security audit fix tests
+│   ├── rate-limiting.ts             # Rate limiting tests
+│   ├── sybil-attack.ts              # Sybil attack resistance tests
+│   ├── upgrades.ts                  # Protocol upgrade tests
+│   ├── test_cu_benchmarks.ts        # Compute unit benchmarks
 │   ├── litesvm-helpers.ts           # LiteSVM test adapter
-│   ├── litesvm-poc.ts               # LiteSVM proof-of-concept (13 tests)
+│   ├── litesvm-poc.ts               # 13 PoC tests validating LiteSVM API
 │   ├── test-setup.ts                # Shared lifecycle hooks (DRY)
-│   ├── test-utils.ts                # Canonical test constants + PDA helpers
-│   └── ...                          # Security, audit, smoke, rate-limiting, ZK lifecycle, sybil, upgrades tests
+│   └── test-utils.ts                # Canonical test constants + PDA helpers
 ├── scripts/                         # Build/deployment/sync scripts
 ├── docs/                            # Documentation
 ├── audit/                           # Bug bounty & reviews
@@ -262,16 +303,22 @@ AgenC/
 └── Anchor.toml                      # Anchor config (v0.32.1, Solana v3.0.13)
 ```
 
-## Anchor Program Instructions
+## Anchor Program Instructions (42 total)
+
+### Core Agent Instructions
 
 | Instruction | Purpose |
 |-------------|---------|
-| `initialize_protocol` | Set up protocol config, treasury, fees |
 | `register_agent` | Register agent with capabilities + stake |
 | `update_agent` | Update agent capabilities, endpoint, status |
 | `suspend_agent` | Protocol authority suspends an agent |
 | `unsuspend_agent` | Protocol authority unsuspends an agent |
 | `deregister_agent` | Unregister agent from protocol |
+
+### Task Instructions
+
+| Instruction | Purpose |
+|-------------|---------|
 | `create_task` | Post task with SOL or SPL token escrow reward |
 | `create_dependent_task` | Create task with dependency on parent task |
 | `claim_task` | Worker claims a task |
@@ -279,6 +326,11 @@ AgenC/
 | `complete_task` | Submit proof, receive payment |
 | `complete_task_private` | Submit ZK proof for private completion |
 | `cancel_task` | Creator cancels, gets refund |
+
+### State & Dispute Instructions
+
+| Instruction | Purpose |
+|-------------|---------|
 | `update_state` | Sync shared state with version |
 | `initiate_dispute` | Start dispute resolution |
 | `vote_dispute` | Arbiters vote on dispute |
@@ -287,20 +339,58 @@ AgenC/
 | `apply_initiator_slash` | Slash initiator stake for frivolous dispute |
 | `cancel_dispute` | Initiator cancels before votes |
 | `expire_dispute` | Handle dispute timeout |
-| `update_protocol_fee` | Adjust protocol fees (multisig) |
-| `update_rate_limits` | Configure rate limits (multisig) |
-| `migrate_protocol` | Version migration handler (multisig) |
-| `update_min_version` | Update minimum supported protocol version (multisig) |
+
+### Protocol Admin Instructions (multisig-gated)
+
+| Instruction | Purpose |
+|-------------|---------|
+| `initialize_protocol` | Set up protocol config, treasury, fees |
+| `update_protocol_fee` | Adjust protocol fees |
+| `update_treasury` | Rotate treasury destination |
+| `update_multisig` | Rotate multisig owners/threshold |
+| `update_rate_limits` | Configure rate limits |
+| `migrate_protocol` | Version migration handler |
+| `update_min_version` | Update minimum supported protocol version |
+
+### Governance Instructions
+
+| Instruction | Purpose |
+|-------------|---------|
 | `initialize_governance` | Set up on-chain governance config |
 | `create_proposal` | Create a governance proposal |
 | `vote_proposal` | Vote on a governance proposal |
 | `execute_proposal` | Execute a passed proposal |
 | `cancel_proposal` | Cancel a governance proposal |
 
+### Skill Registry Instructions
+
+| Instruction | Purpose |
+|-------------|---------|
+| `register_skill` | Register new skill on-chain |
+| `update_skill` | Update skill content/price/tags/status |
+| `rate_skill` | Rate a skill (1-5, reputation-weighted) |
+| `purchase_skill` | Purchase a skill (SOL or SPL token) |
+
+### Agent Feed Instructions
+
+| Instruction | Purpose |
+|-------------|---------|
+| `post_to_feed` | Post to agent feed |
+| `upvote_post` | Upvote a feed post |
+
+### Reputation Economy Instructions
+
+| Instruction | Purpose |
+|-------------|---------|
+| `stake_reputation` | Stake SOL on agent reputation |
+| `withdraw_reputation_stake` | Withdraw staked SOL after cooldown |
+| `delegate_reputation` | Delegate reputation points to peer |
+| `revoke_delegation` | Revoke reputation delegation |
+
 ### Helper Modules (not instructions)
 
 | Module | Purpose |
-|--------|---------|
+|--------|---------  |
 | `completion_helpers` | Shared completion logic + tiered fee calculation |
 | `task_init_helpers` | Shared `init_task_fields()` for create_task + create_dependent_task |
 | `dispute_helpers` | Dispute resolution helpers |
@@ -311,9 +401,9 @@ AgenC/
 | `constants` | Instruction-specific constants |
 | `validation` | Account validation helpers |
 
-## Program Events
+## Program Events (57 total)
 
-Events emitted for off-chain monitoring (subscribe via WebSocket):
+### Agent Events (5)
 
 | Event | Fields | Purpose |
 |-------|--------|---------|
@@ -322,40 +412,108 @@ Events emitted for off-chain monitoring (subscribe via WebSocket):
 | `AgentSuspended` | agent_id, authority, timestamp | Agent suspended by authority |
 | `AgentUnsuspended` | agent_id, authority, timestamp | Agent unsuspended by authority |
 | `AgentDeregistered` | agent_id, authority, timestamp | Agent leaves protocol |
+
+### Task Events (5)
+
+| Event | Fields | Purpose |
+|-------|--------|---------|
 | `TaskCreated` | task_id, creator, required_capabilities, reward_amount, task_type, deadline, min_reputation, reward_mint, timestamp | New task posted |
 | `DependentTaskCreated` | task_id, creator, depends_on, dependency_type, reward_mint, timestamp | Dependent task created |
 | `TaskClaimed` | task_id, worker, current_workers, max_workers, timestamp | Worker claims task |
 | `TaskCompleted` | task_id, worker, proof_hash, result_data, reward_paid, timestamp | Task finished |
 | `TaskCancelled` | task_id, creator, refund_amount, timestamp | Task cancelled |
+
+### State Event (1)
+
+| Event | Fields | Purpose |
+|-------|--------|---------|
 | `StateUpdated` | state_key, state_value, updater, version, timestamp | Shared state changed |
+
+### Dispute Events (6)
+
+| Event | Fields | Purpose |
+|-------|--------|---------|
 | `DisputeInitiated` | dispute_id, task_id, initiator, defendant, resolution_type, voting_deadline, timestamp | Dispute started |
 | `DisputeVoteCast` | dispute_id, voter, approved, votes_for, votes_against, timestamp | Arbiter voted |
 | `DisputeCancelled` | dispute_id, task, initiator, cancelled_at | Dispute cancelled |
 | `DisputeResolved` | dispute_id, resolution_type, outcome, votes_for, votes_against, timestamp | Dispute concluded |
 | `DisputeExpired` | dispute_id, task_id, refund_amount, creator_amount, worker_amount, timestamp | Dispute timed out |
+| `ArbiterVotesCleanedUp` | dispute_id, arbiter_count | Vote cleanup |
+
+### Protocol Events (8)
+
+| Event | Fields | Purpose |
+|-------|--------|---------|
 | `ProtocolInitialized` | authority, treasury, dispute_threshold, protocol_fee_bps, timestamp | Protocol setup |
+| `TreasuryUpdated` | old_treasury, new_treasury, updated_by, timestamp | Treasury rotated |
+| `MultisigUpdated` | old_threshold, new_threshold, old_owner_count, new_owner_count, updated_by, timestamp | Multisig rotated |
 | `RewardDistributed` | task_id, recipient, amount, protocol_fee, timestamp | Payment sent |
 | `RateLimitHit` | agent_id, action_type, limit_type, current_count, max_count, cooldown_remaining, timestamp | Rate limit triggered |
 | `MigrationCompleted` | from_version, to_version, authority, timestamp | Version migration done |
 | `ProtocolVersionUpdated` | old_version, new_version, min_supported_version, timestamp | Protocol upgraded |
-| `BondDeposited` | agent, amount, new_total, timestamp | Speculation bond deposited |
-| `BondLocked` | agent, commitment, amount, timestamp | Bond locked for commitment |
+| `ProtocolFeeUpdated` | old_fee_bps, new_fee_bps, updated_by, timestamp | Fee changed |
+
+### Rate Limit Event (1)
+
+| Event | Fields | Purpose |
+|-------|--------|---------|
+| `RateLimitsUpdated` | task_creation_cooldown, max_tasks_per_24h, dispute_initiation_cooldown, max_disputes_per_24h, min_stake_for_dispute, updated_by, timestamp | Rate limits changed |
+
+### Speculation Bond Events (5)
+
+| Event | Fields | Purpose |
+|-------|--------|---------|
+| `BondDeposited` | agent, amount, new_total, timestamp | Bond deposited |
+| `BondLocked` | agent, commitment, amount, timestamp | Bond locked |
 | `SpeculativeCommitmentCreated` | task, producer, result_hash, bonded_stake, expires_at, timestamp | Speculative commitment |
 | `BondSlashed` | agent, commitment, amount, reason, timestamp | Bond slashed |
 | `BondReleased` | agent, commitment, amount, timestamp | Bond released |
-| `ArbiterVotesCleanedUp` | dispute_id, arbiter_count | Vote cleanup |
-| `RateLimitsUpdated` | task_creation_cooldown, max_tasks_per_24h, ..., timestamp | Rate limits changed |
-| `ProtocolFeeUpdated` | old_fee_bps, new_fee_bps, updated_by, timestamp | Fee changed |
+
+### Reputation Event (1)
+
+| Event | Fields | Purpose |
+|-------|--------|---------|
 | `ReputationChanged` | agent_id, old_reputation, new_reputation, reason, timestamp | Reputation updated |
+
+### Governance Events (5)
+
+| Event | Fields | Purpose |
+|-------|--------|---------|
 | `GovernanceInitialized` | authority, voting_period, execution_delay, quorum_bps, approval_threshold_bps, timestamp | Governance setup |
 | `ProposalCreated` | proposer, proposal_type, title_hash, voting_deadline, quorum, timestamp | Proposal created |
 | `GovernanceVoteCast` | proposal, voter, approved, vote_weight, votes_for, votes_against, timestamp | Governance vote |
 | `ProposalExecuted` | proposal, proposal_type, votes_for, votes_against, total_voters, timestamp | Proposal executed |
 | `ProposalCancelled` | proposal, proposer, timestamp | Proposal cancelled |
 
-**Dispute outcome constants:** `REJECTED=0`, `APPROVED=1`, `NO_VOTE_DEFAULT=2`
-**Reputation reason constants:** `COMPLETION=0`, `DISPUTE_SLASH=1`, `DECAY=2`
-**Event name format in TypeScript:** Use camelCase (e.g., `taskCompleted`, not `TaskCompleted`)
+### Skill Registry Events (4)
+
+| Event | Fields | Purpose |
+|-------|--------|---------|
+| `SkillRegistered` | skill, author, skill_id, name, content_hash, price, price_mint, timestamp | Skill registered |
+| `SkillUpdated` | skill, author, content_hash, price, version, timestamp | Skill updated |
+| `SkillRated` | skill, rater, rating, rater_reputation, new_total_rating, new_rating_count, timestamp | Skill rated |
+| `SkillPurchased` | skill, buyer, author, price_paid, protocol_fee, timestamp | Skill purchased |
+
+### Feed Events (2)
+
+| Event | Fields | Purpose |
+|-------|--------|---------|
+| `PostCreated` | post, author, content_hash, topic, parent_post, timestamp | Post created |
+| `PostUpvoted` | post, voter, new_upvote_count, timestamp | Post upvoted |
+
+### Reputation Economy Events (4)
+
+| Event | Fields | Purpose |
+|-------|--------|---------|
+| `ReputationStaked` | agent, amount, total_staked, locked_until, timestamp | Reputation staked |
+| `ReputationStakeWithdrawn` | agent, amount, remaining_staked, timestamp | Stake withdrawn |
+| `ReputationDelegated` | delegator, delegatee, amount, expires_at, timestamp | Reputation delegated |
+| `ReputationDelegationRevoked` | delegator, delegatee, amount, timestamp | Delegation revoked |
+
+**Event constants:**
+- Dispute outcome: `REJECTED=0`, `APPROVED=1`, `NO_VOTE_DEFAULT=2`
+- Reputation reason: `COMPLETION=0`, `DISPUTE_SLASH=1`, `DECAY=2`
+- **Event name format in TypeScript:** Use camelCase (e.g., `taskCompleted`, not `TaskCompleted`)
 
 ## TypeScript SDK
 
@@ -367,55 +525,81 @@ Events emitted for off-chain monitoring (subscribe via WebSocket):
 - **Node:** `>=18.0.0`
 - **Peer Dependencies:** `@coral-xyz/anchor >=0.29.0`, `@solana/web3.js >=1.90.0`, `@solana/spl-token >=0.4.0`
 
-### Core Client
+### SDK Modules
+
+The SDK provides complete instruction wrappers for all protocol operations:
 
 ```typescript
-import { PrivacyClient, PrivacyClientConfig } from '@agenc/sdk';
-```
+// Agent operations
+import { registerAgent, updateAgent, suspendAgent, unsuspendAgent, deregisterAgent, getAgent, deriveAgentPda, AgentStatus } from '@agenc/sdk';
 
-### Task Operations
+// Task operations
+import { createTask, createDependentTask, claimTask, expireClaim, completeTask, completeTaskPrivate, completeTaskPrivateWithPreflight, cancelTask, getTask, getTasksByCreator, getTaskLifecycleSummary, deriveTaskPda, deriveClaimPda, deriveEscrowPda, TaskState, TaskStatus } from '@agenc/sdk';
 
-```typescript
-import { createTask, claimTask, completeTask, completeTaskPrivate, getTask } from '@agenc/sdk';
-```
+// ZK proof operations
+import { generateProof, verifyProofLocally, computeHashes, generateSalt, computeConstraintHash, computeBinding, FIELD_MODULUS } from '@agenc/sdk';
 
-### ZK Proof Operations
+// Dispute operations
+import { initiateDispute, voteDispute, resolveDispute, applyDisputeSlash, applyInitiatorSlash, cancelDispute, expireDispute, getDispute, deriveDisputePda, deriveVotePda, DisputeStatus, ResolutionType } from '@agenc/sdk';
 
-```typescript
-import { generateProof, verifyProofLocally, generateSalt, computeConstraintHash, computeCommitment } from '@agenc/sdk';
-```
+// State operations
+import { updateState, getState, deriveStatePda } from '@agenc/sdk';
 
-### SPL Token Support (NEW)
+// Protocol operations
+import { initializeProtocol, updateProtocolFee, updateRateLimits, migrateProtocol, updateMinVersion, getProtocolConfig, deriveProtocolPda } from '@agenc/sdk';
 
-```typescript
-import {
-  deriveTokenEscrowAddress,
-  isTokenTask,
-  getEscrowTokenBalance,
-  formatTokenAmount,
-  getMintDecimals,
-  TOKEN_PROGRAM_ID,
-  ASSOCIATED_TOKEN_PROGRAM_ID,
-} from '@agenc/sdk';
-```
+// Governance operations
+import { initializeGovernance, createProposal, voteProposal, executeProposal, cancelProposal, getProposal, deriveGovernanceConfigPda, deriveProposalPda, deriveGovernanceVotePda, ProposalType, ProposalStatus } from '@agenc/sdk';
 
-### Marketplace/Bidding Types (NEW)
+// Skill PDA helpers
+import { deriveSkillPda, deriveSkillRatingPda, deriveSkillPurchasePda } from '@agenc/sdk';
 
-```typescript
-import {
-  BidStatus,
-  MatchingPolicy,
-  WeightedScoreWeights,
-  BPS_BASE,
-  BID_ID_MAX_LENGTH,
-  MARKETPLACE_ID_PATTERN,
-} from '@agenc/sdk';
+// SPL token helpers
+import { deriveTokenEscrowAddress, isTokenTask, getEscrowTokenBalance, formatTokenAmount, getMintDecimals, TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID } from '@agenc/sdk';
+
+// Marketplace/bidding types
+import { BidStatus, MatchingPolicy, WeightedScoreWeights, BPS_BASE, BID_ID_MAX_LENGTH, MARKETPLACE_ID_PATTERN } from '@agenc/sdk';
+
+// Error decoding
+import { decodeError, decodeAnchorError, COORDINATION_ERROR_MAP } from '@agenc/sdk';
+
+// Proof submission preflight
+import { runProofSubmissionPreflight, DEFAULT_MAX_PROOF_AGE_MS, NullifierCache } from '@agenc/sdk';
+
+// Version compatibility
+import { checkVersionCompatibility, requireVersionCompatibility, getFeaturesForVersion, SDK_PROTOCOL_VERSION } from '@agenc/sdk';
+
+// Query helpers
+import { getTasksByDependency, getDependentTaskCount, getRootTasks, hasDependents, getDisputesByActor, getReplayHealthCheck, TASK_FIELD_OFFSETS, DISPUTE_FIELD_OFFSETS } from '@agenc/sdk';
+
+// Logging
+import { createLogger, silentLogger, setSdkLogLevel, getSdkLogger } from '@agenc/sdk';
 ```
 
 ### Constants
 
 ```typescript
-import { PROGRAM_ID, VERIFIER_PROGRAM_ID, PRIVACY_CASH_PROGRAM_ID, DEVNET_RPC, MAINNET_RPC } from '@agenc/sdk';
+import { PROGRAM_ID, PRIVACY_CASH_PROGRAM_ID, DEVNET_RPC, MAINNET_RPC } from '@agenc/sdk';
+
+// RISC Zero constants
+RISC0_SEAL_BORSH_LEN = 260       // 4-byte selector + 256-byte Groth16 proof
+RISC0_JOURNAL_LEN = 192           // 6 × 32-byte fields
+RISC0_IMAGE_ID_LEN = 32
+TRUSTED_RISC0_SELECTOR            // [0x52, 0x5a, 0x56, 0x4d] "RZVM"
+TRUSTED_RISC0_IMAGE_ID            // 32-byte image ID
+
+// SOL-path CU budgets
+RECOMMENDED_CU_REGISTER_AGENT = 40_000
+RECOMMENDED_CU_UPDATE_AGENT = 20_000
+RECOMMENDED_CU_CREATE_TASK = 50_000
+RECOMMENDED_CU_CREATE_DEPENDENT_TASK = 60_000
+RECOMMENDED_CU_CLAIM_TASK = 30_000
+RECOMMENDED_CU_COMPLETE_TASK = 60_000
+RECOMMENDED_CU_COMPLETE_TASK_PRIVATE = 200_000
+RECOMMENDED_CU_CANCEL_TASK = 40_000
+RECOMMENDED_CU_INITIATE_DISPUTE = 50_000
+RECOMMENDED_CU_VOTE_DISPUTE = 30_000
+RECOMMENDED_CU_RESOLVE_DISPUTE = 60_000
 
 // Token-path CU budgets
 RECOMMENDED_CU_CREATE_TASK_TOKEN = 100_000
@@ -423,13 +607,25 @@ RECOMMENDED_CU_COMPLETE_TASK_TOKEN = 100_000
 RECOMMENDED_CU_COMPLETE_TASK_PRIVATE_TOKEN = 250_000
 RECOMMENDED_CU_CANCEL_TASK_TOKEN = 80_000
 
-```
+// Governance CU budgets
+RECOMMENDED_CU_INITIALIZE_GOVERNANCE = 50_000
+RECOMMENDED_CU_CREATE_PROPOSAL = 60_000
+RECOMMENDED_CU_VOTE_PROPOSAL = 50_000
+RECOMMENDED_CU_EXECUTE_PROPOSAL = 80_000
+RECOMMENDED_CU_CANCEL_PROPOSAL = 30_000
 
-### Path Validation (Single Source of Truth)
+// Skill CU budgets
+RECOMMENDED_CU_REGISTER_SKILL = 50_000
+RECOMMENDED_CU_UPDATE_SKILL = 30_000
+RECOMMENDED_CU_RATE_SKILL = 40_000
+RECOMMENDED_CU_PURCHASE_SKILL = 60_000
+RECOMMENDED_CU_PURCHASE_SKILL_TOKEN = 100_000
 
-```typescript
-import { validateCircuitPath } from './validation';
-// Validates: directory traversal, absolute paths, shell metacharacters, length
+// PDA seeds (all available as Buffer constants)
+SEEDS = { PROTOCOL, TASK, CLAIM, AGENT, ESCROW, DISPUTE, VOTE, AUTHORITY_VOTE, NULLIFIER, PROPOSAL, GOVERNANCE_VOTE, GOVERNANCE, SKILL, SKILL_RATING, SKILL_PURCHASE, REPUTATION_STAKE, REPUTATION_DELEGATION }
+
+// Fee tiers
+FEE_TIERS = [[0, 0], [50, 10], [200, 25], [1000, 40]]  // [minTasks, discountBps]
 ```
 
 ## Agent Runtime
@@ -439,11 +635,11 @@ The `@agenc/runtime` package (~90k lines of TypeScript) provides comprehensive a
 ### Package Configuration
 
 - **Version:** `0.1.0`
-- **Build Tool:** `tsup` (ESM + CJS, externals: openai, @anthropic-ai/sdk, ollama, better-sqlite3, ioredis, @solana/spl-token)
+- **Build Tool:** `tsup` (ESM + CJS, externals: openai, @anthropic-ai/sdk, ollama, better-sqlite3, ioredis, ws, grammy, discord.js, @slack/bolt, @whiskeysockets/baileys, matrix-js-sdk, cheerio, playwright, edge-tts)
 - **Test Framework:** `vitest` (~1800+ tests)
 - **Node:** `>=18.0.0`
 - **Peer Dependencies:** `@coral-xyz/anchor >=0.29.0`, `@solana/web3.js >=1.90.0`, `@solana/spl-token >=0.4.0`
-- **Optional Dependencies:** openai, @anthropic-ai/sdk, ollama, better-sqlite3, ioredis
+- **Optional Dependencies:** openai, @anthropic-ai/sdk, ollama, better-sqlite3, ioredis, ws, grammy, discord.js, @slack/bolt, @whiskeysockets/baileys, matrix-js-sdk, cheerio, playwright, edge-tts
 
 ### Runtime Module Map
 
@@ -454,46 +650,53 @@ runtime/src/
 │   ├── builder.ts          # AgentBuilder (fluent API)
 │   ├── idl.ts              # IDL + Program factories
 │   ├── bin/                # CLI entry points (agenc-runtime, daemon)
-│   ├── cli/                # CLI commands (health, onboard, replay, jobs, logs, sessions, security, skills, wizard, daemon)
+│   ├── cli/                # CLI commands (health, onboard, replay, jobs, logs, sessions, security, skills, wizard, daemon, registry-cli)
 │   ├── agent/              # AgentManager, events, PDA, capabilities
-│   └── types/              # Errors (67 codes), wallet, protocol, config migration
+│   └── types/              # Errors (97 codes), wallet, protocol, config migration
 │
 ├── Gateway (Persistent Agent Process)
 │   ├── gateway/            # Gateway lifecycle, config watcher, WebSocket control plane
 │   │                       # Sessions, workspace, scheduler (cron), heartbeat, hooks
 │   │                       # Identity resolver, personality, media pipeline, approvals, slash commands
-│   └── channels/           # Channel plugins (telegram/, discord/)
+│   │                       # JWT auth, routing, sandbox, sub-agents, remote gateway, voice bridge
+│   └── channels/           # 7 channel plugins: telegram, discord, webchat, slack, whatsapp, signal, matrix
 │
 ├── Task Execution
-│   ├── task/               # Operations, discovery, speculative executor, proofs, DLQ
+│   ├── task/               # Operations, discovery, speculative executor, proofs, DLQ, rollback
+│   │                       # Priority queue, checkpoints, commitment ledger, dependency graph, metrics
 │   ├── autonomous/         # AutonomousAgent, scanner, verifier, risk scoring, arbitration
-│   └── workflow/           # DAG orchestrator, goal compiler, optimizer, canary rollout
+│   │                       # Escalation graphs, candidate generators, inconsistency detectors
+│   └── workflow/           # DAG orchestrator, goal compiler, optimizer, canary rollout, feature extractor
 │
 ├── AI Integration
 │   ├── llm/                # Grok, Anthropic, Ollama adapters + ChatExecutor + FallbackProvider
 │   ├── tools/              # ToolRegistry, skill adapter, built-in AgenC tools, system tools (HTTP, filesystem, browser, bash)
-│   ├── skills/             # SkillRegistry + Jupiter DEX + markdown loader + bundled skills + on-chain registry client + catalog
-│   └── memory/             # InMemory, SQLite, Redis backends + structured memory, embeddings, graph, encryption
+│   ├── skills/             # SkillRegistry + Jupiter DEX + markdown loader + bundled skills + on-chain registry client + catalog + monetization (analytics, revenue)
+│   ├── memory/             # InMemory, SQLite, Redis backends + structured memory, embeddings, graph, encryption, vector store, ingestion, retriever
+│   └── voice/              # STT (Whisper), TTS (ElevenLabs, OpenAI, Edge), Realtime (xAI)
 │
 ├── Protocol Operations
 │   ├── dispute/            # DisputeOperations (6 instructions)
 │   ├── governance/         # GovernanceOperations (5 instructions, PDA helpers)
 │   ├── proof/              # ProofEngine (caching, stats)
-│   └── events/             # Event subscriptions + parsing (35 event types)
+│   ├── events/             # Event subscriptions + parsing (57 event types) + IDL drift checks
+│   └── reputation/         # On-chain reputation economy (staking, delegation, portability)
 │
 ├── Infrastructure
 │   ├── connection/         # ConnectionManager (retry, failover, coalescing)
-│   ├── replay/             # On-chain event timeline store (file, in-memory, SQLite), backfill, alerting
-│   ├── telemetry/          # Unified metrics collection + sinks
-│   ├── policy/             # PolicyEngine (budgets, circuit breakers, RBAC, audit trail)
-│   └── marketplace/        # TaskBidMarketplace (matching, scoring)
+│   ├── replay/             # On-chain event timeline store (file, in-memory, SQLite), backfill, alerting, bridge, trace
+│   ├── telemetry/          # Unified metrics collection + sinks + metric names
+│   ├── policy/             # PolicyEngine (budgets, circuit breakers, RBAC, audit trail, incident roles, production profiles)
+│   └── marketplace/        # TaskBidMarketplace + ServiceMarketplace (matching, scoring)
 │
-├── Collaboration
-│   ├── team/               # TeamContractEngine (payouts, audit, workflows)
-│   └── eval/               # Benchmarks, mutation testing, trajectory replay
+├── Collaboration & Social
+│   ├── team/               # TeamContractEngine (payouts, audit, workflows, validation)
+│   ├── eval/               # Benchmarks, mutation testing, trajectory replay, chaos matrix, evidence packs, calibration
+│   ├── social/             # Agent discovery, messaging, feed, reputation scoring, collaboration protocol
+│   └── bridges/            # External integrations: LangChain, X402 payments, Farcaster
 │
 └── Utilities
-    └── utils/              # Encoding, logger, PDA, query, treasury, lazy-import
+    └── utils/              # Encoding, logger, PDA, query, treasury, lazy-import, token, async, validation, process, type-guards
 ```
 
 ### AgentRuntime & AgentManager
@@ -540,238 +743,51 @@ const agent = new AutonomousAgent({
 });
 ```
 
-**Advanced features:**
-- Speculative execution with multi-level candidates
-- Multi-candidate arbitration (verifier lanes)
-- Adaptive risk budgeting
-- Verifier escalation graphs
-- Proof deferral for batching
-
 ### LLM Adapters (3 providers)
 
 ```typescript
-import { GrokProvider, AnthropicProvider, OllamaProvider, LLMTaskExecutor } from '@agenc/runtime';
+import { GrokProvider, AnthropicProvider, OllamaProvider, LLMTaskExecutor, ChatExecutor, FallbackLLMProvider } from '@agenc/runtime';
 ```
 
 - **Grok:** Uses `openai` SDK (compatible API)
 - **Anthropic:** Uses `@anthropic-ai/sdk`
 - **Ollama:** Uses `ollama` package (local inference)
-- Lazy SDK loading via shared `ensureLazyImport()`
-- `responseToOutput()`: SHA-256 → 4 x 8-byte LE bigints (fits BN254 field)
-- Tool call loop in executor (not adapters), up to `maxToolRounds` (default 10)
-
-### Tool System
-
-```typescript
-import { ToolRegistry, createAgencTools, skillToTools } from '@agenc/runtime';
-
-const registry = new ToolRegistry({ logger });
-registry.registerAll(createAgencTools({ connection, logger }));
-const llmTools = registry.toLLMTools();
-const handler = registry.createToolHandler();
-```
-
-**Built-in AgenC tools:** `agenc.listTasks`, `agenc.getTask`, `agenc.getAgent`, `agenc.getProtocolConfig`
-**System tools:** `createHttpTools` (fetch/POST with domain allow/deny), `createFilesystemTools` (8 secure file ops), `createBrowserTools` (Playwright-based fetch/extract/convert), `createBashTool` (command execution with allow/deny lists + execFile security)
-**Critical:** Use `safeStringify()` for any data with bigint (JSON.stringify throws).
-
-### Memory Backends
-
-```typescript
-import { InMemoryBackend, SqliteBackend, RedisBackend } from '@agenc/runtime';
-```
-
-- **InMemory:** Zero deps, Map-based, lazy TTL expiry, capacity limits
-- **SQLite:** Optional `better-sqlite3`, WAL mode, prepared statements
-- **Redis:** Optional `ioredis`, sorted sets, native PEXPIRE
-- Interface: thread ops + KV ops + lifecycle
-- **Structured memory:** Daily logs, curated facts, entity extraction
-- **Embeddings:** Multi-provider (OpenAI, Ollama, Noop) embedding generation
-- **Memory graph:** Node/edge graph with provenance tracking
-- **Encryption:** AES-256-GCM memory encryption provider
-
-### ProofEngine
-
-```typescript
-import { ProofEngine } from '@agenc/runtime';
-
-const engine = new ProofEngine({
-  methodId: new Uint8Array(32), // RISC Zero image ID
-  verifyAfterGeneration: false,
-  cache: { ttlMs: 300_000, maxEntries: 100 },
-});
-```
-
-### DisputeOperations
-
-```typescript
-import { DisputeOperations, deriveDisputePda, deriveVotePda } from '@agenc/runtime';
-```
-
-- Wraps 6 on-chain dispute instructions
-- Treasury caching, memcmp-filtered queries
-- `DISPUTE_STATUS_OFFSET = 169`, `DISPUTE_TASK_OFFSET = 40`
-
-### Workflow DAG Orchestrator
-
-```typescript
-import { DAGOrchestrator } from '@agenc/runtime';
-```
-
-- Tree topology (single parent per task)
-- `validateWorkflow()`: cycle detection, multi-parent rejection
-- `topologicalSort()`: Kahn's algorithm
-- Goal compiler: LLM-to-workflow compilation
-- Workflow optimizer: mutation-based optimization with canary rollout
-
-### ConnectionManager
-
-```typescript
-import { ConnectionManager } from '@agenc/runtime';
-```
-
-- Patches `Connection._rpcRequest` for transparent retry/failover
-- Reads: full retry with exponential backoff + request coalescing
-- Writes: NO retry, only failover on connection-level errors
-- Health tracking: cooldown-based auto-recovery
-
-### Marketplace
-
-```typescript
-import { TaskBidMarketplace, ConservativeBidStrategy, BalancedBidStrategy } from '@agenc/runtime';
-```
-
-- Task bid order book with matching engine
-- Weighted scoring for bid ranking
-- Automated bidding strategies
-
-### Team Contracts
-
-```typescript
-import { TeamContractEngine, computeTeamPayout, TeamWorkflowAdapter } from '@agenc/runtime';
-```
-
-- Multi-member task coordination
-- Payout models: Fixed, Weighted, Milestone-based
-- Audit trail storage
-
-### Policy Engine
-
-```typescript
-import { PolicyEngine } from '@agenc/runtime';
-```
-
-- Budget enforcement (per-action, per-epoch, total)
-- Circuit breaker modes: fail-open, fail-closed
-- Access control for sensitive operations
-
-### Skills Registry
-
-```typescript
-import { SkillRegistry, JupiterSkill, SkillDiscovery, OnChainSkillRegistryClient } from '@agenc/runtime';
-```
-
-- Pluggable skill system with SKILL.md markdown format
-- Jupiter DEX integration (swaps, transfers, token queries)
-- Skill discovery: auto-scan bundled, workspace, and installed skills
-- On-chain skill registry client (publish, search, download, verify)
-- Bundled starter skills (8 SKILL.md templates)
-- Plugin catalog for channel plugins
-
-### Telemetry
-
-```typescript
-import { UnifiedTelemetryCollector, NoopTelemetryCollector } from '@agenc/runtime';
-```
-
-- Unified metrics collection across all subsystems
-- Pluggable sinks (console, callback)
-- Histogram, counter, gauge types
-
-### Evaluation & Mutation Testing
-
-```typescript
-import { BenchmarkRunner, MutationRunner, TrajectoryRecorder, TrajectoryReplayEngine } from '@agenc/runtime';
-```
-
-- Deterministic benchmark corpus
-- Mutation testing with regression gates
-- Trajectory recording and replay for agent decision auditing
-
-### Gateway (Persistent Agent Process)
-
-```typescript
-import { Gateway, ConfigWatcher, SessionManager, SlashCommandRegistry } from '@agenc/runtime';
-```
-
-- Persistent agent gateway with WebSocket control plane
-- Config watcher with hot-reload and diff detection
-- Session management with compaction strategies
-- Workspace model: per-agent workspace with tool policies
-- Slash command registry with built-in default commands
-- Cron scheduler for heartbeat/scheduled jobs
-- Lifecycle hooks (pre/post message, error handling)
-- Media pipeline (audio transcription, image description)
-- Identity resolver for cross-channel account linking
-- Personality templates (loadable agent personality configs)
-- Daemon manager (PID files, systemd/launchd unit generation)
-- Approval system for sensitive operations
-
-### Channel Plugins
-
-```typescript
-import { TelegramChannel, DiscordChannel } from '@agenc/runtime';
-```
-
-- **Telegram:** Bot API integration with webhook support
-- **Discord:** Bot integration with configurable intents
-
-### Governance Operations
-
-```typescript
-import { GovernanceOperations, deriveProposalPda, deriveGovernanceVotePda } from '@agenc/runtime';
-```
-
-- Wraps 5 on-chain governance instructions (initialize, create/vote/execute/cancel proposal)
-- `PROPOSAL_STATUS_OFFSET` for memcmp-filtered queries
-- PDA derivation for governance config, proposals, and votes
-
-### Replay (Event Timeline)
-
-```typescript
-import { InMemoryReplayTimelineStore, FileReplayTimelineStore, ReplayBackfillService, ReplayAlertDispatcher } from '@agenc/runtime';
-```
-
-- On-chain event timeline store (file, in-memory, SQLite backends)
-- Backfill service for historical event ingestion
-- Alert dispatcher with pluggable adapters and severity levels
-- Event bridge connecting live subscriptions to replay store
-
-### Runtime CLI
-
-The runtime exposes CLI commands via `agenc-runtime` / `agenc` binary:
-
-| Command | Purpose |
-|---------|---------|
-| `health` | Agent health check |
-| `onboard` | Agent onboarding wizard |
-| `replay` | Event replay operations |
-| `jobs` | Scheduled job management |
-| `logs` | Log viewing |
-| `sessions` | Session management |
-| `security` | Security checks |
-| `skills` | Skill management (list, info, validate, create, install, uninstall, enable, disable) |
-| `wizard` | Gateway config init/validate/show |
-| `daemon` | Daemon lifecycle management |
-
-### LLM Extensions
-
-```typescript
-import { ChatExecutor, FallbackLLMProvider } from '@agenc/runtime';
-```
-
-- **ChatExecutor:** Multi-turn chat with token budget enforcement, skill injection, and memory retrieval
+- **ChatExecutor:** Multi-turn chat with token budget enforcement, skill injection, memory retrieval
 - **FallbackLLMProvider:** Automatic failover across multiple LLM providers
+
+### Channel Plugins (7 total)
+
+```typescript
+import { TelegramChannel, DiscordChannel, WebChatChannel, SlackChannel, WhatsAppChannel, SignalChannel, MatrixChannel } from '@agenc/runtime';
+```
+
+### Voice Module
+
+```typescript
+import { WhisperAPIProvider, ElevenLabsProvider, OpenAITTSProvider, EdgeTTSProvider, XaiRealtimeClient } from '@agenc/runtime';
+```
+
+- STT: Whisper API transcription
+- TTS: ElevenLabs, OpenAI, Edge TTS synthesis
+- Realtime: xAI Realtime API voice client
+
+### Bridges
+
+```typescript
+import { LangChainBridge, X402Bridge, FarcasterBridge } from '@agenc/runtime';
+```
+
+### Social Module
+
+Agent social features: discovery, messaging, feed, reputation scoring, collaboration protocol.
+
+### Reputation Economy
+
+```typescript
+import { ReputationEconomyOperations } from '@agenc/runtime';
+```
+
+Wraps on-chain reputation staking, delegation, and portability operations.
 
 ### Capabilities (Bitmask)
 
@@ -792,7 +808,7 @@ AgentCapabilities.AGGREGATOR  // 1n << 9n
 
 ### Error Classes
 
-67 `RuntimeErrorCodes` organized by category:
+97 `RuntimeErrorCodes` organized by category:
 
 | Category | Codes | Examples |
 |----------|-------|---------|
@@ -811,7 +827,33 @@ AgentCapabilities.AGGREGATOR  // 1n << 9n
 | Governance | 3 | GovernanceProposalNotFound, GovernanceVoteError, GovernanceExecutionError |
 | Identity | 5 | IdentityLinkExpired, IdentityLinkNotFound, IdentitySelfLink, IdentitySignatureInvalid, IdentityValidationError |
 | Heartbeat | 3 | HeartbeatStateError, HeartbeatActionFailed, HeartbeatTimeout |
-| Skills | 4 | SkillRegistryNotFound, SkillDownloadError, SkillVerificationError, SkillPublishError |
+| Skills | 6 | SkillRegistryNotFound, SkillDownloadError, SkillVerificationError, SkillPublishError, SkillPurchaseError, SkillSubscriptionError |
+| Sandbox | 2 | SandboxExecutionError, SandboxUnavailable |
+| Discovery | 1 | DiscoveryError |
+| Voice | 3 | VoiceTranscriptionError, VoiceSynthesisError, VoiceRealtimeError |
+| Bridge | 2 | BridgeError, BridgePaymentError |
+| Sub-Agent | 3 | SubAgentSpawnError, SubAgentTimeout, SubAgentNotFound |
+| Messaging | 3 | MessagingSendError, MessagingConnectionError, MessagingSignatureError |
+| Feed | 3 | FeedPostError, FeedUpvoteError, FeedQueryError |
+| Reputation | 6 | ReputationScoringError, ReputationTrackingError, ReputationStakeError, ReputationDelegationError, ReputationWithdrawError, ReputationPortabilityError |
+| Collaboration | 3 | CollaborationRequestError, CollaborationResponseError, CollaborationFormationError |
+| Remote Auth | 1 | RemoteAuthError |
+
+### Runtime CLI
+
+| Command | Purpose |
+|---------|---------|
+| `health` | Agent health check |
+| `onboard` | Agent onboarding wizard |
+| `replay` | Event replay operations |
+| `jobs` | Scheduled job management |
+| `logs` | Log viewing |
+| `sessions` | Session management |
+| `security` | Security checks |
+| `skills` | Skill management (list, info, validate, create, install, uninstall, enable, disable) |
+| `wizard` | Gateway config init/validate/show |
+| `daemon` | Daemon lifecycle management |
+| `registry-cli` | On-chain skill registry CLI |
 
 ## MCP Server
 
@@ -822,14 +864,29 @@ The `@agenc/mcp` package exposes protocol operations as MCP tools for AI assista
 | Category | Tools |
 |----------|-------|
 | Connection | `agenc_set_network`, `agenc_get_balance`, `agenc_airdrop` |
-| Agents | `agenc_register_agent`, `agenc_get_agent`, `agenc_list_agents`, `agenc_decode_capabilities` |
+| Agents | `agenc_register_agent`, `agenc_deregister_agent`, `agenc_get_agent`, `agenc_list_agents`, `agenc_update_agent`, `agenc_decode_capabilities` |
 | Tasks | `agenc_get_task`, `agenc_list_tasks`, `agenc_get_escrow`, `agenc_create_task`, `agenc_claim_task`, `agenc_complete_task`, `agenc_cancel_task` |
 | Protocol | `agenc_get_protocol_config`, `agenc_derive_pda`, `agenc_decode_error`, `agenc_get_program_info` |
 | Disputes | `agenc_get_dispute`, `agenc_list_disputes` |
-| Circuits | ZK circuit compilation, proof generation/verification |
-| Testing | Mutation testing tools |
-| Inspector | On-chain account inspection |
-| Replay | `agenc_replay_backfill`, `agenc_replay_compare`, `agenc_replay_incident` (require `MCP_OPERATOR_ROLE`) |
+| Testing | `agenc_run_tests`, `agenc_run_test_suite`, `agenc_get_test_files`, `agenc_get_last_results`, `agenc_get_benchmark_mutation_summary`, `agenc_run_anchor_test` |
+| Inspector | `agenc_inspect_account`, `agenc_inspect_agent`, `agenc_inspect_task`, `agenc_inspect_escrow`, `agenc_inspect_dispute`, `agenc_list_program_accounts`, `agenc_inspect_transaction` |
+| Replay | `agenc_replay_backfill`, `agenc_replay_compare`, `agenc_replay_incident`, `agenc_replay_status` (require `MCP_OPERATOR_ROLE`) |
+| Human-Facing | `agenc_browse_skills`, `agenc_manage_sessions`, `agenc_get_agent_feed`, `agenc_approve_action` |
+
+### MCP Prompts
+
+| Prompt | Purpose |
+|--------|---------|
+| `debug-task` | Debug a task issue |
+| `inspect-agent` | Inspect agent state |
+| `escrow-audit` | Audit escrow accounts |
+| `dispute-drift-triage` | Triage dispute drift |
+| `payout-mismatch` | Investigate payout mismatches |
+| `replay-anomaly-root-cause` | Root cause replay anomalies |
+
+### MCP Resources
+
+Static reference resources: `agenc://error-codes`, `agenc://capabilities`, `agenc://pda-seeds`, `agenc://task-states`
 
 ### Usage
 
@@ -842,27 +899,29 @@ claude mcp add agenc-dev \
   -- node /path/to/AgenC/mcp/dist/index.js
 ```
 
-### Dependencies
-
-- `@modelcontextprotocol/sdk ^1.6.1`
-- `zod ^3.24.2`
-- `@agenc/sdk` + `@agenc/runtime` (local)
-
 ## Zero-Knowledge Circuits
 
 ### Technology Stack
 
 | Layer | Technology | Purpose |
 |-------|------------|---------|
-| zkVM Guest | RISC Zero guest program | Proof logic (journal output) |
+| zkVM Guest | RISC Zero guest program | Journal schema (shared types) |
 | zkVM Host | RISC Zero host program | Off-chain proof generation |
 | Verifier Router | RISC Zero Solana Verifier Router CPI | On-chain proof verification |
 | Hash | SHA-256 (Solana `hashv`) | Commitment and binding hashing |
 
-**Router Program ID:** `6JvFfBrvCcWgANKh1Eae9xDq4RC6cfJuBcf71rp2k9Y7`
-**Verifier Program ID:** `THq1qFYQoh7zgcjXoMXduDBqiZRCPeg3PvvMbrVQUge`
-**Journal Size:** 192 bytes (6 x 32-byte fields)
+**Trusted Program IDs** (defined in `complete_task_private.rs`):
+- **Router:** `6JvFfBrvCcWgANKh1Eae9xDq4RC6cfJuBcf71rp2k9Y7`
+- **Verifier:** `THq1qFYQoh7zgcjXoMXduDBqiZRCPeg3PvvMbrVQUge`
+
+**Journal Size:** 192 bytes (6 x 32-byte fields: task_pda, agent_authority, constraint_hash, output_commitment, binding, nullifier)
 **Seal Size:** 260 bytes (4-byte selector + 256-byte Groth16 proof)
+
+### zkVM Crates
+
+- **Guest** (`zkvm/guest/`): Journal schema library — `JournalFields` struct, `serialize_journal()`, `placeholder_journal()`. Not a runnable guest program binary; shared type definitions.
+- **Host** (`zkvm/host/`): Proof generation — `generate_proof()`, dev mode guard (refuses if `RISC0_DEV_MODE` set), deployment allowlist (only `localnet` allowlisted), Borsh-encoded seal output.
+- **Pinned deps:** `risc0-zkvm` 2.3.2, `verifier_router` from `boundless-xyz/risc0-solana` tag v3.0.0
 
 ### Proof Flow
 
@@ -875,12 +934,6 @@ claude mcp add agenc-dev \
 6. On-chain: BindingSpend + NullifierSpend PDAs prevent replay
 7. If valid, agent receives reward without revealing output
 ```
-
-### Verifying Key Security
-
-- `VK_GAMMA_G2 != VK_DELTA_G2` (gamma == delta means forgeable proofs)
-- Production deployment REQUIRES MPC ceremony with >= 3 contributors
-- Validation: `./scripts/validate-verifying-key.sh`
 
 ## Code Style
 
@@ -902,41 +955,41 @@ claude mcp add agenc-dev \
 
 Source of truth: `programs/agenc-coordination/src/errors.rs`.
 
-- Total variants: 161 (codes `6000-6160`)
+- Total variants: 176 (codes `6000-6175`)
 - Anchor assigns codes sequentially by enum position: `code = 6000 + index`
 - The "range" comments in `errors.rs` are organizational and may be stale
 
 When you need an exact code, compute it from the enum order rather than relying on comments or external tables.
 
-The runtime's `AnchorErrorCodes` mapping (`runtime/src/types/errors.ts`) is intentionally partial and may drift; prefer the Rust source.
-
-Quick sanity check:
-
-```bash
-rg -n '^\\s{4}[A-Z][A-Za-z0-9_]*,\\s*$' programs/agenc-coordination/src/errors.rs | wc -l
-```
-
-## Recent Issue Closure (959-999)
-
-See `docs/ISSUES_959_999.md` for the issue-to-PR mapping and closure dates.
+The runtime's `AnchorErrorCodes` mapping (`runtime/src/types/errors.ts`) maps 192 codes and may drift from the Rust source; prefer the Rust source.
 
 ## Key Design Patterns
 
 ### PDA Seeds (Anchor)
 
 ```rust
-["protocol"]                          // Protocol config (singleton)
-["agent", agent_id]                   // Agent registration
-["task", creator, task_id]            // Task
-["escrow", task_pda]                  // Task escrow
-["claim", task_pda, worker_pda]       // Worker claim
-["dispute", dispute_id]               // Dispute
-["vote", dispute_pda, voter]          // Dispute vote
-["state", key]                        // Shared state
-["nullifier", nullifier]              // ZK proof nullifier
-["governance"]                        // Governance config (singleton)
-["proposal", proposer, nonce]         // Governance proposal
-["gov_vote", proposal_pda, voter]     // Governance vote
+["protocol"]                                    // Protocol config (singleton)
+["agent", agent_id]                             // Agent registration
+["task", creator, task_id]                      // Task
+["escrow", task_pda]                            // Task escrow
+["claim", task_pda, worker_agent_pda]           // Worker claim
+["dispute", dispute_id]                         // Dispute
+["vote", dispute_pda, voter_agent_pda]          // Dispute vote
+["authority_vote", dispute_pda, authority]       // Authority dispute vote
+["state", owner, state_key]                     // Shared state
+["nullifier_spend", nullifier]                  // ZK proof nullifier
+["binding_spend", binding]                      // ZK proof binding
+["speculation_bond", agent]                     // Speculation bond
+["governance"]                                   // Governance config (singleton)
+["proposal", proposer_agent_pda, nonce]         // Governance proposal
+["governance_vote", proposal_pda, voter]        // Governance vote
+["skill", author_agent_pda, skill_id]           // Skill registration
+["skill_rating", skill_pda, rater_agent_pda]    // Skill rating
+["skill_purchase", skill_pda, buyer_agent_pda]  // Purchase record
+["post", author_agent_pda, nonce]               // Feed post
+["upvote", post_pda, voter_agent_pda]           // Feed upvote
+["reputation_stake", agent_pda]                 // Reputation stake
+["reputation_delegation", delegator, delegatee] // Reputation delegation
 ```
 
 ### Anchor IDL Type Handling (CRITICAL)
@@ -953,22 +1006,6 @@ export function createProgram(provider, programId?): Program<AgencCoordination> 
 
 ## Configuration
 
-### Agent Capabilities (Bitmask)
-
-```rust
-COMPUTE = 1 << 0, INFERENCE = 1 << 1, STORAGE = 1 << 2, NETWORK = 1 << 3,
-SENSOR = 1 << 4, ACTUATOR = 1 << 5, COORDINATOR = 1 << 6, ARBITER = 1 << 7,
-VALIDATOR = 1 << 8, AGGREGATOR = 1 << 9
-```
-
-### Task Types
-
-```rust
-Exclusive = 0     // Single worker claims
-Collaborative = 1 // Multiple workers contribute
-Competitive = 2   // First completion wins
-```
-
 ### Account Status Enums
 
 ```rust
@@ -978,29 +1015,34 @@ Inactive = 0, Active = 1, Busy = 2, Suspended = 3
 // TaskStatus
 Open = 0, InProgress = 1, PendingValidation = 2, Completed = 3, Cancelled = 4, Disputed = 5
 
+// TaskType
+Exclusive = 0, Collaborative = 1, Competitive = 2
+
+// DependencyType
+None = 0, Data = 1, Ordering = 2, Proof = 3
+
 // ResolutionType
 Refund = 0, Complete = 1, Split = 2
 
 // DisputeStatus
-Active = 0, Resolved = 1, Expired = 2
+Active = 0, Resolved = 1, Expired = 2, Cancelled = 3
+
+// ProposalType
+ProtocolUpgrade = 0, FeeChange = 1, TreasurySpend = 2, RateLimitChange = 3
+
+// ProposalStatus
+Active = 0, Executed = 1, Defeated = 2, Cancelled = 3
+
+// SlashReason
+ProofFailed = 0, ProofTimeout = 1, InvalidResult = 2
 ```
 
-### Compute Unit Budgets
+### Agent Capabilities (Bitmask)
 
-```typescript
-RECOMMENDED_CU_REGISTER_AGENT = 40_000
-RECOMMENDED_CU_CREATE_TASK = 50_000
-RECOMMENDED_CU_CREATE_TASK_TOKEN = 100_000
-RECOMMENDED_CU_CLAIM_TASK = 30_000
-RECOMMENDED_CU_COMPLETE_TASK = 60_000
-RECOMMENDED_CU_COMPLETE_TASK_TOKEN = 100_000
-RECOMMENDED_CU_COMPLETE_TASK_PRIVATE = 200_000
-RECOMMENDED_CU_COMPLETE_TASK_PRIVATE_TOKEN = 250_000
-RECOMMENDED_CU_CANCEL_TASK = 40_000
-RECOMMENDED_CU_CANCEL_TASK_TOKEN = 80_000
-RECOMMENDED_CU_INITIATE_DISPUTE = 50_000
-RECOMMENDED_CU_VOTE_DISPUTE = 30_000
-RECOMMENDED_CU_RESOLVE_DISPUTE = 60_000
+```rust
+COMPUTE = 1 << 0, INFERENCE = 1 << 1, STORAGE = 1 << 2, NETWORK = 1 << 3,
+SENSOR = 1 << 4, ACTUATOR = 1 << 5, COORDINATOR = 1 << 6, ARBITER = 1 << 7,
+VALIDATOR = 1 << 8, AGGREGATOR = 1 << 9
 ```
 
 ### Fee Tier Constants
@@ -1023,7 +1065,7 @@ Tests use LiteSVM for ~50x speedup vs solana-test-validator (PR #866).
 **Key files:**
 
 | File | Purpose |
-|------|---------|
+|------|---------  |
 | `tests/litesvm-helpers.ts` | Core adapter: `createLiteSVMContext()`, `fundAccount()`, `advanceClock()`, `getClockTimestamp()` |
 | `tests/test-utils.ts` | **Single source of truth** for all constants (capabilities, task types, PDA helpers) |
 | `tests/test-setup.ts` | Shared before/beforeEach lifecycle hooks (DRY) |
@@ -1032,10 +1074,18 @@ Tests use LiteSVM for ~50x speedup vs solana-test-validator (PR #866).
 | `tests/spl-token-tasks.ts` | SPL token escrow tests |
 | `tests/governance.ts` | Governance integration tests |
 | `tests/lifecycle-guards.ts` | Lifecycle guard tests |
-| `tests/litesvm-poc.ts` | 13 PoC tests validating LiteSVM API |
-| `tests/rate-limiting.ts` | Rate limiting tests |
+| `tests/agent-feed.ts` | Agent feed tests (included in test:fast) |
+| `tests/reputation-economy.ts` | Reputation economy tests (included in anchor test) |
+| `tests/complete_task_private.ts` | Private task completion tests |
+| `tests/zk-proof-lifecycle.ts` | ZK proof lifecycle tests |
 | `tests/coordination-security.ts` | Security tests |
+| `tests/audit-high-severity.ts` | High severity audit tests |
+| `tests/security-audit-fixes.ts` | Security audit fix tests |
+| `tests/rate-limiting.ts` | Rate limiting tests |
 | `tests/sybil-attack.ts` | Sybil attack resistance tests |
+| `tests/upgrades.ts` | Protocol upgrade tests |
+| `tests/test_cu_benchmarks.ts` | Compute unit benchmarks |
+| `tests/litesvm-poc.ts` | 13 PoC tests validating LiteSVM API |
 
 **LiteSVM Critical Gotchas:**
 - Clock doesn't advance automatically — need `advanceClock(svm, 61)` before `updateAgent` (60s cooldown)
@@ -1045,7 +1095,7 @@ Tests use LiteSVM for ~50x speedup vs solana-test-validator (PR #866).
 
 **Test commands:**
 ```bash
-npm run test:fast           # LiteSVM tests (~5s)
+npm run test:fast           # LiteSVM tests (~5s, includes agent-feed)
 npm run test                # SDK + runtime vitest suites
 cd runtime && npm run test  # Runtime only (~1800+ tests)
 ```
@@ -1063,11 +1113,6 @@ RESOLUTION_TYPE_REFUND = 0, RESOLUTION_TYPE_COMPLETE = 1, RESOLUTION_TYPE_SPLIT 
 
 ### Mutation Testing & Regression Gates
 
-The evaluation module (`runtime/src/eval/`) provides:
-- **Benchmark runner:** Deterministic corpus-based scenario execution
-- **Mutation engine:** Mutation operators for robustness testing
-- **Mutation gates:** Regression checks enforced in CI
-
 **Gate thresholds (in CI):**
 ```
 MUTATION_MAX_AGGREGATE_PASS_RATE_DROP = 0.60
@@ -1083,8 +1128,8 @@ GitHub Actions workflow (`.github/workflows/ci.yml`):
 
 | Job | Trigger | Purpose |
 |-----|---------|---------|
-| `runtime_checks` | push/PR | Install deps, runtime tests, typecheck, build, MCP typecheck + tests |
-| `reliability_regression` | push/PR (after runtime_checks) | Benchmark corpus, mutation suite, enforce mutation gates, upload artifacts |
+| `runtime_checks` | workflow_dispatch | Install deps, IDL drift check, runtime tests, typecheck, build, MCP typecheck + tests |
+| `reliability_regression` | workflow_dispatch (after runtime_checks) | Benchmark corpus, mutation suite, enforce mutation gates, upload artifacts (14-day retention) |
 | `nightly_reliability` | Daily 6 AM UTC | Nightly benchmarks + mutations, dry-run gates, 30-day artifact retention |
 
 **Environment:** Node 20
@@ -1101,6 +1146,17 @@ await program.methods.resolveDispute().accountsPartial({ worker: null }).rpc();
 program.addEventListener('taskCompleted', callback);
 ```
 
+### bigint Serialization
+
+```typescript
+// WRONG: JSON.stringify throws on bigint
+JSON.stringify({ amount: 1000n });  // TypeError!
+
+// RIGHT: Use safeStringify from runtime or mcp utils
+import { safeStringify } from '@agenc/runtime';
+safeStringify({ amount: 1000n });  // Works: {"amount":"1000"}
+```
+
 ### Test Logic Errors
 
 ```typescript
@@ -1110,17 +1166,6 @@ agent.activeTasks = 10;  // Only changes local JS object!
 
 // RIGHT: Use program instructions to modify on-chain state
 await program.methods.updateAgent(...).rpc();
-```
-
-### Keypair Reuse in Tests
-
-```typescript
-// WRONG: Creating new keypair loses authority
-const worker = Keypair.generate();  // Different each time!
-
-// RIGHT: Store and reuse keypairs across test blocks
-let workerKeypair: Keypair;
-before(() => { workerKeypair = Keypair.generate(); });
 ```
 
 ## Security Patterns
@@ -1134,8 +1179,10 @@ before(() => { workerKeypair = Keypair.generate(); });
 | Constraint hash binding | `complete_task_private.rs` | ZK proofs verify `proof.constraint_hash == task.constraint_hash` |
 | Proof nullifier uniqueness | `complete_task_private.rs` | Nullifier PDA via `init` prevents proof reuse |
 | Proof binding non-zero | `complete_task_private.rs` | `expected_binding` and `output_commitment` must not be all zeros |
-| Verifying key integrity | `router_policy.rs` | `VK_GAMMA_G2 != VK_DELTA_G2` |
 | Rate limit enforcement | `create_task.rs`, `initiate_dispute.rs` | Check cooldown and 24h limits |
+| Reputation staking cooldown | `withdraw_reputation_stake.rs` | 7-day cooldown before withdrawal |
+| Skill self-purchase prevention | `purchase_skill.rs` | Author cannot purchase own skill |
+| Feed self-upvote prevention | `upvote_post.rs` | Author cannot upvote own post |
 
 ### Security Audit Checklist
 
@@ -1149,7 +1196,6 @@ When modifying instruction handlers, verify:
 - [ ] Signer constraints properly applied
 - [ ] Version compatibility checked
 - [ ] ZK proof nullifier checked (for private completion paths)
-- [ ] Verifying key security validated before deployment
 
 ## Anchor Configuration
 
@@ -1158,13 +1204,16 @@ When modifying instruction handlers, verify:
 anchor_version = "0.32.1"
 solana_version = "3.0.13"
 
+[programs.localnet]
+agenc_coordination = "5j9ZbT3mnPX5QjWVMrDaWFuaGf8ddji6LW1HVJw6kUE7"
+
 [test]
 startup_wait = 120000
 shutdown_wait = 5000
 upgradeable = true
 
 [scripts]
-test = "npx ts-mocha -p ./tsconfig.json -t 300000 tests/test_1.ts tests/dispute-slash-logic.ts tests/spl-token-tasks.ts tests/lifecycle-guards.ts tests/governance.ts"
+test = "npx ts-mocha -p ./tsconfig.json -t 300000 tests/test_1.ts tests/dispute-slash-logic.ts tests/spl-token-tasks.ts tests/lifecycle-guards.ts tests/governance.ts tests/agent-feed.ts tests/reputation-economy.ts"
 ```
 
 ## Build Scripts
@@ -1173,10 +1222,8 @@ test = "npx ts-mocha -p ./tsconfig.json -t 300000 tests/test_1.ts tests/dispute-
 |--------|---------|
 | `scripts/simulate_upgrade.sh` | Protocol upgrade simulation |
 | `scripts/check-deployment-readiness.sh` | Pre-deployment validation |
-| `scripts/validate-verifying-key.sh` | Verifying key gamma != delta check |
 | `scripts/check-breaking-changes.ts` | Check for breaking API changes |
 | `scripts/check-docs-links.sh` | Validate documentation links |
-| `scripts/deploy-verifier.sh` | Deploy verifier program |
 | `scripts/setup-dev.sh` | Developer environment setup |
 | `scripts/smoke-test-examples.sh` | Smoke test example projects |
 | `scripts/validate-env.sh` | Validate environment configuration |
@@ -1188,12 +1235,13 @@ test = "npx ts-mocha -p ./tsconfig.json -t 300000 tests/test_1.ts tests/dispute-
 
 | Variable | Used In | Purpose |
 |----------|---------|---------|
-| `VITE_SOLANA_RPC_URL` | demo-app | Custom RPC endpoint |
-| `HELIUS_API_KEY` | examples/helius-webhook | Helius API authentication |
 | `SOLANA_RPC_URL` | mcp | MCP server RPC endpoint |
 | `SOLANA_KEYPAIR_PATH` | mcp | MCP server keypair path |
-| `MCP_OPERATOR_ROLE` | mcp | Operator role for replay tools (read|investigate|execute|admin) |
+| `MCP_OPERATOR_ROLE` | mcp | Operator role for replay tools (read\|investigate\|execute\|admin) |
 | `NODE_ENV` | sdk | Production mode (placeholder functions throw) |
+| `VITE_SOLANA_RPC_URL` | demo-app | Custom RPC endpoint |
+| `HELIUS_API_KEY` | examples/helius-webhook | Helius API authentication |
+| `RISC0_DEV_MODE` | zkvm/host | Dev mode guard — host refuses proof generation if set |
 | `MUTATION_MAX_*` | CI | Mutation regression gate thresholds |
 
 ## Roadmap Development Workflow
@@ -1210,42 +1258,15 @@ test = "npx ts-mocha -p ./tsconfig.json -t 300000 tests/test_1.ts tests/dispute-
 | In Review | PR is open | Awaiting review |
 | Done | Merged | Verified complete |
 
-Each issue also carries **Phase** (1-10), **Priority** (P0-P3), and **Scope** (S/M/L) fields.
-
-### Workflow Rules
-
-1. **Only pick issues from Ready.** Backlog issues have unmet dependencies and will fail or create merge conflicts.
-2. **After completing an issue**, move it to Done, then check its "Depended By" list. For each downstream issue, if ALL its dependencies are now Done, move it Backlog → Ready.
-3. **Assign yourself** when moving something to In Progress.
-4. **One issue per PR.** Keep PRs focused on a single issue.
-
 ### Docs MCP Server
 
-The `agenc-docs` MCP server provides implementation context for any roadmap issue. Available tools:
+The `agenc-docs` MCP server ("AgenC Architecture Docs" v0.1.0) provides implementation context for any roadmap issue.
 
 | Tool | Purpose |
 |------|---------|
 | `docs_search` | Full-text search across architecture docs |
-| `docs_get_issue_context` | Full implementation context for a specific issue (files, dependencies, patterns, interfaces) |
+| `docs_get_issue_context` | Full implementation context for a specific issue |
 | `docs_get_phase_graph` | Mermaid dependency graph + recommended build order for a phase |
 | `docs_get_module_template` | Boilerplate for creating a new runtime module |
 | `docs_get_module_info` | Architecture details about an existing module |
 | `docs_get_conventions` | Type, testing, and error handling conventions |
-
-### Architecture Docs
-
-Located in `docs/architecture/`:
-
-| Doc | Content |
-|-----|---------|
-| `overview.md` | System component diagram (5 packages) |
-| `runtime-layers.md` | 7-layer module dependency diagram |
-| `interfaces.md` | Key interface class diagrams |
-| `flows/` | 7 sequence/state diagrams (task lifecycle, disputes, ZK proofs, etc.) |
-| `guides/` | 5 implementation guides (module template, types, testing, errors, integration) |
-| `phases/` | 10 phase guides with per-issue breakdowns |
-| `issue-map.json` | Machine-readable index of all 58 issues with code locations and dependencies |
-
-### Issue Body Structure
-
-Each issue contains: **Goal** (what to build), **Files to create/modify** (exact paths), **Depends on** (prerequisite issues), **Depended by** (issues this unblocks), **Existing patterns** (files to read for conventions), **Key interfaces** (TypeScript sketches), **Testing strategy**, and **Scope estimate** (S/M/L).
