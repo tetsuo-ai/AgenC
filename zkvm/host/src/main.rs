@@ -1,3 +1,5 @@
+use std::io::Read;
+
 fn main() {
     if let Err(message) = run() {
         eprintln!("{message}");
@@ -11,19 +13,56 @@ fn run() -> Result<(), String> {
 
     match args.next().as_deref() {
         None | Some("prove") => {
-            let request = agenc_zkvm_host::default_prove_request();
+            let use_stdin = args.any(|a| a == "--stdin");
+            let request = if use_stdin {
+                parse_request_from_stdin()?
+            } else {
+                agenc_zkvm_host::default_prove_request()
+            };
             let output =
                 agenc_zkvm_host::prove_cli_output(&request).map_err(|err| err.to_string())?;
             println!("{output}");
             Ok(())
         }
-        Some("image-id") => {
-            print_image_id()
-        }
+        Some("image-id") => print_image_id(),
         Some(other) => Err(format!(
-            "unsupported command: {other}. usage: agenc-zkvm-host [prove|image-id]"
+            "unsupported command: {other}. usage: agenc-zkvm-host [prove [--stdin]|image-id]"
         )),
     }
+}
+
+#[derive(serde::Deserialize)]
+struct JsonProveRequest {
+    task_pda: Vec<u8>,
+    agent_authority: Vec<u8>,
+    constraint_hash: Vec<u8>,
+    output_commitment: Vec<u8>,
+    binding: Vec<u8>,
+    nullifier: Vec<u8>,
+}
+
+fn vec_to_field(name: &str, v: Vec<u8>) -> Result<[u8; 32], String> {
+    v.try_into()
+        .map_err(|v: Vec<u8>| format!("{name} must be 32 bytes, got {}", v.len()))
+}
+
+fn parse_request_from_stdin() -> Result<agenc_zkvm_host::ProveRequest, String> {
+    let mut input = String::new();
+    std::io::stdin()
+        .read_to_string(&mut input)
+        .map_err(|e| format!("failed to read stdin: {e}"))?;
+
+    let json: JsonProveRequest =
+        serde_json::from_str(&input).map_err(|e| format!("invalid JSON input: {e}"))?;
+
+    Ok(agenc_zkvm_host::ProveRequest {
+        task_pda: vec_to_field("task_pda", json.task_pda)?,
+        agent_authority: vec_to_field("agent_authority", json.agent_authority)?,
+        constraint_hash: vec_to_field("constraint_hash", json.constraint_hash)?,
+        output_commitment: vec_to_field("output_commitment", json.output_commitment)?,
+        binding: vec_to_field("binding", json.binding)?,
+        nullifier: vec_to_field("nullifier", json.nullifier)?,
+    })
 }
 
 fn print_image_id() -> Result<(), String> {

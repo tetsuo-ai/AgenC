@@ -56,6 +56,8 @@ dependencies = [
  "agenc-zkvm-methods",
  "borsh 0.10.4",
  "risc0-zkvm",
+ "serde",
+ "serde_json",
  "verifier_router",
 ]
 

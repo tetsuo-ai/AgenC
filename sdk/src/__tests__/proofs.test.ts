@@ -8,7 +8,7 @@
  * 4. Salt generation produces valid field elements
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { PublicKey, Keypair } from '@solana/web3.js';
 import {
   pubkeyToField,
@@ -18,9 +18,16 @@ import {
   computeHashes,
   computeNullifierFromAgentSecret,
   generateSalt,
+  generateProofWithProver,
   FIELD_MODULUS,
 } from '../proofs';
-import { OUTPUT_FIELD_COUNT } from '../constants';
+import {
+  OUTPUT_FIELD_COUNT,
+  RISC0_SEAL_BORSH_LEN,
+  RISC0_JOURNAL_LEN,
+  RISC0_IMAGE_ID_LEN,
+  RISC0_SELECTOR_LEN,
+} from '../constants';
 
 describe('proofs', () => {
   describe('pubkeyToField', () => {
@@ -474,14 +481,12 @@ describe('proofs', () => {
     });
 
     it('handles negative commitment in binding computation', () => {
-      // SECURITY: Negative commitment could cause issues in binding computation
       const taskPda = Keypair.generate().publicKey;
       const agentPubkey = Keypair.generate().publicKey;
       const negativeCommitment = -12345n;
 
       const binding = computeBinding(taskPda, agentPubkey, negativeCommitment);
 
-      // Should still produce valid field element
       expect(binding).toBeGreaterThanOrEqual(0n);
       expect(binding).toBeLessThan(FIELD_MODULUS);
     });
@@ -524,6 +529,191 @@ describe('proofs', () => {
 
       // After modular reduction, these should produce the same result
       expect(largeHash).toBe(normalHash);
+    });
+  });
+
+  describe('generateProofWithProver', () => {
+    /**
+     * Helper: given proof params, compute the expected journal so the mock
+     * prover can return matching bytes.
+     */
+    function buildExpectedJournal(params: {
+      taskPda: PublicKey;
+      agentPubkey: PublicKey;
+      output: bigint[];
+      salt: bigint;
+      agentSecret?: bigint;
+    }): Buffer {
+      const agentSecret = params.agentSecret ?? pubkeyToField(params.agentPubkey);
+      const hashes = computeHashes(
+        params.taskPda,
+        params.agentPubkey,
+        params.output,
+        params.salt,
+        agentSecret,
+      );
+
+      const toBytes32 = (v: bigint): Buffer => {
+        const MAX_U256 = (1n << 256n) - 1n;
+        if (v < 0n || v > MAX_U256) throw new Error('out of range');
+        const hex = v.toString(16).padStart(64, '0');
+        return Buffer.from(hex, 'hex');
+      };
+
+      return Buffer.concat([
+        Buffer.from(params.taskPda.toBytes()),
+        Buffer.from(params.agentPubkey.toBytes()),
+        toBytes32(hashes.constraintHash),
+        toBytes32(hashes.outputCommitment),
+        toBytes32(hashes.binding),
+        toBytes32(hashes.nullifier),
+      ]);
+    }
+
+    function makeProofParams() {
+      const taskPda = Keypair.generate().publicKey;
+      const agentPubkey = Keypair.generate().publicKey;
+      return {
+        taskPda,
+        agentPubkey,
+        output: [1n, 2n, 3n, 4n],
+        salt: 12345n,
+        agentSecret: 67890n,
+      };
+    }
+
+    it('returns all ProofResult fields with correct lengths', async () => {
+      const params = makeProofParams();
+      const expectedJournal = buildExpectedJournal(params);
+      const fakeSealBytes = Buffer.alloc(RISC0_SEAL_BORSH_LEN, 0xab);
+      const fakeImageId = Buffer.alloc(RISC0_IMAGE_ID_LEN, 0xcd);
+
+      vi.doMock('../prover', () => ({
+        prove: vi.fn().mockResolvedValue({
+          sealBytes: fakeSealBytes,
+          journal: expectedJournal,
+          imageId: fakeImageId,
+        }),
+      }));
+
+      const { generateProofWithProver: fn } = await import('../proofs');
+      const result = await fn(params, { kind: 'local-binary', binaryPath: '/test' });
+
+      expect(result.sealBytes.length).toBe(RISC0_SEAL_BORSH_LEN);
+      expect(result.journal.length).toBe(RISC0_JOURNAL_LEN);
+      expect(result.imageId.length).toBe(RISC0_IMAGE_ID_LEN);
+      expect(result.bindingSeed.length).toBe(32);
+      expect(result.nullifierSeed.length).toBe(32);
+      expect(result.proof.length).toBe(RISC0_SEAL_BORSH_LEN - RISC0_SELECTOR_LEN);
+      expect(result.constraintHash.length).toBe(32);
+      expect(result.outputCommitment.length).toBe(32);
+      expect(result.binding.length).toBe(32);
+      expect(result.nullifier.length).toBe(32);
+      expect(result.proofSize).toBe(RISC0_SEAL_BORSH_LEN - RISC0_SELECTOR_LEN);
+      expect(result.generationTime).toBeGreaterThanOrEqual(0);
+
+      vi.doUnmock('../prover');
+    });
+
+    it('proof is sealBytes minus the 4-byte selector', async () => {
+      const params = makeProofParams();
+      const expectedJournal = buildExpectedJournal(params);
+      const fakeSealBytes = Buffer.alloc(RISC0_SEAL_BORSH_LEN);
+      // Write recognizable pattern in selector and body
+      fakeSealBytes[0] = 0x52; fakeSealBytes[1] = 0x5a;
+      fakeSealBytes[2] = 0x56; fakeSealBytes[3] = 0x4d;
+      for (let i = 4; i < RISC0_SEAL_BORSH_LEN; i++) fakeSealBytes[i] = i & 0xff;
+
+      vi.doMock('../prover', () => ({
+        prove: vi.fn().mockResolvedValue({
+          sealBytes: fakeSealBytes,
+          journal: expectedJournal,
+          imageId: Buffer.alloc(RISC0_IMAGE_ID_LEN, 0xee),
+        }),
+      }));
+
+      const { generateProofWithProver: fn } = await import('../proofs');
+      const result = await fn(params, { kind: 'local-binary', binaryPath: '/test' });
+
+      // proof should be bytes [4..260] of sealBytes
+      expect(result.proof.length).toBe(256);
+      expect(result.proof[0]).toBe(4 & 0xff);
+
+      vi.doUnmock('../prover');
+    });
+
+    it('rejects journal mismatch from prover', async () => {
+      const params = makeProofParams();
+      const tamperedJournal = Buffer.alloc(RISC0_JOURNAL_LEN, 0xff); // all 0xff — won't match
+
+      vi.doMock('../prover', () => ({
+        prove: vi.fn().mockResolvedValue({
+          sealBytes: Buffer.alloc(RISC0_SEAL_BORSH_LEN),
+          journal: tamperedJournal,
+          imageId: Buffer.alloc(RISC0_IMAGE_ID_LEN),
+        }),
+      }));
+
+      const { generateProofWithProver: fn } = await import('../proofs');
+      await expect(fn(params, { kind: 'local-binary', binaryPath: '/test' }))
+        .rejects.toThrow('does not match computed fields');
+
+      vi.doUnmock('../prover');
+    });
+
+    it('propagates ProverError from backend', async () => {
+      const params = makeProofParams();
+      const { ProverError: PE } = await import('../prover');
+
+      vi.doMock('../prover', () => ({
+        prove: vi.fn().mockRejectedValue(
+          new PE('binary crashed', 'local-binary'),
+        ),
+      }));
+
+      const { generateProofWithProver: fn } = await import('../proofs');
+      await expect(fn(params, { kind: 'local-binary', binaryPath: '/test' }))
+        .rejects.toThrow('binary crashed');
+
+      vi.doUnmock('../prover');
+    });
+
+    it('locally computed hashes match individual function results', async () => {
+      const params = makeProofParams();
+      const expectedJournal = buildExpectedJournal(params);
+      const fakeImageId = Buffer.alloc(RISC0_IMAGE_ID_LEN, 0x11);
+
+      vi.doMock('../prover', () => ({
+        prove: vi.fn().mockResolvedValue({
+          sealBytes: Buffer.alloc(RISC0_SEAL_BORSH_LEN),
+          journal: expectedJournal,
+          imageId: fakeImageId,
+        }),
+      }));
+
+      const { generateProofWithProver: fn } = await import('../proofs');
+      const result = await fn(params, { kind: 'remote', endpoint: 'https://test.com' });
+
+      // Verify hash buffers match what computeHashes would produce
+      const hashes = computeHashes(
+        params.taskPda,
+        params.agentPubkey,
+        params.output,
+        params.salt,
+        params.agentSecret,
+      );
+
+      const toBytes32 = (v: bigint): Buffer => {
+        const hex = v.toString(16).padStart(64, '0');
+        return Buffer.from(hex, 'hex');
+      };
+
+      expect(result.constraintHash.equals(toBytes32(hashes.constraintHash))).toBe(true);
+      expect(result.outputCommitment.equals(toBytes32(hashes.outputCommitment))).toBe(true);
+      expect(result.bindingSeed.equals(toBytes32(hashes.binding))).toBe(true);
+      expect(result.nullifierSeed.equals(toBytes32(hashes.nullifier))).toBe(true);
+
+      vi.doUnmock('../prover');
     });
   });
 });
