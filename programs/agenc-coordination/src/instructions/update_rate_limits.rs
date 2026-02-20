@@ -12,6 +12,9 @@ const MAX_RATE_LIMIT: u64 = 1000;
 /// Maximum cooldown value (1 week in seconds)
 const MAX_COOLDOWN: i64 = 86400 * 7;
 
+/// Minimum dispute stake to prevent free dispute spam (1000 lamports)
+const MIN_DISPUTE_STAKE: u64 = 1000;
+
 #[derive(Accounts)]
 pub struct UpdateRateLimits<'info> {
     #[account(
@@ -62,6 +65,12 @@ pub fn handler(
     require!(
         (max_disputes_per_24h as u64) <= MAX_RATE_LIMIT,
         CoordinationError::RateLimitTooHigh
+    );
+
+    // Enforce minimum dispute stake to prevent free dispute spam
+    require!(
+        min_stake_for_dispute >= MIN_DISPUTE_STAKE,
+        CoordinationError::InvalidInput
     );
 
     let config = &mut ctx.accounts.protocol_config;

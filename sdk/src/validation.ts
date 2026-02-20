@@ -12,7 +12,7 @@ import {
 } from './constants';
 
 const MAX_INPUT_LENGTH = 512;
-const DANGEROUS_CHARS = /[;&|`$(){}[\]<>!\\]/;
+const DANGEROUS_CHARS = /[;&|`$(){}[\]<>!\\\x00\n\r]/;
 
 function ensureReasonableInput(input: string, label: string): void {
   if (!input || input.trim().length === 0) {

@@ -6,7 +6,7 @@ use crate::instructions::completion_helpers::{
     calculate_fee_with_reputation, execute_completion_rewards, validate_completion_prereqs,
     validate_task_dependency,
 };
-use crate::instructions::token_helpers::validate_token_account;
+use crate::instructions::token_helpers::{validate_token_account, validate_unchecked_token_mint};
 use crate::state::{
     AgentRegistration, ProtocolConfig, Task, TaskClaim, TaskEscrow, HASH_SIZE, RESULT_DATA_SIZE,
 };
@@ -172,14 +172,17 @@ pub fn handler(
             &ctx.accounts.protocol_config.treasury,
         )?;
 
+        let worker_ta_info = ctx
+            .accounts
+            .worker_token_account
+            .as_ref()
+            .unwrap()
+            .to_account_info();
+        validate_unchecked_token_mint(&worker_ta_info, &mint.key())?;
+
         Some(TokenPaymentAccounts {
             token_escrow_ata: token_escrow.to_account_info(),
-            worker_token_account: ctx
-                .accounts
-                .worker_token_account
-                .as_ref()
-                .unwrap()
-                .to_account_info(),
+            worker_token_account: worker_ta_info,
             treasury_token_account: treasury_ta.to_account_info(),
             token_program: ctx
                 .accounts
