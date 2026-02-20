@@ -293,7 +293,7 @@ interface CreateSpeculativeCommitmentParams {
   
   /**
    * Predicted output data.
-   * Will be hashed with Poseidon to create outputHash.
+   * Will be hashed with SHA-256 to create outputHash.
    * @format Array of BigInt field elements
    */
   predictedOutput: bigint[];
@@ -377,7 +377,7 @@ interface CreateSpeculativeCommitmentResult {
 #### Example
 
 ```typescript
-import { SpeculationClient, poseidonHash } from '@agenc/speculation-sdk';
+import { SpeculationClient, sha256Hash } from '@agenc/speculation-sdk';
 
 const client = new SpeculationClient({ connection, wallet });
 await client.initialize();
@@ -1055,7 +1055,7 @@ const [escrowPda] = deriveStakeEscrowPda(commitmentPda, programId);
 
 ```typescript
 import {
-  poseidonHash,
+  sha256Hash,
   computeOutputHash,
   computeCommitmentHash,
 } from '@agenc/speculation-sdk';

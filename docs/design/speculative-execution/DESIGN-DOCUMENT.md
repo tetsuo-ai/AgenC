@@ -278,8 +278,8 @@ interface Risc0PrivatePayload {
 
 interface SpeculativeCommitment {
   taskId: Uint8Array;           // Task identifier
-  outputCommitment: Uint8Array; // Poseidon2(constraintHash, salt)
-  constraintHash: Uint8Array;   // Poseidon2(output)
+  outputCommitment: Uint8Array; // SHA-256(constraintHash, salt)
+  constraintHash: Uint8Array;   // SHA-256(output)
   salt: bigint;                 // Randomness for commitment
   status: CommitmentStatus;
   speculationDepth: number;
@@ -976,9 +976,9 @@ export interface SpeculativeCommitment {
   taskId: Uint8Array;
   /** Task PDA address */
   taskPda: PublicKey;
-  /** Poseidon2(constraintHash, salt) */
+  /** SHA-256(constraintHash, salt) */
   outputCommitment: Uint8Array;
-  /** Poseidon2(output) - matches task's constraint_hash */
+  /** SHA-256(output) - matches task's constraint_hash */
   constraintHash: Uint8Array;
   /** Randomness for commitment hiding */
   salt: bigint;
@@ -2553,7 +2553,7 @@ pub struct SpeculativeCommitment {
     /// Agent who created the commitment
     pub agent: Pubkey,
     
-    /// Output commitment (Poseidon2(constraint_hash, salt))
+    /// Output commitment (SHA-256(constraint_hash, salt))
     pub output_commitment: [u8; 32],
     
     /// Bonded stake in lamports
@@ -3954,9 +3954,9 @@ const CONFIG_VALIDATION = {
 | **Groth16** | Zero-knowledge proof system used in AgenC |
 | **Invariant** | Property that must always be true for system correctness |
 | **Ledger** | Local storage for speculative commitments |
-| **Output Commitment** | Poseidon2(constraintHash, salt) - hides output until reveal |
+| **Output Commitment** | SHA-256(constraintHash, salt) - hides output until reveal |
 | **Parallel Branches** | Multiple independent speculation chains executing concurrently |
-| **Poseidon2** | ZK-friendly hash function for circuit compatibility |
+| **SHA-256** | Hash function used for commitments (via Solana `hashv` syscall) |
 | **Proof Ordering** | Requirement that proofs submit in dependency order |
 | **Rollback** | Reverting speculative work when a task fails |
 | **Salt** | Random value for commitment hiding |

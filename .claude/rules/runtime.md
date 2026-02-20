@@ -295,7 +295,7 @@ runtime/src/proof/
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `proofProgramPath` | `string` | `'./circuits-legacy-circuit/task_completion'` | Circuit directory path |
+| `methodId` | `Uint8Array` | (required) | RISC Zero image ID identifying the guest program |
 | `verifyAfterGeneration` | `boolean` | `false` | Verify proof after generation |
 | `cache.ttlMs` | `number` | `300_000` | Cache TTL in ms |
 | `cache.maxEntries` | `number` | `100` | Max cached entries |

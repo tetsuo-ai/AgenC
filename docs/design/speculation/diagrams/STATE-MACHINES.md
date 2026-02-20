@@ -803,4 +803,4 @@ All state machines should implement:
 - [AgenC Whitepaper](../../WHITEPAPER.md)
 - [SDK Documentation](../../../sdk/README.md)
 - [Runtime Documentation](../../../runtime/README.md)
-- [Circom ZK Circuits](../../../circuits/task_completion/)
+- [RISC Zero ZK Circuits](../../../zkvm/)

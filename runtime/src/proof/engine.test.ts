@@ -19,7 +19,7 @@ vi.mock('@agenc/sdk', () => {
       proof: Buffer.alloc(256, 0xaa),
       constraintHash: Buffer.alloc(32, 0x01),
       outputCommitment: Buffer.alloc(32, 0x02),
-      bindingDigest: Buffer.alloc(32, 0x03),
+      binding: Buffer.alloc(32, 0x03),
       nullifier: Buffer.alloc(32, 0x04),
       proofSize: 260,
       generationTime: 42,
@@ -28,7 +28,7 @@ vi.mock('@agenc/sdk', () => {
     computeHashes: vi.fn().mockReturnValue({
       constraintHash: 123n,
       outputCommitment: 456n,
-      bindingDigest: 789n,
+      binding: 789n,
       nullifier: 101112n,
     }),
     generateSalt: vi.fn().mockReturnValue(999n),
@@ -374,7 +374,7 @@ describe('ProofEngine', () => {
       );
       expect(result.constraintHash).toBe(123n);
       expect(result.outputCommitment).toBe(456n);
-      expect(result.bindingDigest).toBe(789n);
+      expect(result.binding).toBe(789n);
       expect(result.nullifier).toBe(101112n);
     });
   });

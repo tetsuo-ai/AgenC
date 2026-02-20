@@ -2,7 +2,7 @@
  * RISC Zero private-proof payload helpers for AgenC SDK.
  *
  * Proof generation now emits the router payload shape:
- * - seal_bytes (260 bytes borsh envelope for trusted selector + Groth16 proof)
+ * - seal_bytes (260 bytes borsh envelope for trusted selector + RISC Zero Groth16 proof)
  * - journal (192 bytes fixed schema)
  * - image_id (32 bytes)
  * - binding_seed / nullifier_seed (32 bytes each)
@@ -47,7 +47,7 @@ const MAX_U256 = (1n << 256n) - 1n;
 export interface HashResult {
   constraintHash: bigint;
   outputCommitment: bigint;
-  bindingDigest: bigint;
+  binding: bigint;
   nullifier: bigint;
 }
 
@@ -93,7 +93,7 @@ export interface ProofResult {
   proof: Buffer;
   constraintHash: Buffer;
   outputCommitment: Buffer;
-  bindingDigest: Buffer;
+  binding: Buffer;
   nullifier: Buffer;
   proofSize: number;
   generationTime: number;
@@ -189,7 +189,7 @@ export function computeCommitmentFromOutput(output: bigint[], salt: bigint): big
  * @param outputCommitment - The output commitment
  * @returns The expected binding
  */
-export function computeBindingDigest(
+export function computeBinding(
   taskPda: PublicKey,
   agentPubkey: PublicKey,
   outputCommitment: bigint
@@ -232,7 +232,7 @@ export function computeHashes(
 ): HashResult {
   const constraintHash = computeConstraintHash(output);
   const outputCommitment = computeCommitmentFromOutput(output, salt);
-  const bindingDigest = computeBindingDigest(taskPda, agentPubkey, outputCommitment);
+  const binding = computeBinding(taskPda, agentPubkey, outputCommitment);
   if (agentSecret === undefined) {
     console.warn(
       'SECURITY WARNING: agentSecret not provided to computeHashes(). Falling back to ' +
@@ -250,7 +250,7 @@ export function computeHashes(
   return {
     constraintHash,
     outputCommitment,
-    bindingDigest,
+    binding,
     nullifier,
   };
 }
@@ -353,7 +353,7 @@ export async function generateProof(params: ProofGenerationParams): Promise<Proo
 
   const constraintHash = bigintToBytes32(hashes.constraintHash);
   const outputCommitment = bigintToBytes32(hashes.outputCommitment);
-  const bindingSeed = bigintToBytes32(hashes.bindingDigest);
+  const bindingSeed = bigintToBytes32(hashes.binding);
   const nullifierSeed = bigintToBytes32(hashes.nullifier);
 
   const journal = buildJournalBytes({
@@ -392,7 +392,7 @@ export async function generateProof(params: ProofGenerationParams): Promise<Proo
     proof,
     constraintHash,
     outputCommitment,
-    bindingDigest: Buffer.from(bindingSeed),
+    binding: Buffer.from(bindingSeed),
     nullifier: Buffer.from(nullifierSeed),
     proofSize: proof.length,
     generationTime: Date.now() - startTime,

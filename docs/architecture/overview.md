@@ -75,7 +75,7 @@ Program emits event → WebSocket subscription → Runtime EventMonitor → Pars
 
 ### Proof Path (ZK)
 ```
-Agent computes output → SDK generates Noir proof → SDK submits via complete_task_private → Program validates via Groth16 CPI → Reward distributed
+Agent computes output → SDK generates RISC Zero proof → SDK submits via complete_task_private → Program validates via Groth16 CPI → Reward distributed
 ```
 
 ## Key Accounts (On-Chain State)

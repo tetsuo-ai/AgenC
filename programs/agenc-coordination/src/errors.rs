@@ -167,7 +167,7 @@ pub enum CoordinationError {
     #[msg("RISC0 router account constraints failed")]
     RouterAccountMismatch,
 
-    #[msg("Invalid proof size - expected 256 bytes for Groth16")]
+    #[msg("Invalid proof size - expected 256 bytes for RISC Zero seal body")]
     InvalidProofSize,
 
     #[msg("Invalid proof binding: expected_binding cannot be all zeros")]

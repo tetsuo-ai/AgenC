@@ -5,7 +5,7 @@
 | Issue | Location | Impact | Suggested Fix |
 |-------|----------|--------|---------------|
 | Fire-and-forget promises untracked | `runtime/src/autonomous/agent.ts:482,574,605` | Silent error swallowing in background tasks | Add `pendingOperations` set to track + surface errors |
-| External tool exec without pre-validation | `sdk/src/privacy.ts:271-301` | Runtime crash if risc0-cli/risc0-prover-cli missing | Always call `checkToolsAvailable()` before `execSync()` |
+| External tool exec without pre-validation | `sdk/src/privacy.ts:271-301` | Runtime crash if proof tooling missing | Always validate RISC Zero host availability before proof generation (NOTE: legacy risc0-cli/risc0-prover-cli replaced by RISC Zero zkVM host) |
 
 ## High (Fix This Sprint)
 

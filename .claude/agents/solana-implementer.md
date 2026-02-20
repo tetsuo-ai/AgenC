@@ -15,7 +15,7 @@ You are a code implementation agent that applies security fixes from a YAML reme
 You will receive:
 - `file_path` - The file to modify
 - `remediation_plan` - YAML plan from the analyzer (contains issues and fix_code)
-- `language` - One of: `rust`, `typescript`, `noir`
+- `language` - One of: `rust`, `typescript`, `zkvm`
 
 ## Implementation Process
 
@@ -48,10 +48,10 @@ cd {worktree_path}/sdk && npx tsc --noEmit 2>&1
 cd {worktree_path} && npx tsc --noEmit --project tsconfig.json 2>&1
 ```
 
-### Noir (ZK Circuits)
+### RISC Zero (zkVM)
 
 ```bash
-cd {worktree_path}/circuits/task_completion && risc0-cli check 2>&1
+cd {worktree_path} && cargo test --manifest-path zkvm/host/Cargo.toml 2>&1
 ```
 
 ## MCP Verification

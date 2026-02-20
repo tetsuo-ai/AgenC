@@ -31,7 +31,7 @@ export const MAINNET_RPC = 'https://api.mainnet-beta.solana.com';
 // Size Constants
 // ============================================================================
 
-/** Size of cryptographic hashes in bytes (SHA256, Poseidon) */
+/** Size of cryptographic hashes in bytes (SHA-256) */
 export const HASH_SIZE = 32;
 
 /** Size of result/description data fields in bytes */
@@ -84,12 +84,6 @@ export const TRUSTED_RISC0_IMAGE_ID = Uint8Array.from([
  */
 export const VERIFICATION_COMPUTE_UNITS = 50_000;
 
-/** Timeout for deterministic proof witness build in ms (2 minutes) */
-export const NARGO_EXECUTE_TIMEOUT_MS = 120_000;
-
-/** Timeout for deterministic seal generation in ms (5 minutes) */
-export const SUNSPOT_PROVE_TIMEOUT_MS = 300_000;
-
 /** Number of public inputs in the circuit (32 task_id bytes + 32 agent bytes + constraint_hash + output_commitment + expected_binding) */
 export const PUBLIC_INPUTS_COUNT = 67;
 
@@ -119,7 +113,7 @@ export const RECOMMENDED_CU_CLAIM_TASK = 30_000;
 /** CU budget for complete_task (public) instruction */
 export const RECOMMENDED_CU_COMPLETE_TASK = 60_000;
 
-/** CU budget for complete_task_private (ZK) instruction - highest due to Groth16 pairing */
+/** CU budget for complete_task_private (ZK) instruction - highest due to RISC Zero verifier router CPI */
 export const RECOMMENDED_CU_COMPLETE_TASK_PRIVATE = 200_000;
 
 /** CU budget for cancel_task instruction */

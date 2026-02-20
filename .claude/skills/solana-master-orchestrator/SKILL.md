@@ -103,7 +103,7 @@ Skill tool parameters:
 | migrations-ts | migrations-ts | migrations/migration_utils.ts |
 | migrations-rust | migrations-rust | migrations/v1_to_v2.rs |
 | examples | examples | examples/helius-webhook/index.ts, examples/tetsuo-integration/demo.ts |
-| zk-circuits | zk-circuits | circuits/task_completion/src/main.nr |
+| zk-circuits | zk-circuits | zkvm/guest/src/lib.rs, zkvm/host/src/lib.rs |
 
 **Parallel Execution Strategy:**
 
@@ -168,10 +168,10 @@ cd /home/tetsuo/git/AgenC
 npx tsc --noEmit 2>&1
 ```
 
-#### Step 4.4: Check ZK Circuits (if Noir installed)
+#### Step 4.4: Check ZK Circuits (RISC Zero zkVM)
 ```bash
-cd /home/tetsuo/git/AgenC/circuits/task_completion
-risc0-cli check 2>&1 || echo "Noir not installed, skipping circuit check"
+cd /home/tetsuo/git/AgenC
+cargo test --manifest-path zkvm/host/Cargo.toml 2>&1 || echo "RISC Zero toolchain not installed, skipping zkVM check"
 ```
 
 If any validation fails:
