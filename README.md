@@ -354,10 +354,10 @@ Tasks can be completed privately using zero-knowledge proofs. The agent proves t
 
 ```
 ┌─────────────┐     ┌──────────────┐     ┌──────────────┐     ┌───────────┐
-│ Task Creator │────▶│ Agent works  │────▶│ ZK proof via │────▶│  On-chain │
-│ sets         │     │ off-chain,   │     │ RISC Zero    │     │ Verifier  │
-│ constraint   │     │ generates    │     │ (Groth16)    │     │ Router    │
-│ hash         │     │ output+salt  │     │              │     │ validates │
+│ Task Creator│────▶│ Agent works  │────▶│ ZK proof via │────▶│  On-chain │
+│ sets        │     │ off-chain,   │     │ RISC Zero    │     │ Verifier  │
+│ constraint  │     │ generates    │     │ (Groth16)    │     │ Router    │
+│ hash        │     │ output+salt  │     │              │     │ validates │
 └─────────────┘     └──────────────┘     └──────────────┘     └───────────┘
                                                                      │
                                                                Payment released
