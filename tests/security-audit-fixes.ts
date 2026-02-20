@@ -178,7 +178,6 @@ describe("security-audit-fixes", () => {
       program,
       protocolPda,
       authority: provider.wallet.publicKey,
-      minStakeForDisputeLamports: 0,
       skipPreflight: false,
     });
 

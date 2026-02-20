@@ -126,8 +126,6 @@ export function setupTestContext(ctx: TestContext): void {
       program,
       protocolPda,
       authority: provider.wallet.publicKey,
-      minStakeForDisputeLamports: 0,
-      skipPreflight: true,
     });
 
     // Register agents

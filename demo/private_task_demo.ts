@@ -7,14 +7,19 @@
 
 import { Connection, Keypair, PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js';
 import { createHash } from 'crypto';
+import {
+  PROGRAM_ID as AGENC_PROGRAM_ID,
+  TRUSTED_RISC0_SELECTOR,
+  TRUSTED_RISC0_IMAGE_ID,
+  VERIFIER_PROGRAM_ID as TRUSTED_VERIFIER_PROGRAM_ID,
+} from '../sdk/src/constants';
+import { computeHashes } from '../sdk/src/proofs';
 
 const HELIUS_API_KEY = process.env.HELIUS_API_KEY || 'YOUR_HELIUS_KEY';
 const HELIUS_RPC = `https://mainnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}`;
-const AGENC_PROGRAM_ID = new PublicKey('EopUaCV2svxj9j4hd7KjbrWfdjkspmm2BCBe7jGpKzKZ');
 const TRUSTED_ROUTER_PROGRAM_ID = new PublicKey('6JvFfBrvCcWgANKh1Eae9xDq4RC6cfJuBcf71rp2k9Y7');
-const TRUSTED_VERIFIER_PROGRAM_ID = new PublicKey('THq1qFYQoh7zgcjXoMXduDBqiZRCPeg3PvvMbrVQUge');
-const TRUSTED_SELECTOR = Buffer.from('525a5631', 'hex'); // "RZV1"
-const TRUSTED_IMAGE_ID = Buffer.from('11'.repeat(32), 'hex');
+const TRUSTED_SELECTOR = Buffer.from(TRUSTED_RISC0_SELECTOR);
+const TRUSTED_IMAGE_ID = Buffer.from(TRUSTED_RISC0_IMAGE_ID);
 
 const ROUTER_SEED = Buffer.from('router');
 const VERIFIER_SEED = Buffer.from('verifier');
@@ -154,28 +159,20 @@ function deriveRouterAccounts(bindingSeed: Buffer, nullifierSeed: Buffer): Route
 async function buildPrivatePayload(params: {
   taskPda: PublicKey;
   authority: PublicKey;
-  constraintHash: Buffer;
-  outputCommitment: Buffer;
+  hashes: { constraintHash: bigint; outputCommitment: bigint; binding: bigint; nullifier: bigint };
 }): Promise<PrivatePayload> {
   await sleep(DEMO_CONFIG.payloadSimulationDelayMs);
 
-  const bindingSeed = sha256(
-    Buffer.from('AGENC_V2_BINDING'),
-    params.taskPda.toBuffer(),
-    params.authority.toBuffer(),
-    params.outputCommitment,
-  );
-  const nullifierSeed = sha256(
-    Buffer.from('AGENC_V2_NULLIFIER'),
-    params.constraintHash,
-    params.outputCommitment,
-    params.authority.toBuffer(),
-  );
+  const constraintHash = bigintToBytes32(params.hashes.constraintHash);
+  const outputCommitment = bigintToBytes32(params.hashes.outputCommitment);
+  const bindingSeed = bigintToBytes32(params.hashes.binding);
+  const nullifierSeed = bigintToBytes32(params.hashes.nullifier);
+
   const journal = buildJournal(
     params.taskPda,
     params.authority,
-    params.constraintHash,
-    params.outputCommitment,
+    constraintHash,
+    outputCommitment,
     bindingSeed,
     nullifierSeed,
   );
@@ -226,10 +223,9 @@ async function main() {
   console.log('-'.repeat(60));
 
   const output = [...DEMO_CONFIG.expectedOutput];
-  const saltBytes = bigintToBytes32(DEMO_CONFIG.salt);
-  const outputBuffers = output.map(bigintToBytes32);
-  const constraintHash = sha256(Buffer.from('constraint_hash'), ...outputBuffers);
-  const outputCommitment = sha256(Buffer.from('output_commitment'), ...outputBuffers, saltBytes);
+  const hashes = computeHashes(taskPda, worker.publicKey, output, DEMO_CONFIG.salt);
+  const constraintHash = bigintToBytes32(hashes.constraintHash);
+  const outputCommitment = bigintToBytes32(hashes.outputCommitment);
 
   console.log('Task ID:', DEMO_CONFIG.taskId);
   console.log('Task PDA:', taskPda.toBase58());
@@ -244,8 +240,7 @@ async function main() {
   const payload = await buildPrivatePayload({
     taskPda,
     authority: worker.publicKey,
-    constraintHash,
-    outputCommitment,
+    hashes,
   });
   const routerAccounts = deriveRouterAccounts(payload.bindingSeed, payload.nullifierSeed);
 

@@ -24,6 +24,7 @@
     "test:fast": "ts-mocha -p ./tsconfig.json -t 60000 tests/test_1.ts tests/dispute-slash-logic.ts tests/spl-token-tasks.ts tests/lifecycle-guards.ts tests/governance.ts tests/agent-feed.ts",
     "test:local": "npm run test:fast && npm run test:anchor:nonmigrated",
     "test:fixtures": "cd runtime && npx vitest run src/eval/replay.test.ts src/eval/replay-comparison.test.ts --reporter=verbose",
+    "test:e2e-zk": "npx tsx scripts/setup-verifier-localnet.ts && ts-mocha -p ./tsconfig.json -t 60000 tests/e2e-real-proof.ts",
     "demo": "npx tsx demo/private_task_demo.ts",
     "demo:mainnet": "HELIUS_API_KEY=$HELIUS_API_KEY npx tsx demo/private_task_demo.ts"
   },

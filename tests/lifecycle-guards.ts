@@ -31,6 +31,7 @@ import {
   deriveDisputePda as _deriveDisputePda,
   deriveProgramDataPda,
   getErrorCode,
+  disableRateLimitsForTests,
 } from "./test-utils";
 import { createLiteSVMContext, fundAccount, advanceClock, getClockTimestamp } from "./litesvm-helpers";
 
@@ -282,15 +283,11 @@ describe("Task lifecycle guards (#959)", () => {
     }
 
     // Disable rate limiting for tests
-    try {
-      await program.methods
-        .updateRateLimits(new BN(0), 0, new BN(0), 0, new BN(0))
-        .accountsPartial({ protocolConfig: protocolPda })
-        .remainingAccounts([{ pubkey: provider.wallet.publicKey, isSigner: true, isWritable: false }])
-        .rpc({ skipPreflight: true });
-    } catch {
-      // May already be configured
-    }
+    await disableRateLimitsForTests({
+      program,
+      protocolPda,
+      authority: provider.wallet.publicKey,
+    });
 
     // Register creator agent
     try {
