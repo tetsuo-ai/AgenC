@@ -135,14 +135,16 @@ pub fn handler(
         _ => {}
     }
 
-    // Compute quorum: min_proposal_stake * max(total_agents * quorum_bps / 10000, 1)
+    // Compute quorum: min_proposal_stake * max(total_agents * quorum_bps / 10000, 2)
+    // Minimum quorum_factor of 2 ensures at least two independent vote-weights are
+    // needed to pass a proposal, preventing solo proposal execution.
     let quorum_factor = config
         .total_agents
         .checked_mul(governance.quorum_bps as u64)
         .ok_or(CoordinationError::ArithmeticOverflow)?
         .checked_div(10000)
-        .unwrap_or(1)
-        .max(1);
+        .unwrap_or(0)
+        .max(2);
     let quorum = governance
         .min_proposal_stake
         .checked_mul(quorum_factor)

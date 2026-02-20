@@ -18,6 +18,9 @@ const MAX_RATE_LIMIT: u64 = 1000;
 /// Maximum cooldown value: 1 week in seconds (matches update_rate_limits.rs)
 const MAX_COOLDOWN: i64 = 86400 * 7;
 
+/// Minimum dispute stake to prevent free dispute spam (matches update_rate_limits.rs)
+const MIN_DISPUTE_STAKE: u64 = 1000;
+
 #[derive(Accounts)]
 pub struct ExecuteProposal<'info> {
     #[account(
@@ -136,6 +139,13 @@ pub fn handler(ctx: Context<ExecuteProposal>) -> Result<()> {
                 .try_into()
                 .map_err(|_| error!(CoordinationError::InvalidProposalPayload))?;
             let recipient_key = Pubkey::from(recipient_bytes);
+
+            // Reject zero-pubkey recipient to prevent sending SOL to an unspendable address
+            require!(
+                recipient_key != Pubkey::default(),
+                CoordinationError::InvalidProposalPayload
+            );
+
             let amount = u64::from_le_bytes(
                 proposal.payload[32..40]
                     .try_into()
@@ -231,6 +241,12 @@ pub fn handler(ctx: Context<ExecuteProposal>) -> Result<()> {
             );
             require!(
                 (max_disputes_per_24h as u64) <= MAX_RATE_LIMIT,
+                CoordinationError::InvalidProposalPayload
+            );
+
+            // Enforce minimum dispute stake (matches update_rate_limits.rs)
+            require!(
+                min_stake_for_dispute >= MIN_DISPUTE_STAKE,
                 CoordinationError::InvalidProposalPayload
             );
 
