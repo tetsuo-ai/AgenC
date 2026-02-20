@@ -75,6 +75,7 @@ export interface TaskInfo {
   reward?: string;
   creator?: string;
   worker?: string;
+  description?: string;
 }
 
 // ============================================================================
@@ -101,6 +102,21 @@ export interface ApprovalRequest {
   requestId: string;
   action: string;
   details: Record<string, unknown>;
+}
+
+// ============================================================================
+// Agents
+// ============================================================================
+
+export interface AgentInfo {
+  pda: string;
+  agentId: string;
+  authority: string;
+  capabilities: string[];
+  status: string;
+  reputation: number;
+  tasksCompleted: number;
+  stake: string;
 }
 
 // ============================================================================

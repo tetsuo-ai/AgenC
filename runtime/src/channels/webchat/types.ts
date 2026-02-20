@@ -21,7 +21,7 @@ export interface WebChatDeps {
   /** Gateway instance for status queries. */
   gateway: {
     getStatus(): { state: string; uptimeMs: number; channels: string[]; activeSessions: number; controlPlanePort: number };
-    config: { agent?: { name?: string } };
+    config: { agent?: { name?: string }; connection?: { rpcUrl?: string; keypairPath?: string } };
   };
   /** Optional skill listing for skills.list handler. */
   skills?: ReadonlyArray<{ name: string; description: string; enabled: boolean }>;
@@ -33,6 +33,10 @@ export interface WebChatDeps {
   approvalEngine?: import('../../gateway/approvals.js').ApprovalEngine;
   /** Optional callback to toggle a skill's enabled state. */
   skillToggle?: (name: string, enabled: boolean) => void;
+  /** Optional Solana connection for on-chain task operations. */
+  connection?: import('@solana/web3.js').Connection;
+  /** Optional callback to broadcast events to all subscribed WS clients. */
+  broadcastEvent?: (eventType: string, data: Record<string, unknown>) => void;
 }
 
 // ============================================================================
