@@ -23,13 +23,30 @@ pub enum ConfigError {
     ClusterNotAllowlisted,
 }
 
-pub const TRUSTED_DEPLOYMENTS: [TrustedDeployment; 1] = [TrustedDeployment {
-    cluster: DEFAULT_CLUSTER,
-    router_program_id: TRUSTED_ROUTER_PROGRAM_ID,
-    verifier_program_id: TRUSTED_VERIFIER_PROGRAM_ID,
-    provenance: DEPLOYMENT_PROVENANCE,
-    provenance_path: DEPLOYMENT_PROVENANCE_PATH,
-}];
+// Program IDs are the same across clusters (deployed from boundless-xyz/risc0-solana tag v3.0.0)
+pub const TRUSTED_DEPLOYMENTS: [TrustedDeployment; 3] = [
+    TrustedDeployment {
+        cluster: DEFAULT_CLUSTER,
+        router_program_id: TRUSTED_ROUTER_PROGRAM_ID,
+        verifier_program_id: TRUSTED_VERIFIER_PROGRAM_ID,
+        provenance: DEPLOYMENT_PROVENANCE,
+        provenance_path: DEPLOYMENT_PROVENANCE_PATH,
+    },
+    TrustedDeployment {
+        cluster: "devnet",
+        router_program_id: TRUSTED_ROUTER_PROGRAM_ID,
+        verifier_program_id: TRUSTED_VERIFIER_PROGRAM_ID,
+        provenance: DEPLOYMENT_PROVENANCE,
+        provenance_path: DEPLOYMENT_PROVENANCE_PATH,
+    },
+    TrustedDeployment {
+        cluster: "mainnet-beta",
+        router_program_id: TRUSTED_ROUTER_PROGRAM_ID,
+        verifier_program_id: TRUSTED_VERIFIER_PROGRAM_ID,
+        provenance: DEPLOYMENT_PROVENANCE,
+        provenance_path: DEPLOYMENT_PROVENANCE_PATH,
+    },
+];
 
 pub fn require_allowlisted_deployment(cluster: &str) -> Result<&'static TrustedDeployment, ConfigError> {
     TRUSTED_DEPLOYMENTS

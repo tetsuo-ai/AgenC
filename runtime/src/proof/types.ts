@@ -11,7 +11,7 @@ import type { MetricsProvider } from '../task/types.js';
 // Re-export HashResult from SDK for convenience
 export type { HashResult } from '@agenc/sdk';
 
-export type ProverBackend = 'deterministic-local' | 'remote';
+export type ProverBackend = 'deterministic-local' | 'local-binary' | 'remote';
 
 export interface RouterConfig {
   /** Trusted verifier-router program id */
@@ -27,10 +27,14 @@ export interface RouterConfig {
 export interface ProverBackendConfig {
   /** Prover backend kind */
   kind?: ProverBackend;
-  /** Optional prover endpoint for remote backends */
+  /** Absolute path to the agenc-zkvm-host binary (required when kind is 'local-binary') */
+  binaryPath?: string;
+  /** Prover endpoint URL (required when kind is 'remote') */
   endpoint?: string;
-  /** Optional prover timeout */
+  /** Prover timeout in milliseconds */
   timeoutMs?: number;
+  /** Optional headers for remote prover (e.g. auth tokens) */
+  headers?: Record<string, string>;
 }
 
 export interface ToolsStatus {

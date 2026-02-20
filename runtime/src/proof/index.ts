@@ -32,4 +32,4 @@ export {
 export { ProofCache, deriveCacheKey } from './cache.js';
 
 // Engine
-export { ProofEngine } from './engine.js';
+export { ProofEngine, buildSdkProverConfig } from './engine.js';
