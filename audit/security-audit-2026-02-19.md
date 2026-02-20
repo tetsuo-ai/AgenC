@@ -187,14 +187,14 @@ RISC Zero integration must be completed before mainnet.
 
 ### Must Fix (Blocks Deployment)
 
-- [ ] CRIT-1: Replace simulated proofs with real RISC Zero prover
-- [ ] CRIT-2: Implement actual zkVM guest program
-- [ ] CRIT-3: Generate and pin real image ID from guest ELF
+- [x] CRIT-1: Replace simulated proofs with real RISC Zero prover (**FIXED** — PR #1220 real Groth16 prover, PR #1222 runtime wiring)
+- [x] CRIT-2: Implement actual zkVM guest program (**FIXED** — PR #1220 real guest at zkvm/methods/guest/src/main.rs)
+- [ ] CRIT-3: Generate and pin real image ID from guest ELF (tooling ready: `cargo run -p agenc-zkvm-host --features production-prover -- image-id`; needs rzup installed)
 - [x] CRIT-4: Fix VERIFIER_PROGRAM_ID mismatch in SDK (**FIXED**)
-- [x] CRIT-5: Add ownership validation for worker_token_account (**FIXED**)
+- [x] CRIT-5: Add ownership validation for worker_token_account (**FIXED** — strengthened with SPL token account authority check)
 - [x] CRIT-6: Handle zero-vote dispute slash case (**NOT A BUG** — MIN_VOTERS_FOR_RESOLUTION=3 prevents zero-vote resolution)
 - [ ] CRIT-8: Fix PrivacyClient.completeTaskPrivate() NPE
-- [ ] CRIT-9: Add devnet/mainnet deployment configs
+- [x] CRIT-9: Add devnet/mainnet deployment configs (**FIXED** — PR #1222 added devnet/mainnet-beta to TRUSTED_DEPLOYMENTS)
 - [x] HIGH-3: Enforce minimum stake for disputes > 0 (**FIXED** in update_rate_limits.rs + execute_proposal.rs)
 - [x] HIGH-5: Validate treasury spend recipient (**FIXED** — zero-pubkey check added)
 

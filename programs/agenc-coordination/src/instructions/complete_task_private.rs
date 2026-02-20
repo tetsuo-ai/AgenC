@@ -33,8 +33,12 @@ const TRUSTED_RISC0_ROUTER_PROGRAM_ID: Pubkey =
 const TRUSTED_RISC0_VERIFIER_PROGRAM_ID: Pubkey =
     Pubkey::from_str_const("THq1qFYQoh7zgcjXoMXduDBqiZRCPeg3PvvMbrVQUge");
 // TODO(CRIT-3): Arithmetic placeholder — not a real SHA-256 digest of the guest ELF.
-// To compute the real value: build with `production-prover`, extract AGENC_GUEST_ID,
-// convert via guest_id_to_image_id(). Must match sdk/src/constants.ts exactly.
+// To compute the real value:
+//   1. Install rzup: curl -L https://risczero.com/install | bash && rzup install
+//   2. Run: cargo run -p agenc-zkvm-host --features production-prover -- image-id
+//   3. Copy the Rust constant output here
+//   4. Copy the TypeScript constant to sdk/src/constants.ts
+// Both values MUST match exactly or complete_task_private will reject all proofs.
 const TRUSTED_RISC0_IMAGE_ID: [u8; RISC0_IMAGE_ID_LEN] = [
     6, 15, 16, 25, 34, 43, 44, 53, 62, 71, 72, 81, 90, 99, 100, 109, 118, 127, 128, 137, 146, 155,
     156, 165, 174, 183, 184, 193, 202, 211, 212, 221,
@@ -290,7 +294,11 @@ pub fn complete_task_private(
             &mint.key(),
             &ctx.accounts.protocol_config.treasury,
         )?;
-        validate_unchecked_token_mint(&worker_token_account.to_account_info(), &mint.key())?;
+        validate_unchecked_token_mint(
+            &worker_token_account.to_account_info(),
+            &mint.key(),
+            &ctx.accounts.authority.key(),
+        )?;
 
         Some(TokenPaymentAccounts {
             token_escrow_ata: token_escrow.to_account_info(),

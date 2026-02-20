@@ -76,13 +76,10 @@ export const TRUSTED_RISC0_SELECTOR = Uint8Array.from([0x52, 0x5a, 0x56, 0x4d]);
  *
  * TODO(CRIT-3): This is an arithmetic placeholder, not a real SHA-256 digest of
  * the guest ELF. To compute the real image ID:
- *   1. Install rzup (RISC Zero toolchain manager)
- *   2. Build zkvm workspace with `production-prover` feature:
- *      cargo build -p agenc-zkvm-host --features production-prover
- *   3. Extract AGENC_GUEST_ID from agenc-zkvm-methods crate
- *   4. Convert via guest_id_to_image_id() (LE u32x8 → [u8; 32])
- *   5. Update this constant AND the on-chain TRUSTED_RISC0_IMAGE_ID in
- *      programs/agenc-coordination/src/instructions/complete_task_private.rs
+ *   1. Install rzup: curl -L https://risczero.com/install | bash && rzup install
+ *   2. Run: cargo run -p agenc-zkvm-host --features production-prover -- image-id
+ *   3. Copy the TypeScript constant output here
+ *   4. Copy the Rust constant to complete_task_private.rs
  *   Both values MUST match exactly or complete_task_private will reject all proofs.
  */
 export const TRUSTED_RISC0_IMAGE_ID = Uint8Array.from([
