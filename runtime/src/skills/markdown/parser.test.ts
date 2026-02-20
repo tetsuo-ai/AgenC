@@ -48,7 +48,7 @@ This skill provides ZK proof generation.
 
 ## Usage
 
-Call \`risc0-prover prove\` with the circuit path.
+Call \`risc0-prover prove\` with the guest ELF path.
 `;
 
 const MINIMAL_SKILL_MD = `---

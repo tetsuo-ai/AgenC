@@ -397,7 +397,7 @@ export interface ProofInputs {
   /** Execution trace (compressed) */
   executionTrace: Uint8Array;
   
-  /** Public inputs for the circuit */
+  /** Public inputs (journal fields) */
   publicInputs: bigint[];
   
   /** Private witness data */
@@ -499,7 +499,7 @@ export enum ProofErrorCode {
   /** Out of memory during proof generation */
   OUT_OF_MEMORY = 'OUT_OF_MEMORY',
   
-  /** Circuit constraint violation */
+  /** Proof constraint violation */
   CONSTRAINT_VIOLATION = 'CONSTRAINT_VIOLATION',
   
   /** Worker crashed during generation */

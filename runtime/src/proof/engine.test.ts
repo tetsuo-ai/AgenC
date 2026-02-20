@@ -788,11 +788,11 @@ describe('deriveCacheKey', () => {
 
 describe('Proof error classes', () => {
   it('ProofGenerationError has correct properties', () => {
-    const err = new ProofGenerationError('circuit not found');
+    const err = new ProofGenerationError('prover not found');
     expect(err.name).toBe('ProofGenerationError');
     expect(err.code).toBe(RuntimeErrorCodes.PROOF_GENERATION_ERROR);
-    expect(err.cause).toBe('circuit not found');
-    expect(err.message).toContain('circuit not found');
+    expect(err.cause).toBe('prover not found');
+    expect(err.message).toContain('prover not found');
     expect(err instanceof RuntimeError).toBe(true);
   });
 

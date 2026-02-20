@@ -227,7 +227,7 @@ Based on complexity and target, apply appropriate labels:
 |-----------|-------|
 | target == "anchor" | `anchor` |
 | target == "sdk" | `sdk` |
-| target == "circuits" | `circuits` |
+| target == "zkvm" | `zkvm` |
 | target == "tests" | `tests` |
 | complexity == "trivial" or "low" | `good first issue` |
 | complexity == "high" or "very_high" | `complex` |
