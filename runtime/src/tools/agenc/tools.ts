@@ -10,6 +10,7 @@
  *
  * Mutation tools:
  * - agenc.createTask — create a task with SOL or known SPL token rewards
+ * - agenc.registerAgent — register signer wallet as an on-chain agent
  *
  * @module
  */
@@ -21,7 +22,7 @@ import type { AgencCoordination } from '../../types/agenc_coordination.js';
 import type { Tool, ToolResult } from '../types.js';
 import { safeStringify } from '../types.js';
 import { TaskOperations } from '../../task/operations.js';
-import { findProtocolPda } from '../../agent/pda.js';
+import { findAgentPda, findProtocolPda } from '../../agent/pda.js';
 import { findTaskPda, findEscrowPda } from '../../task/pda.js';
 import {
   taskStatusToString,
@@ -50,6 +51,7 @@ const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 200;
 const DESCRIPTION_BYTES = 64;
 const TASK_ID_BYTES = 32;
+const MAX_U64 = (1n << 64n) - 1n;
 
 const KNOWN_MINTS: Record<string, { symbol: string; decimals: number }> = {
   EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v: { symbol: 'USDC', decimals: 6 },
@@ -128,6 +130,28 @@ function parseBoundedNumber(
   return [v, null];
 }
 
+function parseToolErrorMessage(result: ToolResult | null): string | null {
+  if (!result) return null;
+  try {
+    const parsed = JSON.parse(result.content) as { error?: string };
+    return typeof parsed.error === 'string' ? parsed.error : null;
+  } catch {
+    return null;
+  }
+}
+
+function isNoRegistrationError(result: ToolResult | null): boolean {
+  const message = parseToolErrorMessage(result);
+  return message?.includes('No agent registration found') ?? false;
+}
+
+function validateU64(value: bigint, field: string): ToolResult | null {
+  if (value > MAX_U64) {
+    return errorResult(`${field} exceeds u64 max (${MAX_U64.toString()})`);
+  }
+  return null;
+}
+
 function parseTaskDescription(input: unknown): [Uint8Array | null, ToolResult | null] {
   if (typeof input !== 'string' || input.trim().length === 0) {
     return [null, errorResult('description must be a non-empty string')];
@@ -154,6 +178,22 @@ function parseTaskId(input: unknown): [Uint8Array | null, ToolResult | null] {
     return [bytes, null];
   } catch {
     return [null, errorResult('taskId must be a valid hex string')];
+  }
+}
+
+function parseAgentId(input: unknown): [Uint8Array | null, ToolResult | null] {
+  if (input === undefined) return [generateAgentId(), null];
+  if (typeof input !== 'string' || input.trim().length === 0) {
+    return [null, errorResult('agentId must be a 64-char hex string if provided')];
+  }
+  try {
+    const bytes = hexToBytes(input);
+    if (bytes.length !== TASK_ID_BYTES) {
+      return [null, errorResult(`agentId must be ${TASK_ID_BYTES} bytes (64 hex chars)`)];
+    }
+    return [bytes, null];
+  } catch {
+    return [null, errorResult('agentId must be a valid hex string')];
   }
 }
 
@@ -196,6 +236,25 @@ async function resolveCreatorAgentPda(
   }
 
   return [matches[0].pubkey, null];
+}
+
+async function buildMissingRegistrationResult(
+  program: Program<AgencCoordination>,
+): Promise<ToolResult> {
+  try {
+    const protocolPda = findProtocolPda(program.programId);
+    const raw = await program.account.protocolConfig.fetch(protocolPda);
+    const config = parseProtocolConfig(raw);
+    return errorResult(
+      `No agent registration found for signer. Register one first via agenc.registerAgent ` +
+      `(minimum stake: ${config.minAgentStake.toString()} lamports / ${lamportsToSol(config.minAgentStake)} SOL), ` +
+      `or provide creatorAgentPda explicitly.`,
+    );
+  } catch {
+    return errorResult(
+      'No agent registration found for signer. Register one first via agenc.registerAgent, or provide creatorAgentPda explicitly.',
+    );
+  }
 }
 
 function isMissingAccountError(err: unknown): boolean {
@@ -507,6 +566,160 @@ export function createGetTokenBalanceTool(
 }
 
 /**
+ * Create the agenc.registerAgent tool.
+ */
+export function createRegisterAgentTool(
+  program: Program<AgencCoordination>,
+  logger: Logger,
+): Tool {
+  return {
+    name: 'agenc.registerAgent',
+    description:
+      'Register the signer wallet as an on-chain AgenC agent. This stakes SOL according to protocol minimums.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        capabilities: {
+          type: 'string',
+          description: 'Capability bitmask as integer string (u64). Must be > 0. Default: "1".',
+        },
+        endpoint: {
+          type: 'string',
+          description: 'Public endpoint URL (must start with http:// or https://). Default: https://agenc.local',
+        },
+        metadataUri: {
+          type: 'string',
+          description: 'Optional metadata URI (max 128 chars).',
+        },
+        stakeAmount: {
+          type: 'string',
+          description: 'Optional stake amount in lamports. Defaults to protocol minAgentStake.',
+        },
+        agentId: {
+          type: 'string',
+          description: 'Optional 32-byte agent id as 64-char hex. Random when omitted.',
+        },
+      },
+    },
+    async execute(args: Record<string, unknown>): Promise<ToolResult> {
+      try {
+        if (!program.provider.publicKey) {
+          return errorResult('agenc.registerAgent requires a signer-backed program context');
+        }
+        const authority = program.provider.publicKey;
+
+        const [existingAgentPda, existingErr] = await resolveCreatorAgentPda(program, authority);
+        if (existingAgentPda) {
+          return {
+            content: safeStringify({
+              agentPda: existingAgentPda.toBase58(),
+              alreadyRegistered: true,
+            }),
+          };
+        }
+        if (existingErr && !isNoRegistrationError(existingErr)) {
+          return existingErr;
+        }
+
+        const [capabilities, capabilitiesErr] = parseBigIntInput(args.capabilities ?? '1', 'capabilities');
+        if (capabilitiesErr || capabilities === null) {
+          return capabilitiesErr ?? errorResult('Invalid capabilities');
+        }
+        if (capabilities <= 0n) {
+          return errorResult('capabilities must be greater than zero');
+        }
+        const capabilityRangeErr = validateU64(capabilities, 'capabilities');
+        if (capabilityRangeErr) return capabilityRangeErr;
+
+        const endpointInput = args.endpoint ?? 'https://agenc.local';
+        if (typeof endpointInput !== 'string') {
+          return errorResult('endpoint must be a string');
+        }
+        const endpoint = endpointInput.trim();
+        if (endpoint.length === 0) {
+          return errorResult('endpoint must not be empty');
+        }
+        if (!(endpoint.startsWith('http://') || endpoint.startsWith('https://'))) {
+          return errorResult('endpoint must start with http:// or https://');
+        }
+        if (endpoint.length > 128) {
+          return errorResult('endpoint must be at most 128 characters');
+        }
+
+        let metadataUri: string | null = null;
+        if (args.metadataUri !== undefined && args.metadataUri !== null) {
+          if (typeof args.metadataUri !== 'string') {
+            return errorResult('metadataUri must be a string');
+          }
+          metadataUri = args.metadataUri.trim();
+          if (metadataUri.length > 128) {
+            return errorResult('metadataUri must be at most 128 characters');
+          }
+        }
+
+        const protocolPda = findProtocolPda(program.programId);
+        const raw = await program.account.protocolConfig.fetch(protocolPda);
+        const config = parseProtocolConfig(raw);
+
+        const [stakeAmount, stakeErr] = parseBigIntInput(
+          args.stakeAmount ?? config.minAgentStake.toString(),
+          'stakeAmount',
+        );
+        if (stakeErr || stakeAmount === null) {
+          return stakeErr ?? errorResult('Invalid stakeAmount');
+        }
+        if (stakeAmount < config.minAgentStake) {
+          return errorResult(
+            `stakeAmount must be at least minAgentStake (${config.minAgentStake.toString()} lamports)`,
+          );
+        }
+        const stakeRangeErr = validateU64(stakeAmount, 'stakeAmount');
+        if (stakeRangeErr) return stakeRangeErr;
+
+        const [agentId, agentIdErr] = parseAgentId(args.agentId);
+        if (agentIdErr || !agentId) {
+          return agentIdErr ?? errorResult('Invalid agentId');
+        }
+        const agentPda = findAgentPda(agentId, program.programId);
+
+        const txSignature = await program.methods
+          .registerAgent(
+            Array.from(agentId),
+            new anchor.BN(capabilities.toString()),
+            endpoint,
+            metadataUri,
+            new anchor.BN(stakeAmount.toString()),
+          )
+          .accountsPartial({
+            agent: agentPda,
+            protocolConfig: protocolPda,
+            authority,
+            systemProgram: SystemProgram.programId,
+          })
+          .rpc();
+
+        return {
+          content: safeStringify({
+            agentPda: agentPda.toBase58(),
+            agentId: bytesToHex(agentId),
+            capabilities: capabilities.toString(),
+            endpoint,
+            metadataUri,
+            stakeAmount: stakeAmount.toString(),
+            stakeSol: lamportsToSol(stakeAmount),
+            transactionSignature: txSignature,
+          }),
+        };
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        logger.error(`agenc.registerAgent failed: ${msg}`);
+        return errorResult(msg);
+      }
+    },
+  };
+}
+
+/**
  * Create the agenc.createTask tool.
  */
 export function createCreateTaskTool(
@@ -530,7 +743,7 @@ export function createCreateTaskTool(
         },
         requiredCapabilities: {
           type: 'string',
-          description: 'Required capability bitmask as integer string (u64)',
+          description: 'Required capability bitmask as integer string (u64, must be > 0).',
         },
         rewardMint: {
           type: 'string',
@@ -584,6 +797,8 @@ export function createCreateTaskTool(
         const [reward, rewardErr] = parseBigIntInput(args.reward, 'reward');
         if (rewardErr || reward === null) return rewardErr ?? errorResult('Invalid reward');
         if (reward <= 0n) return errorResult('reward must be greater than zero');
+        const rewardRangeErr = validateU64(reward, 'reward');
+        if (rewardRangeErr) return rewardRangeErr;
 
         const [requiredCapabilities, capabilitiesErr] = parseBigIntInput(
           args.requiredCapabilities,
@@ -592,6 +807,11 @@ export function createCreateTaskTool(
         if (capabilitiesErr || requiredCapabilities === null) {
           return capabilitiesErr ?? errorResult('Invalid requiredCapabilities');
         }
+        if (requiredCapabilities <= 0n) {
+          return errorResult('requiredCapabilities must be greater than zero (e.g. "1")');
+        }
+        const requiredCapabilitiesRangeErr = validateU64(requiredCapabilities, 'requiredCapabilities');
+        if (requiredCapabilitiesRangeErr) return requiredCapabilitiesRangeErr;
 
         const [taskType, taskTypeErr] = parseBoundedNumber(args.taskType, 'taskType', 0, 2, 0);
         if (taskTypeErr) return taskTypeErr;
@@ -641,6 +861,9 @@ export function createCreateTaskTool(
           args.creatorAgentPda,
         );
         if (creatorAgentErr || !creatorAgentPda) {
+          if (isNoRegistrationError(creatorAgentErr)) {
+            return await buildMissingRegistrationResult(program);
+          }
           return creatorAgentErr ?? errorResult('Unable to resolve creator agent');
         }
 

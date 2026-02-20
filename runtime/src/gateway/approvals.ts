@@ -150,6 +150,10 @@ export const DEFAULT_APPROVAL_RULES: readonly ApprovalRule[] = [
     conditions: { minAmount: 1_000_000_000 },
     description: 'Task creation with reward exceeding 1 SOL',
   },
+  {
+    tool: 'agenc.registerAgent',
+    description: 'Agent registration with staked SOL',
+  },
 ];
 
 // ============================================================================

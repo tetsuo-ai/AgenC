@@ -5,6 +5,7 @@ import {
   createListTasksTool,
   createGetTaskTool,
   createGetTokenBalanceTool,
+  createRegisterAgentTool,
   createCreateTaskTool,
   createGetAgentTool,
   createGetProtocolConfigTool,
@@ -137,16 +138,22 @@ function createMockOps() {
 // ============================================================================
 
 function createMockProgram() {
-  const methodChain = {
+  const createTaskMethodChain = {
     accountsPartial: vi.fn().mockReturnThis(),
     rpc: vi.fn(async () => 'mock-create-task-sig'),
   };
+  const registerAgentMethodChain = {
+    accountsPartial: vi.fn().mockReturnThis(),
+    rpc: vi.fn(async () => 'mock-register-agent-sig'),
+  };
+  const getProgramAccounts = vi.fn(async () => [{ pubkey: AGENT_PDA }]);
 
   return {
     programId: PublicKey.unique(),
     provider: {
       publicKey: SIGNER,
       connection: {
+        getProgramAccounts,
         getTokenAccountBalance: vi.fn(async () => ({
           context: { slot: 1 },
           value: {
@@ -164,23 +171,17 @@ function createMockProgram() {
           if (pda.equals(AGENT_PDA)) return makeMockAgent();
           throw new Error('Account does not exist');
         }),
-        all: vi.fn(async () => [
-          {
-            publicKey: AGENT_PDA,
-            account: {
-              authority: SIGNER,
-            },
-          },
-        ]),
       },
       protocolConfig: {
         fetch: vi.fn(async () => makeMockProtocolConfig()),
       },
     },
     methods: {
-      createTask: vi.fn().mockReturnValue(methodChain),
+      createTask: vi.fn().mockReturnValue(createTaskMethodChain),
+      registerAgent: vi.fn().mockReturnValue(registerAgentMethodChain),
     },
-    _methodChain: methodChain,
+    _createTaskMethodChain: createTaskMethodChain,
+    _registerAgentMethodChain: registerAgentMethodChain,
   };
 }
 
@@ -197,7 +198,7 @@ describe('createAgencTools', () => {
       logger: silentLogger,
     });
 
-    expect(tools).toHaveLength(6);
+    expect(tools).toHaveLength(7);
     expect(tools.map((t) => t.name).sort()).toEqual([
       'agenc.createTask',
       'agenc.getAgent',
@@ -205,6 +206,7 @@ describe('createAgencTools', () => {
       'agenc.getTask',
       'agenc.getTokenBalance',
       'agenc.listTasks',
+      'agenc.registerAgent',
     ]);
   });
 });
@@ -386,6 +388,49 @@ describe('agenc.getTokenBalance', () => {
   });
 });
 
+describe('agenc.registerAgent', () => {
+  it('returns existing registration when signer is already registered', async () => {
+    const mockProgram = createMockProgram();
+    const tool = createRegisterAgentTool(mockProgram as never, silentLogger);
+
+    const result = await tool.execute({});
+    const parsed = JSON.parse(result.content);
+
+    expect(result.isError).toBeUndefined();
+    expect(parsed.alreadyRegistered).toBe(true);
+    expect(parsed.agentPda).toBe(AGENT_PDA.toBase58());
+    expect(mockProgram.methods.registerAgent).not.toHaveBeenCalled();
+  });
+
+  it('registers a new agent when signer has no registration', async () => {
+    const mockProgram = createMockProgram();
+    (mockProgram.provider.connection.getProgramAccounts as any).mockResolvedValueOnce([]);
+    const tool = createRegisterAgentTool(mockProgram as never, silentLogger);
+
+    const result = await tool.execute({
+      capabilities: '1',
+      endpoint: 'https://agenc.local',
+    });
+    const parsed = JSON.parse(result.content);
+
+    expect(result.isError).toBeUndefined();
+    expect(parsed.transactionSignature).toBe('mock-register-agent-sig');
+    expect(parsed.agentPda).toBeTypeOf('string');
+    expect(mockProgram.methods.registerAgent).toHaveBeenCalledOnce();
+  });
+
+  it('rejects zero capabilities', async () => {
+    const mockProgram = createMockProgram();
+    (mockProgram.provider.connection.getProgramAccounts as any).mockResolvedValueOnce([]);
+    const tool = createRegisterAgentTool(mockProgram as never, silentLogger);
+
+    const result = await tool.execute({ capabilities: '0' });
+
+    expect(result.isError).toBe(true);
+    expect(JSON.parse(result.content).error).toContain('capabilities must be greater than zero');
+  });
+});
+
 describe('agenc.createTask', () => {
   it('creates a SOL task with defaults', async () => {
     const mockProgram = createMockProgram();
@@ -403,6 +448,20 @@ describe('agenc.createTask', () => {
     expect(parsed.transactionSignature).toBe('mock-create-task-sig');
     expect(parsed.rewardMint).toBeNull();
     expect(mockProgram.methods.createTask).toHaveBeenCalledOnce();
+  });
+
+  it('rejects requiredCapabilities of zero', async () => {
+    const mockProgram = createMockProgram();
+    const tool = createCreateTaskTool(mockProgram as never, silentLogger);
+
+    const result = await tool.execute({
+      description: 'hello task',
+      reward: '1000000',
+      requiredCapabilities: '0',
+    });
+
+    expect(result.isError).toBe(true);
+    expect(JSON.parse(result.content).error).toContain('requiredCapabilities must be greater than zero');
   });
 
   it('rejects unknown reward mints', async () => {

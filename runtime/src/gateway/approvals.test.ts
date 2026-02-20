@@ -161,9 +161,13 @@ describe('ApprovalEngine', () => {
       expect(engine.requiresApproval('wallet.transfer', {})).toBeNull();
     });
 
-    it('matches agenc.createTask with reward > 1', () => {
-      expect(engine.requiresApproval('agenc.createTask', { reward: 2 })).not.toBeNull();
-      expect(engine.requiresApproval('agenc.createTask', { reward: 0.5 })).toBeNull();
+    it('matches agenc.createTask with reward > 1 SOL (lamports)', () => {
+      expect(engine.requiresApproval('agenc.createTask', { reward: 1_000_000_001 })).not.toBeNull();
+      expect(engine.requiresApproval('agenc.createTask', { reward: 1_000_000_000 })).toBeNull();
+    });
+
+    it('always requires approval for agenc.registerAgent', () => {
+      expect(engine.requiresApproval('agenc.registerAgent', {})).not.toBeNull();
     });
 
     it('checks argPatterns condition', () => {
@@ -495,8 +499,8 @@ describe('ApprovalEngine', () => {
   // ============================================================================
 
   describe('DEFAULT_APPROVAL_RULES', () => {
-    it('has 6 rules', () => {
-      expect(DEFAULT_APPROVAL_RULES).toHaveLength(6);
+    it('has 7 rules', () => {
+      expect(DEFAULT_APPROVAL_RULES).toHaveLength(7);
     });
 
     it('covers system.bash, system.delete, system.evaluateJs', () => {
@@ -506,11 +510,12 @@ describe('ApprovalEngine', () => {
       expect(tools).toContain('system.evaluateJs');
     });
 
-    it('covers wallet.sign, wallet.transfer, agenc.createTask', () => {
+    it('covers wallet.sign, wallet.transfer, agenc.createTask, agenc.registerAgent', () => {
       const tools = DEFAULT_APPROVAL_RULES.map((r) => r.tool);
       expect(tools).toContain('wallet.sign');
       expect(tools).toContain('wallet.transfer');
       expect(tools).toContain('agenc.createTask');
+      expect(tools).toContain('agenc.registerAgent');
     });
 
     it('wallet.transfer has minAmount 0.1', () => {
@@ -518,9 +523,9 @@ describe('ApprovalEngine', () => {
       expect(rule!.conditions!.minAmount).toBe(0.1);
     });
 
-    it('agenc.createTask has minAmount 1', () => {
+    it('agenc.createTask has minAmount 1 SOL in lamports', () => {
       const rule = DEFAULT_APPROVAL_RULES.find((r) => r.tool === 'agenc.createTask');
-      expect(rule!.conditions!.minAmount).toBe(1);
+      expect(rule!.conditions!.minAmount).toBe(1_000_000_000);
     });
   });
 });
