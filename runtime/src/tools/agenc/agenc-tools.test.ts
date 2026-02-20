@@ -429,6 +429,20 @@ describe('agenc.registerAgent', () => {
     expect(result.isError).toBe(true);
     expect(JSON.parse(result.content).error).toContain('capabilities must be greater than zero');
   });
+
+  it('returns protocol init guidance when protocol config is missing', async () => {
+    const mockProgram = createMockProgram();
+    (mockProgram.provider.connection.getProgramAccounts as any).mockResolvedValueOnce([]);
+    mockProgram.account.protocolConfig.fetch.mockRejectedValueOnce(
+      new Error('Account does not exist or has no data Fn9U13jRCieDTQ8oKsEqcrqs3CoohbBnbYD4gdt6CPXE'),
+    );
+    const tool = createRegisterAgentTool(mockProgram as never, silentLogger);
+
+    const result = await tool.execute({ capabilities: '1', endpoint: 'https://agenc.local' });
+
+    expect(result.isError).toBe(true);
+    expect(JSON.parse(result.content).error).toContain('Protocol config is not initialized');
+  });
 });
 
 describe('agenc.createTask', () => {
@@ -478,6 +492,24 @@ describe('agenc.createTask', () => {
 
     expect(result.isError).toBe(true);
     expect(JSON.parse(result.content).error).toContain('Unsupported rewardMint');
+  });
+
+  it('returns protocol init guidance when registration is missing and protocol is uninitialized', async () => {
+    const mockProgram = createMockProgram();
+    (mockProgram.provider.connection.getProgramAccounts as any).mockResolvedValueOnce([]);
+    mockProgram.account.protocolConfig.fetch.mockRejectedValueOnce(
+      new Error('Account does not exist or has no data Fn9U13jRCieDTQ8oKsEqcrqs3CoohbBnbYD4gdt6CPXE'),
+    );
+    const tool = createCreateTaskTool(mockProgram as never, silentLogger);
+
+    const result = await tool.execute({
+      description: 'hello task',
+      reward: '1000000',
+      requiredCapabilities: '1',
+    });
+
+    expect(result.isError).toBe(true);
+    expect(JSON.parse(result.content).error).toContain('Protocol config is not initialized');
   });
 });
 
@@ -531,5 +563,18 @@ describe('agenc.getProtocolConfig', () => {
     expect(parsed).toHaveProperty('disputeThreshold', 51);
     expect(parsed).toHaveProperty('protocolVersion', 1);
     expect(parsed).toHaveProperty('totalTasks', '50');
+  });
+
+  it('returns protocol init guidance when config account is missing', async () => {
+    const mockProgram = createMockProgram();
+    mockProgram.account.protocolConfig.fetch.mockRejectedValueOnce(
+      new Error('Account does not exist or has no data Fn9U13jRCieDTQ8oKsEqcrqs3CoohbBnbYD4gdt6CPXE'),
+    );
+    const missingTool = createGetProtocolConfigTool(mockProgram as never, silentLogger);
+
+    const result = await missingTool.execute({});
+
+    expect(result.isError).toBe(true);
+    expect(JSON.parse(result.content).error).toContain('Protocol config is not initialized');
   });
 });

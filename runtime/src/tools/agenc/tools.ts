@@ -241,20 +241,21 @@ async function resolveCreatorAgentPda(
 async function buildMissingRegistrationResult(
   program: Program<AgencCoordination>,
 ): Promise<ToolResult> {
-  try {
-    const protocolPda = findProtocolPda(program.programId);
-    const raw = await program.account.protocolConfig.fetch(protocolPda);
-    const config = parseProtocolConfig(raw);
-    return errorResult(
-      `No agent registration found for signer. Register one first via agenc.registerAgent ` +
-      `(minimum stake: ${config.minAgentStake.toString()} lamports / ${lamportsToSol(config.minAgentStake)} SOL), ` +
-      `or provide creatorAgentPda explicitly.`,
-    );
-  } catch {
-    return errorResult(
-      'No agent registration found for signer. Register one first via agenc.registerAgent, or provide creatorAgentPda explicitly.',
+  const [, config, configErr] = await fetchProtocolConfigForAction(program, 'create tasks');
+  if (configErr || !config) {
+    return (
+      configErr ??
+      errorResult(
+        'No agent registration found for signer. Register one first via agenc.registerAgent, or provide creatorAgentPda explicitly.',
+      )
     );
   }
+
+  return errorResult(
+    `No agent registration found for signer. Register one first via agenc.registerAgent ` +
+    `(minimum stake: ${config.minAgentStake.toString()} lamports / ${lamportsToSol(config.minAgentStake)} SOL), ` +
+    `or provide creatorAgentPda explicitly.`,
+  );
 }
 
 function isMissingAccountError(err: unknown): boolean {
@@ -266,6 +267,31 @@ function isMissingAccountError(err: unknown): boolean {
     lower.includes('invalid param') ||
     lower.includes('not found')
   );
+}
+
+async function fetchProtocolConfigForAction(
+  program: Program<AgencCoordination>,
+  action: string,
+): Promise<[PublicKey, ProtocolConfig | null, ToolResult | null]> {
+  const protocolPda = findProtocolPda(program.programId);
+  try {
+    const raw = await program.account.protocolConfig.fetch(protocolPda);
+    const config = parseProtocolConfig(raw);
+    return [protocolPda, config, null];
+  } catch (error) {
+    if (isMissingAccountError(error)) {
+      return [
+        protocolPda,
+        null,
+        errorResult(
+          `Protocol config is not initialized for this program/network (expected account: ${protocolPda.toBase58()}). ` +
+          `Cannot ${action}. Initialize protocol first or switch to the correct cluster/program.`,
+        ),
+      ];
+    }
+    const msg = error instanceof Error ? error.message : String(error);
+    return [protocolPda, null, errorResult(msg)];
+  }
 }
 
 // ============================================================================
@@ -657,9 +683,13 @@ export function createRegisterAgentTool(
           }
         }
 
-        const protocolPda = findProtocolPda(program.programId);
-        const raw = await program.account.protocolConfig.fetch(protocolPda);
-        const config = parseProtocolConfig(raw);
+        const [protocolPda, config, configErr] = await fetchProtocolConfigForAction(
+          program,
+          'register an agent',
+        );
+        if (configErr || !config) {
+          return configErr ?? errorResult('Unable to load protocol config');
+        }
 
         const [stakeAmount, stakeErr] = parseBigIntInput(
           args.stakeAmount ?? config.minAgentStake.toString(),
@@ -991,9 +1021,13 @@ export function createGetProtocolConfigTool(
     },
     async execute(): Promise<ToolResult> {
       try {
-        const protocolPda = findProtocolPda(program.programId);
-        const raw = await program.account.protocolConfig.fetch(protocolPda);
-        const config = parseProtocolConfig(raw);
+        const [, config, configErr] = await fetchProtocolConfigForAction(
+          program,
+          'read protocol configuration',
+        );
+        if (configErr || !config) {
+          return configErr ?? errorResult('Unable to load protocol config');
+        }
         return { content: safeStringify(serializeProtocolConfig(config)) };
       } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
