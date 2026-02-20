@@ -54,15 +54,9 @@ node_modules/
 sdk/dist/
 runtime/dist/
 mcp/dist/
+docs-mcp/dist/
 demo-app/dist/
 
-# Circuit artifacts (keep source, ignore compiled)
-circuits/**/target/
-circuits/**/*.proof
-circuits/**/*.pk
-circuits/**/*.vk
-circuits/**/*.ccs
-circuits/**/*.gz
 
 # Codex (local AI assistant config)
 .codex/
@@ -74,3 +68,10 @@ codex.md
 .cursorrules
 cursor.md
 CURSOR.md
+
+# Local tool artifacts
+.surfpool/
+.tmp/
+
+# Techdebt session reports (auto-generated)
+.claude/notes/techdebt-*.md
