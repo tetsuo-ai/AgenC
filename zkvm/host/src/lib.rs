@@ -298,12 +298,19 @@ pub fn prove_cli_output(request: &ProveRequest) -> Result<String, ProveError> {
 }
 
 pub fn render_prove_response(response: &ProveResponse) -> String {
-    format!(
-        "{{\"seal_bytes\":{},\"journal\":{},\"image_id\":{}}}",
-        format_byte_list(&response.seal_bytes),
-        format_byte_list(&response.journal),
-        format_byte_list(&response.image_id),
-    )
+    #[derive(serde::Serialize)]
+    struct JsonProveResponse {
+        seal_bytes: Vec<u8>,
+        journal: Vec<u8>,
+        image_id: Vec<u8>,
+    }
+
+    let json_resp = JsonProveResponse {
+        seal_bytes: response.seal_bytes.clone(),
+        journal: response.journal.clone(),
+        image_id: response.image_id.to_vec(),
+    };
+    serde_json::to_string(&json_resp).expect("ProveResponse serialization cannot fail")
 }
 
 fn encode_seal(proof_bytes: &ProofBytes) -> Result<Vec<u8>, ProveError> {
@@ -333,18 +340,6 @@ fn ensure_allowlisted_deployment(cluster: &str) -> Result<(), ProveError> {
         }
     })?;
     Ok(())
-}
-
-fn format_byte_list(bytes: &[u8]) -> String {
-    let mut out = String::from("[");
-    for (i, value) in bytes.iter().enumerate() {
-        if i > 0 {
-            out.push(',');
-        }
-        out.push_str(&value.to_string());
-    }
-    out.push(']');
-    out
 }
 
 #[cfg(test)]

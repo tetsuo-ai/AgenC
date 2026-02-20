@@ -9,6 +9,7 @@
 
 export {
   generateProof,
+  generateProofWithProver,
   verifyProofLocally,
   computeHashes,
   generateSalt,
@@ -22,6 +23,14 @@ export {
   ProofResult,
   HashResult,
 } from './proofs';
+
+export {
+  type ProverConfig,
+  type LocalBinaryProverConfig,
+  type RemoteProverConfig,
+  type ProverInput,
+  ProverError,
+} from './prover';
 
 export {
   createTask,
