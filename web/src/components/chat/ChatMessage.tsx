@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneLight, oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
@@ -52,6 +52,7 @@ export function ChatMessage({ message, theme = 'light', searchQuery = '' }: Chat
         >
           {message.content && (
             <ReactMarkdown
+              breaks
               components={{
                 code({ className, children, ...props }) {
                   const match = /language-(\w+)/.exec(className || '');
@@ -89,9 +90,9 @@ export function ChatMessage({ message, theme = 'light', searchQuery = '' }: Chat
             </ReactMarkdown>
           )}
 
-          {message.toolCalls?.map((tc, i) => (
-            <ToolCallCard key={`${tc.toolName}-${i}`} toolCall={tc} />
-          ))}
+          {message.toolCalls && message.toolCalls.length > 0 && (
+            <ToolCallGroup toolCalls={message.toolCalls} />
+          )}
 
           {/* Attachment display */}
           {message.attachments && message.attachments.length > 0 && (
@@ -141,6 +142,46 @@ export function ChatMessage({ message, theme = 'light', searchQuery = '' }: Chat
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+function ToolCallGroup({ toolCalls }: { toolCalls: NonNullable<ChatMessageType['toolCalls']> }) {
+  const [open, setOpen] = useState(false);
+  const errorCount = toolCalls.filter((tc) => tc.isError).length;
+  const executingCount = toolCalls.filter((tc) => tc.status === 'executing').length;
+
+  return (
+    <div className="mt-2">
+      <button
+        onClick={() => setOpen(!open)}
+        className="flex items-center gap-2 text-xs text-tetsuo-400 hover:text-tetsuo-600 transition-colors py-1"
+      >
+        <svg
+          width="12"
+          height="12"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          className={`transition-transform duration-200 ${open ? 'rotate-90' : ''}`}
+        >
+          <polyline points="9 18 15 12 9 6" />
+        </svg>
+        <span>
+          {toolCalls.length} tool call{toolCalls.length !== 1 ? 's' : ''}
+          {executingCount > 0 && <span className="text-yellow-500 ml-1">({executingCount} running)</span>}
+          {errorCount > 0 && <span className="text-red-500 ml-1">({errorCount} failed)</span>}
+        </span>
+      </button>
+      {open && (
+        <div className="space-y-0">
+          {toolCalls.map((tc, i) => (
+            <ToolCallCard key={`${tc.toolName}-${i}`} toolCall={tc} />
+          ))}
+        </div>
+      )}
     </div>
   );
 }

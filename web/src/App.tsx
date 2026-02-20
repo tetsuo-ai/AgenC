@@ -12,6 +12,7 @@ import { useApprovals } from './hooks/useApprovals';
 import { useSettings } from './hooks/useSettings';
 import { useWallet } from './hooks/useWallet';
 import { useActivityFeed } from './hooks/useActivityFeed';
+import { useAgents } from './hooks/useAgents';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { Sidebar } from './components/Sidebar';
 import { RightPanel } from './components/RightPanel';
@@ -54,6 +55,7 @@ export default function App() {
   const gatewaySettings = useSettings({ send, connected });
   const walletInfo = useWallet({ send, connected });
   const activityFeed = useActivityFeed({ send, connected }) as WithHandler<ReturnType<typeof useActivityFeed>>;
+  const agentsData = useAgents({ send, connected }) as WithHandler<ReturnType<typeof useAgents>>;
 
   // Voice toggle — start or stop voice session
   const handleVoiceToggle = useCallback(() => {
@@ -76,6 +78,7 @@ export default function App() {
     gatewaySettings.handleMessage(msg);
     walletInfo.handleMessage(msg);
     activityFeed.handleMessage(msg);
+    agentsData.handleMessage(msg);
   }
 
   const handleApprove = useCallback(
@@ -105,6 +108,8 @@ export default function App() {
             connectionState={connectionState}
             workspace="default"
             pendingApprovals={approvals.pending.length}
+            theme={theme}
+            onToggleTheme={toggleTheme}
           />
         </div>
 
@@ -119,6 +124,8 @@ export default function App() {
                 connectionState={connectionState}
                 workspace="default"
                 pendingApprovals={approvals.pending.length}
+                theme={theme}
+                onToggleTheme={toggleTheme}
                 mobile
               />
             </div>
@@ -192,7 +199,11 @@ export default function App() {
               />
             )}
             {currentView === 'settings' && (
-              <SettingsView settings={gatewaySettings} />
+              <SettingsView
+                settings={gatewaySettings}
+                autoApprove={approvals.autoApprove}
+                onAutoApproveChange={approvals.setAutoApprove}
+              />
             )}
             {currentView === 'payment' && (
               <PaymentView wallet={walletInfo} />
@@ -209,6 +220,9 @@ export default function App() {
             activeSessionId={chat.sessionId}
             onSelectSession={chat.resumeSession}
             onNewChat={chat.startNewChat}
+            autoApprove={approvals.autoApprove}
+            onAutoApproveChange={approvals.setAutoApprove}
+            agents={agentsData.agents}
           />
         </div>
 
