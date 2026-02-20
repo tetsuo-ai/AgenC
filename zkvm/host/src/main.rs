@@ -17,8 +17,33 @@ fn run() -> Result<(), String> {
             println!("{output}");
             Ok(())
         }
+        Some("image-id") => {
+            print_image_id()
+        }
         Some(other) => Err(format!(
-            "unsupported command: {other}. usage: agenc-zkvm-host [prove]"
+            "unsupported command: {other}. usage: agenc-zkvm-host [prove|image-id]"
         )),
+    }
+}
+
+fn print_image_id() -> Result<(), String> {
+    #[cfg(feature = "production-prover")]
+    {
+        let image_id = agenc_zkvm_host::guest_id_to_image_id(
+            &agenc_zkvm_methods::AGENC_GUEST_ID,
+        );
+        print!("[");
+        for (i, byte) in image_id.iter().enumerate() {
+            if i > 0 {
+                print!(", ");
+            }
+            print!("0x{byte:02x}");
+        }
+        println!("]");
+        Ok(())
+    }
+    #[cfg(not(feature = "production-prover"))]
+    {
+        Err("image-id requires --features production-prover (needs rzup toolchain)".into())
     }
 }

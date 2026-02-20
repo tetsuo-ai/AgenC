@@ -28,15 +28,15 @@ pub struct ProveRequest {
     pub nullifier: JournalField,
 }
 
-impl ProveRequest {
-    fn as_journal_fields(&self) -> JournalFields {
-        JournalFields {
-            task_pda: self.task_pda,
-            agent_authority: self.agent_authority,
-            constraint_hash: self.constraint_hash,
-            output_commitment: self.output_commitment,
-            binding: self.binding,
-            nullifier: self.nullifier,
+impl From<ProveRequest> for JournalFields {
+    fn from(r: ProveRequest) -> Self {
+        Self {
+            task_pda: r.task_pda,
+            agent_authority: r.agent_authority,
+            constraint_hash: r.constraint_hash,
+            output_commitment: r.output_commitment,
+            binding: r.binding,
+            nullifier: r.nullifier,
         }
     }
 }
@@ -58,6 +58,8 @@ pub enum ProveError {
     DevModeEnabled { variable: &'static str },
     ClusterNotAllowlisted { cluster: String },
     SealEncodingFailed(String),
+    ProverFailed(String),
+    ReceiptTypeMismatch(String),
 }
 
 impl fmt::Display for ProveError {
@@ -89,6 +91,12 @@ impl fmt::Display for ProveError {
             Self::SealEncodingFailed(message) => {
                 write!(f, "seal encoding failed: {message}")
             }
+            Self::ProverFailed(message) => {
+                write!(f, "prover failed: {message}")
+            }
+            Self::ReceiptTypeMismatch(message) => {
+                write!(f, "receipt type mismatch: {message}")
+            }
         }
     }
 }
@@ -106,6 +114,16 @@ pub fn default_prove_request() -> ProveRequest {
     }
 }
 
+/// Convert RISC Zero `[u32; 8]` image ID to flat `[u8; 32]`.
+/// RISC Zero stores Digest words in little-endian order.
+pub fn guest_id_to_image_id(guest_id: &[u32; 8]) -> ImageId {
+    let mut out = [0u8; IMAGE_ID_LEN];
+    for (i, word) in guest_id.iter().enumerate() {
+        out[i * 4..i * 4 + 4].copy_from_slice(&word.to_le_bytes());
+    }
+    out
+}
+
 pub fn generate_proof(request: &ProveRequest) -> Result<ProveResponse, ProveError> {
     let dev_mode_value = std::env::var_os(DEV_MODE_ENV_VAR);
     generate_proof_with_dev_mode(request, dev_mode_value.as_deref())
@@ -118,7 +136,30 @@ fn generate_proof_with_dev_mode(
     ensure_allowlisted_deployment(config::DEFAULT_CLUSTER)?;
     ensure_dev_mode_disabled(dev_mode_value)?;
 
-    let journal_bytes = serialize_journal(&request.as_journal_fields());
+    #[cfg(feature = "production-prover")]
+    {
+        generate_proof_real(request)
+    }
+    #[cfg(not(feature = "production-prover"))]
+    {
+        generate_proof_simulated(request)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Simulation path (default, no production-prover feature)
+// ---------------------------------------------------------------------------
+
+// Arbitrary mixing constants — small primes chosen to spread bit patterns in
+// simulated output without any cryptographic claims.
+#[cfg(not(feature = "production-prover"))]
+const SIM_ID_STRIDE: u8 = 7;
+#[cfg(not(feature = "production-prover"))]
+const SIM_PROOF_STRIDE: u8 = 13;
+
+#[cfg(not(feature = "production-prover"))]
+fn generate_proof_simulated(request: &ProveRequest) -> Result<ProveResponse, ProveError> {
+    let journal_bytes = serialize_journal(&JournalFields::from(*request));
 
     if journal_bytes.len() != JOURNAL_TOTAL_LEN {
         return Err(ProveError::UnexpectedJournalLength {
@@ -129,7 +170,7 @@ fn generate_proof_with_dev_mode(
 
     let image_id = derive_image_id(request);
     let proof_bytes = simulate_proof_bytes(&journal_bytes, &image_id);
-    let seal_bytes = encode_seal(TRUSTED_SEAL_SELECTOR, &proof_bytes)?;
+    let seal_bytes = encode_seal(&proof_bytes)?;
 
     Ok(ProveResponse {
         seal_bytes,
@@ -137,6 +178,119 @@ fn generate_proof_with_dev_mode(
         image_id,
     })
 }
+
+#[cfg(not(feature = "production-prover"))]
+fn derive_image_id(request: &ProveRequest) -> ImageId {
+    let mut out = [0_u8; IMAGE_ID_LEN];
+    for (i, slot) in out.iter_mut().enumerate() {
+        *slot = request.constraint_hash[i]
+            ^ request.binding[i].wrapping_add((i as u8).wrapping_mul(SIM_ID_STRIDE));
+    }
+    out
+}
+
+#[cfg(not(feature = "production-prover"))]
+fn simulate_proof_bytes(
+    journal: &[u8; JOURNAL_TOTAL_LEN],
+    image_id: &ImageId,
+) -> ProofBytes {
+    let mut out = [0_u8; SEAL_PROOF_LEN];
+    for (i, slot) in out.iter_mut().enumerate() {
+        *slot = journal[i % JOURNAL_TOTAL_LEN]
+            ^ image_id[i % IMAGE_ID_LEN]
+            ^ (i as u8).wrapping_mul(SIM_PROOF_STRIDE);
+    }
+    out
+}
+
+// ---------------------------------------------------------------------------
+// Real prover path (production-prover feature)
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "production-prover")]
+fn generate_proof_real(request: &ProveRequest) -> Result<ProveResponse, ProveError> {
+    use agenc_zkvm_guest::JOURNAL_FIELD_LEN;
+    use agenc_zkvm_methods::AGENC_GUEST_ELF;
+    use risc0_zkvm::{default_prover, ExecutorEnv, ProverOpts};
+
+    let fields: &[(&str, &[u8; JOURNAL_FIELD_LEN])] = &[
+        ("task_pda", &request.task_pda),
+        ("agent_authority", &request.agent_authority),
+        ("constraint_hash", &request.constraint_hash),
+        ("output_commitment", &request.output_commitment),
+        ("binding", &request.binding),
+        ("nullifier", &request.nullifier),
+    ];
+
+    let mut builder = ExecutorEnv::builder();
+    for (name, field) in fields {
+        builder = builder.write(*field).map_err(|e| {
+            ProveError::ProverFailed(format!("failed to write {name}: {e}"))
+        })?;
+    }
+    let env = builder
+        .build()
+        .map_err(|e| ProveError::ProverFailed(format!("failed to build executor env: {e}")))?;
+
+    let receipt = default_prover()
+        .prove_with_opts(env, AGENC_GUEST_ELF, &ProverOpts::groth16())
+        .map_err(|e| ProveError::ProverFailed(format!("Groth16 proving failed: {e}")))?
+        .receipt;
+
+    // Extract raw 256-byte Groth16 seal
+    let groth16 = receipt
+        .inner
+        .groth16()
+        .ok_or_else(|| {
+            ProveError::ReceiptTypeMismatch("expected Groth16 receipt".into())
+        })?;
+    let raw_seal: [u8; SEAL_PROOF_LEN] =
+        groth16.seal.clone().try_into().map_err(|v: Vec<u8>| {
+            ProveError::ProverFailed(format!(
+                "Groth16 seal is {} bytes, expected {}",
+                v.len(),
+                SEAL_PROOF_LEN
+            ))
+        })?;
+
+    // Verify auto-derived selector matches our pinned constant in debug builds
+    #[cfg(debug_assertions)]
+    {
+        use risc0_zkvm::Groth16ReceiptVerifierParameters;
+        let params_digest = Groth16ReceiptVerifierParameters::default().digest();
+        let auto_selector: [u8; 4] = params_digest.as_bytes()[..4]
+            .try_into()
+            .expect("digest has at least 4 bytes");
+        debug_assert_eq!(
+            auto_selector, TRUSTED_SEAL_SELECTOR,
+            "auto-derived selector does not match TRUSTED_SEAL_SELECTOR"
+        );
+    }
+
+    let seal_bytes = encode_seal(&raw_seal)?;
+
+    // Extract and validate journal
+    let journal = receipt.journal.bytes.clone();
+    if journal.len() != JOURNAL_TOTAL_LEN {
+        return Err(ProveError::UnexpectedJournalLength {
+            expected: JOURNAL_TOTAL_LEN,
+            actual: journal.len(),
+        });
+    }
+
+    // Derive image ID from the compiled guest
+    let image_id = guest_id_to_image_id(&agenc_zkvm_methods::AGENC_GUEST_ID);
+
+    Ok(ProveResponse {
+        seal_bytes,
+        journal,
+        image_id,
+    })
+}
+
+// ---------------------------------------------------------------------------
+// Shared helpers
+// ---------------------------------------------------------------------------
 
 pub fn prove_cli_output(request: &ProveRequest) -> Result<String, ProveError> {
     let response = generate_proof(request)?;
@@ -152,43 +306,12 @@ pub fn render_prove_response(response: &ProveResponse) -> String {
     )
 }
 
-fn derive_image_id(request: &ProveRequest) -> ImageId {
-    let mut out = [0_u8; IMAGE_ID_LEN];
-    for (i, slot) in out.iter_mut().enumerate() {
-        *slot = request.constraint_hash[i]
-            ^ request.binding[i].wrapping_add((i as u8).wrapping_mul(7));
-    }
-    out
-}
-
-fn simulate_proof_bytes(journal: &[u8; JOURNAL_TOTAL_LEN], image_id: &ImageId) -> ProofBytes {
-    let mut out = [0_u8; SEAL_PROOF_LEN];
-    for (i, slot) in out.iter_mut().enumerate() {
-        *slot = journal[i % JOURNAL_TOTAL_LEN]
-            ^ image_id[i % IMAGE_ID_LEN]
-            ^ (i as u8).wrapping_mul(13);
-    }
-    out
-}
-
-fn encode_seal(
-    selector: Selector,
-    proof_bytes: &ProofBytes,
-) -> Result<Vec<u8>, ProveError> {
-    if selector != TRUSTED_SEAL_SELECTOR {
-        return Err(ProveError::UntrustedSelector {
-            expected: TRUSTED_SEAL_SELECTOR,
-            actual: selector,
-        });
-    }
-
-    let seal: Seal = encode_seal_with_selector(proof_bytes, selector);
-    if seal.selector != TRUSTED_SEAL_SELECTOR {
-        return Err(ProveError::UntrustedSelector {
-            expected: TRUSTED_SEAL_SELECTOR,
-            actual: seal.selector,
-        });
-    }
+fn encode_seal(proof_bytes: &ProofBytes) -> Result<Vec<u8>, ProveError> {
+    let seal: Seal = encode_seal_with_selector(proof_bytes, TRUSTED_SEAL_SELECTOR);
+    debug_assert_eq!(
+        seal.selector, TRUSTED_SEAL_SELECTOR,
+        "encode_seal_with_selector produced unexpected selector"
+    );
 
     seal.try_to_vec()
         .map_err(|err| ProveError::SealEncodingFailed(err.to_string()))
@@ -204,8 +327,10 @@ fn ensure_dev_mode_disabled(dev_mode_value: Option<&OsStr>) -> Result<(), ProveE
 }
 
 fn ensure_allowlisted_deployment(cluster: &str) -> Result<(), ProveError> {
-    config::require_allowlisted_deployment(cluster).map_err(|_| ProveError::ClusterNotAllowlisted {
-        cluster: cluster.to_string(),
+    config::require_allowlisted_deployment(cluster).map_err(|_| {
+        ProveError::ClusterNotAllowlisted {
+            cluster: cluster.to_string(),
+        }
     })?;
     Ok(())
 }
@@ -227,6 +352,10 @@ mod tests {
     use super::*;
     use borsh::BorshDeserialize;
 
+    // -------------------------------------------------------------------
+    // Existing simulation tests (run in default non-production-prover mode)
+    // -------------------------------------------------------------------
+
     #[test]
     fn canonical_seal_shape_and_lengths_are_correct() {
         let request = default_prove_request();
@@ -241,10 +370,11 @@ mod tests {
         assert_eq!(response.image_id.len(), IMAGE_ID_LEN);
     }
 
+    #[cfg(not(feature = "production-prover"))]
     #[test]
-    fn canonical_seal_bytes_match_router_encoding() {
+    fn simulated_seal_bytes_match_router_encoding() {
         let request = default_prove_request();
-        let journal = serialize_journal(&request.as_journal_fields());
+        let journal = serialize_journal(&JournalFields::from(request));
         let image_id = derive_image_id(&request);
         let proof_bytes = simulate_proof_bytes(&journal, &image_id);
 
@@ -258,6 +388,17 @@ mod tests {
         assert_eq!(response.seal_bytes, expected_bytes);
     }
 
+    #[cfg(feature = "production-prover")]
+    #[test]
+    fn real_seal_bytes_decode_with_correct_selector() {
+        let request = default_prove_request();
+        let response = generate_proof_with_dev_mode(&request, None)
+            .expect("proof generation must succeed");
+        let decoded = Seal::try_from_slice(&response.seal_bytes)
+            .expect("seal bytes must decode");
+        assert_eq!(decoded.selector, TRUSTED_SEAL_SELECTOR);
+    }
+
     #[test]
     fn proof_generation_is_deterministic() {
         let request = default_prove_request();
@@ -267,7 +408,15 @@ mod tests {
         let second = generate_proof_with_dev_mode(&request, None)
             .expect("second run must succeed");
 
+        #[cfg(not(feature = "production-prover"))]
         assert_eq!(first, second);
+
+        // Real prover: journal and image_id are deterministic, seal may vary
+        #[cfg(feature = "production-prover")]
+        {
+            assert_eq!(first.journal, second.journal);
+            assert_eq!(first.image_id, second.image_id);
+        }
     }
 
     #[test]
@@ -285,32 +434,15 @@ mod tests {
     }
 
     #[test]
-    fn selector_enforcement_rejects_untrusted_selector() {
-        let request = default_prove_request();
-        let journal = serialize_journal(&request.as_journal_fields());
-        let image_id = derive_image_id(&request);
-        let proof_bytes = simulate_proof_bytes(&journal, &image_id);
-
-        let err = encode_seal([0_u8; SEAL_SELECTOR_LEN], &proof_bytes)
-            .expect_err("untrusted selector must be rejected");
-
-        assert_eq!(
-            err,
-            ProveError::UntrustedSelector {
-                expected: TRUSTED_SEAL_SELECTOR,
-                actual: [0_u8; SEAL_SELECTOR_LEN],
-            }
-        );
-    }
-
-    #[test]
     fn cli_output_is_structured_and_deterministic() {
         let request = default_prove_request();
 
         let first = prove_cli_output(&request).expect("first render must succeed");
         let second = prove_cli_output(&request).expect("second render must succeed");
 
+        #[cfg(not(feature = "production-prover"))]
         assert_eq!(first, second);
+
         assert!(first.starts_with("{\"seal_bytes\":["));
         assert!(first.contains(",\"journal\":["));
         assert!(first.contains(",\"image_id\":["));
@@ -339,5 +471,99 @@ mod tests {
                 cluster: "devnet".to_string(),
             }
         );
+    }
+
+    // -------------------------------------------------------------------
+    // Shared helper and error variant tests
+    // -------------------------------------------------------------------
+
+    #[test]
+    fn from_prove_request_produces_matching_journal_fields() {
+        let request = default_prove_request();
+        let fields = JournalFields::from(request);
+        assert_eq!(fields.task_pda, request.task_pda);
+        assert_eq!(fields.agent_authority, request.agent_authority);
+        assert_eq!(fields.constraint_hash, request.constraint_hash);
+        assert_eq!(fields.output_commitment, request.output_commitment);
+        assert_eq!(fields.binding, request.binding);
+        assert_eq!(fields.nullifier, request.nullifier);
+    }
+
+    #[test]
+    fn guest_id_to_image_id_converts_le_words_correctly() {
+        let guest_id: [u32; 8] = [
+            0x04030201, 0x08070605, 0x0c0b0a09, 0x100f0e0d,
+            0x14131211, 0x18171615, 0x1c1b1a19, 0x201f1e1d,
+        ];
+        let image_id = guest_id_to_image_id(&guest_id);
+
+        // Each u32 is laid out in LE: 0x04030201 -> [0x01, 0x02, 0x03, 0x04]
+        assert_eq!(image_id[0], 0x01);
+        assert_eq!(image_id[1], 0x02);
+        assert_eq!(image_id[2], 0x03);
+        assert_eq!(image_id[3], 0x04);
+        assert_eq!(image_id[4], 0x05);
+        assert_eq!(image_id[31], 0x20);
+        assert_eq!(image_id.len(), IMAGE_ID_LEN);
+    }
+
+    #[test]
+    fn guest_id_to_image_id_zeroes() {
+        let guest_id: [u32; 8] = [0; 8];
+        let image_id = guest_id_to_image_id(&guest_id);
+        assert_eq!(image_id, [0u8; IMAGE_ID_LEN]);
+    }
+
+    #[test]
+    fn prove_error_prover_failed_display() {
+        let err = ProveError::ProverFailed("out of memory".into());
+        assert_eq!(err.to_string(), "prover failed: out of memory");
+    }
+
+    #[test]
+    fn prove_error_receipt_type_mismatch_display() {
+        let err = ProveError::ReceiptTypeMismatch("expected Groth16 receipt".into());
+        assert_eq!(
+            err.to_string(),
+            "receipt type mismatch: expected Groth16 receipt"
+        );
+    }
+
+    // -------------------------------------------------------------------
+    // Production-prover gated tests (require rzup + Docker)
+    // -------------------------------------------------------------------
+
+    #[cfg(feature = "production-prover")]
+    mod production_prover_tests {
+        use super::*;
+
+        #[test]
+        fn real_proof_has_correct_structure() {
+            let request = default_prove_request();
+            let response = generate_proof_real(&request)
+                .expect("real proof generation must succeed");
+
+            assert_eq!(response.seal_bytes.len(), SEAL_BYTES_LEN);
+            assert_eq!(response.journal.len(), JOURNAL_TOTAL_LEN);
+            assert_eq!(response.image_id.len(), IMAGE_ID_LEN);
+
+            // Journal matches expected serialization
+            let expected_journal =
+                serialize_journal(&JournalFields::from(request));
+            assert_eq!(response.journal, expected_journal.to_vec());
+
+            // Seal decodes with correct selector
+            let decoded = Seal::try_from_slice(&response.seal_bytes)
+                .expect("seal bytes must decode");
+            assert_eq!(decoded.selector, TRUSTED_SEAL_SELECTOR);
+        }
+
+        #[test]
+        fn real_image_id_is_deterministic() {
+            let id1 = guest_id_to_image_id(&agenc_zkvm_methods::AGENC_GUEST_ID);
+            let id2 = guest_id_to_image_id(&agenc_zkvm_methods::AGENC_GUEST_ID);
+            assert_eq!(id1, id2);
+            assert_ne!(id1, [0u8; IMAGE_ID_LEN]);
+        }
     }
 }

@@ -80,7 +80,7 @@ AgenC is a decentralized protocol for coordinating AI agents on Solana. Agents r
 - **Solana CLI** 3.0.13+
 - **Anchor CLI** 0.32.1
 - **Node.js** 18+
-- **RISC Zero** (optional, for ZK proofs — `risc0-zkvm` v2.3.2)
+- **RISC Zero** (optional, for ZK proofs — `risc0-zkvm ~3.0`)
 
 ### Install & Build
 

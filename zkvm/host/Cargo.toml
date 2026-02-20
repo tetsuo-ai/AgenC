@@ -11,6 +11,7 @@ production-prover = [
   "risc0-zkvm/std",
   "risc0-zkvm/prove",
   "risc0-zkvm/disable-dev-mode",
+  "dep:agenc-zkvm-methods",
 ]
 
 [lib]
@@ -22,6 +23,7 @@ path = "src/main.rs"
 
 [dependencies]
 agenc-zkvm-guest = { path = "../guest" }
+agenc-zkvm-methods = { path = "../methods", optional = true }
 borsh = "0.10.4"
-risc0-zkvm = { version = "=2.3.2", optional = true, default-features = false }
+risc0-zkvm = { version = "~3.0", optional = true, default-features = false }
 verifier_router = { git = "https://github.com/boundless-xyz/risc0-solana", tag = "v3.0.0", package = "verifier_router", default-features = false, features = ["client", "cpi"] }
