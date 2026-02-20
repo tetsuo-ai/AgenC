@@ -224,7 +224,7 @@ fn generate_proof_real(request: &ProveRequest) -> Result<ProveResponse, ProveErr
 
     let mut builder = ExecutorEnv::builder();
     for (name, field) in fields {
-        builder = builder.write(*field).map_err(|e| {
+        builder.write(*field).map_err(|e| {
             ProveError::ProverFailed(format!("failed to write {name}: {e}"))
         })?;
     }
@@ -241,8 +241,8 @@ fn generate_proof_real(request: &ProveRequest) -> Result<ProveResponse, ProveErr
     let groth16 = receipt
         .inner
         .groth16()
-        .ok_or_else(|| {
-            ProveError::ReceiptTypeMismatch("expected Groth16 receipt".into())
+        .map_err(|e| {
+            ProveError::ReceiptTypeMismatch(format!("expected Groth16 receipt: {e}"))
         })?;
     let raw_seal: [u8; SEAL_PROOF_LEN] =
         groth16.seal.clone().try_into().map_err(|v: Vec<u8>| {
@@ -256,7 +256,7 @@ fn generate_proof_real(request: &ProveRequest) -> Result<ProveResponse, ProveErr
     // Verify auto-derived selector matches our pinned constant in debug builds
     #[cfg(debug_assertions)]
     {
-        use risc0_zkvm::Groth16ReceiptVerifierParameters;
+        use risc0_zkvm::{sha::Digestible, Groth16ReceiptVerifierParameters};
         let params_digest = Groth16ReceiptVerifierParameters::default().digest();
         let auto_selector: [u8; 4] = params_digest.as_bytes()[..4]
             .try_into()
