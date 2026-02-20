@@ -10,6 +10,7 @@ import {
   PublicKey,
   Keypair,
   SystemProgram,
+  ComputeBudgetProgram,
 } from '@solana/web3.js';
 import anchor, { type Program } from '@coral-xyz/anchor';
 import {
@@ -29,6 +30,8 @@ import {
   RISC0_JOURNAL_LEN,
   RISC0_IMAGE_ID_LEN,
   TRUSTED_RISC0_SELECTOR,
+  RECOMMENDED_CU_COMPLETE_TASK_PRIVATE,
+  RECOMMENDED_CU_COMPLETE_TASK_PRIVATE_TOKEN,
 } from './constants';
 import { getAccount } from './anchor-utils';
 import { getSdkLogger } from './logger';
@@ -704,6 +707,10 @@ export async function completeTaskPrivate(
     };
   }
 
+  const cuLimit = mint
+    ? RECOMMENDED_CU_COMPLETE_TASK_PRIVATE_TOKEN
+    : RECOMMENDED_CU_COMPLETE_TASK_PRIVATE;
+
   const tx = await program.methods
     .completeTaskPrivate(taskIdU64, {
       sealBytes: Array.from(sealBytes),
@@ -730,6 +737,9 @@ export async function completeTaskPrivate(
       systemProgram: SystemProgram.programId,
       ...tokenAccounts,
     })
+    .preInstructions([
+      ComputeBudgetProgram.setComputeUnitLimit({ units: cuLimit }),
+    ])
     .signers([worker])
     .rpc();
 

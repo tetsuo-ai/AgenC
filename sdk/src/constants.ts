@@ -43,7 +43,7 @@ export const U64_SIZE = 8;
 /** Anchor account discriminator size in bytes */
 export const DISCRIMINATOR_SIZE = 8;
 
-/** Number of field elements in output array (circuit constraint) */
+/** Number of field elements in task output array */
 export const OUTPUT_FIELD_COUNT = 4;
 
 // ============================================================================
@@ -89,7 +89,10 @@ export const TRUSTED_RISC0_IMAGE_ID = Uint8Array.from([
  */
 export const VERIFICATION_COMPUTE_UNITS = 50_000;
 
-/** Number of public inputs in the circuit (32 task_id bytes + 32 agent bytes + constraint_hash + output_commitment + expected_binding) */
+/**
+ * @deprecated Since v1.3.0. Noir circuit artifact — not used by RISC Zero proof path.
+ * Will be removed in v2.0.0.
+ */
 export const PUBLIC_INPUTS_COUNT = 67;
 
 // ============================================================================
