@@ -19,6 +19,7 @@ import {
   deriveEscrowPda as _deriveEscrowPda,
   deriveClaimPda as _deriveClaimPda,
   deriveProgramDataPda,
+  disableRateLimitsForTests,
 } from "./test-utils";
 import { createLiteSVMContext, fundAccount, advanceClock, getClockTimestamp } from "./litesvm-helpers";
 
@@ -227,26 +228,12 @@ describe("test_1", () => {
       treasuryPubkey = protocolConfig.treasury;
     }
 
-    // Disable rate limiting for tests
-    try {
-      await program.methods
-        .updateRateLimits(
-          new BN(0),  // task_creation_cooldown = 0 (disabled)
-          0,          // max_tasks_per_24h = 0 (unlimited)
-          new BN(0),  // dispute_initiation_cooldown = 0 (disabled)
-          0,          // max_disputes_per_24h = 0 (unlimited)
-          new BN(0)   // min_stake_for_dispute = 0
-        )
-        .accountsPartial({
-          protocolConfig: protocolPda,
-        })
-        .remainingAccounts([
-          { pubkey: provider.wallet.publicKey, isSigner: true, isWritable: false },
-        ])
-        .rpc({ skipPreflight: true });
-    } catch (e: any) {
-      // May already be configured
-    }
+    // Disable rate limiting for tests (cooldowns=0, per-24h=unlimited)
+    await disableRateLimitsForTests({
+      program,
+      protocolPda,
+      authority: provider.wallet.publicKey,
+    });
 
     creatorAgentPda = deriveAgentPda(creatorAgentId);
 

@@ -293,7 +293,6 @@ describe("ZK Proof Verification Lifecycle (router payload)", () => {
       program,
       protocolPda,
       authority: provider.wallet.publicKey,
-      minStakeForDisputeLamports: 0,
       skipPreflight: false,
     });
 

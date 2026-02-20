@@ -48,6 +48,7 @@ import {
   makeDisputeId,
   getDefaultDeadline,
   sleep,
+  disableRateLimitsForTests,
 } from "./test-utils";
 
 describe("AgenC Integration Tests", () => {
@@ -187,25 +188,11 @@ describe("AgenC Integration Tests", () => {
       }
 
       // Disable rate limiting for tests
-      try {
-        await program.methods
-          .updateRateLimits(
-            new BN(0),  // task_creation_cooldown = 0 (disabled)
-            0,          // max_tasks_per_24h = 0 (unlimited)
-            new BN(0),  // dispute_initiation_cooldown = 0 (disabled)
-            0,          // max_disputes_per_24h = 0 (unlimited)
-            new BN(0)   // min_stake_for_dispute = 0
-          )
-          .accountsPartial({
-            protocolConfig: protocolConfigPda,
-          })
-          .remainingAccounts([
-            { pubkey: provider.wallet.publicKey, isSigner: true, isWritable: false },
-          ])
-          .rpc();
-      } catch (e: any) {
-        // May already be configured
-      }
+      await disableRateLimitsForTests({
+        program,
+        protocolPda: protocolConfigPda,
+        authority: provider.wallet.publicKey,
+      });
 
       // Verify protocol state
       const protocol = await program.account.protocolConfig.fetch(protocolConfigPda);
