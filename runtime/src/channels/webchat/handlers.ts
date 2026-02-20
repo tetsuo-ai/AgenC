@@ -239,7 +239,7 @@ export async function handleTasksCreate(
     const rewardInput = typeof (params as Record<string, unknown>).reward === 'number'
       ? (params as Record<string, unknown>).reward as number
       : 0;
-    // Treat reward as lamports (matching the UI label)
+    // Treat reward as SOL (UI label) and convert to lamports.
     const rewardLamports = BigInt(Math.max(Math.round(rewardInput * 1_000_000_000), 10_000_000));
 
     // Generate random 32-byte task ID
@@ -283,6 +283,8 @@ export async function handleTasksCreate(
         new anchor.BN(deadline),                    // deadline
         0,                                          // taskType: exclusive
         null,                                       // constraintHash (public task)
+        0,                                          // minReputation
+        null,                                       // rewardMint (SOL)
       )
       .accountsPartial({
         task: taskPda,

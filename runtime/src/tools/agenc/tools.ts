@@ -674,6 +674,8 @@ export function createCreateTaskTool(
             new anchor.BN(deadline),
             taskType,
             constraintHash ? toAnchorBytes(constraintHash) : null,
+            minReputation,
+            rewardMint,
           )
           .accountsPartial(accounts)
           .rpc();

@@ -52,7 +52,6 @@ export function ChatMessage({ message, theme = 'light', searchQuery = '' }: Chat
         >
           {message.content && (
             <ReactMarkdown
-              breaks
               components={{
                 code({ className, children, ...props }) {
                   const match = /language-(\w+)/.exec(className || '');
