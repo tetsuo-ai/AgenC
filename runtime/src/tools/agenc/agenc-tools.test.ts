@@ -9,6 +9,7 @@ import {
   createCreateTaskTool,
   createGetAgentTool,
   createGetProtocolConfigTool,
+  _resetCreateTaskDedup,
 } from './tools.js';
 import type { ToolContext } from '../types.js';
 import { silentLogger } from '../../utils/logger.js';
@@ -154,6 +155,7 @@ function createMockProgram() {
       publicKey: SIGNER,
       connection: {
         getProgramAccounts,
+        getAccountInfo: vi.fn(async () => null),
         getTokenAccountBalance: vi.fn(async () => ({
           context: { slot: 1 },
           value: {
@@ -430,22 +432,25 @@ describe('agenc.registerAgent', () => {
     expect(JSON.parse(result.content).error).toContain('capabilities must be greater than zero');
   });
 
-  it('returns protocol init guidance when protocol config is missing', async () => {
+  it('proceeds to RPC even when protocol config is uninitialized (on-chain validation)', async () => {
     const mockProgram = createMockProgram();
     (mockProgram.provider.connection.getProgramAccounts as any).mockResolvedValueOnce([]);
-    mockProgram.account.protocolConfig.fetch.mockRejectedValueOnce(
-      new Error('Account does not exist or has no data Fn9U13jRCieDTQ8oKsEqcrqs3CoohbBnbYD4gdt6CPXE'),
-    );
     const tool = createRegisterAgentTool(mockProgram as never, silentLogger);
 
     const result = await tool.execute({ capabilities: '1', endpoint: 'https://agenc.local' });
 
-    expect(result.isError).toBe(true);
-    expect(JSON.parse(result.content).error).toContain('Protocol config is not initialized');
+    // registerAgent no longer pre-validates protocol config; the on-chain program
+    // handles that check. With a successful mock RPC, it returns success.
+    expect(result.isError).toBeUndefined();
+    expect(JSON.parse(result.content).transactionSignature).toBe('mock-register-agent-sig');
   });
 });
 
 describe('agenc.createTask', () => {
+  beforeEach(() => {
+    _resetCreateTaskDedup();
+  });
+
   it('creates a SOL task with defaults', async () => {
     const mockProgram = createMockProgram();
     const tool = createCreateTaskTool(mockProgram as never, silentLogger);
@@ -494,22 +499,20 @@ describe('agenc.createTask', () => {
     expect(JSON.parse(result.content).error).toContain('Unsupported rewardMint');
   });
 
-  it('returns protocol init guidance when registration is missing and protocol is uninitialized', async () => {
+  it('proceeds to RPC without pre-checking protocol config (on-chain validation)', async () => {
     const mockProgram = createMockProgram();
-    (mockProgram.provider.connection.getProgramAccounts as any).mockResolvedValueOnce([]);
-    mockProgram.account.protocolConfig.fetch.mockRejectedValueOnce(
-      new Error('Account does not exist or has no data Fn9U13jRCieDTQ8oKsEqcrqs3CoohbBnbYD4gdt6CPXE'),
-    );
     const tool = createCreateTaskTool(mockProgram as never, silentLogger);
 
     const result = await tool.execute({
-      description: 'hello task',
+      description: 'protocol check task',
       reward: '1000000',
       requiredCapabilities: '1',
     });
 
-    expect(result.isError).toBe(true);
-    expect(JSON.parse(result.content).error).toContain('Protocol config is not initialized');
+    // createTask no longer pre-validates protocol config or agent registration;
+    // the on-chain program handles those checks. With a successful mock RPC, it returns success.
+    expect(result.isError).toBeUndefined();
+    expect(JSON.parse(result.content).transactionSignature).toBe('mock-create-task-sig');
   });
 });
 

@@ -56,10 +56,15 @@ const MAX_U64 = (1n << 64n) - 1n;
 /**
  * Dedup guard for createTask — prevents the LLM from calling createTask
  * multiple times with the same description in a single conversation turn.
- * Entries auto-expire after 30 seconds.
+ * Entries auto-expire after 30 seconds.  Keyed by `creator|description`.
  */
 const recentCreateTaskCalls = new Map<string, number>();
 const CREATE_TASK_DEDUP_TTL_MS = 30_000;
+
+/** @internal Exposed for testing only. */
+export function _resetCreateTaskDedup(): void {
+  recentCreateTaskCalls.clear();
+}
 
 const KNOWN_MINTS: Record<string, { symbol: string; decimals: number }> = {
   EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v: { symbol: 'USDC', decimals: 6 },
@@ -834,7 +839,7 @@ export function createCreateTaskTool(
         const creator = program.provider.publicKey;
 
         // Dedup guard — prevent LLM from calling createTask multiple times
-        const dedupKey = String(args.description ?? '').trim().toLowerCase();
+        const dedupKey = `${creator.toBase58()}|${String(args.description ?? '').trim().toLowerCase()}`;
         const dedupNow = Date.now();
         const lastCall = recentCreateTaskCalls.get(dedupKey);
         if (lastCall && dedupNow - lastCall < CREATE_TASK_DEDUP_TTL_MS) {
@@ -946,6 +951,8 @@ export function createCreateTaskTool(
             taskPda: taskPda.toBase58(),
             escrowPda: escrowPda.toBase58(),
             taskId: bytesToHex(taskId),
+            rewardMint: rewardMint?.toBase58() ?? null,
+            rewardSymbol: getRewardSymbol(rewardMint),
             transactionSignature: txSignature,
           }),
         };
@@ -1026,12 +1033,22 @@ export function createGetProtocolConfigTool(
     },
     async execute(): Promise<ToolResult> {
       try {
-        const [, config, configErr] = await fetchProtocolConfigForAction(
-          program,
-          'read protocol configuration',
-        );
-        if (configErr || !config) {
-          return configErr ?? errorResult('Unable to load protocol config');
+        const protocolPda = findProtocolPda(program.programId);
+        let config: ProtocolConfig;
+        try {
+          // Try Anchor deserialization first (works when IDL matches)
+          const raw = await program.account.protocolConfig.fetch(protocolPda);
+          config = parseProtocolConfig(raw);
+        } catch {
+          // Fall back to raw account parsing (handles devnet IDL mismatch)
+          const [, rawConfig, configErr] = await fetchProtocolConfigForAction(
+            program,
+            'read protocol configuration',
+          );
+          if (configErr || !rawConfig) {
+            return configErr ?? errorResult('Unable to load protocol config');
+          }
+          config = rawConfig;
         }
         return { content: safeStringify(serializeProtocolConfig(config)) };
       } catch (error) {
