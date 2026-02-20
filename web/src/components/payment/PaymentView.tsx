@@ -76,8 +76,8 @@ export function PaymentView({ wallet: w }: PaymentViewProps) {
             <div className="h-8 w-32 rounded bg-tetsuo-100 animate-pulse" />
           ) : wallet ? (
             <div className="relative">
-              <div className={`text-2xl font-bold text-tetsuo-800 transition-all duration-300 ${airdropSuccess ? 'text-emerald-500' : ''}`}>
-                {wallet.sol.toFixed(4)} SOL
+              <div className={`font-bold text-tetsuo-800 transition-all duration-300 whitespace-nowrap ${airdropSuccess ? 'text-emerald-500' : ''} ${wallet.sol >= 1_000_000 ? 'text-base' : wallet.sol >= 1_000 ? 'text-xl' : 'text-2xl'}`}>
+                {wallet.sol.toLocaleString('en-US', { minimumFractionDigits: 4, maximumFractionDigits: 4 })} SOL
               </div>
               <div className="text-xs text-tetsuo-400 mt-1 capitalize">
                 {wallet.network === 'mainnet-beta' ? 'Mainnet' : wallet.network}

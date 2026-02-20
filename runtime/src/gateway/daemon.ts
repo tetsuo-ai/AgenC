@@ -317,6 +317,8 @@ export class DaemonManager {
       memoryBackend,
       approvalEngine,
       skillToggle,
+      connection: this._connectionManager?.getConnection(),
+      broadcastEvent: (type, data) => webChat.broadcastEvent(type, data),
     });
     const signals = this.createWebChatSignals(webChat);
     const onMessage = this.createWebChatMessageHandler({
@@ -447,8 +449,21 @@ export class DaemonManager {
         this._connectionManager = connMgr;
 
         const { createAgencTools } = await import('../tools/agenc/index.js');
+        // Load wallet so chat agent can sign transactions (createTask, etc.)
+        let wallet: import('../tools/types.js').ToolContext['wallet'] | undefined;
+        try {
+          const { loadKeypairFromFile, getDefaultKeypairPath } = await import('../types/wallet.js');
+          const kpPath = config.connection?.keypairPath ?? getDefaultKeypairPath();
+          const keypair = await loadKeypairFromFile(kpPath);
+          wallet = {
+            publicKey: keypair.publicKey,
+            signTransaction: async (tx: any) => { tx.sign(keypair); return tx; },
+            signAllTransactions: async (txs: any[]) => { txs.forEach(tx => tx.sign(keypair)); return txs; },
+          };
+        } catch { /* wallet unavailable — tools will be read-only */ }
         registry.registerAll(createAgencTools({
           connection: connMgr.getConnection(),
+          wallet,
           logger: this.logger,
         }));
       } catch (error) {
@@ -748,6 +763,8 @@ export class DaemonManager {
         return;
       }
 
+      webChat.broadcastEvent('chat.inbound', { sessionId: msg.sessionId });
+
       const sessionStreamCallback: StreamProgressCallback = (chunk) => {
         webChat.pushToSession(msg.sessionId, {
           type: 'chat.stream',
@@ -827,6 +844,12 @@ export class DaemonManager {
           durationMs,
         });
 
+        webChat.broadcastEvent('tool.executed', {
+          toolName: name,
+          durationMs,
+          sessionId: msg.sessionId,
+        });
+
         webChat.pushToSession(msg.sessionId, {
           type: 'agent.status',
           payload: { phase: 'generating' },
@@ -862,6 +885,8 @@ export class DaemonManager {
           sessionId: msg.sessionId,
           content: result.content || '(no response)',
         });
+
+        webChat.broadcastEvent('chat.response', { sessionId: msg.sessionId });
 
         await hooks.dispatch('message:outbound', {
           sessionId: msg.sessionId,

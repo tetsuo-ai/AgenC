@@ -16,11 +16,44 @@
 
 import type { ControlResponse } from '../../gateway/types.js';
 import type { WebChatDeps } from './types.js';
+import { createProgram } from '../../idl.js';
+import { OnChainTaskStatus, taskStatusToString } from '../../task/types.js';
+import { findTaskPda, findEscrowPda } from '../../task/pda.js';
+import { findProtocolPda } from '../../agent/pda.js';
+import { lamportsToSol, toAnchorBytes } from '../../utils/encoding.js';
+import { loadKeypairFromFile, getDefaultKeypairPath } from '../../types/wallet.js';
+import { fetchTreasury } from '../../utils/treasury.js';
+import { IDL } from '../../idl.js';
+import { AgentStatus, agentStatusToString } from '../../agent/types.js';
+import { getCapabilityNames } from '../../agent/capabilities.js';
+import anchor, { AnchorProvider } from '@coral-xyz/anchor';
+import { PublicKey, SystemProgram } from '@solana/web3.js';
 
 export type SendFn = (response: ControlResponse) => void;
 
 const SOLANA_NOT_CONFIGURED =
   'On-chain task operations require Solana connection — configure connection.rpcUrl in config';
+
+/** Create an AnchorProvider from a Connection + Keypair. */
+function createWalletProvider(
+  connection: import('@solana/web3.js').Connection,
+  keypair: import('@solana/web3.js').Keypair,
+): AnchorProvider {
+  const wallet = {
+    publicKey: keypair.publicKey,
+    signTransaction: async <T extends import('@solana/web3.js').Transaction | import('@solana/web3.js').VersionedTransaction>(tx: T): Promise<T> => {
+      if ('sign' in tx) (tx as import('@solana/web3.js').Transaction).sign(keypair);
+      return tx;
+    },
+    signAllTransactions: async <T extends import('@solana/web3.js').Transaction | import('@solana/web3.js').VersionedTransaction>(txs: T[]): Promise<T[]> => {
+      for (const tx of txs) {
+        if ('sign' in tx) (tx as import('@solana/web3.js').Transaction).sign(keypair);
+      }
+      return txs;
+    },
+  };
+  return new AnchorProvider(connection, wallet, { commitment: 'confirmed' });
+}
 
 // ============================================================================
 // Status handlers
@@ -90,44 +123,231 @@ export function handleSkillsToggle(
 }
 
 // ============================================================================
-// Tasks handlers (informative stubs — require Solana connection)
+// Tasks handlers — on-chain Solana task operations
 // ============================================================================
 
-export function handleTasksList(
-  _deps: WebChatDeps,
+/**
+ * Task account binary layout offsets.
+ * Layout: 8 (discriminator) + 32 (task_id) + 32 (creator) + 8 (capabilities)
+ *       + 64 (description) + 32 (constraint_hash) + 8 (reward_amount)
+ *       + 1 (max_workers) + 1 (current_workers) = status at offset 186
+ */
+const TASK_DISCRIMINATOR = Buffer.from([79, 34, 229, 55, 88, 90, 55, 84]);
+const TASK_CREATOR_OFFSET = 40;
+const TASK_DESCRIPTION_OFFSET = 80;
+const TASK_REWARD_OFFSET = 176;
+const TASK_CURRENT_WORKERS_OFFSET = 185;
+const TASK_STATUS_OFFSET = 186;
+
+/** Parse a raw Task account buffer into the fields we need. */
+function parseRawTaskAccount(data: Buffer): {
+  status: OnChainTaskStatus;
+  reward: bigint;
+  creator: PublicKey;
+  currentWorkers: number;
+  description: string;
+} {
+  const statusByte = data[TASK_STATUS_OFFSET];
+  const currentWorkers = data[TASK_CURRENT_WORKERS_OFFSET];
+  const creator = new PublicKey(data.subarray(TASK_CREATOR_OFFSET, TASK_CREATOR_OFFSET + 32));
+  // reward_amount is u64 little-endian at offset 176
+  const rewardSlice = data.subarray(TASK_REWARD_OFFSET, TASK_REWARD_OFFSET + 8);
+  const reward = rewardSlice.readBigUInt64LE(0);
+  // description is 64 bytes at offset 80, trim trailing nulls
+  const descBuf = data.subarray(TASK_DESCRIPTION_OFFSET, TASK_DESCRIPTION_OFFSET + 64);
+  const nullIdx = descBuf.indexOf(0);
+  const description = new TextDecoder().decode(descBuf.subarray(0, nullIdx === -1 ? 64 : nullIdx));
+  return { status: statusByte as OnChainTaskStatus, reward, creator, currentWorkers, description };
+}
+
+/** Helper: send a refreshed task list to the client using raw getProgramAccounts. */
+async function sendTaskList(deps: WebChatDeps, id: string | undefined, send: SendFn): Promise<void> {
+  const connection = deps.connection!;
+  const bs58 = await import('bs58');
+  const programId = new PublicKey(IDL.address!);
+
+  // Fetch Open and InProgress tasks in parallel using raw getProgramAccounts
+  const makeFilter = (statusByte: number) => [
+    { memcmp: { offset: 0, bytes: bs58.default.encode(TASK_DISCRIMINATOR) } },
+    { memcmp: { offset: TASK_STATUS_OFFSET, bytes: bs58.default.encode(Buffer.from([statusByte])) } },
+  ];
+
+  const [openAccounts, inProgressAccounts] = await Promise.all([
+    connection.getProgramAccounts(programId, { filters: makeFilter(OnChainTaskStatus.Open) }),
+    connection.getProgramAccounts(programId, { filters: makeFilter(OnChainTaskStatus.InProgress) }),
+  ]);
+
+  const allAccounts = [...openAccounts, ...inProgressAccounts];
+  const payload = allAccounts.map((acc) => {
+    const task = parseRawTaskAccount(acc.account.data as Buffer);
+    return {
+      id: acc.pubkey.toBase58(),
+      status: taskStatusToString(task.status),
+      reward: lamportsToSol(task.reward),
+      creator: task.creator.toBase58(),
+      description: task.description,
+      worker: task.currentWorkers > 0 ? `${task.currentWorkers} worker(s)` : undefined,
+    };
+  });
+  send({ type: 'tasks.list', payload, id });
+}
+
+export async function handleTasksList(
+  deps: WebChatDeps,
   _payload: Record<string, unknown> | undefined,
   id: string | undefined,
   send: SendFn,
-): void {
-  send({ type: 'error', error: SOLANA_NOT_CONFIGURED, id });
+): Promise<void> {
+  if (!deps.connection) {
+    send({ type: 'error', error: SOLANA_NOT_CONFIGURED, id });
+    return;
+  }
+  try {
+    await sendTaskList(deps, id, send);
+  } catch (err) {
+    send({ type: 'error', error: `Failed to list tasks: ${(err as Error).message}`, id });
+  }
 }
 
-export function handleTasksCreate(
-  _deps: WebChatDeps,
+export async function handleTasksCreate(
+  deps: WebChatDeps,
   payload: Record<string, unknown> | undefined,
   id: string | undefined,
   send: SendFn,
-): void {
+): Promise<void> {
   const params = payload?.params;
   if (!params || typeof params !== 'object') {
     send({ type: 'error', error: 'Missing params in payload', id });
     return;
   }
-  send({ type: 'error', error: SOLANA_NOT_CONFIGURED, id });
+  if (!deps.connection) {
+    send({ type: 'error', error: SOLANA_NOT_CONFIGURED, id });
+    return;
+  }
+
+  const keypairPath = deps.gateway.config.connection?.keypairPath ?? getDefaultKeypairPath();
+  try {
+    const keypair = await loadKeypairFromFile(keypairPath);
+    const provider = createWalletProvider(deps.connection, keypair);
+    const program = createProgram(provider);
+    const creator = keypair.publicKey;
+    const bs58Mod = await import('bs58');
+
+    const descStr = typeof (params as Record<string, unknown>).description === 'string'
+      ? (params as Record<string, unknown>).description as string
+      : 'Task from WebUI';
+    const rewardInput = typeof (params as Record<string, unknown>).reward === 'number'
+      ? (params as Record<string, unknown>).reward as number
+      : 0;
+    // Treat reward as lamports (matching the UI label)
+    const rewardLamports = BigInt(Math.max(Math.round(rewardInput * 1_000_000_000), 10_000_000));
+
+    // Generate random 32-byte task ID
+    const taskId = new Uint8Array(32);
+    crypto.getRandomValues(taskId);
+
+    // Pad description to 64 bytes
+    const descBytes = new Uint8Array(64);
+    const encoded = new TextEncoder().encode(descStr.slice(0, 64));
+    descBytes.set(encoded);
+
+    // Resolve creator's agent PDA using raw getProgramAccounts (bypasses Anchor deserialization bug)
+    const AGENT_DISCRIMINATOR = Buffer.from([130, 53, 100, 103, 121, 77, 148, 19]);
+    const AGENT_AUTHORITY_OFFSET = 40; // 8 (disc) + 32 (agent_id)
+    const agentAccounts = await deps.connection.getProgramAccounts(program.programId, {
+      filters: [
+        { memcmp: { offset: 0, bytes: bs58Mod.default.encode(AGENT_DISCRIMINATOR) } },
+        { memcmp: { offset: AGENT_AUTHORITY_OFFSET, bytes: creator.toBase58() } },
+      ],
+    });
+    if (agentAccounts.length === 0) {
+      send({ type: 'error', error: 'No agent registration found for this wallet. Register an agent first.', id });
+      return;
+    }
+    const creatorAgentPda = agentAccounts[0].pubkey;
+
+    // Derive PDAs
+    const taskPda = findTaskPda(creator, taskId, program.programId);
+    const escrowPda = findEscrowPda(taskPda, program.programId);
+    const protocolPda = findProtocolPda(program.programId);
+
+    const deadline = Math.floor(Date.now() / 1000) + 3600; // 1 hour from now
+
+    await program.methods
+      .createTask(
+        toAnchorBytes(taskId),
+        new anchor.BN('1'),                        // requiredCapabilities
+        toAnchorBytes(descBytes),
+        new anchor.BN(rewardLamports.toString()),   // reward
+        1,                                          // maxWorkers
+        new anchor.BN(deadline),                    // deadline
+        0,                                          // taskType: exclusive
+        null,                                       // constraintHash (public task)
+      )
+      .accountsPartial({
+        task: taskPda,
+        escrow: escrowPda,
+        protocolConfig: protocolPda,
+        creatorAgent: creatorAgentPda,
+        authority: creator,
+        creator,
+        systemProgram: SystemProgram.programId,
+      })
+      .rpc();
+
+    // Auto-refresh task list after creation
+    await sendTaskList(deps, id, send);
+    deps.broadcastEvent?.('task.created', { taskPda: taskPda.toBase58(), description: descStr });
+  } catch (err) {
+    send({ type: 'error', error: `Failed to create task: ${(err as Error).message}`, id });
+  }
 }
 
-export function handleTasksCancel(
-  _deps: WebChatDeps,
+export async function handleTasksCancel(
+  deps: WebChatDeps,
   payload: Record<string, unknown> | undefined,
   id: string | undefined,
   send: SendFn,
-): void {
+): Promise<void> {
   const taskId = payload?.taskId;
   if (!taskId || typeof taskId !== 'string') {
     send({ type: 'error', error: 'Missing taskId in payload', id });
     return;
   }
-  send({ type: 'error', error: SOLANA_NOT_CONFIGURED, id });
+  if (!deps.connection) {
+    send({ type: 'error', error: SOLANA_NOT_CONFIGURED, id });
+    return;
+  }
+
+  const keypairPath = deps.gateway.config.connection?.keypairPath ?? getDefaultKeypairPath();
+  try {
+    const keypair = await loadKeypairFromFile(keypairPath);
+    const provider = createWalletProvider(deps.connection, keypair);
+    const program = createProgram(provider);
+    const taskPda = new PublicKey(taskId);
+
+    const escrowPda = findEscrowPda(taskPda, program.programId);
+    const protocolPda = findProtocolPda(program.programId);
+    const treasury = await fetchTreasury(program, program.programId);
+
+    await program.methods
+      .cancelTask()
+      .accountsPartial({
+        creator: keypair.publicKey,
+        task: taskPda,
+        escrow: escrowPda,
+        protocolConfig: protocolPda,
+        treasury,
+        systemProgram: SystemProgram.programId,
+      })
+      .rpc();
+
+    // Auto-refresh task list after cancellation
+    await sendTaskList(deps, id, send);
+    deps.broadcastEvent?.('task.cancelled', { taskPda: taskId });
+  } catch (err) {
+    send({ type: 'error', error: `Failed to cancel task: ${(err as Error).message}`, id });
+  }
 }
 
 // ============================================================================
@@ -253,6 +473,134 @@ export function handleApprovalRespond(
 }
 
 // ============================================================================
+// Agents handlers — on-chain registered agents
+// ============================================================================
+
+/**
+ * Agent account discriminator (first 8 bytes).
+ * The struct contains variable-length Borsh strings (endpoint, metadata_uri)
+ * so we parse sequentially rather than using fixed offsets.
+ */
+const AGENT_ACCT_DISCRIMINATOR = Buffer.from([130, 53, 100, 103, 121, 77, 148, 19]);
+
+/** Parse minimal agent data from a raw Borsh-serialized account buffer. */
+function parseRawAgentAccount(data: Buffer): {
+  agentId: string;
+  authority: string;
+  capabilities: bigint;
+  status: AgentStatus;
+  reputation: number;
+  tasksCompleted: bigint;
+  stake: bigint;
+} {
+  let off = 8; // skip discriminator
+
+  // agent_id: [u8; 32]
+  const agentId = data.subarray(off, off + 32);
+  off += 32;
+
+  // authority: Pubkey (32 bytes)
+  const authority = new PublicKey(data.subarray(off, off + 32));
+  off += 32;
+
+  // capabilities: u64 LE
+  const capabilities = data.readBigUInt64LE(off);
+  off += 8;
+
+  // status: u8 enum
+  const status = data[off] as AgentStatus;
+  off += 1;
+
+  // endpoint: Borsh String (u32 len prefix + variable bytes)
+  const endpointLen = data.readUInt32LE(off);
+  off += 4 + endpointLen;
+
+  // metadata_uri: Borsh String (u32 len prefix + variable bytes)
+  const metadataUriLen = data.readUInt32LE(off);
+  off += 4 + metadataUriLen;
+
+  // registered_at: i64
+  off += 8;
+
+  // last_active: i64
+  off += 8;
+
+  // tasks_completed: u64
+  const tasksCompleted = data.readBigUInt64LE(off);
+  off += 8;
+
+  // total_earned: u64
+  off += 8;
+
+  // reputation: u16
+  const reputation = data.readUInt16LE(off);
+  off += 2;
+
+  // active_tasks: u8
+  off += 1;
+
+  // stake: u64
+  const stake = data.readBigUInt64LE(off);
+
+  return {
+    agentId: Buffer.from(agentId).toString('hex').slice(0, 16),
+    authority: authority.toBase58(),
+    capabilities,
+    status,
+    reputation,
+    tasksCompleted,
+    stake,
+  };
+}
+
+export async function handleAgentsList(
+  deps: WebChatDeps,
+  _payload: Record<string, unknown> | undefined,
+  id: string | undefined,
+  send: SendFn,
+): Promise<void> {
+  if (!deps.connection) {
+    send({ type: 'agents.list', payload: [], id });
+    return;
+  }
+
+  try {
+    const bs58 = await import('bs58');
+    const programId = new PublicKey(IDL.address!);
+
+    // Fetch all agent registration accounts
+    const accounts = await deps.connection.getProgramAccounts(programId, {
+      filters: [
+        { memcmp: { offset: 0, bytes: bs58.default.encode(AGENT_ACCT_DISCRIMINATOR) } },
+      ],
+    });
+
+    const payload = accounts.map((acc) => {
+      try {
+        const agent = parseRawAgentAccount(acc.account.data as Buffer);
+        return {
+          pda: acc.pubkey.toBase58(),
+          agentId: agent.agentId,
+          authority: agent.authority,
+          capabilities: getCapabilityNames(agent.capabilities),
+          status: agentStatusToString(agent.status),
+          reputation: agent.reputation,
+          tasksCompleted: Number(agent.tasksCompleted),
+          stake: lamportsToSol(agent.stake),
+        };
+      } catch {
+        // Skip accounts that fail to parse
+        return null;
+      }
+    }).filter((a): a is NonNullable<typeof a> => a !== null);
+
+    send({ type: 'agents.list', payload, id });
+  } catch (err) {
+    send({ type: 'error', error: `Failed to list agents: ${(err as Error).message}`, id });
+  }
+}
+
+// ============================================================================
 // Handler map
 // ============================================================================
 
@@ -274,4 +622,5 @@ export const HANDLER_MAP: Readonly<Record<string, HandlerFn>> = {
   'memory.search': handleMemorySearch,
   'memory.sessions': handleMemorySessions,
   'approval.respond': handleApprovalRespond,
+  'agents.list': handleAgentsList,
 };

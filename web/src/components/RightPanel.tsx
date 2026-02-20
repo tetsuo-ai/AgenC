@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import type { UseSettingsReturn, GatewaySettings, VoiceName } from '../hooks/useSettings';
 import type { UseWalletReturn } from '../hooks/useWallet';
 import type { ChatSessionInfo } from '../hooks/useChat';
+import type { AgentInfo } from '../types';
 
 type Tab = 'main' | 'settings' | 'payment';
 const TABS: Tab[] = ['main', 'settings', 'payment'];
@@ -40,6 +41,9 @@ interface RightPanelProps {
   activeSessionId?: string | null;
   onSelectSession?: (sessionId: string) => void;
   onNewChat?: () => void;
+  autoApprove?: boolean;
+  onAutoApproveChange?: (v: boolean) => void;
+  agents?: AgentInfo[];
 }
 
 // =============================================================================
@@ -93,7 +97,7 @@ function TabBar({ active, onChange }: { active: Tab; onChange: (t: Tab) => void 
 // Main Component
 // =============================================================================
 
-export function RightPanel({ settings, wallet, chatSessions, activeSessionId, onSelectSession, onNewChat }: RightPanelProps) {
+export function RightPanel({ settings, wallet, chatSessions, activeSessionId, onSelectSession, onNewChat, autoApprove, onAutoApproveChange, agents }: RightPanelProps) {
   const [activeTab, setActiveTab] = useState<Tab>('main');
   const [tabKey, setTabKey] = useState(0);
 
@@ -138,9 +142,10 @@ export function RightPanel({ settings, wallet, chatSessions, activeSessionId, on
             activeSessionId={activeSessionId ?? null}
             onSelectSession={onSelectSession}
             onNewChat={onNewChat}
+            agents={agents}
           />
         )}
-        {activeTab === 'settings' && <SettingsTab settings={settings} />}
+        {activeTab === 'settings' && <SettingsTab settings={settings} autoApprove={autoApprove} onAutoApproveChange={onAutoApproveChange} />}
         {activeTab === 'payment' && <PaymentTab wallet={wallet} />}
       </div>
     </div>
@@ -167,32 +172,76 @@ interface MainTabProps {
   activeSessionId: string | null;
   onSelectSession?: (sessionId: string) => void;
   onNewChat?: () => void;
+  agents?: AgentInfo[];
 }
 
-function MainTab({ sessions, activeSessionId, onSelectSession, onNewChat }: MainTabProps) {
+function MainTab({ sessions, activeSessionId, onSelectSession, onNewChat, agents }: MainTabProps) {
   const [activeAgent, setActiveAgent] = useState(0);
   const [hoveredChat, setHoveredChat] = useState<number | null>(null);
+
+  const hasOnChainAgents = agents && agents.length > 0;
 
   return (
     <div className="flex-1 overflow-y-auto">
       {/* Agent capabilities */}
       <div className="py-4">
         <div className="flex items-center justify-between px-6 mb-2">
-          <span className="text-sm font-bold text-tetsuo-800">Agents</span>
-          <button className="text-tetsuo-400 hover:text-tetsuo-600 transition-colors">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-              <circle cx="12" cy="5" r="1" /><circle cx="12" cy="12" r="1" /><circle cx="12" cy="19" r="1" />
-            </svg>
-          </button>
+          <span className="text-sm font-bold text-tetsuo-800">
+            Agents{hasOnChainAgents ? ` (${agents.length})` : ''}
+          </span>
+          {hasOnChainAgents && (
+            <span className="text-[10px] text-tetsuo-400 bg-tetsuo-50 px-1.5 py-0.5 rounded">on-chain</span>
+          )}
+          {!hasOnChainAgents && (
+            <button className="text-tetsuo-400 hover:text-tetsuo-600 transition-colors">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                <circle cx="12" cy="5" r="1" /><circle cx="12" cy="12" r="1" /><circle cx="12" cy="19" r="1" />
+              </svg>
+            </button>
+          )}
         </div>
-        {AGENTS.map((agent, i) => (
+
+        {/* On-chain agents */}
+        {hasOnChainAgents && agents.map((agent, i) => (
+          <button
+            key={agent.pda}
+            onClick={() => setActiveAgent(i)}
+            className="animate-list-item w-full flex items-center gap-3 px-6 py-3 text-left transition-all duration-200 relative"
+            style={{ animationDelay: `${i * 40}ms` }}
+          >
+            <span
+              className={`absolute left-0 top-1/2 -translate-y-1/2 w-[3px] rounded-r-full bg-accent transition-all duration-300 ${
+                activeAgent === i ? 'h-8 opacity-100' : 'h-0 opacity-0'
+              }`}
+            />
+            <div className={`transition-all duration-200 ${activeAgent === i ? 'scale-110' : ''}`}>
+              <AgentIcon type={mapCapabilityToIcon(agent.capabilities)} active={activeAgent === i} />
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <span className={`text-sm truncate transition-colors duration-200 ${activeAgent === i ? 'font-medium text-accent' : 'text-tetsuo-600'}`}>
+                  {agent.pda.slice(0, 6)}...{agent.pda.slice(-4)}
+                </span>
+                <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${
+                  agent.status === 'Active' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' : 'bg-tetsuo-100 text-tetsuo-500'
+                }`}>{agent.status}</span>
+              </div>
+              <div className={`text-xs truncate transition-colors duration-200 ${activeAgent === i ? 'text-accent/60' : 'text-tetsuo-400'}`}>
+                {agent.capabilities.length > 0 ? agent.capabilities.join(', ') : 'No capabilities'}
+                {agent.tasksCompleted > 0 ? ` · ${agent.tasksCompleted} tasks` : ''}
+              </div>
+            </div>
+          </button>
+        ))}
+
+        {/* Static fallback agents */}
+        {!hasOnChainAgents && AGENTS.map((agent, i) => (
           <button
             key={agent.name}
             onClick={() => setActiveAgent(i)}
             className="animate-list-item w-full flex items-center gap-3 px-6 py-3 text-left transition-all duration-200 relative"
             style={{ animationDelay: `${i * 40}ms` }}
           >
-            {/* Active indicator bar */}
             <span
               className={`absolute left-0 top-1/2 -translate-y-1/2 w-[3px] rounded-r-full bg-accent transition-all duration-300 ${
                 activeAgent === i ? 'h-8 opacity-100' : 'h-0 opacity-0'
@@ -268,7 +317,7 @@ function MainTab({ sessions, activeSessionId, onSelectSession, onNewChat }: Main
 // Settings Tab
 // =============================================================================
 
-function SettingsTab({ settings }: { settings: UseSettingsReturn }) {
+function SettingsTab({ settings, autoApprove, onAutoApproveChange }: { settings: UseSettingsReturn; autoApprove?: boolean; onAutoApproveChange?: (v: boolean) => void }) {
   const { settings: config, loaded, saving, lastError, save, ollamaModels, ollamaError, fetchOllamaModels } = settings;
 
   const [provider, setProvider] = useState(config.llm.provider);
@@ -491,6 +540,23 @@ function SettingsTab({ settings }: { settings: UseSettingsReturn }) {
         </div>
       </div>
 
+      {/* Tool Approvals */}
+      <div className="animate-list-item" style={{ animationDelay: sectionDelay() }}>
+        <div className="text-xs text-tetsuo-400 uppercase tracking-wider mb-3">Tool Approvals</div>
+        <div className="flex items-center justify-between">
+          <div className="min-w-0">
+            <span className="text-sm text-tetsuo-600">Auto-approve all</span>
+            <p className="text-xs text-tetsuo-400 mt-0.5">Skip confirmation dialogs</p>
+          </div>
+          <button
+            onClick={() => onAutoApproveChange?.(!autoApprove)}
+            className={`relative w-10 h-6 rounded-full transition-all duration-300 shrink-0 ml-3 ${autoApprove ? 'bg-accent shadow-[0_0_8px_rgba(var(--accent),0.3)]' : 'bg-tetsuo-300'}`}
+          >
+            <span className={`absolute top-1 left-1 w-4 h-4 rounded-full bg-white shadow-sm transition-all duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)] ${autoApprove ? 'translate-x-4' : 'translate-x-0'}`} />
+          </button>
+        </div>
+      </div>
+
       {/* Memory */}
       <div className="animate-list-item" style={{ animationDelay: sectionDelay() }}>
         <div className="text-xs text-tetsuo-400 uppercase tracking-wider mb-3">Memory</div>
@@ -638,8 +704,8 @@ function PaymentTab({ wallet: w }: { wallet: UseWalletReturn }) {
           <div className="h-8 w-32 rounded bg-tetsuo-100 animate-pulse" />
         ) : wallet ? (
           <div className="relative">
-            <div className={`text-2xl font-bold text-tetsuo-800 transition-all duration-300 ${airdropSuccess ? 'text-emerald-500' : ''}`}>
-              {wallet.sol.toFixed(4)} SOL
+            <div className={`font-bold text-tetsuo-800 transition-all duration-300 whitespace-nowrap ${airdropSuccess ? 'text-emerald-500' : ''} ${wallet.sol >= 1_000_000 ? 'text-base' : wallet.sol >= 1_000 ? 'text-xl' : 'text-2xl'}`}>
+              {wallet.sol.toLocaleString('en-US', { minimumFractionDigits: 4, maximumFractionDigits: 4 })} SOL
             </div>
             <div className="text-xs text-tetsuo-400 mt-1 capitalize">
               {wallet.network === 'mainnet-beta' ? 'Mainnet' : wallet.network}
@@ -733,6 +799,16 @@ function PaymentTab({ wallet: w }: { wallet: UseWalletReturn }) {
 // =============================================================================
 // Shared Components
 // =============================================================================
+
+/** Map on-chain capability names to icon types. */
+function mapCapabilityToIcon(capabilities: string[]): string {
+  if (capabilities.includes('COORDINATOR')) return 'coordinator';
+  if (capabilities.includes('VALIDATOR') || capabilities.includes('ARBITER')) return 'validator';
+  if (capabilities.includes('INFERENCE')) return 'inference';
+  if (capabilities.includes('STORAGE')) return 'storage';
+  if (capabilities.includes('COMPUTE')) return 'compute';
+  return 'runtime';
+}
 
 function AgentIcon({ type, active }: { type: string; active: boolean }) {
   const cls = `w-5 h-5 shrink-0 transition-colors duration-200 ${active ? 'text-accent' : 'text-tetsuo-400'}`;

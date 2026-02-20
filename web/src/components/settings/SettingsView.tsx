@@ -28,9 +28,11 @@ const LLM_PROVIDERS: LLMProviderDef[] = [
 
 interface SettingsViewProps {
   settings: UseSettingsReturn;
+  autoApprove?: boolean;
+  onAutoApproveChange?: (v: boolean) => void;
 }
 
-export function SettingsView({ settings }: SettingsViewProps) {
+export function SettingsView({ settings, autoApprove = false, onAutoApproveChange }: SettingsViewProps) {
   const { settings: config, loaded, saving, lastError, save, ollamaModels, ollamaError, fetchOllamaModels } = settings;
 
   const [provider, setProvider] = useState(config.llm.provider);
@@ -246,6 +248,18 @@ export function SettingsView({ settings }: SettingsViewProps) {
                   title="Select Mode"
                 />
               </div>
+            </div>
+          </section>
+
+          {/* Tool Approvals */}
+          <section className="space-y-3">
+            <h2 className="text-sm font-semibold text-tetsuo-800">Tool Approvals</h2>
+            <div className="flex items-center justify-between">
+              <div>
+                <span className="text-sm text-tetsuo-600">Auto-approve all tool calls</span>
+                <p className="text-xs text-tetsuo-400 mt-0.5">Skip confirmation dialogs for bash, HTTP, filesystem, etc.</p>
+              </div>
+              <ToggleSwitch on={autoApprove} onChange={(v) => onAutoApproveChange?.(v)} />
             </div>
           </section>
 

@@ -19,7 +19,14 @@ export function TaskCard({ task, onCancel }: TaskCardProps) {
   return (
     <div className="px-4 py-3.5 rounded-xl border border-tetsuo-200 bg-tetsuo-50 hover:border-tetsuo-300 transition-all duration-200 hover:shadow-sm">
       <div className="flex items-center justify-between gap-3">
-        <div className="text-sm font-medium text-tetsuo-800 truncate font-mono">{task.id.slice(0, 16)}...</div>
+        <div className="min-w-0 flex-1">
+          {task.description ? (
+            <div className="text-sm font-medium text-tetsuo-800 truncate">{task.description}</div>
+          ) : (
+            <div className="text-sm font-medium text-tetsuo-800 truncate font-mono">{task.id.slice(0, 16)}...</div>
+          )}
+          <div className="text-[10px] text-tetsuo-400 font-mono mt-0.5">{task.id.slice(0, 16)}...</div>
+        </div>
         <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-semibold uppercase tracking-wider shrink-0 ${style.bg} ${style.text}`}>
           <span className={`w-1.5 h-1.5 rounded-full ${style.dot}`} />
           {task.status}
