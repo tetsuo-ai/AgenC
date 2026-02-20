@@ -193,6 +193,7 @@ RISC Zero integration must be completed before mainnet.
 - [x] CRIT-4: Fix VERIFIER_PROGRAM_ID mismatch in SDK (**FIXED**)
 - [x] CRIT-5: Add ownership validation for worker_token_account (**FIXED** — strengthened with SPL token account authority check)
 - [x] CRIT-6: Handle zero-vote dispute slash case (**NOT A BUG** — MIN_VOTERS_FOR_RESOLUTION=3 prevents zero-vote resolution)
+- [x] CRIT-7: Validate binding/nullifier seed entropy (**FIXED** — byte diversity check requiring min 8 distinct values, on-chain + SDK preflight + salt zero guard)
 - [x] CRIT-8: Fix PrivacyClient.completeTaskPrivate() NPE (**FIXED** — rewired to use real SDK proof generation + task submission)
 - [x] CRIT-9: Add devnet/mainnet deployment configs (**FIXED** — PR #1222 added devnet/mainnet-beta to TRUSTED_DEPLOYMENTS)
 - [x] HIGH-3: Enforce minimum stake for disputes > 0 (**FIXED** in update_rate_limits.rs + execute_proposal.rs)
