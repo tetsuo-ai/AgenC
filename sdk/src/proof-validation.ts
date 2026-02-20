@@ -96,6 +96,24 @@ function isAllZeros(value: Uint8Array | Buffer): boolean {
   return toBytes(value).every((b) => b === 0);
 }
 
+/**
+ * Minimum distinct byte values required in a 32-byte seed.
+ * SHA-256 outputs average ~28 distinct values; 8 is a conservative floor
+ * that rejects constant-fill, short-period, and arithmetic-sequence patterns.
+ * Must match MIN_DISTINCT_BYTES in complete_task_private.rs.
+ */
+const MIN_DISTINCT_BYTES = 8;
+
+function hasSufficientByteDiversity(value: Uint8Array | Buffer): boolean {
+  const bytes = toBytes(value);
+  const seen = new Set<number>();
+  for (const b of bytes) {
+    seen.add(b);
+    if (seen.size >= MIN_DISTINCT_BYTES) return true;
+  }
+  return false;
+}
+
 function bytesEqual(a: Uint8Array | Buffer, b: Uint8Array | Buffer): boolean {
   const ab = toBytes(a);
   const bb = toBytes(b);
@@ -223,6 +241,22 @@ export async function runProofSubmissionPreflight(
       failures.push({
         check: 'nullifier_nonzero',
         message: 'journal nullifier cannot be all zeros',
+        retriable: false,
+      });
+    }
+
+    if (!isAllZeros(journal.binding) && !hasSufficientByteDiversity(journal.binding)) {
+      failures.push({
+        check: 'binding_entropy',
+        message: `journal binding has insufficient byte diversity (min ${MIN_DISTINCT_BYTES} distinct byte values required)`,
+        retriable: false,
+      });
+    }
+
+    if (!isAllZeros(journal.nullifier) && !hasSufficientByteDiversity(journal.nullifier)) {
+      failures.push({
+        check: 'nullifier_entropy',
+        message: `journal nullifier has insufficient byte diversity (min ${MIN_DISTINCT_BYTES} distinct byte values required)`,
         retriable: false,
       });
     }

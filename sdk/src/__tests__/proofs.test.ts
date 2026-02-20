@@ -18,6 +18,7 @@ import {
   computeHashes,
   computeNullifierFromAgentSecret,
   generateSalt,
+  generateProof,
   generateProofWithProver,
   FIELD_MODULUS,
 } from '../proofs';
@@ -529,6 +530,35 @@ describe('proofs', () => {
 
       // After modular reduction, these should produce the same result
       expect(largeHash).toBe(normalHash);
+    });
+  });
+
+  describe('generateProof salt validation', () => {
+    it('rejects zero salt', async () => {
+      const taskPda = Keypair.generate().publicKey;
+      const agentPubkey = Keypair.generate().publicKey;
+      await expect(
+        generateProof({
+          taskPda,
+          agentPubkey,
+          output: [1n, 2n, 3n, 4n],
+          salt: 0n,
+        })
+      ).rejects.toThrow('non-zero');
+    });
+
+    it('accepts non-zero salt', async () => {
+      const taskPda = Keypair.generate().publicKey;
+      const agentPubkey = Keypair.generate().publicKey;
+      const result = await generateProof({
+        taskPda,
+        agentPubkey,
+        output: [1n, 2n, 3n, 4n],
+        salt: 42n,
+        agentSecret: 12345n,
+      });
+      expect(result.sealBytes.length).toBe(RISC0_SEAL_BORSH_LEN);
+      expect(result.journal.length).toBe(RISC0_JOURNAL_LEN);
     });
   });
 

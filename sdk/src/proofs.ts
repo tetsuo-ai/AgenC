@@ -336,6 +336,11 @@ function simulateSealProofBytes(journal: Buffer, imageId: Buffer): Buffer {
 export async function generateProof(params: ProofGenerationParams): Promise<ProofResult> {
   const startTime = Date.now();
 
+  // Validate salt is non-zero (zero salt makes commitments deterministic, defeating privacy)
+  if (params.salt === 0n) {
+    throw new Error('Invalid salt: must be non-zero for privacy preservation');
+  }
+
   if (params.agentSecret === undefined) {
     console.warn(
       'SECURITY WARNING: agentSecret not provided to generateProof(). Falling back to ' +

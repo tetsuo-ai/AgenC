@@ -407,6 +407,18 @@ fn parse_and_validate_journal(journal: &[u8]) -> Result<ParsedJournal> {
         CoordinationError::InvalidNullifier
     );
 
+    // Entropy check: SHA-256 outputs have ~28 distinct byte values on average
+    // for 32 bytes. Require at least 8 distinct values to reject trivially
+    // predictable seeds (e.g. constant fill, short repeating patterns).
+    require!(
+        has_sufficient_byte_diversity(&binding),
+        CoordinationError::InsufficientSeedEntropy
+    );
+    require!(
+        has_sufficient_byte_diversity(&nullifier),
+        CoordinationError::InsufficientSeedEntropy
+    );
+
     Ok(ParsedJournal {
         task_pda,
         agent_authority,
@@ -427,6 +439,29 @@ fn read_journal_field(journal: &[u8], start: usize) -> Result<[u8; HASH_SIZE]> {
     let mut out = [0u8; HASH_SIZE];
     out.copy_from_slice(src);
     Ok(out)
+}
+
+/// Minimum number of distinct byte values required in a 32-byte seed.
+/// SHA-256 outputs average ~28 distinct values; 8 is a conservative floor
+/// that rejects constant-fill, short-period, and arithmetic-sequence patterns.
+const MIN_DISTINCT_BYTES: usize = 8;
+
+/// Returns true if the 32-byte value contains at least `MIN_DISTINCT_BYTES`
+/// distinct byte values, indicating it was likely produced by a cryptographic
+/// hash rather than a trivial or low-entropy construction.
+fn has_sufficient_byte_diversity(value: &[u8; HASH_SIZE]) -> bool {
+    let mut seen = [false; 256];
+    let mut count: usize = 0;
+    for &b in value.iter() {
+        if !seen[b as usize] {
+            seen[b as usize] = true;
+            count += 1;
+            if count >= MIN_DISTINCT_BYTES {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 fn validate_verifier_entry(
@@ -589,14 +624,23 @@ mod tests {
         assert_error_name(err, "InvalidJournalLength");
     }
 
+    /// Build a 32-byte value with high byte diversity (sequential bytes 0..31 offset by base).
+    fn diverse_bytes(base: u8) -> [u8; HASH_SIZE] {
+        let mut out = [0u8; HASH_SIZE];
+        for (i, slot) in out.iter_mut().enumerate() {
+            *slot = base.wrapping_add(i as u8);
+        }
+        out
+    }
+
     #[test]
     fn journal_parses_fixed_offsets() {
-        let task = [11u8; HASH_SIZE];
-        let authority = [22u8; HASH_SIZE];
-        let constraint = [33u8; HASH_SIZE];
-        let output = [44u8; HASH_SIZE];
-        let binding = [55u8; HASH_SIZE];
-        let nullifier = [66u8; HASH_SIZE];
+        let task = diverse_bytes(10);
+        let authority = diverse_bytes(50);
+        let constraint = diverse_bytes(90);
+        let output = diverse_bytes(130);
+        let binding = diverse_bytes(170);
+        let nullifier = diverse_bytes(210);
 
         let journal = sample_journal(task, authority, constraint, output, binding, nullifier);
         let parsed = parse_and_validate_journal(&journal).expect("valid journal");
@@ -656,5 +700,91 @@ mod tests {
         let err = validate_verifier_entry_data(&data, &TRUSTED_RISC0_VERIFIER_PROGRAM_ID)
             .expect_err("must fail");
         assert_error_name(err, "RouterAccountMismatch");
+    }
+
+    // ---------------------------------------------------------------
+    // Byte diversity (entropy) tests
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn byte_diversity_accepts_sha256_like_output() {
+        // 32 sequential bytes have 32 distinct values — well above the threshold
+        let value = diverse_bytes(0);
+        assert!(has_sufficient_byte_diversity(&value));
+    }
+
+    #[test]
+    fn byte_diversity_rejects_constant_fill() {
+        // All same byte → 1 distinct value
+        let value = [0xAA_u8; HASH_SIZE];
+        assert!(!has_sufficient_byte_diversity(&value));
+    }
+
+    #[test]
+    fn byte_diversity_rejects_two_byte_pattern() {
+        // Alternating 2 bytes → 2 distinct values
+        let mut value = [0u8; HASH_SIZE];
+        for (i, slot) in value.iter_mut().enumerate() {
+            *slot = if i % 2 == 0 { 0x01 } else { 0x02 };
+        }
+        assert!(!has_sufficient_byte_diversity(&value));
+    }
+
+    #[test]
+    fn byte_diversity_rejects_short_period_pattern() {
+        // 4-byte repeating pattern → only 4 distinct values
+        let mut value = [0u8; HASH_SIZE];
+        for (i, slot) in value.iter_mut().enumerate() {
+            *slot = (i % 4) as u8;
+        }
+        assert!(!has_sufficient_byte_diversity(&value));
+    }
+
+    #[test]
+    fn byte_diversity_accepts_exactly_min_distinct() {
+        // Exactly MIN_DISTINCT_BYTES distinct values should pass
+        let mut value = [0u8; HASH_SIZE];
+        for (i, slot) in value.iter_mut().enumerate() {
+            *slot = (i % MIN_DISTINCT_BYTES) as u8;
+        }
+        assert!(has_sufficient_byte_diversity(&value));
+    }
+
+    #[test]
+    fn byte_diversity_rejects_just_below_threshold() {
+        // MIN_DISTINCT_BYTES - 1 distinct values should fail
+        let mut value = [0u8; HASH_SIZE];
+        for (i, slot) in value.iter_mut().enumerate() {
+            *slot = (i % (MIN_DISTINCT_BYTES - 1)) as u8;
+        }
+        assert!(!has_sufficient_byte_diversity(&value));
+    }
+
+    #[test]
+    fn journal_rejects_low_entropy_binding() {
+        let task = diverse_bytes(10);
+        let authority = diverse_bytes(50);
+        let constraint = diverse_bytes(90);
+        let output = diverse_bytes(130);
+        let binding = [0xAA_u8; HASH_SIZE]; // constant fill — low entropy
+        let nullifier = diverse_bytes(210);
+
+        let journal = sample_journal(task, authority, constraint, output, binding, nullifier);
+        let err = parse_and_validate_journal(&journal).expect_err("must fail");
+        assert_error_name(err, "InsufficientSeedEntropy");
+    }
+
+    #[test]
+    fn journal_rejects_low_entropy_nullifier() {
+        let task = diverse_bytes(10);
+        let authority = diverse_bytes(50);
+        let constraint = diverse_bytes(90);
+        let output = diverse_bytes(130);
+        let binding = diverse_bytes(170);
+        let nullifier = [0xBB_u8; HASH_SIZE]; // constant fill — low entropy
+
+        let journal = sample_journal(task, authority, constraint, output, binding, nullifier);
+        let err = parse_and_validate_journal(&journal).expect_err("must fail");
+        assert_error_name(err, "InsufficientSeedEntropy");
     }
 }
