@@ -21,9 +21,10 @@ describe("ZK Proof Verification Lifecycle (router payload)", () => {
   const TRUSTED_SELECTOR = Buffer.from([0x52, 0x5a, 0x56, 0x4d]);
   const TRUSTED_ROUTER_PROGRAM_ID = new PublicKey("6JvFfBrvCcWgANKh1Eae9xDq4RC6cfJuBcf71rp2k9Y7");
   const TRUSTED_VERIFIER_PROGRAM_ID = new PublicKey("THq1qFYQoh7zgcjXoMXduDBqiZRCPeg3PvvMbrVQUge");
+  // Must match sdk/src/constants.ts TRUSTED_RISC0_IMAGE_ID and on-chain complete_task_private.rs
   const TRUSTED_IMAGE_ID = Buffer.from([
-    6, 15, 16, 25, 34, 43, 44, 53, 62, 71, 72, 81, 90, 99, 100, 109, 118, 127, 128, 137, 146,
-    155, 156, 165, 174, 183, 184, 193, 202, 211, 212, 221,
+    202, 175, 194, 115, 244, 76, 8, 9, 197, 55, 54, 103, 21, 34, 178, 245,
+    211, 97, 58, 48, 7, 14, 121, 214, 109, 60, 64, 137, 170, 156, 79, 219,
   ]);
 
   const [protocolPda] = PublicKey.findProgramAddressSync(
@@ -292,7 +293,6 @@ describe("ZK Proof Verification Lifecycle (router payload)", () => {
       program,
       protocolPda,
       authority: provider.wallet.publicKey,
-      minStakeForDisputeLamports: 0,
       skipPreflight: false,
     });
 

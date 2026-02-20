@@ -28,6 +28,16 @@ export const CAPABILITY_VALIDATOR = 1 << 8;
 export const CAPABILITY_AGGREGATOR = 1 << 9;
 
 // ============================================================================
+// Rate Limit Constants (matches program update_rate_limits.rs)
+// ============================================================================
+
+/**
+ * On-chain minimum for min_stake_for_dispute (update_rate_limits.rs:MIN_DISPUTE_STAKE).
+ * The updateRateLimits instruction rejects values below this with InvalidInput.
+ */
+export const MIN_DISPUTE_STAKE_LAMPORTS = 1000;
+
+// ============================================================================
 // Task Type Constants (matches program)
 // ============================================================================
 
@@ -312,12 +322,19 @@ export async function fundWallets(
 
 /**
  * Disable protocol rate limits for deterministic integration tests.
- * Safe to call repeatedly in before hooks.
+ *
+ * Sets cooldowns to 0 and per-24h limits to 0 (unlimited).
+ * The on-chain MIN_DISPUTE_STAKE (1000 lamports) is used by default for
+ * min_stake_for_dispute — passing 0 will be rejected by the program.
+ *
+ * Safe to call repeatedly in before hooks; silently succeeds if rate limits
+ * are already configured with the same values.
  */
 export async function disableRateLimitsForTests(params: {
   program: Program<AgencCoordination>;
   protocolPda: PublicKey;
   authority: PublicKey;
+  /** Defaults to MIN_DISPUTE_STAKE_LAMPORTS (1000). Must be >= 1000. */
   minStakeForDisputeLamports?: number;
   skipPreflight?: boolean;
 }): Promise<void> {
@@ -325,25 +342,21 @@ export async function disableRateLimitsForTests(params: {
     program,
     protocolPda,
     authority,
-    minStakeForDisputeLamports = 0,
+    minStakeForDisputeLamports = MIN_DISPUTE_STAKE_LAMPORTS,
     skipPreflight = true,
   } = params;
 
-  try {
-    await program.methods
-      .updateRateLimits(
-        new BN(0),
-        0,
-        new BN(0),
-        0,
-        new BN(minStakeForDisputeLamports)
-      )
-      .accountsPartial({ protocolConfig: protocolPda })
-      .remainingAccounts([{ pubkey: authority, isSigner: true, isWritable: false }])
-      .rpc({ skipPreflight });
-  } catch {
-    // Already configured for this validator state
-  }
+  await program.methods
+    .updateRateLimits(
+      new BN(0),                           // task_creation_cooldown = 0 (disabled)
+      0,                                   // max_tasks_per_24h = 0 (unlimited)
+      new BN(0),                           // dispute_initiation_cooldown = 0 (disabled)
+      0,                                   // max_disputes_per_24h = 0 (unlimited)
+      new BN(minStakeForDisputeLamports),  // min_stake_for_dispute (>= 1000)
+    )
+    .accountsPartial({ protocolConfig: protocolPda })
+    .remainingAccounts([{ pubkey: authority, isSigner: true, isWritable: false }])
+    .rpc({ skipPreflight });
 }
 
 /**

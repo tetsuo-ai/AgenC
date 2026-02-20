@@ -29,6 +29,7 @@ import {
   deriveProgramDataPda,
   generateRunId,
   makeAgentId,
+  disableRateLimitsForTests,
 } from "./test-utils";
 
 /**
@@ -140,21 +141,11 @@ describe("CU Benchmarks", () => {
     }
 
     // Disable rate limiting
-    try {
-      await program.methods
-        .updateRateLimits(new BN(0), 0, new BN(0), 0, new BN(0))
-        .accountsPartial({ protocolConfig: protocolPda })
-        .remainingAccounts([
-          {
-            pubkey: provider.wallet.publicKey,
-            isSigner: true,
-            isWritable: false,
-          },
-        ])
-        .rpc({ skipPreflight: true });
-    } catch {
-      // May already be configured
-    }
+    await disableRateLimitsForTests({
+      program,
+      protocolPda,
+      authority: provider.wallet.publicKey,
+    });
   });
 
   it("benchmarks register_agent CU", async () => {

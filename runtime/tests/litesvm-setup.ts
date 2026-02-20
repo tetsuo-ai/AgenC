@@ -363,7 +363,7 @@ export async function initializeProtocol(ctx: RuntimeTestContext): Promise<void>
       0, // max_tasks_per_24h = 0 (unlimited)
       new BN(0), // dispute_initiation_cooldown = 0
       0, // max_disputes_per_24h = 0 (unlimited)
-      new BN(0) // min_stake_for_dispute = 0
+      new BN(1000) // min_stake_for_dispute (>= 1000 required on-chain)
     )
     .accountsPartial({
       protocolConfig: protocolPda,

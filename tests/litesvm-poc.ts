@@ -40,6 +40,7 @@ import {
   TASK_TYPE_EXCLUSIVE,
   getDefaultDeadline,
   deriveProgramDataPda,
+  MIN_DISPUTE_STAKE_LAMPORTS,
 } from "./test-utils";
 
 describe("litesvm-poc", () => {
@@ -114,7 +115,7 @@ describe("litesvm-poc", () => {
           0,
           new BN(0),
           0,
-          new BN(0)
+          new BN(MIN_DISPUTE_STAKE_LAMPORTS)
         )
         .accountsPartial({ protocolConfig: protocolPda })
         .remainingAccounts([
