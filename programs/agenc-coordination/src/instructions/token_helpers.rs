@@ -95,21 +95,30 @@ pub fn validate_token_account(
     Ok(())
 }
 
-/// Validate an UncheckedAccount is a valid SPL token account with the expected mint.
+/// Validate an UncheckedAccount is a valid SPL token account with the expected mint
+/// and authority (SPL token account owner).
 ///
 /// Used for worker_token_account which is UncheckedAccount to allow flexible
-/// destination, but must still be a valid token account with the correct mint.
+/// destination, but must still be a valid token account with the correct mint
+/// and must be owned by the expected authority to prevent reward theft.
+///
+/// SPL TokenAccount layout (first 72 bytes):
+/// - bytes  0..32: mint pubkey
+/// - bytes 32..64: owner (authority) pubkey
+/// - bytes 64..72: amount (u64 LE)
 pub fn validate_unchecked_token_mint(
     account: &AccountInfo,
     expected_mint: &Pubkey,
+    expected_owner: &Pubkey,
 ) -> Result<()> {
     require!(
         account.owner == &anchor_spl::token::ID,
         CoordinationError::InvalidTokenEscrow
     );
     let data = account.try_borrow_data()?;
-    // SPL TokenAccount layout: mint is first 32 bytes after nothing (offset 0)
     require!(data.len() >= 72, CoordinationError::InvalidTokenEscrow);
+
+    // Validate mint (bytes 0..32)
     let mint_bytes: [u8; 32] = data[0..32]
         .try_into()
         .map_err(|_| error!(CoordinationError::InvalidTokenEscrow))?;
@@ -118,5 +127,16 @@ pub fn validate_unchecked_token_mint(
         mint == *expected_mint,
         CoordinationError::InvalidTokenMint
     );
+
+    // Validate token account authority (bytes 32..64)
+    let owner_bytes: [u8; 32] = data[32..64]
+        .try_into()
+        .map_err(|_| error!(CoordinationError::InvalidTokenEscrow))?;
+    let owner = Pubkey::new_from_array(owner_bytes);
+    require!(
+        owner == *expected_owner,
+        CoordinationError::InvalidTokenAccountOwner
+    );
+
     Ok(())
 }

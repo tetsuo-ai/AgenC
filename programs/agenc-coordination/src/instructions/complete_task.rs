@@ -178,7 +178,7 @@ pub fn handler(
             .as_ref()
             .unwrap()
             .to_account_info();
-        validate_unchecked_token_mint(&worker_ta_info, &mint.key())?;
+        validate_unchecked_token_mint(&worker_ta_info, &mint.key(), &ctx.accounts.authority.key())?;
 
         Some(TokenPaymentAccounts {
             token_escrow_ata: token_escrow.to_account_info(),

@@ -610,4 +610,7 @@ pub enum CoordinationError {
     // ZK security errors (sequential from enum position)
     #[msg("Private tasks (non-zero constraint_hash) must use complete_task_private")]
     PrivateTaskRequiresZkProof,
+
+    #[msg("Token account owner does not match expected authority")]
+    InvalidTokenAccountOwner,
 }

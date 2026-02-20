@@ -6751,7 +6751,7 @@ export type AgencCoordination = {
     {
       "code": 6052,
       "name": "invalidProofSize",
-      "msg": "Invalid proof size - expected 256 bytes for Groth16"
+      "msg": "Invalid proof size - expected 256 bytes for RISC Zero seal body"
     },
     {
       "code": 6053,
@@ -7447,6 +7447,11 @@ export type AgencCoordination = {
       "code": 6191,
       "name": "privateTaskRequiresZkProof",
       "msg": "Private tasks (non-zero constraint_hash) must use complete_task_private"
+    },
+    {
+      "code": 6192,
+      "name": "invalidTokenAccountOwner",
+      "msg": "Token account owner does not match expected authority"
     }
   ],
   "types": [
