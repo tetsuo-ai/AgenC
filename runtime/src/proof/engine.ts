@@ -16,7 +16,6 @@ import {
   generateSalt as sdkGenerateSalt,
 } from '@agenc/sdk';
 import type { HashResult, ProverConfig as SdkProverConfig } from '@agenc/sdk';
-import type { PublicKey } from '@solana/web3.js';
 import type { ProofGenerator } from '../task/proof-pipeline.js';
 import type { OnChainTask, TaskExecutionResult, PrivateTaskExecutionResult } from '../task/types.js';
 import type { Logger } from '../utils/logger.js';
@@ -36,66 +35,7 @@ import type {
 import { ProofCache } from './cache.js';
 import { ProofGenerationError, ProofVerificationError } from './errors.js';
 const METHOD_ID_LEN = 32;
-const LEGACY_BINDING_DIGEST_KEY = `expected${'Binding'}`;
-const LEGACY_BINDING_VALUE_KEY = `binding${'Value'}`;
 
-function getBinding(hashes: HashResult): bigint {
-  const hashRecord = hashes as unknown as Record<string, bigint>;
-  if (typeof hashRecord.binding === 'bigint') {
-    return hashRecord.binding;
-  }
-  const legacyBinding = hashRecord[LEGACY_BINDING_DIGEST_KEY];
-  if (typeof legacyBinding === 'bigint') {
-    return legacyBinding;
-  }
-  throw new ProofVerificationError('Missing binding in hash result');
-}
-
-type SdkProofLike = {
-  bindingSeed?: Uint8Array | Buffer;
-  bindingValue?: Uint8Array | Buffer;
-};
-
-function getBindingSeed(result: SdkProofLike): Uint8Array {
-  const bindingSeed = result.bindingSeed ?? result[LEGACY_BINDING_VALUE_KEY as keyof SdkProofLike];
-  if (!bindingSeed) {
-    throw new ProofGenerationError('Missing binding seed in generated proof result');
-  }
-  return new Uint8Array(bindingSeed);
-}
-
-/**
- * Build the 68-element public signals array for local ZK proof verification.
- * Format: 32 task bytes + 32 agent bytes + constraintHash + outputCommitment + binding + nullifier
- * Each byte of task/agent key becomes a separate bigint field element.
- */
-function buildPublicSignals(
-  taskPda: PublicKey,
-  agentPubkey: PublicKey,
-  hashes: HashResult,
-): bigint[] {
-  const signals: bigint[] = [];
-
-  // 32 task bytes as individual field elements
-  for (const byte of taskPda.toBytes()) {
-    signals.push(BigInt(byte));
-  }
-
-  // 32 agent bytes as individual field elements
-  for (const byte of agentPubkey.toBytes()) {
-    signals.push(BigInt(byte));
-  }
-
-  // 3 scalar field elements
-  signals.push(hashes.constraintHash);
-  signals.push(hashes.outputCommitment);
-  signals.push(getBinding(hashes));
-
-  // Nullifier field committed in the deterministic public signal layout
-  signals.push(hashes.nullifier);
-
-  return signals; // length = 68
-}
 
 /**
  * Map runtime ProverBackendConfig to SDK's ProverConfig for real prover backends.
@@ -258,7 +198,7 @@ export class ProofEngine implements ProofGenerator {
       sealBytes: new Uint8Array(sdkResult.sealBytes),
       journal: new Uint8Array(sdkResult.journal),
       imageId: new Uint8Array(sdkResult.imageId),
-      bindingSeed: getBindingSeed(sdkResult),
+      bindingSeed: new Uint8Array(sdkResult.bindingSeed),
       nullifierSeed: new Uint8Array(sdkResult.nullifierSeed),
       proofSize: sdkResult.sealBytes.length,
       generationTimeMs,
@@ -280,17 +220,9 @@ export class ProofEngine implements ProofGenerator {
       } else {
         this._verificationsPerformed++;
         try {
-          // SECURITY FIX: Build the full 68-element public signals array.
-          // Previously passed empty [], making verification always pass trivially.
-          const verifyHashes = sdkComputeHashes(
-            inputs.taskPda, inputs.agentPubkey, inputs.output, inputs.salt, inputs.agentSecret,
-          );
-          const publicSignals = buildPublicSignals(
-            inputs.taskPda, inputs.agentPubkey, verifyHashes,
-          );
           const valid = await sdkVerifyProofLocally(
             sdkResult.sealBytes,
-            publicSignals,
+            sdkResult.journal,
           );
           if (!valid) {
             this._verificationsFailed++;
@@ -318,13 +250,13 @@ export class ProofEngine implements ProofGenerator {
   }
 
   /**
-   * Verify a proof locally.
+   * Verify a proof locally against its journal.
    */
-  async verify(proof: Uint8Array, publicSignals: bigint[]): Promise<boolean> {
+  async verify(proof: Uint8Array, journal: Uint8Array): Promise<boolean> {
     this._verificationsPerformed++;
     try {
       const proofBuffer = Buffer.from(proof);
-      const valid = await sdkVerifyProofLocally(proofBuffer, publicSignals);
+      const valid = await sdkVerifyProofLocally(proofBuffer, Buffer.from(journal));
       if (!valid) {
         this._verificationsFailed++;
       }
