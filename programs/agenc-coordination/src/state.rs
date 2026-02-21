@@ -393,7 +393,7 @@ pub struct AgentRegistration {
     /// Can be adjusted via protocol config in future versions
     pub reputation: u16,
     /// Active task count
-    pub active_tasks: u8,
+    pub active_tasks: u16,
     /// Stake amount (for arbiters)
     pub stake: u64,
     /// Bump seed
@@ -420,7 +420,7 @@ pub struct AgentRegistration {
     /// Reserved bytes for future use.
     /// Note: Not validated on deserialization - may contain arbitrary data
     /// from previous versions. New fields should handle this gracefully.
-    pub _reserved: [u8; 5],
+    pub _reserved: [u8; 4],
 }
 
 impl AgentRegistration {
@@ -436,7 +436,7 @@ impl AgentRegistration {
         8 +  // tasks_completed
         8 +  // total_earned
         2 +  // reputation
-        1 +  // active_tasks
+        2 +  // active_tasks
         8 +  // stake
         1 +  // bump
         8 +  // last_task_created
@@ -448,12 +448,12 @@ impl AgentRegistration {
         8 +  // last_vote_timestamp
         8 +  // last_state_update
         1 +  // disputes_as_defendant
-        5; // reserved
+        4; // reserved
 
     /// Validates that reserved bytes are zeroed.
     /// Called during migration to ensure no data corruption.
     pub fn validate_reserved_fields(&self) -> bool {
-        self._reserved == [0u8; 5]
+        self._reserved == [0u8; 4]
     }
 }
 
@@ -1514,7 +1514,7 @@ mod tests {
     #[test]
     fn test_agent_registration_reserved_fields_default_to_zero() {
         let agent = AgentRegistration::default();
-        assert_eq!(agent._reserved, [0u8; 5]);
+        assert_eq!(agent._reserved, [0u8; 4]);
     }
 
     #[test]

@@ -94,11 +94,12 @@ export interface ProofInputs {
    * Private witness for the zkVM guest's `agent_secret` input.
    * Used to derive nullifier seed bytes in SDK proof generation.
    *
-   * SECURITY: If omitted, the SDK falls back to `pubkeyToField(agentPubkey)`,
-   * which makes the nullifier predictable by anyone who knows the agent's
-   * public key (always public on-chain). Pass an explicit secret for production use.
+   * SECURITY: Must be a secret known only to the agent. Using a predictable
+   * value allows anyone who knows the agent's
+   * public key (always public on-chain) to predict the nullifier and front-run
+   * proof submissions.
    */
-  agentSecret?: bigint;
+  agentSecret: bigint;
 }
 
 /**

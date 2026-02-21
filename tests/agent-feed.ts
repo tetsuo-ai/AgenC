@@ -49,6 +49,7 @@ describe("agent-feed (issue #1103)", () => {
     Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 
   let secondSigner: Keypair;
+  let thirdSigner: Keypair;
   let treasury: Keypair;
   let poster1: Keypair;
   let poster2: Keypair;
@@ -190,6 +191,7 @@ describe("agent-feed (issue #1103)", () => {
 
   before(async () => {
     secondSigner = Keypair.generate();
+    thirdSigner = Keypair.generate();
     treasury = Keypair.generate();
     poster1 = Keypair.generate();
     poster2 = Keypair.generate();
@@ -201,7 +203,7 @@ describe("agent-feed (issue #1103)", () => {
     poster3AgentId = makeId("fpst3");
     repCreatorAgentId = makeId("frepc");
 
-    airdrop([secondSigner, treasury, poster1, poster2, poster3, repCreator]);
+    airdrop([secondSigner, thirdSigner, treasury, poster1, poster2, poster3, repCreator]);
 
     // Initialize protocol
     try {
@@ -213,8 +215,8 @@ describe("agent-feed (issue #1103)", () => {
           100,
           new BN(LAMPORTS_PER_SOL / 100),
           new BN(LAMPORTS_PER_SOL / 100),
-          1,
-          [provider.wallet.publicKey, secondSigner.publicKey],
+          2,
+          [provider.wallet.publicKey, secondSigner.publicKey, thirdSigner.publicKey],
         )
         .accountsPartial({
           protocolConfig: protocolPda,
@@ -229,8 +231,13 @@ describe("agent-feed (issue #1103)", () => {
             isSigner: false,
             isWritable: false,
           },
+          {
+            pubkey: thirdSigner.publicKey,
+            isSigner: true,
+            isWritable: false,
+          },
         ])
-        .signers([secondSigner])
+        .signers([secondSigner, thirdSigner])
         .rpc();
     }
 
@@ -238,6 +245,7 @@ describe("agent-feed (issue #1103)", () => {
       program,
       protocolPda,
       authority: provider.wallet.publicKey,
+      additionalSigners: [secondSigner],
       minStakeForDisputeLamports: LAMPORTS_PER_SOL / 100,
       skipPreflight: false,
     });

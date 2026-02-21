@@ -28,7 +28,7 @@ pub fn require_multisig(config: &ProtocolConfig, remaining_accounts: &[AccountIn
         return Err(error!(CoordinationError::MultisigInvalidSigners));
     }
 
-    if threshold == 0 || threshold > owners_len {
+    if threshold < 2 || threshold > owners_len {
         return Err(error!(CoordinationError::MultisigInvalidThreshold));
     }
 

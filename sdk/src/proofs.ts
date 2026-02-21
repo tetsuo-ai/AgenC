@@ -62,10 +62,12 @@ export interface ProofGenerationParams {
   output: bigint[];
   salt: bigint;
   /**
-   * Optional private witness for nullifier derivation.
-   * If omitted, SDK uses `pubkeyToField(agentPubkey)` as a compatibility fallback.
+   * Private witness for nullifier derivation.
+   * SECURITY: Must be a secret known only to the agent. Using a predictable
+   * value (e.g., derived from the public key) allows anyone to predict the
+   * nullifier and front-run proof submissions.
    */
-  agentSecret?: bigint;
+  agentSecret: bigint;
   /**
    * Optional image ID override. Must be exactly 32 bytes.
    * If omitted, uses the pinned trusted SDK value.
@@ -240,23 +242,15 @@ export function computeHashes(
   agentPubkey: PublicKey,
   output: bigint[],
   salt: bigint,
-  agentSecret?: bigint,
+  agentSecret: bigint,
 ): HashResult {
   const constraintHash = computeConstraintHash(output);
   const outputCommitment = computeCommitmentFromOutput(output, salt);
   const binding = computeBinding(taskPda, agentPubkey, outputCommitment);
-  if (agentSecret === undefined) {
-    console.warn(
-      "SECURITY WARNING: agentSecret not provided to computeHashes(). Falling back to " +
-        "pubkeyToField(agentPubkey), which makes the nullifier predictable by anyone. " +
-        "Pass an explicit agentSecret for production use.",
-    );
-  }
-  const effectiveAgentSecret = agentSecret ?? pubkeyToField(agentPubkey);
   const nullifier = computeNullifierFromAgentSecret(
     constraintHash,
     outputCommitment,
-    effectiveAgentSecret,
+    agentSecret,
   );
 
   return {
@@ -364,20 +358,12 @@ export async function generateProof(
     );
   }
 
-  if (params.agentSecret === undefined) {
-    console.warn(
-      "SECURITY WARNING: agentSecret not provided to generateProof(). Falling back to " +
-        "pubkeyToField(agentPubkey), which makes the nullifier predictable by anyone. " +
-        "Pass an explicit agentSecret for production use.",
-    );
-  }
-  const agentSecret = params.agentSecret ?? pubkeyToField(params.agentPubkey);
   const hashes = computeHashes(
     params.taskPda,
     params.agentPubkey,
     params.output,
     params.salt,
-    agentSecret,
+    params.agentSecret,
   );
 
   const constraintHashBuf = bigintToBytes32(hashes.constraintHash);

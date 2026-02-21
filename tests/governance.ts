@@ -53,6 +53,7 @@ describe("governance (issue #1106)", () => {
     Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 
   let secondSigner: Keypair;
+  let thirdSigner: Keypair;
   let treasury: Keypair;
   let proposer: Keypair;
   let voter1: Keypair;
@@ -187,6 +188,7 @@ describe("governance (issue #1106)", () => {
 
   before(async () => {
     secondSigner = Keypair.generate();
+    thirdSigner = Keypair.generate();
     treasury = Keypair.generate();
     proposer = Keypair.generate();
     voter1 = Keypair.generate();
@@ -202,6 +204,7 @@ describe("governance (issue #1106)", () => {
 
     airdrop([
       secondSigner,
+      thirdSigner,
       treasury,
       proposer,
       voter1,
@@ -220,8 +223,8 @@ describe("governance (issue #1106)", () => {
           100,
           new BN(LAMPORTS_PER_SOL / 100), // min_stake
           new BN(LAMPORTS_PER_SOL / 100), // min_stake_for_dispute
-          1,
-          [provider.wallet.publicKey, secondSigner.publicKey],
+          2,
+          [provider.wallet.publicKey, secondSigner.publicKey, thirdSigner.publicKey],
         )
         .accountsPartial({
           protocolConfig: protocolPda,
@@ -236,8 +239,13 @@ describe("governance (issue #1106)", () => {
             isSigner: false,
             isWritable: false,
           },
+          {
+            pubkey: thirdSigner.publicKey,
+            isSigner: true,
+            isWritable: false,
+          },
         ])
-        .signers([secondSigner])
+        .signers([secondSigner, thirdSigner])
         .rpc();
     }
 
@@ -245,6 +253,7 @@ describe("governance (issue #1106)", () => {
       program,
       protocolPda,
       authority: provider.wallet.publicKey,
+      additionalSigners: [secondSigner],
       minStakeForDisputeLamports: LAMPORTS_PER_SOL / 100,
       skipPreflight: false,
     });
@@ -732,7 +741,13 @@ describe("governance (issue #1106)", () => {
               isSigner: true,
               isWritable: false,
             },
+            {
+              pubkey: secondSigner.publicKey,
+              isSigner: true,
+              isWritable: false,
+            },
           ])
+          .signers([secondSigner])
           .rpc();
       } catch {
         // Best effort

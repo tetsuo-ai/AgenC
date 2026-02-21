@@ -212,6 +212,8 @@ describe("complete_task_private (LiteSVM + mock router)", () => {
     return { taskPda, escrowPda, claimPda };
   }
 
+  const TEST_AGENT_SECRET = 42n;
+
   function buildProofForTask(
     taskPda: PublicKey,
     workerPubkey: PublicKey,
@@ -219,7 +221,7 @@ describe("complete_task_private (LiteSVM + mock router)", () => {
     output: bigint[],
     salt: bigint,
   ) {
-    const hashes = computeHashes(taskPda, workerPubkey, output, salt);
+    const hashes = computeHashes(taskPda, workerPubkey, output, salt, TEST_AGENT_SECRET);
     const bindingSeed = bigintToBytes32(hashes.binding);
     const nullifierSeed = bigintToBytes32(hashes.nullifier);
     const outputCommitment = bigintToBytes32(hashes.outputCommitment);
@@ -255,9 +257,10 @@ describe("complete_task_private (LiteSVM + mock router)", () => {
     verifierEntryPda = deriveVerifierEntryPda();
 
     treasury = Keypair.generate();
+    const thirdSigner = Keypair.generate();
     creator = Keypair.generate();
     worker = Keypair.generate();
-    for (const kp of [treasury, creator, worker]) {
+    for (const kp of [treasury, thirdSigner, creator, worker]) {
       fundAccount(ctx.svm, kp.publicKey, 50 * LAMPORTS_PER_SOL);
     }
 
@@ -267,8 +270,8 @@ describe("complete_task_private (LiteSVM + mock router)", () => {
         100,
         new BN(LAMPORTS_PER_SOL),
         new BN(LAMPORTS_PER_SOL / 100),
-        1,
-        [ctx.payer.publicKey, treasury.publicKey],
+        2,
+        [ctx.payer.publicKey, treasury.publicKey, thirdSigner.publicKey],
       )
       .accountsPartial({
         protocolConfig: protocolPda,
@@ -283,14 +286,20 @@ describe("complete_task_private (LiteSVM + mock router)", () => {
           isSigner: false,
           isWritable: false,
         },
+        {
+          pubkey: thirdSigner.publicKey,
+          isSigner: true,
+          isWritable: false,
+        },
       ])
-      .signers([treasury])
+      .signers([treasury, thirdSigner])
       .rpc();
 
     await disableRateLimitsForTests({
       program,
       protocolPda,
       authority: ctx.payer.publicKey,
+      additionalSigners: [treasury],
     });
 
     const creatorAgentId = makeAgentId("zkc", runId);
@@ -403,7 +412,7 @@ describe("complete_task_private (LiteSVM + mock router)", () => {
       await createTaskAndClaim(constraintHashBuf, taskIdBuf2);
 
     // Build journal for second task but reuse binding/nullifier
-    const hashes = computeHashes(taskPda, worker.publicKey, output, salt);
+    const hashes = computeHashes(taskPda, worker.publicKey, output, salt, TEST_AGENT_SECRET);
     const outputCommitment = bigintToBytes32(hashes.outputCommitment);
     const journal2 = buildTestJournal({
       taskPda: task2Pda.toBuffer(),
@@ -492,7 +501,7 @@ describe("complete_task_private (LiteSVM + mock router)", () => {
       taskIdBuf,
     );
 
-    const hashes = computeHashes(taskPda, worker.publicKey, output, salt);
+    const hashes = computeHashes(taskPda, worker.publicKey, output, salt, TEST_AGENT_SECRET);
     const bindingSeed = bigintToBytes32(hashes.binding);
     const nullifierSeed = bigintToBytes32(hashes.nullifier);
     const outputCommitment = bigintToBytes32(hashes.outputCommitment);
@@ -547,7 +556,7 @@ describe("complete_task_private (LiteSVM + mock router)", () => {
       taskIdBuf,
     );
 
-    const hashes = computeHashes(taskPda, worker.publicKey, output, salt);
+    const hashes = computeHashes(taskPda, worker.publicKey, output, salt, TEST_AGENT_SECRET);
     const nullifierSeed = bigintToBytes32(hashes.nullifier);
     const outputCommitment = bigintToBytes32(hashes.outputCommitment);
 

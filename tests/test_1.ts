@@ -47,6 +47,7 @@ describe("test_1", () => {
   let treasury: Keypair;
   let treasuryPubkey: PublicKey; // Actual treasury from protocol config
   let secondSigner: Keypair; // Required for protocol initialization (fix #556)
+  let thirdSigner: Keypair; // Required for multisig threshold >= 2 (fix HIGH-6)
   let creator: Keypair;
   let worker1: Keypair;
   let worker2: Keypair;
@@ -202,6 +203,7 @@ describe("test_1", () => {
   before(async () => {
     treasury = Keypair.generate();
     secondSigner = Keypair.generate(); // Required for protocol initialization (fix #556)
+    thirdSigner = Keypair.generate(); // Required for multisig threshold >= 2 (fix HIGH-6)
     creator = Keypair.generate();
     worker1 = Keypair.generate();
     worker2 = Keypair.generate();
@@ -217,6 +219,7 @@ describe("test_1", () => {
     const wallets = [
       treasury,
       secondSigner,
+      thirdSigner,
       creator,
       worker1,
       worker2,
@@ -229,12 +232,12 @@ describe("test_1", () => {
     }
 
     try {
-      // Protocol initialization requires (fix #556):
+      // Protocol initialization requires (fix #556, HIGH-6):
       // - min_stake >= 0.001 SOL (1_000_000 lamports)
       // - min_stake_for_dispute > 0
       // - second_signer different from authority
       // - both authority and second_signer in multisig_owners
-      // - threshold < multisig_owners.length
+      // - threshold >= 2 and threshold < multisig_owners.length
       const minStake = new BN(LAMPORTS_PER_SOL / 100); // 0.01 SOL = 10_000_000 lamports
       const minStakeForDispute = new BN(LAMPORTS_PER_SOL / 100); // 0.01 SOL
       const programDataPda = deriveProgramDataPda(program.programId);
@@ -244,8 +247,8 @@ describe("test_1", () => {
           100, // protocol_fee_bps
           minStake, // min_stake
           minStakeForDispute, // min_stake_for_dispute (new arg)
-          1, // multisig_threshold (must be < owners.length)
-          [provider.wallet.publicKey, secondSigner.publicKey], // multisig_owners (need at least 2)
+          2, // multisig_threshold (must be >= 2 and < owners.length)
+          [provider.wallet.publicKey, secondSigner.publicKey, thirdSigner.publicKey], // multisig_owners (need at least 3 for threshold=2)
         )
         .accountsPartial({
           protocolConfig: protocolPda,
@@ -260,8 +263,13 @@ describe("test_1", () => {
             isSigner: false,
             isWritable: false,
           },
+          {
+            pubkey: thirdSigner.publicKey,
+            isSigner: true,
+            isWritable: false,
+          },
         ])
-        .signers([secondSigner])
+        .signers([secondSigner, thirdSigner])
         .rpc();
       treasuryPubkey = secondSigner.publicKey;
     } catch (e: unknown) {
@@ -277,6 +285,7 @@ describe("test_1", () => {
       program,
       protocolPda,
       authority: provider.wallet.publicKey,
+      additionalSigners: [secondSigner],
     });
 
     creatorAgentPda = deriveAgentPda(creatorAgentId);

@@ -151,6 +151,7 @@ describe("AgenC Devnet Smoke Tests", () => {
   // Test accounts
   let protocolAuthority: Keypair;
   let secondSigner: Keypair;
+  let thirdSigner: Keypair;
   let treasury: Keypair;
   let agent1Authority: Keypair;
   let agent2Authority: Keypair;
@@ -173,6 +174,7 @@ describe("AgenC Devnet Smoke Tests", () => {
     // Generate test keypairs
     protocolAuthority = payer ?? Keypair.generate();
     secondSigner = Keypair.generate();
+    thirdSigner = Keypair.generate();
     treasury = Keypair.generate();
     agent1Authority = Keypair.generate();
     agent2Authority = Keypair.generate();
@@ -193,6 +195,7 @@ describe("AgenC Devnet Smoke Tests", () => {
     const accounts = [
       protocolAuthority,
       secondSigner,
+      thirdSigner,
       agent1Authority,
       agent2Authority,
       taskCreator,
@@ -231,8 +234,8 @@ describe("AgenC Devnet Smoke Tests", () => {
             PROTOCOL_FEE_BPS, // protocol_fee_bps: u16
             new BN(MIN_STAKE), // min_stake: u64
             new BN(0), // min_stake_for_dispute: u64
-            2, // multisig_threshold: u8
-            [protocolAuthority.publicKey, secondSigner.publicKey], // multisig_owners: Vec<Pubkey>
+            2, // multisig_threshold: u8 (must be >= 2 and < owners.length)
+            [protocolAuthority.publicKey, secondSigner.publicKey, thirdSigner.publicKey], // multisig_owners: Vec<Pubkey>
           )
           .accountsPartial({
             treasury: treasury.publicKey,
@@ -245,8 +248,13 @@ describe("AgenC Devnet Smoke Tests", () => {
               isSigner: false,
               isWritable: false,
             },
+            {
+              pubkey: thirdSigner.publicKey,
+              isSigner: true,
+              isWritable: false,
+            },
           ])
-          .signers([protocolAuthority, secondSigner])
+          .signers([protocolAuthority, secondSigner, thirdSigner])
           .rpc();
 
         treasuryPubkey = treasury.publicKey;

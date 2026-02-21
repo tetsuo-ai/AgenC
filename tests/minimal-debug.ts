@@ -49,10 +49,12 @@ describe("minimal-debug", () => {
   it("should initialize protocol", async () => {
     const treasury = Keypair.generate();
     const secondSigner = Keypair.generate();
+    const thirdSigner = Keypair.generate();
     console.log("Treasury:", treasury.publicKey.toBase58());
     console.log("SecondSigner:", secondSigner.publicKey.toBase58());
+    console.log("ThirdSigner:", thirdSigner.publicKey.toBase58());
 
-    // Airdrop to treasury and secondSigner
+    // Airdrop to treasury, secondSigner, and thirdSigner
     const airdropSig1 = await provider.connection.requestAirdrop(
       treasury.publicKey,
       LAMPORTS_PER_SOL,
@@ -61,9 +63,14 @@ describe("minimal-debug", () => {
       secondSigner.publicKey,
       LAMPORTS_PER_SOL,
     );
+    const airdropSig3 = await provider.connection.requestAirdrop(
+      thirdSigner.publicKey,
+      LAMPORTS_PER_SOL,
+    );
     await provider.connection.confirmTransaction(airdropSig1, "confirmed");
     await provider.connection.confirmTransaction(airdropSig2, "confirmed");
-    console.log("Treasury and secondSigner funded");
+    await provider.connection.confirmTransaction(airdropSig3, "confirmed");
+    console.log("Treasury, secondSigner, and thirdSigner funded");
 
     try {
       console.log("Calling initializeProtocol...");
@@ -72,7 +79,7 @@ describe("minimal-debug", () => {
       // - min_stake_for_dispute > 0
       // - second_signer different from authority
       // - both authority and second_signer in multisig_owners
-      // - threshold < multisig_owners.length
+      // - threshold >= 2 and threshold < multisig_owners.length
       const minStake = new BN(LAMPORTS_PER_SOL / 100); // 0.01 SOL
       const minStakeForDispute = new BN(LAMPORTS_PER_SOL / 100); // 0.01 SOL
       const programDataPda = deriveProgramDataPda(program.programId);
@@ -82,8 +89,8 @@ describe("minimal-debug", () => {
           100, // protocol_fee_bps
           minStake, // min_stake
           minStakeForDispute, // min_stake_for_dispute (new arg)
-          1, // multisig_threshold (must be < owners.length)
-          [provider.wallet.publicKey, secondSigner.publicKey], // multisig_owners (need at least 2)
+          2, // multisig_threshold (must be >= 2 and < owners.length)
+          [provider.wallet.publicKey, secondSigner.publicKey, thirdSigner.publicKey], // multisig_owners (need at least 3 for threshold=2)
         )
         .accountsPartial({
           protocolConfig: protocolPda,
@@ -98,8 +105,13 @@ describe("minimal-debug", () => {
             isSigner: false,
             isWritable: false,
           },
+          {
+            pubkey: thirdSigner.publicKey,
+            isSigner: true,
+            isWritable: false,
+          },
         ])
-        .signers([secondSigner])
+        .signers([secondSigner, thirdSigner])
         .rpc();
       console.log("Transaction signature:", tx);
       console.log("Protocol initialized successfully!");

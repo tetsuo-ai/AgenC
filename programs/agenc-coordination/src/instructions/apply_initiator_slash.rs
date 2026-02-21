@@ -116,6 +116,11 @@ pub fn handler(ctx: Context<ApplyInitiatorSlash>) -> Result<()> {
         CoordinationError::InsufficientStake
     );
 
+    require!(
+        config.slash_percentage <= 100,
+        CoordinationError::InvalidInput
+    );
+
     let slash_amount = initiator_agent
         .stake
         .checked_mul(config.slash_percentage as u64)

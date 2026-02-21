@@ -42,7 +42,7 @@ pub fn handler(
     // threshold must be strictly less than owner count to preserve recovery
     // capacity if one key is lost.
     require!(
-        new_threshold > 0 && (new_threshold as usize) < new_owners.len(),
+        new_threshold >= 2 && (new_threshold as usize) < new_owners.len(),
         CoordinationError::MultisigInvalidThreshold
     );
     validate_multisig_owners(&new_owners)?;

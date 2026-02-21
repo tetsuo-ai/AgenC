@@ -156,8 +156,10 @@ describe("E2E Real RISC Zero Groth16 Proof Verification", function () {
     console.log("Creator:", creator.publicKey.toBase58());
     console.log("Worker:", worker.publicKey.toBase58());
 
+    const thirdSigner = Keypair.generate();
+
     // Fund accounts
-    for (const keypair of [treasury, creator, worker]) {
+    for (const keypair of [treasury, thirdSigner, creator, worker]) {
       const sig = await provider.connection.requestAirdrop(
         keypair.publicKey,
         10 * LAMPORTS_PER_SOL,
@@ -173,8 +175,8 @@ describe("E2E Real RISC Zero Groth16 Proof Verification", function () {
           100, // protocol_fee_bps
           new BN(LAMPORTS_PER_SOL), // min_agent_stake
           new BN(LAMPORTS_PER_SOL / 100), // min_task_stake
-          1, // multisig_threshold
-          [provider.wallet.publicKey, treasury.publicKey],
+          2, // multisig_threshold (must be >= 2 and < owners.length)
+          [provider.wallet.publicKey, treasury.publicKey, thirdSigner.publicKey],
         )
         .accountsPartial({
           protocolConfig: protocolPda,
@@ -189,8 +191,13 @@ describe("E2E Real RISC Zero Groth16 Proof Verification", function () {
             isSigner: false,
             isWritable: false,
           },
+          {
+            pubkey: thirdSigner.publicKey,
+            isSigner: true,
+            isWritable: false,
+          },
         ])
-        .signers([treasury])
+        .signers([treasury, thirdSigner])
         .rpc();
       treasuryPubkey = treasury.publicKey;
     } catch (_e) {

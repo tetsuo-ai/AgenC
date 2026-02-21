@@ -147,7 +147,7 @@ pub fn handler(
     require!(
         // Fix #505: Require threshold < owners count to ensure protocol remains
         // operational even if one key is lost. This prevents lockout scenarios.
-        multisig_threshold > 0 && (multisig_threshold as usize) < multisig_owners.len(),
+        multisig_threshold >= 2 && (multisig_threshold as usize) < multisig_owners.len(),
         CoordinationError::MultisigInvalidThreshold
     );
 
@@ -245,6 +245,8 @@ pub fn handler(
     config.dispute_initiation_cooldown = DEFAULT_DISPUTE_INITIATION_COOLDOWN;
     config.max_disputes_per_24h = DEFAULT_MAX_DISPUTES_PER_24H;
     config.min_stake_for_dispute = min_stake_for_dispute;
+    // Compile-time assertion: DEFAULT_SLASH_PERCENTAGE must not exceed 100%
+    const _: () = assert!(ProtocolConfig::DEFAULT_SLASH_PERCENTAGE <= 100);
     config.slash_percentage = ProtocolConfig::DEFAULT_SLASH_PERCENTAGE;
     config.voting_period = ProtocolConfig::DEFAULT_VOTING_PERIOD;
     // Versioning
