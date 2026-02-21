@@ -19,6 +19,7 @@ import {
   SendTransactionError,
 } from '@solana/web3.js';
 import * as bs58 from 'bs58';
+import { fileURLToPath } from 'node:url';
 import type { AgencCoordination } from '../src/types/agenc_coordination.js';
 
 const BPF_LOADER_UPGRADEABLE_ID = new PublicKey(
@@ -291,8 +292,16 @@ export function createRuntimeTestContext(): RuntimeTestContext {
   // Extend the connection proxy with methods needed by Anchor + AgentManager
   extendConnectionProxy(svm, (provider as any).connection, wallet);
 
-  // Load IDL and create typed Program instance
-  const idl = require('../idl/agenc_coordination.json');
+  // Use canonical workspace instruction shapes and ensure the corresponding
+  // program binary is loaded at the IDL-declared address.
+  const idl = require('../../target/idl/agenc_coordination.json');
+  const canonicalProgramId = new PublicKey(idl.address);
+  if (!svm.getAccount(canonicalProgramId)) {
+    const programBinaryPath = fileURLToPath(
+      new URL('../../target/deploy/agenc_coordination.so', import.meta.url)
+    );
+    svm.addProgramFromFile(canonicalProgramId, programBinaryPath);
+  }
   const program = new Program<AgencCoordination>(idl as any, provider);
 
   // Inject BPF Loader Upgradeable ProgramData PDA
@@ -333,45 +342,100 @@ export async function initializeProtocol(ctx: RuntimeTestContext): Promise<void>
 
   const minStake = new BN(LAMPORTS_PER_SOL / 100); // 0.01 SOL
   const minStakeForDispute = new BN(LAMPORTS_PER_SOL / 100); // 0.01 SOL
+  const initializeProtocolIx = (program.idl as any).instructions?.find((ix: any) => (
+    ix?.name === 'initialize_protocol' || ix?.name === 'initializeProtocol'
+  ));
+  const initializeArgNames = new Set<string>(
+    (initializeProtocolIx?.args ?? []).map((arg: any) => String(arg?.name))
+  );
+  const initializeAccountNames = new Set<string>(
+    (initializeProtocolIx?.accounts ?? []).map((account: any) => String(account?.name))
+  );
+  const includesDisputeStakeArg = initializeArgNames.has('min_stake_for_dispute')
+    || initializeArgNames.has('minStakeForDispute');
+  const includesMultisigArgs = initializeArgNames.has('multisig_threshold')
+    || initializeArgNames.has('multisigThreshold')
+    || initializeArgNames.has('multisig_owners')
+    || initializeArgNames.has('multisigOwners');
+  const includesSecondSignerAccount = initializeAccountNames.has('second_signer')
+    || initializeAccountNames.has('secondSigner');
 
-  await program.methods
-    .initializeProtocol(
-      51, // dispute_threshold
-      100, // protocol_fee_bps
-      minStake, // min_stake (must be >= 0.001 SOL per on-chain check)
-      minStakeForDispute, // min_stake_for_dispute (must be > 0)
+  const initializeArgs: unknown[] = [
+    51, // dispute_threshold
+    100, // protocol_fee_bps
+    minStake, // min_stake
+  ];
+  if (includesDisputeStakeArg) {
+    initializeArgs.push(minStakeForDispute); // min_stake_for_dispute
+  }
+  if (includesMultisigArgs) {
+    initializeArgs.push(
       1, // multisig_threshold
-      [payer.publicKey, secondSigner.publicKey] // multisig_owners
-    )
+      [payer.publicKey, secondSigner.publicKey], // multisig_owners
+    );
+  }
+
+  const initializeRemainingAccounts: Array<{ pubkey: PublicKey; isSigner: boolean; isWritable: boolean }> = [
+    // Some program variants validate upgrade authority through ProgramData.
+    // Passing it is harmless for variants that ignore remaining accounts.
+    { pubkey: programDataPda, isSigner: false, isWritable: false },
+  ];
+
+  if (includesMultisigArgs && !includesSecondSignerAccount) {
+    // Older canonical program variants collect additional multisig signers
+    // from remaining accounts rather than a dedicated secondSigner account.
+    initializeRemainingAccounts.push({
+      pubkey: secondSigner.publicKey,
+      isSigner: true,
+      isWritable: false,
+    });
+  }
+
+  let initializeBuilder = (program.methods as any)
+    .initializeProtocol(...initializeArgs)
     .accountsPartial({
       protocolConfig: protocolPda,
       treasury: treasury.publicKey,
       authority: payer.publicKey,
-      secondSigner: secondSigner.publicKey,
+      ...(includesSecondSignerAccount ? { secondSigner: secondSigner.publicKey } : {}),
       systemProgram: SystemProgram.programId,
     })
-    .remainingAccounts([
-      { pubkey: programDataPda, isSigner: false, isWritable: false },
-    ])
-    .signers([secondSigner])
-    .rpc();
+    .remainingAccounts(initializeRemainingAccounts);
+
+  if (includesSecondSignerAccount || includesMultisigArgs) {
+    initializeBuilder = initializeBuilder.signers([secondSigner]);
+  }
+
+  try {
+    await initializeBuilder.rpc();
+  } catch (error) {
+    throw new Error(
+      `initialize_protocol failed in LiteSVM setup: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
 
   // Disable rate limits for tests
-  await program.methods
-    .updateRateLimits(
-      new BN(0), // task_creation_cooldown = 0
-      0, // max_tasks_per_24h = 0 (unlimited)
-      new BN(0), // dispute_initiation_cooldown = 0
-      0, // max_disputes_per_24h = 0 (unlimited)
-      new BN(0) // min_stake_for_dispute = 0
-    )
-    .accountsPartial({
-      protocolConfig: protocolPda,
-    })
-    .remainingAccounts([
-      { pubkey: payer.publicKey, isSigner: true, isWritable: false },
-    ])
-    .rpc();
+  try {
+    await program.methods
+      .updateRateLimits(
+        new BN(0), // task_creation_cooldown = 0
+        0, // max_tasks_per_24h = 0 (unlimited)
+        new BN(0), // dispute_initiation_cooldown = 0
+        0, // max_disputes_per_24h = 0 (unlimited)
+        new BN(0) // min_stake_for_dispute = 0
+      )
+      .accountsPartial({
+        protocolConfig: protocolPda,
+      })
+      .remainingAccounts([
+        { pubkey: payer.publicKey, isSigner: true, isWritable: false },
+      ])
+      .rpc();
+  } catch (error) {
+    throw new Error(
+      `update_rate_limits failed in LiteSVM setup: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
 }
 
 /**

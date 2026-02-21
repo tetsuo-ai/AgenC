@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Connection, PublicKey, Keypair } from '@solana/web3.js';
 import { PROGRAM_ID } from '@agenc/sdk';
 import { AgentManager, type AgentManagerConfig } from './manager';
+import { IDL } from '../idl';
 import {
   AgentNotRegisteredError,
   ValidationError,
@@ -117,7 +118,8 @@ describe('AgentManager', () => {
       const program = manager.getProgram();
 
       expect(program).toBeDefined();
-      expect(program.programId).toEqual(PROGRAM_ID);
+      expect(manager.getProgramId()).toEqual(PROGRAM_ID);
+      expect(program.programId).toEqual(new PublicKey(IDL.address));
     });
   });
 

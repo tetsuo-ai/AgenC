@@ -116,11 +116,31 @@ interface RawProtocolConfigData {
   maxDisputesPer24H?: number;
   minStakeForDispute: { toNumber?: () => number; toString: () => string };
   slashPercentage: number;
-  stateUpdateCooldown: { toNumber: () => number };
-  votingPeriod: { toNumber: () => number };
+  stateUpdateCooldown?: { toNumber: () => number };
+  votingPeriod?: { toNumber: () => number };
   protocolVersion: number;
   minSupportedVersion: number;
   multisigOwners: unknown[];
+}
+
+/**
+ * Legacy on-chain ProtocolConfig shape used by older deployed program versions.
+ *
+ * This shape predates extended rate-limit/state-version fields and stores only
+ * the core protocol configuration. We still parse it to maintain runtime
+ * compatibility with older program binaries used in tests and local setups.
+ */
+interface LegacyRawProtocolConfigData {
+  authority: unknown;
+  treasury: unknown;
+  disputeThreshold: number;
+  protocolFeeBps: number;
+  minArbiterStake: { toNumber?: () => number; toString: () => string };
+  totalAgents: { toNumber?: () => number; toString: () => string };
+  totalTasks: { toNumber?: () => number; toString: () => string };
+  completedTasks: { toNumber?: () => number; toString: () => string };
+  totalValueDistributed: { toNumber?: () => number; toString: () => string };
+  bump: number;
 }
 
 /**
@@ -229,12 +249,59 @@ function isRawProtocolConfigData(data: unknown): data is RawProtocolConfigData {
   if (!isBNLikeWithToNumber(obj.maxDisputeDuration)) return false;
   if (!isBNLikeWithToNumber(obj.taskCreationCooldown)) return false;
   if (!isBNLikeWithToNumber(obj.disputeInitiationCooldown)) return false;
-  if (!isBNLikeWithToNumber(obj.stateUpdateCooldown)) return false;
-  if (!isBNLikeWithToNumber(obj.votingPeriod)) return false;
+  if (obj.stateUpdateCooldown !== undefined && !isBNLikeWithToNumber(obj.stateUpdateCooldown)) {
+    return false;
+  }
+  if (obj.votingPeriod !== undefined && !isBNLikeWithToNumber(obj.votingPeriod)) {
+    return false;
+  }
 
   // Validate array field and its contents
   if (!Array.isArray(obj.multisigOwners)) return false;
   if (!obj.multisigOwners.every((pk) => isPublicKeyLike(pk))) return false;
+
+  return true;
+}
+
+/**
+ * Type guard for legacy protocol config account shape.
+ */
+function isLegacyRawProtocolConfigData(data: unknown): data is LegacyRawProtocolConfigData {
+  if (typeof data !== 'object' || data === null) {
+    return false;
+  }
+  const obj = data as Record<string, unknown>;
+
+  // Only treat this as legacy when extended modern fields are absent.
+  // This avoids accepting malformed modern payloads via legacy fallback.
+  if (obj.minAgentStake !== undefined) return false;
+  if (obj.maxClaimDuration !== undefined) return false;
+  if (obj.maxDisputeDuration !== undefined) return false;
+  if (obj.multisigThreshold !== undefined) return false;
+  if (obj.multisigOwnersLen !== undefined) return false;
+  if (obj.taskCreationCooldown !== undefined) return false;
+  if (obj.maxTasksPer24h !== undefined || obj.maxTasksPer24H !== undefined) return false;
+  if (obj.disputeInitiationCooldown !== undefined) return false;
+  if (obj.maxDisputesPer24h !== undefined || obj.maxDisputesPer24H !== undefined) return false;
+  if (obj.minStakeForDispute !== undefined) return false;
+  if (obj.slashPercentage !== undefined) return false;
+  if (obj.stateUpdateCooldown !== undefined) return false;
+  if (obj.votingPeriod !== undefined) return false;
+  if (obj.protocolVersion !== undefined) return false;
+  if (obj.minSupportedVersion !== undefined) return false;
+  if (obj.multisigOwners !== undefined) return false;
+
+  if (!isPublicKeyLike(obj.authority)) return false;
+  if (!isPublicKeyLike(obj.treasury)) return false;
+  if (typeof obj.disputeThreshold !== 'number') return false;
+  if (typeof obj.protocolFeeBps !== 'number') return false;
+  if (typeof obj.bump !== 'number') return false;
+
+  if (!isBNLike(obj.minArbiterStake)) return false;
+  if (!isBNLike(obj.totalAgents)) return false;
+  if (!isBNLike(obj.totalTasks)) return false;
+  if (!isBNLike(obj.completedTasks)) return false;
+  if (!isBNLike(obj.totalValueDistributed)) return false;
 
   return true;
 }
@@ -247,25 +314,7 @@ function toBigInt(value: { toString: () => string }): bigint {
   return BigInt(value.toString());
 }
 
-/**
- * Parses raw Anchor account data into a typed ProtocolConfig.
- *
- * @param data - Raw account data from Anchor program.account.protocolConfig.fetch()
- * @returns Parsed ProtocolConfig with proper TypeScript types
- * @throws Error if required fields are missing or invalid
- *
- * @example
- * ```typescript
- * const rawData = await program.account.protocolConfig.fetch(protocolPda);
- * const config = parseProtocolConfig(rawData);
- * console.log(`Protocol fee: ${config.protocolFeeBps} bps`);
- * ```
- */
-export function parseProtocolConfig(data: unknown): ProtocolConfig {
-  if (!isRawProtocolConfigData(data)) {
-    throw new Error('Invalid protocol config data: missing required fields');
-  }
-
+function parseModernProtocolConfig(data: RawProtocolConfigData): ProtocolConfig {
   const maxTasksPer24h =
     typeof data.maxTasksPer24h === 'number' ? data.maxTasksPer24h : data.maxTasksPer24H;
   const maxDisputesPer24h =
@@ -347,11 +396,87 @@ export function parseProtocolConfig(data: unknown): ProtocolConfig {
     slashPercentage: data.slashPercentage,
 
     // State Update & Voting
-    stateUpdateCooldown: data.stateUpdateCooldown.toNumber(),
-    votingPeriod: data.votingPeriod.toNumber(),
+    stateUpdateCooldown: isBNLikeWithToNumber(data.stateUpdateCooldown)
+      ? data.stateUpdateCooldown.toNumber()
+      : 60,
+    votingPeriod: isBNLikeWithToNumber(data.votingPeriod)
+      ? data.votingPeriod.toNumber()
+      : 86400,
 
     // Versioning
     protocolVersion: data.protocolVersion,
     minSupportedVersion: data.minSupportedVersion,
   };
+}
+
+function parseLegacyProtocolConfig(data: LegacyRawProtocolConfigData): ProtocolConfig {
+  // Range validation still applies for legacy accounts.
+  if (data.disputeThreshold < 1 || data.disputeThreshold > 100) {
+    throw new Error(
+      `Invalid disputeThreshold: ${data.disputeThreshold} (must be 1-100)`
+    );
+  }
+
+  if (data.protocolFeeBps > 10000) {
+    throw new Error(
+      `Invalid protocolFeeBps: ${data.protocolFeeBps} (must be <= 10000)`
+    );
+  }
+
+  return {
+    authority: toPublicKey(data.authority),
+    treasury: toPublicKey(data.treasury),
+    disputeThreshold: data.disputeThreshold,
+    protocolFeeBps: data.protocolFeeBps,
+    minArbiterStake: toBigInt(data.minArbiterStake),
+    // Legacy layout had a single minimum stake field; use it for agents as well.
+    minAgentStake: toBigInt(data.minArbiterStake),
+    maxClaimDuration: 0,
+    maxDisputeDuration: 0,
+    totalAgents: toBigInt(data.totalAgents),
+    totalTasks: toBigInt(data.totalTasks),
+    completedTasks: toBigInt(data.completedTasks),
+    totalValueDistributed: toBigInt(data.totalValueDistributed),
+    bump: data.bump,
+    multisigThreshold: 0,
+    multisigOwnersLen: 0,
+    taskCreationCooldown: 0,
+    maxTasksPer24h: 0,
+    disputeInitiationCooldown: 0,
+    maxDisputesPer24h: 0,
+    minStakeForDispute: 0n,
+    slashPercentage: 0,
+    // Default to current runtime assumption for state update cooldown.
+    stateUpdateCooldown: 60,
+    votingPeriod: 86400,
+    protocolVersion: 1,
+    minSupportedVersion: 1,
+    multisigOwners: [],
+  };
+}
+
+/**
+ * Parses raw Anchor account data into a typed ProtocolConfig.
+ *
+ * @param data - Raw account data from Anchor program.account.protocolConfig.fetch()
+ * @returns Parsed ProtocolConfig with proper TypeScript types
+ * @throws Error if required fields are missing or invalid
+ *
+ * @example
+ * ```typescript
+ * const rawData = await program.account.protocolConfig.fetch(protocolPda);
+ * const config = parseProtocolConfig(rawData);
+ * console.log(`Protocol fee: ${config.protocolFeeBps} bps`);
+ * ```
+ */
+export function parseProtocolConfig(data: unknown): ProtocolConfig {
+  if (isRawProtocolConfigData(data)) {
+    return parseModernProtocolConfig(data);
+  }
+
+  if (isLegacyRawProtocolConfigData(data)) {
+    return parseLegacyProtocolConfig(data);
+  }
+
+  throw new Error('Invalid protocol config data: missing required fields');
 }

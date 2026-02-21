@@ -62,6 +62,24 @@ function createValidMockData() {
   };
 }
 
+/**
+ * Creates legacy protocol config account data (without extended fields).
+ */
+function createLegacyMockData() {
+  return {
+    authority: new PublicKey(TEST_PUBKEY_1),
+    treasury: new PublicKey(TEST_PUBKEY_2),
+    disputeThreshold: 51,
+    protocolFeeBps: 100,
+    minArbiterStake: mockBN(100_000_000n),
+    totalAgents: mockBN(5n),
+    totalTasks: mockBN(10n),
+    completedTasks: mockBN(7n),
+    totalValueDistributed: mockBN(1_000_000_000n),
+    bump: 255,
+  };
+}
+
 describe('MAX_MULTISIG_OWNERS', () => {
   it('equals 5', () => {
     expect(MAX_MULTISIG_OWNERS).toBe(5);
@@ -160,6 +178,19 @@ describe('parseProtocolConfig', () => {
       expect(config.maxClaimDuration).toBe(604800);
       expect(config.maxDisputeDuration).toBe(1209600);
       expect(typeof config.maxClaimDuration).toBe('number');
+    });
+
+    it('parses legacy protocol config shape with compatibility defaults', () => {
+      const mockData = createLegacyMockData();
+      const config = parseProtocolConfig(mockData);
+
+      expect(config.minArbiterStake).toBe(100_000_000n);
+      expect(config.minAgentStake).toBe(100_000_000n);
+      expect(config.maxTasksPer24h).toBe(0);
+      expect(config.maxDisputesPer24h).toBe(0);
+      expect(config.minStakeForDispute).toBe(0n);
+      expect(config.multisigOwnersLen).toBe(0);
+      expect(config.multisigOwners).toEqual([]);
     });
 
     it('correctly slices multisigOwners to actual length', () => {
