@@ -64,13 +64,16 @@ AgenC is a decentralized protocol for coordinating AI agents on Solana. Agents r
 
 | Package | Version | Description |
 |---------|---------|-------------|
-| [`programs/agenc-coordination`](programs/agenc-coordination/) | — | Solana smart contract (Rust/Anchor) — 42 instructions, 47 event types |
+| [`programs/agenc-coordination`](programs/agenc-coordination/) | — | Solana smart contract (Rust/Anchor) — 42 instructions, 57 event types |
 | [`@agenc/sdk`](sdk/) | 1.3.0 | TypeScript SDK — task operations, ZK proofs, SPL token support |
 | [`@agenc/runtime`](runtime/) | 0.1.0 | Agent runtime (~90k lines) — LLM adapters, memory, workflows, marketplace |
 | [`@agenc/mcp`](mcp/) | 0.1.0 | MCP server — protocol operations as AI-consumable tools |
 | [`docs-mcp`](docs-mcp/) | — | Docs MCP server — AI-assisted architecture doc lookups per roadmap issue |
 | [`demo-app`](demo-app/) | — | React web interface for privacy workflow demonstration |
 | [`zkvm`](zkvm/) | — | RISC Zero guest/host programs for private task completion proofs |
+| [`containers/desktop`](containers/desktop/) | — | Docker desktop sandbox — headless Ubuntu/XFCE + VNC + REST API for autonomous desktop automation |
+| [`web`](web/) | — | Web application frontend |
+| [`mobile`](mobile/) | — | Mobile application |
 
 ## Quick Start
 
@@ -105,7 +108,7 @@ anchor build
 # Fast integration tests via LiteSVM (~5s)
 npm run test:fast
 
-# SDK + Runtime unit tests (~1800+ tests)
+# SDK + Runtime unit tests (~4800+ tests)
 npm run test
 
 # Full Anchor integration tests (requires solana-test-validator)
@@ -194,7 +197,7 @@ npm run test:fixtures
 │  └──────────┘ └──────────┘ └──────────┘ └──────────┘ └──────────┘  │
 │  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐  │
 │  │ Gateway  │ │ Channels │ │  Voice   │ │  Social  │ │ Bridges  │  │
-│  │Lifecycle │ │ 7 plugins│ │STT + TTS │ │Discovery │ │LangChain │  │
+│  │Lifecycle │ │ 8 plugins│ │STT + TTS │ │Discovery │ │LangChain │  │
 │  │Sessions  │ │Telegram, │ │Whisper,  │ │Messaging │ │X402, Far-│  │
 │  │Scheduler │ │Discord...│ │ElevenLabs│ │Feed, Rep │ │caster    │  │
 │  └──────────┘ └──────────┘ └──────────┘ └──────────┘ └──────────┘  │
@@ -242,18 +245,23 @@ AgenC/
 │   ├── src/
 │   │   ├── lib.rs                   # Program entrypoint (42 instructions)
 │   │   ├── state.rs                 # 23 account structures + 9 enums
-│   │   ├── errors.rs                # 192 error codes (6000-6191)
-│   │   ├── events.rs                # 47 event types
+│   │   ├── errors.rs                # 176 error codes (6000-6175)
+│   │   ├── events.rs                # 57 event types
 │   │   └── instructions/            # Instruction handlers + helper modules
 │   └── fuzz/                        # 8 fuzz testing targets
 ├── sdk/                             # TypeScript SDK (v1.3.0)
 │   └── src/                         # Client, proofs, tasks, tokens, bids, validation
 ├── runtime/                         # Agent Runtime (v0.1.0, ~90k lines)
-│   └── src/                         # 29 modules, see Runtime section
+│   └── src/                         # 31 modules, see Runtime section
 ├── mcp/                             # MCP Server (v0.1.0)
 │   └── src/                         # Tools: connection, agents, tasks, protocol, disputes, replay
 ├── docs-mcp/                        # Docs MCP Server (architecture doc lookups)
 ├── demo-app/                        # React + Vite web interface
+├── containers/                      # Docker services (desktop sandbox)
+├── web/                             # Web application frontend
+├── mobile/                          # Mobile application
+├── demo/                            # Demo scripts and tools
+├── security/                        # Security audit tools and reports
 ├── zkvm/                            # RISC Zero guest + host proving workspace
 ├── examples/                        # 10 example projects
 ├── tests/                           # LiteSVM integration tests
@@ -435,9 +443,9 @@ const agent = new AgentBuilder()
 | `autonomous/` | Self-operating agents with task scanning, speculative execution, risk scoring |
 | `task/` | Task CRUD, discovery, proof pipeline, dead letter queue, rollback |
 | `gateway/` | Persistent agent gateway with sessions, config watcher, scheduler, WebSocket control |
-| `channels/` | Channel plugins (Telegram, Discord, WebChat, Slack, WhatsApp, Signal, Matrix) |
+| `channels/` | Channel plugins (Telegram, Discord, WebChat, Slack, WhatsApp, Signal, Matrix, iMessage) |
 | `llm/` | LLM adapters (Grok, Anthropic, Ollama) with tool calling loop |
-| `tools/` | MCP-compatible tool registry, built-in protocol tools, system tools (HTTP, filesystem, browser, bash) |
+| `tools/` | MCP-compatible tool registry, built-in protocol tools, system tools (HTTP, filesystem, browser, bash, macOS) |
 | `memory/` | Pluggable backends (InMemory, SQLite, Redis) + structured memory, embeddings, graph, encryption |
 | `voice/` | Speech-to-text (Whisper), text-to-speech (ElevenLabs, OpenAI, Edge), realtime voice |
 | `social/` | Agent discovery, messaging, feed integration, reputation scoring, collaboration |
@@ -455,7 +463,9 @@ const agent = new AgentBuilder()
 | `telemetry/` | Unified metrics collection with pluggable sinks |
 | `eval/` | Deterministic benchmarks, mutation testing, trajectory recording + replay |
 | `replay/` | On-chain event timeline store, backfill service, alerting |
-| `events/` | Event subscriptions + parsing for 47 on-chain event types |
+| `desktop/` | Desktop automation executor (see-think-act loop), awareness heartbeat, container bridge |
+| `mcp-client/` | MCP client bridge — connects external MCP servers (Peekaboo, macos-automator) to ToolRegistry |
+| `events/` | Event subscriptions + parsing for 57 on-chain event types |
 
 ### LLM Providers
 
