@@ -229,6 +229,83 @@ export function createPollingAction(
 }
 
 // ============================================================================
+// Proactive communication action
+// ============================================================================
+
+export interface ProactiveCommsActionConfig {
+  memory: MemoryBackend;
+  llm: LLMProvider;
+  communicator: {
+    broadcast(content: string, channelNames?: string[]): Promise<void>;
+  };
+  /** Lookback window in ms (default: 3_600_000 = 1 h). */
+  lookbackMs?: number;
+  /** Max entries to evaluate (default: 20). */
+  maxEntries?: number;
+}
+
+const PROACTIVE_LOOKBACK_MS = 3_600_000;
+const PROACTIVE_MAX_ENTRIES = 20;
+
+const PROACTIVE_SYSTEM_PROMPT =
+  "You are an autonomous AI agent deciding whether to proactively communicate with your users. " +
+  "Based on recent activity, decide if there is something noteworthy to share (e.g., a completed goal, " +
+  "an important finding, an unresolved issue that needs attention). " +
+  "If yes, compose a brief, helpful message. If nothing warrants proactive communication, " +
+  'respond with exactly "NO_PROACTIVE_MESSAGE" and nothing else.';
+
+export function createProactiveCommsAction(
+  config: ProactiveCommsActionConfig,
+): HeartbeatAction {
+  const { memory, llm, communicator } = config;
+  const lookbackMs = config.lookbackMs ?? PROACTIVE_LOOKBACK_MS;
+  const maxEntries = config.maxEntries ?? PROACTIVE_MAX_ENTRIES;
+
+  return {
+    name: "proactive-comms",
+    enabled: true,
+    async execute(context: HeartbeatContext): Promise<HeartbeatResult> {
+      try {
+        const entries = await memory.query({
+          after: Date.now() - lookbackMs,
+          limit: maxEntries,
+          order: "desc",
+        });
+
+        if (entries.length === 0) return QUIET;
+
+        const messages = entries.map(entryToMessage);
+        const formatted = messages
+          .map((m) => `[${m.role}]: ${m.content.slice(0, 200)}`)
+          .join("\n");
+
+        const response = await llm.chat([
+          { role: "system", content: PROACTIVE_SYSTEM_PROMPT },
+          {
+            role: "user",
+            content: `Recent activity:\n${formatted}\n\nShould I proactively message users?`,
+          },
+        ]);
+
+        if (
+          !response.content ||
+          response.content.trim() === "NO_PROACTIVE_MESSAGE"
+        ) {
+          return QUIET;
+        }
+
+        await communicator.broadcast(response.content);
+
+        return output(`Proactive message sent: ${response.content.slice(0, 100)}`);
+      } catch (err) {
+        context.logger.error("proactive-comms heartbeat failed:", err);
+        return QUIET;
+      }
+    },
+  };
+}
+
+// ============================================================================
 // Default actions factory
 // ============================================================================
 
