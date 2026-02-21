@@ -18,6 +18,7 @@ import type { ChatExecutor } from "../llm/chat-executor.js";
 import type { ToolHandler } from "../llm/types.js";
 import type { MemoryBackend } from "../memory/types.js";
 import type { ProactiveCommunicator } from "../gateway/proactive.js";
+import type { GoalManager } from "./goal-manager.js";
 
 // ============================================================================
 // Types
@@ -40,6 +41,8 @@ export interface CuriosityConfig {
   broadcastChannels?: string[];
   /** Max research sessions per heartbeat cycle (default: 1). */
   maxResearchPerCycle?: number;
+  /** Optional: bridge noteworthy findings into the goal queue. */
+  goalManager?: GoalManager;
 }
 
 // ============================================================================
@@ -167,6 +170,25 @@ export function createCuriosityAction(config: CuriosityConfig): HeartbeatAction 
                 : result.content;
             const broadcastMsg = `[Research Update] ${topic}\n\n${briefSummary}`;
             await communicator.broadcast(broadcastMsg, broadcastChannels);
+          }
+
+          // Bridge noteworthy findings into the goal queue
+          if (isNoteworthy && config.goalManager) {
+            const desc = `Research finding: ${result.content.slice(0, 200)}`;
+            try {
+              const active = await config.goalManager.getActiveGoals();
+              if (!config.goalManager.isDuplicate(desc, active)) {
+                await config.goalManager.addGoal({
+                  title: `Explore: ${topic}`,
+                  description: desc,
+                  priority: "low",
+                  source: "curiosity",
+                  maxAttempts: 1,
+                });
+              }
+            } catch {
+              // non-critical — goal bridge failure shouldn't kill curiosity
+            }
           }
 
           findings.push(`${topic}: ${result.content.slice(0, 200)}...`);

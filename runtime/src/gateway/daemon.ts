@@ -721,10 +721,8 @@ export class DaemonManager {
     if (this._matrixChannel) activeChannels.set("matrix", this._matrixChannel as unknown as ChannelPlugin);
     if (this._imessageChannel) activeChannels.set("imessage", this._imessageChannel);
 
-    if (activeChannels.size === 0) {
-      this.logger.info("No external channels active — skipping autonomous features");
-      return;
-    }
+    // ProactiveCommunicator works fine with no channels — it just won't broadcast.
+    // Don't block autonomous features for channel-less configurations.
 
     try {
       const { ProactiveCommunicator: ProactiveComm } = await import("./proactive.js");
@@ -755,6 +753,10 @@ export class DaemonManager {
         return;
       }
 
+      // Create GoalManager early so actions can reference it
+      const { GoalManager } = await import("../autonomous/goal-manager.js");
+      this._goalManager = new GoalManager({ memory: this._memoryBackend! });
+
       const curiosityAction = createCuriosityAction({
         interests: ["Solana ecosystem", "DeFi protocols", "AI agents"],
         chatExecutor: this._chatExecutor!,
@@ -762,6 +764,7 @@ export class DaemonManager {
         memory: this._memoryBackend!,
         systemPrompt: "You are an autonomous AI research agent.",
         communicator,
+        goalManager: this._goalManager,
       });
       const selfLearningAction = createSelfLearningAction({
         llm,
@@ -851,10 +854,6 @@ export class DaemonManager {
         }
       }
 
-      // GoalManager — central goal lifecycle
-      const { GoalManager } = await import("../autonomous/goal-manager.js");
-      this._goalManager = new GoalManager({ memory: this._memoryBackend! });
-
       // Wire awareness → goal bridge
       if (this._goalManager && setBridgeCallback) {
         const { createAwarenessGoalBridge } = await import(
@@ -894,6 +893,21 @@ export class DaemonManager {
             } catch {
               // Silently ignore sync errors — meta-planner result still valid
             }
+          }
+          // Sync GoalManager state to a key meta-planner can see next cycle
+          try {
+            const managedActive = await goalManager.getActiveGoals();
+            if (managedActive.length > 0) {
+              await memory.set("goal:managed-active", managedActive.map(g => ({
+                title: g.title,
+                description: g.description,
+                priority: g.priority,
+                status: g.status,
+                source: g.source,
+              })));
+            }
+          } catch {
+            // non-critical
           }
           return result;
         };
@@ -1268,6 +1282,42 @@ export class DaemonManager {
       handler: async (ctx) => {
         const providerInfo = providers.map((provider) => provider.name).join(', ') || 'none';
         await ctx.reply(`LLM providers: ${providerInfo}`);
+      },
+    });
+
+    // /goal — create or list goals (lazy access to goalManager via getter)
+    const daemon = this;
+    commandRegistry.register({
+      name: 'goal',
+      description: 'Create or list goals',
+      args: '[description]',
+      global: true,
+      handler: async (ctx) => {
+        const gm = daemon.goalManager;
+        if (!gm) {
+          await ctx.reply('Goal manager not available. Autonomous features may be disabled.');
+          return;
+        }
+        if (ctx.args) {
+          const goal = await gm.addGoal({
+            title: ctx.args.slice(0, 60),
+            description: ctx.args,
+            priority: "medium",
+            source: "user",
+            maxAttempts: 2,
+          });
+          await ctx.reply(`Goal created [${goal.id.slice(0, 8)}]: ${goal.title}`);
+        } else {
+          const active = await gm.getActiveGoals();
+          if (active.length === 0) {
+            await ctx.reply('No active goals. Use /goal <description> to create one.');
+            return;
+          }
+          const lines = active.map(g =>
+            `  [${g.priority}/${g.status}] ${g.title}`,
+          );
+          await ctx.reply(`Active goals (${active.length}):\n${lines.join('\n')}`);
+        }
       },
     });
 

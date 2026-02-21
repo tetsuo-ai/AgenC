@@ -57,14 +57,13 @@ export function createGoalExecutorAction(
         return { hasOutput: false, quiet: true };
       }
 
-      // Get next goal by priority
-      const goal = await goalManager.getNextGoal();
+      // Get next goal by priority, filtering for desktop-applicable goals
+      const goal = await goalManager.getNextGoal(
+        desktopOnly
+          ? (g) => DESKTOP_KEYWORD_RE.test(g.description)
+          : undefined,
+      );
       if (!goal) {
-        return { hasOutput: false, quiet: true };
-      }
-
-      // Filter for desktop-applicable goals if configured
-      if (desktopOnly && !DESKTOP_KEYWORD_RE.test(goal.description)) {
         return { hasOutput: false, quiet: true };
       }
 
@@ -72,13 +71,9 @@ export function createGoalExecutorAction(
       await goalManager.markExecuting(goal.id);
 
       try {
-        // Map source to DesktopExecutor's accepted sources
-        const executorSource: "user" | "meta-planner" =
-          goal.source === "user" ? "user" : "meta-planner";
-
         const result = await desktopExecutor.executeGoal(
           goal.description,
-          executorSource,
+          goal.source,
         );
 
         const goalResult = {

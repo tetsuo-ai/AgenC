@@ -132,7 +132,7 @@ export function createMetaPlannerAction(
           // no learnings available
         }
 
-        // Load existing active goals
+        // Load existing active goals (meta-planner's own proposals)
         let activeGoals = "";
         try {
           const goals = await memory.get<GeneratedGoal[]>(`${keyPrefix}active`);
@@ -148,6 +148,23 @@ export function createMetaPlannerAction(
           }
         } catch {
           // no active goals
+        }
+
+        // Load GoalManager's execution queue to avoid re-proposing in-flight work
+        try {
+          const managedGoals = await memory.get<Array<{
+            title: string; description: string; priority: string;
+            status: string; source: string;
+          }>>("goal:managed-active");
+          if (managedGoals && managedGoals.length > 0) {
+            activeGoals +=
+              "\n\nManaged Goal Queue:\n" +
+              managedGoals
+                .map((g) => `- [${g.priority}/${g.status}] ${g.title}: ${g.description}`)
+                .join("\n");
+          }
+        } catch {
+          // no managed goals
         }
 
         const messages = entries.map(entryToMessage);

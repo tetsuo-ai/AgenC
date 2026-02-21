@@ -128,9 +128,12 @@ export class GoalManager {
     return (await this.memory.get<ManagedGoal[]>(KEY_ACTIVE)) ?? [];
   }
 
-  async getNextGoal(): Promise<ManagedGoal | undefined> {
+  async getNextGoal(
+    filter?: (goal: ManagedGoal) => boolean,
+  ): Promise<ManagedGoal | undefined> {
     const active = await this.getActiveGoals();
-    const pending = active.filter((g) => g.status === "pending");
+    let pending = active.filter((g) => g.status === "pending");
+    if (filter) pending = pending.filter(filter);
     if (pending.length === 0) return undefined;
 
     // Sort by priority (critical first), then FIFO (oldest first)

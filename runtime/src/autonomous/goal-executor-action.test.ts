@@ -115,7 +115,7 @@ describe("createGoalExecutorAction", () => {
 
       expect(executor.executeGoal).toHaveBeenCalledWith(
         "Click on the critical error dialog",
-        "meta-planner",
+        "awareness",
       );
       expect(result.hasOutput).toBe(true);
       expect(result.output).toContain("completed");
@@ -241,6 +241,38 @@ describe("createGoalExecutorAction", () => {
       const result = await action.execute(makeContext());
       expect(result.hasOutput).toBe(false);
       expect(executor.executeGoal).not.toHaveBeenCalled();
+    });
+
+    it("non-desktop goals don't block desktop goals behind them", async () => {
+      await goalManager.addGoal({
+        title: "Research Solana",
+        description: "Study the latest Solana developments",
+        priority: "critical",
+        source: "meta-planner",
+        maxAttempts: 2,
+      });
+      await goalManager.addGoal({
+        title: "Dismiss dialog",
+        description: "Click the dismiss button on the error dialog",
+        priority: "low",
+        source: "awareness",
+        maxAttempts: 2,
+      });
+
+      const executor = makeMockDesktopExecutor();
+      const action = createGoalExecutorAction({
+        goalManager,
+        desktopExecutor: executor as any,
+        memory: memory as any,
+        desktopOnly: true,
+      });
+
+      const result = await action.execute(makeContext());
+      expect(result.hasOutput).toBe(true);
+      expect(executor.executeGoal).toHaveBeenCalledWith(
+        "Click the dismiss button on the error dialog",
+        "awareness",
+      );
     });
   });
 
@@ -443,7 +475,7 @@ describe("createGoalExecutorAction", () => {
       );
     });
 
-    it("maps awareness source to 'meta-planner' for DesktopExecutor", async () => {
+    it("passes awareness source directly to DesktopExecutor", async () => {
       await goalManager.addGoal({
         title: "Awareness goal",
         description: "Dismiss the error dialog",
@@ -462,7 +494,7 @@ describe("createGoalExecutorAction", () => {
       await action.execute(makeContext());
       expect(executor.executeGoal).toHaveBeenCalledWith(
         expect.any(String),
-        "meta-planner",
+        "awareness",
       );
     });
   });

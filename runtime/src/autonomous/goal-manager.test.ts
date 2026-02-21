@@ -161,6 +161,48 @@ describe("GoalManager", () => {
       const next = await manager.getNextGoal();
       expect(next).toBeUndefined();
     });
+
+    it("applies filter to skip non-matching goals", async () => {
+      await manager.addGoal(
+        makeGoal({ title: "Research", priority: "critical", description: "Study the latest paper" }),
+      );
+      await manager.addGoal(
+        makeGoal({ title: "Click", priority: "low", description: "Click the dismiss button" }),
+      );
+
+      const next = await manager.getNextGoal(
+        (g) => /click/i.test(g.description),
+      );
+      expect(next?.title).toBe("Click");
+    });
+
+    it("returns undefined when filter matches nothing", async () => {
+      await manager.addGoal(
+        makeGoal({ title: "Research", description: "Study something" }),
+      );
+
+      const next = await manager.getNextGoal(
+        (g) => /click/i.test(g.description),
+      );
+      expect(next).toBeUndefined();
+    });
+
+    it("respects priority within filtered results", async () => {
+      await manager.addGoal(
+        makeGoal({ title: "Low click", priority: "low", description: "Click low button" }),
+      );
+      await manager.addGoal(
+        makeGoal({ title: "High click", priority: "high", description: "Click critical button" }),
+      );
+      await manager.addGoal(
+        makeGoal({ title: "Research", priority: "critical", description: "Research topic" }),
+      );
+
+      const next = await manager.getNextGoal(
+        (g) => /click/i.test(g.description),
+      );
+      expect(next?.title).toBe("High click");
+    });
   });
 
   // --------------------------------------------------------------------------

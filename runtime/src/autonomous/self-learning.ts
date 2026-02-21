@@ -170,6 +170,9 @@ export function createSelfLearningAction(
           await memory.set(`${keyPrefix}pref:${key}`, value);
         }
 
+        // Store as "latest" so meta-planner can read it
+        await memory.set(`${keyPrefix}latest`, analysis);
+
         const patternCount = analysis.patterns.length;
         const strategyCount = analysis.strategies.length;
         const prefCount = Object.keys(analysis.preferences).length;

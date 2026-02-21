@@ -184,7 +184,7 @@ export class DesktopExecutor {
 
   async executeGoal(
     goal: string,
-    source: "user" | "meta-planner",
+    source: "user" | "meta-planner" | "awareness" | "curiosity",
   ): Promise<DesktopExecutorResult> {
     if (this._isRunning) {
       return {
