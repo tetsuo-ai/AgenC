@@ -122,13 +122,13 @@ describe("litesvm-poc", () => {
       expect(config.protocolFeeBps).to.equal(100);
     });
 
-    it("should disable rate limits", async () => {
+    it("should set rate limits to minimums", async () => {
       await program.methods
         .updateRateLimits(
-          new BN(0),
-          0,
-          new BN(0),
-          0,
+          new BN(1), // task_creation_cooldown = 1s (minimum allowed)
+          255, // max_tasks_per_24h = 255 (effectively unlimited)
+          new BN(1), // dispute_initiation_cooldown = 1s (minimum allowed)
+          255, // max_disputes_per_24h = 255 (effectively unlimited)
           new BN(MIN_DISPUTE_STAKE_LAMPORTS),
         )
         .accountsPartial({ protocolConfig: protocolPda })

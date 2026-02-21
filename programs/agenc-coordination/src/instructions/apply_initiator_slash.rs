@@ -65,7 +65,8 @@ pub fn handler(ctx: Context<ApplyInitiatorSlash>) -> Result<()> {
     check_version_compatible(config)?;
 
     require!(
-        dispute.status == DisputeStatus::Resolved,
+        dispute.status == DisputeStatus::Resolved
+            || dispute.status == DisputeStatus::Cancelled,
         CoordinationError::DisputeNotResolved
     );
     require!(
@@ -103,14 +104,19 @@ pub fn handler(ctx: Context<ApplyInitiatorSlash>) -> Result<()> {
     // initiate_dispute validated they had an active claim at dispute creation time.
     let _initiator_is_creator = dispute.initiator_authority == task.creator;
 
-    let (_total_votes, approval_pct) =
-        calculate_approval_percentage(dispute.votes_for, dispute.votes_against)?;
+    let initiator_lost = if dispute.status == DisputeStatus::Cancelled {
+        // Cancellation = admission of frivolous dispute; always slash
+        true
+    } else {
+        // Resolved: use vote-based approval threshold
+        let (_total_votes, approval_pct) =
+            calculate_approval_percentage(dispute.votes_for, dispute.votes_against)?;
+        let approved = approval_pct >= config.dispute_threshold as u64;
+        !approved // Initiator loses if dispute was not approved
+    };
 
-    // Dispute is rejected if approval percentage is below threshold
-    let approved = approval_pct >= config.dispute_threshold as u64;
-
-    // Only slash the initiator if the dispute was NOT approved (initiator lost)
-    require!(!approved, CoordinationError::InvalidInput);
+    // Only slash the initiator if they lost (dispute rejected or cancelled)
+    require!(initiator_lost, CoordinationError::InvalidInput);
     require!(
         initiator_agent.stake > 0,
         CoordinationError::InsufficientStake

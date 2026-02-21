@@ -2,6 +2,7 @@
 
 use crate::errors::CoordinationError;
 use crate::events::SkillRegistered;
+use crate::instructions::constants::MIN_SKILL_PRICE;
 use crate::state::{AgentRegistration, AgentStatus, ProtocolConfig, SkillRegistration};
 use crate::utils::version::check_version_compatible;
 use anchor_lang::prelude::*;
@@ -60,6 +61,10 @@ pub fn handler(
     require!(
         content_hash != [0u8; 32],
         CoordinationError::SkillInvalidContentHash
+    );
+    require!(
+        price >= MIN_SKILL_PRICE,
+        CoordinationError::SkillPriceBelowMinimum
     );
 
     let clock = Clock::get()?;

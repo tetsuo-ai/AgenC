@@ -22,6 +22,7 @@ import {
   createLiteSVMContext,
   fundAccount,
   getClockTimestamp,
+  advanceClock,
   injectMockVerifierRouter,
   type LiteSVMContext,
 } from "./litesvm-helpers";
@@ -320,6 +321,11 @@ describe("ZK Proof Verification Lifecycle (LiteSVM)", () => {
       capabilities: CAPABILITY_COMPUTE,
       stakeLamports: LAMPORTS_PER_SOL / 10,
     });
+  });
+
+  // Advance clock to satisfy rate limit cooldowns between tests
+  beforeEach(() => {
+    advanceClock(ctx.svm, 2);
   });
 
   it("submits complete_task_private with dual-spend + router accounts", async () => {

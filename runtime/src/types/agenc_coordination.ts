@@ -3242,7 +3242,8 @@ export type AgencCoordination = {
       "name": "purchaseSkill",
       "docs": [
         "Purchase a skill (SOL or SPL token).",
-        "Protocol fee is deducted and sent to treasury."
+        "Protocol fee is deducted and sent to treasury.",
+        "expected_price provides slippage protection against front-running."
       ],
       "discriminator": [
         70,
@@ -3445,7 +3446,12 @@ export type AgencCoordination = {
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         }
       ],
-      "args": []
+      "args": [
+        {
+          "name": "expectedPrice",
+          "type": "u64"
+        }
+      ]
     },
     {
       "name": "rateSkill",
@@ -7459,6 +7465,26 @@ export type AgencCoordination = {
       "code": 6193,
       "name": "insufficientSeedEntropy",
       "msg": "Binding or nullifier seed has insufficient byte diversity (min 8 distinct bytes required)"
+    },
+    {
+      "code": 6194,
+      "name": "skillPriceBelowMinimum",
+      "msg": "Skill price below minimum required"
+    },
+    {
+      "code": 6195,
+      "name": "skillPriceChanged",
+      "msg": "Skill price changed since transaction was prepared"
+    },
+    {
+      "code": 6196,
+      "name": "delegationCooldownNotElapsed",
+      "msg": "Delegation must be active for minimum duration before revocation"
+    },
+    {
+      "code": 6197,
+      "name": "rateLimitBelowMinimum",
+      "msg": "Rate limit value below protocol minimum"
     }
   ],
   "types": [

@@ -473,7 +473,7 @@ describe("reputation economy (issue #1110)", () => {
   // ==========================================================================
 
   describe("revoke_delegation", () => {
-    it("successfully revokes a delegation", async () => {
+    it("fails before delegation cooldown (7 days)", async () => {
       const delegationPda = deriveReputationDelegationPda(
         aliceAgentPda,
         bobAgentPda,
@@ -485,6 +485,41 @@ describe("reputation economy (issue #1110)", () => {
         delegationPda,
       );
       expect(before).to.not.be.null;
+
+      // Attempt immediate revocation — should fail due to 7-day cooldown
+      try {
+        await program.methods
+          .revokeDelegation()
+          .accountsPartial({
+            authority: alice.publicKey,
+            delegatorAgent: aliceAgentPda,
+            delegation: delegationPda,
+          })
+          .signers([alice])
+          .rpc();
+        expect.fail("Should have thrown");
+      } catch (err: any) {
+        // Error code 6196 = DelegationCooldownNotElapsed
+        expect(
+          errorContainsAny(err, [
+            "DelegationCooldownNotElapsed",
+            "6196",
+            "0x1834",
+          ]),
+        ).to.be.true;
+      }
+    });
+
+    it("successfully revokes a delegation after cooldown", async () => {
+      const delegationPda = deriveReputationDelegationPda(
+        aliceAgentPda,
+        bobAgentPda,
+        program.programId,
+      );
+
+      // Advance clock past 7-day delegation cooldown
+      const DELEGATION_COOLDOWN = 7 * 24 * 60 * 60;
+      advanceClock(svm, DELEGATION_COOLDOWN + 1);
 
       await program.methods
         .revokeDelegation()

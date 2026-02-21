@@ -89,7 +89,7 @@ pub struct PurchaseSkill<'info> {
     pub token_program: Option<Program<'info, Token>>,
 }
 
-pub fn handler(ctx: Context<PurchaseSkill>) -> Result<()> {
+pub fn handler(ctx: Context<PurchaseSkill>, expected_price: u64) -> Result<()> {
     let config = &ctx.accounts.protocol_config;
     check_version_compatible(config)?;
 
@@ -109,6 +109,10 @@ pub fn handler(ctx: Context<PurchaseSkill>) -> Result<()> {
 
     let clock = Clock::get()?;
     let price = skill.price;
+    require!(
+        price <= expected_price,
+        CoordinationError::SkillPriceChanged
+    );
     let mut protocol_fee = 0u64;
 
     if price > 0 || skill.price_mint.is_some() {

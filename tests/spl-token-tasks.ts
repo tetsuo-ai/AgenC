@@ -240,10 +240,10 @@ describe("spl-token-tasks (issue #860)", () => {
     try {
       await program.methods
         .updateRateLimits(
-          new BN(0),
-          0,
-          new BN(0),
-          0,
+          new BN(1), // task_creation_cooldown = 1s (minimum allowed)
+          255, // max_tasks_per_24h = 255 (effectively unlimited)
+          new BN(1), // dispute_initiation_cooldown = 1s (minimum allowed)
+          255, // max_disputes_per_24h = 255 (effectively unlimited)
           new BN(LAMPORTS_PER_SOL / 100),
         )
         .accountsPartial({ protocolConfig: protocolPda })
@@ -560,6 +560,11 @@ describe("spl-token-tasks (issue #860)", () => {
     );
   });
 
+  // Advance clock to satisfy rate limit cooldowns between tests
+  beforeEach(() => {
+    advanceClock(svm, 2);
+  });
+
   // ---------------------------------------------------------------------------
   // Happy Path
   // ---------------------------------------------------------------------------
@@ -737,6 +742,7 @@ describe("spl-token-tasks (issue #860)", () => {
         .rpc();
 
       // Create dependent token task
+      advanceClock(svm, 2); // satisfy rate limit cooldown
       const childTaskPda = deriveTaskPda(creator.publicKey, childTaskId);
       const childEscrowPda = deriveEscrowPda(childTaskPda);
       const childEscrowAta = deriveEscrowAta(mint, childEscrowPda);
@@ -1276,6 +1282,7 @@ describe("spl-token-tasks (issue #860)", () => {
     let sharedDisputePda: PublicKey;
 
     before(async () => {
+      advanceClock(svm, 2); // satisfy rate limit cooldown from previous tests
       disputeTaskId = makeId("t-disp");
       creatorAgentPda = deriveAgentPda(creatorAgentId);
       workerAgentPda = deriveAgentPda(workerAgentId);

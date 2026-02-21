@@ -386,10 +386,10 @@ export async function disableRateLimitsForTests(params: {
 
   const builder = program.methods
     .updateRateLimits(
-      new BN(0), // task_creation_cooldown = 0 (disabled)
-      0, // max_tasks_per_24h = 0 (unlimited)
-      new BN(0), // dispute_initiation_cooldown = 0 (disabled)
-      0, // max_disputes_per_24h = 0 (unlimited)
+      new BN(1), // task_creation_cooldown = 1s (minimum allowed)
+      255, // max_tasks_per_24h = 255 (effectively unlimited)
+      new BN(1), // dispute_initiation_cooldown = 1s (minimum allowed)
+      255, // max_disputes_per_24h = 255 (effectively unlimited)
       new BN(minStakeForDisputeLamports), // min_stake_for_dispute (>= 1000)
     )
     .accountsPartial({ protocolConfig: protocolPda })
