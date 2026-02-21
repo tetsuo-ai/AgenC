@@ -4,22 +4,16 @@
  * @module
  */
 
-import type { PublicKey } from '@solana/web3.js';
-import {
-  OnChainDependencyType,
-  validateWorkflow,
-} from '../workflow/index.js';
+import type { PublicKey } from "@solana/web3.js";
+import { OnChainDependencyType, validateWorkflow } from "../workflow/index.js";
 import type {
   WorkflowDefinition,
   TaskTemplate,
   WorkflowEdge,
-} from '../workflow/index.js';
-import { TeamContractStateError, TeamWorkflowTopologyError } from './errors.js';
-import type {
-  TeamContractSnapshot,
-  TeamCheckpointState,
-} from './types.js';
-import { validateTeamTemplate } from './validation.js';
+} from "../workflow/index.js";
+import { TeamContractStateError, TeamWorkflowTopologyError } from "./errors.js";
+import type { TeamContractSnapshot, TeamCheckpointState } from "./types.js";
+import { validateTeamTemplate } from "./validation.js";
 
 export interface TeamWorkflowBuildOptions {
   workflowId?: string;
@@ -46,8 +40,10 @@ export class TeamWorkflowAdapter {
     contract: TeamContractSnapshot,
     options: TeamWorkflowBuildOptions = {},
   ): TeamWorkflowBuildResult {
-    if (contract.status === 'draft') {
-      throw new TeamContractStateError('cannot build workflow from a draft contract; start the run first');
+    if (contract.status === "draft") {
+      throw new TeamContractStateError(
+        "cannot build workflow from a draft contract; start the run first",
+      );
     }
 
     try {
@@ -56,10 +52,13 @@ export class TeamWorkflowAdapter {
       throw new TeamWorkflowTopologyError(toError(error).message);
     }
 
-    const checkpoints = Object.values(contract.checkpoints)
-      .sort((a, b) => a.id.localeCompare(b.id));
+    const checkpoints = Object.values(contract.checkpoints).sort((a, b) =>
+      a.id.localeCompare(b.id),
+    );
 
-    const roleById = new Map(contract.template.roles.map((role) => [role.id, role]));
+    const roleById = new Map(
+      contract.template.roles.map((role) => [role.id, role]),
+    );
     const rewards = distributeCheckpointRewards(
       checkpoints,
       options.totalRewardLamports ?? 0n,
@@ -88,7 +87,8 @@ export class TeamWorkflowAdapter {
       };
     });
 
-    const dependencyType = options.dependencyType ?? OnChainDependencyType.Ordering;
+    const dependencyType =
+      options.dependencyType ?? OnChainDependencyType.Ordering;
     const edges: WorkflowEdge[] = [];
 
     for (const checkpoint of checkpoints) {

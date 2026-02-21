@@ -1,46 +1,46 @@
-import { describe, expect, it } from 'vitest';
-import { validateToolCall } from './types.js';
+import { describe, expect, it } from "vitest";
+import { validateToolCall } from "./types.js";
 
-describe('validateToolCall', () => {
-  it('accepts a valid tool call payload', () => {
+describe("validateToolCall", () => {
+  it("accepts a valid tool call payload", () => {
     const result = validateToolCall({
-      id: 'call_1',
-      name: 'lookup',
+      id: "call_1",
+      name: "lookup",
       arguments: '{"q":"hello"}',
     });
 
     expect(result).toEqual({
-      id: 'call_1',
-      name: 'lookup',
+      id: "call_1",
+      name: "lookup",
       arguments: '{"q":"hello"}',
     });
   });
 
-  it('rejects missing ids', () => {
+  it("rejects missing ids", () => {
     expect(
       validateToolCall({
-        name: 'lookup',
-        arguments: '{}',
+        name: "lookup",
+        arguments: "{}",
       }),
     ).toBeNull();
   });
 
-  it('rejects empty names', () => {
+  it("rejects empty names", () => {
     expect(
       validateToolCall({
-        id: 'call_1',
-        name: '',
-        arguments: '{}',
+        id: "call_1",
+        name: "",
+        arguments: "{}",
       }),
     ).toBeNull();
   });
 
-  it('rejects non-JSON argument strings', () => {
+  it("rejects non-JSON argument strings", () => {
     expect(
       validateToolCall({
-        id: 'call_1',
-        name: 'lookup',
-        arguments: '{bad-json',
+        id: "call_1",
+        name: "lookup",
+        arguments: "{bad-json",
       }),
     ).toBeNull();
   });

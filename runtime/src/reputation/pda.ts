@@ -3,12 +3,12 @@
  * @module
  */
 
-import { PublicKey } from '@solana/web3.js';
-import { PROGRAM_ID, SEEDS } from '@agenc/sdk';
-import { derivePda } from '../utils/pda.js';
+import { PublicKey } from "@solana/web3.js";
+import { PROGRAM_ID, SEEDS } from "@agenc/sdk";
+import { derivePda } from "../utils/pda.js";
 
-export type { PdaWithBump } from '../utils/pda.js';
-import type { PdaWithBump } from '../utils/pda.js';
+export type { PdaWithBump } from "../utils/pda.js";
+import type { PdaWithBump } from "../utils/pda.js";
 
 /**
  * Derives the reputation stake PDA and bump seed.
@@ -20,7 +20,7 @@ import type { PdaWithBump } from '../utils/pda.js';
  */
 export function deriveReputationStakePda(
   agentPda: PublicKey,
-  programId: PublicKey = PROGRAM_ID
+  programId: PublicKey = PROGRAM_ID,
 ): PdaWithBump {
   return derivePda([SEEDS.REPUTATION_STAKE, agentPda.toBuffer()], programId);
 }
@@ -34,7 +34,7 @@ export function deriveReputationStakePda(
  */
 export function findReputationStakePda(
   agentPda: PublicKey,
-  programId: PublicKey = PROGRAM_ID
+  programId: PublicKey = PROGRAM_ID,
 ): PublicKey {
   return deriveReputationStakePda(agentPda, programId).address;
 }
@@ -51,11 +51,15 @@ export function findReputationStakePda(
 export function deriveReputationDelegationPda(
   delegatorPda: PublicKey,
   delegateePda: PublicKey,
-  programId: PublicKey = PROGRAM_ID
+  programId: PublicKey = PROGRAM_ID,
 ): PdaWithBump {
   return derivePda(
-    [SEEDS.REPUTATION_DELEGATION, delegatorPda.toBuffer(), delegateePda.toBuffer()],
-    programId
+    [
+      SEEDS.REPUTATION_DELEGATION,
+      delegatorPda.toBuffer(),
+      delegateePda.toBuffer(),
+    ],
+    programId,
   );
 }
 
@@ -70,7 +74,8 @@ export function deriveReputationDelegationPda(
 export function findReputationDelegationPda(
   delegatorPda: PublicKey,
   delegateePda: PublicKey,
-  programId: PublicKey = PROGRAM_ID
+  programId: PublicKey = PROGRAM_ID,
 ): PublicKey {
-  return deriveReputationDelegationPda(delegatorPda, delegateePda, programId).address;
+  return deriveReputationDelegationPda(delegatorPda, delegateePda, programId)
+    .address;
 }

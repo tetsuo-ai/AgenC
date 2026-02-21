@@ -7,12 +7,9 @@
  * @module
  */
 
-import { createHash } from 'node:crypto';
-import type { Logger } from '../utils/logger.js';
-import {
-  stableStringifyJson,
-  type JsonValue,
-} from '../eval/types.js';
+import { createHash } from "node:crypto";
+import type { Logger } from "../utils/logger.js";
+import { stableStringifyJson, type JsonValue } from "../eval/types.js";
 
 // ---------------------------------------------------------------------------
 // Schema version
@@ -23,15 +20,15 @@ import {
  * Increment when adding required fields or changing field semantics.
  * Adding optional fields does NOT require a version bump.
  */
-export const REPLAY_ALERT_SCHEMA_VERSION = 'replay.alert.v1' as const;
+export const REPLAY_ALERT_SCHEMA_VERSION = "replay.alert.v1" as const;
 
-export type ReplayAlertSeverity = 'info' | 'warning' | 'error';
+export type ReplayAlertSeverity = "info" | "warning" | "error";
 
 export type ReplayAlertKind =
-  | 'transition_validation'
-  | 'replay_hash_mismatch'
-  | 'replay_anomaly_repeat'
-  | 'replay_ingestion_lag';
+  | "transition_validation"
+  | "replay_hash_mismatch"
+  | "replay_anomaly_repeat"
+  | "replay_ingestion_lag";
 
 export interface ReplayAlertContext {
   code: string;
@@ -78,14 +75,18 @@ interface ReplayAlertHistoryEntry {
 export interface ReplayAlertingPolicy {
   enabled: boolean;
   dedupeWindowMs: number;
-  dedupeScope: ReadonlyArray<'taskPda' | 'disputePda' | 'signature' | 'sourceEventName'>;
+  dedupeScope: ReadonlyArray<
+    "taskPda" | "disputePda" | "signature" | "sourceEventName"
+  >;
   adapters: ReadonlyArray<ReplayAlertAdapter>;
 }
 
 export interface ReplayAlertingPolicyOptions {
   enabled?: boolean;
   dedupeWindowMs?: number;
-  dedupeScope?: ReadonlyArray<'taskPda' | 'disputePda' | 'signature' | 'sourceEventName'>;
+  dedupeScope?: ReadonlyArray<
+    "taskPda" | "disputePda" | "signature" | "sourceEventName"
+  >;
   logger?: ReplayLoggerAdapterConfig | boolean;
   webhook?: ReplayWebhookAdapterConfig;
   nowMs?: () => number;
@@ -94,7 +95,12 @@ export interface ReplayAlertingPolicyOptions {
 const DEFAULT_ALERTING_POLICY = {
   enabled: false,
   dedupeWindowMs: 60_000,
-  dedupeScope: ['taskPda', 'disputePda', 'sourceEventName', 'signature'] as const,
+  dedupeScope: [
+    "taskPda",
+    "disputePda",
+    "sourceEventName",
+    "signature",
+  ] as const,
 };
 
 function stableValue(value: unknown): string {
@@ -102,7 +108,7 @@ function stableValue(value: unknown): string {
 }
 
 function hashHex(value: string): string {
-  return createHash('sha256').update(value).digest('hex');
+  return createHash("sha256").update(value).digest("hex");
 }
 
 function nowOrDefault(nowFn: () => number): number {
@@ -110,16 +116,18 @@ function nowOrDefault(nowFn: () => number): number {
 }
 
 function makeDedupeKey(
-  alert: Omit<ReplayAnomalyAlert, 'id' | 'emittedAtMs'>,
+  alert: Omit<ReplayAnomalyAlert, "id" | "emittedAtMs">,
   scope: ReadonlyArray<string>,
 ): string {
   const components = {
     code: alert.code,
     kind: alert.kind,
-    taskPda: scope.includes('taskPda') ? alert.taskPda : undefined,
-    disputePda: scope.includes('disputePda') ? alert.disputePda : undefined,
-    sourceEventName: scope.includes('sourceEventName') ? alert.sourceEventName : undefined,
-    signature: scope.includes('signature') ? alert.signature : undefined,
+    taskPda: scope.includes("taskPda") ? alert.taskPda : undefined,
+    disputePda: scope.includes("disputePda") ? alert.disputePda : undefined,
+    sourceEventName: scope.includes("sourceEventName")
+      ? alert.sourceEventName
+      : undefined,
+    signature: scope.includes("signature") ? alert.signature : undefined,
     slot: alert.slot,
   };
 
@@ -127,7 +135,7 @@ function makeDedupeKey(
 }
 
 function makeAlertId(
-  alert: Omit<ReplayAnomalyAlert, 'id' | 'emittedAtMs'>,
+  alert: Omit<ReplayAnomalyAlert, "id" | "emittedAtMs">,
 ): string {
   const { repeatCount: _repeatCount, ...identifierPayload } = alert;
   return hashHex(stableValue(identifierPayload));
@@ -135,7 +143,7 @@ function makeAlertId(
 
 function buildAlertPayload(
   context: ReplayAlertContext,
-): Omit<ReplayAnomalyAlert, 'id' | 'emittedAtMs'> {
+): Omit<ReplayAnomalyAlert, "id" | "emittedAtMs"> {
   return {
     code: context.code,
     severity: context.severity,
@@ -160,11 +168,12 @@ export class ReplayAlertDispatcher {
   private readonly nowMs: () => number;
 
   constructor(options?: ReplayAlertingPolicyOptions, logger?: Logger) {
-    const loggerEnabled = options?.logger === undefined
-      ? false
-      : typeof options.logger === 'boolean'
-        ? options.logger
-        : options.logger.enabled;
+    const loggerEnabled =
+      options?.logger === undefined
+        ? false
+        : typeof options.logger === "boolean"
+          ? options.logger
+          : options.logger.enabled;
 
     const webhook = options?.webhook;
     const adapters: ReplayAlertAdapter[] = [];
@@ -177,7 +186,8 @@ export class ReplayAlertDispatcher {
 
     this.policy = {
       enabled: options?.enabled ?? DEFAULT_ALERTING_POLICY.enabled,
-      dedupeWindowMs: options?.dedupeWindowMs ?? DEFAULT_ALERTING_POLICY.dedupeWindowMs,
+      dedupeWindowMs:
+        options?.dedupeWindowMs ?? DEFAULT_ALERTING_POLICY.dedupeWindowMs,
       dedupeScope: options?.dedupeScope ?? DEFAULT_ALERTING_POLICY.dedupeScope,
       adapters,
     };
@@ -197,7 +207,10 @@ export class ReplayAlertDispatcher {
     const previous = this.history.get(key);
     const occurrences = (previous?.occurrences ?? 0) + 1;
 
-    if (previous !== undefined && emittedAtMs - previous.lastEmittedMs < this.policy.dedupeWindowMs) {
+    if (
+      previous !== undefined &&
+      emittedAtMs - previous.lastEmittedMs < this.policy.dedupeWindowMs
+    ) {
       this.history.set(key, {
         lastEmittedMs: previous.lastEmittedMs,
         occurrences,
@@ -226,8 +239,7 @@ export class ReplayAlertDispatcher {
 }
 
 class ReplayLoggerAdapter implements ReplayAlertAdapter {
-  constructor(private readonly logger: Logger) {
-  }
+  constructor(private readonly logger: Logger) {}
 
   emit(alert: ReplayAnomalyAlert): void {
     const payload = {
@@ -247,24 +259,26 @@ class ReplayLoggerAdapter implements ReplayAlertAdapter {
       emittedAtMs: alert.emittedAtMs,
     };
 
-    if (alert.severity === 'error') {
-      this.logger.error('replay_alert', payload);
+    if (alert.severity === "error") {
+      this.logger.error("replay_alert", payload);
       return;
     }
 
-    if (alert.severity === 'warning') {
-      this.logger.warn('replay_alert', payload);
+    if (alert.severity === "warning") {
+      this.logger.warn("replay_alert", payload);
       return;
     }
 
-    this.logger.info('replay_alert', payload);
+    this.logger.info("replay_alert", payload);
   }
 }
 
 class ReplayWebhookAdapter implements ReplayAlertAdapter {
   private readonly timeoutMs: number;
 
-  constructor(private readonly options: Omit<ReplayWebhookAdapterConfig, 'enabled'>) {
+  constructor(
+    private readonly options: Omit<ReplayWebhookAdapterConfig, "enabled">,
+  ) {
     this.timeoutMs = this.options.timeoutMs ?? 5_000;
   }
 
@@ -310,9 +324,9 @@ class ReplayWebhookAdapter implements ReplayAlertAdapter {
 
     try {
       await fetch(this.options.url, {
-        method: 'POST',
+        method: "POST",
         headers: {
-          'content-type': 'application/json',
+          "content-type": "application/json",
           ...(this.options.headers ?? {}),
         },
         body: stableStringifyJson(this.toPayload(alert)),
@@ -351,7 +365,10 @@ export interface ReplayAlertSchemaV1 {
   readonly slot?: number;
   readonly sourceEventSequence?: number;
   readonly traceId?: string;
-  readonly metadata?: Record<string, string | number | boolean | null | undefined>;
+  readonly metadata?: Record<
+    string,
+    string | number | boolean | null | undefined
+  >;
   readonly occurredAtMs?: number;
   readonly repeatCount?: number;
 }
@@ -361,18 +378,25 @@ export interface ReplayAlertSchemaV1 {
 // ---------------------------------------------------------------------------
 
 export const REPLAY_ALERT_V1_REQUIRED_FIELDS = [
-  'id', 'code', 'severity', 'kind', 'message', 'emittedAtMs',
+  "id",
+  "code",
+  "severity",
+  "kind",
+  "message",
+  "emittedAtMs",
 ] as const;
 
 export const REPLAY_ALERT_V1_VALID_SEVERITIES: ReadonlySet<string> = new Set([
-  'info', 'warning', 'error',
+  "info",
+  "warning",
+  "error",
 ]);
 
 export const REPLAY_ALERT_V1_VALID_KINDS: ReadonlySet<string> = new Set([
-  'transition_validation',
-  'replay_hash_mismatch',
-  'replay_anomaly_repeat',
-  'replay_ingestion_lag',
+  "transition_validation",
+  "replay_hash_mismatch",
+  "replay_anomaly_repeat",
+  "replay_ingestion_lag",
 ]);
 
 export interface SchemaCompatibilityResult {
@@ -386,7 +410,9 @@ export interface SchemaCompatibilityResult {
  * Check if a given object conforms to the replay.alert.v1 schema.
  * Returns a structured result with compatibility status and error details.
  */
-export function validateAlertSchema(payload: unknown): SchemaCompatibilityResult {
+export function validateAlertSchema(
+  payload: unknown,
+): SchemaCompatibilityResult {
   const result: SchemaCompatibilityResult = {
     compatible: true,
     schemaVersion: REPLAY_ALERT_SCHEMA_VERSION,
@@ -394,8 +420,16 @@ export function validateAlertSchema(payload: unknown): SchemaCompatibilityResult
     invalidFields: [],
   };
 
-  if (payload === null || typeof payload !== 'object' || Array.isArray(payload)) {
-    return { ...result, compatible: false, missingFields: [...REPLAY_ALERT_V1_REQUIRED_FIELDS] };
+  if (
+    payload === null ||
+    typeof payload !== "object" ||
+    Array.isArray(payload)
+  ) {
+    return {
+      ...result,
+      compatible: false,
+      missingFields: [...REPLAY_ALERT_V1_REQUIRED_FIELDS],
+    };
   }
 
   const record = payload as Record<string, unknown>;
@@ -407,28 +441,35 @@ export function validateAlertSchema(payload: unknown): SchemaCompatibilityResult
     }
   }
 
-  if (typeof record.id !== 'string' || record.id.length === 0) {
-    result.invalidFields.push('id: must be non-empty string');
+  if (typeof record.id !== "string" || record.id.length === 0) {
+    result.invalidFields.push("id: must be non-empty string");
     result.compatible = false;
   }
-  if (typeof record.code !== 'string' || record.code.length === 0) {
-    result.invalidFields.push('code: must be non-empty string');
+  if (typeof record.code !== "string" || record.code.length === 0) {
+    result.invalidFields.push("code: must be non-empty string");
     result.compatible = false;
   }
   if (!REPLAY_ALERT_V1_VALID_SEVERITIES.has(record.severity as string)) {
-    result.invalidFields.push(`severity: must be one of ${[...REPLAY_ALERT_V1_VALID_SEVERITIES].join(', ')}`);
+    result.invalidFields.push(
+      `severity: must be one of ${[...REPLAY_ALERT_V1_VALID_SEVERITIES].join(", ")}`,
+    );
     result.compatible = false;
   }
   if (!REPLAY_ALERT_V1_VALID_KINDS.has(record.kind as string)) {
-    result.invalidFields.push(`kind: must be one of ${[...REPLAY_ALERT_V1_VALID_KINDS].join(', ')}`);
+    result.invalidFields.push(
+      `kind: must be one of ${[...REPLAY_ALERT_V1_VALID_KINDS].join(", ")}`,
+    );
     result.compatible = false;
   }
-  if (typeof record.message !== 'string') {
-    result.invalidFields.push('message: must be string');
+  if (typeof record.message !== "string") {
+    result.invalidFields.push("message: must be string");
     result.compatible = false;
   }
-  if (typeof record.emittedAtMs !== 'number' || !Number.isFinite(record.emittedAtMs)) {
-    result.invalidFields.push('emittedAtMs: must be finite number');
+  if (
+    typeof record.emittedAtMs !== "number" ||
+    !Number.isFinite(record.emittedAtMs)
+  ) {
+    result.invalidFields.push("emittedAtMs: must be finite number");
     result.compatible = false;
   }
 
@@ -446,24 +487,30 @@ export function validateAlertSchema(payload: unknown): SchemaCompatibilityResult
  * single SHA-256 hex string that uniquely identifies the set of anomalies.
  * Two incident windows with the same anomalies produce the same hash.
  */
-export function computeAnomalySetHash(alerts: ReadonlyArray<ReplayAnomalyAlert>): string {
-  const sortedIds = alerts
-    .map((alert) => alert.id)
-    .sort();
+export function computeAnomalySetHash(
+  alerts: ReadonlyArray<ReplayAnomalyAlert>,
+): string {
+  const sortedIds = alerts.map((alert) => alert.id).sort();
   const payload = stableStringifyJson(sortedIds as JsonValue);
-  return createHash('sha256').update(payload).digest('hex');
+  return createHash("sha256").update(payload).digest("hex");
 }
 
 /**
  * Compute anomaly set hash from raw alert contexts (before ID assignment).
  * Useful when alerts have not yet been dispatched.
  */
-export function computeAnomalySetHashFromContexts(contexts: ReadonlyArray<ReplayAlertContext>): string {
-  const ids = contexts.map((ctx) => {
-    const base = buildAlertPayload(ctx);
-    return makeAlertId(base);
-  }).sort();
-  return createHash('sha256').update(stableStringifyJson(ids as JsonValue)).digest('hex');
+export function computeAnomalySetHashFromContexts(
+  contexts: ReadonlyArray<ReplayAlertContext>,
+): string {
+  const ids = contexts
+    .map((ctx) => {
+      const base = buildAlertPayload(ctx);
+      return makeAlertId(base);
+    })
+    .sort();
+  return createHash("sha256")
+    .update(stableStringifyJson(ids as JsonValue))
+    .digest("hex");
 }
 
 // ---------------------------------------------------------------------------

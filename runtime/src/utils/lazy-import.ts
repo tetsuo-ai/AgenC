@@ -25,7 +25,7 @@ export async function ensureLazyModule<T>(
 ): Promise<T> {
   let mod: Record<string, unknown>;
   try {
-    mod = await import(packageName) as Record<string, unknown>;
+    mod = (await import(packageName)) as Record<string, unknown>;
   } catch {
     throw createError(
       `${packageName} package not installed. Install it: npm install ${packageName}`,

@@ -1,11 +1,20 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { PublicKey, Keypair, SystemProgram } from '@solana/web3.js';
-import { utils } from '@coral-xyz/anchor';
-import { TaskOperations, TASK_STATUS_OFFSET, type TaskOpsConfig } from './operations.js';
-import { OnChainTaskStatus, type OnChainTask } from './types.js';
-import { TaskType } from '../events/types.js';
-import { TaskNotClaimableError, TaskSubmissionError, ValidationError, AnchorErrorCodes } from '../types/errors.js';
-import { silentLogger } from '../utils/logger.js';
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { PublicKey, Keypair, SystemProgram } from "@solana/web3.js";
+import { utils } from "@coral-xyz/anchor";
+import {
+  TaskOperations,
+  TASK_STATUS_OFFSET,
+  type TaskOpsConfig,
+} from "./operations.js";
+import { OnChainTaskStatus, type OnChainTask } from "./types.js";
+import { TaskType } from "../events/types.js";
+import {
+  TaskNotClaimableError,
+  TaskSubmissionError,
+  ValidationError,
+  AnchorErrorCodes,
+} from "../types/errors.js";
+import { silentLogger } from "../utils/logger.js";
 import {
   PROGRAM_ID,
   HASH_SIZE,
@@ -13,13 +22,13 @@ import {
   RISC0_JOURNAL_LEN,
   RISC0_SEAL_BORSH_LEN,
   TRUSTED_RISC0_SELECTOR,
-} from '@agenc/sdk';
+} from "@agenc/sdk";
 
 const TRUSTED_RISC0_ROUTER_PROGRAM_ID = new PublicKey(
-  '6JvFfBrvCcWgANKh1Eae9xDq4RC6cfJuBcf71rp2k9Y7',
+  "6JvFfBrvCcWgANKh1Eae9xDq4RC6cfJuBcf71rp2k9Y7",
 );
 const TRUSTED_RISC0_VERIFIER_PROGRAM_ID = new PublicKey(
-  'THq1qFYQoh7zgcjXoMXduDBqiZRCPeg3PvvMbrVQUge',
+  "THq1qFYQoh7zgcjXoMXduDBqiZRCPeg3PvvMbrVQUge",
 );
 
 /**
@@ -40,10 +49,10 @@ function createMockRawTask(overrides: Record<string, unknown> = {}) {
   return {
     taskId: new Array(32).fill(0).map((_: number, i: number) => i),
     creator: Keypair.generate().publicKey,
-    requiredCapabilities: { toString: () => '3' },
+    requiredCapabilities: { toString: () => "3" },
     description: new Array(64).fill(0),
     constraintHash: new Array(32).fill(0),
-    rewardAmount: { toString: () => '1000000' },
+    rewardAmount: { toString: () => "1000000" },
     maxWorkers: 5,
     currentWorkers: 0,
     status: { open: {} },
@@ -63,7 +72,11 @@ function createMockRawTask(overrides: Record<string, unknown> = {}) {
 /**
  * Creates a mock raw task claim as returned by Anchor fetch.
  */
-function createMockRawClaim(agentPda: PublicKey, taskPda: PublicKey, overrides: Record<string, unknown> = {}) {
+function createMockRawClaim(
+  agentPda: PublicKey,
+  taskPda: PublicKey,
+  overrides: Record<string, unknown> = {},
+) {
   return {
     task: taskPda,
     worker: agentPda,
@@ -74,7 +87,7 @@ function createMockRawClaim(agentPda: PublicKey, taskPda: PublicKey, overrides: 
     resultData: new Array(64).fill(0),
     isCompleted: false,
     isValidated: false,
-    rewardPaid: { toString: () => '0' },
+    rewardPaid: { toString: () => "0" },
     bump: 254,
     ...overrides,
   };
@@ -123,9 +136,9 @@ function createMockProgram() {
     treasury: Keypair.generate().publicKey,
   });
 
-  const claimTaskRpc = vi.fn().mockResolvedValue('claim-sig');
-  const completeTaskRpc = vi.fn().mockResolvedValue('complete-sig');
-  const completeTaskPrivateRpc = vi.fn().mockResolvedValue('private-sig');
+  const claimTaskRpc = vi.fn().mockResolvedValue("claim-sig");
+  const completeTaskRpc = vi.fn().mockResolvedValue("complete-sig");
+  const completeTaskPrivateRpc = vi.fn().mockResolvedValue("private-sig");
 
   const claimTaskBuilder = {
     accountsPartial: vi.fn().mockReturnThis(),
@@ -141,7 +154,9 @@ function createMockProgram() {
     accountsPartial: vi.fn().mockReturnThis(),
     rpc: completeTaskPrivateRpc,
   };
-  const completeTaskPrivateMethod = vi.fn().mockReturnValue(completeTaskPrivateBuilder);
+  const completeTaskPrivateMethod = vi
+    .fn()
+    .mockReturnValue(completeTaskPrivateBuilder);
 
   const program = {
     programId: PROGRAM_ID,
@@ -159,7 +174,7 @@ function createMockProgram() {
   };
 
   return {
-    program: program as unknown as TaskOpsConfig['program'],
+    program: program as unknown as TaskOpsConfig["program"],
     mocks: {
       taskFetch,
       taskAll,
@@ -177,11 +192,11 @@ function createMockProgram() {
   };
 }
 
-describe('TaskOperations', () => {
+describe("TaskOperations", () => {
   const agentId = createAgentId(42);
   let ops: TaskOperations;
-  let mocks: ReturnType<typeof createMockProgram>['mocks'];
-  let mockProgram: ReturnType<typeof createMockProgram>['program'];
+  let mocks: ReturnType<typeof createMockProgram>["mocks"];
+  let mockProgram: ReturnType<typeof createMockProgram>["program"];
 
   beforeEach(() => {
     const created = createMockProgram();
@@ -194,12 +209,12 @@ describe('TaskOperations', () => {
     });
   });
 
-  describe('constructor', () => {
-    it('initializes with program and agentId', () => {
+  describe("constructor", () => {
+    it("initializes with program and agentId", () => {
       expect(ops).toBeInstanceOf(TaskOperations);
     });
 
-    it('accepts optional logger', () => {
+    it("accepts optional logger", () => {
       const opsWithLogger = new TaskOperations({
         program: mockProgram,
         agentId,
@@ -209,8 +224,8 @@ describe('TaskOperations', () => {
     });
   });
 
-  describe('fetchTask', () => {
-    it('returns parsed OnChainTask when found', async () => {
+  describe("fetchTask", () => {
+    it("returns parsed OnChainTask when found", async () => {
       const rawTask = createMockRawTask();
       mocks.taskFetch.mockResolvedValue(rawTask);
 
@@ -219,12 +234,12 @@ describe('TaskOperations', () => {
 
       expect(result).not.toBeNull();
       expect(result!.rewardAmount).toBe(1_000_000n);
-      expect(typeof result!.requiredCapabilities).toBe('bigint');
+      expect(typeof result!.requiredCapabilities).toBe("bigint");
       expect(result!.status).toBe(OnChainTaskStatus.Open);
     });
 
-    it('returns null for non-existent PDA', async () => {
-      mocks.taskFetch.mockRejectedValue(new Error('Account does not exist'));
+    it("returns null for non-existent PDA", async () => {
+      mocks.taskFetch.mockRejectedValue(new Error("Account does not exist"));
 
       const taskPda = Keypair.generate().publicKey;
       const result = await ops.fetchTask(taskPda);
@@ -232,8 +247,8 @@ describe('TaskOperations', () => {
       expect(result).toBeNull();
     });
 
-    it('returns null for could not find error', async () => {
-      mocks.taskFetch.mockRejectedValue(new Error('could not find account'));
+    it("returns null for could not find error", async () => {
+      mocks.taskFetch.mockRejectedValue(new Error("could not find account"));
 
       const taskPda = Keypair.generate().publicKey;
       const result = await ops.fetchTask(taskPda);
@@ -241,18 +256,22 @@ describe('TaskOperations', () => {
       expect(result).toBeNull();
     });
 
-    it('throws on unexpected errors', async () => {
-      mocks.taskFetch.mockRejectedValue(new Error('Network error'));
+    it("throws on unexpected errors", async () => {
+      mocks.taskFetch.mockRejectedValue(new Error("Network error"));
 
       const taskPda = Keypair.generate().publicKey;
-      await expect(ops.fetchTask(taskPda)).rejects.toThrow('Network error');
+      await expect(ops.fetchTask(taskPda)).rejects.toThrow("Network error");
     });
   });
 
-  describe('fetchAllTasks', () => {
-    it('returns all tasks from chain', async () => {
-      const rawTask1 = createMockRawTask({ rewardAmount: { toString: () => '1000' } });
-      const rawTask2 = createMockRawTask({ rewardAmount: { toString: () => '2000' } });
+  describe("fetchAllTasks", () => {
+    it("returns all tasks from chain", async () => {
+      const rawTask1 = createMockRawTask({
+        rewardAmount: { toString: () => "1000" },
+      });
+      const rawTask2 = createMockRawTask({
+        rewardAmount: { toString: () => "2000" },
+      });
 
       mocks.taskAll.mockResolvedValue([
         { publicKey: Keypair.generate().publicKey, account: rawTask1 },
@@ -267,7 +286,7 @@ describe('TaskOperations', () => {
       expect(results[0].taskPda).toBeInstanceOf(PublicKey);
     });
 
-    it('returns empty array when no tasks', async () => {
+    it("returns empty array when no tasks", async () => {
       mocks.taskAll.mockResolvedValue([]);
 
       const results = await ops.fetchAllTasks();
@@ -276,8 +295,8 @@ describe('TaskOperations', () => {
     });
   });
 
-  describe('fetchClaimableTasks', () => {
-    it('issues two memcmp-filtered queries for Open and InProgress', async () => {
+  describe("fetchClaimableTasks", () => {
+    it("issues two memcmp-filtered queries for Open and InProgress", async () => {
       const openTask = createMockRawTask({ status: { open: {} } });
       const inProgressTask = createMockRawTask({ status: { inProgress: {} } });
 
@@ -289,12 +308,22 @@ describe('TaskOperations', () => {
         if (!filters || !Array.isArray(filters) || filters.length === 0) {
           return Promise.resolve([]);
         }
-        const filter = filters[0] as { memcmp: { offset: number; bytes: string } };
-        if (filter.memcmp.bytes === utils.bytes.bs58.encode(Buffer.from([OnChainTaskStatus.Open]))) {
+        const filter = filters[0] as {
+          memcmp: { offset: number; bytes: string };
+        };
+        if (
+          filter.memcmp.bytes ===
+          utils.bytes.bs58.encode(Buffer.from([OnChainTaskStatus.Open]))
+        ) {
           return Promise.resolve([{ publicKey: openPda, account: openTask }]);
         }
-        if (filter.memcmp.bytes === utils.bytes.bs58.encode(Buffer.from([OnChainTaskStatus.InProgress]))) {
-          return Promise.resolve([{ publicKey: inProgressPda, account: inProgressTask }]);
+        if (
+          filter.memcmp.bytes ===
+          utils.bytes.bs58.encode(Buffer.from([OnChainTaskStatus.InProgress]))
+        ) {
+          return Promise.resolve([
+            { publicKey: inProgressPda, account: inProgressTask },
+          ]);
         }
         return Promise.resolve([]);
       });
@@ -310,21 +339,35 @@ describe('TaskOperations', () => {
       // Verify two calls with correct memcmp filters
       expect(mocks.taskAll).toHaveBeenCalledTimes(2);
       expect(mocks.taskAll).toHaveBeenCalledWith([
-        { memcmp: { offset: TASK_STATUS_OFFSET, bytes: utils.bytes.bs58.encode(Buffer.from([OnChainTaskStatus.Open])) } },
+        {
+          memcmp: {
+            offset: TASK_STATUS_OFFSET,
+            bytes: utils.bytes.bs58.encode(
+              Buffer.from([OnChainTaskStatus.Open]),
+            ),
+          },
+        },
       ]);
       expect(mocks.taskAll).toHaveBeenCalledWith([
-        { memcmp: { offset: TASK_STATUS_OFFSET, bytes: utils.bytes.bs58.encode(Buffer.from([OnChainTaskStatus.InProgress])) } },
+        {
+          memcmp: {
+            offset: TASK_STATUS_OFFSET,
+            bytes: utils.bytes.bs58.encode(
+              Buffer.from([OnChainTaskStatus.InProgress]),
+            ),
+          },
+        },
       ]);
     });
 
-    it('uses correct offset 186 for status field', () => {
+    it("uses correct offset 186 for status field", () => {
       // 8 (discriminator) + 32 (task_id) + 32 (creator) + 8 (required_capabilities)
       // + 64 (description) + 32 (constraint_hash) + 8 (reward_amount)
       // + 1 (max_workers) + 1 (current_workers) = 186
       expect(TASK_STATUS_OFFSET).toBe(186);
     });
 
-    it('returns empty array when no claimable tasks exist', async () => {
+    it("returns empty array when no claimable tasks exist", async () => {
       mocks.taskAll.mockResolvedValue([]);
 
       const results = await ops.fetchClaimableTasks();
@@ -332,7 +375,7 @@ describe('TaskOperations', () => {
       expect(results).toEqual([]);
     });
 
-    it('falls back to fetchAllTasks on memcmp filter failure', async () => {
+    it("falls back to fetchAllTasks on memcmp filter failure", async () => {
       const openTask = createMockRawTask({ status: { open: {} } });
       const completedTask = createMockRawTask({ status: { completed: {} } });
       const openPda = Keypair.generate().publicKey;
@@ -342,8 +385,15 @@ describe('TaskOperations', () => {
       mocks.taskAll.mockImplementation((filters?: unknown[]) => {
         callCount++;
         // First two calls (memcmp) fail
-        if (callCount <= 2 && filters && Array.isArray(filters) && filters.length > 0) {
-          return Promise.reject(new Error('RPC does not support memcmp filters'));
+        if (
+          callCount <= 2 &&
+          filters &&
+          Array.isArray(filters) &&
+          filters.length > 0
+        ) {
+          return Promise.reject(
+            new Error("RPC does not support memcmp filters"),
+          );
         }
         // Third call (fallback, no filters) returns all tasks
         return Promise.resolve([
@@ -359,7 +409,7 @@ describe('TaskOperations', () => {
       expect(results[0].task.status).toBe(OnChainTaskStatus.Open);
     });
 
-    it('combines results from both filtered queries', async () => {
+    it("combines results from both filtered queries", async () => {
       const openTasks = Array.from({ length: 3 }, () =>
         createMockRawTask({ status: { open: {} } }),
       );
@@ -371,15 +421,29 @@ describe('TaskOperations', () => {
         if (!filters || !Array.isArray(filters) || filters.length === 0) {
           return Promise.resolve([]);
         }
-        const filter = filters[0] as { memcmp: { offset: number; bytes: string } };
-        if (filter.memcmp.bytes === utils.bytes.bs58.encode(Buffer.from([OnChainTaskStatus.Open]))) {
+        const filter = filters[0] as {
+          memcmp: { offset: number; bytes: string };
+        };
+        if (
+          filter.memcmp.bytes ===
+          utils.bytes.bs58.encode(Buffer.from([OnChainTaskStatus.Open]))
+        ) {
           return Promise.resolve(
-            openTasks.map((t) => ({ publicKey: Keypair.generate().publicKey, account: t })),
+            openTasks.map((t) => ({
+              publicKey: Keypair.generate().publicKey,
+              account: t,
+            })),
           );
         }
-        if (filter.memcmp.bytes === utils.bytes.bs58.encode(Buffer.from([OnChainTaskStatus.InProgress]))) {
+        if (
+          filter.memcmp.bytes ===
+          utils.bytes.bs58.encode(Buffer.from([OnChainTaskStatus.InProgress]))
+        ) {
           return Promise.resolve(
-            inProgressTasks.map((t) => ({ publicKey: Keypair.generate().publicKey, account: t })),
+            inProgressTasks.map((t) => ({
+              publicKey: Keypair.generate().publicKey,
+              account: t,
+            })),
           );
         }
         return Promise.resolve([]);
@@ -388,14 +452,22 @@ describe('TaskOperations', () => {
       const results = await ops.fetchClaimableTasks();
 
       expect(results.length).toBe(5);
-      expect(results.filter((r) => r.task.status === OnChainTaskStatus.Open).length).toBe(3);
-      expect(results.filter((r) => r.task.status === OnChainTaskStatus.InProgress).length).toBe(2);
+      expect(
+        results.filter((r) => r.task.status === OnChainTaskStatus.Open).length,
+      ).toBe(3);
+      expect(
+        results.filter((r) => r.task.status === OnChainTaskStatus.InProgress)
+          .length,
+      ).toBe(2);
     });
   });
 
-  describe('fetchClaim', () => {
-    it('returns this agent\'s claim when found', async () => {
-      const rawClaim = createMockRawClaim(Keypair.generate().publicKey, Keypair.generate().publicKey);
+  describe("fetchClaim", () => {
+    it("returns this agent's claim when found", async () => {
+      const rawClaim = createMockRawClaim(
+        Keypair.generate().publicKey,
+        Keypair.generate().publicKey,
+      );
       mocks.taskClaimFetch.mockResolvedValue(rawClaim);
 
       const taskPda = Keypair.generate().publicKey;
@@ -405,8 +477,10 @@ describe('TaskOperations', () => {
       expect(result!.isCompleted).toBe(false);
     });
 
-    it('returns null for non-existent claim', async () => {
-      mocks.taskClaimFetch.mockRejectedValue(new Error('Account does not exist'));
+    it("returns null for non-existent claim", async () => {
+      mocks.taskClaimFetch.mockRejectedValue(
+        new Error("Account does not exist"),
+      );
 
       const taskPda = Keypair.generate().publicKey;
       const result = await ops.fetchClaim(taskPda);
@@ -415,12 +489,12 @@ describe('TaskOperations', () => {
     });
   });
 
-  describe('fetchActiveClaims', () => {
-    it('returns only uncompleted claims for this agent', async () => {
+  describe("fetchActiveClaims", () => {
+    it("returns only uncompleted claims for this agent", async () => {
       // Need to get the agent PDA to create matching claims
       const { address: agentPda } = (() => {
         const [address, bump] = PublicKey.findProgramAddressSync(
-          [Buffer.from('agent'), Buffer.from(agentId)],
+          [Buffer.from("agent"), Buffer.from(agentId)],
           PROGRAM_ID,
         );
         return { address, bump };
@@ -433,15 +507,21 @@ describe('TaskOperations', () => {
       mocks.taskClaimAll.mockResolvedValue([
         {
           publicKey: Keypair.generate().publicKey,
-          account: createMockRawClaim(agentPda, taskPda1, { isCompleted: false }),
+          account: createMockRawClaim(agentPda, taskPda1, {
+            isCompleted: false,
+          }),
         },
         {
           publicKey: Keypair.generate().publicKey,
-          account: createMockRawClaim(agentPda, taskPda2, { isCompleted: true }),
+          account: createMockRawClaim(agentPda, taskPda2, {
+            isCompleted: true,
+          }),
         },
         {
           publicKey: Keypair.generate().publicKey,
-          account: createMockRawClaim(otherAgent, taskPda1, { isCompleted: false }),
+          account: createMockRawClaim(otherAgent, taskPda1, {
+            isCompleted: false,
+          }),
         },
       ]);
 
@@ -453,15 +533,15 @@ describe('TaskOperations', () => {
     });
   });
 
-  describe('claimTask', () => {
-    it('calls claimTask with correct accounts', async () => {
+  describe("claimTask", () => {
+    it("calls claimTask with correct accounts", async () => {
       const taskPda = Keypair.generate().publicKey;
       const task = createParsedTask();
 
       const result = await ops.claimTask(taskPda, task);
 
       expect(result.success).toBe(true);
-      expect(result.transactionSignature).toBe('claim-sig');
+      expect(result.transactionSignature).toBe("claim-sig");
       expect(mocks.claimTaskBuilder.accountsPartial).toHaveBeenCalledWith(
         expect.objectContaining({
           task: taskPda,
@@ -470,82 +550,112 @@ describe('TaskOperations', () => {
       );
     });
 
-    it('throws TaskNotClaimableError on TaskFullyClaimed', async () => {
+    it("throws TaskNotClaimableError on TaskFullyClaimed", async () => {
       const taskPda = Keypair.generate().publicKey;
       const task = createParsedTask();
 
       mocks.claimTaskBuilder.rpc.mockRejectedValue({
-        errorCode: { number: AnchorErrorCodes.TaskFullyClaimed, code: 'TaskFullyClaimed' },
-        message: 'Task has reached maximum workers',
+        errorCode: {
+          number: AnchorErrorCodes.TaskFullyClaimed,
+          code: "TaskFullyClaimed",
+        },
+        message: "Task has reached maximum workers",
       });
 
-      await expect(ops.claimTask(taskPda, task)).rejects.toThrow(TaskNotClaimableError);
+      await expect(ops.claimTask(taskPda, task)).rejects.toThrow(
+        TaskNotClaimableError,
+      );
     });
 
-    it('throws TaskNotClaimableError on TaskExpired', async () => {
+    it("throws TaskNotClaimableError on TaskExpired", async () => {
       const taskPda = Keypair.generate().publicKey;
       const task = createParsedTask();
 
       mocks.claimTaskBuilder.rpc.mockRejectedValue({
-        errorCode: { number: AnchorErrorCodes.TaskExpired, code: 'TaskExpired' },
-        message: 'Task has expired',
+        errorCode: {
+          number: AnchorErrorCodes.TaskExpired,
+          code: "TaskExpired",
+        },
+        message: "Task has expired",
       });
 
-      await expect(ops.claimTask(taskPda, task)).rejects.toThrow(TaskNotClaimableError);
+      await expect(ops.claimTask(taskPda, task)).rejects.toThrow(
+        TaskNotClaimableError,
+      );
     });
 
-    it('throws TaskNotClaimableError on InsufficientCapabilities', async () => {
+    it("throws TaskNotClaimableError on InsufficientCapabilities", async () => {
       const taskPda = Keypair.generate().publicKey;
       const task = createParsedTask();
 
       mocks.claimTaskBuilder.rpc.mockRejectedValue({
-        errorCode: { number: AnchorErrorCodes.InsufficientCapabilities, code: 'InsufficientCapabilities' },
-        message: 'Agent has insufficient capabilities',
+        errorCode: {
+          number: AnchorErrorCodes.InsufficientCapabilities,
+          code: "InsufficientCapabilities",
+        },
+        message: "Agent has insufficient capabilities",
       });
 
-      await expect(ops.claimTask(taskPda, task)).rejects.toThrow(TaskNotClaimableError);
+      await expect(ops.claimTask(taskPda, task)).rejects.toThrow(
+        TaskNotClaimableError,
+      );
     });
 
-    it('throws TaskNotClaimableError on TaskNotOpen', async () => {
+    it("throws TaskNotClaimableError on TaskNotOpen", async () => {
       const taskPda = Keypair.generate().publicKey;
       const task = createParsedTask();
 
       mocks.claimTaskBuilder.rpc.mockRejectedValue({
-        errorCode: { number: AnchorErrorCodes.TaskNotOpen, code: 'TaskNotOpen' },
-        message: 'Task is not open',
+        errorCode: {
+          number: AnchorErrorCodes.TaskNotOpen,
+          code: "TaskNotOpen",
+        },
+        message: "Task is not open",
       });
 
-      await expect(ops.claimTask(taskPda, task)).rejects.toThrow(TaskNotClaimableError);
+      await expect(ops.claimTask(taskPda, task)).rejects.toThrow(
+        TaskNotClaimableError,
+      );
     });
 
-    it('throws TaskNotClaimableError on AlreadyClaimed', async () => {
+    it("throws TaskNotClaimableError on AlreadyClaimed", async () => {
       const taskPda = Keypair.generate().publicKey;
       const task = createParsedTask();
 
       mocks.claimTaskBuilder.rpc.mockRejectedValue({
-        errorCode: { number: AnchorErrorCodes.AlreadyClaimed, code: 'AlreadyClaimed' },
-        message: 'Already claimed',
+        errorCode: {
+          number: AnchorErrorCodes.AlreadyClaimed,
+          code: "AlreadyClaimed",
+        },
+        message: "Already claimed",
       });
 
-      await expect(ops.claimTask(taskPda, task)).rejects.toThrow(TaskNotClaimableError);
+      await expect(ops.claimTask(taskPda, task)).rejects.toThrow(
+        TaskNotClaimableError,
+      );
     });
   });
 
-  describe('completeTask', () => {
-    it('calls completeTask with correct arguments', async () => {
+  describe("completeTask", () => {
+    it("calls completeTask with correct arguments", async () => {
       const taskPda = Keypair.generate().publicKey;
       const task = createParsedTask();
       const proofHash = new Uint8Array(32).fill(0xab);
       const resultData = new Uint8Array(64).fill(0xcd);
 
-      const result = await ops.completeTask(taskPda, task, proofHash, resultData);
+      const result = await ops.completeTask(
+        taskPda,
+        task,
+        proofHash,
+        resultData,
+      );
 
       expect(result.success).toBe(true);
       expect(result.isPrivate).toBe(false);
-      expect(result.transactionSignature).toBe('complete-sig');
+      expect(result.transactionSignature).toBe("complete-sig");
     });
 
-    it('handles null resultData', async () => {
+    it("handles null resultData", async () => {
       const taskPda = Keypair.generate().publicKey;
       const task = createParsedTask();
       const proofHash = new Uint8Array(32).fill(0xab);
@@ -555,11 +665,13 @@ describe('TaskOperations', () => {
       expect(result.success).toBe(true);
     });
 
-    it('throws TaskSubmissionError on failure', async () => {
+    it("throws TaskSubmissionError on failure", async () => {
       const taskPda = Keypair.generate().publicKey;
       const task = createParsedTask();
 
-      mocks.completeTaskBuilder.rpc.mockRejectedValue(new Error('Transaction failed'));
+      mocks.completeTaskBuilder.rpc.mockRejectedValue(
+        new Error("Transaction failed"),
+      );
 
       await expect(
         ops.completeTask(taskPda, task, new Uint8Array(32).fill(0xab), null),
@@ -567,8 +679,8 @@ describe('TaskOperations', () => {
     });
   });
 
-  describe('completeTaskPrivate', () => {
-    it('calls completeTaskPrivate with correct arguments', async () => {
+  describe("completeTaskPrivate", () => {
+    it("calls completeTaskPrivate with correct arguments", async () => {
       const taskPda = Keypair.generate().publicKey;
       const task = createParsedTask();
       const sealBytes = new Uint8Array(RISC0_SEAL_BORSH_LEN).fill(0x01);
@@ -590,33 +702,45 @@ describe('TaskOperations', () => {
 
       expect(result.success).toBe(true);
       expect(result.isPrivate).toBe(true);
-      expect(result.transactionSignature).toBe('private-sig');
+      expect(result.transactionSignature).toBe("private-sig");
 
       expect(mocks.completeTaskPrivateMethod).toHaveBeenCalledTimes(1);
-      const proofArg = mocks.completeTaskPrivateMethod.mock.calls[0][1] as Record<string, unknown>;
+      const proofArg = mocks.completeTaskPrivateMethod.mock
+        .calls[0][1] as Record<string, unknown>;
       expect(Object.keys(proofArg).sort()).toEqual([
-        'bindingSeed',
-        'imageId',
-        'journal',
-        'nullifierSeed',
-        'sealBytes',
+        "bindingSeed",
+        "imageId",
+        "journal",
+        "nullifierSeed",
+        "sealBytes",
       ]);
 
-      const accounts = mocks.completeTaskPrivateBuilder.accountsPartial.mock.calls[0][0] as Record<string, unknown>;
+      const accounts = mocks.completeTaskPrivateBuilder.accountsPartial.mock
+        .calls[0][0] as Record<string, unknown>;
       expect(accounts.bindingSpend).toBeInstanceOf(PublicKey);
       expect(accounts.nullifierSpend).toBeInstanceOf(PublicKey);
-      expect((accounts.routerProgram as PublicKey).equals(TRUSTED_RISC0_ROUTER_PROGRAM_ID)).toBe(true);
-      expect((accounts.verifierProgram as PublicKey).equals(TRUSTED_RISC0_VERIFIER_PROGRAM_ID)).toBe(true);
+      expect(
+        (accounts.routerProgram as PublicKey).equals(
+          TRUSTED_RISC0_ROUTER_PROGRAM_ID,
+        ),
+      ).toBe(true);
+      expect(
+        (accounts.verifierProgram as PublicKey).equals(
+          TRUSTED_RISC0_VERIFIER_PROGRAM_ID,
+        ),
+      ).toBe(true);
       expect(accounts.router).toBeInstanceOf(PublicKey);
       expect(accounts.verifierEntry).toBeInstanceOf(PublicKey);
       expect((accounts.creator as PublicKey).equals(task.creator)).toBe(true);
     });
 
-    it('throws TaskSubmissionError on failure', async () => {
+    it("throws TaskSubmissionError on failure", async () => {
       const taskPda = Keypair.generate().publicKey;
       const task = createParsedTask();
 
-      mocks.completeTaskPrivateBuilder.rpc.mockRejectedValue(new Error('ZK verification failed'));
+      mocks.completeTaskPrivateBuilder.rpc.mockRejectedValue(
+        new Error("ZK verification failed"),
+      );
 
       await expect(
         ops.completeTaskPrivate(
@@ -636,8 +760,8 @@ describe('TaskOperations', () => {
     });
   });
 
-  describe('protocol treasury caching', () => {
-    it('caches treasury address across multiple calls', async () => {
+  describe("protocol treasury caching", () => {
+    it("caches treasury address across multiple calls", async () => {
       const taskPda = Keypair.generate().publicKey;
       const task = createParsedTask();
       const proofHash = new Uint8Array(32).fill(0xab);
@@ -650,8 +774,8 @@ describe('TaskOperations', () => {
     });
   });
 
-  describe('agent PDA caching', () => {
-    it('reuses cached agent PDA across operations', async () => {
+  describe("agent PDA caching", () => {
+    it("reuses cached agent PDA across operations", async () => {
       const taskPda = Keypair.generate().publicKey;
       const task = createParsedTask();
 
@@ -664,7 +788,7 @@ describe('TaskOperations', () => {
     });
   });
 
-  describe('Input validation (#963)', () => {
+  describe("Input validation (#963)", () => {
     const taskPda = Keypair.generate().publicKey;
     const mockTask: OnChainTask = {
       taskId: new Uint8Array(32).fill(1),
@@ -692,42 +816,44 @@ describe('TaskOperations', () => {
       dependencyType: null,
     };
 
-    it('completeTask rejects proofHash shorter than 32 bytes', async () => {
+    it("completeTask rejects proofHash shorter than 32 bytes", async () => {
       await expect(
-        ops.completeTask(taskPda, mockTask, new Uint8Array(16), null)
-      ).rejects.toThrow('expected 32 bytes');
+        ops.completeTask(taskPda, mockTask, new Uint8Array(16), null),
+      ).rejects.toThrow("expected 32 bytes");
     });
 
-    it('completeTask rejects all-zero proofHash', async () => {
+    it("completeTask rejects all-zero proofHash", async () => {
       await expect(
-        ops.completeTask(taskPda, mockTask, new Uint8Array(32), null)
-      ).rejects.toThrow('cannot be all zeros');
+        ops.completeTask(taskPda, mockTask, new Uint8Array(32), null),
+      ).rejects.toThrow("cannot be all zeros");
     });
 
-    it('completeTask rejects resultData shorter than 64 bytes', async () => {
+    it("completeTask rejects resultData shorter than 64 bytes", async () => {
       const validProof = new Uint8Array(32).fill(1);
       await expect(
-        ops.completeTask(taskPda, mockTask, validProof, new Uint8Array(32))
-      ).rejects.toThrow('expected 64 bytes');
+        ops.completeTask(taskPda, mockTask, validProof, new Uint8Array(32)),
+      ).rejects.toThrow("expected 64 bytes");
     });
 
-    it('completeTaskPrivate rejects sealBytes shorter than expected', async () => {
+    it("completeTaskPrivate rejects sealBytes shorter than expected", async () => {
       await expect(
         ops.completeTaskPrivate(
-          taskPda, mockTask,
+          taskPda,
+          mockTask,
           new Uint8Array(RISC0_SEAL_BORSH_LEN - 1),
           new Uint8Array(RISC0_JOURNAL_LEN).fill(1),
           new Uint8Array(RISC0_IMAGE_ID_LEN).fill(1),
           new Uint8Array(HASH_SIZE).fill(1),
           new Uint8Array(HASH_SIZE).fill(1),
-        )
+        ),
       ).rejects.toThrow(`expected ${RISC0_SEAL_BORSH_LEN} bytes`);
     });
 
-    it('completeTaskPrivate rejects all-zero imageId', async () => {
+    it("completeTaskPrivate rejects all-zero imageId", async () => {
       await expect(
         ops.completeTaskPrivate(
-          taskPda, mockTask,
+          taskPda,
+          mockTask,
           (() => {
             const sealBytes = new Uint8Array(RISC0_SEAL_BORSH_LEN).fill(1);
             sealBytes.set(TRUSTED_RISC0_SELECTOR, 0);
@@ -737,14 +863,15 @@ describe('TaskOperations', () => {
           new Uint8Array(RISC0_IMAGE_ID_LEN),
           new Uint8Array(HASH_SIZE).fill(1),
           new Uint8Array(HASH_SIZE).fill(1),
-        )
-      ).rejects.toThrow('cannot be all zeros');
+        ),
+      ).rejects.toThrow("cannot be all zeros");
     });
 
-    it('completeTaskPrivate rejects all-zero bindingSeed', async () => {
+    it("completeTaskPrivate rejects all-zero bindingSeed", async () => {
       await expect(
         ops.completeTaskPrivate(
-          taskPda, mockTask,
+          taskPda,
+          mockTask,
           (() => {
             const sealBytes = new Uint8Array(RISC0_SEAL_BORSH_LEN).fill(1);
             sealBytes.set(TRUSTED_RISC0_SELECTOR, 0);
@@ -754,14 +881,15 @@ describe('TaskOperations', () => {
           new Uint8Array(RISC0_IMAGE_ID_LEN).fill(1),
           new Uint8Array(HASH_SIZE),
           new Uint8Array(HASH_SIZE).fill(1),
-        )
-      ).rejects.toThrow('cannot be all zeros');
+        ),
+      ).rejects.toThrow("cannot be all zeros");
     });
 
-    it('completeTaskPrivate rejects all-zero nullifierSeed', async () => {
+    it("completeTaskPrivate rejects all-zero nullifierSeed", async () => {
       await expect(
         ops.completeTaskPrivate(
-          taskPda, mockTask,
+          taskPda,
+          mockTask,
           (() => {
             const sealBytes = new Uint8Array(RISC0_SEAL_BORSH_LEN).fill(1);
             sealBytes.set(TRUSTED_RISC0_SELECTOR, 0);
@@ -771,11 +899,11 @@ describe('TaskOperations', () => {
           new Uint8Array(RISC0_IMAGE_ID_LEN).fill(1),
           new Uint8Array(HASH_SIZE).fill(1),
           new Uint8Array(HASH_SIZE),
-        )
-      ).rejects.toThrow('cannot be all zeros');
+        ),
+      ).rejects.toThrow("cannot be all zeros");
     });
 
-    it('completeTaskPrivate rejects untrusted seal selector', async () => {
+    it("completeTaskPrivate rejects untrusted seal selector", async () => {
       await expect(
         ops.completeTaskPrivate(
           taskPda,
@@ -786,7 +914,7 @@ describe('TaskOperations', () => {
           new Uint8Array(HASH_SIZE).fill(1),
           new Uint8Array(HASH_SIZE).fill(1),
         ),
-      ).rejects.toThrow('trusted selector');
+      ).rejects.toThrow("trusted selector");
     });
   });
 });

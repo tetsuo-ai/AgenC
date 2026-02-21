@@ -10,21 +10,21 @@
  * @module
  */
 
-import { PublicKey, SystemProgram } from '@solana/web3.js';
-import type { Task, TaskExecutor as AutonomousTaskExecutor } from './types.js';
-import { TaskStatus } from './types.js';
+import { PublicKey, SystemProgram } from "@solana/web3.js";
+import type { Task, TaskExecutor as AutonomousTaskExecutor } from "./types.js";
+import { TaskStatus } from "./types.js";
 import type {
   OnChainTask,
   TaskHandler,
   TaskExecutionResult,
   TaskExecutionContext,
-} from '../task/types.js';
-import { OnChainTaskStatus } from '../task/types.js';
-import { TaskType } from '../events/types.js';
-import { bigintsToProofHash } from '../utils/encoding.js';
+} from "../task/types.js";
+import { OnChainTaskStatus } from "../task/types.js";
+import { TaskType } from "../events/types.js";
+import { bigintsToProofHash } from "../utils/encoding.js";
 
 // Re-export for backward compat (tests import from here)
-export { bigintsToProofHash as packBigintsToProofHash } from '../utils/encoding.js';
+export { bigintsToProofHash as packBigintsToProofHash } from "../utils/encoding.js";
 
 // ============================================================================
 // Task Type Converters
@@ -114,7 +114,10 @@ export function autonomousTaskToOnChainTask(task: Task): OnChainTask {
  * @param pda - Task PDA address
  * @returns Autonomous module Task
  */
-export function onChainTaskToAutonomousTask(task: OnChainTask, pda: PublicKey): Task {
+export function onChainTaskToAutonomousTask(
+  task: OnChainTask,
+  pda: PublicKey,
+): Task {
   return {
     pda,
     taskId: task.taskId,
@@ -143,8 +146,12 @@ export function onChainTaskToAutonomousTask(task: OnChainTask, pda: PublicKey): 
  * @param executor - Autonomous module TaskExecutor
  * @returns TaskHandler compatible with SpeculativeExecutor
  */
-export function executorToTaskHandler(executor: AutonomousTaskExecutor): TaskHandler {
-  return async (context: TaskExecutionContext): Promise<TaskExecutionResult> => {
+export function executorToTaskHandler(
+  executor: AutonomousTaskExecutor,
+): TaskHandler {
+  return async (
+    context: TaskExecutionContext,
+  ): Promise<TaskExecutionResult> => {
     // Convert OnChainTask → autonomous Task for the executor
     const task = onChainTaskToAutonomousTask(context.task, context.taskPda);
 

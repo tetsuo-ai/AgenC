@@ -14,16 +14,16 @@ import {
   Transaction,
   sendAndConfirmTransaction,
   type Keypair,
-} from '@solana/web3.js';
-import type { Logger } from '../utils/logger.js';
-import { silentLogger } from '../utils/logger.js';
-import { ValidationError } from '../types/errors.js';
+} from "@solana/web3.js";
+import type { Logger } from "../utils/logger.js";
+import { silentLogger } from "../utils/logger.js";
+import { ValidationError } from "../types/errors.js";
 import type {
   X402PaymentRequest,
   X402PaymentResponse,
   X402BridgeConfig,
-} from './types.js';
-import { BridgePaymentError } from './errors.js';
+} from "./types.js";
+import { BridgePaymentError } from "./errors.js";
 
 /** Default maximum payment: 1 SOL */
 const DEFAULT_MAX_PAYMENT_LAMPORTS = 1_000_000_000n;
@@ -55,10 +55,15 @@ export class X402Bridge {
   private readonly maxPaymentLamports: bigint;
   private readonly logger: Logger;
 
-  constructor(connection: Connection, payer: Keypair, config?: X402BridgeConfig) {
+  constructor(
+    connection: Connection,
+    payer: Keypair,
+    config?: X402BridgeConfig,
+  ) {
     this.connection = connection;
     this.payer = payer;
-    this.maxPaymentLamports = config?.maxPaymentLamports ?? DEFAULT_MAX_PAYMENT_LAMPORTS;
+    this.maxPaymentLamports =
+      config?.maxPaymentLamports ?? DEFAULT_MAX_PAYMENT_LAMPORTS;
     this.logger = config?.logger ?? silentLogger;
   }
 
@@ -72,12 +77,14 @@ export class X402Bridge {
     try {
       new PublicKey(request.recipient);
     } catch {
-      throw new ValidationError(`Invalid recipient address: ${request.recipient}`);
+      throw new ValidationError(
+        `Invalid recipient address: ${request.recipient}`,
+      );
     }
 
     // Validate amount
     if (request.amountLamports <= 0n) {
-      throw new ValidationError('Payment amount must be greater than zero');
+      throw new ValidationError("Payment amount must be greater than zero");
     }
 
     // Validate against max cap
@@ -90,8 +97,13 @@ export class X402Bridge {
     }
 
     // Validate memo length
-    if (request.memo && Buffer.byteLength(request.memo, 'utf8') > MAX_MEMO_LENGTH) {
-      throw new ValidationError(`Memo exceeds maximum length of ${MAX_MEMO_LENGTH} bytes`);
+    if (
+      request.memo &&
+      Buffer.byteLength(request.memo, "utf8") > MAX_MEMO_LENGTH
+    ) {
+      throw new ValidationError(
+        `Memo exceeds maximum length of ${MAX_MEMO_LENGTH} bytes`,
+      );
     }
   }
 
@@ -116,7 +128,9 @@ export class X402Bridge {
    * @throws {BridgePaymentError} If balance is insufficient or transfer fails.
    * @throws {ValidationError} If the request is invalid.
    */
-  async processPayment(request: X402PaymentRequest): Promise<X402PaymentResponse> {
+  async processPayment(
+    request: X402PaymentRequest,
+  ): Promise<X402PaymentResponse> {
     this.validatePaymentRequest(request);
 
     const recipientPubkey = new PublicKey(request.recipient);

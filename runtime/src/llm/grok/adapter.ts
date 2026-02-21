@@ -15,18 +15,18 @@ import type {
   LLMUsage,
   LLMTool,
   StreamProgressCallback,
-} from '../types.js';
-import { validateToolCall } from '../types.js';
-import type { GrokProviderConfig } from './types.js';
-import { mapLLMError } from '../errors.js';
-import { ensureLazyImport } from '../lazy-import.js';
-import { withTimeout } from '../timeout.js';
+} from "../types.js";
+import { validateToolCall } from "../types.js";
+import type { GrokProviderConfig } from "./types.js";
+import { mapLLMError } from "../errors.js";
+import { ensureLazyImport } from "../lazy-import.js";
+import { withTimeout } from "../timeout.js";
 
-const DEFAULT_BASE_URL = 'https://api.x.ai/v1';
-const DEFAULT_MODEL = 'grok-4-1-fast-reasoning';
+const DEFAULT_BASE_URL = "https://api.x.ai/v1";
+const DEFAULT_MODEL = "grok-4-1-fast-reasoning";
 
 export class GrokProvider implements LLMProvider {
-  readonly name = 'grok';
+  readonly name = "grok";
 
   private client: unknown | null = null;
   private readonly config: GrokProviderConfig;
@@ -42,7 +42,14 @@ export class GrokProvider implements LLMProvider {
     // Build tools list — optionally inject web_search
     this.tools = [...(config.tools ?? [])];
     if (config.webSearch) {
-      this.tools.push({ type: 'function', function: { name: 'web_search', description: 'Search the web', parameters: {} } });
+      this.tools.push({
+        type: "function",
+        function: {
+          name: "web_search",
+          description: "Search the web",
+          parameters: {},
+        },
+      });
     }
   }
 
@@ -52,7 +59,8 @@ export class GrokProvider implements LLMProvider {
 
     try {
       const completion = await withTimeout(
-        async (signal) => (client as any).chat.completions.create(params, { signal }),
+        async (signal) =>
+          (client as any).chat.completions.create(params, { signal }),
         this.config.timeoutMs,
         this.name,
       );
@@ -62,17 +70,24 @@ export class GrokProvider implements LLMProvider {
     }
   }
 
-  async chatStream(messages: LLMMessage[], onChunk: StreamProgressCallback): Promise<LLMResponse> {
+  async chatStream(
+    messages: LLMMessage[],
+    onChunk: StreamProgressCallback,
+  ): Promise<LLMResponse> {
     const client = await this.ensureClient();
     const params = { ...this.buildParams(messages), stream: true };
-    let content = '';
+    let content = "";
     let model = this.config.model;
-    let finishReason: LLMResponse['finishReason'] = 'stop';
-    const toolCallAccum = new Map<number, { id: string; name: string; arguments: string }>();
+    let finishReason: LLMResponse["finishReason"] = "stop";
+    const toolCallAccum = new Map<
+      number,
+      { id: string; name: string; arguments: string }
+    >();
 
     try {
       const stream = await withTimeout(
-        async (signal) => (client as any).chat.completions.create(params, { signal }),
+        async (signal) =>
+          (client as any).chat.completions.create(params, { signal }),
         this.config.timeoutMs,
         this.name,
       );
@@ -92,12 +107,13 @@ export class GrokProvider implements LLMProvider {
             const idx = tc.index ?? 0;
             const existing = toolCallAccum.get(idx);
             if (existing) {
-              if (tc.function?.arguments) existing.arguments += tc.function.arguments;
+              if (tc.function?.arguments)
+                existing.arguments += tc.function.arguments;
             } else {
               toolCallAccum.set(idx, {
                 id: tc.id ?? `call_${idx}`,
-                name: tc.function?.name ?? '',
-                arguments: tc.function?.arguments ?? '',
+                name: tc.function?.name ?? "",
+                arguments: tc.function?.arguments ?? "",
               });
             }
           }
@@ -115,14 +131,14 @@ export class GrokProvider implements LLMProvider {
             id: candidate.id,
             name: candidate.name,
             arguments: candidate.arguments,
-          })
+          }),
         )
         .filter((toolCall): toolCall is LLMToolCall => toolCall !== null);
-      if (toolCalls.length > 0 && finishReason === 'stop') {
-        finishReason = 'tool_calls';
+      if (toolCalls.length > 0 && finishReason === "stop") {
+        finishReason = "tool_calls";
       }
 
-      onChunk({ content: '', done: true, toolCalls });
+      onChunk({ content: "", done: true, toolCalls });
 
       return {
         content,
@@ -134,23 +150,25 @@ export class GrokProvider implements LLMProvider {
     } catch (err: unknown) {
       if (content.length > 0) {
         const mappedError = this.mapError(err);
-        const partialToolCalls: LLMToolCall[] = Array.from(toolCallAccum.values())
+        const partialToolCalls: LLMToolCall[] = Array.from(
+          toolCallAccum.values(),
+        )
           .map((candidate) =>
             validateToolCall({
               id: candidate.id,
               name: candidate.name,
               arguments: candidate.arguments,
-            })
+            }),
           )
           .filter((toolCall): toolCall is LLMToolCall => toolCall !== null);
 
-        onChunk({ content: '', done: true, toolCalls: partialToolCalls });
+        onChunk({ content: "", done: true, toolCalls: partialToolCalls });
         return {
           content,
           toolCalls: partialToolCalls,
           usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
           model,
-          finishReason: 'error',
+          finishReason: "error",
           error: mappedError,
           partial: true,
         };
@@ -172,7 +190,7 @@ export class GrokProvider implements LLMProvider {
   private async ensureClient(): Promise<unknown> {
     if (this.client) return this.client;
 
-    this.client = await ensureLazyImport('openai', this.name, (mod) => {
+    this.client = await ensureLazyImport("openai", this.name, (mod) => {
       const OpenAI = (mod.default ?? mod.OpenAI ?? mod) as any;
       return new OpenAI({
         apiKey: this.config.apiKey,
@@ -187,24 +205,30 @@ export class GrokProvider implements LLMProvider {
   private buildParams(messages: LLMMessage[]): Record<string, unknown> {
     // Auto-upgrade to a vision model when messages contain image content
     const hasImages = messages.some(
-      (m) => Array.isArray(m.content) && m.content.some((p) => p.type === 'image_url'),
+      (m) =>
+        Array.isArray(m.content) &&
+        m.content.some((p) => p.type === "image_url"),
     );
-    const model = hasImages ? (this.config.visionModel ?? 'grok-2-vision-1212') : this.config.model;
+    const model = hasImages
+      ? (this.config.visionModel ?? "grok-2-vision-1212")
+      : this.config.model;
 
     const params: Record<string, unknown> = {
       model,
       messages: messages.map((m) => this.toOpenAIMessage(m)),
     };
-    if (this.config.temperature !== undefined) params.temperature = this.config.temperature;
-    if (this.config.maxTokens !== undefined) params.max_tokens = this.config.maxTokens;
+    if (this.config.temperature !== undefined)
+      params.temperature = this.config.temperature;
+    if (this.config.maxTokens !== undefined)
+      params.max_tokens = this.config.maxTokens;
     if (this.tools.length > 0 && !hasImages) params.tools = this.tools;
     return params;
   }
 
   private toOpenAIMessage(msg: LLMMessage): Record<string, unknown> {
-    if (msg.role === 'tool') {
+    if (msg.role === "tool") {
       return {
-        role: 'tool',
+        role: "tool",
         content: msg.content,
         tool_call_id: msg.toolCallId,
       };
@@ -220,11 +244,14 @@ export class GrokProvider implements LLMProvider {
       .map((tc: any) =>
         validateToolCall({
           id: tc.id,
-          name: tc.function?.name ?? '',
-          arguments: tc.function?.arguments ?? '',
-        })
+          name: tc.function?.name ?? "",
+          arguments: tc.function?.arguments ?? "",
+        }),
       )
-      .filter((toolCall: LLMToolCall | null): toolCall is LLMToolCall => toolCall !== null);
+      .filter(
+        (toolCall: LLMToolCall | null): toolCall is LLMToolCall =>
+          toolCall !== null,
+      );
 
     const usage: LLMUsage = {
       promptTokens: completion.usage?.prompt_tokens ?? 0,
@@ -233,7 +260,7 @@ export class GrokProvider implements LLMProvider {
     };
 
     return {
-      content: message.content ?? '',
+      content: message.content ?? "",
       toolCalls,
       usage,
       model: completion.model ?? this.config.model,
@@ -241,13 +268,20 @@ export class GrokProvider implements LLMProvider {
     };
   }
 
-  private mapFinishReason(reason: string | undefined): LLMResponse['finishReason'] {
+  private mapFinishReason(
+    reason: string | undefined,
+  ): LLMResponse["finishReason"] {
     switch (reason) {
-      case 'stop': return 'stop';
-      case 'tool_calls': return 'tool_calls';
-      case 'length': return 'length';
-      case 'content_filter': return 'content_filter';
-      default: return 'stop';
+      case "stop":
+        return "stop";
+      case "tool_calls":
+        return "tool_calls";
+      case "length":
+        return "length";
+      case "content_filter":
+        return "content_filter";
+      default:
+        return "stop";
     }
   }
 

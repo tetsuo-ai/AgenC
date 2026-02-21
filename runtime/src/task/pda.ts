@@ -3,13 +3,13 @@
  * @module
  */
 
-import { PublicKey } from '@solana/web3.js';
-import { PROGRAM_ID, SEEDS } from '@agenc/sdk';
-import { derivePda, validateIdLength } from '../utils/pda.js';
+import { PublicKey } from "@solana/web3.js";
+import { PROGRAM_ID, SEEDS } from "@agenc/sdk";
+import { derivePda, validateIdLength } from "../utils/pda.js";
 
 // Re-export PdaWithBump from utils — existing consumers import from here
-export type { PdaWithBump } from '../utils/pda.js';
-import type { PdaWithBump } from '../utils/pda.js';
+export type { PdaWithBump } from "../utils/pda.js";
+import type { PdaWithBump } from "../utils/pda.js";
 
 /** Length of task_id field (bytes) */
 export const TASK_ID_LENGTH = 32;
@@ -33,10 +33,13 @@ export const TASK_ID_LENGTH = 32;
 export function deriveTaskPda(
   creator: PublicKey,
   taskId: Uint8Array,
-  programId: PublicKey = PROGRAM_ID
+  programId: PublicKey = PROGRAM_ID,
 ): PdaWithBump {
-  validateIdLength(taskId, TASK_ID_LENGTH, 'taskId');
-  return derivePda([SEEDS.TASK, creator.toBuffer(), Buffer.from(taskId)], programId);
+  validateIdLength(taskId, TASK_ID_LENGTH, "taskId");
+  return derivePda(
+    [SEEDS.TASK, creator.toBuffer(), Buffer.from(taskId)],
+    programId,
+  );
 }
 
 /**
@@ -58,7 +61,7 @@ export function deriveTaskPda(
 export function findTaskPda(
   creator: PublicKey,
   taskId: Uint8Array,
-  programId: PublicKey = PROGRAM_ID
+  programId: PublicKey = PROGRAM_ID,
 ): PublicKey {
   return deriveTaskPda(creator, taskId, programId).address;
 }
@@ -81,9 +84,12 @@ export function findTaskPda(
 export function deriveClaimPda(
   taskPda: PublicKey,
   workerAgentPda: PublicKey,
-  programId: PublicKey = PROGRAM_ID
+  programId: PublicKey = PROGRAM_ID,
 ): PdaWithBump {
-  return derivePda([SEEDS.CLAIM, taskPda.toBuffer(), workerAgentPda.toBuffer()], programId);
+  return derivePda(
+    [SEEDS.CLAIM, taskPda.toBuffer(), workerAgentPda.toBuffer()],
+    programId,
+  );
 }
 
 /**
@@ -104,7 +110,7 @@ export function deriveClaimPda(
 export function findClaimPda(
   taskPda: PublicKey,
   workerAgentPda: PublicKey,
-  programId: PublicKey = PROGRAM_ID
+  programId: PublicKey = PROGRAM_ID,
 ): PublicKey {
   return deriveClaimPda(taskPda, workerAgentPda, programId).address;
 }
@@ -125,7 +131,7 @@ export function findClaimPda(
  */
 export function deriveEscrowPda(
   taskPda: PublicKey,
-  programId: PublicKey = PROGRAM_ID
+  programId: PublicKey = PROGRAM_ID,
 ): PdaWithBump {
   return derivePda([SEEDS.ESCROW, taskPda.toBuffer()], programId);
 }
@@ -146,7 +152,7 @@ export function deriveEscrowPda(
  */
 export function findEscrowPda(
   taskPda: PublicKey,
-  programId: PublicKey = PROGRAM_ID
+  programId: PublicKey = PROGRAM_ID,
 ): PublicKey {
   return deriveEscrowPda(taskPda, programId).address;
 }

@@ -50,7 +50,7 @@ pub fn handler(
 
     // Validate execution delay
     require!(
-        execution_delay >= 0 && execution_delay <= GovernanceConfig::MAX_EXECUTION_DELAY,
+        (0..=GovernanceConfig::MAX_EXECUTION_DELAY).contains(&execution_delay),
         CoordinationError::InvalidGovernanceParam
     );
 

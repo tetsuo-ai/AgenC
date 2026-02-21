@@ -4,11 +4,11 @@
  * @module
  */
 
-import type { PublicKey } from '@solana/web3.js';
-import type { Program } from '@coral-xyz/anchor';
-import type { AgencCoordination } from '../idl.js';
-import type { Logger } from '../utils/logger.js';
-import type { AgentState } from '../agent/types.js';
+import type { PublicKey } from "@solana/web3.js";
+import type { Program } from "@coral-xyz/anchor";
+import type { AgencCoordination } from "../idl.js";
+import type { Logger } from "../utils/logger.js";
+import type { AgentState } from "../agent/types.js";
 
 // ============================================================================
 // Constants
@@ -63,10 +63,14 @@ export interface AgentProfile {
 // ============================================================================
 
 /** Sort field for agent search results */
-export type AgentSortField = 'reputation' | 'lastActive' | 'tasksCompleted' | 'stake';
+export type AgentSortField =
+  | "reputation"
+  | "lastActive"
+  | "tasksCompleted"
+  | "stake";
 
 /** Sort direction */
-export type SortOrder = 'asc' | 'desc';
+export type SortOrder = "asc" | "desc";
 
 /**
  * Filters for agent search queries.
@@ -125,7 +129,10 @@ export interface DiscoveryConfig {
 /**
  * Convert parsed AgentState + PDA into a flat AgentProfile.
  */
-export function agentStateToProfile(pda: PublicKey, state: AgentState): AgentProfile {
+export function agentStateToProfile(
+  pda: PublicKey,
+  state: AgentState,
+): AgentProfile {
   return {
     pda,
     agentId: state.agentId,

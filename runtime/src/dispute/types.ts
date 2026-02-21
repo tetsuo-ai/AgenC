@@ -5,12 +5,12 @@
  * @module
  */
 
-import type { PublicKey } from '@solana/web3.js';
-import { ResolutionType } from '../events/types.js';
-import { toUint8Array } from '../utils/encoding.js';
+import type { PublicKey } from "@solana/web3.js";
+import { ResolutionType } from "../events/types.js";
+import { toUint8Array } from "../utils/encoding.js";
 
 // Re-export ResolutionType for consumers importing from dispute module
-export { ResolutionType } from '../events/types.js';
+export { ResolutionType } from "../events/types.js";
 
 // ============================================================================
 // On-Chain Dispute Status Enum (matches state.rs DisputeStatus)
@@ -258,7 +258,9 @@ export interface VoteResult {
  * @param raw - Raw account data from program.account.dispute.fetch()
  * @returns Parsed dispute data
  */
-export function parseOnChainDispute(raw: Record<string, unknown>): OnChainDispute {
+export function parseOnChainDispute(
+  raw: Record<string, unknown>,
+): OnChainDispute {
   const r = raw as Record<string, any>;
   return {
     disputeId: toUint8Array(r.disputeId),
@@ -272,14 +274,15 @@ export function parseOnChainDispute(raw: Record<string, unknown>): OnChainDisput
     resolvedAt: toBNNumber(r.resolvedAt),
     votesFor: toBNBigint(r.votesFor),
     votesAgainst: toBNBigint(r.votesAgainst),
-    totalVoters: typeof r.totalVoters === 'number' ? r.totalVoters : Number(r.totalVoters),
+    totalVoters:
+      typeof r.totalVoters === "number" ? r.totalVoters : Number(r.totalVoters),
     votingDeadline: toBNNumber(r.votingDeadline),
     expiresAt: toBNNumber(r.expiresAt),
     slashApplied: Boolean(r.slashApplied),
     initiatorSlashApplied: Boolean(r.initiatorSlashApplied),
     workerStakeAtDispute: toBNBigint(r.workerStakeAtDispute),
     initiatedByCreator: Boolean(r.initiatedByCreator),
-    bump: typeof r.bump === 'number' ? r.bump : Number(r.bump),
+    bump: typeof r.bump === "number" ? r.bump : Number(r.bump),
     defendant: r.defendant,
     rewardMint: null,
   };
@@ -291,7 +294,9 @@ export function parseOnChainDispute(raw: Record<string, unknown>): OnChainDisput
  * @param raw - Raw account data from program.account.disputeVote.fetch()
  * @returns Parsed vote data
  */
-export function parseOnChainDisputeVote(raw: Record<string, unknown>): OnChainDisputeVote {
+export function parseOnChainDisputeVote(
+  raw: Record<string, unknown>,
+): OnChainDisputeVote {
   const r = raw as Record<string, any>;
   return {
     dispute: r.dispute,
@@ -299,7 +304,7 @@ export function parseOnChainDisputeVote(raw: Record<string, unknown>): OnChainDi
     approved: Boolean(r.approved),
     votedAt: toBNNumber(r.votedAt),
     stakeAtVote: toBNBigint(r.stakeAtVote),
-    bump: typeof r.bump === 'number' ? r.bump : Number(r.bump),
+    bump: typeof r.bump === "number" ? r.bump : Number(r.bump),
   };
 }
 
@@ -309,13 +314,13 @@ export function parseOnChainDisputeVote(raw: Record<string, unknown>): OnChainDi
 export function disputeStatusToString(status: OnChainDisputeStatus): string {
   switch (status) {
     case OnChainDisputeStatus.Active:
-      return 'Active';
+      return "Active";
     case OnChainDisputeStatus.Resolved:
-      return 'Resolved';
+      return "Resolved";
     case OnChainDisputeStatus.Expired:
-      return 'Expired';
+      return "Expired";
     case OnChainDisputeStatus.Cancelled:
-      return 'Cancelled';
+      return "Cancelled";
     default:
       return `Unknown(${status})`;
   }
@@ -327,37 +332,39 @@ export function disputeStatusToString(status: OnChainDisputeStatus): string {
 
 /** Convert BN-like value to number */
 function toBNNumber(val: unknown): number {
-  if (typeof val === 'number') return val;
-  if (val && typeof (val as any).toNumber === 'function') return (val as any).toNumber();
+  if (typeof val === "number") return val;
+  if (val && typeof (val as any).toNumber === "function")
+    return (val as any).toNumber();
   return Number(val);
 }
 
 /** Convert BN-like value to bigint */
 function toBNBigint(val: unknown): bigint {
-  if (typeof val === 'bigint') return val;
-  if (val && typeof (val as any).toString === 'function') return BigInt((val as any).toString());
+  if (typeof val === "bigint") return val;
+  if (val && typeof (val as any).toString === "function")
+    return BigInt((val as any).toString());
   return BigInt(String(val));
 }
 
 /** Parse Anchor's resolution_type enum object to ResolutionType */
 function parseResolutionType(val: unknown): ResolutionType {
-  if (typeof val === 'number') return val as ResolutionType;
-  if (val && typeof val === 'object') {
-    if ('refund' in val) return ResolutionType.Refund;
-    if ('complete' in val) return ResolutionType.Complete;
-    if ('split' in val) return ResolutionType.Split;
+  if (typeof val === "number") return val as ResolutionType;
+  if (val && typeof val === "object") {
+    if ("refund" in val) return ResolutionType.Refund;
+    if ("complete" in val) return ResolutionType.Complete;
+    if ("split" in val) return ResolutionType.Split;
   }
   return ResolutionType.Refund;
 }
 
 /** Parse Anchor's dispute status enum object to OnChainDisputeStatus */
 function parseDisputeStatus(val: unknown): OnChainDisputeStatus {
-  if (typeof val === 'number') return val as OnChainDisputeStatus;
-  if (val && typeof val === 'object') {
-    if ('active' in val) return OnChainDisputeStatus.Active;
-    if ('resolved' in val) return OnChainDisputeStatus.Resolved;
-    if ('expired' in val) return OnChainDisputeStatus.Expired;
-    if ('cancelled' in val) return OnChainDisputeStatus.Cancelled;
+  if (typeof val === "number") return val as OnChainDisputeStatus;
+  if (val && typeof val === "object") {
+    if ("active" in val) return OnChainDisputeStatus.Active;
+    if ("resolved" in val) return OnChainDisputeStatus.Resolved;
+    if ("expired" in val) return OnChainDisputeStatus.Expired;
+    if ("cancelled" in val) return OnChainDisputeStatus.Cancelled;
   }
   return OnChainDisputeStatus.Active;
 }

@@ -10,12 +10,12 @@
  * @module
  */
 
-import type { MemoryEntry } from './types.js';
-import type { VectorMemoryBackend } from './vector-store.js';
-import type { EmbeddingProvider } from './embeddings.js';
-import type { CuratedMemoryManager } from './structured.js';
-import type { MemoryRetriever } from '../llm/chat-executor.js';
-import type { Logger } from '../utils/logger.js';
+import type { MemoryEntry } from "./types.js";
+import type { VectorMemoryBackend } from "./vector-store.js";
+import type { EmbeddingProvider } from "./embeddings.js";
+import type { CuratedMemoryManager } from "./structured.js";
+import type { MemoryRetriever } from "../llm/chat-executor.js";
+import type { Logger } from "../utils/logger.js";
 
 // ============================================================================
 // Constants
@@ -87,9 +87,12 @@ export function computeRetrievalScore(
   halfLifeMs: number,
 ): number {
   const age = Math.max(0, now - entryTimestamp);
-  const recencyScore = halfLifeMs > 0
-    ? Math.exp(-Math.LN2 * age / halfLifeMs)
-    : (age === 0 ? 1 : 0);
+  const recencyScore =
+    halfLifeMs > 0
+      ? Math.exp((-Math.LN2 * age) / halfLifeMs)
+      : age === 0
+        ? 1
+        : 0;
   return relevanceScore * (1 - recencyWeight) + recencyScore * recencyWeight;
 }
 
@@ -122,27 +125,42 @@ export class SemanticMemoryRetriever implements MemoryRetriever {
     this.maxTokenBudget = config.maxTokenBudget ?? DEFAULT_MAX_TOKEN_BUDGET;
     this.maxResults = config.maxResults ?? DEFAULT_MAX_RESULTS;
     this.recencyWeight = config.recencyWeight ?? DEFAULT_RECENCY_WEIGHT;
-    this.recencyHalfLifeMs = config.recencyHalfLifeMs ?? DEFAULT_RECENCY_HALF_LIFE_MS;
-    this.curatedCacheTtlMs = config.curatedCacheTtlMs ?? DEFAULT_CURATED_CACHE_TTL_MS;
+    this.recencyHalfLifeMs =
+      config.recencyHalfLifeMs ?? DEFAULT_RECENCY_HALF_LIFE_MS;
+    this.curatedCacheTtlMs =
+      config.curatedCacheTtlMs ?? DEFAULT_CURATED_CACHE_TTL_MS;
     this.minScore = config.minScore ?? DEFAULT_MIN_SCORE;
-    this.hybridVectorWeight = config.hybridVectorWeight ?? DEFAULT_HYBRID_VECTOR_WEIGHT;
-    this.hybridKeywordWeight = config.hybridKeywordWeight ?? DEFAULT_HYBRID_KEYWORD_WEIGHT;
+    this.hybridVectorWeight =
+      config.hybridVectorWeight ?? DEFAULT_HYBRID_VECTOR_WEIGHT;
+    this.hybridKeywordWeight =
+      config.hybridKeywordWeight ?? DEFAULT_HYBRID_KEYWORD_WEIGHT;
     this.logger = config.logger;
   }
 
   /** Retrieve formatted memory context for prompt assembly. */
-  async retrieve(message: string, sessionId: string): Promise<string | undefined> {
+  async retrieve(
+    message: string,
+    sessionId: string,
+  ): Promise<string | undefined> {
     const result = await this.retrieveDetailed(message, sessionId);
     return result.content;
   }
 
   /** Retrieve with full scoring details. */
-  async retrieveDetailed(message: string, sessionId: string): Promise<RetrievalResult> {
+  async retrieveDetailed(
+    message: string,
+    sessionId: string,
+  ): Promise<RetrievalResult> {
     // 1. Embed user message
     const embedding = await this.embeddingProvider.embed(message);
     if (embedding.length === 0) {
-      this.logger?.debug('Empty embedding returned, skipping retrieval');
-      return { content: undefined, entries: [], curatedIncluded: false, estimatedTokens: 0 };
+      this.logger?.debug("Empty embedding returned, skipping retrieval");
+      return {
+        content: undefined,
+        entries: [],
+        curatedIncluded: false,
+        estimatedTokens: 0,
+      };
     }
 
     // 2. Hybrid search
@@ -193,7 +211,9 @@ export class SemanticMemoryRetriever implements MemoryRetriever {
     if (curatedContent) {
       const curatedTokens = estimateTokens(curatedContent);
       if (curatedTokens <= remainingBudget) {
-        blocks.push(`<memory source="curated" score="1.00">\n${curatedContent}\n</memory>`);
+        blocks.push(
+          `<memory source="curated" score="1.00">\n${curatedContent}\n</memory>`,
+        );
         remainingBudget -= estimateTokens(blocks[blocks.length - 1]);
         curatedIncluded = true;
       } else {
@@ -214,7 +234,7 @@ export class SemanticMemoryRetriever implements MemoryRetriever {
       // Skip (not break) — try smaller entries
     }
 
-    const content = blocks.length > 0 ? blocks.join('\n') : undefined;
+    const content = blocks.length > 0 ? blocks.join("\n") : undefined;
     const totalTokens = this.maxTokenBudget - remainingBudget;
 
     return {
@@ -236,7 +256,7 @@ export class SemanticMemoryRetriever implements MemoryRetriever {
   private computeRecency(entryTimestamp: number, now: number): number {
     const age = Math.max(0, now - entryTimestamp);
     if (this.recencyHalfLifeMs <= 0) return age === 0 ? 1 : 0;
-    return Math.exp(-Math.LN2 * age / this.recencyHalfLifeMs);
+    return Math.exp((-Math.LN2 * age) / this.recencyHalfLifeMs);
   }
 
   private async loadCurated(): Promise<string | undefined> {

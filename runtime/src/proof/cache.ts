@@ -4,8 +4,12 @@
  * @module
  */
 
-import { createHash } from 'crypto';
-import type { EngineProofResult, ProofCacheConfig, ProofInputs } from './types.js';
+import { createHash } from "crypto";
+import type {
+  EngineProofResult,
+  ProofCacheConfig,
+  ProofInputs,
+} from "./types.js";
 
 /** Default TTL: 5 minutes */
 const DEFAULT_TTL_MS = 300_000;
@@ -25,14 +29,14 @@ interface CacheEntry {
  * to avoid leaking secret output values and salt in memory-inspectable strings.
  */
 export function deriveCacheKey(inputs: ProofInputs): string {
-  const hasher = createHash('sha256');
+  const hasher = createHash("sha256");
   hasher.update(inputs.taskPda.toBytes());
   hasher.update(inputs.agentPubkey.toBytes());
   for (const o of inputs.output) {
     hasher.update(o.toString());
   }
   hasher.update(inputs.salt.toString());
-  return hasher.digest('hex');
+  return hasher.digest("hex");
 }
 
 /**

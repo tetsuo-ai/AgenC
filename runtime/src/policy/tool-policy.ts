@@ -13,7 +13,7 @@
 
 export interface ToolPermissionPolicy {
   readonly tool: string;
-  readonly effect: 'allow' | 'deny';
+  readonly effect: "allow" | "deny";
   readonly conditions?: ToolPolicyConditions;
 }
 
@@ -81,17 +81,21 @@ export class ToolPolicyEvaluator {
 
       const { met, reason } = this.checkConditions(policy, context);
 
-      if (policy.effect === 'deny' && met) {
-        return { allowed: false, reason: reason ?? `Denied by rule: ${policy.tool}`, matchedRule: policy };
+      if (policy.effect === "deny" && met) {
+        return {
+          allowed: false,
+          reason: reason ?? `Denied by rule: ${policy.tool}`,
+          matchedRule: policy,
+        };
       }
 
-      if (policy.effect === 'allow' && met && !candidateAllow) {
+      if (policy.effect === "allow" && met && !candidateAllow) {
         candidateAllow = policy;
       }
     }
 
     if (!candidateAllow) {
-      return { allowed: false, reason: 'No matching allow rule' };
+      return { allowed: false, reason: "No matching allow rule" };
     }
 
     // Rate limit check (applied after condition matching, before final allow)
@@ -143,14 +147,14 @@ export class ToolPolicyEvaluator {
    * - Exact names match exactly.
    */
   private matchesPattern(toolName: string, pattern: string): boolean {
-    if (pattern === '*') return true;
+    if (pattern === "*") return true;
 
-    if (!pattern.includes('*')) {
+    if (!pattern.includes("*")) {
       return toolName === pattern;
     }
 
     // Convert glob pattern to regex: escape dots, replace * with [^.]*
-    const escaped = pattern.replace(/\./g, '\\.').replace(/\*/g, '[^.]*');
+    const escaped = pattern.replace(/\./g, "\\.").replace(/\*/g, "[^.]*");
     return new RegExp(`^${escaped}$`).test(toolName);
   }
 
@@ -168,23 +172,29 @@ export class ToolPolicyEvaluator {
     if (!cond) return { met: true };
 
     if (cond.heartbeatOnly && !context.isHeartbeat) {
-      return { met: false, reason: 'Restricted to heartbeat-initiated calls' };
+      return { met: false, reason: "Restricted to heartbeat-initiated calls" };
     }
 
     if (cond.sessionIds && cond.sessionIds.length > 0) {
       if (!cond.sessionIds.includes(context.sessionId)) {
-        return { met: false, reason: `Session "${context.sessionId}" not in allowed sessions` };
+        return {
+          met: false,
+          reason: `Session "${context.sessionId}" not in allowed sessions`,
+        };
       }
     }
 
     if (cond.channels && cond.channels.length > 0) {
       if (!cond.channels.includes(context.channel)) {
-        return { met: false, reason: `Channel "${context.channel}" not in allowed channels` };
+        return {
+          met: false,
+          reason: `Channel "${context.channel}" not in allowed channels`,
+        };
       }
     }
 
     if (cond.sandboxOnly && !context.isSandboxed) {
-      return { met: false, reason: 'Restricted to sandboxed execution' };
+      return { met: false, reason: "Restricted to sandboxed execution" };
     }
 
     return { met: true };

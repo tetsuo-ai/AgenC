@@ -8,15 +8,15 @@
  * @module
  */
 
-import { XaiRealtimeClient } from '../voice/realtime/client.js';
+import { XaiRealtimeClient } from "../voice/realtime/client.js";
 import type {
   VoiceSessionConfig,
   VoiceTool,
   XaiVoice,
-} from '../voice/realtime/types.js';
-import type { ControlResponse } from './types.js';
-import type { Logger } from '../utils/logger.js';
-import type { ToolHandler, LLMTool } from '../llm/types.js';
+} from "../voice/realtime/types.js";
+import type { ControlResponse } from "./types.js";
+import type { Logger } from "../utils/logger.js";
+import type { ToolHandler, LLMTool } from "../llm/types.js";
 
 const DEFAULT_MAX_SESSIONS = 10;
 
@@ -34,7 +34,7 @@ export interface VoiceBridgeConfig {
   /** Default model. */
   model?: string;
   /** VAD mode or push-to-talk. Default: 'vad'. */
-  mode?: 'vad' | 'push-to-talk';
+  mode?: "vad" | "push-to-talk";
   /** Max concurrent voice sessions. Default: 10. */
   maxSessions?: number;
   /** Logger. */
@@ -84,8 +84,8 @@ export class VoiceBridge {
 
     if (this.sessions.size >= this.maxSessions) {
       send({
-        type: 'voice.error',
-        payload: { message: 'Maximum concurrent voice sessions reached' },
+        type: "voice.error",
+        payload: { message: "Maximum concurrent voice sessions reached" },
       });
       return;
     }
@@ -93,15 +93,16 @@ export class VoiceBridge {
     const voiceTools = this.convertTools(this.config.tools);
 
     const sessionConfig: VoiceSessionConfig = {
-      model: this.config.model ?? 'grok-4-1-fast-reasoning',
-      voice: this.config.voice ?? 'Ara',
-      modalities: ['text', 'audio'],
+      model: this.config.model ?? "grok-4-1-fast-reasoning",
+      voice: this.config.voice ?? "Ara",
+      modalities: ["text", "audio"],
       instructions: this.config.systemPrompt,
-      input_audio_format: 'pcm16',
-      output_audio_format: 'pcm16',
-      turn_detection: this.config.mode === 'push-to-talk'
-        ? null
-        : { type: 'server_vad', threshold: 0.5, silence_duration_ms: 500 },
+      input_audio_format: "pcm16",
+      output_audio_format: "pcm16",
+      turn_detection:
+        this.config.mode === "push-to-talk"
+          ? null
+          : { type: "server_vad", threshold: 0.5, silence_duration_ms: 500 },
       tools: voiceTools,
     };
 
@@ -112,27 +113,27 @@ export class VoiceBridge {
       callbacks: {
         onAudioDeltaBase64: (base64) => {
           send({
-            type: 'voice.audio',
+            type: "voice.audio",
             payload: { audio: base64 },
           });
         },
         onTranscriptDelta: (text) => {
           send({
-            type: 'voice.transcript',
+            type: "voice.transcript",
             payload: { delta: text, done: false },
           });
         },
         onTranscriptDone: (text) => {
           send({
-            type: 'voice.transcript',
+            type: "voice.transcript",
             payload: { text, done: true },
           });
         },
         onFunctionCall: async (name, args, _callId) => {
           // Notify browser that a tool is executing
           send({
-            type: 'voice.tool_call',
-            payload: { toolName: name, status: 'executing' },
+            type: "voice.tool_call",
+            payload: { toolName: name, status: "executing" },
           });
 
           try {
@@ -140,39 +141,43 @@ export class VoiceBridge {
             const resultStr = await this.config.toolHandler(name, parsed);
 
             send({
-              type: 'voice.tool_call',
-              payload: { toolName: name, status: 'completed', result: resultStr },
+              type: "voice.tool_call",
+              payload: {
+                toolName: name,
+                status: "completed",
+                result: resultStr,
+              },
             });
 
             return resultStr;
           } catch (err) {
             const errorMsg = (err as Error).message;
             send({
-              type: 'voice.tool_call',
-              payload: { toolName: name, status: 'error', error: errorMsg },
+              type: "voice.tool_call",
+              payload: { toolName: name, status: "error", error: errorMsg },
             });
             return JSON.stringify({ error: errorMsg });
           }
         },
         onSpeechStarted: () => {
-          send({ type: 'voice.speech_started' });
+          send({ type: "voice.speech_started" });
         },
         onSpeechStopped: () => {
-          send({ type: 'voice.speech_stopped' });
+          send({ type: "voice.speech_stopped" });
         },
         onResponseDone: () => {
-          send({ type: 'voice.response_done' });
+          send({ type: "voice.response_done" });
         },
         onError: (error) => {
-          this.logger?.warn?.('Voice session error:', error);
+          this.logger?.warn?.("Voice session error:", error);
           send({
-            type: 'voice.error',
+            type: "voice.error",
             payload: { message: error.message, code: error.code },
           });
         },
         onConnectionStateChange: (state) => {
           send({
-            type: 'voice.state',
+            type: "voice.state",
             payload: { connectionState: state },
           });
         },
@@ -183,12 +188,12 @@ export class VoiceBridge {
 
     try {
       await client.connect();
-      send({ type: 'voice.started' });
+      send({ type: "voice.started" });
       this.logger?.info?.(`Voice session started for client ${clientId}`);
     } catch (err) {
       this.sessions.delete(clientId);
       send({
-        type: 'voice.error',
+        type: "voice.error",
         payload: { message: (err as Error).message },
       });
     }
@@ -217,7 +222,7 @@ export class VoiceBridge {
 
     session.client.close();
     this.sessions.delete(clientId);
-    session.send({ type: 'voice.stopped' });
+    session.send({ type: "voice.stopped" });
     this.logger?.info?.(`Voice session stopped for client ${clientId}`);
   }
 
@@ -241,9 +246,9 @@ export class VoiceBridge {
   /** Convert LLMTool[] to VoiceTool[] for xAI session config. */
   private convertTools(tools: LLMTool[]): VoiceTool[] {
     return tools
-      .filter((t) => t.type === 'function' && t.function)
+      .filter((t) => t.type === "function" && t.function)
       .map((t) => ({
-        type: 'function' as const,
+        type: "function" as const,
         function: {
           name: t.function!.name,
           description: t.function!.description,
@@ -252,4 +257,3 @@ export class VoiceBridge {
       }));
   }
 }
-

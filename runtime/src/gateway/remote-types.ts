@@ -56,11 +56,11 @@ export interface RemoteGatewayConfig {
 // ============================================================================
 
 export type RemoteGatewayState =
-  | 'disconnected'
-  | 'connecting'
-  | 'authenticating'
-  | 'connected'
-  | 'reconnecting';
+  | "disconnected"
+  | "connecting"
+  | "authenticating"
+  | "connected"
+  | "reconnecting";
 
 export interface RemoteGatewayEvents {
   connected: () => void;
@@ -78,7 +78,7 @@ export interface RemoteGatewayEvents {
 export interface RemoteChatMessage {
   id: string;
   content: string;
-  sender: 'user' | 'agent';
+  sender: "user" | "agent";
   timestamp: number;
 }
 

@@ -2,7 +2,12 @@ import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
 import BN from "bn.js";
 import { expect } from "chai";
-import { Keypair, PublicKey, SystemProgram, LAMPORTS_PER_SOL } from "@solana/web3.js";
+import {
+  Keypair,
+  PublicKey,
+  SystemProgram,
+  LAMPORTS_PER_SOL,
+} from "@solana/web3.js";
 import { AgencCoordination } from "../target/types/agenc_coordination";
 import { deriveProgramDataPda, disableRateLimitsForTests } from "./test-utils";
 
@@ -10,11 +15,12 @@ describe("upgrades", () => {
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
 
-  const program = anchor.workspace.AgencCoordination as Program<AgencCoordination>;
+  const program = anchor.workspace
+    .AgencCoordination as Program<AgencCoordination>;
 
   const [protocolPda] = PublicKey.findProgramAddressSync(
     [Buffer.from("protocol")],
-    program.programId
+    program.programId,
   );
 
   const programDataPda = deriveProgramDataPda(program.programId);
@@ -30,19 +36,21 @@ describe("upgrades", () => {
 
   const taskIdTooNew = Buffer.from("task-upg-too-new-001".padEnd(32, "\0"));
   const taskIdTooOld = Buffer.from("task-upg-too-old-001".padEnd(32, "\0"));
-  const creatorAgentId = Buffer.from("creator-upg-000000000000000001".padEnd(32, "\0"));
+  const creatorAgentId = Buffer.from(
+    "creator-upg-000000000000000001".padEnd(32, "\0"),
+  );
 
   const deriveTaskPda = (creatorKey: PublicKey, taskId: Buffer): PublicKey => {
     return PublicKey.findProgramAddressSync(
       [Buffer.from("task"), creatorKey.toBuffer(), taskId],
-      program.programId
+      program.programId,
     )[0];
   };
 
   const deriveEscrowPda = (taskPda: PublicKey): PublicKey => {
     return PublicKey.findProgramAddressSync(
       [Buffer.from("escrow"), taskPda.toBuffer()],
-      program.programId
+      program.programId,
     )[0];
   };
 
@@ -56,8 +64,11 @@ describe("upgrades", () => {
 
     for (const wallet of wallets) {
       await provider.connection.confirmTransaction(
-        await provider.connection.requestAirdrop(wallet.publicKey, airdropAmount),
-        "confirmed"
+        await provider.connection.requestAirdrop(
+          wallet.publicKey,
+          airdropAmount,
+        ),
+        "confirmed",
       );
     }
 
@@ -68,14 +79,20 @@ describe("upgrades", () => {
           100, // protocol_fee_bps
           new BN(LAMPORTS_PER_SOL), // min_arbiter_stake
           2, // multisig_threshold
-          [provider.wallet.publicKey, multisigSigner.publicKey]
+          [provider.wallet.publicKey, multisigSigner.publicKey],
         )
         .accountsPartial({
           protocolConfig: protocolPda,
           treasury: treasury.publicKey,
           authority: provider.wallet.publicKey,
         })
-        .remainingAccounts([{ pubkey: deriveProgramDataPda(program.programId), isSigner: false, isWritable: false }])
+        .remainingAccounts([
+          {
+            pubkey: deriveProgramDataPda(program.programId),
+            isSigner: false,
+            isWritable: false,
+          },
+        ])
         .signers([multisigSigner])
         .rpc();
     } catch (e) {
@@ -94,7 +111,7 @@ describe("upgrades", () => {
 
     creatorAgentPda = PublicKey.findProgramAddressSync(
       [Buffer.from("agent"), creatorAgentId],
-      program.programId
+      program.programId,
     )[0];
 
     try {
@@ -104,7 +121,7 @@ describe("upgrades", () => {
           new BN(1),
           "https://creator-upg.example.com",
           null,
-          new BN(LAMPORTS_PER_SOL)  // stake_amount
+          new BN(LAMPORTS_PER_SOL), // stake_amount
         )
         .accountsPartial({
           agent: creatorAgentPda,
@@ -119,7 +136,10 @@ describe("upgrades", () => {
   });
 
   it("rejects migration without multisig approval", async () => {
-    if (initialProtocolVersion !== null && initialProtocolVersion >= FUTURE_PROTOCOL_VERSION) {
+    if (
+      initialProtocolVersion !== null &&
+      initialProtocolVersion >= FUTURE_PROTOCOL_VERSION
+    ) {
       return;
     }
 
@@ -127,7 +147,9 @@ describe("upgrades", () => {
     const config = await program.account.protocolConfig.fetch(protocolPda);
     if (config.multisigThreshold <= 1) {
       // Protocol was initialized by another test with threshold=1, skip this test
-      console.log("Skipping multisig test - protocol initialized with threshold=1");
+      console.log(
+        "Skipping multisig test - protocol initialized with threshold=1",
+      );
       return;
     }
 
@@ -138,7 +160,11 @@ describe("upgrades", () => {
           protocolConfig: protocolPda,
         })
         .remainingAccounts([
-          { pubkey: provider.wallet.publicKey, isSigner: true, isWritable: false },
+          {
+            pubkey: provider.wallet.publicKey,
+            isSigner: true,
+            isWritable: false,
+          },
         ])
         .rpc();
       expect.fail("Migration should require multisig approval");
@@ -154,12 +180,17 @@ describe("upgrades", () => {
       if (errorStr.includes("MultisigNotEnoughSigners")) {
         return;
       }
-      throw new Error(`Expected MultisigNotEnoughSigners but got: ${errorCode || errorStr}`);
+      throw new Error(
+        `Expected MultisigNotEnoughSigners but got: ${errorCode || errorStr}`,
+      );
     }
   });
 
   it("enforces AccountVersionTooOld when min_supported_version exceeds protocol_version", async () => {
-    if (initialProtocolVersion !== null && initialProtocolVersion > CURRENT_PROTOCOL_VERSION) {
+    if (
+      initialProtocolVersion !== null &&
+      initialProtocolVersion > CURRENT_PROTOCOL_VERSION
+    ) {
       return;
     }
 
@@ -169,8 +200,8 @@ describe("upgrades", () => {
 
     // Check if multisigSigner is actually a valid signer for this protocol
     const multisigSigners = config.multisigSigners || [];
-    const hasValidMultisig = multisigSigners.some(
-      (s: PublicKey) => s.equals(multisigSigner.publicKey)
+    const hasValidMultisig = multisigSigners.some((s: PublicKey) =>
+      s.equals(multisigSigner.publicKey),
     );
 
     if (needsMultisig && !hasValidMultisig) {
@@ -186,14 +217,29 @@ describe("upgrades", () => {
           protocolConfig: protocolPda,
         })
         .remainingAccounts([
-          { pubkey: provider.wallet.publicKey, isSigner: true, isWritable: false },
-          ...(needsMultisig ? [{ pubkey: multisigSigner.publicKey, isSigner: true, isWritable: false }] : []),
+          {
+            pubkey: provider.wallet.publicKey,
+            isSigner: true,
+            isWritable: false,
+          },
+          ...(needsMultisig
+            ? [
+                {
+                  pubkey: multisigSigner.publicKey,
+                  isSigner: true,
+                  isWritable: false,
+                },
+              ]
+            : []),
         ])
         .signers(needsMultisig ? [multisigSigner] : [])
         .rpc();
     } catch (e: any) {
       // updateMinVersion failed, skip test
-      console.log("Skipping version test - updateMinVersion failed:", e.message);
+      console.log(
+        "Skipping version test - updateMinVersion failed:",
+        e.message,
+      );
       return;
     }
 
@@ -210,7 +256,7 @@ describe("upgrades", () => {
           1,
           new BN(0),
           0,
-          null,  // constraint_hash
+          null, // constraint_hash
           0, // min_reputation
         )
         .accountsPartial({
@@ -236,7 +282,9 @@ describe("upgrades", () => {
       if (errorStr.includes("AccountVersionTooOld")) {
         return;
       }
-      throw new Error(`Expected AccountVersionTooOld but got: ${errorCode || errorStr}`);
+      throw new Error(
+        `Expected AccountVersionTooOld but got: ${errorCode || errorStr}`,
+      );
     }
 
     // Restore min version (cleanup)
@@ -247,8 +295,20 @@ describe("upgrades", () => {
           protocolConfig: protocolPda,
         })
         .remainingAccounts([
-          { pubkey: provider.wallet.publicKey, isSigner: true, isWritable: false },
-          ...(needsMultisig ? [{ pubkey: multisigSigner.publicKey, isSigner: true, isWritable: false }] : []),
+          {
+            pubkey: provider.wallet.publicKey,
+            isSigner: true,
+            isWritable: false,
+          },
+          ...(needsMultisig
+            ? [
+                {
+                  pubkey: multisigSigner.publicKey,
+                  isSigner: true,
+                  isWritable: false,
+                },
+              ]
+            : []),
         ])
         .signers(needsMultisig ? [multisigSigner] : [])
         .rpc();
@@ -258,11 +318,12 @@ describe("upgrades", () => {
   });
 
   it("migrates with multisig and enforces AccountVersionTooNew", async () => {
-    const configBefore = await program.account.protocolConfig.fetch(protocolPda);
+    const configBefore =
+      await program.account.protocolConfig.fetch(protocolPda);
     const needsMultisig = configBefore.multisigThreshold > 1;
     const multisigSigners = configBefore.multisigSigners || [];
-    const hasValidMultisig = multisigSigners.some(
-      (s: PublicKey) => s.equals(multisigSigner.publicKey)
+    const hasValidMultisig = multisigSigners.some((s: PublicKey) =>
+      s.equals(multisigSigner.publicKey),
     );
 
     if (needsMultisig && !hasValidMultisig) {
@@ -278,20 +339,38 @@ describe("upgrades", () => {
             protocolConfig: protocolPda,
           })
           .remainingAccounts([
-            { pubkey: provider.wallet.publicKey, isSigner: true, isWritable: false },
-            ...(needsMultisig ? [{ pubkey: multisigSigner.publicKey, isSigner: true, isWritable: false }] : []),
+            {
+              pubkey: provider.wallet.publicKey,
+              isSigner: true,
+              isWritable: false,
+            },
+            ...(needsMultisig
+              ? [
+                  {
+                    pubkey: multisigSigner.publicKey,
+                    isSigner: true,
+                    isWritable: false,
+                  },
+                ]
+              : []),
           ])
           .signers(needsMultisig ? [multisigSigner] : [])
           .rpc();
 
-        const configAfter = await program.account.protocolConfig.fetch(protocolPda);
+        const configAfter =
+          await program.account.protocolConfig.fetch(protocolPda);
         expect(configAfter.protocolVersion).to.equal(FUTURE_PROTOCOL_VERSION);
       } catch (e: any) {
-        console.log("Skipping AccountVersionTooNew test - migration failed:", e.message);
+        console.log(
+          "Skipping AccountVersionTooNew test - migration failed:",
+          e.message,
+        );
         return;
       }
     } else {
-      expect(configBefore.protocolVersion).to.be.greaterThan(CURRENT_PROTOCOL_VERSION);
+      expect(configBefore.protocolVersion).to.be.greaterThan(
+        CURRENT_PROTOCOL_VERSION,
+      );
     }
 
     const taskPda = deriveTaskPda(creator.publicKey, taskIdTooNew);
@@ -307,7 +386,7 @@ describe("upgrades", () => {
           1,
           new BN(0),
           0,
-          null,  // constraint_hash
+          null, // constraint_hash
           0, // min_reputation
         )
         .accountsPartial({
@@ -333,7 +412,9 @@ describe("upgrades", () => {
       if (errorStr.includes("AccountVersionTooNew")) {
         return;
       }
-      throw new Error(`Expected AccountVersionTooNew but got: ${errorCode || errorStr}`);
+      throw new Error(
+        `Expected AccountVersionTooNew but got: ${errorCode || errorStr}`,
+      );
     }
   });
 });

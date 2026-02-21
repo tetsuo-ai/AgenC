@@ -6,28 +6,28 @@
  * @module
  */
 
-import { createHmac, timingSafeEqual } from 'node:crypto';
-import type { JWTPayload } from './remote-types.js';
+import { createHmac, timingSafeEqual } from "node:crypto";
+import type { JWTPayload } from "./remote-types.js";
 
 // ============================================================================
 // Base64url helpers
 // ============================================================================
 
 function base64urlEncode(data: string): string {
-  return Buffer.from(data, 'utf-8')
-    .toString('base64')
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=+$/, '');
+  return Buffer.from(data, "utf-8")
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
 }
 
 function base64urlDecode(str: string): string {
   // Restore standard base64 chars
-  let base64 = str.replace(/-/g, '+').replace(/_/g, '/');
+  let base64 = str.replace(/-/g, "+").replace(/_/g, "/");
   // Add padding
   const padLen = (4 - (base64.length % 4)) % 4;
-  base64 += '='.repeat(padLen);
-  return Buffer.from(base64, 'base64').toString('utf-8');
+  base64 += "=".repeat(padLen);
+  return Buffer.from(base64, "base64").toString("utf-8");
 }
 
 // ============================================================================
@@ -35,12 +35,12 @@ function base64urlDecode(str: string): string {
 // ============================================================================
 
 function sign(input: string, secret: string): string {
-  return createHmac('sha256', secret)
+  return createHmac("sha256", secret)
     .update(input)
-    .digest('base64')
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=+$/, '');
+    .digest("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
 }
 
 // ============================================================================
@@ -64,10 +64,12 @@ export function createToken(
   expirySeconds: number = DEFAULT_EXPIRY_SECONDS,
 ): string {
   if (secret.length < MIN_SECRET_LENGTH) {
-    throw new Error(`JWT secret must be at least ${MIN_SECRET_LENGTH} characters`);
+    throw new Error(
+      `JWT secret must be at least ${MIN_SECRET_LENGTH} characters`,
+    );
   }
   const now = Math.floor(Date.now() / 1000);
-  const header = base64urlEncode(JSON.stringify({ alg: 'HS256', typ: 'JWT' }));
+  const header = base64urlEncode(JSON.stringify({ alg: "HS256", typ: "JWT" }));
   const payload = base64urlEncode(
     JSON.stringify({
       sub: subject,
@@ -90,7 +92,7 @@ export function createToken(
 export function verifyToken(secret: string, token: string): JWTPayload | null {
   if (secret.length < MIN_SECRET_LENGTH) return null;
 
-  const parts = token.split('.');
+  const parts = token.split(".");
   if (parts.length !== 3) return null;
 
   const [header, payload, signature] = parts;
@@ -98,8 +100,8 @@ export function verifyToken(secret: string, token: string): JWTPayload | null {
   // Verify signature with constant-time comparison to prevent timing attacks
   const expected = sign(`${header}.${payload}`, secret);
   if (signature.length !== expected.length) return null;
-  const sigBuf = Buffer.from(signature, 'utf-8');
-  const expBuf = Buffer.from(expected, 'utf-8');
+  const sigBuf = Buffer.from(signature, "utf-8");
+  const expBuf = Buffer.from(expected, "utf-8");
   if (!timingSafeEqual(sigBuf, expBuf)) return null;
 
   // Decode and parse payload
@@ -110,12 +112,12 @@ export function verifyToken(secret: string, token: string): JWTPayload | null {
     return null;
   }
 
-  if (!decoded || typeof decoded !== 'object') return null;
+  if (!decoded || typeof decoded !== "object") return null;
 
   const jwt = decoded as Record<string, unknown>;
-  if (typeof jwt.sub !== 'string') return null;
-  if (typeof jwt.iat !== 'number') return null;
-  if (typeof jwt.exp !== 'number') return null;
+  if (typeof jwt.sub !== "string") return null;
+  if (typeof jwt.iat !== "number") return null;
+  if (typeof jwt.exp !== "number") return null;
 
   // Check expiry
   const now = Math.floor(Date.now() / 1000);
@@ -125,6 +127,6 @@ export function verifyToken(secret: string, token: string): JWTPayload | null {
     sub: jwt.sub,
     iat: jwt.iat,
     exp: jwt.exp,
-    scope: typeof jwt.scope === 'string' ? jwt.scope : undefined,
+    scope: typeof jwt.scope === "string" ? jwt.scope : undefined,
   };
 }

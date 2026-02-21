@@ -8,22 +8,22 @@
  * @module
  */
 
-import { SystemProgram } from '@solana/web3.js';
-import type { PublicKey } from '@solana/web3.js';
-import anchor, { type Program } from '@coral-xyz/anchor';
-import type { AgencCoordination } from '../types/agenc_coordination.js';
-import type { Logger } from '../utils/logger.js';
-import { silentLogger } from '../utils/logger.js';
-import { sleep } from '../utils/async.js';
-import { generateAgentId, toAnchorBytes } from '../utils/encoding.js';
-import { findAgentPda, findProtocolPda } from '../agent/pda.js';
-import { findTaskPda, findEscrowPda } from '../task/pda.js';
-import { isAnchorError, AnchorErrorCodes } from '../types/errors.js';
-import { buildCreateTaskTokenAccounts } from '../utils/token.js';
-import type { WorkflowState, WorkflowEdge } from './types.js';
-import { WorkflowNodeStatus, OnChainDependencyType } from './types.js';
-import { WorkflowSubmissionError } from './errors.js';
-import { topologicalSort } from './validation.js';
+import { SystemProgram } from "@solana/web3.js";
+import type { PublicKey } from "@solana/web3.js";
+import anchor, { type Program } from "@coral-xyz/anchor";
+import type { AgencCoordination } from "../types/agenc_coordination.js";
+import type { Logger } from "../utils/logger.js";
+import { silentLogger } from "../utils/logger.js";
+import { sleep } from "../utils/async.js";
+import { generateAgentId, toAnchorBytes } from "../utils/encoding.js";
+import { findAgentPda, findProtocolPda } from "../agent/pda.js";
+import { findTaskPda, findEscrowPda } from "../task/pda.js";
+import { isAnchorError, AnchorErrorCodes } from "../types/errors.js";
+import { buildCreateTaskTokenAccounts } from "../utils/token.js";
+import type { WorkflowState, WorkflowEdge } from "./types.js";
+import { WorkflowNodeStatus, OnChainDependencyType } from "./types.js";
+import { WorkflowSubmissionError } from "./errors.js";
+import { topologicalSort } from "./validation.js";
 
 /** Default retry delay in ms */
 const DEFAULT_RETRY_DELAY_MS = 1000;
@@ -76,7 +76,10 @@ export class DAGSubmitter {
    * @returns Updated workflow state
    * @throws WorkflowSubmissionError if a task creation fails after retries
    */
-  async submitAll(state: WorkflowState, cancelOnFailure: boolean): Promise<WorkflowState> {
+  async submitAll(
+    state: WorkflowState,
+    cancelOnFailure: boolean,
+  ): Promise<WorkflowState> {
     const order = topologicalSort(state.definition);
     const edgeMap = this.buildEdgeMap(state.definition.edges);
     const creator = this.program.provider.publicKey!;
@@ -110,7 +113,12 @@ export class DAGSubmitter {
 
       try {
         const txSig = await this.submitWithRetry(
-          node, creator, taskId, taskPda, escrowPda, defaultRewardMint
+          node,
+          creator,
+          taskId,
+          taskPda,
+          escrowPda,
+          defaultRewardMint,
         );
         node.status = WorkflowNodeStatus.Created;
         node.transactionSignature = txSig;
@@ -119,7 +127,9 @@ export class DAGSubmitter {
       } catch (err) {
         node.status = WorkflowNodeStatus.Failed;
         node.error = err instanceof Error ? err : new Error(String(err));
-        this.logger.error(`Failed to create node "${name}": ${node.error.message}`);
+        this.logger.error(
+          `Failed to create node "${name}": ${node.error.message}`,
+        );
 
         if (cancelOnFailure) {
           this.cascadeCancel(state, name);
@@ -136,11 +146,11 @@ export class DAGSubmitter {
    * Submit a single task with retry and rate-limit backoff.
    */
   private async submitWithRetry(
-    node: import('./types.js').WorkflowNode,
-    creator: import('@solana/web3.js').PublicKey,
+    node: import("./types.js").WorkflowNode,
+    creator: import("@solana/web3.js").PublicKey,
     taskId: Uint8Array,
-    taskPda: import('@solana/web3.js').PublicKey,
-    escrowPda: import('@solana/web3.js').PublicKey,
+    taskPda: import("@solana/web3.js").PublicKey,
+    escrowPda: import("@solana/web3.js").PublicKey,
     defaultRewardMint: PublicKey | null,
   ): Promise<string> {
     let lastError: Error | undefined;
@@ -177,7 +187,7 @@ export class DAGSubmitter {
           isAnchorError(err, AnchorErrorCodes.CooldownNotElapsed)
         ) {
           this.logger.warn(
-            `Rate limit hit for node "${node.name}", waiting ${RATE_LIMIT_WAIT_MS}ms (attempt ${attempt + 1}/${this.maxRetries + 1})`
+            `Rate limit hit for node "${node.name}", waiting ${RATE_LIMIT_WAIT_MS}ms (attempt ${attempt + 1}/${this.maxRetries + 1})`,
           );
           await sleep(RATE_LIMIT_WAIT_MS);
           continue;
@@ -187,14 +197,14 @@ export class DAGSubmitter {
         if (attempt < this.maxRetries) {
           const delay = this.retryDelayMs * Math.pow(2, attempt);
           this.logger.warn(
-            `Retrying node "${node.name}" in ${delay}ms (attempt ${attempt + 1}/${this.maxRetries + 1})`
+            `Retrying node "${node.name}" in ${delay}ms (attempt ${attempt + 1}/${this.maxRetries + 1})`,
           );
           await sleep(delay);
         }
       }
     }
 
-    throw lastError ?? new Error('Unknown submission error');
+    throw lastError ?? new Error("Unknown submission error");
   }
 
   /**
@@ -202,17 +212,21 @@ export class DAGSubmitter {
    */
   private async createRootTask(
     taskId: Uint8Array,
-    template: import('./types.js').TaskTemplate,
-    taskPda: import('@solana/web3.js').PublicKey,
-    escrowPda: import('@solana/web3.js').PublicKey,
-    creator: import('@solana/web3.js').PublicKey,
+    template: import("./types.js").TaskTemplate,
+    taskPda: import("@solana/web3.js").PublicKey,
+    escrowPda: import("@solana/web3.js").PublicKey,
+    creator: import("@solana/web3.js").PublicKey,
     defaultRewardMint: PublicKey | null,
   ): Promise<string> {
     const constraintHash = template.constraintHash
       ? Array.from(template.constraintHash)
       : null;
     const mint = template.rewardMint ?? defaultRewardMint;
-    const tokenAccounts = buildCreateTaskTokenAccounts(mint, escrowPda, creator);
+    const tokenAccounts = buildCreateTaskTokenAccounts(
+      mint,
+      escrowPda,
+      creator,
+    );
 
     return this.program.methods
       .createTask(
@@ -245,19 +259,23 @@ export class DAGSubmitter {
    */
   private async createDependentTask(
     taskId: Uint8Array,
-    template: import('./types.js').TaskTemplate,
-    taskPda: import('@solana/web3.js').PublicKey,
-    escrowPda: import('@solana/web3.js').PublicKey,
-    parentTaskPda: import('@solana/web3.js').PublicKey,
+    template: import("./types.js").TaskTemplate,
+    taskPda: import("@solana/web3.js").PublicKey,
+    escrowPda: import("@solana/web3.js").PublicKey,
+    parentTaskPda: import("@solana/web3.js").PublicKey,
     dependencyType: OnChainDependencyType,
-    creator: import('@solana/web3.js').PublicKey,
+    creator: import("@solana/web3.js").PublicKey,
     defaultRewardMint: PublicKey | null,
   ): Promise<string> {
     const constraintHash = template.constraintHash
       ? Array.from(template.constraintHash)
       : null;
     const mint = template.rewardMint ?? defaultRewardMint;
-    const tokenAccounts = buildCreateTaskTokenAccounts(mint, escrowPda, creator);
+    const tokenAccounts = buildCreateTaskTokenAccounts(
+      mint,
+      escrowPda,
+      creator,
+    );
 
     return this.program.methods
       .createDependentTask(
@@ -291,7 +309,9 @@ export class DAGSubmitter {
    * Build a map from child task name to the edge defining its parent.
    * Assumes validation has already confirmed single-parent constraint.
    */
-  private buildEdgeMap(edges: ReadonlyArray<WorkflowEdge>): Map<string, WorkflowEdge> {
+  private buildEdgeMap(
+    edges: ReadonlyArray<WorkflowEdge>,
+  ): Map<string, WorkflowEdge> {
     const map = new Map<string, WorkflowEdge>();
     for (const edge of edges) {
       map.set(edge.to, edge);
@@ -326,7 +346,9 @@ export class DAGSubmitter {
         ) {
           kidNode.status = WorkflowNodeStatus.Cancelled;
           kidNode.error = new Error(`Parent node "${failedName}" failed`);
-          this.logger.info(`Cancelled descendant node "${kid}" due to parent "${failedName}" failure`);
+          this.logger.info(
+            `Cancelled descendant node "${kid}" due to parent "${failedName}" failure`,
+          );
         }
         queue.push(kid);
       }

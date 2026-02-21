@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import type { VerifierLaneConfig } from './types.js';
+import { describe, expect, it } from "vitest";
+import type { VerifierLaneConfig } from "./types.js";
 import {
   allocateVerificationBudget,
   BudgetAuditTrail,
@@ -9,15 +9,15 @@ import {
   calculateNextBudget,
   DEFAULT_BUDGET_GUARDRAIL,
   validateBudgetGuardrail,
-} from './verification-budget.js';
-import { scoreTaskRisk } from './risk-scoring.js';
+} from "./verification-budget.js";
+import { scoreTaskRisk } from "./risk-scoring.js";
 import {
   createTask as makeTask,
   createVerifierConfig as makeVerifierConfig,
-} from './test-utils.js';
+} from "./test-utils.js";
 
-describe('allocateVerificationBudget', () => {
-  it('preserves static verifier behavior when adaptive mode is disabled', () => {
+describe("allocateVerificationBudget", () => {
+  it("preserves static verifier behavior when adaptive mode is disabled", () => {
     const task = makeTask({ reward: 500n });
     const config = makeVerifierConfig({
       policy: {
@@ -35,7 +35,7 @@ describe('allocateVerificationBudget', () => {
     expect(budget.minConfidence).toBe(0.75);
   });
 
-  it('adapts retries/duration/confidence by risk tier and enforces hard ceilings', () => {
+  it("adapts retries/duration/confidence by risk tier and enforces hard ceilings", () => {
     const nowMs = 1_700_000_000_000;
     const highRiskTask = makeTask({
       reward: 2_000n,
@@ -60,27 +60,31 @@ describe('allocateVerificationBudget', () => {
       },
     });
 
-    const risk = scoreTaskRisk(highRiskTask, {
-      nowMs,
-      verifierDisagreementRate: 0.8,
-      rollbackRate: 0.5,
-    }, {
-      enabled: true,
-      mediumRiskThreshold: 0.3,
-      highRiskThreshold: 0.6,
-    });
+    const risk = scoreTaskRisk(
+      highRiskTask,
+      {
+        nowMs,
+        verifierDisagreementRate: 0.8,
+        rollbackRate: 0.5,
+      },
+      {
+        enabled: true,
+        mediumRiskThreshold: 0.3,
+        highRiskThreshold: 0.6,
+      },
+    );
 
     const budget = allocateVerificationBudget(highRiskTask, risk, config);
 
     expect(budget.adaptive).toBe(true);
-    expect(budget.riskTier).toBe('high');
+    expect(budget.riskTier).toBe("high");
     expect(budget.maxVerificationRetries).toBe(3); // hard capped
     expect(budget.maxVerificationDurationMs).toBe(45_000); // hard capped
     expect(budget.minConfidence).toBe(0.95);
     expect(budget.maxAllowedSpendLamports).toBe(5_000n);
   });
 
-  it('disables verifier lane when risk score is below configured threshold', () => {
+  it("disables verifier lane when risk score is below configured threshold", () => {
     const task = makeTask({ reward: 100n, taskType: 0 });
     const config = makeVerifierConfig({
       policy: {
@@ -101,10 +105,10 @@ describe('allocateVerificationBudget', () => {
 
     expect(lowRisk.score).toBeLessThan(0.8);
     expect(budget.enabled).toBe(false);
-    expect(budget.metadata.reason).toBe('below_risk_threshold');
+    expect(budget.metadata.reason).toBe("below_risk_threshold");
   });
 
-  it('clamps negative max allowed spend to zero', () => {
+  it("clamps negative max allowed spend to zero", () => {
     const task = makeTask({ reward: 100n });
     const config = makeVerifierConfig({
       policy: {
@@ -126,13 +130,15 @@ describe('allocateVerificationBudget', () => {
   });
 });
 
-describe('calculateNextBudget', () => {
+describe("calculateNextBudget", () => {
   const guardrail: BudgetGuardrail = {
     ...DEFAULT_BUDGET_GUARDRAIL,
     cooldownMs: 1_000,
   };
 
-  const baseInput = (overrides: Partial<BudgetAdjustmentInput>): BudgetAdjustmentInput => ({
+  const baseInput = (
+    overrides: Partial<BudgetAdjustmentInput>,
+  ): BudgetAdjustmentInput => ({
     currentBudgetLamports: 100_000n,
     success: true,
     history: [],
@@ -142,7 +148,7 @@ describe('calculateNextBudget', () => {
     ...overrides,
   });
 
-  it('returns identical results for identical inputs', () => {
+  it("returns identical results for identical inputs", () => {
     const input = baseInput({
       history: [true, true],
       nowMs: 2_000,
@@ -156,46 +162,52 @@ describe('calculateNextBudget', () => {
     expect(second.reason).toBe(first.reason);
   });
 
-  it('increases budget on success streak', () => {
-    const result = calculateNextBudget(baseInput({
-      success: true,
-      history: [true, true, true, true],
-      nowMs: 6_000,
-      lastAdjustmentTimestampMs: 0,
-    }));
+  it("increases budget on success streak", () => {
+    const result = calculateNextBudget(
+      baseInput({
+        success: true,
+        history: [true, true, true, true],
+        nowMs: 6_000,
+        lastAdjustmentTimestampMs: 0,
+      }),
+    );
 
     expect(result.adjusted).toBe(true);
     expect(result.nextBudgetLamports).toBeGreaterThan(100_000n);
-    expect(result.reason).toBe('increased_on_success');
+    expect(result.reason).toBe("increased_on_success");
   });
 
-  it('decreases budget on failure streak', () => {
-    const result = calculateNextBudget(baseInput({
-      success: false,
-      history: [false, false],
-      nowMs: 6_000,
-      lastAdjustmentTimestampMs: 0,
-    }));
+  it("decreases budget on failure streak", () => {
+    const result = calculateNextBudget(
+      baseInput({
+        success: false,
+        history: [false, false],
+        nowMs: 6_000,
+        lastAdjustmentTimestampMs: 0,
+      }),
+    );
 
     expect(result.adjusted).toBe(true);
     expect(result.nextBudgetLamports).toBeLessThan(100_000n);
-    expect(result.reason).toBe('decreased_on_failure');
+    expect(result.reason).toBe("decreased_on_failure");
   });
 
-  it('respects cooldown and avoids changing budget', () => {
-    const result = calculateNextBudget(baseInput({
-      success: true,
-      history: [true],
-      nowMs: 4_500,
-      lastAdjustmentTimestampMs: 4_000,
-    }));
+  it("respects cooldown and avoids changing budget", () => {
+    const result = calculateNextBudget(
+      baseInput({
+        success: true,
+        history: [true],
+        nowMs: 4_500,
+        lastAdjustmentTimestampMs: 4_000,
+      }),
+    );
 
     expect(result.adjusted).toBe(false);
-    expect(result.reason).toBe('cooldown_active');
+    expect(result.reason).toBe("cooldown_active");
     expect(result.nextBudgetLamports).toBe(100_000n);
   });
 
-  it('clamps to minimum budget on extreme failure', () => {
+  it("clamps to minimum budget on extreme failure", () => {
     const result = calculateNextBudget({
       currentBudgetLamports: 1_500n,
       success: false,
@@ -210,7 +222,7 @@ describe('calculateNextBudget', () => {
     expect(result.nextBudgetLamports).toBe(1_300n);
   });
 
-  it('clamps to maximum budget on extreme success', () => {
+  it("clamps to maximum budget on extreme success", () => {
     const result = calculateNextBudget({
       currentBudgetLamports: 950_000n,
       success: true,
@@ -225,7 +237,7 @@ describe('calculateNextBudget', () => {
     expect(result.nextBudgetLamports).toBe(1_000_000n);
   });
 
-  it('never produces a negative budget', () => {
+  it("never produces a negative budget", () => {
     const result = calculateNextBudget({
       currentBudgetLamports: 0n,
       success: false,
@@ -241,54 +253,62 @@ describe('calculateNextBudget', () => {
   });
 });
 
-describe('BudgetGuardrail validation', () => {
-  it('rejects negative minBudgetLamports', () => {
-    expect(() => validateBudgetGuardrail({
-      minBudgetLamports: -1n,
-      maxBudgetLamports: 100n,
-      adjustmentRate: 0.2,
-      cooldownMs: 1_000,
-    })).toThrow('minBudgetLamports must be non-negative');
+describe("BudgetGuardrail validation", () => {
+  it("rejects negative minBudgetLamports", () => {
+    expect(() =>
+      validateBudgetGuardrail({
+        minBudgetLamports: -1n,
+        maxBudgetLamports: 100n,
+        adjustmentRate: 0.2,
+        cooldownMs: 1_000,
+      }),
+    ).toThrow("minBudgetLamports must be non-negative");
   });
 
-  it('rejects maxBudgetLamports < minBudgetLamports', () => {
-    expect(() => validateBudgetGuardrail({
-      minBudgetLamports: 200n,
-      maxBudgetLamports: 100n,
-      adjustmentRate: 0.2,
-      cooldownMs: 1_000,
-    })).toThrow('maxBudgetLamports must be >= minBudgetLamports');
+  it("rejects maxBudgetLamports < minBudgetLamports", () => {
+    expect(() =>
+      validateBudgetGuardrail({
+        minBudgetLamports: 200n,
+        maxBudgetLamports: 100n,
+        adjustmentRate: 0.2,
+        cooldownMs: 1_000,
+      }),
+    ).toThrow("maxBudgetLamports must be >= minBudgetLamports");
   });
 
-  it('rejects adjustmentRate > 1', () => {
-    expect(() => validateBudgetGuardrail({
-      minBudgetLamports: 0n,
-      maxBudgetLamports: 100n,
-      adjustmentRate: 1.5,
-      cooldownMs: 1_000,
-    })).toThrow('adjustmentRate must be in [0, 1]');
+  it("rejects adjustmentRate > 1", () => {
+    expect(() =>
+      validateBudgetGuardrail({
+        minBudgetLamports: 0n,
+        maxBudgetLamports: 100n,
+        adjustmentRate: 1.5,
+        cooldownMs: 1_000,
+      }),
+    ).toThrow("adjustmentRate must be in [0, 1]");
   });
 
-  it('rejects negative cooldownMs', () => {
-    expect(() => validateBudgetGuardrail({
-      minBudgetLamports: 0n,
-      maxBudgetLamports: 100n,
-      adjustmentRate: 0.2,
-      cooldownMs: -1,
-    })).toThrow('cooldownMs must be non-negative');
+  it("rejects negative cooldownMs", () => {
+    expect(() =>
+      validateBudgetGuardrail({
+        minBudgetLamports: 0n,
+        maxBudgetLamports: 100n,
+        adjustmentRate: 0.2,
+        cooldownMs: -1,
+      }),
+    ).toThrow("cooldownMs must be non-negative");
   });
 });
 
-describe('BudgetAuditTrail', () => {
-  it('records entries with incrementing sequence values', () => {
+describe("BudgetAuditTrail", () => {
+  it("records entries with incrementing sequence values", () => {
     const trail = new BudgetAuditTrail(5);
     trail.record({
       timestampMs: 1000,
       previousBudgetLamports: 100n,
       nextBudgetLamports: 120n,
       adjustmentFraction: 0.2,
-      reason: 'increased_on_success',
-      riskTier: 'low',
+      reason: "increased_on_success",
+      riskTier: "low",
       success: true,
       consecutiveStreak: 1,
     });
@@ -297,7 +317,7 @@ describe('BudgetAuditTrail', () => {
     expect(entries[0].seq).toBe(0);
   });
 
-  it('evicts the oldest entries when capacity is exceeded', () => {
+  it("evicts the oldest entries when capacity is exceeded", () => {
     const trail = new BudgetAuditTrail(2);
     for (let i = 0; i < 4; i += 1) {
       trail.record({
@@ -305,8 +325,8 @@ describe('BudgetAuditTrail', () => {
         previousBudgetLamports: BigInt(i * 100),
         nextBudgetLamports: BigInt((i + 1) * 100),
         adjustmentFraction: 0.1,
-        reason: 'decreased_on_failure',
-        riskTier: 'high',
+        reason: "decreased_on_failure",
+        riskTier: "high",
         success: false,
         consecutiveStreak: 2,
       });
@@ -318,7 +338,7 @@ describe('BudgetAuditTrail', () => {
     expect(entries[1].seq).toBe(3);
   });
 
-  it('supports bounded slice access', () => {
+  it("supports bounded slice access", () => {
     const trail = new BudgetAuditTrail(10);
     for (let i = 0; i < 3; i += 1) {
       trail.record({
@@ -326,21 +346,23 @@ describe('BudgetAuditTrail', () => {
         previousBudgetLamports: BigInt(i * 100),
         nextBudgetLamports: BigInt((i + 1) * 100),
         adjustmentFraction: 0.1,
-        riskTier: 'low',
-        reason: 'increased_on_success',
+        riskTier: "low",
+        reason: "increased_on_success",
         success: true,
         consecutiveStreak: i + 1,
       });
     }
 
-    const last: BudgetAuditEntry[] = [...trail.getLastN(2)] as BudgetAuditEntry[];
+    const last: BudgetAuditEntry[] = [
+      ...trail.getLastN(2),
+    ] as BudgetAuditEntry[];
     expect(last).toHaveLength(2);
     expect(last[0].seq).toBe(1);
   });
 });
 
-describe('deterministic budget simulations', () => {
-  it('keeps budget within configured bounds over alternating outcomes', () => {
+describe("deterministic budget simulations", () => {
+  it("keeps budget within configured bounds over alternating outcomes", () => {
     const guardrail: BudgetGuardrail = {
       minBudgetLamports: 1_000n,
       maxBudgetLamports: 1_000_000n,
@@ -374,14 +396,25 @@ describe('deterministic budget simulations', () => {
     expect(budget).toBeLessThanOrEqual(guardrail.maxBudgetLamports);
   });
 
-  it('produces identical traces for identical simulation inputs', () => {
+  it("produces identical traces for identical simulation inputs", () => {
     const guardrail: BudgetGuardrail = {
       minBudgetLamports: 1_000n,
       maxBudgetLamports: 1_000_000n,
       adjustmentRate: 0.15,
       cooldownMs: 500,
     };
-    const outcomes = [true, true, false, true, false, false, true, true, true, false];
+    const outcomes = [
+      true,
+      true,
+      false,
+      true,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false,
+    ];
 
     const run = (): bigint[] => {
       let budget = 50_000n;

@@ -15,11 +15,11 @@
  * @module
  */
 
-import type { PublicKey } from '@solana/web3.js';
-import type { Logger } from '../utils/logger.js';
-import { silentLogger } from '../utils/logger.js';
-import type { TaskOperations } from './operations.js';
-import type { TaskDiscovery } from './discovery.js';
+import type { PublicKey } from "@solana/web3.js";
+import type { Logger } from "../utils/logger.js";
+import { silentLogger } from "../utils/logger.js";
+import type { TaskOperations } from "./operations.js";
+import type { TaskDiscovery } from "./discovery.js";
 import type {
   TaskExecutionResult,
   PrivateTaskExecutionResult,
@@ -30,18 +30,18 @@ import type {
   TracingProvider,
   OnChainTask,
   TaskExecutionContext,
-} from './types.js';
+} from "./types.js";
 import {
   DependencyGraph,
   DependencyType,
   type TaskNode,
-} from './dependency-graph.js';
+} from "./dependency-graph.js";
 import {
   ProofPipeline,
   type ProofPipelineConfig,
   type ProofPipelineEvents,
   type ProofGenerationJob,
-} from './proof-pipeline.js';
+} from "./proof-pipeline.js";
 
 // ============================================================================
 // Type Definitions
@@ -51,13 +51,13 @@ import {
  * Status of a speculative task execution.
  */
 export type SpeculativeTaskStatus =
-  | 'pending'
-  | 'executing'
-  | 'executed'
-  | 'proof_queued'
-  | 'confirmed'
-  | 'aborted'
-  | 'failed';
+  | "pending"
+  | "executing"
+  | "executed"
+  | "proof_queued"
+  | "confirmed"
+  | "aborted"
+  | "failed";
 
 /**
  * Tracks a speculatively executed task.
@@ -88,7 +88,10 @@ export interface SpeculativeTask {
 /**
  * Configuration for speculative execution.
  */
-export interface SpeculativeExecutorConfig extends Omit<TaskExecutorConfig, 'discovery'> {
+export interface SpeculativeExecutorConfig extends Omit<
+  TaskExecutorConfig,
+  "discovery"
+> {
   /** TaskDiscovery instance (optional for speculative mode) */
   discovery?: TaskDiscovery;
   /** Enable speculation. Default: true */
@@ -110,7 +113,10 @@ export interface SpeculativeExecutorConfig extends Omit<TaskExecutorConfig, 'dis
  */
 export interface SpeculativeExecutorEvents extends TaskExecutorEvents {
   /** Called when speculative execution starts for a dependent task */
-  onSpeculativeExecutionStarted?: (taskPda: PublicKey, parentPda: PublicKey) => void;
+  onSpeculativeExecutionStarted?: (
+    taskPda: PublicKey,
+    parentPda: PublicKey,
+  ) => void;
   /** Called when a speculative task's proof is confirmed on-chain */
   onSpeculativeExecutionConfirmed?: (taskPda: PublicKey) => void;
   /** Called when a speculative task is aborted (e.g., parent failed) */
@@ -229,7 +235,8 @@ export class SpeculativeExecutor {
 
   // Runtime state
   private readonly speculativeTasks: Map<string, SpeculativeTask> = new Map();
-  private readonly parentToSpeculativeTasks: Map<string, Set<string>> = new Map();
+  private readonly parentToSpeculativeTasks: Map<string, Set<string>> =
+    new Map();
   private events: SpeculativeExecutorEvents = {};
 
   // Metrics
@@ -250,16 +257,23 @@ export class SpeculativeExecutor {
     this.tracingProvider = config.tracing;
 
     // Speculation config with defaults
-    this.speculationEnabled = config.enableSpeculation ?? DEFAULT_SPECULATIVE_CONFIG.enableSpeculation;
-    this.maxSpeculativeTasksPerParent = config.maxSpeculativeTasksPerParent ?? DEFAULT_SPECULATIVE_CONFIG.maxSpeculativeTasksPerParent;
+    this.speculationEnabled =
+      config.enableSpeculation ?? DEFAULT_SPECULATIVE_CONFIG.enableSpeculation;
+    this.maxSpeculativeTasksPerParent =
+      config.maxSpeculativeTasksPerParent ??
+      DEFAULT_SPECULATIVE_CONFIG.maxSpeculativeTasksPerParent;
     this.maxSpeculationDepth = Math.min(
-      config.maxSpeculationDepth ?? DEFAULT_SPECULATIVE_CONFIG.maxSpeculationDepth,
+      config.maxSpeculationDepth ??
+        DEFAULT_SPECULATIVE_CONFIG.maxSpeculationDepth,
       MAX_ALLOWED_DEPTH,
     );
     this.speculatableDependencyTypes = new Set(
-      config.speculatableDependencyTypes ?? DEFAULT_SPECULATIVE_CONFIG.speculatableDependencyTypes
+      config.speculatableDependencyTypes ??
+        DEFAULT_SPECULATIVE_CONFIG.speculatableDependencyTypes,
     );
-    this.abortOnParentFailure = config.abortOnParentFailure ?? DEFAULT_SPECULATIVE_CONFIG.abortOnParentFailure;
+    this.abortOnParentFailure =
+      config.abortOnParentFailure ??
+      DEFAULT_SPECULATIVE_CONFIG.abortOnParentFailure;
 
     // Initialize dependency graph
     this.dependencyGraph = new DependencyGraph();
@@ -310,7 +324,7 @@ export class SpeculativeExecutor {
   getStatus(): SpeculativeExecutorStatus {
     let tasksAwaitingParent = 0;
     for (const task of this.speculativeTasks.values()) {
-      if (task.status === 'proof_queued') {
+      if (task.status === "proof_queued") {
         tasksAwaitingParent++;
       }
     }
@@ -347,7 +361,12 @@ export class SpeculativeExecutor {
     dependencyType: DependencyType = DependencyType.Data,
   ): void {
     if (parentPda) {
-      this.dependencyGraph.addTaskWithParent(task, taskPda, parentPda, dependencyType);
+      this.dependencyGraph.addTaskWithParent(
+        task,
+        taskPda,
+        parentPda,
+        dependencyType,
+      );
     } else {
       this.dependencyGraph.addTask(task, taskPda);
     }
@@ -373,13 +392,13 @@ export class SpeculativeExecutor {
     this.logger.info(`Starting execution with speculation: ${pdaKey}`);
 
     // Mark task as executing in the graph
-    this.dependencyGraph.updateStatus(taskPda, 'executing');
+    this.dependencyGraph.updateStatus(taskPda, "executing");
 
     // Execute the task
     const result = await this.executeTask(taskPda, parentResult);
 
     // Mark as completed in graph
-    this.dependencyGraph.updateStatus(taskPda, 'completed');
+    this.dependencyGraph.updateStatus(taskPda, "completed");
 
     // Queue proof generation
     const task = await this.operations.fetchTask(taskPda);
@@ -438,11 +457,13 @@ export class SpeculativeExecutor {
 
     // Add parent result to context if available (as custom property)
     if (parentResult) {
-      (context as TaskExecutionContext & { parentResult?: typeof parentResult }).parentResult = parentResult;
+      (
+        context as TaskExecutionContext & { parentResult?: typeof parentResult }
+      ).parentResult = parentResult;
     }
 
     // Start tracing span
-    const span = this.tracingProvider?.startSpan('task.execute', {
+    const span = this.tracingProvider?.startSpan("task.execute", {
       taskPda: pdaKey,
     });
 
@@ -452,12 +473,15 @@ export class SpeculativeExecutor {
       // Execute the handler
       const result = await this.handler(context);
 
-      span?.setStatus('ok');
+      span?.setStatus("ok");
       this.logger.debug(`Task execution completed: ${pdaKey}`);
 
       return result;
     } catch (error) {
-      span?.setStatus('error', error instanceof Error ? error.message : String(error));
+      span?.setStatus(
+        "error",
+        error instanceof Error ? error.message : String(error),
+      );
       throw error;
     } finally {
       span?.end();
@@ -470,7 +494,10 @@ export class SpeculativeExecutor {
    * @param taskPda - Task account PDA
    * @param timeoutMs - Timeout in milliseconds
    */
-  async waitForProofConfirmation(taskPda: PublicKey, timeoutMs?: number): Promise<ProofGenerationJob> {
+  async waitForProofConfirmation(
+    taskPda: PublicKey,
+    timeoutMs?: number,
+  ): Promise<ProofGenerationJob> {
     return this.proofPipeline.waitForConfirmation(taskPda, timeoutMs);
   }
 
@@ -496,19 +523,19 @@ export class SpeculativeExecutor {
    * Graceful shutdown - wait for in-flight proofs.
    */
   async shutdown(): Promise<void> {
-    this.logger.info('SpeculativeExecutor shutting down...');
+    this.logger.info("SpeculativeExecutor shutting down...");
 
     // Abort all speculative tasks
     for (const specTask of this.speculativeTasks.values()) {
-      if (specTask.status === 'executing' || specTask.status === 'pending') {
-        this.abortSpeculativeTask(specTask, 'shutdown');
+      if (specTask.status === "executing" || specTask.status === "pending") {
+        this.abortSpeculativeTask(specTask, "shutdown");
       }
     }
 
     // Shutdown proof pipeline
     await this.proofPipeline.shutdown();
 
-    this.logger.info('SpeculativeExecutor shutdown complete');
+    this.logger.info("SpeculativeExecutor shutdown complete");
   }
 
   // ==========================================================================
@@ -533,7 +560,7 @@ export class SpeculativeExecutor {
     // Check depth limit
     if (currentDepth > this.maxSpeculationDepth) {
       this.logger.debug(
-        `Speculation depth limit reached (${currentDepth} > ${this.maxSpeculationDepth}) for ${parentKey}`
+        `Speculation depth limit reached (${currentDepth} > ${this.maxSpeculationDepth}) for ${parentKey}`,
       );
       return;
     }
@@ -548,7 +575,7 @@ export class SpeculativeExecutor {
 
     // Filter to speculatable dependency types
     const speculatable = dependents.filter((dep) =>
-      this.speculatableDependencyTypes.has(dep.dependencyType)
+      this.speculatableDependencyTypes.has(dep.dependencyType),
     );
 
     if (speculatable.length === 0) {
@@ -557,11 +584,14 @@ export class SpeculativeExecutor {
     }
 
     // Get existing speculative tasks for this parent
-    const existingCount = this.parentToSpeculativeTasks.get(parentKey)?.size ?? 0;
+    const existingCount =
+      this.parentToSpeculativeTasks.get(parentKey)?.size ?? 0;
     const remainingSlots = this.maxSpeculativeTasksPerParent - existingCount;
 
     if (remainingSlots <= 0) {
-      this.logger.debug(`Max speculative tasks reached for parent ${parentKey}`);
+      this.logger.debug(
+        `Max speculative tasks reached for parent ${parentKey}`,
+      );
       return;
     }
 
@@ -569,12 +599,17 @@ export class SpeculativeExecutor {
     const toSpeculate = speculatable.slice(0, remainingSlots);
 
     this.logger.info(
-      `Starting ${toSpeculate.length} speculative execution(s) for parent ${parentKey} (depth=${currentDepth})`
+      `Starting ${toSpeculate.length} speculative execution(s) for parent ${parentKey} (depth=${currentDepth})`,
     );
 
     // Start speculative execution for each eligible dependent
     for (const dependent of toSpeculate) {
-      await this.startSpeculativeTask(dependent, parentPda, parentResult, currentDepth);
+      await this.startSpeculativeTask(
+        dependent,
+        parentPda,
+        parentResult,
+        currentDepth,
+      );
     }
   }
 
@@ -602,7 +637,7 @@ export class SpeculativeExecutor {
       taskPda: taskNode.taskPda,
       taskId: taskNode.taskId,
       parentPda,
-      status: 'pending',
+      status: "pending",
       startedAt: Date.now(),
       controller,
       depth,
@@ -617,7 +652,7 @@ export class SpeculativeExecutor {
 
     // Update metrics
     this.metrics.speculativeExecutionsStarted++;
-    this.metricsProvider?.counter('speculative_executions_started', 1);
+    this.metricsProvider?.counter("speculative_executions_started", 1);
 
     // Emit event
     this.events.onSpeculativeExecutionStarted?.(taskNode.taskPda, parentPda);
@@ -625,9 +660,10 @@ export class SpeculativeExecutor {
     // Execute speculatively (don't await - fire and forget)
     this.executeSpeculativeTask(specTask, parentResult).catch((error) => {
       this.logger.error(`Speculative execution failed for ${pdaKey}: ${error}`);
-      specTask.status = 'failed';
+      specTask.status = "failed";
       specTask.completedAt = Date.now();
-      specTask.abortReason = error instanceof Error ? error.message : String(error);
+      specTask.abortReason =
+        error instanceof Error ? error.message : String(error);
     });
   }
 
@@ -641,30 +677,30 @@ export class SpeculativeExecutor {
     const pdaKey = specTask.taskPda.toBase58();
 
     try {
-      specTask.status = 'executing';
+      specTask.status = "executing";
 
       // Check if aborted before starting
       if (specTask.controller.signal.aborted) {
-        throw new Error('Aborted before execution');
+        throw new Error("Aborted before execution");
       }
 
       // Update graph status
-      this.dependencyGraph.updateStatus(specTask.taskPda, 'executing');
+      this.dependencyGraph.updateStatus(specTask.taskPda, "executing");
 
       // Execute the task with parent result context
       const result = await this.executeTask(specTask.taskPda, parentResult);
 
       // Check if aborted during execution
       if (specTask.controller.signal.aborted) {
-        throw new Error('Aborted during execution');
+        throw new Error("Aborted during execution");
       }
 
       // Store result
       specTask.executionResult = result;
-      specTask.status = 'executed';
+      specTask.status = "executed";
 
       // Update graph status
-      this.dependencyGraph.updateStatus(specTask.taskPda, 'completed');
+      this.dependencyGraph.updateStatus(specTask.taskPda, "completed");
 
       // Fetch task data for proof pipeline
       const task = await this.operations.fetchTask(specTask.taskPda);
@@ -675,24 +711,36 @@ export class SpeculativeExecutor {
       // Queue proof generation
       // The proof will NOT be submitted until ALL ancestors are confirmed
       this.proofPipeline.enqueue(specTask.taskPda, task.taskId, result);
-      specTask.status = 'proof_queued';
+      specTask.status = "proof_queued";
 
-      this.logger.debug(`Speculative task ${pdaKey} executed, proof queued (depth=${specTask.depth})`);
+      this.logger.debug(
+        `Speculative task ${pdaKey} executed, proof queued (depth=${specTask.depth})`,
+      );
 
       // Multi-level speculation (issue #245): if depth allows, speculate further
-      if (this.speculationEnabled && specTask.depth < this.maxSpeculationDepth) {
-        await this.startSpeculativeExecutions(specTask.taskPda, result, specTask.depth + 1);
+      if (
+        this.speculationEnabled &&
+        specTask.depth < this.maxSpeculationDepth
+      ) {
+        await this.startSpeculativeExecutions(
+          specTask.taskPda,
+          result,
+          specTask.depth + 1,
+        );
       }
     } catch (error) {
       if (specTask.controller.signal.aborted) {
         this.logger.debug(`Speculative task ${pdaKey} was aborted`);
         // Status already set by abortSpeculativeTask
       } else {
-        specTask.status = 'failed';
+        specTask.status = "failed";
         specTask.completedAt = Date.now();
-        specTask.abortReason = error instanceof Error ? error.message : String(error);
-        this.dependencyGraph.updateStatus(specTask.taskPda, 'failed');
-        this.logger.error(`Speculative execution failed: ${pdaKey} - ${specTask.abortReason}`);
+        specTask.abortReason =
+          error instanceof Error ? error.message : String(error);
+        this.dependencyGraph.updateStatus(specTask.taskPda, "failed");
+        this.logger.error(
+          `Speculative execution failed: ${pdaKey} - ${specTask.abortReason}`,
+        );
       }
     }
   }
@@ -700,10 +748,13 @@ export class SpeculativeExecutor {
   /**
    * Abort a speculative task.
    */
-  private abortSpeculativeTask(specTask: SpeculativeTask, reason: string): void {
+  private abortSpeculativeTask(
+    specTask: SpeculativeTask,
+    reason: string,
+  ): void {
     const pdaKey = specTask.taskPda.toBase58();
 
-    if (specTask.status === 'confirmed' || specTask.status === 'aborted') {
+    if (specTask.status === "confirmed" || specTask.status === "aborted") {
       return; // Already finalized
     }
 
@@ -711,19 +762,19 @@ export class SpeculativeExecutor {
     specTask.controller.abort();
 
     // Update state
-    specTask.status = 'aborted';
+    specTask.status = "aborted";
     specTask.completedAt = Date.now();
     specTask.abortReason = reason;
 
     // Update graph
-    this.dependencyGraph.updateStatus(specTask.taskPda, 'failed');
+    this.dependencyGraph.updateStatus(specTask.taskPda, "failed");
 
     // Cancel proof job if queued
     this.proofPipeline.cancel(specTask.taskPda);
 
     // Update metrics
     this.metrics.speculativeExecutionsAborted++;
-    this.metricsProvider?.counter('speculative_executions_aborted', 1);
+    this.metricsProvider?.counter("speculative_executions_aborted", 1);
 
     // Emit event
     this.events.onSpeculativeExecutionAborted?.(specTask.taskPda, reason);
@@ -761,15 +812,17 @@ export class SpeculativeExecutor {
     // Check if this is a speculative task
     const specTask = this.speculativeTasks.get(pdaKey);
     if (specTask) {
-      specTask.status = 'confirmed';
+      specTask.status = "confirmed";
       specTask.completedAt = Date.now();
 
       // Calculate estimated time saved
-      const timeSaved = specTask.startedAt ? Date.now() - specTask.startedAt : 0;
+      const timeSaved = specTask.startedAt
+        ? Date.now() - specTask.startedAt
+        : 0;
       this.metrics.estimatedTimeSavedMs += timeSaved;
 
       this.metrics.speculativeExecutionsConfirmed++;
-      this.metricsProvider?.counter('speculative_executions_confirmed', 1);
+      this.metricsProvider?.counter("speculative_executions_confirmed", 1);
 
       this.events.onSpeculativeExecutionConfirmed?.(job.taskPda);
     }
@@ -781,7 +834,7 @@ export class SpeculativeExecutor {
     const dependentKeys = this.parentToSpeculativeTasks.get(pdaKey);
     if (dependentKeys && dependentKeys.size > 0) {
       this.logger.debug(
-        `Parent ${pdaKey} confirmed, ${dependentKeys.size} dependent(s) can now submit proofs`
+        `Parent ${pdaKey} confirmed, ${dependentKeys.size} dependent(s) can now submit proofs`,
       );
 
       // The proof pipeline will automatically submit queued proofs
@@ -802,8 +855,12 @@ export class SpeculativeExecutor {
 
     // Check if this is a speculative task that failed
     const specTask = this.speculativeTasks.get(pdaKey);
-    if (specTask && specTask.status !== 'confirmed' && specTask.status !== 'aborted') {
-      specTask.status = 'failed';
+    if (
+      specTask &&
+      specTask.status !== "confirmed" &&
+      specTask.status !== "aborted"
+    ) {
+      specTask.status = "failed";
       specTask.completedAt = Date.now();
       specTask.abortReason = `proof failed: ${error.message}`;
     }
@@ -825,7 +882,7 @@ export class SpeculativeExecutor {
     }
 
     this.logger.info(
-      `Cascading abort from ${pdaKey} to ${dependentKeys.size} dependent(s): ${reason}`
+      `Cascading abort from ${pdaKey} to ${dependentKeys.size} dependent(s): ${reason}`,
     );
 
     for (const depKey of dependentKeys) {

@@ -14,14 +14,14 @@ import {
   RISC0_JOURNAL_LEN,
   RISC0_IMAGE_ID_LEN,
   HASH_SIZE,
-} from './constants.js';
+} from "./constants.js";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
 export interface LocalBinaryProverConfig {
-  kind: 'local-binary';
+  kind: "local-binary";
   /** Absolute path to the agenc-zkvm-host binary. */
   binaryPath: string;
   /** Timeout in milliseconds (default 300 000 = 5 min). */
@@ -29,7 +29,7 @@ export interface LocalBinaryProverConfig {
 }
 
 export interface RemoteProverConfig {
-  kind: 'remote';
+  kind: "remote";
   /** HTTP(S) URL of the prover service. */
   endpoint: string;
   /** Timeout in milliseconds (default 300 000 = 5 min). */
@@ -50,10 +50,10 @@ export interface ProverInput {
 }
 
 export class ProverError extends Error {
-  override name = 'ProverError' as const;
+  override name = "ProverError" as const;
   constructor(
     message: string,
-    public readonly backend: 'local-binary' | 'remote',
+    public readonly backend: "local-binary" | "remote",
     public readonly cause?: unknown,
   ) {
     super(message);
@@ -73,17 +73,19 @@ const FIELD_BYTE_LEN = HASH_SIZE; // 32
 
 function validateInputField(name: string, field: Uint8Array): void {
   if (field.length !== FIELD_BYTE_LEN) {
-    throw new Error(`${name} must be exactly ${FIELD_BYTE_LEN} bytes, got ${field.length}`);
+    throw new Error(
+      `${name} must be exactly ${FIELD_BYTE_LEN} bytes, got ${field.length}`,
+    );
   }
 }
 
 function validateProverInput(input: ProverInput): void {
-  validateInputField('taskPda', input.taskPda);
-  validateInputField('agentAuthority', input.agentAuthority);
-  validateInputField('constraintHash', input.constraintHash);
-  validateInputField('outputCommitment', input.outputCommitment);
-  validateInputField('binding', input.binding);
-  validateInputField('nullifier', input.nullifier);
+  validateInputField("taskPda", input.taskPda);
+  validateInputField("agentAuthority", input.agentAuthority);
+  validateInputField("constraintHash", input.constraintHash);
+  validateInputField("outputCommitment", input.outputCommitment);
+  validateInputField("binding", input.binding);
+  validateInputField("nullifier", input.nullifier);
 }
 
 interface RawProverOutput {
@@ -94,16 +96,16 @@ interface RawProverOutput {
 
 function validateProverOutput(
   raw: RawProverOutput,
-  backend: 'local-binary' | 'remote',
+  backend: "local-binary" | "remote",
 ): { sealBytes: Buffer; journal: Buffer; imageId: Buffer } {
   if (!Array.isArray(raw.seal_bytes)) {
-    throw new ProverError('prover output missing seal_bytes array', backend);
+    throw new ProverError("prover output missing seal_bytes array", backend);
   }
   if (!Array.isArray(raw.journal)) {
-    throw new ProverError('prover output missing journal array', backend);
+    throw new ProverError("prover output missing journal array", backend);
   }
   if (!Array.isArray(raw.image_id)) {
-    throw new ProverError('prover output missing image_id array', backend);
+    throw new ProverError("prover output missing image_id array", backend);
   }
 
   const sealBytes = Buffer.from(raw.seal_bytes as number[]);
@@ -151,57 +153,63 @@ async function proveLocal(
   input: ProverInput,
   config: LocalBinaryProverConfig,
 ): Promise<{ sealBytes: Buffer; journal: Buffer; imageId: Buffer }> {
-  const { spawn } = await import('node:child_process');
+  const { spawn } = await import("node:child_process");
 
   const timeoutMs = config.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const inputJson = buildInputJson(input);
 
   return new Promise((resolve, reject) => {
-    const child = spawn(config.binaryPath, ['prove', '--stdin'], {
-      stdio: ['pipe', 'pipe', 'pipe'],
+    const child = spawn(config.binaryPath, ["prove", "--stdin"], {
+      stdio: ["pipe", "pipe", "pipe"],
       timeout: timeoutMs,
     });
 
-    let stdout = '';
-    let stderr = '';
+    let stdout = "";
+    let stderr = "";
 
-    child.stdout.on('data', (chunk: Buffer) => {
+    child.stdout.on("data", (chunk: Buffer) => {
       stdout += chunk.toString();
     });
 
-    child.stderr.on('data', (chunk: Buffer) => {
+    child.stderr.on("data", (chunk: Buffer) => {
       stderr += chunk.toString();
     });
 
-    child.on('error', (err: Error) => {
-      reject(new ProverError(
-        `failed to spawn prover binary: ${err.message}`,
-        'local-binary',
-        err,
-      ));
+    child.on("error", (err: Error) => {
+      reject(
+        new ProverError(
+          `failed to spawn prover binary: ${err.message}`,
+          "local-binary",
+          err,
+        ),
+      );
     });
 
-    child.on('close', (code: number | null) => {
+    child.on("close", (code: number | null) => {
       if (code !== 0) {
-        reject(new ProverError(
-          `prover exited with code ${code}: ${stderr.trim() || '(no stderr)'}`,
-          'local-binary',
-        ));
+        reject(
+          new ProverError(
+            `prover exited with code ${code}: ${stderr.trim() || "(no stderr)"}`,
+            "local-binary",
+          ),
+        );
         return;
       }
 
       try {
         const parsed = JSON.parse(stdout) as RawProverOutput;
-        resolve(validateProverOutput(parsed, 'local-binary'));
+        resolve(validateProverOutput(parsed, "local-binary"));
       } catch (err) {
         if (err instanceof ProverError) {
           reject(err);
         } else {
-          reject(new ProverError(
-            `failed to parse prover output: ${(err as Error).message}`,
-            'local-binary',
-            err,
-          ));
+          reject(
+            new ProverError(
+              `failed to parse prover output: ${(err as Error).message}`,
+              "local-binary",
+              err,
+            ),
+          );
         }
       }
     });
@@ -223,15 +231,15 @@ async function proveRemote(
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
-  const url = config.endpoint.endsWith('/prove')
+  const url = config.endpoint.endsWith("/prove")
     ? config.endpoint
-    : `${config.endpoint.replace(/\/+$/, '')}/prove`;
+    : `${config.endpoint.replace(/\/+$/, "")}/prove`;
 
   try {
     const response = await fetch(url, {
-      method: 'POST',
+      method: "POST",
       headers: {
-        'Content-Type': 'application/json',
+        "Content-Type": "application/json",
         ...config.headers,
       },
       body: buildInputJson(input),
@@ -239,27 +247,27 @@ async function proveRemote(
     });
 
     if (!response.ok) {
-      const body = await response.text().catch(() => '(unreadable body)');
+      const body = await response.text().catch(() => "(unreadable body)");
       throw new ProverError(
         `prover returned HTTP ${response.status}: ${body}`,
-        'remote',
+        "remote",
       );
     }
 
     const parsed = (await response.json()) as RawProverOutput;
-    return validateProverOutput(parsed, 'remote');
+    return validateProverOutput(parsed, "remote");
   } catch (err) {
     if (err instanceof ProverError) throw err;
-    if ((err as Error).name === 'AbortError') {
+    if ((err as Error).name === "AbortError") {
       throw new ProverError(
         `prover request timed out after ${timeoutMs}ms`,
-        'remote',
+        "remote",
         err,
       );
     }
     throw new ProverError(
       `prover request failed: ${(err as Error).message}`,
-      'remote',
+      "remote",
       err,
     );
   } finally {
@@ -278,11 +286,13 @@ export async function prove(
   validateProverInput(input);
 
   switch (config.kind) {
-    case 'local-binary':
+    case "local-binary":
       return proveLocal(input, config);
-    case 'remote':
+    case "remote":
       return proveRemote(input, config);
     default:
-      throw new Error(`unknown prover backend: ${(config as { kind: string }).kind}`);
+      throw new Error(
+        `unknown prover backend: ${(config as { kind: string }).kind}`,
+      );
   }
 }

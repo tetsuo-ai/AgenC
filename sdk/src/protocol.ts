@@ -4,14 +4,14 @@ import {
   PublicKey,
   SystemProgram,
   type AccountMeta,
-} from '@solana/web3.js';
-import anchor, { type Program } from '@coral-xyz/anchor';
-import { PROGRAM_ID, SEEDS } from './constants';
-import { getAccount } from './anchor-utils';
-import { toBigInt, toNumber } from './utils/numeric';
+} from "@solana/web3.js";
+import anchor, { type Program } from "@coral-xyz/anchor";
+import { PROGRAM_ID, SEEDS } from "./constants";
+import { getAccount } from "./anchor-utils";
+import { toBigInt, toNumber } from "./utils/numeric";
 
 const BPF_LOADER_UPGRADEABLE_PROGRAM_ID = new PublicKey(
-  'BPFLoaderUpgradeab1e11111111111111111111111',
+  "BPFLoaderUpgradeab1e11111111111111111111111",
 );
 
 export interface InitializeProtocolParams {
@@ -49,20 +49,29 @@ function buildMultisigRemainingAccounts(signers: Keypair[]): AccountMeta[] {
     const key = signer.publicKey.toBase58();
     if (unique.has(key)) continue;
     unique.add(key);
-    accounts.push({ pubkey: signer.publicKey, isSigner: true, isWritable: false });
+    accounts.push({
+      pubkey: signer.publicKey,
+      isSigner: true,
+      isWritable: false,
+    });
   }
 
   return accounts;
 }
 
 type MultisigInstructionBuilder = {
-  accountsPartial(accounts: { protocolConfig: PublicKey }): MultisigInstructionBuilder;
+  accountsPartial(accounts: {
+    protocolConfig: PublicKey;
+  }): MultisigInstructionBuilder;
   signers(signers: Keypair[]): MultisigInstructionBuilder;
   remainingAccounts(accounts: AccountMeta[]): MultisigInstructionBuilder;
   rpc(): Promise<string>;
 };
 
-function validateMultisigSigners(signers: Keypair[], operationName: string): void {
+function validateMultisigSigners(
+  signers: Keypair[],
+  operationName: string,
+): void {
   if (signers.length === 0) {
     throw new Error(`${operationName} requires at least one multisig signer`);
   }
@@ -89,30 +98,34 @@ async function executeMultisigProtocolInstruction(
   }
 
   const tx = await builder.rpc();
-  await connection.confirmTransaction(tx, 'confirmed');
+  await connection.confirmTransaction(tx, "confirmed");
   return { txSignature: tx };
 }
 
 function validateInitializeParams(params: InitializeProtocolParams): void {
   if (params.multisigThreshold < 1) {
-    throw new Error('multisigThreshold must be >= 1');
+    throw new Error("multisigThreshold must be >= 1");
   }
 
   if (params.multisigOwners.length === 0) {
-    throw new Error('multisigOwners must contain at least one owner');
+    throw new Error("multisigOwners must contain at least one owner");
   }
 
   if (params.multisigThreshold > params.multisigOwners.length) {
-    throw new Error('multisigThreshold cannot exceed multisigOwners length');
+    throw new Error("multisigThreshold cannot exceed multisigOwners length");
   }
 
-  const owners = new Set(params.multisigOwners.map((owner) => owner.toBase58()));
+  const owners = new Set(
+    params.multisigOwners.map((owner) => owner.toBase58()),
+  );
   if (owners.size !== params.multisigOwners.length) {
-    throw new Error('multisigOwners cannot contain duplicates');
+    throw new Error("multisigOwners cannot contain duplicates");
   }
 }
 
-export function deriveProtocolPda(programId: PublicKey = PROGRAM_ID): PublicKey {
+export function deriveProtocolPda(
+  programId: PublicKey = PROGRAM_ID,
+): PublicKey {
   const [pda] = PublicKey.findProgramAddressSync([SEEDS.PROTOCOL], programId);
   return pda;
 }
@@ -155,7 +168,7 @@ export async function initializeProtocol(
     .signers([authority, secondSigner])
     .rpc();
 
-  await connection.confirmTransaction(tx, 'confirmed');
+  await connection.confirmTransaction(tx, "confirmed");
   return { protocolPda, txSignature: tx };
 }
 
@@ -169,8 +182,11 @@ export async function updateProtocolFee(
     connection,
     program,
     multisigSigners,
-    'updateProtocolFee',
-    () => program.methods.updateProtocolFee(newFeeBps) as unknown as MultisigInstructionBuilder,
+    "updateProtocolFee",
+    () =>
+      program.methods.updateProtocolFee(
+        newFeeBps,
+      ) as unknown as MultisigInstructionBuilder,
   );
 }
 
@@ -184,7 +200,7 @@ export async function updateRateLimits(
     connection,
     program,
     multisigSigners,
-    'updateRateLimits',
+    "updateRateLimits",
     () =>
       program.methods.updateRateLimits(
         new anchor.BN(params.taskCreationCooldown.toString()),
@@ -206,8 +222,11 @@ export async function migrateProtocol(
     connection,
     program,
     multisigSigners,
-    'migrateProtocol',
-    () => program.methods.migrateProtocol(targetVersion) as unknown as MultisigInstructionBuilder,
+    "migrateProtocol",
+    () =>
+      program.methods.migrateProtocol(
+        targetVersion,
+      ) as unknown as MultisigInstructionBuilder,
   );
 }
 
@@ -221,15 +240,22 @@ export async function updateMinVersion(
     connection,
     program,
     multisigSigners,
-    'updateMinVersion',
-    () => program.methods.updateMinVersion(newMinVersion) as unknown as MultisigInstructionBuilder,
+    "updateMinVersion",
+    () =>
+      program.methods.updateMinVersion(
+        newMinVersion,
+      ) as unknown as MultisigInstructionBuilder,
   );
 }
 
-export async function getProtocolConfig(program: Program): Promise<ProtocolConfigState | null> {
+export async function getProtocolConfig(
+  program: Program,
+): Promise<ProtocolConfigState | null> {
   try {
     const protocolPda = deriveProtocolPda(program.programId);
-    const raw = (await getAccount(program, 'protocolConfig').fetch(protocolPda)) as Record<string, unknown>;
+    const raw = (await getAccount(program, "protocolConfig").fetch(
+      protocolPda,
+    )) as Record<string, unknown>;
 
     return {
       authority: raw.authority as PublicKey,
@@ -237,12 +263,19 @@ export async function getProtocolConfig(program: Program): Promise<ProtocolConfi
       disputeThreshold: toNumber(raw.disputeThreshold ?? raw.dispute_threshold),
       protocolFeeBps: toNumber(raw.protocolFeeBps ?? raw.protocol_fee_bps),
       minAgentStake: toBigInt(raw.minAgentStake ?? raw.min_agent_stake),
-      minStakeForDispute: toBigInt(raw.minStakeForDispute ?? raw.min_stake_for_dispute),
-      multisigThreshold: toNumber(raw.multisigThreshold ?? raw.multisig_threshold),
+      minStakeForDispute: toBigInt(
+        raw.minStakeForDispute ?? raw.min_stake_for_dispute,
+      ),
+      multisigThreshold: toNumber(
+        raw.multisigThreshold ?? raw.multisig_threshold,
+      ),
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    if (message.includes('Account does not exist') || message.includes('could not find account')) {
+    if (
+      message.includes("Account does not exist") ||
+      message.includes("could not find account")
+    ) {
       return null;
     }
     throw error;

@@ -1,6 +1,6 @@
 export function safeStringify(value: unknown): string {
   return JSON.stringify(value, (_key, item) => {
-    if (typeof item === 'bigint') {
+    if (typeof item === "bigint") {
       return `${item}n`;
     }
     return item;

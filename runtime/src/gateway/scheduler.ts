@@ -1,5 +1,5 @@
-import type { Logger } from '../utils/logger.js';
-import { silentLogger } from '../utils/logger.js';
+import type { Logger } from "../utils/logger.js";
+import { silentLogger } from "../utils/logger.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -59,21 +59,21 @@ const MAX_LOOKAHEAD_DAYS = 366;
 function parseField(token: string, min: number, max: number): number[] {
   const results = new Set<number>();
 
-  for (const segment of token.split(',')) {
+  for (const segment of token.split(",")) {
     const trimmed = segment.trim();
     if (trimmed.length === 0) {
       throw new Error(`empty field segment in "${token}"`);
     }
 
     // Wildcard: * or */step
-    if (trimmed === '*') {
+    if (trimmed === "*") {
       for (let i = min; i <= max; i++) {
         results.add(i);
       }
       continue;
     }
 
-    if (trimmed.startsWith('*/')) {
+    if (trimmed.startsWith("*/")) {
       const step = parseStepValue(trimmed.slice(2), min, max);
       for (let i = min; i <= max; i += step) {
         results.add(i);
@@ -95,7 +95,10 @@ function parseField(token: string, min: number, max: number): number[] {
       if (low > high) {
         throw new Error(`invalid range ${low}-${high}: low > high`);
       }
-      const step = rangeMatch[4] !== undefined ? parseStepValue(rangeMatch[4], min, max) : 1;
+      const step =
+        rangeMatch[4] !== undefined
+          ? parseStepValue(rangeMatch[4], min, max)
+          : 1;
       for (let i = low; i <= high; i += step) {
         results.add(i);
       }
@@ -128,8 +131,8 @@ function parseStepValue(raw: string, _min: number, max: number): number {
 }
 
 export function parseCron(expression: string): CronSchedule {
-  const trimmed = expression.trim().replace(/\s+/g, ' ');
-  const fields = trimmed.split(' ');
+  const trimmed = expression.trim().replace(/\s+/g, " ");
+  const fields = trimmed.split(" ");
 
   if (fields.length !== 5) {
     throw new Error(
@@ -158,7 +161,11 @@ export function parseCron(expression: string): CronSchedule {
 // Cron matching
 // ---------------------------------------------------------------------------
 
-function isWildcard(field: readonly number[], min: number, max: number): boolean {
+function isWildcard(
+  field: readonly number[],
+  min: number,
+  max: number,
+): boolean {
   return field.length === max - min + 1;
 }
 
@@ -243,7 +250,10 @@ export function nextCronMatch(schedule: CronSchedule, after?: Date): Date {
         }
 
         // Verify month hasn't rolled (e.g. day 31 in a 30-day month)
-        if (candidate.getMonth() + 1 !== schedule.month.find(m => m === candidate.getMonth() + 1)) {
+        if (
+          candidate.getMonth() + 1 !==
+          schedule.month.find((m) => m === candidate.getMonth() + 1)
+        ) {
           continue;
         }
 
@@ -254,7 +264,9 @@ export function nextCronMatch(schedule: CronSchedule, after?: Date): Date {
     }
   }
 
-  throw new Error(`no matching cron time found within ${MAX_LOOKAHEAD_DAYS} days`);
+  throw new Error(
+    `no matching cron time found within ${MAX_LOOKAHEAD_DAYS} days`,
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -297,7 +309,9 @@ export class CronScheduler {
       action,
     });
 
-    this.logger.debug(`added job "${name}" with cron "${cron}", next run at ${new Date(nextRun).toISOString()}`);
+    this.logger.debug(
+      `added job "${name}" with cron "${cron}", next run at ${new Date(nextRun).toISOString()}`,
+    );
   }
 
   removeJob(name: string): boolean {
@@ -344,7 +358,7 @@ export class CronScheduler {
       this.tick();
     }, MS_PER_MINUTE);
 
-    this.logger.info('cron scheduler started');
+    this.logger.info("cron scheduler started");
   }
 
   stop(): void {
@@ -352,7 +366,7 @@ export class CronScheduler {
 
     clearInterval(this.timer);
     this.timer = null;
-    this.logger.info('cron scheduler stopped');
+    this.logger.info("cron scheduler stopped");
   }
 
   async triggerJob(name: string): Promise<void> {
@@ -445,7 +459,9 @@ export class CronScheduler {
           }
         })
         .catch((error: unknown) => {
-          this.logger.error(`job "${job.name}" failed: ${error instanceof Error ? error.message : String(error)}`);
+          this.logger.error(
+            `job "${job.name}" failed: ${error instanceof Error ? error.message : String(error)}`,
+          );
         })
         .finally(() => {
           this.running.delete(job.name);

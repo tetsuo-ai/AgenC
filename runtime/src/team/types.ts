@@ -7,14 +7,19 @@
 export const MAX_TEAM_ID_LENGTH = 64;
 export const TEAM_ID_PATTERN = /^[a-z0-9:_-]+$/;
 
-export type TeamContractStatus = 'draft' | 'active' | 'completed' | 'failed' | 'cancelled';
+export type TeamContractStatus =
+  | "draft"
+  | "active"
+  | "completed"
+  | "failed"
+  | "cancelled";
 
 export type TeamCheckpointStatus =
-  | 'pending'
-  | 'ready'
-  | 'completed'
-  | 'failed'
-  | 'blocked';
+  | "pending"
+  | "ready"
+  | "completed"
+  | "failed"
+  | "blocked";
 
 export interface TeamRoleTemplate {
   id: string;
@@ -39,19 +44,19 @@ interface BasePayoutConfig {
 }
 
 export interface FixedTeamPayoutConfig extends BasePayoutConfig {
-  mode: 'fixed';
+  mode: "fixed";
   /** Per-role payout split in bps. Must sum to 10_000. */
   rolePayoutBps: Record<string, number>;
 }
 
 export interface WeightedTeamPayoutConfig extends BasePayoutConfig {
-  mode: 'weighted';
+  mode: "weighted";
   /** Per-role positive integer weights. */
   roleWeights: Record<string, number>;
 }
 
 export interface MilestoneTeamPayoutConfig extends BasePayoutConfig {
-  mode: 'milestone';
+  mode: "milestone";
   /** Per-checkpoint payout split in bps. Sum may be <= 10_000. */
   milestonePayoutBps: Record<string, number>;
 }
@@ -103,7 +108,7 @@ export interface TeamCheckpointState {
 }
 
 export interface TeamPayoutResult {
-  mode: TeamPayoutConfig['mode'];
+  mode: TeamPayoutConfig["mode"];
   totalRewardLamports: bigint;
   rolePayouts: Record<string, bigint>;
   memberPayouts: Record<string, bigint>;
@@ -113,15 +118,15 @@ export interface TeamPayoutResult {
 }
 
 export type TeamAuditEventType =
-  | 'contract_created'
-  | 'member_joined'
-  | 'member_left'
-  | 'role_assigned'
-  | 'run_started'
-  | 'checkpoint_completed'
-  | 'checkpoint_failed'
-  | 'contract_cancelled'
-  | 'payout_finalized';
+  | "contract_created"
+  | "member_joined"
+  | "member_left"
+  | "role_assigned"
+  | "run_started"
+  | "checkpoint_completed"
+  | "checkpoint_failed"
+  | "contract_cancelled"
+  | "payout_finalized";
 
 export interface TeamAuditEvent {
   sequence: number;
@@ -163,15 +168,18 @@ export function canonicalizeTeamId(value: string): string {
   return value.trim().toLowerCase();
 }
 
-export function validateTeamId(value: string, maxLength = MAX_TEAM_ID_LENGTH): string | null {
+export function validateTeamId(
+  value: string,
+  maxLength = MAX_TEAM_ID_LENGTH,
+): string | null {
   if (value.length === 0) {
-    return 'must not be empty';
+    return "must not be empty";
   }
   if (value.length > maxLength) {
     return `must be <= ${maxLength} characters`;
   }
   if (!TEAM_ID_PATTERN.test(value)) {
-    return 'must match [a-z0-9:_-]';
+    return "must match [a-z0-9:_-]";
   }
   return null;
 }

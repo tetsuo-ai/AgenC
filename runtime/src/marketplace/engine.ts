@@ -9,20 +9,20 @@ import {
   canonicalizeMarketplaceId,
   isValidBps,
   validateMarketplaceId,
-} from '@agenc/sdk';
+} from "@agenc/sdk";
 import type {
   BidAntiSpamConfig,
   MatchingPolicyConfig,
   TaskBid,
   TaskBidUpdateInput,
-} from '@agenc/sdk';
+} from "@agenc/sdk";
 import {
   MarketplaceAuthorizationError,
   MarketplaceMatchingError,
   MarketplaceStateError,
   MarketplaceValidationError,
-} from './errors.js';
-import { selectWinningBid } from './scoring.js';
+} from "./errors.js";
+import { selectWinningBid } from "./scoring.js";
 import type {
   AcceptTaskBidRequest,
   AcceptTaskBidResult,
@@ -35,7 +35,7 @@ import type {
   TaskBidBookSnapshot,
   TaskBidMarketplaceConfig,
   UpdateTaskBidRequest,
-} from './types.js';
+} from "./types.js";
 
 interface TaskBidBook {
   taskId: string;
@@ -48,13 +48,18 @@ interface TaskBidBook {
 }
 
 const DEFAULT_POLICY: MatchingPolicyConfig = {
-  policy: 'best_price',
+  policy: "best_price",
 };
 
 const DEFAULT_ANTI_SPAM: Required<
-  Pick<BidAntiSpamConfig, 'maxActiveBidsPerBidderPerTask' | 'maxBidsPerTask' | 'maxTrackedBiddersPerTask'>
+  Pick<
+    BidAntiSpamConfig,
+    | "maxActiveBidsPerBidderPerTask"
+    | "maxBidsPerTask"
+    | "maxTrackedBiddersPerTask"
+  >
 > & {
-  createRateLimit?: BidAntiSpamConfig['createRateLimit'];
+  createRateLimit?: BidAntiSpamConfig["createRateLimit"];
   minBondLamports?: bigint;
 } = {
   maxActiveBidsPerBidderPerTask: 3,
@@ -67,7 +72,11 @@ export class TaskBidMarketplace {
   private readonly now: () => number;
   private readonly defaultPolicy: MatchingPolicyConfig;
   private readonly antiSpam: typeof DEFAULT_ANTI_SPAM;
-  private readonly bidIdGenerator: (taskId: string, bidderId: string, sequence: number) => string;
+  private readonly bidIdGenerator: (
+    taskId: string,
+    bidderId: string,
+    sequence: number,
+  ) => string;
   private readonly authorizedSelectors: Set<string>;
 
   constructor(config: TaskBidMarketplaceConfig = {}) {
@@ -79,13 +88,15 @@ export class TaskBidMarketplace {
       ...(config.antiSpam ?? {}),
     };
     this.authorizedSelectors = new Set(
-      (config.authorizedSelectorIds ?? []).map((id) => normalizeIdOrThrow(id, 'authorized selector id')),
+      (config.authorizedSelectorIds ?? []).map((id) =>
+        normalizeIdOrThrow(id, "authorized selector id"),
+      ),
     );
   }
 
   setTaskOwner(input: SetTaskOwnerRequest): TaskBidBookSnapshot {
-    const taskId = normalizeIdOrThrow(input.taskId, 'task id');
-    const ownerId = normalizeIdOrThrow(input.ownerId, 'owner id');
+    const taskId = normalizeIdOrThrow(input.taskId, "task id");
+    const ownerId = normalizeIdOrThrow(input.ownerId, "owner id");
 
     const book = this.getOrCreateBook(taskId);
     this.applyLazyExpiryMutation(book, this.now());
@@ -107,7 +118,7 @@ export class TaskBidMarketplace {
   }
 
   createBid(input: CreateTaskBidRequest): TaskBid {
-    const actorId = normalizeIdOrThrow(input.actorId, 'actor id');
+    const actorId = normalizeIdOrThrow(input.actorId, "actor id");
     const normalized = this.normalizeCreateInput(input, actorId);
 
     const book = this.getOrCreateBook(normalized.taskId);
@@ -117,16 +128,29 @@ export class TaskBidMarketplace {
 
     if (book.ownerId === null && normalized.taskOwnerId) {
       book.ownerId = normalized.taskOwnerId;
-    } else if (normalized.taskOwnerId && book.ownerId !== normalized.taskOwnerId) {
+    } else if (
+      normalized.taskOwnerId &&
+      book.ownerId !== normalized.taskOwnerId
+    ) {
       throw new MarketplaceValidationError(
         `provided task owner "${normalized.taskOwnerId}" does not match registered owner "${book.ownerId}"`,
       );
     }
 
-    this.enforceCreateLimits(book, normalized.taskId, normalized.bidderId, normalized.bondLamports, normalized.nowMs);
+    this.enforceCreateLimits(
+      book,
+      normalized.taskId,
+      normalized.bidderId,
+      normalized.bondLamports,
+      normalized.nowMs,
+    );
 
-    const generatedId = this.bidIdGenerator(normalized.taskId, normalized.bidderId, book.nextSequence);
-    const bidId = normalizeIdOrThrow(generatedId, 'bid id');
+    const generatedId = this.bidIdGenerator(
+      normalized.taskId,
+      normalized.bidderId,
+      book.nextSequence,
+    );
+    const bidId = normalizeIdOrThrow(generatedId, "bid id");
 
     if (book.bids.has(bidId)) {
       throw new MarketplaceValidationError(
@@ -148,7 +172,7 @@ export class TaskBidMarketplace {
       metadata: cloneMetadata(normalized.metadata),
       createdAtMs: normalized.nowMs,
       updatedAtMs: normalized.nowMs,
-      status: 'active',
+      status: "active",
     };
 
     book.nextSequence += 1;
@@ -160,9 +184,9 @@ export class TaskBidMarketplace {
   }
 
   updateBid(input: UpdateTaskBidRequest): TaskBid {
-    const actorId = normalizeIdOrThrow(input.actorId, 'actor id');
-    const taskId = normalizeIdOrThrow(input.taskId, 'task id');
-    const bidId = normalizeIdOrThrow(input.bidId, 'bid id');
+    const actorId = normalizeIdOrThrow(input.actorId, "actor id");
+    const taskId = normalizeIdOrThrow(input.taskId, "task id");
+    const bidId = normalizeIdOrThrow(input.bidId, "bid id");
 
     const book = this.getExistingBook(taskId);
     const now = this.now();
@@ -173,7 +197,7 @@ export class TaskBidMarketplace {
     const bid = this.getBid(book, bidId);
     this.assertBidOwner(actorId, bid);
 
-    if (bid.status !== 'active') {
+    if (bid.status !== "active") {
       throw new MarketplaceStateError(
         `cannot update bid "${bidId}" from status "${bid.status}"`,
       );
@@ -199,7 +223,7 @@ export class TaskBidMarketplace {
     }
 
     if (bid.expiresAtMs <= now) {
-      bid.status = 'expired';
+      bid.status = "expired";
     }
 
     bid.updatedAtMs = now;
@@ -209,9 +233,9 @@ export class TaskBidMarketplace {
   }
 
   cancelBid(input: CancelTaskBidRequest): TaskBid {
-    const actorId = normalizeIdOrThrow(input.actorId, 'actor id');
-    const taskId = normalizeIdOrThrow(input.taskId, 'task id');
-    const bidId = normalizeIdOrThrow(input.bidId, 'bid id');
+    const actorId = normalizeIdOrThrow(input.actorId, "actor id");
+    const taskId = normalizeIdOrThrow(input.taskId, "task id");
+    const bidId = normalizeIdOrThrow(input.bidId, "bid id");
 
     const book = this.getExistingBook(taskId);
     const now = this.now();
@@ -222,18 +246,18 @@ export class TaskBidMarketplace {
     const bid = this.getBid(book, bidId);
     this.assertBidOwner(actorId, bid);
 
-    if (bid.status === 'cancelled') {
+    if (bid.status === "cancelled") {
       return cloneBid(bid);
     }
 
-    if (bid.status !== 'active') {
+    if (bid.status !== "active") {
       throw new MarketplaceStateError(
         `cannot cancel bid "${bidId}" from status "${bid.status}"`,
       );
     }
 
-    bid.status = 'cancelled';
-    bid.rejectedReason = input.reason?.trim() || 'cancelled_by_bidder';
+    bid.status = "cancelled";
+    bid.rejectedReason = input.reason?.trim() || "cancelled_by_bidder";
     bid.updatedAtMs = now;
 
     book.taskVersion += 1;
@@ -241,7 +265,7 @@ export class TaskBidMarketplace {
   }
 
   listBids(input: ListTaskBidsRequest): TaskBid[] {
-    const taskId = normalizeIdOrThrow(input.taskId, 'task id');
+    const taskId = normalizeIdOrThrow(input.taskId, "task id");
     const book = this.books.get(taskId);
     if (!book) return [];
 
@@ -258,7 +282,7 @@ export class TaskBidMarketplace {
   }
 
   getTaskState(taskIdRaw: string): TaskBidBookSnapshot | null {
-    const taskId = normalizeIdOrThrow(taskIdRaw, 'task id');
+    const taskId = normalizeIdOrThrow(taskIdRaw, "task id");
     const book = this.books.get(taskId);
     if (!book) return null;
 
@@ -266,7 +290,7 @@ export class TaskBidMarketplace {
   }
 
   selectWinner(input: SelectTaskBidRequest) {
-    const taskId = normalizeIdOrThrow(input.taskId, 'task id');
+    const taskId = normalizeIdOrThrow(input.taskId, "task id");
     const book = this.books.get(taskId);
     if (!book) return null;
 
@@ -285,9 +309,9 @@ export class TaskBidMarketplace {
   }
 
   acceptBid(input: AcceptTaskBidRequest): AcceptTaskBidResult {
-    const actorId = normalizeIdOrThrow(input.actorId, 'actor id');
-    const taskId = normalizeIdOrThrow(input.taskId, 'task id');
-    const bidId = normalizeIdOrThrow(input.bidId, 'bid id');
+    const actorId = normalizeIdOrThrow(input.actorId, "actor id");
+    const taskId = normalizeIdOrThrow(input.taskId, "task id");
+    const bidId = normalizeIdOrThrow(input.bidId, "bid id");
 
     const book = this.getExistingBook(taskId);
     const now = this.now();
@@ -300,8 +324,8 @@ export class TaskBidMarketplace {
   }
 
   autoMatch(input: AutoMatchTaskBidRequest): AcceptTaskBidResult | null {
-    const actorId = normalizeIdOrThrow(input.actorId, 'actor id');
-    const taskId = normalizeIdOrThrow(input.taskId, 'task id');
+    const actorId = normalizeIdOrThrow(input.actorId, "actor id");
+    const taskId = normalizeIdOrThrow(input.taskId, "task id");
 
     const book = this.getExistingBook(taskId);
     const now = this.now();
@@ -333,7 +357,7 @@ export class TaskBidMarketplace {
     const now = this.now();
 
     if (taskIdRaw) {
-      const taskId = normalizeIdOrThrow(taskIdRaw, 'task id');
+      const taskId = normalizeIdOrThrow(taskIdRaw, "task id");
       const book = this.books.get(taskId);
       if (!book) return 0;
       return this.applyLazyExpiryMutation(book, now);
@@ -346,7 +370,11 @@ export class TaskBidMarketplace {
     return total;
   }
 
-  private acceptBidInternal(book: TaskBidBook, bidId: string, now: number): AcceptTaskBidResult {
+  private acceptBidInternal(
+    book: TaskBidBook,
+    bidId: string,
+    now: number,
+  ): AcceptTaskBidResult {
     if (book.acceptedBidId) {
       if (book.acceptedBidId !== bidId) {
         throw new MarketplaceStateError(
@@ -365,22 +393,22 @@ export class TaskBidMarketplace {
 
     const target = this.getBid(book, bidId);
 
-    if (target.status !== 'active') {
+    if (target.status !== "active") {
       throw new MarketplaceStateError(
         `cannot accept bid "${bidId}" from status "${target.status}"`,
       );
     }
 
-    target.status = 'accepted';
+    target.status = "accepted";
     target.updatedAtMs = now;
 
     const rejectedBidIds: string[] = [];
     for (const candidate of book.bids.values()) {
       if (candidate.bidId === bidId) continue;
-      if (candidate.status !== 'active') continue;
+      if (candidate.status !== "active") continue;
 
-      candidate.status = 'rejected';
-      candidate.rejectedReason = 'another_bid_accepted';
+      candidate.status = "rejected";
+      candidate.rejectedReason = "another_bid_accepted";
       candidate.updatedAtMs = now;
       rejectedBidIds.push(candidate.bidId);
     }
@@ -420,11 +448,16 @@ export class TaskBidMarketplace {
     }
   }
 
-  private assertExpectedVersion(book: TaskBidBook, expectedVersion: number | undefined): void {
+  private assertExpectedVersion(
+    book: TaskBidBook,
+    expectedVersion: number | undefined,
+  ): void {
     if (expectedVersion === undefined) return;
 
     if (!Number.isInteger(expectedVersion) || expectedVersion < 0) {
-      throw new MarketplaceValidationError('expectedVersion must be a non-negative integer');
+      throw new MarketplaceValidationError(
+        "expectedVersion must be a non-negative integer",
+      );
     }
 
     if (book.taskVersion !== expectedVersion) {
@@ -454,7 +487,9 @@ export class TaskBidMarketplace {
   private getExistingBook(taskId: string): TaskBidBook {
     const book = this.books.get(taskId);
     if (!book) {
-      throw new MarketplaceStateError(`task "${taskId}" does not have a bid book`);
+      throw new MarketplaceStateError(
+        `task "${taskId}" does not have a bid book`,
+      );
     }
     return book;
   }
@@ -462,7 +497,9 @@ export class TaskBidMarketplace {
   private getBid(book: TaskBidBook, bidId: string): TaskBid {
     const bid = book.bids.get(bidId);
     if (!bid) {
-      throw new MarketplaceStateError(`bid "${bidId}" not found for task "${book.taskId}"`);
+      throw new MarketplaceStateError(
+        `bid "${bidId}" not found for task "${book.taskId}"`,
+      );
     }
     return bid;
   }
@@ -471,10 +508,10 @@ export class TaskBidMarketplace {
     let expiredCount = 0;
 
     for (const bid of book.bids.values()) {
-      if (bid.status !== 'active') continue;
+      if (bid.status !== "active") continue;
       if (now < bid.expiresAtMs) continue;
 
-      bid.status = 'expired';
+      bid.status = "expired";
       bid.updatedAtMs = now;
       expiredCount += 1;
     }
@@ -488,11 +525,14 @@ export class TaskBidMarketplace {
 
   private getActiveProjectedBids(book: TaskBidBook, now: number): TaskBid[] {
     return Array.from(book.bids.values())
-      .filter((bid) => bid.status === 'active' && bid.expiresAtMs > now)
+      .filter((bid) => bid.status === "active" && bid.expiresAtMs > now)
       .map((bid) => cloneBid(bid));
   }
 
-  private normalizeCreateInput(input: CreateTaskBidRequest, actorId: string): {
+  private normalizeCreateInput(
+    input: CreateTaskBidRequest,
+    actorId: string,
+  ): {
     taskId: string;
     bidderId: string;
     taskOwnerId?: string;
@@ -508,10 +548,10 @@ export class TaskBidMarketplace {
   } {
     const nowMs = this.now();
 
-    const taskId = normalizeIdOrThrow(input.bid.taskId, 'task id');
-    const bidderId = normalizeIdOrThrow(input.bid.bidderId, 'bidder id');
+    const taskId = normalizeIdOrThrow(input.bid.taskId, "task id");
+    const bidderId = normalizeIdOrThrow(input.bid.bidderId, "bidder id");
     const taskOwnerId = input.taskOwnerId
-      ? normalizeIdOrThrow(input.taskOwnerId, 'task owner id')
+      ? normalizeIdOrThrow(input.taskOwnerId, "task owner id")
       : undefined;
 
     if (actorId !== bidderId) {
@@ -539,9 +579,12 @@ export class TaskBidMarketplace {
     const bondLamports = input.bid.bondLamports ?? 0n;
     validateBondLamports(bondLamports);
 
-    const expiresAtMs = normalizeTimestamp(input.bid.expiresAtMs, 'expiresAtMs');
+    const expiresAtMs = normalizeTimestamp(
+      input.bid.expiresAtMs,
+      "expiresAtMs",
+    );
     if (expiresAtMs <= nowMs) {
-      throw new MarketplaceValidationError('expiresAtMs must be in the future');
+      throw new MarketplaceValidationError("expiresAtMs must be in the future");
     }
 
     return {
@@ -560,7 +603,10 @@ export class TaskBidMarketplace {
     };
   }
 
-  private normalizePatch(patch: TaskBidUpdateInput, nowMs: number): TaskBidUpdateInput {
+  private normalizePatch(
+    patch: TaskBidUpdateInput,
+    nowMs: number,
+  ): TaskBidUpdateInput {
     const out: TaskBidUpdateInput = {};
 
     if (patch.rewardLamports !== undefined) {
@@ -597,9 +643,11 @@ export class TaskBidMarketplace {
     }
 
     if (patch.expiresAtMs !== undefined) {
-      out.expiresAtMs = normalizeTimestamp(patch.expiresAtMs, 'expiresAtMs');
+      out.expiresAtMs = normalizeTimestamp(patch.expiresAtMs, "expiresAtMs");
       if (out.expiresAtMs < 0) {
-        throw new MarketplaceValidationError('expiresAtMs must be non-negative');
+        throw new MarketplaceValidationError(
+          "expiresAtMs must be non-negative",
+        );
       }
     }
 
@@ -632,7 +680,10 @@ export class TaskBidMarketplace {
       );
     }
 
-    if (this.antiSpam.minBondLamports !== undefined && bondLamports < this.antiSpam.minBondLamports) {
+    if (
+      this.antiSpam.minBondLamports !== undefined &&
+      bondLamports < this.antiSpam.minBondLamports
+    ) {
       throw new MarketplaceValidationError(
         `bid bond ${bondLamports.toString()} below minimum ${this.antiSpam.minBondLamports.toString()}`,
       );
@@ -653,11 +704,15 @@ export class TaskBidMarketplace {
     }
 
     if (!Number.isInteger(rateLimit.maxCreates) || rateLimit.maxCreates < 1) {
-      throw new MarketplaceValidationError('createRateLimit.maxCreates must be a positive integer');
+      throw new MarketplaceValidationError(
+        "createRateLimit.maxCreates must be a positive integer",
+      );
     }
 
     if (!Number.isInteger(rateLimit.windowMs) || rateLimit.windowMs < 1) {
-      throw new MarketplaceValidationError('createRateLimit.windowMs must be a positive integer');
+      throw new MarketplaceValidationError(
+        "createRateLimit.windowMs must be a positive integer",
+      );
     }
 
     const bucket = book.rateBuckets.get(bidderId) ?? [];
@@ -671,7 +726,11 @@ export class TaskBidMarketplace {
     }
   }
 
-  private recordCreateRate(book: TaskBidBook, bidderId: string, nowMs: number): void {
+  private recordCreateRate(
+    book: TaskBidBook,
+    bidderId: string,
+    nowMs: number,
+  ): void {
     const rateLimit = this.antiSpam.createRateLimit;
     if (!rateLimit) return;
 
@@ -681,8 +740,13 @@ export class TaskBidMarketplace {
     const recent = current.filter((ts) => ts > cutoff);
     recent.push(nowMs);
 
-    if (!book.rateBuckets.has(bidderId) && book.rateBuckets.size >= this.antiSpam.maxTrackedBiddersPerTask) {
-      const firstKey = book.rateBuckets.keys().next().value as string | undefined;
+    if (
+      !book.rateBuckets.has(bidderId) &&
+      book.rateBuckets.size >= this.antiSpam.maxTrackedBiddersPerTask
+    ) {
+      const firstKey = book.rateBuckets.keys().next().value as
+        | string
+        | undefined;
       if (firstKey) {
         book.rateBuckets.delete(firstKey);
       }
@@ -708,17 +772,23 @@ export class TaskBidMarketplace {
     }
 
     while (book.rateBuckets.size > this.antiSpam.maxTrackedBiddersPerTask) {
-      const firstKey = book.rateBuckets.keys().next().value as string | undefined;
+      const firstKey = book.rateBuckets.keys().next().value as
+        | string
+        | undefined;
       if (!firstKey) break;
       book.rateBuckets.delete(firstKey);
     }
   }
 
-  private countActiveBidsForBidder(book: TaskBidBook, bidderId: string, nowMs: number): number {
+  private countActiveBidsForBidder(
+    book: TaskBidBook,
+    bidderId: string,
+    nowMs: number,
+  ): number {
     let count = 0;
     for (const bid of book.bids.values()) {
       if (bid.bidderId !== bidderId) continue;
-      if (bid.status !== 'active') continue;
+      if (bid.status !== "active") continue;
       if (bid.expiresAtMs <= nowMs) continue;
       count += 1;
     }
@@ -730,7 +800,7 @@ export class TaskBidMarketplace {
     let activeBids = 0;
 
     for (const bid of book.bids.values()) {
-      if (bid.status !== 'active') continue;
+      if (bid.status !== "active") continue;
       if (bid.expiresAtMs <= now) continue;
       activeBids += 1;
     }
@@ -757,7 +827,9 @@ function normalizeIdOrThrow(raw: string, label: string): string {
 
 function normalizeTimestamp(value: number, label: string): number {
   if (!Number.isInteger(value) || value < 0) {
-    throw new MarketplaceValidationError(`${label} must be a non-negative integer timestamp (ms)`);
+    throw new MarketplaceValidationError(
+      `${label} must be a non-negative integer timestamp (ms)`,
+    );
   }
   return value;
 }
@@ -770,26 +842,36 @@ function normalizeOptionalText(value: string | undefined): string | undefined {
 
 function validateRewardLamports(value: bigint): void {
   if (value < 0n) {
-    throw new MarketplaceValidationError('rewardLamports must be non-negative');
+    throw new MarketplaceValidationError("rewardLamports must be non-negative");
   }
 }
 
 function validateBondLamports(value: bigint): void {
   if (value < 0n) {
-    throw new MarketplaceValidationError('bondLamports must be non-negative');
+    throw new MarketplaceValidationError("bondLamports must be non-negative");
   }
 }
 
 function validateEtaSeconds(value: number): void {
   if (!Number.isInteger(value) || value < 0) {
-    throw new MarketplaceValidationError('etaSeconds must be a non-negative integer');
+    throw new MarketplaceValidationError(
+      "etaSeconds must be a non-negative integer",
+    );
   }
 }
 
-function projectBidForRead(bid: TaskBid, nowMs: number, includeExpiredProjection: boolean): TaskBid {
+function projectBidForRead(
+  bid: TaskBid,
+  nowMs: number,
+  includeExpiredProjection: boolean,
+): TaskBid {
   const projected = cloneBid(bid);
-  if (includeExpiredProjection && projected.status === 'active' && projected.expiresAtMs <= nowMs) {
-    projected.status = 'expired';
+  if (
+    includeExpiredProjection &&
+    projected.status === "active" &&
+    projected.expiresAtMs <= nowMs
+  ) {
+    projected.status = "expired";
   }
   return projected;
 }
@@ -808,12 +890,18 @@ function cloneBid(bid: TaskBid): TaskBid {
   };
 }
 
-function cloneMetadata(metadata: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
+function cloneMetadata(
+  metadata: Record<string, unknown> | undefined,
+): Record<string, unknown> | undefined {
   if (!metadata) return undefined;
   return { ...metadata };
 }
 
-function defaultBidIdGenerator(taskId: string, bidderId: string, sequence: number): string {
+function defaultBidIdGenerator(
+  taskId: string,
+  bidderId: string,
+  sequence: number,
+): string {
   return `${taskId}:${bidderId}:${sequence.toString(36)}`;
 }
 

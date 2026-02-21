@@ -2,8 +2,8 @@
  * Type declarations for privacycash package (optional dependency)
  * This package provides shielded transaction capabilities on Solana.
  */
-declare module 'privacycash' {
-  import { Keypair, PublicKey } from '@solana/web3.js';
+declare module "privacycash" {
+  import { Keypair, PublicKey } from "@solana/web3.js";
 
   export interface PrivacyCashConfig {
     RPC_url: string;

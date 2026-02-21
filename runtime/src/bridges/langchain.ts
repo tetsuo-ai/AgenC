@@ -7,11 +7,11 @@
  * @module
  */
 
-import type { ToolRegistry } from '../tools/registry.js';
-import type { Logger } from '../utils/logger.js';
-import { silentLogger } from '../utils/logger.js';
-import type { LangChainTool, LangChainBridgeConfig } from './types.js';
-import { BridgeError } from './errors.js';
+import type { ToolRegistry } from "../tools/registry.js";
+import type { Logger } from "../utils/logger.js";
+import { silentLogger } from "../utils/logger.js";
+import type { LangChainTool, LangChainBridgeConfig } from "./types.js";
+import { BridgeError } from "./errors.js";
 
 /**
  * Bridge that converts AgenC ToolRegistry tools into LangChain-compatible
@@ -74,7 +74,10 @@ export class LangChainBridge {
       async call(input: string): Promise<string> {
         const tool = registry.get(name);
         if (!tool) {
-          throw new BridgeError('langchain', `Tool "${name}" no longer registered`);
+          throw new BridgeError(
+            "langchain",
+            `Tool "${name}" no longer registered`,
+          );
         }
 
         let args: Record<string, unknown>;
@@ -88,7 +91,9 @@ export class LangChainBridge {
         logger.debug(`LangChain call: ${name}`);
         const result = await tool.execute(args);
         if (result.isError) {
-          logger.warn(`LangChain tool "${name}" returned error: ${result.content}`);
+          logger.warn(
+            `LangChain tool "${name}" returned error: ${result.content}`,
+          );
         }
         return result.content;
       },

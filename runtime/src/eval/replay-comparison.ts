@@ -9,35 +9,35 @@ import {
   canonicalizeTrajectoryTrace,
   type TrajectoryEvent,
   type TrajectoryTrace,
-} from './types.js';
+} from "./types.js";
 import {
   computeProjectionHash,
   type ReplayTimelineQuery,
   type ReplayTimelineRecord,
   type ReplayTimelineStore,
-} from '../replay/types.js';
+} from "../replay/types.js";
 import {
   buildReplaySpanEvent,
   buildReplaySpanName,
   buildReplayTraceContext,
   startReplaySpan,
-} from '../replay/trace.js';
+} from "../replay/trace.js";
 import {
   type ReplayAlertContext,
   type ReplayAlertDispatcher,
-} from '../replay/alerting.js';
+} from "../replay/alerting.js";
 import {
   TrajectoryReplayEngine,
   type ReplaySummary,
   type TrajectoryReplayResult,
-} from './replay.js';
+} from "./replay.js";
 import {
   applyAnomalyFilter,
   applyQueryFilter,
   type QueryDSL,
-} from './query-dsl.js';
+} from "./query-dsl.js";
 
-export type ReplayComparisonStrictness = 'strict' | 'lenient';
+export type ReplayComparisonStrictness = "strict" | "lenient";
 
 export interface ReplayComparisonMetrics {
   counter(name: string, value?: number, labels?: Record<string, string>): void;
@@ -59,17 +59,17 @@ export interface ReplayComparisonContext {
 }
 
 export type ReplayAnomalyCode =
-  | 'hash_mismatch'
-  | 'missing_event'
-  | 'unexpected_event'
-  | 'type_mismatch'
-  | 'task_id_mismatch'
-  | 'duplicate_sequence'
-  | 'transition_invalid';
+  | "hash_mismatch"
+  | "missing_event"
+  | "unexpected_event"
+  | "type_mismatch"
+  | "task_id_mismatch"
+  | "duplicate_sequence"
+  | "transition_invalid";
 
 export interface ReplayAnomaly {
   code: ReplayAnomalyCode;
-  severity: 'error' | 'warning';
+  severity: "error" | "warning";
   message: string;
   context: ReplayComparisonContext;
   expected?: ReplayComparisonContext;
@@ -78,7 +78,7 @@ export interface ReplayAnomaly {
 
 export interface ReplayComparisonResult {
   strictness: ReplayComparisonStrictness;
-  status: 'clean' | 'mismatched';
+  status: "clean" | "mismatched";
   durationMs: number;
   localEventCount: number;
   projectedEventCount: number;
@@ -124,57 +124,68 @@ export class ReplayComparisonError extends Error {
     public readonly report: ReplayComparisonResult,
   ) {
     super(message);
-    this.name = 'ReplayComparisonError';
+    this.name = "ReplayComparisonError";
   }
 }
 
-const DEFAULT_COMPARE_OPTIONS: Required<Pick<ReplayComparisonOptions, 'strictness'>> = {
-  strictness: 'lenient',
+const DEFAULT_COMPARE_OPTIONS: Required<
+  Pick<ReplayComparisonOptions, "strictness">
+> = {
+  strictness: "lenient",
 };
 
 const METRIC_NAMES = {
-  TOTAL_COMPARISONS: 'agenc.replay.comparison.total',
-  MISMATCH_COUNT: 'agenc.replay.comparison.mismatches',
-  CLEAN_COUNT: 'agenc.replay.comparison.clean',
-  MISMATCH_RATE: 'agenc.replay.comparison.mismatch_rate',
-  RESOLUTION_LATENCY_MS: 'agenc.replay.comparison.resolution_latency_ms',
-  HASH_MISMATCH: 'agenc.replay.comparison.anomaly.hash_mismatch',
-  EVENT_MISMATCH: 'agenc.replay.comparison.anomaly.event_mismatch',
-  TRANSITION_MISMATCH: 'agenc.replay.comparison.anomaly.transition_invalid',
+  TOTAL_COMPARISONS: "agenc.replay.comparison.total",
+  MISMATCH_COUNT: "agenc.replay.comparison.mismatches",
+  CLEAN_COUNT: "agenc.replay.comparison.clean",
+  MISMATCH_RATE: "agenc.replay.comparison.mismatch_rate",
+  RESOLUTION_LATENCY_MS: "agenc.replay.comparison.resolution_latency_ms",
+  HASH_MISMATCH: "agenc.replay.comparison.anomaly.hash_mismatch",
+  EVENT_MISMATCH: "agenc.replay.comparison.anomaly.event_mismatch",
+  TRANSITION_MISMATCH: "agenc.replay.comparison.anomaly.transition_invalid",
 } as const;
 
 const QUERY_ACTOR_FIELDS = [
-  'creator',
-  'worker',
-  'authority',
-  'voter',
-  'initiator',
-  'defendant',
-  'recipient',
-  'updater',
-  'agent',
+  "creator",
+  "worker",
+  "authority",
+  "voter",
+  "initiator",
+  "defendant",
+  "recipient",
+  "updater",
+  "agent",
 ] as const;
 
 function asRecord(value: unknown): Record<string, unknown> | null {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
     return null;
   }
   return value as Record<string, unknown>;
 }
 
-function payloadHasActor(payload: Record<string, unknown>, actor: string): boolean {
+function payloadHasActor(
+  payload: Record<string, unknown>,
+  actor: string,
+): boolean {
   return QUERY_ACTOR_FIELDS.some((field) => payload[field] === actor);
 }
 
-function payloadHasWallet(payload: Record<string, unknown>, wallets: ReadonlySet<string>): boolean {
+function payloadHasWallet(
+  payload: Record<string, unknown>,
+  wallets: ReadonlySet<string>,
+): boolean {
   return QUERY_ACTOR_FIELDS.some((field) => {
     const value = payload[field];
-    return typeof value === 'string' && wallets.has(value);
+    return typeof value === "string" && wallets.has(value);
   });
 }
 
-function replayReplayContextFromProjected(event: ReplayTimelineRecord): ReplayComparisonContext {
-  const disputeId = event.disputePda ?? extractDisputeIdFromPayload(event.payload);
+function replayReplayContextFromProjected(
+  event: ReplayTimelineRecord,
+): ReplayComparisonContext {
+  const disputeId =
+    event.disputePda ?? extractDisputeIdFromPayload(event.payload);
 
   return {
     seq: event.seq,
@@ -191,9 +202,16 @@ function replayReplayContextFromProjected(event: ReplayTimelineRecord): ReplayCo
   };
 }
 
-function replayContextFromLocal(event: TrajectoryEvent): ReplayComparisonContext {
-  const onchainTrace = event.payload.onchain as Record<string, unknown> | undefined;
-  const trace = onchainTrace && typeof onchainTrace === 'object' ? (onchainTrace.trace as Record<string, unknown> | undefined) : undefined;
+function replayContextFromLocal(
+  event: TrajectoryEvent,
+): ReplayComparisonContext {
+  const onchainTrace = event.payload.onchain as
+    | Record<string, unknown>
+    | undefined;
+  const trace =
+    onchainTrace && typeof onchainTrace === "object"
+      ? (onchainTrace.trace as Record<string, unknown> | undefined)
+      : undefined;
 
   return {
     seq: event.seq,
@@ -201,45 +219,50 @@ function replayContextFromLocal(event: TrajectoryEvent): ReplayComparisonContext
     disputePda: extractDisputeIdFromPayload(event.payload),
     eventType: event.type,
     signature: extractSignatureFromPayload(event.payload),
-    traceId: typeof trace?.traceId === 'string' ? trace.traceId : undefined,
-    traceSpanId: typeof trace?.spanId === 'string' ? trace.spanId : undefined,
-    traceParentSpanId: typeof trace?.parentSpanId === 'string' ? trace.parentSpanId : undefined,
+    traceId: typeof trace?.traceId === "string" ? trace.traceId : undefined,
+    traceSpanId: typeof trace?.spanId === "string" ? trace.spanId : undefined,
+    traceParentSpanId:
+      typeof trace?.parentSpanId === "string" ? trace.parentSpanId : undefined,
     traceSampled: trace?.sampled === true,
   };
 }
 
 function metricNameForAnomaly(code: ReplayAnomalyCode): string {
-  if (code === 'hash_mismatch') {
+  if (code === "hash_mismatch") {
     return METRIC_NAMES.HASH_MISMATCH;
   }
-  if (code === 'transition_invalid') {
+  if (code === "transition_invalid") {
     return METRIC_NAMES.TRANSITION_MISMATCH;
   }
   return METRIC_NAMES.EVENT_MISMATCH;
 }
 
-function extractDisputeIdFromPayload(payload: Readonly<Record<string, unknown>>): string | undefined {
+function extractDisputeIdFromPayload(
+  payload: Readonly<Record<string, unknown>>,
+): string | undefined {
   const onchain = payload.onchain;
-  if (typeof onchain === 'object' && onchain !== null) {
+  if (typeof onchain === "object" && onchain !== null) {
     const raw = (onchain as Record<string, unknown>).disputeId;
-    if (typeof raw === 'string' && raw.length > 0) {
+    if (typeof raw === "string" && raw.length > 0) {
       return raw;
     }
   }
 
   const direct = payload.disputeId;
-  if (typeof direct === 'string' && direct.length > 0) {
+  if (typeof direct === "string" && direct.length > 0) {
     return direct;
   }
 
   return undefined;
 }
 
-function extractSignatureFromPayload(payload: Readonly<Record<string, unknown>>): string | undefined {
+function extractSignatureFromPayload(
+  payload: Readonly<Record<string, unknown>>,
+): string | undefined {
   const onchain = payload.onchain;
-  if (typeof onchain === 'object' && onchain !== null) {
+  if (typeof onchain === "object" && onchain !== null) {
     const raw = (onchain as Record<string, unknown>).signature;
-    if (typeof raw === 'string' && raw.length > 0) {
+    if (typeof raw === "string" && raw.length > 0) {
       return raw;
     }
   }
@@ -247,11 +270,13 @@ function extractSignatureFromPayload(payload: Readonly<Record<string, unknown>>)
   return undefined;
 }
 
-function extractSlotFromPayload(payload: Readonly<Record<string, unknown>>): number | undefined {
+function extractSlotFromPayload(
+  payload: Readonly<Record<string, unknown>>,
+): number | undefined {
   const onchain = payload.onchain;
-  if (typeof onchain === 'object' && onchain !== null) {
+  if (typeof onchain === "object" && onchain !== null) {
     const raw = (onchain as Record<string, unknown>).slot;
-    if (typeof raw === 'number' && Number.isInteger(raw)) {
+    if (typeof raw === "number" && Number.isInteger(raw)) {
       return raw;
     }
   }
@@ -269,7 +294,7 @@ function mergeAnomaly(
 export function makeReplayTraceFromRecords(
   records: readonly ReplayTimelineRecord[],
   seed: number,
-  traceId = 'replay-comparison',
+  traceId = "replay-comparison",
 ): TrajectoryTrace {
   const events: TrajectoryEvent[] = records.map((record) => ({
     seq: record.seq,
@@ -284,7 +309,7 @@ export function makeReplayTraceFromRecords(
     traceId,
     seed,
     createdAtMs: 0,
-    metadata: { source: 'projected_timeline' },
+    metadata: { source: "projected_timeline" },
     events,
   });
 }
@@ -298,7 +323,7 @@ export class ReplayComparisonService {
     const queryDsl = options.query;
     const taskPda = queryDsl?.taskPda ?? options.taskPda;
     const disputePda = queryDsl?.disputePda ?? options.disputePda;
-    const strictness = options.strictness ?? 'lenient';
+    const strictness = options.strictness ?? "lenient";
     const start = Date.now();
 
     const projectedEvents = await this.loadProjectedEvents(input.projected, {
@@ -324,11 +349,12 @@ export class ReplayComparisonService {
       ? extractSlotFromPayload(localEvents[0].payload)
       : undefined;
     const firstLocalSignature = localEvents[0]
-      ? extractSignatureFromPayload(localEvents[0].payload) ?? localTrace.traceId
+      ? (extractSignatureFromPayload(localEvents[0].payload) ??
+        localTrace.traceId)
       : localTrace.traceId;
     const compareTrace = buildReplayTraceContext({
       traceId: options.traceId ?? localTrace.traceId,
-      eventName: 'replay.compare',
+      eventName: "replay.compare",
       slot: firstLocalPayloadSlot ?? 0,
       signature: firstLocalSignature,
       eventSequence: 0,
@@ -336,13 +362,13 @@ export class ReplayComparisonService {
     });
 
     const compareSpan = startReplaySpan({
-      name: buildReplaySpanName('replay.compare', {
+      name: buildReplaySpanName("replay.compare", {
         slot: firstLocalPayloadSlot ?? 0,
         signature: firstLocalSignature,
       }),
       trace: compareTrace,
       emitOtel: options.emitOtel,
-      attributes: buildReplaySpanEvent('replay.compare', {
+      attributes: buildReplaySpanEvent("replay.compare", {
         slot: firstLocalPayloadSlot,
         signature: firstLocalSignature,
         taskPda,
@@ -387,7 +413,7 @@ export class ReplayComparisonService {
 
     const result: ReplayComparisonResult = {
       strictness,
-      status: slicedAnomalies.length === 0 ? 'clean' : 'mismatched',
+      status: slicedAnomalies.length === 0 ? "clean" : "mismatched",
       durationMs: Date.now() - start,
       localEventCount: localEventsCount,
       projectedEventCount: projectedEventsCount,
@@ -411,22 +437,30 @@ export class ReplayComparisonService {
     };
 
     try {
-      await this.emitReplayAlerts(result.anomalies, {
-        strictness,
-        localReplayHash: localReplay.deterministicHash,
-        projectedReplayHash: projectedReplay.deterministicHash,
-      }, options);
+      await this.emitReplayAlerts(
+        result.anomalies,
+        {
+          strictness,
+          localReplayHash: localReplay.deterministicHash,
+          projectedReplayHash: projectedReplay.deterministicHash,
+        },
+        options,
+      );
 
       if (options.metrics) {
         const labels = { strictness };
         options.metrics.counter(METRIC_NAMES.TOTAL_COMPARISONS, 1, labels);
-        options.metrics.histogram(METRIC_NAMES.RESOLUTION_LATENCY_MS, result.durationMs, labels);
+        options.metrics.histogram(
+          METRIC_NAMES.RESOLUTION_LATENCY_MS,
+          result.durationMs,
+          labels,
+        );
 
-        if (result.status === 'mismatched') {
+        if (result.status === "mismatched") {
           options.metrics.counter(METRIC_NAMES.MISMATCH_COUNT, 1, labels);
           options.metrics.counter(METRIC_NAMES.MISMATCH_RATE, 1, {
             strictness,
-            outcome: 'mismatch',
+            outcome: "mismatch",
           });
         } else {
           options.metrics.counter(METRIC_NAMES.CLEAN_COUNT, 1, labels);
@@ -445,11 +479,14 @@ export class ReplayComparisonService {
     }
     compareSpan.end();
 
-    if (strictness === 'strict' && result.status === 'mismatched') {
+    if (strictness === "strict" && result.status === "mismatched") {
       const detail = sortedAnomalies
         .map((anomaly) => `${anomaly.code}:${anomaly.message}`)
-        .join('; ');
-      throw new ReplayComparisonError(`replay comparison failed: ${detail}`, result);
+        .join("; ");
+      throw new ReplayComparisonError(
+        `replay comparison failed: ${detail}`,
+        result,
+      );
     }
 
     return result;
@@ -481,11 +518,11 @@ export class ReplayComparisonService {
       projectedReplayHash: string;
     },
   ): ReplayAlertContext {
-    if (anomaly.code === 'hash_mismatch') {
+    if (anomaly.code === "hash_mismatch") {
       return {
-        code: 'replay.compare.hash_mismatch',
+        code: "replay.compare.hash_mismatch",
         severity: anomaly.severity,
-        kind: 'replay_hash_mismatch',
+        kind: "replay_hash_mismatch",
         message: anomaly.message,
         sourceEventName: anomaly.context.eventType,
         signature: anomaly.context.signature,
@@ -510,9 +547,10 @@ export class ReplayComparisonService {
     return {
       code: `replay.compare.${anomaly.code}`,
       severity: anomaly.severity,
-      kind: anomaly.code === 'transition_invalid'
-        ? 'transition_validation'
-        : 'replay_anomaly_repeat',
+      kind:
+        anomaly.code === "transition_invalid"
+          ? "transition_validation"
+          : "replay_anomaly_repeat",
       message: anomaly.message,
       sourceEventName: anomaly.context.eventType,
       signature: anomaly.context.signature,
@@ -572,24 +610,28 @@ export class ReplayComparisonService {
     const eventTypeFilter = queryDsl?.eventType;
     const fromSlot = queryDsl?.slotRange?.from;
     const toSlot = queryDsl?.slotRange?.to;
-    const walletSet = queryDsl?.walletSet && queryDsl.walletSet.length > 0 ? new Set(queryDsl.walletSet) : null;
+    const walletSet =
+      queryDsl?.walletSet && queryDsl.walletSet.length > 0
+        ? new Set(queryDsl.walletSet)
+        : null;
 
     if (
-      !options.taskPda
-      && !options.disputePda
-      && !actorFilter
-      && !eventTypeFilter
-      && fromSlot === undefined
-      && toSlot === undefined
-      && walletSet === null
+      !options.taskPda &&
+      !options.disputePda &&
+      !actorFilter &&
+      !eventTypeFilter &&
+      fromSlot === undefined &&
+      toSlot === undefined &&
+      walletSet === null
     ) {
       return [...events];
     }
 
     return events.filter((event) => {
       const taskMatch = !options.taskPda || event.taskPda === options.taskPda;
-      const disputeMatch = !options.disputePda
-        || extractDisputeIdFromPayload(event.payload) === options.disputePda;
+      const disputeMatch =
+        !options.disputePda ||
+        extractDisputeIdFromPayload(event.payload) === options.disputePda;
 
       if (!taskMatch || !disputeMatch) {
         return false;
@@ -652,8 +694,8 @@ export class ReplayComparisonService {
       if (bucket.length > 1) {
         for (const duplicate of bucket.slice(1)) {
           mergeAnomaly(anomalies, {
-            code: 'duplicate_sequence',
-            severity: 'error',
+            code: "duplicate_sequence",
+            severity: "error",
             message: `duplicate projected event sequence ${duplicate.seq}`,
             context: replayReplayContextFromProjected(duplicate),
           });
@@ -665,8 +707,8 @@ export class ReplayComparisonService {
       if (bucket.length > 1) {
         for (const duplicate of bucket.slice(1)) {
           mergeAnomaly(anomalies, {
-            code: 'duplicate_sequence',
-            severity: 'error',
+            code: "duplicate_sequence",
+            severity: "error",
             message: `duplicate local event sequence ${duplicate.seq}`,
             context: replayContextFromLocal(duplicate),
           });
@@ -685,8 +727,8 @@ export class ReplayComparisonService {
 
       if (!projected && local) {
         mergeAnomaly(anomalies, {
-          code: 'unexpected_event',
-          severity: 'warning',
+          code: "unexpected_event",
+          severity: "warning",
           message: `unexpected local event at seq=${seq}`,
           context: replayContextFromLocal(local),
           expected: { seq },
@@ -696,8 +738,8 @@ export class ReplayComparisonService {
 
       if (!local && projected) {
         mergeAnomaly(anomalies, {
-          code: 'missing_event',
-          severity: 'error',
+          code: "missing_event",
+          severity: "error",
           message: `missing local event at seq=${seq}`,
           context: replayReplayContextFromProjected(projected),
           observed: { seq },
@@ -711,8 +753,8 @@ export class ReplayComparisonService {
 
       if (projected.type !== local.type) {
         mergeAnomaly(anomalies, {
-          code: 'type_mismatch',
-          severity: 'error',
+          code: "type_mismatch",
+          severity: "error",
           message: `event type mismatch at seq=${seq}`,
           context: replayReplayContextFromProjected(projected),
           expected: { eventType: projected.type },
@@ -722,8 +764,8 @@ export class ReplayComparisonService {
 
       if ((projected.taskPda ?? undefined) !== (local.taskPda ?? undefined)) {
         mergeAnomaly(anomalies, {
-          code: 'task_id_mismatch',
-          severity: 'error',
+          code: "task_id_mismatch",
+          severity: "error",
           message: `task identifier mismatch at seq=${seq}`,
           context: replayReplayContextFromProjected(projected),
           expected: { taskPda: projected.taskPda },
@@ -731,10 +773,13 @@ export class ReplayComparisonService {
         });
       }
 
-      if ((projected.signature ?? '') !== (extractSignatureFromPayload(local.payload) ?? '')) {
+      if (
+        (projected.signature ?? "") !==
+        (extractSignatureFromPayload(local.payload) ?? "")
+      ) {
         mergeAnomaly(anomalies, {
-          code: 'task_id_mismatch',
-          severity: 'warning',
+          code: "task_id_mismatch",
+          severity: "warning",
           message: `signature mismatch at seq=${seq}`,
           context: replayReplayContextFromProjected(projected),
           expected: { signature: projected.signature },
@@ -749,21 +794,36 @@ export class ReplayComparisonService {
     localReplay: TrajectoryReplayResult,
     anomalies: ReplayAnomaly[],
   ): void {
-    this.pushReplayMessages('local', localReplay.errors, 'error', anomalies);
-    this.pushReplayMessages('projected', projectedReplay.errors, 'error', anomalies);
-    this.pushReplayMessages('local', localReplay.warnings, 'warning', anomalies);
-    this.pushReplayMessages('projected', projectedReplay.warnings, 'warning', anomalies);
+    this.pushReplayMessages("local", localReplay.errors, "error", anomalies);
+    this.pushReplayMessages(
+      "projected",
+      projectedReplay.errors,
+      "error",
+      anomalies,
+    );
+    this.pushReplayMessages(
+      "local",
+      localReplay.warnings,
+      "warning",
+      anomalies,
+    );
+    this.pushReplayMessages(
+      "projected",
+      projectedReplay.warnings,
+      "warning",
+      anomalies,
+    );
   }
 
   private pushReplayMessages(
     source: string,
     messages: string[],
-    severity: ReplayAnomaly['severity'],
+    severity: ReplayAnomaly["severity"],
     anomalies: ReplayAnomaly[],
   ): void {
     for (const message of messages) {
       mergeAnomaly(anomalies, {
-        code: 'transition_invalid',
+        code: "transition_invalid",
         severity,
         message: `[${source}] ${message}`,
         context: {},
@@ -781,11 +841,11 @@ export class ReplayComparisonService {
     }
 
     mergeAnomaly(anomalies, {
-      code: 'hash_mismatch',
-      severity: 'error',
-      message: 'deterministic replay hash mismatch',
+      code: "hash_mismatch",
+      severity: "error",
+      message: "deterministic replay hash mismatch",
       context: {
-        eventType: 'replay_hash',
+        eventType: "replay_hash",
       },
       expected: { signature: localReplay.deterministicHash },
       observed: { signature: projectedReplay.deterministicHash },
@@ -800,9 +860,9 @@ export class ReplayComparisonService {
       const expected = computeProjectionHash(event);
       if (event.projectionHash !== expected) {
         mergeAnomaly(anomalies, {
-          code: 'hash_mismatch',
-          severity: 'error',
-          message: 'projected event hash mismatch',
+          code: "hash_mismatch",
+          severity: "error",
+          message: "projected event hash mismatch",
           context: replayReplayContextFromProjected(event),
           expected: { signature: expected },
           observed: { signature: event.projectionHash },

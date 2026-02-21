@@ -9,19 +9,19 @@
  * @module
  */
 
-import type { Tool, ToolResult } from '../types.js';
-import { safeStringify } from '../types.js';
-import type { Logger } from '../../utils/logger.js';
-import { silentLogger } from '../../utils/logger.js';
-import { isDomainAllowed } from './http.js';
-import { ensureLazyModule } from '../../utils/lazy-import.js';
+import type { Tool, ToolResult } from "../types.js";
+import { safeStringify } from "../types.js";
+import type { Logger } from "../../utils/logger.js";
+import { silentLogger } from "../../utils/logger.js";
+import { isDomainAllowed } from "./http.js";
+import { ensureLazyModule } from "../../utils/lazy-import.js";
 
 // ============================================================================
 // Types
 // ============================================================================
 
 export interface BrowserToolConfig {
-  readonly mode: 'basic' | 'advanced';
+  readonly mode: "basic" | "advanced";
   readonly allowedDomains?: readonly string[];
   readonly blockedDomains?: readonly string[];
   /** Maximum response body size in bytes. Default: 1_048_576 (1 MB). */
@@ -39,10 +39,10 @@ export interface BrowserToolConfig {
 const DEFAULT_MAX_RESPONSE_BYTES = 1_048_576; // 1 MB
 const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_REDIRECTS = 5;
-const USER_AGENT = 'AgenC-Runtime/0.1 (compatible)';
+const USER_AGENT = "AgenC-Runtime/0.1 (compatible)";
 
 /** Schemes allowed in href attributes. Everything else is stripped. */
-const SAFE_HREF_SCHEMES = new Set(['http:', 'https:', 'mailto:']);
+const SAFE_HREF_SCHEMES = new Set(["http:", "https:", "mailto:"]);
 
 // ============================================================================
 // Shared Helpers
@@ -60,10 +60,14 @@ function validateUrl(
   url: unknown,
   config: BrowserToolConfig,
 ): ToolResult | null {
-  if (typeof url !== 'string' || url.length === 0) {
-    return errorResult('Missing or invalid url');
+  if (typeof url !== "string" || url.length === 0) {
+    return errorResult("Missing or invalid url");
   }
-  const check = isDomainAllowed(url, config.allowedDomains, config.blockedDomains);
+  const check = isDomainAllowed(
+    url,
+    config.allowedDomains,
+    config.blockedDomains,
+  );
   if (!check.allowed) {
     return errorResult(check.reason!);
   }
@@ -78,11 +82,11 @@ function validateUrl(
 export function sanitizeHref(href: string): string {
   // Strip ASCII control chars (0x00-0x1F, 0x7F) that browsers may ignore in schemes
   // eslint-disable-next-line no-control-regex
-  const trimmed = href.replace(/[\x00-\x1f\x7f]/g, '').trim();
-  if (trimmed.length === 0) return '';
+  const trimmed = href.replace(/[\x00-\x1f\x7f]/g, "").trim();
+  if (trimmed.length === 0) return "";
 
   // Relative links (no colon before first slash) are safe
-  const colonIdx = trimmed.indexOf(':');
+  const colonIdx = trimmed.indexOf(":");
   if (colonIdx === -1) return trimmed;
 
   // Check if anything before the colon looks like a scheme (letters only)
@@ -93,10 +97,10 @@ export function sanitizeHref(href: string): string {
   }
 
   // It has a scheme — check if it's in the safe list
-  const scheme = maybescheme.toLowerCase() + ':';
+  const scheme = maybescheme.toLowerCase() + ":";
   if (SAFE_HREF_SCHEMES.has(scheme)) return trimmed;
 
-  return '';
+  return "";
 }
 
 /**
@@ -107,18 +111,21 @@ export function sanitizeHref(href: string): string {
 function inlineToMd(html: string): string {
   let md = html;
   // Links: <a href="url">text</a> or <a href='url'>text</a> → [text](sanitized_url)
-  md = md.replace(/<a[^>]*href=(["'])([^"']*)\1[^>]*>(.*?)<\/a>/gi, (_match, _quote: string, href: string, text: string) => {
-    const safe = sanitizeHref(href);
-    return safe ? `[${text}](${safe})` : text;
-  });
+  md = md.replace(
+    /<a[^>]*href=(["'])([^"']*)\1[^>]*>(.*?)<\/a>/gi,
+    (_match, _quote: string, href: string, text: string) => {
+      const safe = sanitizeHref(href);
+      return safe ? `[${text}](${safe})` : text;
+    },
+  );
   // Strong/bold: <strong>text</strong> or <b>text</b> → **text**
-  md = md.replace(/<(?:strong|b)>(.*?)<\/(?:strong|b)>/gi, '**$1**');
+  md = md.replace(/<(?:strong|b)>(.*?)<\/(?:strong|b)>/gi, "**$1**");
   // Emphasis/italic: <em>text</em> or <i>text</i> → *text*
-  md = md.replace(/<(?:em|i)>(.*?)<\/(?:em|i)>/gi, '*$1*');
+  md = md.replace(/<(?:em|i)>(.*?)<\/(?:em|i)>/gi, "*$1*");
   // Inline code: <code>text</code> → `text`
-  md = md.replace(/<code>(.*?)<\/code>/gi, '`$1`');
+  md = md.replace(/<code>(.*?)<\/code>/gi, "`$1`");
   // Strip remaining tags
-  md = md.replace(/<[^>]*>/g, '');
+  md = md.replace(/<[^>]*>/g, "");
   return md.trim();
 }
 
@@ -131,23 +138,27 @@ async function fetchHtml(
   config: BrowserToolConfig,
   logger: Logger,
   redirectCount = 0,
-): Promise<{ html: string; contentType: string; finalUrl: string } | ToolResult> {
+): Promise<
+  { html: string; contentType: string; finalUrl: string } | ToolResult
+> {
   const timeoutMs = config.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const maxBytes = config.maxResponseBytes ?? DEFAULT_MAX_RESPONSE_BYTES;
 
   try {
     const response = await fetch(url, {
-      method: 'GET',
-      headers: { 'User-Agent': USER_AGENT },
+      method: "GET",
+      headers: { "User-Agent": USER_AGENT },
       signal: AbortSignal.timeout(timeoutMs),
-      redirect: 'manual',
+      redirect: "manual",
     });
 
     // Manual redirect handling with domain re-validation
     if (response.status >= 300 && response.status < 400) {
-      const location = response.headers.get('location');
+      const location = response.headers.get("location");
       if (!location) {
-        return errorResult(`Redirect (${response.status}) without Location header`);
+        return errorResult(
+          `Redirect (${response.status}) without Location header`,
+        );
       }
       if (redirectCount >= MAX_REDIRECTS) {
         return errorResult(`Too many redirects (max: ${MAX_REDIRECTS})`);
@@ -184,7 +195,9 @@ async function fetchHtml(
             const excess = totalBytes - maxBytes;
             const keep = value.byteLength - excess;
             if (keep > 0) {
-              chunks.push(decoder.decode(value.slice(0, keep), { stream: false }));
+              chunks.push(
+                decoder.decode(value.slice(0, keep), { stream: false }),
+              );
             }
             await reader.cancel();
             break;
@@ -194,15 +207,15 @@ async function fetchHtml(
       } finally {
         reader.releaseLock();
       }
-      body = chunks.join('');
+      body = chunks.join("");
     }
 
-    const contentType = response.headers.get('content-type') ?? '';
+    const contentType = response.headers.get("content-type") ?? "";
     return { html: body, contentType, finalUrl: response.url || url };
   } catch (err) {
     if (err instanceof Error) {
-      if (err.name === 'TimeoutError' || err.name === 'AbortError') {
-        return errorResult('Request timed out');
+      if (err.name === "TimeoutError" || err.name === "AbortError") {
+        return errorResult("Request timed out");
       }
       return errorResult(`Connection failed: ${err.message}`);
     }
@@ -213,9 +226,9 @@ async function fetchHtml(
 /** Check if a fetchHtml result is an error ToolResult. */
 function isFetchError(result: unknown): result is ToolResult {
   return (
-    typeof result === 'object' &&
+    typeof result === "object" &&
     result !== null &&
-    'isError' in result &&
+    "isError" in result &&
     (result as ToolResult).isError === true
   );
 }
@@ -248,7 +261,7 @@ let cheerioLoad: CheerioLoad | null = null;
 async function loadCheerio(): Promise<CheerioLoad> {
   if (cheerioLoad) return cheerioLoad;
   cheerioLoad = await ensureLazyModule<CheerioLoad>(
-    'cheerio',
+    "cheerio",
     (msg) => new Error(msg),
     (mod) => mod.load as CheerioLoad,
   );
@@ -275,49 +288,49 @@ function htmlToMd($: CheerioAPI): string {
   const processedContent = new Set<string>();
 
   // Extract title
-  const titleEl = $('title');
+  const titleEl = $("title");
   if (titleEl.length > 0) {
     const title = titleEl.text().trim();
     if (title) {
-      lines.push(`# ${title}`, '');
+      lines.push(`# ${title}`, "");
     }
   }
 
   // Headings — combined selector preserves document order
-  $('h1, h2, h3, h4, h5, h6').each((_i, el) => {
+  $("h1, h2, h3, h4, h5, h6").each((_i, el) => {
     const node = el as { tagName?: string };
-    const tag = (node.tagName ?? '').toLowerCase();
-    const level = parseInt(tag.replace('h', ''), 10) || 1;
+    const tag = (node.tagName ?? "").toLowerCase();
+    const level = parseInt(tag.replace("h", ""), 10) || 1;
     const inner = $(el).html() ?? $(el).text();
     const text = inlineToMd(inner).trim();
     if (text) {
-      lines.push('', `${'#'.repeat(level)} ${text}`, '');
+      lines.push("", `${"#".repeat(level)} ${text}`, "");
       processedContent.add(inner.trim());
     }
   });
 
   // Code blocks — process before paragraphs so <pre><code>x</code></pre> isn't duplicated
-  $('pre').each((_i, el) => {
+  $("pre").each((_i, el) => {
     const code = $(el).text().trim();
     if (code) {
-      lines.push('', '```', code, '```', '');
+      lines.push("", "```", code, "```", "");
       const inner = $(el).html() ?? code;
       processedContent.add(inner.trim());
     }
   });
 
   // Blockquotes — process before paragraphs so nested <p> inside <blockquote> is skipped
-  $('blockquote').each((_i, el) => {
+  $("blockquote").each((_i, el) => {
     const inner = $(el).html() ?? $(el).text();
     const text = inlineToMd(inner).trim();
     if (text) {
-      lines.push('', `> ${text}`, '');
+      lines.push("", `> ${text}`, "");
       processedContent.add(inner.trim());
     }
   });
 
   // Unordered list items — process before paragraphs so nested <p> inside <li> is skipped
-  $('ul > li').each((_i, el) => {
+  $("ul > li").each((_i, el) => {
     const inner = $(el).html() ?? $(el).text();
     const text = inlineToMd(inner).trim();
     if (text) {
@@ -327,47 +340,56 @@ function htmlToMd($: CheerioAPI): string {
   });
 
   // Ordered list items — number within each <ol>
-  $('ol').each((_i, olEl) => {
+  $("ol").each((_i, olEl) => {
     let num = 1;
-    $(olEl).find('li').each((_j, liEl) => {
-      const inner = $(liEl).html() ?? $(liEl).text();
-      const text = inlineToMd(inner).trim();
-      if (text) {
-        lines.push(`${num}. ${text}`);
-        processedContent.add(inner.trim());
-        num++;
-      }
-    });
+    $(olEl)
+      .find("li")
+      .each((_j, liEl) => {
+        const inner = $(liEl).html() ?? $(liEl).text();
+        const text = inlineToMd(inner).trim();
+        if (text) {
+          lines.push(`${num}. ${text}`);
+          processedContent.add(inner.trim());
+          num++;
+        }
+      });
   });
 
   // Tables — convert to markdown tables
-  $('table').each((_i, tableEl) => {
+  $("table").each((_i, tableEl) => {
     const rows: string[][] = [];
-    $(tableEl).find('tr').each((_j, trEl) => {
-      const cells: string[] = [];
-      $(trEl).find('th, td').each((_k, cellEl) => {
-        const inner = $(cellEl).html() ?? $(cellEl).text();
-        cells.push(inlineToMd(inner).trim());
+    $(tableEl)
+      .find("tr")
+      .each((_j, trEl) => {
+        const cells: string[] = [];
+        $(trEl)
+          .find("th, td")
+          .each((_k, cellEl) => {
+            const inner = $(cellEl).html() ?? $(cellEl).text();
+            cells.push(inlineToMd(inner).trim());
+          });
+        if (cells.length > 0) rows.push(cells);
       });
-      if (cells.length > 0) rows.push(cells);
-    });
 
     if (rows.length === 0) return;
 
     // Determine max columns and pad rows
-    const maxCols = Math.max(...rows.map(r => r.length));
-    const padded = rows.map(r => [...r, ...Array(maxCols - r.length).fill('')]);
+    const maxCols = Math.max(...rows.map((r) => r.length));
+    const padded = rows.map((r) => [
+      ...r,
+      ...Array(maxCols - r.length).fill(""),
+    ]);
 
     // First row is header
     const header = padded[0];
-    lines.push('', '| ' + header.join(' | ') + ' |');
-    lines.push('| ' + header.map(() => '---').join(' | ') + ' |');
+    lines.push("", "| " + header.join(" | ") + " |");
+    lines.push("| " + header.map(() => "---").join(" | ") + " |");
 
     // Remaining rows
     for (let r = 1; r < padded.length; r++) {
-      lines.push('| ' + padded[r].join(' | ') + ' |');
+      lines.push("| " + padded[r].join(" | ") + " |");
     }
-    lines.push('');
+    lines.push("");
 
     // Track processed content
     const inner = $(tableEl).html() ?? $(tableEl).text();
@@ -375,7 +397,7 @@ function htmlToMd($: CheerioAPI): string {
   });
 
   // Paragraphs — skip if content was already captured by a parent block
-  $('p').each((_i, el) => {
+  $("p").each((_i, el) => {
     const inner = $(el).html() ?? $(el).text();
     const trimmedInner = inner.trim();
     // Skip if this paragraph's HTML was already processed as part of a parent block
@@ -392,13 +414,13 @@ function htmlToMd($: CheerioAPI): string {
 
     const text = inlineToMd(trimmedInner).trim();
     if (text) {
-      lines.push('', text, '');
+      lines.push("", text, "");
     }
   });
 
   return lines
-    .join('\n')
-    .replace(/\n{3,}/g, '\n\n')
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
 
@@ -413,13 +435,19 @@ interface PlaywrightBrowser {
 
 interface PlaywrightPage {
   setViewportSize(size: { width: number; height: number }): Promise<void>;
-  goto(url: string, options?: { timeout?: number; waitUntil?: string }): Promise<void>;
+  goto(
+    url: string,
+    options?: { timeout?: number; waitUntil?: string },
+  ): Promise<void>;
   screenshot(options?: { fullPage?: boolean }): Promise<Buffer>;
   pdf(options?: Record<string, unknown>): Promise<Buffer>;
   click(selector: string): Promise<void>;
   fill(selector: string, value: string): Promise<void>;
   evaluate(code: string | (() => unknown)): Promise<unknown>;
-  waitForSelector(selector: string, options?: { timeout?: number }): Promise<void>;
+  waitForSelector(
+    selector: string,
+    options?: { timeout?: number },
+  ): Promise<void>;
   close(): Promise<void>;
   mouse: { wheel(deltaX: number, deltaY: number): Promise<void> };
 }
@@ -428,30 +456,43 @@ let browserInstance: PlaywrightBrowser | null = null;
 /** Guard against concurrent launches — stores the in-flight launch promise. */
 let browserLaunchPromise: Promise<PlaywrightBrowser> | null = null;
 
-async function getBrowser(config: BrowserToolConfig, logger: Logger): Promise<PlaywrightBrowser> {
+async function getBrowser(
+  config: BrowserToolConfig,
+  logger: Logger,
+): Promise<PlaywrightBrowser> {
   if (browserInstance) return browserInstance;
   // If a launch is already in-flight, wait for it instead of launching a second browser
   if (browserLaunchPromise) return browserLaunchPromise;
 
   browserLaunchPromise = (async () => {
     const pw = await ensureLazyModule<{
-      chromium: { launch(opts?: Record<string, unknown>): Promise<PlaywrightBrowser> };
+      chromium: {
+        launch(opts?: Record<string, unknown>): Promise<PlaywrightBrowser>;
+      };
     }>(
-      'playwright',
+      "playwright",
       (msg) => new Error(msg),
-      (mod) => mod as { chromium: { launch(opts?: Record<string, unknown>): Promise<PlaywrightBrowser> } },
+      (mod) =>
+        mod as {
+          chromium: {
+            launch(opts?: Record<string, unknown>): Promise<PlaywrightBrowser>;
+          };
+        },
     );
 
     // Sanitize launch options: always strip sandbox-disabling flags
     const opts = { ...(config.launchOptions ?? {}) };
     if (Array.isArray(opts.args)) {
-      const blockedFlags = new Set(['--no-sandbox', '--disable-setuid-sandbox']);
+      const blockedFlags = new Set([
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
+      ]);
       opts.args = (opts.args as string[]).filter(
         (arg: string) => !blockedFlags.has(arg),
       );
     }
 
-    logger.debug('Launching Playwright browser');
+    logger.debug("Launching Playwright browser");
     return pw.chromium.launch(opts);
   })();
 
@@ -489,21 +530,21 @@ export function _resetForTesting(): void {
 
 function createBrowseTool(config: BrowserToolConfig, logger: Logger): Tool {
   return {
-    name: 'system.browse',
+    name: "system.browse",
     description:
-      'Fetch a web page and extract its readable text content. ' +
-      'Returns the page title and cleaned text in markdown format. ' +
-      'Optionally includes links found on the page.',
+      "Fetch a web page and extract its readable text content. " +
+      "Returns the page title and cleaned text in markdown format. " +
+      "Optionally includes links found on the page.",
     inputSchema: {
-      type: 'object',
+      type: "object",
       properties: {
-        url: { type: 'string', description: 'URL to fetch' },
+        url: { type: "string", description: "URL to fetch" },
         includeLinks: {
-          type: 'boolean',
-          description: 'Include links in the output (default: false)',
+          type: "boolean",
+          description: "Include links in the output (default: false)",
         },
       },
-      required: ['url'],
+      required: ["url"],
     },
     async execute(args: Record<string, unknown>): Promise<ToolResult> {
       const urlErr = validateUrl(args.url, config);
@@ -527,27 +568,28 @@ function createBrowseTool(config: BrowserToolConfig, logger: Logger): Tool {
       const text = htmlToMd($);
 
       // Build links section if requested
-      let linksSection = '';
+      let linksSection = "";
       if (includeLinks) {
         const links: Array<{ text: string; href: string }> = [];
-        $('a').each((_i, el) => {
+        $("a").each((_i, el) => {
           const aEl = $(el);
           const linkText = aEl.text().trim();
-          const href = sanitizeHref(aEl.attr('href') ?? '');
+          const href = sanitizeHref(aEl.attr("href") ?? "");
           if (href) {
             links.push({ text: linkText || href, href });
           }
         });
         if (links.length > 0) {
-          linksSection = '\n\n---\n## Links\n' +
-            links.map((l) => `- [${l.text}](${l.href})`).join('\n');
+          linksSection =
+            "\n\n---\n## Links\n" +
+            links.map((l) => `- [${l.text}](${l.href})`).join("\n");
         }
       }
 
       const contentTypeNote =
-        contentType && !contentType.includes('html')
+        contentType && !contentType.includes("html")
           ? `\n\n_Note: Content-Type was ${contentType}_`
-          : '';
+          : "";
 
       return {
         content: safeStringify({
@@ -559,28 +601,35 @@ function createBrowseTool(config: BrowserToolConfig, logger: Logger): Tool {
   };
 }
 
-function createExtractLinksTool(config: BrowserToolConfig, logger: Logger): Tool {
+function createExtractLinksTool(
+  config: BrowserToolConfig,
+  logger: Logger,
+): Tool {
   return {
-    name: 'system.extractLinks',
+    name: "system.extractLinks",
     description:
-      'Extract all links from a web page. Returns a JSON array of { text, href } objects. ' +
-      'Optionally filter links by text (case-insensitive substring match).',
+      "Extract all links from a web page. Returns a JSON array of { text, href } objects. " +
+      "Optionally filter links by text (case-insensitive substring match).",
     inputSchema: {
-      type: 'object',
+      type: "object",
       properties: {
-        url: { type: 'string', description: 'URL to fetch' },
+        url: { type: "string", description: "URL to fetch" },
         filterText: {
-          type: 'string',
-          description: 'Filter links by text (case-insensitive substring match)',
+          type: "string",
+          description:
+            "Filter links by text (case-insensitive substring match)",
         },
       },
-      required: ['url'],
+      required: ["url"],
     },
     async execute(args: Record<string, unknown>): Promise<ToolResult> {
       const urlErr = validateUrl(args.url, config);
       if (urlErr) return urlErr;
       const url = args.url as string;
-      const filterText = typeof args.filterText === 'string' ? args.filterText.toLowerCase() : null;
+      const filterText =
+        typeof args.filterText === "string"
+          ? args.filterText.toLowerCase()
+          : null;
 
       const result = await fetchHtml(url, config, logger);
       if (isFetchError(result)) return result;
@@ -595,10 +644,10 @@ function createExtractLinksTool(config: BrowserToolConfig, logger: Logger): Tool
       const $ = load(result.html);
       const links: Array<{ text: string; href: string }> = [];
 
-      $('a').each((_i, el) => {
+      $("a").each((_i, el) => {
         const aEl = $(el);
         const text = aEl.text().trim();
-        const href = sanitizeHref(aEl.attr('href') ?? '');
+        const href = sanitizeHref(aEl.attr("href") ?? "");
         if (!href) return;
         if (filterText && !text.toLowerCase().includes(filterText)) return;
         links.push({ text: text || href, href });
@@ -611,24 +660,24 @@ function createExtractLinksTool(config: BrowserToolConfig, logger: Logger): Tool
 
 function createHtmlToMarkdownTool(): Tool {
   return {
-    name: 'system.htmlToMarkdown',
+    name: "system.htmlToMarkdown",
     description:
-      'Convert a raw HTML string to markdown. Handles headings, paragraphs, links, ' +
-      'emphasis/strong, code/pre blocks, and simple lists (ul/ol). ' +
-      'Does not fetch any URL — operates on the provided HTML string directly.',
+      "Convert a raw HTML string to markdown. Handles headings, paragraphs, links, " +
+      "emphasis/strong, code/pre blocks, and simple lists (ul/ol). " +
+      "Does not fetch any URL — operates on the provided HTML string directly.",
     inputSchema: {
-      type: 'object',
+      type: "object",
       properties: {
-        html: { type: 'string', description: 'HTML content to convert' },
+        html: { type: "string", description: "HTML content to convert" },
       },
-      required: ['html'],
+      required: ["html"],
     },
     async execute(args: Record<string, unknown>): Promise<ToolResult> {
-      if (typeof args.html !== 'string') {
-        return errorResult('Missing or invalid html');
+      if (typeof args.html !== "string") {
+        return errorResult("Missing or invalid html");
       }
       if (args.html.length === 0) {
-        return { content: safeStringify({ markdown: '' }) };
+        return { content: safeStringify({ markdown: "" }) };
       }
 
       let load: CheerioLoad;
@@ -651,26 +700,35 @@ function createHtmlToMarkdownTool(): Tool {
 
 function createScreenshotTool(config: BrowserToolConfig, logger: Logger): Tool {
   return {
-    name: 'system.screenshot',
+    name: "system.screenshot",
     description:
-      'Capture a screenshot of a web page as a PNG image. ' +
-      'Returns a base64-encoded PNG with data URI prefix.',
+      "Capture a screenshot of a web page as a PNG image. " +
+      "Returns a base64-encoded PNG with data URI prefix.",
     inputSchema: {
-      type: 'object',
+      type: "object",
       properties: {
-        url: { type: 'string', description: 'URL to capture' },
-        width: { type: 'number', description: 'Viewport width (default: 1280)' },
-        height: { type: 'number', description: 'Viewport height (default: 720)' },
-        fullPage: { type: 'boolean', description: 'Capture full page (default: false)' },
+        url: { type: "string", description: "URL to capture" },
+        width: {
+          type: "number",
+          description: "Viewport width (default: 1280)",
+        },
+        height: {
+          type: "number",
+          description: "Viewport height (default: 720)",
+        },
+        fullPage: {
+          type: "boolean",
+          description: "Capture full page (default: false)",
+        },
       },
-      required: ['url'],
+      required: ["url"],
     },
     async execute(args: Record<string, unknown>): Promise<ToolResult> {
       const urlErr = validateUrl(args.url, config);
       if (urlErr) return urlErr;
       const url = args.url as string;
-      const width = typeof args.width === 'number' ? args.width : 1280;
-      const height = typeof args.height === 'number' ? args.height : 720;
+      const width = typeof args.width === "number" ? args.width : 1280;
+      const height = typeof args.height === "number" ? args.height : 720;
       const fullPage = args.fullPage === true;
 
       try {
@@ -680,10 +738,10 @@ function createScreenshotTool(config: BrowserToolConfig, logger: Logger): Tool {
           await page.setViewportSize({ width, height });
           await page.goto(url, {
             timeout: config.timeoutMs ?? DEFAULT_TIMEOUT_MS,
-            waitUntil: 'networkidle',
+            waitUntil: "networkidle",
           });
           const buffer = await page.screenshot({ fullPage });
-          const base64 = buffer.toString('base64');
+          const base64 = buffer.toString("base64");
           return {
             content: safeStringify({
               url,
@@ -700,55 +758,81 @@ function createScreenshotTool(config: BrowserToolConfig, logger: Logger): Tool {
   };
 }
 
-function createBrowserActionTool(config: BrowserToolConfig, logger: Logger): Tool {
+function createBrowserActionTool(
+  config: BrowserToolConfig,
+  logger: Logger,
+): Tool {
   return {
-    name: 'system.browserAction',
+    name: "system.browserAction",
     description:
-      'Perform a browser interaction on a web page. ' +
-      'Actions: click, type, scroll, waitForSelector. ' +
-      'Each call navigates fresh — multi-step interactions do not persist state between calls. ' +
-      'Optionally returns a screenshot of the result.',
+      "Perform a browser interaction on a web page. " +
+      "Actions: click, type, scroll, waitForSelector. " +
+      "Each call navigates fresh — multi-step interactions do not persist state between calls. " +
+      "Optionally returns a screenshot of the result.",
     inputSchema: {
-      type: 'object',
+      type: "object",
       properties: {
-        url: { type: 'string', description: 'URL to navigate to' },
+        url: { type: "string", description: "URL to navigate to" },
         action: {
-          type: 'string',
-          description: 'Action to perform: click, type, scroll, waitForSelector',
-          enum: ['click', 'type', 'scroll', 'waitForSelector'],
+          type: "string",
+          description:
+            "Action to perform: click, type, scroll, waitForSelector",
+          enum: ["click", "type", "scroll", "waitForSelector"],
         },
-        selector: { type: 'string', description: 'CSS selector for click/type/waitForSelector' },
-        text: { type: 'string', description: 'Text to type (for "type" action)' },
-        x: { type: 'number', description: 'Horizontal scroll amount in pixels (for "scroll" action)' },
-        y: { type: 'number', description: 'Vertical scroll amount in pixels (for "scroll" action)' },
-        waitMs: { type: 'number', description: 'Wait timeout in ms for waitForSelector (default: 5000)' },
-        returnScreenshot: { type: 'boolean', description: 'Include a screenshot in the response (default: false)' },
+        selector: {
+          type: "string",
+          description: "CSS selector for click/type/waitForSelector",
+        },
+        text: {
+          type: "string",
+          description: 'Text to type (for "type" action)',
+        },
+        x: {
+          type: "number",
+          description:
+            'Horizontal scroll amount in pixels (for "scroll" action)',
+        },
+        y: {
+          type: "number",
+          description: 'Vertical scroll amount in pixels (for "scroll" action)',
+        },
+        waitMs: {
+          type: "number",
+          description: "Wait timeout in ms for waitForSelector (default: 5000)",
+        },
+        returnScreenshot: {
+          type: "boolean",
+          description: "Include a screenshot in the response (default: false)",
+        },
       },
-      required: ['url', 'action'],
+      required: ["url", "action"],
     },
     async execute(args: Record<string, unknown>): Promise<ToolResult> {
       const urlErr = validateUrl(args.url, config);
       if (urlErr) return urlErr;
       const url = args.url as string;
       const action = args.action as string;
-      const selector = typeof args.selector === 'string' ? args.selector : undefined;
-      const text = typeof args.text === 'string' ? args.text : undefined;
-      const x = typeof args.x === 'number' ? args.x : 0;
-      const y = typeof args.y === 'number' ? args.y : 0;
-      const waitMs = typeof args.waitMs === 'number' ? args.waitMs : 5000;
+      const selector =
+        typeof args.selector === "string" ? args.selector : undefined;
+      const text = typeof args.text === "string" ? args.text : undefined;
+      const x = typeof args.x === "number" ? args.x : 0;
+      const y = typeof args.y === "number" ? args.y : 0;
+      const waitMs = typeof args.waitMs === "number" ? args.waitMs : 5000;
       const returnScreenshot = args.returnScreenshot === true;
 
       // Validate required args before opening a page
       switch (action) {
-        case 'click':
-        case 'waitForSelector':
-          if (!selector) return errorResult(`selector is required for ${action} action`);
+        case "click":
+        case "waitForSelector":
+          if (!selector)
+            return errorResult(`selector is required for ${action} action`);
           break;
-        case 'type':
-          if (!selector) return errorResult('selector is required for type action');
-          if (!text) return errorResult('text is required for type action');
+        case "type":
+          if (!selector)
+            return errorResult("selector is required for type action");
+          if (!text) return errorResult("text is required for type action");
           break;
-        case 'scroll':
+        case "scroll":
           break;
         default:
           return errorResult(`Unknown action: ${action}`);
@@ -760,37 +844,41 @@ function createBrowserActionTool(config: BrowserToolConfig, logger: Logger): Too
         try {
           await page.goto(url, {
             timeout: config.timeoutMs ?? DEFAULT_TIMEOUT_MS,
-            waitUntil: 'networkidle',
+            waitUntil: "networkidle",
           });
 
           let description: string;
           switch (action) {
-            case 'click':
+            case "click":
               await page.click(selector!);
               description = `Clicked: ${selector}`;
               break;
-            case 'type':
+            case "type":
               await page.fill(selector!, text!);
               description = `Typed "${text}" into ${selector}`;
               break;
-            case 'scroll':
+            case "scroll":
               await page.mouse.wheel(x, y);
               description = `Scrolled by (${x}, ${y})`;
               break;
-            case 'waitForSelector':
+            case "waitForSelector":
               await page.waitForSelector(selector!, { timeout: waitMs });
               description = `Selector found: ${selector}`;
               break;
             default:
               // Unreachable — validated above
-              description = '';
+              description = "";
           }
 
-          const resultObj: Record<string, unknown> = { url, action, description };
+          const resultObj: Record<string, unknown> = {
+            url,
+            action,
+            description,
+          };
 
           if (returnScreenshot) {
             const buffer = await page.screenshot();
-            resultObj.image = `data:image/png;base64,${buffer.toString('base64')}`;
+            resultObj.image = `data:image/png;base64,${buffer.toString("base64")}`;
           }
 
           return { content: safeStringify(resultObj) };
@@ -806,26 +894,26 @@ function createBrowserActionTool(config: BrowserToolConfig, logger: Logger): Too
 
 function createEvaluateJsTool(config: BrowserToolConfig, logger: Logger): Tool {
   return {
-    name: 'system.evaluateJs',
+    name: "system.evaluateJs",
     description:
-      'Run JavaScript code in the context of a web page and return the result. ' +
-      'WARNING: This executes arbitrary JavaScript and requires explicit approval. ' +
-      'The code runs in the page context with access to the DOM.',
+      "Run JavaScript code in the context of a web page and return the result. " +
+      "WARNING: This executes arbitrary JavaScript and requires explicit approval. " +
+      "The code runs in the page context with access to the DOM.",
     inputSchema: {
-      type: 'object',
+      type: "object",
       properties: {
-        url: { type: 'string', description: 'URL to navigate to' },
-        code: { type: 'string', description: 'JavaScript code to evaluate' },
+        url: { type: "string", description: "URL to navigate to" },
+        code: { type: "string", description: "JavaScript code to evaluate" },
       },
-      required: ['url', 'code'],
+      required: ["url", "code"],
     },
     async execute(args: Record<string, unknown>): Promise<ToolResult> {
       const urlErr = validateUrl(args.url, config);
       if (urlErr) return urlErr;
       const url = args.url as string;
 
-      if (typeof args.code !== 'string' || args.code.length === 0) {
-        return errorResult('Missing or invalid code');
+      if (typeof args.code !== "string" || args.code.length === 0) {
+        return errorResult("Missing or invalid code");
       }
 
       try {
@@ -834,7 +922,7 @@ function createEvaluateJsTool(config: BrowserToolConfig, logger: Logger): Tool {
         try {
           await page.goto(url, {
             timeout: config.timeoutMs ?? DEFAULT_TIMEOUT_MS,
-            waitUntil: 'networkidle',
+            waitUntil: "networkidle",
           });
           const result = await page.evaluate(args.code);
           return {
@@ -852,28 +940,32 @@ function createEvaluateJsTool(config: BrowserToolConfig, logger: Logger): Tool {
 
 function createExportPdfTool(config: BrowserToolConfig, logger: Logger): Tool {
   return {
-    name: 'system.exportPdf',
+    name: "system.exportPdf",
     description:
-      'Export a web page as a PDF document. ' +
-      'Returns a base64-encoded PDF with data URI prefix.',
+      "Export a web page as a PDF document. " +
+      "Returns a base64-encoded PDF with data URI prefix.",
     inputSchema: {
-      type: 'object',
+      type: "object",
       properties: {
-        url: { type: 'string', description: 'URL to export' },
-        landscape: { type: 'boolean', description: 'Use landscape orientation (default: false)' },
+        url: { type: "string", description: "URL to export" },
+        landscape: {
+          type: "boolean",
+          description: "Use landscape orientation (default: false)",
+        },
         margin: {
-          type: 'string',
-          description: 'Page margin (e.g. "1cm", "0.5in"). Applied to all sides.',
+          type: "string",
+          description:
+            'Page margin (e.g. "1cm", "0.5in"). Applied to all sides.',
         },
       },
-      required: ['url'],
+      required: ["url"],
     },
     async execute(args: Record<string, unknown>): Promise<ToolResult> {
       const urlErr = validateUrl(args.url, config);
       if (urlErr) return urlErr;
       const url = args.url as string;
       const landscape = args.landscape === true;
-      const margin = typeof args.margin === 'string' ? args.margin : undefined;
+      const margin = typeof args.margin === "string" ? args.margin : undefined;
 
       try {
         const browser = await getBrowser(config, logger);
@@ -881,7 +973,7 @@ function createExportPdfTool(config: BrowserToolConfig, logger: Logger): Tool {
         try {
           await page.goto(url, {
             timeout: config.timeoutMs ?? DEFAULT_TIMEOUT_MS,
-            waitUntil: 'networkidle',
+            waitUntil: "networkidle",
           });
 
           const pdfOptions: Record<string, unknown> = { landscape };
@@ -895,7 +987,7 @@ function createExportPdfTool(config: BrowserToolConfig, logger: Logger): Tool {
           }
 
           const buffer = await page.pdf(pdfOptions);
-          const base64 = buffer.toString('base64');
+          const base64 = buffer.toString("base64");
           return {
             content: safeStringify({
               url,
@@ -935,19 +1027,30 @@ function createExportPdfTool(config: BrowserToolConfig, logger: Logger): Tool {
  * registry.registerAll(tools);
  * ```
  */
-export function createBrowserTools(config?: BrowserToolConfig, logger?: Logger): Tool[] {
-  const cfg: BrowserToolConfig = config ?? { mode: 'basic' };
+export function createBrowserTools(
+  config?: BrowserToolConfig,
+  logger?: Logger,
+): Tool[] {
+  const cfg: BrowserToolConfig = config ?? { mode: "basic" };
   const log = logger ?? silentLogger;
 
   // Validate config
-  if (cfg.mode !== 'basic' && cfg.mode !== 'advanced') {
-    throw new Error(`Invalid browser tool mode: ${cfg.mode as string}. Must be 'basic' or 'advanced'.`);
+  if (cfg.mode !== "basic" && cfg.mode !== "advanced") {
+    throw new Error(
+      `Invalid browser tool mode: ${cfg.mode as string}. Must be 'basic' or 'advanced'.`,
+    );
   }
-  if (cfg.maxResponseBytes !== undefined && (typeof cfg.maxResponseBytes !== 'number' || cfg.maxResponseBytes <= 0)) {
-    throw new Error('maxResponseBytes must be a positive number');
+  if (
+    cfg.maxResponseBytes !== undefined &&
+    (typeof cfg.maxResponseBytes !== "number" || cfg.maxResponseBytes <= 0)
+  ) {
+    throw new Error("maxResponseBytes must be a positive number");
   }
-  if (cfg.timeoutMs !== undefined && (typeof cfg.timeoutMs !== 'number' || cfg.timeoutMs <= 0)) {
-    throw new Error('timeoutMs must be a positive number');
+  if (
+    cfg.timeoutMs !== undefined &&
+    (typeof cfg.timeoutMs !== "number" || cfg.timeoutMs <= 0)
+  ) {
+    throw new Error("timeoutMs must be a positive number");
   }
 
   const basicTools: Tool[] = [
@@ -956,7 +1059,7 @@ export function createBrowserTools(config?: BrowserToolConfig, logger?: Logger):
     createHtmlToMarkdownTool(),
   ];
 
-  if (cfg.mode === 'basic') {
+  if (cfg.mode === "basic") {
     return basicTools;
   }
 

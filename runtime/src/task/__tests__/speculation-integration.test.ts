@@ -7,16 +7,20 @@
  * @module
  */
 
-import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
-import { PublicKey } from '@solana/web3.js';
-import { DependencyGraph, DependencyType } from '../dependency-graph.js';
-import { CommitmentLedger } from '../commitment-ledger.js';
-import type { ProofPipeline } from '../proof-pipeline.js';
+import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
+import { PublicKey } from "@solana/web3.js";
+import { DependencyGraph, DependencyType } from "../dependency-graph.js";
+import { CommitmentLedger } from "../commitment-ledger.js";
+import type { ProofPipeline } from "../proof-pipeline.js";
 import {
   SpeculativeTaskScheduler,
   type SpeculativeSchedulerEvents,
-} from '../speculative-scheduler.js';
-import { createMockProofPipeline, createSpeculationTask, randomPda } from '../test-utils.js';
+} from "../speculative-scheduler.js";
+import {
+  createMockProofPipeline,
+  createSpeculationTask,
+  randomPda,
+} from "../test-utils.js";
 
 // ============================================================================
 // Test Helpers
@@ -28,7 +32,7 @@ const createMockTask = createSpeculationTask;
 // Integration Test Suite
 // ============================================================================
 
-describe('Speculation Integration', () => {
+describe("Speculation Integration", () => {
   let graph: DependencyGraph;
   let ledger: CommitmentLedger;
   let pipeline: ProofPipeline;
@@ -81,7 +85,7 @@ describe('Speculation Integration', () => {
       },
       events,
       graph,
-      pipeline
+      pipeline,
     );
 
     ledger = scheduler.getCommitmentLedger();
@@ -95,20 +99,25 @@ describe('Speculation Integration', () => {
   // Happy Path Tests
   // ==========================================================================
 
-  describe('Happy Path', () => {
-    it('should speculatively execute dependent task while parent proof pending', async () => {
+  describe("Happy Path", () => {
+    it("should speculatively execute dependent task while parent proof pending", async () => {
       scheduler.start();
 
       // Create parent task in the graph
       const parentPda = randomPda();
       const parentTask = createMockTask();
       graph.addTask(parentTask, parentPda);
-      graph.updateStatus(parentPda, 'executing');
+      graph.updateStatus(parentPda, "executing");
 
       // Create child task that depends on parent
       const childPda = randomPda();
       const childTask = createMockTask();
-      graph.addTaskWithParent(childTask, childPda, parentPda, DependencyType.Data);
+      graph.addTaskWithParent(
+        childTask,
+        childPda,
+        parentPda,
+        DependencyType.Data,
+      );
 
       // Child should be speculatable (parent is executing)
       const speculatable = graph.getSpeculatableTasks();
@@ -124,13 +133,16 @@ describe('Speculation Integration', () => {
       scheduler.registerSpeculationStart(childPda, depth);
 
       // Verify event fired
-      expect(eventCallbacks.onSpeculationStarted).toHaveBeenCalledWith(childPda, depth);
+      expect(eventCallbacks.onSpeculationStarted).toHaveBeenCalledWith(
+        childPda,
+        depth,
+      );
 
       // Verify active speculations count
       expect(scheduler.getStatus().activeSpeculations).toBe(1);
     });
 
-    it('should confirm child after parent confirms', async () => {
+    it("should confirm child after parent confirms", async () => {
       scheduler.start();
 
       // Set up parent task
@@ -138,7 +150,7 @@ describe('Speculation Integration', () => {
       const parentTask = createMockTask();
       const agentPda = randomPda();
       graph.addTask(parentTask, parentPda);
-      graph.updateStatus(parentPda, 'executing');
+      graph.updateStatus(parentPda, "executing");
 
       // Create commitment for parent
       ledger.createCommitment(
@@ -146,14 +158,19 @@ describe('Speculation Integration', () => {
         parentTask.taskId,
         new Uint8Array(32),
         agentPda,
-        1_000_000n
+        1_000_000n,
       );
-      ledger.updateStatus(parentPda, 'executing');
+      ledger.updateStatus(parentPda, "executing");
 
       // Set up child task
       const childPda = randomPda();
       const childTask = createMockTask();
-      graph.addTaskWithParent(childTask, childPda, parentPda, DependencyType.Data);
+      graph.addTaskWithParent(
+        childTask,
+        childPda,
+        parentPda,
+        DependencyType.Data,
+      );
 
       // Speculate on child
       const decision = scheduler.shouldSpeculate(childPda);
@@ -166,25 +183,27 @@ describe('Speculation Integration', () => {
         childTask.taskId,
         new Uint8Array(32),
         agentPda,
-        500_000n
+        500_000n,
       );
       ledger.addDependent(parentPda, childPda);
 
       // Confirm parent
       scheduler.onProofConfirmed(parentPda);
 
-      expect(eventCallbacks.onSpeculationConfirmed).toHaveBeenCalledWith(parentPda);
+      expect(eventCallbacks.onSpeculationConfirmed).toHaveBeenCalledWith(
+        parentPda,
+      );
 
       // Parent should be confirmed in graph
       const parentNode = graph.getNode(parentPda);
-      expect(parentNode?.status).toBe('completed');
+      expect(parentNode?.status).toBe("completed");
 
       // Parent commitment should be confirmed
       const parentCommitment = ledger.getByTask(parentPda);
-      expect(parentCommitment?.status).toBe('confirmed');
+      expect(parentCommitment?.status).toBe("confirmed");
     });
 
-    it('should track metrics correctly through full lifecycle', async () => {
+    it("should track metrics correctly through full lifecycle", async () => {
       scheduler.start();
 
       // Initial metrics
@@ -216,8 +235,8 @@ describe('Speculation Integration', () => {
   // Failure Scenarios
   // ==========================================================================
 
-  describe('Failure Scenarios', () => {
-    it('should rollback child when parent fails', async () => {
+  describe("Failure Scenarios", () => {
+    it("should rollback child when parent fails", async () => {
       scheduler.start();
 
       const agentPda = randomPda();
@@ -226,7 +245,7 @@ describe('Speculation Integration', () => {
       const parentPda = randomPda();
       const parentTask = createMockTask();
       graph.addTask(parentTask, parentPda);
-      graph.updateStatus(parentPda, 'executing');
+      graph.updateStatus(parentPda, "executing");
 
       // Register parent speculation and create commitment
       scheduler.registerSpeculationStart(parentPda, 0);
@@ -235,13 +254,18 @@ describe('Speculation Integration', () => {
         parentTask.taskId,
         new Uint8Array(32),
         agentPda,
-        1_000_000n
+        1_000_000n,
       );
 
       // Set up child task
       const childPda = randomPda();
       const childTask = createMockTask();
-      graph.addTaskWithParent(childTask, childPda, parentPda, DependencyType.Data);
+      graph.addTaskWithParent(
+        childTask,
+        childPda,
+        parentPda,
+        DependencyType.Data,
+      );
 
       // Speculate on child and create commitment
       scheduler.registerSpeculationStart(childPda, 1);
@@ -250,12 +274,12 @@ describe('Speculation Integration', () => {
         childTask.taskId,
         new Uint8Array(32),
         agentPda,
-        500_000n
+        500_000n,
       );
       ledger.addDependent(parentPda, childPda);
 
       // Parent proof fails
-      scheduler.onProofFailed(parentPda, 'verification_failed');
+      scheduler.onProofFailed(parentPda, "verification_failed");
 
       // Wait for async rollback to complete
       await new Promise((resolve) => setTimeout(resolve, 20));
@@ -263,22 +287,22 @@ describe('Speculation Integration', () => {
       // Verify failure event
       expect(eventCallbacks.onSpeculationFailed).toHaveBeenCalledWith(
         parentPda,
-        'verification_failed'
+        "verification_failed",
       );
 
       // Child commitment should be rolled back via rollback cascade
       // Parent is marked failed, child is marked rolled_back by rollbackTask
       const parentCommitment = ledger.getByTask(parentPda);
       const childCommitment = ledger.getByTask(childPda);
-      expect(parentCommitment?.status).toBe('failed');
-      expect(childCommitment?.status).toBe('rolled_back');
+      expect(parentCommitment?.status).toBe("failed");
+      expect(childCommitment?.status).toBe("rolled_back");
 
       // Metrics should reflect the miss (parent was registered as speculative)
       const metrics = scheduler.getMetrics();
       expect(metrics.speculativeMisses).toBe(1);
     });
 
-    it('should cascade rollback through multiple levels', async () => {
+    it("should cascade rollback through multiple levels", async () => {
       scheduler.start();
 
       const agentPda = randomPda();
@@ -287,42 +311,52 @@ describe('Speculation Integration', () => {
       const grandparentPda = randomPda();
       const grandparentTask = createMockTask();
       graph.addTask(grandparentTask, grandparentPda);
-      graph.updateStatus(grandparentPda, 'executing');
+      graph.updateStatus(grandparentPda, "executing");
       ledger.createCommitment(
         grandparentPda,
         grandparentTask.taskId,
         new Uint8Array(32),
         agentPda,
-        1_000_000n
+        1_000_000n,
       );
 
       const parentPda = randomPda();
       const parentTask = createMockTask();
-      graph.addTaskWithParent(parentTask, parentPda, grandparentPda, DependencyType.Data);
+      graph.addTaskWithParent(
+        parentTask,
+        parentPda,
+        grandparentPda,
+        DependencyType.Data,
+      );
       ledger.createCommitment(
         parentPda,
         parentTask.taskId,
         new Uint8Array(32),
         agentPda,
-        500_000n
+        500_000n,
       );
       ledger.addDependent(grandparentPda, parentPda);
 
       const childPda = randomPda();
       const childTask = createMockTask();
-      graph.addTaskWithParent(childTask, childPda, parentPda, DependencyType.Data);
+      graph.addTaskWithParent(
+        childTask,
+        childPda,
+        parentPda,
+        DependencyType.Data,
+      );
       scheduler.registerSpeculationStart(childPda, 2);
       ledger.createCommitment(
         childPda,
         childTask.taskId,
         new Uint8Array(32),
         agentPda,
-        250_000n
+        250_000n,
       );
       ledger.addDependent(parentPda, childPda);
 
       // Grandparent fails - this should cascade through dependency graph
-      scheduler.onProofFailed(grandparentPda, 'proof_timeout');
+      scheduler.onProofFailed(grandparentPda, "proof_timeout");
 
       // Wait for async rollback to complete
       await new Promise((resolve) => setTimeout(resolve, 20));
@@ -332,12 +366,12 @@ describe('Speculation Integration', () => {
       const parentCommitment = ledger.getByTask(parentPda);
       const childCommitment = ledger.getByTask(childPda);
 
-      expect(grandparentCommitment?.status).toBe('failed');
-      expect(parentCommitment?.status).toBe('rolled_back');
-      expect(childCommitment?.status).toBe('rolled_back');
+      expect(grandparentCommitment?.status).toBe("failed");
+      expect(parentCommitment?.status).toBe("rolled_back");
+      expect(childCommitment?.status).toBe("rolled_back");
     });
 
-    it('should handle concurrent speculations with one failure', async () => {
+    it("should handle concurrent speculations with one failure", async () => {
       scheduler.start();
 
       const agentPda = randomPda();
@@ -346,57 +380,67 @@ describe('Speculation Integration', () => {
       const parentPda = randomPda();
       const parentTask = createMockTask();
       graph.addTask(parentTask, parentPda);
-      graph.updateStatus(parentPda, 'completed');
+      graph.updateStatus(parentPda, "completed");
       ledger.createCommitment(
         parentPda,
         parentTask.taskId,
         new Uint8Array(32),
         agentPda,
-        1_000_000n
+        1_000_000n,
       );
       ledger.markConfirmed(parentPda);
 
       // Two sibling children
       const child1Pda = randomPda();
       const child1Task = createMockTask();
-      graph.addTaskWithParent(child1Task, child1Pda, parentPda, DependencyType.Data);
+      graph.addTaskWithParent(
+        child1Task,
+        child1Pda,
+        parentPda,
+        DependencyType.Data,
+      );
       scheduler.registerSpeculationStart(child1Pda, 1);
       ledger.createCommitment(
         child1Pda,
         child1Task.taskId,
         new Uint8Array(32),
         agentPda,
-        500_000n
+        500_000n,
       );
 
       const child2Pda = randomPda();
       const child2Task = createMockTask();
-      graph.addTaskWithParent(child2Task, child2Pda, parentPda, DependencyType.Data);
+      graph.addTaskWithParent(
+        child2Task,
+        child2Pda,
+        parentPda,
+        DependencyType.Data,
+      );
       scheduler.registerSpeculationStart(child2Pda, 1);
       ledger.createCommitment(
         child2Pda,
         child2Task.taskId,
         new Uint8Array(32),
         agentPda,
-        500_000n
+        500_000n,
       );
 
       // Child 1 confirms
       scheduler.onProofConfirmed(child1Pda);
 
       // Child 2 fails
-      scheduler.onProofFailed(child2Pda, 'invalid_proof');
+      scheduler.onProofFailed(child2Pda, "invalid_proof");
 
       // Wait for async operations
       await new Promise((resolve) => setTimeout(resolve, 20));
 
       // Child 1 should still be confirmed
       const child1Commitment = ledger.getByTask(child1Pda);
-      expect(child1Commitment?.status).toBe('confirmed');
+      expect(child1Commitment?.status).toBe("confirmed");
 
       // Child 2 should be failed
       const child2Commitment = ledger.getByTask(child2Pda);
-      expect(child2Commitment?.status).toBe('failed');
+      expect(child2Commitment?.status).toBe("failed");
 
       // Metrics
       const metrics = scheduler.getMetrics();
@@ -409,8 +453,8 @@ describe('Speculation Integration', () => {
   // Limit Tests
   // ==========================================================================
 
-  describe('Limits', () => {
-    it('should respect depth limit', async () => {
+  describe("Limits", () => {
+    it("should respect depth limit", async () => {
       scheduler.start();
 
       // Build a chain that reaches depth limit (3)
@@ -425,15 +469,20 @@ describe('Speculation Integration', () => {
       const rootPda = randomPda();
       const rootTask = createMockTask();
       graph.addTask(rootTask, rootPda);
-      graph.updateStatus(rootPda, 'completed');
+      graph.updateStatus(rootPda, "completed");
       taskChain.push({ pda: rootPda, task: rootTask });
 
       // Build chain to depth 2
       for (let i = 1; i <= 2; i++) {
         const pda = randomPda();
         const task = createMockTask();
-        graph.addTaskWithParent(task, pda, taskChain[i - 1].pda, DependencyType.Data);
-        graph.updateStatus(pda, 'executing');
+        graph.addTaskWithParent(
+          task,
+          pda,
+          taskChain[i - 1].pda,
+          DependencyType.Data,
+        );
+        graph.updateStatus(pda, "executing");
         taskChain.push({ pda, task });
       }
 
@@ -444,18 +493,23 @@ describe('Speculation Integration', () => {
       // Add one more to depth 3
       const depth3Pda = randomPda();
       const depth3Task = createMockTask();
-      graph.addTaskWithParent(depth3Task, depth3Pda, taskChain[2].pda, DependencyType.Data);
+      graph.addTaskWithParent(
+        depth3Task,
+        depth3Pda,
+        taskChain[2].pda,
+        DependencyType.Data,
+      );
 
       // Task at depth 3 should be blocked (depth >= maxSpeculationDepth)
       const depth3Decision = scheduler.shouldSpeculate(depth3Pda);
       expect(depth3Decision.allowed).toBe(false);
-      expect(depth3Decision.reason).toBe('depth_limit');
+      expect(depth3Decision.reason).toBe("depth_limit");
 
       // Verify event callback
       expect(eventCallbacks.onDepthLimitReached).toHaveBeenCalled();
     });
 
-    it('should respect stake limit', async () => {
+    it("should respect stake limit", async () => {
       // Create scheduler with lower stake limit for testing
       const lowStakeScheduler = new SpeculativeTaskScheduler(
         {
@@ -465,7 +519,7 @@ describe('Speculation Integration', () => {
         },
         events,
         graph,
-        pipeline
+        pipeline,
       );
       lowStakeScheduler.start();
 
@@ -481,7 +535,7 @@ describe('Speculation Integration', () => {
         task1.taskId,
         new Uint8Array(32),
         agentPda,
-        900_000n // 0.0009 SOL
+        900_000n, // 0.0009 SOL
       );
 
       // Add another task
@@ -493,7 +547,7 @@ describe('Speculation Integration', () => {
         task2.taskId,
         new Uint8Array(32),
         agentPda,
-        200_000n // Would put us over limit
+        200_000n, // Would put us over limit
       );
 
       // Total stake is now 1,100,000 which exceeds 1,000,000 limit
@@ -504,7 +558,7 @@ describe('Speculation Integration', () => {
 
       const decision = lowStakeScheduler.shouldSpeculate(task3Pda);
       expect(decision.allowed).toBe(false);
-      expect(decision.reason).toBe('stake_limit');
+      expect(decision.reason).toBe("stake_limit");
 
       // Verify event callback
       expect(eventCallbacks.onStakeLimitReached).toHaveBeenCalled();
@@ -512,7 +566,7 @@ describe('Speculation Integration', () => {
       lowStakeScheduler.stop();
     });
 
-    it('should block private speculation when disabled', async () => {
+    it("should block private speculation when disabled", async () => {
       scheduler.start();
 
       const taskPda = randomPda();
@@ -520,12 +574,17 @@ describe('Speculation Integration', () => {
       graph.addTask(task, taskPda);
 
       // Speculation should be blocked for private tasks
-      const decision = scheduler.shouldSpeculate(taskPda, undefined, true, 1000);
+      const decision = scheduler.shouldSpeculate(
+        taskPda,
+        undefined,
+        true,
+        1000,
+      );
       expect(decision.allowed).toBe(false);
-      expect(decision.reason).toBe('private_speculation_disabled');
+      expect(decision.reason).toBe("private_speculation_disabled");
     });
 
-    it('should block low reputation agents', async () => {
+    it("should block low reputation agents", async () => {
       scheduler.start();
 
       const taskPda = randomPda();
@@ -533,9 +592,14 @@ describe('Speculation Integration', () => {
       graph.addTask(task, taskPda);
 
       // Low reputation should be blocked (min is 500)
-      const decision = scheduler.shouldSpeculate(taskPda, undefined, false, 200);
+      const decision = scheduler.shouldSpeculate(
+        taskPda,
+        undefined,
+        false,
+        200,
+      );
       expect(decision.allowed).toBe(false);
-      expect(decision.reason).toBe('low_reputation');
+      expect(decision.reason).toBe("low_reputation");
     });
   });
 
@@ -543,8 +607,8 @@ describe('Speculation Integration', () => {
   // Auto-disable Tests
   // ==========================================================================
 
-  describe('Auto-disable', () => {
-    it('should auto-disable speculation when rollback rate too high', async () => {
+  describe("Auto-disable", () => {
+    it("should auto-disable speculation when rollback rate too high", async () => {
       // Create scheduler with low rollback threshold
       const sensitiveScheduler = new SpeculativeTaskScheduler(
         {
@@ -555,7 +619,7 @@ describe('Speculation Integration', () => {
         },
         events,
         graph,
-        pipeline
+        pipeline,
       );
       sensitiveScheduler.start();
 
@@ -570,8 +634,8 @@ describe('Speculation Integration', () => {
       }
 
       // Fail 2 out of 10 (20% rollback rate, exceeds 10% threshold)
-      sensitiveScheduler.onProofFailed(tasks[0], 'failed');
-      sensitiveScheduler.onProofFailed(tasks[1], 'failed');
+      sensitiveScheduler.onProofFailed(tasks[0], "failed");
+      sensitiveScheduler.onProofFailed(tasks[1], "failed");
 
       // Wait for async operations
       await new Promise((resolve) => setTimeout(resolve, 20));
@@ -587,16 +651,16 @@ describe('Speculation Integration', () => {
       // At this point, rollbackRate = 2/10 = 20% which exceeds 10% threshold
       expect(decision.allowed).toBe(false);
       // Could be 'disabled' (auto-disabled) or 'rollback_rate_exceeded'
-      expect(['disabled', 'rollback_rate_exceeded']).toContain(decision.reason);
+      expect(["disabled", "rollback_rate_exceeded"]).toContain(decision.reason);
 
       sensitiveScheduler.stop();
     });
 
-    it('should allow re-enabling speculation after auto-disable', async () => {
+    it("should allow re-enabling speculation after auto-disable", async () => {
       scheduler.start();
 
       // Disable speculation
-      scheduler.disableSpeculation('manual_test');
+      scheduler.disableSpeculation("manual_test");
       expect(scheduler.isSpeculationEnabled()).toBe(false);
 
       // Re-enable
@@ -617,8 +681,8 @@ describe('Speculation Integration', () => {
   // Status and Metrics Integration
   // ==========================================================================
 
-  describe('Status and Metrics', () => {
-    it('should provide consistent status across components', async () => {
+  describe("Status and Metrics", () => {
+    it("should provide consistent status across components", async () => {
       scheduler.start();
 
       const agentPda = randomPda();
@@ -632,7 +696,7 @@ describe('Speculation Integration', () => {
         task1.taskId,
         new Uint8Array(32),
         agentPda,
-        1_000_000n
+        1_000_000n,
       );
       scheduler.registerSpeculationStart(task1Pda, 0);
 
@@ -644,7 +708,7 @@ describe('Speculation Integration', () => {
         task2.taskId,
         new Uint8Array(32),
         agentPda,
-        500_000n
+        500_000n,
       );
       scheduler.registerSpeculationStart(task2Pda, 1);
 
@@ -661,7 +725,7 @@ describe('Speculation Integration', () => {
       expect(ledgerStats.total).toBe(2);
     });
 
-    it('should track time saved and wasted accurately', async () => {
+    it("should track time saved and wasted accurately", async () => {
       scheduler.start();
 
       // Start speculation
@@ -688,7 +752,7 @@ describe('Speculation Integration', () => {
       await new Promise((resolve) => setTimeout(resolve, 10));
 
       // Fail - should count as time wasted
-      scheduler.onProofFailed(task2Pda, 'test_failure');
+      scheduler.onProofFailed(task2Pda, "test_failure");
 
       // Wait for async operations
       await new Promise((resolve) => setTimeout(resolve, 20));
@@ -699,7 +763,7 @@ describe('Speculation Integration', () => {
       expect(metrics.hitRate).toBe(50);
     });
 
-    it('should correctly calculate active commitments', async () => {
+    it("should correctly calculate active commitments", async () => {
       scheduler.start();
 
       const agentPda = randomPda();
@@ -713,7 +777,7 @@ describe('Speculation Integration', () => {
         pendingTask.taskId,
         new Uint8Array(32),
         agentPda,
-        1_000_000n
+        1_000_000n,
       );
 
       const confirmedPda = randomPda();
@@ -724,7 +788,7 @@ describe('Speculation Integration', () => {
         confirmedTask.taskId,
         new Uint8Array(32),
         agentPda,
-        500_000n
+        500_000n,
       );
       ledger.markConfirmed(confirmedPda);
 
@@ -736,7 +800,7 @@ describe('Speculation Integration', () => {
         failedTask.taskId,
         new Uint8Array(32),
         agentPda,
-        250_000n
+        250_000n,
       );
       ledger.markFailed(failedPda);
 
@@ -751,8 +815,8 @@ describe('Speculation Integration', () => {
   // Dependency Type Filtering
   // ==========================================================================
 
-  describe('Dependency Type Filtering', () => {
-    it('should only allow speculation on configured dependency types', async () => {
+  describe("Dependency Type Filtering", () => {
+    it("should only allow speculation on configured dependency types", async () => {
       // Create scheduler that only allows Data dependencies
       const dataOnlyScheduler = new SpeculativeTaskScheduler(
         {
@@ -763,14 +827,14 @@ describe('Speculation Integration', () => {
         },
         events,
         graph,
-        pipeline
+        pipeline,
       );
       dataOnlyScheduler.start();
 
       const rootPda = randomPda();
       const rootTask = createMockTask();
       graph.addTask(rootTask, rootPda);
-      graph.updateStatus(rootPda, 'completed');
+      graph.updateStatus(rootPda, "completed");
 
       // Data dependency should be allowed
       const dataPda = randomPda();
@@ -783,11 +847,16 @@ describe('Speculation Integration', () => {
       // Order dependency should be blocked
       const orderPda = randomPda();
       const orderTask = createMockTask();
-      graph.addTaskWithParent(orderTask, orderPda, rootPda, DependencyType.Order);
+      graph.addTaskWithParent(
+        orderTask,
+        orderPda,
+        rootPda,
+        DependencyType.Order,
+      );
 
       const orderDecision = dataOnlyScheduler.shouldSpeculate(orderPda);
       expect(orderDecision.allowed).toBe(false);
-      expect(orderDecision.reason).toBe('dependency_type_not_speculatable');
+      expect(orderDecision.reason).toBe("dependency_type_not_speculatable");
 
       dataOnlyScheduler.stop();
     });

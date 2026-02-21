@@ -7,19 +7,29 @@
  * @module
  */
 
-import type { Connection } from '@solana/web3.js';
+import type { Connection } from "@solana/web3.js";
 import {
   PublicKey,
   SystemProgram,
   VersionedTransaction,
   TransactionMessage,
   LAMPORTS_PER_SOL,
-} from '@solana/web3.js';
-import type { Skill, SkillMetadata, SkillAction, SkillContext, SemanticVersion } from '../types.js';
-import { SkillState } from '../types.js';
-import { SkillNotReadyError } from '../errors.js';
-import { JupiterClient } from './jupiter-client.js';
-import { JUPITER_API_BASE_URL, WSOL_MINT, WELL_KNOWN_TOKENS } from './constants.js';
+} from "@solana/web3.js";
+import type {
+  Skill,
+  SkillMetadata,
+  SkillAction,
+  SkillContext,
+  SemanticVersion,
+} from "../types.js";
+import { SkillState } from "../types.js";
+import { SkillNotReadyError } from "../errors.js";
+import { JupiterClient } from "./jupiter-client.js";
+import {
+  JUPITER_API_BASE_URL,
+  WSOL_MINT,
+  WELL_KNOWN_TOKENS,
+} from "./constants.js";
 import type {
   JupiterSkillConfig,
   SwapQuoteParams,
@@ -30,14 +40,14 @@ import type {
   TransferTokenParams,
   TransferResult,
   TokenPrice,
-} from './types.js';
-import type { Logger } from '../../utils/logger.js';
-import type { Wallet } from '../../types/wallet.js';
-import { Capability } from '../../agent/capabilities.js';
+} from "./types.js";
+import type { Logger } from "../../utils/logger.js";
+import type { Wallet } from "../../types/wallet.js";
+import { Capability } from "../../agent/capabilities.js";
 
 const DEFAULT_SLIPPAGE_BPS = 50;
 const DEFAULT_TIMEOUT_MS = 30_000;
-const VERSION: SemanticVersion = '0.1.0';
+const VERSION: SemanticVersion = "0.1.0";
 
 /**
  * Jupiter DeFi skill providing token swap and transfer operations.
@@ -67,11 +77,12 @@ const VERSION: SemanticVersion = '0.1.0';
  */
 export class JupiterSkill implements Skill {
   readonly metadata: SkillMetadata = {
-    name: 'jupiter',
-    description: 'Jupiter V6 DEX aggregator skill for token swaps, transfers, and price lookups',
+    name: "jupiter",
+    description:
+      "Jupiter V6 DEX aggregator skill for token swaps, transfers, and price lookups",
     version: VERSION,
     requiredCapabilities: Capability.COMPUTE | Capability.NETWORK,
-    tags: ['defi', 'swap', 'transfer', 'jupiter'],
+    tags: ["defi", "swap", "transfer", "jupiter"],
   };
 
   private _state: SkillState = SkillState.Created;
@@ -88,47 +99,52 @@ export class JupiterSkill implements Skill {
 
   constructor(config?: JupiterSkillConfig) {
     this.apiBaseUrl = config?.apiBaseUrl ?? JUPITER_API_BASE_URL;
-    this.defaultSlippageBps = config?.defaultSlippageBps ?? DEFAULT_SLIPPAGE_BPS;
+    this.defaultSlippageBps =
+      config?.defaultSlippageBps ?? DEFAULT_SLIPPAGE_BPS;
     this.timeoutMs = config?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
     // Build action registry (bound to this instance)
     this.actions = [
       {
-        name: 'getQuote',
-        description: 'Get a swap quote from Jupiter V6 aggregator',
+        name: "getQuote",
+        description: "Get a swap quote from Jupiter V6 aggregator",
         execute: (params: unknown) => this.getQuote(params as SwapQuoteParams),
       },
       {
-        name: 'executeSwap',
-        description: 'Execute a token swap via Jupiter V6',
-        execute: (params: unknown) => this.executeSwap(params as SwapQuoteParams),
+        name: "executeSwap",
+        description: "Execute a token swap via Jupiter V6",
+        execute: (params: unknown) =>
+          this.executeSwap(params as SwapQuoteParams),
       },
       {
-        name: 'getSolBalance',
-        description: 'Get SOL balance for an address',
-        execute: (params: unknown) => this.getSolBalance(params as PublicKey | undefined),
+        name: "getSolBalance",
+        description: "Get SOL balance for an address",
+        execute: (params: unknown) =>
+          this.getSolBalance(params as PublicKey | undefined),
       },
       {
-        name: 'getTokenBalance',
-        description: 'Get SPL token balance',
+        name: "getTokenBalance",
+        description: "Get SPL token balance",
         execute: (params: unknown) => {
           const p = params as { mint: PublicKey; owner?: PublicKey };
           return this.getTokenBalance(p.mint, p.owner);
         },
       },
       {
-        name: 'transferSol',
-        description: 'Transfer SOL to a recipient',
-        execute: (params: unknown) => this.transferSol(params as TransferSolParams),
+        name: "transferSol",
+        description: "Transfer SOL to a recipient",
+        execute: (params: unknown) =>
+          this.transferSol(params as TransferSolParams),
       },
       {
-        name: 'transferToken',
-        description: 'Transfer SPL token to a recipient',
-        execute: (params: unknown) => this.transferToken(params as TransferTokenParams),
+        name: "transferToken",
+        description: "Transfer SPL token to a recipient",
+        execute: (params: unknown) =>
+          this.transferToken(params as TransferTokenParams),
       },
       {
-        name: 'getTokenPrice',
-        description: 'Get token price in USD via Jupiter Price API',
+        name: "getTokenPrice",
+        description: "Get token price in USD via Jupiter Price API",
         execute: (params: unknown) => this.getTokenPrice(params as string[]),
       },
     ];
@@ -250,7 +266,7 @@ export class JupiterSkill implements Skill {
 
     return {
       mint: WSOL_MINT,
-      symbol: 'SOL',
+      symbol: "SOL",
       amount: BigInt(lamports),
       decimals: 9,
       uiAmount: lamports / LAMPORTS_PER_SOL,
@@ -261,13 +277,19 @@ export class JupiterSkill implements Skill {
    * Get SPL token balance for a mint.
    * Defaults to the skill wallet as owner.
    */
-  async getTokenBalance(mint: PublicKey, owner?: PublicKey): Promise<TokenBalance> {
+  async getTokenBalance(
+    mint: PublicKey,
+    owner?: PublicKey,
+  ): Promise<TokenBalance> {
     this.ensureReady();
 
     const walletOwner = owner ?? this.wallet!.publicKey;
-    const tokenAccounts = await this.connection!.getTokenAccountsByOwner(walletOwner, {
-      mint,
-    });
+    const tokenAccounts = await this.connection!.getTokenAccountsByOwner(
+      walletOwner,
+      {
+        mint,
+      },
+    );
 
     let amount = 0n;
     let decimals = 0;
@@ -283,8 +305,11 @@ export class JupiterSkill implements Skill {
 
       // Get decimals from mint account
       const mintInfo = await this.connection!.getParsedAccountInfo(mint);
-      if (mintInfo.value && 'parsed' in mintInfo.value.data) {
-        const parsed = mintInfo.value.data.parsed as Record<string, Record<string, unknown>>;
+      if (mintInfo.value && "parsed" in mintInfo.value.data) {
+        const parsed = mintInfo.value.data.parsed as Record<
+          string,
+          Record<string, unknown>
+        >;
         decimals = Number(parsed.info?.decimals ?? 0);
       }
     }
@@ -292,7 +317,8 @@ export class JupiterSkill implements Skill {
     const mintStr = mint.toBase58();
     const knownToken = WELL_KNOWN_TOKENS.get(mintStr);
     const symbol = knownToken?.symbol ?? null;
-    const uiAmount = decimals > 0 ? Number(amount) / Math.pow(10, decimals) : Number(amount);
+    const uiAmount =
+      decimals > 0 ? Number(amount) / Math.pow(10, decimals) : Number(amount);
 
     return { mint: mintStr, symbol, amount, decimals, uiAmount };
   }
@@ -319,10 +345,13 @@ export class JupiterSkill implements Skill {
     const tx = new VersionedTransaction(messageV0);
     const signedTx = await this.wallet!.signTransaction(tx);
 
-    const txSignature = await this.connection!.sendRawTransaction(signedTx.serialize(), {
-      skipPreflight: false,
-      maxRetries: 3,
-    });
+    const txSignature = await this.connection!.sendRawTransaction(
+      signedTx.serialize(),
+      {
+        skipPreflight: false,
+        maxRetries: 3,
+      },
+    );
 
     await this.connection!.confirmTransaction({
       signature: txSignature,
@@ -346,27 +375,38 @@ export class JupiterSkill implements Skill {
   async transferToken(params: TransferTokenParams): Promise<TransferResult> {
     this.ensureReady();
 
-    const TOKEN_PROGRAM_ID = new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');
+    const TOKEN_PROGRAM_ID = new PublicKey(
+      "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+    );
     const ASSOCIATED_TOKEN_PROGRAM_ID = new PublicKey(
-      'ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL',
+      "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL",
     );
 
     // Derive sender ATA
     const senderAta = PublicKey.findProgramAddressSync(
-      [this.wallet!.publicKey.toBuffer(), TOKEN_PROGRAM_ID.toBuffer(), params.mint.toBuffer()],
+      [
+        this.wallet!.publicKey.toBuffer(),
+        TOKEN_PROGRAM_ID.toBuffer(),
+        params.mint.toBuffer(),
+      ],
       ASSOCIATED_TOKEN_PROGRAM_ID,
     )[0];
 
     // Derive recipient ATA
     const recipientAta = PublicKey.findProgramAddressSync(
-      [params.recipient.toBuffer(), TOKEN_PROGRAM_ID.toBuffer(), params.mint.toBuffer()],
+      [
+        params.recipient.toBuffer(),
+        TOKEN_PROGRAM_ID.toBuffer(),
+        params.mint.toBuffer(),
+      ],
       ASSOCIATED_TOKEN_PROGRAM_ID,
     )[0];
 
     const instructions = [];
 
     // Check if recipient ATA exists, if not, create it
-    const recipientAtaInfo = await this.connection!.getAccountInfo(recipientAta);
+    const recipientAtaInfo =
+      await this.connection!.getAccountInfo(recipientAta);
     if (!recipientAtaInfo) {
       // Create Associated Token Account instruction (manual to avoid spl-token dep)
       instructions.push({
@@ -376,7 +416,11 @@ export class JupiterSkill implements Skill {
           { pubkey: recipientAta, isSigner: false, isWritable: true },
           { pubkey: params.recipient, isSigner: false, isWritable: false },
           { pubkey: params.mint, isSigner: false, isWritable: false },
-          { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+          {
+            pubkey: SystemProgram.programId,
+            isSigner: false,
+            isWritable: false,
+          },
           { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
         ],
         data: Buffer.alloc(0),
@@ -408,10 +452,13 @@ export class JupiterSkill implements Skill {
     const tx = new VersionedTransaction(messageV0);
     const signedTx = await this.wallet!.signTransaction(tx);
 
-    const txSignature = await this.connection!.sendRawTransaction(signedTx.serialize(), {
-      skipPreflight: false,
-      maxRetries: 3,
-    });
+    const txSignature = await this.connection!.sendRawTransaction(
+      signedTx.serialize(),
+      {
+        skipPreflight: false,
+        maxRetries: 3,
+      },
+    );
 
     await this.connection!.confirmTransaction({
       signature: txSignature,
@@ -440,7 +487,7 @@ export class JupiterSkill implements Skill {
 
   private ensureReady(): void {
     if (this._state !== SkillState.Ready) {
-      throw new SkillNotReadyError('jupiter');
+      throw new SkillNotReadyError("jupiter");
     }
   }
 }

@@ -9,7 +9,7 @@
  * @module
  */
 
-import type { GatewayMessage } from '../gateway/message.js';
+import type { GatewayMessage } from "../gateway/message.js";
 import type {
   LLMProvider,
   LLMMessage,
@@ -17,14 +17,14 @@ import type {
   LLMUsage,
   StreamProgressCallback,
   ToolHandler,
-} from './types.js';
+} from "./types.js";
 import {
   LLMProviderError,
   LLMRateLimitError,
   LLMServerError,
   LLMTimeoutError,
-} from './errors.js';
-import { RuntimeError, RuntimeErrorCodes } from '../types/errors.js';
+} from "./errors.js";
+import { RuntimeError, RuntimeErrorCodes } from "../types/errors.js";
 
 // ============================================================================
 // Error classes
@@ -43,7 +43,7 @@ export class ChatBudgetExceededError extends RuntimeError {
       `Token budget exceeded for session "${sessionId}": ${used}/${limit}`,
       RuntimeErrorCodes.CHAT_BUDGET_EXCEEDED,
     );
-    this.name = 'ChatBudgetExceededError';
+    this.name = "ChatBudgetExceededError";
     this.sessionId = sessionId;
     this.used = used;
     this.limit = limit;
@@ -165,13 +165,15 @@ export class ChatExecutor {
 
   constructor(config: ChatExecutorConfig) {
     if (!config.providers || config.providers.length === 0) {
-      throw new Error('ChatExecutor requires at least one provider');
+      throw new Error("ChatExecutor requires at least one provider");
     }
     this.providers = config.providers;
     this.toolHandler = config.toolHandler;
     this.maxToolRounds = config.maxToolRounds ?? 10;
     this.onStreamChunk = config.onStreamChunk;
-    this.allowedTools = config.allowedTools ? new Set(config.allowedTools) : null;
+    this.allowedTools = config.allowedTools
+      ? new Set(config.allowedTools)
+      : null;
     this.sessionTokenBudget = config.sessionTokenBudget;
     this.cooldownMs = Math.max(0, config.providerCooldownMs ?? 60_000);
     this.maxCooldownMs = Math.max(0, config.maxCooldownMs ?? 300_000);
@@ -193,19 +195,26 @@ export class ChatExecutor {
     if (this.sessionTokenBudget !== undefined) {
       const used = this.sessionTokens.get(sessionId) ?? 0;
       if (used >= this.sessionTokenBudget) {
-        throw new ChatBudgetExceededError(sessionId, used, this.sessionTokenBudget);
+        throw new ChatBudgetExceededError(
+          sessionId,
+          used,
+          this.sessionTokenBudget,
+        );
       }
     }
 
     // Build messages array
-    const messages: LLMMessage[] = [{ role: 'system', content: systemPrompt }];
+    const messages: LLMMessage[] = [{ role: "system", content: systemPrompt }];
 
     // Skill injection (best-effort)
     if (this.skillInjector) {
       try {
-        const skillContext = await this.skillInjector.inject(message.content, sessionId);
+        const skillContext = await this.skillInjector.inject(
+          message.content,
+          sessionId,
+        );
         if (skillContext) {
-          messages.push({ role: 'system', content: skillContext });
+          messages.push({ role: "system", content: skillContext });
         }
       } catch {
         // Skill injection failure is non-blocking
@@ -215,9 +224,12 @@ export class ChatExecutor {
     // Memory retrieval (best-effort)
     if (this.memoryRetriever) {
       try {
-        const memoryContext = await this.memoryRetriever.retrieve(message.content, sessionId);
+        const memoryContext = await this.memoryRetriever.retrieve(
+          message.content,
+          sessionId,
+        );
         if (memoryContext) {
-          messages.push({ role: 'system', content: memoryContext });
+          messages.push({ role: "system", content: memoryContext });
         }
       } catch {
         // Memory retrieval failure is non-blocking
@@ -229,36 +241,43 @@ export class ChatExecutor {
 
     // Build user message — multimodal if attachments with image data are present
     const imageAttachments = (message.attachments ?? []).filter(
-      (a) => a.data && a.mimeType.startsWith('image/'),
+      (a) => a.data && a.mimeType.startsWith("image/"),
     );
     if (imageAttachments.length > 0) {
-      const contentParts: import('./types.js').LLMContentPart[] = [];
+      const contentParts: import("./types.js").LLMContentPart[] = [];
       if (message.content) {
-        contentParts.push({ type: 'text', text: message.content });
+        contentParts.push({ type: "text", text: message.content });
       }
       for (const att of imageAttachments) {
-        const base64 = Buffer.from(att.data!).toString('base64');
+        const base64 = Buffer.from(att.data!).toString("base64");
         contentParts.push({
-          type: 'image_url',
+          type: "image_url",
           image_url: { url: `data:${att.mimeType};base64,${base64}` },
         });
       }
-      messages.push({ role: 'user', content: contentParts });
+      messages.push({ role: "user", content: contentParts });
     } else {
-      messages.push({ role: 'user', content: message.content });
+      messages.push({ role: "user", content: message.content });
     }
 
     // First LLM call
-    const cumulativeUsage: LLMUsage = { promptTokens: 0, completionTokens: 0, totalTokens: 0 };
+    const cumulativeUsage: LLMUsage = {
+      promptTokens: 0,
+      completionTokens: 0,
+      totalTokens: 0,
+    };
     const allToolCalls: ToolCallRecord[] = [];
 
-    let { response, providerName, usedFallback } = await this.callWithFallback(messages, activeStreamCallback);
+    let { response, providerName, usedFallback } = await this.callWithFallback(
+      messages,
+      activeStreamCallback,
+    );
     this.accumulateUsage(cumulativeUsage, response.usage);
 
     // Tool call loop
     let rounds = 0;
     while (
-      response.finishReason === 'tool_calls' &&
+      response.finishReason === "tool_calls" &&
       response.toolCalls.length > 0 &&
       activeToolHandler &&
       rounds < this.maxToolRounds
@@ -266,14 +285,16 @@ export class ChatExecutor {
       rounds++;
 
       // Append the assistant message with tool calls
-      messages.push({ role: 'assistant', content: response.content });
+      messages.push({ role: "assistant", content: response.content });
 
       for (const toolCall of response.toolCalls) {
         // Allowlist check
         if (this.allowedTools && !this.allowedTools.has(toolCall.name)) {
-          const errorResult = JSON.stringify({ error: `Tool "${toolCall.name}" is not permitted` });
+          const errorResult = JSON.stringify({
+            error: `Tool "${toolCall.name}" is not permitted`,
+          });
           messages.push({
-            role: 'tool',
+            role: "tool",
             content: errorResult,
             toolCallId: toolCall.id,
             toolName: toolCall.name,
@@ -292,8 +313,12 @@ export class ChatExecutor {
         let args: Record<string, unknown>;
         try {
           const parsed = JSON.parse(toolCall.arguments) as unknown;
-          if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-            throw new Error('Tool arguments must be a JSON object');
+          if (
+            typeof parsed !== "object" ||
+            parsed === null ||
+            Array.isArray(parsed)
+          ) {
+            throw new Error("Tool arguments must be a JSON object");
           }
           args = parsed as Record<string, unknown>;
         } catch (parseErr) {
@@ -301,7 +326,7 @@ export class ChatExecutor {
             error: `Invalid tool arguments: ${(parseErr as Error).message}`,
           });
           messages.push({
-            role: 'tool',
+            role: "tool",
             content: errorResult,
             toolCallId: toolCall.id,
             toolName: toolCall.name,
@@ -337,7 +362,7 @@ export class ChatExecutor {
         });
 
         messages.push({
-          role: 'tool',
+          role: "tool",
           content: result,
           toolCallId: toolCall.id,
           toolName: toolCall.name,
@@ -412,8 +437,11 @@ export class ChatExecutor {
           response = await provider.chat(messages);
         }
 
-        if (response.finishReason === 'error') {
-          throw response.error ?? new LLMProviderError(provider.name, 'Provider returned error');
+        if (response.finishReason === "error") {
+          throw (
+            response.error ??
+            new LLMProviderError(provider.name, "Provider returned error")
+          );
         }
 
         // Success — clear cooldown
@@ -448,7 +476,10 @@ export class ChatExecutor {
       throw lastError;
     }
     // All providers were skipped (in cooldown) — no provider was attempted
-    throw new LLMProviderError('chat-executor', 'All providers are in cooldown');
+    throw new LLMProviderError(
+      "chat-executor",
+      "All providers are in cooldown",
+    );
   }
 
   private shouldFallback(err: Error): boolean {

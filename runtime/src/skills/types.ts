@@ -7,9 +7,9 @@
  * @module
  */
 
-import type { Connection } from '@solana/web3.js';
-import type { Logger } from '../utils/logger.js';
-import type { Wallet } from '../types/wallet.js';
+import type { Connection } from "@solana/web3.js";
+import type { Logger } from "../utils/logger.js";
+import type { Wallet } from "../types/wallet.js";
 
 /**
  * Semantic version string in major.minor.patch format

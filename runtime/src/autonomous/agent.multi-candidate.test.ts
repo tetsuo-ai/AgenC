@@ -1,10 +1,10 @@
-import { describe, expect, it, vi } from 'vitest';
-import { Keypair } from '@solana/web3.js';
-import { InMemoryBackend } from '../memory/in-memory/backend.js';
-import type { TaskExecutor, VerifierVerdictPayload } from './types.js';
-import { AutonomousAgent } from './agent.js';
-import { VerifierLaneEscalationError } from './verifier.js';
-import { createTask } from './test-utils.js';
+import { describe, expect, it, vi } from "vitest";
+import { Keypair } from "@solana/web3.js";
+import { InMemoryBackend } from "../memory/in-memory/backend.js";
+import type { TaskExecutor, VerifierVerdictPayload } from "./types.js";
+import { AutonomousAgent } from "./agent.js";
+import { VerifierLaneEscalationError } from "./verifier.js";
+import { createTask } from "./test-utils.js";
 
 function createBaseAgent(
   executor: TaskExecutor,
@@ -33,30 +33,34 @@ function createBaseAgent(
   });
 }
 
-describe('AutonomousAgent multi-candidate integration', () => {
-  it('arbitrates bounded candidates and verifies the selected output', async () => {
+describe("AutonomousAgent multi-candidate integration", () => {
+  it("arbitrates bounded candidates and verifies the selected output", async () => {
     const executor = {
-      execute: vi.fn()
-        .mockResolvedValueOnce([1n])
-        .mockResolvedValueOnce([2n]),
+      execute: vi.fn().mockResolvedValueOnce([1n]).mockResolvedValueOnce([2n]),
     };
-    const verify = vi.fn(async (): Promise<VerifierVerdictPayload> => ({
-      verdict: 'pass',
-      confidence: 0.95,
-      reasons: [{ code: 'ok', message: 'pass' }],
-    }));
+    const verify = vi.fn(
+      async (): Promise<VerifierVerdictPayload> => ({
+        verdict: "pass",
+        confidence: 0.95,
+        reasons: [{ code: "ok", message: "pass" }],
+      }),
+    );
 
     const agent = createBaseAgent(executor, verify);
     const agentAny = agent as any;
-    agentAny.completeTaskWithRetry = vi.fn(async () => 'complete-tx');
+    agentAny.completeTaskWithRetry = vi.fn(async () => "complete-tx");
 
     const task = createTask();
-    const result = await agentAny.executeSequential(task, {
+    const result = await agentAny.executeSequential(
       task,
-      claimedAt: Date.now(),
-      claimTx: 'claim-tx',
-      retryCount: 0,
-    }, task.pda.toBase58());
+      {
+        task,
+        claimedAt: Date.now(),
+        claimTx: "claim-tx",
+        retryCount: 0,
+      },
+      task.pda.toBase58(),
+    );
 
     expect(result.success).toBe(true);
     expect(executor.execute).toHaveBeenCalledTimes(2);
@@ -65,17 +69,20 @@ describe('AutonomousAgent multi-candidate integration', () => {
     expect(agentAny.completeTaskWithRetry).toHaveBeenCalledWith(task, [1n]);
   });
 
-  it('escalates when candidate disagreement crosses threshold under verifier gating', async () => {
+  it("escalates when candidate disagreement crosses threshold under verifier gating", async () => {
     const executor = {
-      execute: vi.fn()
+      execute: vi
+        .fn()
         .mockResolvedValueOnce([11n])
         .mockResolvedValueOnce([22n]),
     };
-    const verify = vi.fn(async (): Promise<VerifierVerdictPayload> => ({
-      verdict: 'pass',
-      confidence: 0.95,
-      reasons: [{ code: 'ok', message: 'pass' }],
-    }));
+    const verify = vi.fn(
+      async (): Promise<VerifierVerdictPayload> => ({
+        verdict: "pass",
+        confidence: 0.95,
+        reasons: [{ code: "ok", message: "pass" }],
+      }),
+    );
 
     const agent = createBaseAgent(executor, verify, {
       memory: new InMemoryBackend(),
@@ -92,26 +99,32 @@ describe('AutonomousAgent multi-candidate integration', () => {
       },
     });
     const agentAny = agent as any;
-    agentAny.completeTaskWithRetry = vi.fn(async () => 'should-not-complete');
+    agentAny.completeTaskWithRetry = vi.fn(async () => "should-not-complete");
 
     const task = createTask();
 
     try {
-      await agentAny.executeSequential(task, {
+      await agentAny.executeSequential(
         task,
-        claimedAt: Date.now(),
-        claimTx: 'claim-tx',
-        retryCount: 0,
-      }, task.pda.toBase58());
-      throw new Error('expected verifier disagreement escalation');
+        {
+          task,
+          claimedAt: Date.now(),
+          claimTx: "claim-tx",
+          retryCount: 0,
+        },
+        task.pda.toBase58(),
+      );
+      throw new Error("expected verifier disagreement escalation");
     } catch (error) {
       expect(error).toBeInstanceOf(VerifierLaneEscalationError);
       const typed = error as VerifierLaneEscalationError;
-      expect(typed.metadata.reason).toBe('verifier_disagreement');
-      expect(typed.metadata.details?.['reasonCodes']).toEqual(
-        expect.arrayContaining(['value_mismatch', 'semantic_distance']),
+      expect(typed.metadata.reason).toBe("verifier_disagreement");
+      expect(typed.metadata.details?.["reasonCodes"]).toEqual(
+        expect.arrayContaining(["value_mismatch", "semantic_distance"]),
       );
-      expect(typed.metadata.details?.['provenanceLinkIds']).toEqual(expect.any(Array));
+      expect(typed.metadata.details?.["provenanceLinkIds"]).toEqual(
+        expect.any(Array),
+      );
     }
 
     expect(verify).not.toHaveBeenCalled();

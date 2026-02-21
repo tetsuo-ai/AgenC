@@ -64,7 +64,7 @@ pub fn handler(ctx: Context<RateSkill>, rating: u8, review_hash: Option<[u8; 32]
     );
 
     require!(
-        rating >= 1 && rating <= 5,
+        (1..=5).contains(&rating),
         CoordinationError::SkillInvalidRating
     );
 

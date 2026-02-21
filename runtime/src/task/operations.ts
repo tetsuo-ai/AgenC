@@ -8,35 +8,35 @@
  * @module
  */
 
-import { PublicKey, SystemProgram } from '@solana/web3.js';
-import { getAssociatedTokenAddressSync } from '@solana/spl-token';
+import { PublicKey, SystemProgram } from "@solana/web3.js";
+import { getAssociatedTokenAddressSync } from "@solana/spl-token";
 import {
   HASH_SIZE,
   RISC0_IMAGE_ID_LEN,
   RISC0_JOURNAL_LEN,
   RISC0_SEAL_BORSH_LEN,
   TRUSTED_RISC0_SELECTOR,
-} from '@agenc/sdk';
-import { toAnchorBytes } from '../utils/encoding.js';
-import anchor, { type Program } from '@coral-xyz/anchor';
-import type { AgencCoordination } from '../types/agenc_coordination.js';
-import type { Logger } from '../utils/logger.js';
-import { silentLogger } from '../utils/logger.js';
+} from "@agenc/sdk";
+import { toAnchorBytes } from "../utils/encoding.js";
+import anchor, { type Program } from "@coral-xyz/anchor";
+import type { AgencCoordination } from "../types/agenc_coordination.js";
+import type { Logger } from "../utils/logger.js";
+import { silentLogger } from "../utils/logger.js";
 import type {
   OnChainTask,
   OnChainTaskClaim,
   ClaimResult,
   CompleteResult,
-} from './types.js';
+} from "./types.js";
 import {
   parseOnChainTask,
   parseOnChainTaskClaim,
   OnChainTaskStatus,
-} from './types.js';
-import { deriveTaskPda, deriveClaimPda, deriveEscrowPda } from './pda.js';
-import { deriveAgentPda, findProtocolPda } from '../agent/pda.js';
-import { fetchTreasury } from '../utils/treasury.js';
-import { buildCompleteTaskTokenAccounts } from '../utils/token.js';
+} from "./types.js";
+import { deriveTaskPda, deriveClaimPda, deriveEscrowPda } from "./pda.js";
+import { deriveAgentPda, findProtocolPda } from "../agent/pda.js";
+import { fetchTreasury } from "../utils/treasury.js";
+import { buildCompleteTaskTokenAccounts } from "../utils/token.js";
 import {
   isAnchorError,
   parseAnchorError,
@@ -45,8 +45,8 @@ import {
   AnchorErrorCodes,
   validateByteLength,
   validateNonZeroBytes,
-} from '../types/errors.js';
-import { encodeStatusByte, queryWithFallback } from '../utils/query.js';
+} from "../types/errors.js";
+import { encodeStatusByte, queryWithFallback } from "../utils/query.js";
 
 // ============================================================================
 // Account Layout Constants
@@ -61,15 +61,15 @@ import { encodeStatusByte, queryWithFallback } from '../utils/query.js';
  */
 export const TASK_STATUS_OFFSET = 186;
 
-const BINDING_SPEND_SEED = Buffer.from('binding_spend');
-const NULLIFIER_SPEND_SEED = Buffer.from('nullifier_spend');
-const ROUTER_SEED = Buffer.from('router');
-const VERIFIER_SEED = Buffer.from('verifier');
+const BINDING_SPEND_SEED = Buffer.from("binding_spend");
+const NULLIFIER_SPEND_SEED = Buffer.from("nullifier_spend");
+const ROUTER_SEED = Buffer.from("router");
+const VERIFIER_SEED = Buffer.from("verifier");
 const TRUSTED_RISC0_ROUTER_PROGRAM_ID = new PublicKey(
-  '6JvFfBrvCcWgANKh1Eae9xDq4RC6cfJuBcf71rp2k9Y7',
+  "6JvFfBrvCcWgANKh1Eae9xDq4RC6cfJuBcf71rp2k9Y7",
 );
 const TRUSTED_RISC0_VERIFIER_PROGRAM_ID = new PublicKey(
-  'THq1qFYQoh7zgcjXoMXduDBqiZRCPeg3PvvMbrVQUge',
+  "THq1qFYQoh7zgcjXoMXduDBqiZRCPeg3PvvMbrVQUge",
 );
 
 // ============================================================================
@@ -162,7 +162,11 @@ export class TaskOperations {
     creator: PublicKey,
     taskId: Uint8Array,
   ): Promise<{ task: OnChainTask; taskPda: PublicKey } | null> {
-    const { address: taskPda } = deriveTaskPda(creator, taskId, this.program.programId);
+    const { address: taskPda } = deriveTaskPda(
+      creator,
+      taskId,
+      this.program.programId,
+    );
     const task = await this.fetchTask(taskPda);
     if (!task) {
       return null;
@@ -175,7 +179,9 @@ export class TaskOperations {
    *
    * @returns Array of all tasks with their PDAs
    */
-  async fetchAllTasks(): Promise<Array<{ task: OnChainTask; taskPda: PublicKey }>> {
+  async fetchAllTasks(): Promise<
+    Array<{ task: OnChainTask; taskPda: PublicKey }>
+  > {
     const accounts = await this.program.account.task.all();
     return accounts.map((acc) => ({
       task: parseOnChainTask(acc.account),
@@ -193,7 +199,9 @@ export class TaskOperations {
    *
    * @returns Array of claimable tasks with their PDAs
    */
-  async fetchClaimableTasks(): Promise<Array<{ task: OnChainTask; taskPda: PublicKey }>> {
+  async fetchClaimableTasks(): Promise<
+    Array<{ task: OnChainTask; taskPda: PublicKey }>
+  > {
     return queryWithFallback(
       async () => {
         const [openAccounts, inProgressAccounts] = await Promise.all([
@@ -217,10 +225,16 @@ export class TaskOperations {
 
         const results: Array<{ task: OnChainTask; taskPda: PublicKey }> = [];
         for (const acc of openAccounts) {
-          results.push({ task: parseOnChainTask(acc.account), taskPda: acc.publicKey });
+          results.push({
+            task: parseOnChainTask(acc.account),
+            taskPda: acc.publicKey,
+          });
         }
         for (const acc of inProgressAccounts) {
-          results.push({ task: parseOnChainTask(acc.account), taskPda: acc.publicKey });
+          results.push({
+            task: parseOnChainTask(acc.account),
+            taskPda: acc.publicKey,
+          });
         }
         return results;
       },
@@ -233,7 +247,7 @@ export class TaskOperations {
         );
       },
       this.logger,
-      'fetchClaimableTasks',
+      "fetchClaimableTasks",
     );
   }
 
@@ -246,7 +260,11 @@ export class TaskOperations {
   async fetchClaim(taskPda: PublicKey): Promise<OnChainTaskClaim | null> {
     try {
       const agentPda = this.getAgentPda();
-      const { address: claimPda } = deriveClaimPda(taskPda, agentPda, this.program.programId);
+      const { address: claimPda } = deriveClaimPda(
+        taskPda,
+        agentPda,
+        this.program.programId,
+      );
       const raw = await this.program.account.taskClaim.fetch(claimPda);
       return parseOnChainTaskClaim(raw);
     } catch (err) {
@@ -268,7 +286,11 @@ export class TaskOperations {
     const agentPda = this.getAgentPda();
     const allClaims = await this.program.account.taskClaim.all();
 
-    const results: Array<{ claim: OnChainTaskClaim; claimPda: PublicKey; taskPda: PublicKey }> = [];
+    const results: Array<{
+      claim: OnChainTaskClaim;
+      claimPda: PublicKey;
+      taskPda: PublicKey;
+    }> = [];
 
     for (const acc of allClaims) {
       const claim = parseOnChainTaskClaim(acc.account);
@@ -290,17 +312,32 @@ export class TaskOperations {
    *
    * Returns 0 when the ATA does not exist (e.g. already closed).
    */
-  async fetchEscrowTokenBalance(taskPda: PublicKey, rewardMint: PublicKey): Promise<bigint> {
-    const { address: escrowPda } = deriveEscrowPda(taskPda, this.program.programId);
-    const escrowTokenAta = getAssociatedTokenAddressSync(rewardMint, escrowPda, true);
+  async fetchEscrowTokenBalance(
+    taskPda: PublicKey,
+    rewardMint: PublicKey,
+  ): Promise<bigint> {
+    const { address: escrowPda } = deriveEscrowPda(
+      taskPda,
+      this.program.programId,
+    );
+    const escrowTokenAta = getAssociatedTokenAddressSync(
+      rewardMint,
+      escrowPda,
+      true,
+    );
     try {
-      const balance = await this.program.provider.connection.getTokenAccountBalance(escrowTokenAta);
+      const balance =
+        await this.program.provider.connection.getTokenAccountBalance(
+          escrowTokenAta,
+        );
       return BigInt(balance.value.amount);
     } catch (err) {
       if (isAccountNotFoundError(err)) {
         return 0n;
       }
-      this.logger.error(`Failed to fetch escrow token balance for ${taskPda.toBase58()}: ${err}`);
+      this.logger.error(
+        `Failed to fetch escrow token balance for ${taskPda.toBase58()}: ${err}`,
+      );
       throw err;
     }
   }
@@ -318,7 +355,11 @@ export class TaskOperations {
    */
   async claimTask(taskPda: PublicKey, task: OnChainTask): Promise<ClaimResult> {
     const workerPda = this.getAgentPda();
-    const { address: claimPda } = deriveClaimPda(taskPda, workerPda, this.program.programId);
+    const { address: claimPda } = deriveClaimPda(
+      taskPda,
+      workerPda,
+      this.program.programId,
+    );
     const protocolPda = findProtocolPda(this.program.programId);
 
     this.logger.info(`Claiming task ${taskPda.toBase58()}`);
@@ -348,34 +389,55 @@ export class TaskOperations {
       const parsed = parseAnchorError(err);
       if (parsed) {
         if (isAnchorError(err, AnchorErrorCodes.TaskFullyClaimed)) {
-          throw new TaskNotClaimableError(taskPda, 'Task has reached maximum workers');
+          throw new TaskNotClaimableError(
+            taskPda,
+            "Task has reached maximum workers",
+          );
         }
         if (isAnchorError(err, AnchorErrorCodes.TaskExpired)) {
-          throw new TaskNotClaimableError(taskPda, 'Task has expired');
+          throw new TaskNotClaimableError(taskPda, "Task has expired");
         }
         if (isAnchorError(err, AnchorErrorCodes.InsufficientCapabilities)) {
-          throw new TaskNotClaimableError(taskPda, 'Agent lacks required capabilities');
+          throw new TaskNotClaimableError(
+            taskPda,
+            "Agent lacks required capabilities",
+          );
         }
         if (isAnchorError(err, AnchorErrorCodes.TaskNotOpen)) {
-          throw new TaskNotClaimableError(taskPda, 'Task is not open for claims');
+          throw new TaskNotClaimableError(
+            taskPda,
+            "Task is not open for claims",
+          );
         }
         if (isAnchorError(err, AnchorErrorCodes.AlreadyClaimed)) {
-          throw new TaskNotClaimableError(taskPda, 'Agent has already claimed this task');
+          throw new TaskNotClaimableError(
+            taskPda,
+            "Agent has already claimed this task",
+          );
         }
         if (isAnchorError(err, AnchorErrorCodes.AgentNotActive)) {
-          throw new TaskNotClaimableError(taskPda, 'Agent is not active');
+          throw new TaskNotClaimableError(taskPda, "Agent is not active");
         }
         if (isAnchorError(err, AnchorErrorCodes.MaxActiveTasksReached)) {
-          throw new TaskNotClaimableError(taskPda, 'Agent has reached maximum active tasks');
+          throw new TaskNotClaimableError(
+            taskPda,
+            "Agent has reached maximum active tasks",
+          );
         }
         if (isAnchorError(err, AnchorErrorCodes.InsufficientReputation)) {
-          throw new TaskNotClaimableError(taskPda, 'Agent reputation below task minimum');
+          throw new TaskNotClaimableError(
+            taskPda,
+            "Agent reputation below task minimum",
+          );
         }
         if (isAnchorError(err, AnchorErrorCodes.InvalidStatusTransition)) {
-          throw new TaskNotClaimableError(taskPda, 'Invalid task status transition');
+          throw new TaskNotClaimableError(
+            taskPda,
+            "Invalid task status transition",
+          );
         }
         if (isAnchorError(err, AnchorErrorCodes.SelfTaskNotAllowed)) {
-          throw new TaskNotClaimableError(taskPda, 'Cannot claim own task');
+          throw new TaskNotClaimableError(taskPda, "Cannot claim own task");
         }
       }
       this.logger.error(`Failed to claim task ${taskPda.toBase58()}: ${err}`);
@@ -398,15 +460,22 @@ export class TaskOperations {
     resultData: Uint8Array | null,
   ): Promise<CompleteResult> {
     // Input validation (#963)
-    validateByteLength(proofHash, 32, 'proofHash');
-    validateNonZeroBytes(proofHash, 'proofHash');
+    validateByteLength(proofHash, 32, "proofHash");
+    validateNonZeroBytes(proofHash, "proofHash");
     if (resultData !== null) {
-      validateByteLength(resultData, 64, 'resultData');
+      validateByteLength(resultData, 64, "resultData");
     }
 
     const workerPda = this.getAgentPda();
-    const { address: claimPda } = deriveClaimPda(taskPda, workerPda, this.program.programId);
-    const { address: escrowPda } = deriveEscrowPda(taskPda, this.program.programId);
+    const { address: claimPda } = deriveClaimPda(
+      taskPda,
+      workerPda,
+      this.program.programId,
+    );
+    const { address: escrowPda } = deriveEscrowPda(
+      taskPda,
+      this.program.programId,
+    );
     const protocolPda = findProtocolPda(this.program.programId);
     const treasury = await this.getProtocolTreasury();
     const tokenAccounts = buildCompleteTaskTokenAccounts(
@@ -422,7 +491,7 @@ export class TaskOperations {
       const signature = await this.program.methods
         .completeTask(
           toAnchorBytes(proofHash),
-          resultData ? (toAnchorBytes(resultData)) : null,
+          resultData ? toAnchorBytes(resultData) : null,
         )
         .accountsPartial({
           task: taskPda,
@@ -446,8 +515,13 @@ export class TaskOperations {
         transactionSignature: signature,
       };
     } catch (err) {
-      this.logger.error(`Failed to complete task ${taskPda.toBase58()}: ${err}`);
-      throw new TaskSubmissionError(taskPda, err instanceof Error ? err.message : String(err));
+      this.logger.error(
+        `Failed to complete task ${taskPda.toBase58()}: ${err}`,
+      );
+      throw new TaskSubmissionError(
+        taskPda,
+        err instanceof Error ? err.message : String(err),
+      );
     }
   }
 
@@ -473,26 +547,33 @@ export class TaskOperations {
     nullifierSeed: Uint8Array,
   ): Promise<CompleteResult> {
     // Input validation (#963)
-    validateByteLength(sealBytes, RISC0_SEAL_BORSH_LEN, 'sealBytes');
-    validateByteLength(journal, RISC0_JOURNAL_LEN, 'journal');
-    validateByteLength(imageId, RISC0_IMAGE_ID_LEN, 'imageId');
-    validateByteLength(bindingSeed, HASH_SIZE, 'bindingSeed');
-    validateByteLength(nullifierSeed, HASH_SIZE, 'nullifierSeed');
-    validateNonZeroBytes(imageId, 'imageId');
-    validateNonZeroBytes(bindingSeed, 'bindingSeed');
-    validateNonZeroBytes(nullifierSeed, 'nullifierSeed');
+    validateByteLength(sealBytes, RISC0_SEAL_BORSH_LEN, "sealBytes");
+    validateByteLength(journal, RISC0_JOURNAL_LEN, "journal");
+    validateByteLength(imageId, RISC0_IMAGE_ID_LEN, "imageId");
+    validateByteLength(bindingSeed, HASH_SIZE, "bindingSeed");
+    validateByteLength(nullifierSeed, HASH_SIZE, "nullifierSeed");
+    validateNonZeroBytes(imageId, "imageId");
+    validateNonZeroBytes(bindingSeed, "bindingSeed");
+    validateNonZeroBytes(nullifierSeed, "nullifierSeed");
 
     if (
       !Buffer.from(sealBytes.subarray(0, TRUSTED_RISC0_SELECTOR.length)).equals(
         Buffer.from(TRUSTED_RISC0_SELECTOR),
       )
     ) {
-      throw new Error('sealBytes selector does not match trusted selector');
+      throw new Error("sealBytes selector does not match trusted selector");
     }
 
     const workerPda = this.getAgentPda();
-    const { address: claimPda } = deriveClaimPda(taskPda, workerPda, this.program.programId);
-    const { address: escrowPda } = deriveEscrowPda(taskPda, this.program.programId);
+    const { address: claimPda } = deriveClaimPda(
+      taskPda,
+      workerPda,
+      this.program.programId,
+    );
+    const { address: escrowPda } = deriveEscrowPda(
+      taskPda,
+      this.program.programId,
+    );
     const protocolPda = findProtocolPda(this.program.programId);
     const [bindingSpend] = PublicKey.findProgramAddressSync(
       [BINDING_SPEND_SEED, Buffer.from(bindingSeed)],
@@ -523,7 +604,7 @@ export class TaskOperations {
     try {
       // task_id argument is a u64 on-chain, convert taskId bytes to number
       // The on-chain instruction uses task_id: u64 as a proof binding input
-      const taskIdBN = new anchor.BN(task.taskId.slice(0, 8), 'le');
+      const taskIdBN = new anchor.BN(task.taskId.slice(0, 8), "le");
 
       const proof = {
         sealBytes: toAnchorBytes(sealBytes),
@@ -538,9 +619,9 @@ export class TaskOperations {
           taskId: anchor.BN,
           proofArgs: typeof proof,
         ) => {
-          accountsPartial: (
-            accounts: Record<string, unknown>,
-          ) => { rpc: () => Promise<string> };
+          accountsPartial: (accounts: Record<string, unknown>) => {
+            rpc: () => Promise<string>;
+          };
         };
       };
 
@@ -575,8 +656,13 @@ export class TaskOperations {
         transactionSignature: signature,
       };
     } catch (err) {
-      this.logger.error(`Failed to complete task privately ${taskPda.toBase58()}: ${err}`);
-      throw new TaskSubmissionError(taskPda, err instanceof Error ? err.message : String(err));
+      this.logger.error(
+        `Failed to complete task privately ${taskPda.toBase58()}: ${err}`,
+      );
+      throw new TaskSubmissionError(
+        taskPda,
+        err instanceof Error ? err.message : String(err),
+      );
     }
   }
 
@@ -589,7 +675,10 @@ export class TaskOperations {
    */
   private getAgentPda(): PublicKey {
     if (!this.cachedAgentPda) {
-      this.cachedAgentPda = deriveAgentPda(this.agentId, this.program.programId).address;
+      this.cachedAgentPda = deriveAgentPda(
+        this.agentId,
+        this.program.programId,
+      ).address;
     }
     return this.cachedAgentPda;
   }
@@ -601,7 +690,10 @@ export class TaskOperations {
     if (this.cachedProtocolTreasury) {
       return this.cachedProtocolTreasury;
     }
-    this.cachedProtocolTreasury = await fetchTreasury(this.program, this.program.programId);
+    this.cachedProtocolTreasury = await fetchTreasury(
+      this.program,
+      this.program.programId,
+    );
     return this.cachedProtocolTreasury;
   }
 }
@@ -616,7 +708,7 @@ export class TaskOperations {
 function isAccountNotFoundError(err: unknown): boolean {
   return (
     err instanceof Error &&
-    (err.message.includes('Account does not exist') ||
-      err.message.includes('could not find'))
+    (err.message.includes("Account does not exist") ||
+      err.message.includes("could not find"))
   );
 }

@@ -12,9 +12,9 @@
  * @module
  */
 
-import { PublicKey } from '@solana/web3.js';
-import { DependencyGraph, type TaskNode } from './dependency-graph.js';
-import { CommitmentLedger } from './commitment-ledger.js';
+import { PublicKey } from "@solana/web3.js";
+import { DependencyGraph, type TaskNode } from "./dependency-graph.js";
+import { CommitmentLedger } from "./commitment-ledger.js";
 
 // ============================================================================
 // Type Definitions
@@ -24,27 +24,27 @@ import { CommitmentLedger } from './commitment-ledger.js';
  * Reason for triggering a rollback.
  */
 export type RollbackReason =
-  | 'proof_failed' // Proof verification failed on-chain
-  | 'proof_timeout' // Proof generation timed out
-  | 'ancestor_failed' // Ancestor task proof failed (cascade)
-  | 'manual'; // Manual rollback requested
+  | "proof_failed" // Proof verification failed on-chain
+  | "proof_timeout" // Proof generation timed out
+  | "ancestor_failed" // Ancestor task proof failed (cascade)
+  | "manual"; // Manual rollback requested
 
 /**
  * State of a task when it was rolled back.
  */
 export type RolledBackTaskState =
-  | 'executing' // Task was still executing
-  | 'executed' // Task execution completed, no proof yet
-  | 'proof_generating' // Proof generation was in progress
-  | 'proof_generated'; // Proof was ready but not submitted
+  | "executing" // Task was still executing
+  | "executed" // Task execution completed, no proof yet
+  | "proof_generating" // Proof generation was in progress
+  | "proof_generated"; // Proof was ready but not submitted
 
 /**
  * Action taken to roll back a task.
  */
 export type RolledBackTaskAction =
-  | 'aborted' // Execution was aborted via AbortController
-  | 'discarded' // Result was discarded (no abort needed)
-  | 'cancelled'; // Pending proof was cancelled
+  | "aborted" // Execution was aborted via AbortController
+  | "discarded" // Result was discarded (no abort needed)
+  | "cancelled"; // Pending proof was cancelled
 
 /**
  * Configuration for the RollbackController.
@@ -140,7 +140,7 @@ export interface RollbackEvents {
   onRetryScheduled?: (
     taskPda: PublicKey,
     retryCount: number,
-    delayMs: number
+    delayMs: number,
   ) => void;
 }
 
@@ -273,7 +273,7 @@ export class RollbackController {
     config: Partial<RollbackConfig>,
     dependencyGraph: DependencyGraph,
     commitmentLedger: CommitmentLedger,
-    events: RollbackEvents = {}
+    events: RollbackEvents = {},
   ) {
     this.config = { ...DEFAULT_CONFIG, ...config };
     this.dependencyGraph = dependencyGraph;
@@ -294,7 +294,7 @@ export class RollbackController {
   registerActiveTask(
     taskPda: PublicKey,
     abortController: AbortController,
-    commitmentId?: string
+    commitmentId?: string,
   ): void {
     const key = taskPda.toBase58();
     this.activeTasks.set(key, {
@@ -337,7 +337,7 @@ export class RollbackController {
    */
   async rollback(
     rootTaskPda: PublicKey,
-    reason: RollbackReason
+    reason: RollbackReason,
   ): Promise<RollbackResult> {
     const rootKey = rootTaskPda.toBase58();
 
@@ -362,9 +362,7 @@ export class RollbackController {
       }
 
       // Process each affected task, deepest-first to avoid partial state.
-      const orderedNodes = [...affectedNodes].sort(
-        (a, b) => b.depth - a.depth
-      );
+      const orderedNodes = [...affectedNodes].sort((a, b) => b.depth - a.depth);
       const rolledBackTasks: RolledBackTask[] = [];
 
       for (const node of orderedNodes) {
@@ -390,7 +388,7 @@ export class RollbackController {
       }
 
       // Update root task status in graph
-      this.dependencyGraph.updateStatus(rootTaskPda, 'failed');
+      this.dependencyGraph.updateStatus(rootTaskPda, "failed");
 
       // Post-rollback validation and orphan cleanup
       const validation = this.validateRollbackChain(rootTaskPda);
@@ -402,11 +400,11 @@ export class RollbackController {
       // Calculate totals
       const wastedComputeMs = rolledBackTasks.reduce(
         (sum, t) => sum + t.computeTimeMs,
-        0
+        0,
       );
       const stakeAtRisk = rolledBackTasks.reduce(
         (sum, t) => sum + t.stakeAtRisk,
-        0n
+        0n,
       );
 
       // Build result
@@ -470,7 +468,7 @@ export class RollbackController {
       const descKey = desc.taskPda.toBase58();
       maxChainDepth = Math.max(maxChainDepth, desc.depth);
 
-      if (desc.status === 'completed' || desc.status === 'failed') {
+      if (desc.status === "completed" || desc.status === "failed") {
         alreadyTerminal.push(desc.taskPda);
         continue;
       }
@@ -504,7 +502,7 @@ export class RollbackController {
         continue;
       }
 
-      const rolledBack = await this.rollbackTask(node, 'ancestor_failed');
+      const rolledBack = await this.rollbackTask(node, "ancestor_failed");
       if (rolledBack) {
         results.push(rolledBack);
       }
@@ -575,7 +573,7 @@ export class RollbackController {
    */
   private async rollbackTask(
     node: TaskNode,
-    _reason: RollbackReason
+    _reason: RollbackReason,
   ): Promise<RolledBackTask | null> {
     const key = node.taskPda.toBase58();
 
@@ -601,34 +599,34 @@ export class RollbackController {
 
     if (activeEntry) {
       // Task is actively executing - abort it
-      state = 'executing';
-      action = 'aborted';
+      state = "executing";
+      action = "aborted";
       computeTimeMs = Date.now() - activeEntry.startedAt;
       activeEntry.abortController.abort();
       this.activeTasks.delete(key);
     } else if (commitment) {
       // Task has a commitment - determine state from commitment status
       switch (commitment.status) {
-        case 'pending':
-        case 'executing':
-          state = 'executing';
-          action = 'aborted';
+        case "pending":
+        case "executing":
+          state = "executing";
+          action = "aborted";
           break;
-        case 'executed':
-          state = 'executed';
-          action = 'discarded';
+        case "executed":
+          state = "executed";
+          action = "discarded";
           break;
-        case 'proof_generating':
-          state = 'proof_generating';
-          action = 'cancelled';
+        case "proof_generating":
+          state = "proof_generating";
+          action = "cancelled";
           break;
-        case 'proof_generated':
-          state = 'proof_generated';
-          action = 'cancelled';
+        case "proof_generated":
+          state = "proof_generated";
+          action = "cancelled";
           break;
         default:
-          state = 'executed';
-          action = 'discarded';
+          state = "executed";
+          action = "discarded";
       }
 
       // Get stake from commitment
@@ -638,8 +636,8 @@ export class RollbackController {
       computeTimeMs = Date.now() - commitment.createdAt;
     } else {
       // No commitment - task was pending but not started
-      state = 'executing';
-      action = 'discarded';
+      state = "executing";
+      action = "discarded";
     }
 
     // Update commitment status to rolled_back
@@ -647,14 +645,14 @@ export class RollbackController {
       try {
         // Mark the commitment as rolled back by marking its source as failed
         // This will cascade to dependents via markFailed
-        this.commitmentLedger.updateStatus(node.taskPda, 'rolled_back');
+        this.commitmentLedger.updateStatus(node.taskPda, "rolled_back");
       } catch {
         // May already be in a terminal state
       }
     }
 
     // Update task status in dependency graph
-    this.dependencyGraph.updateStatus(node.taskPda, 'failed');
+    this.dependencyGraph.updateStatus(node.taskPda, "failed");
 
     return {
       taskPda: node.taskPda,

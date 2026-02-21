@@ -4,26 +4,26 @@
  * @module
  */
 
-import { readFile } from 'node:fs/promises';
-import { watch, type FSWatcher } from 'node:fs';
-import { join } from 'node:path';
-import { homedir } from 'node:os';
-import type { GatewayConfig, ConfigDiff } from './types.js';
-import { GatewayValidationError, GatewayConnectionError } from './errors.js';
+import { readFile } from "node:fs/promises";
+import { watch, type FSWatcher } from "node:fs";
+import { join } from "node:path";
+import { homedir } from "node:os";
+import type { GatewayConfig, ConfigDiff } from "./types.js";
+import { GatewayValidationError, GatewayConnectionError } from "./errors.js";
 import {
   type ValidationResult,
   validationResult,
   requireIntRange,
   requireOneOf,
-} from '../utils/validation.js';
-import { isRecord } from '../utils/type-guards.js';
+} from "../utils/validation.js";
+import { isRecord } from "../utils/type-guards.js";
 
 // ============================================================================
 // Default config path
 // ============================================================================
 
 export function getDefaultConfigPath(): string {
-  return process.env.AGENC_CONFIG ?? join(homedir(), '.agenc', 'config.json');
+  return process.env.AGENC_CONFIG ?? join(homedir(), ".agenc", "config.json");
 }
 
 // ============================================================================
@@ -33,7 +33,7 @@ export function getDefaultConfigPath(): string {
 export async function loadGatewayConfig(path: string): Promise<GatewayConfig> {
   let raw: string;
   try {
-    raw = await readFile(path, 'utf-8');
+    raw = await readFile(path, "utf-8");
   } catch (err) {
     throw new GatewayConnectionError(
       `Failed to read config file at ${path}: ${(err as Error).message}`,
@@ -44,12 +44,12 @@ export async function loadGatewayConfig(path: string): Promise<GatewayConfig> {
   try {
     parsed = JSON.parse(raw);
   } catch {
-    throw new GatewayValidationError('config', 'Invalid JSON');
+    throw new GatewayValidationError("config", "Invalid JSON");
   }
 
   if (!isValidGatewayConfig(parsed)) {
     const result = validateGatewayConfig(parsed);
-    throw new GatewayValidationError('config', result.errors.join('; '));
+    throw new GatewayValidationError("config", result.errors.join("; "));
   }
 
   return parsed;
@@ -59,9 +59,22 @@ export async function loadGatewayConfig(path: string): Promise<GatewayConfig> {
 // Config validation
 // ============================================================================
 
-const VALID_LOG_LEVELS: ReadonlySet<string> = new Set(['debug', 'info', 'warn', 'error']);
-const VALID_LLM_PROVIDERS: ReadonlySet<string> = new Set(['grok', 'anthropic', 'ollama']);
-const VALID_MEMORY_BACKENDS: ReadonlySet<string> = new Set(['memory', 'sqlite', 'redis']);
+const VALID_LOG_LEVELS: ReadonlySet<string> = new Set([
+  "debug",
+  "info",
+  "warn",
+  "error",
+]);
+const VALID_LLM_PROVIDERS: ReadonlySet<string> = new Set([
+  "grok",
+  "anthropic",
+  "ollama",
+]);
+const VALID_MEMORY_BACKENDS: ReadonlySet<string> = new Set([
+  "memory",
+  "sqlite",
+  "redis",
+]);
 
 /** Type predicate — returns true when `obj` satisfies the GatewayConfig shape. */
 export function isValidGatewayConfig(obj: unknown): obj is GatewayConfig {
@@ -72,81 +85,111 @@ export function validateGatewayConfig(obj: unknown): ValidationResult {
   const errors: string[] = [];
 
   if (!isRecord(obj)) {
-    return { valid: false, errors: ['Config must be a non-null object'] };
+    return { valid: false, errors: ["Config must be a non-null object"] };
   }
 
   // gateway section
   if (!isRecord(obj.gateway)) {
-    errors.push('gateway section is required');
+    errors.push("gateway section is required");
   } else {
-    requireIntRange(obj.gateway.port, 'gateway.port', 1, 65535, errors);
-    if (obj.gateway.bind !== undefined && typeof obj.gateway.bind !== 'string') {
-      errors.push('gateway.bind must be a string');
+    requireIntRange(obj.gateway.port, "gateway.port", 1, 65535, errors);
+    if (
+      obj.gateway.bind !== undefined &&
+      typeof obj.gateway.bind !== "string"
+    ) {
+      errors.push("gateway.bind must be a string");
     }
   }
 
   // agent section
   if (!isRecord(obj.agent)) {
-    errors.push('agent section is required');
+    errors.push("agent section is required");
   } else {
-    if (typeof obj.agent.name !== 'string' || obj.agent.name.trim().length === 0) {
-      errors.push('agent.name must be a non-empty string');
+    if (
+      typeof obj.agent.name !== "string" ||
+      obj.agent.name.trim().length === 0
+    ) {
+      errors.push("agent.name must be a non-empty string");
     }
   }
 
   // connection section
   if (!isRecord(obj.connection)) {
-    errors.push('connection section is required');
+    errors.push("connection section is required");
   } else {
-    if (typeof obj.connection.rpcUrl !== 'string' || obj.connection.rpcUrl.trim().length === 0) {
-      errors.push('connection.rpcUrl must be a non-empty string');
+    if (
+      typeof obj.connection.rpcUrl !== "string" ||
+      obj.connection.rpcUrl.trim().length === 0
+    ) {
+      errors.push("connection.rpcUrl must be a non-empty string");
     }
   }
 
   // logging (optional — requires process restart to change level)
   if (obj.logging !== undefined) {
     if (!isRecord(obj.logging)) {
-      errors.push('logging must be an object');
+      errors.push("logging must be an object");
     } else if (obj.logging.level !== undefined) {
-      requireOneOf(obj.logging.level, 'logging.level', VALID_LOG_LEVELS, errors);
+      requireOneOf(
+        obj.logging.level,
+        "logging.level",
+        VALID_LOG_LEVELS,
+        errors,
+      );
     }
   }
 
   // llm (optional)
   if (obj.llm !== undefined) {
     if (!isRecord(obj.llm)) {
-      errors.push('llm must be an object');
+      errors.push("llm must be an object");
     } else {
-      requireOneOf(obj.llm.provider, 'llm.provider', VALID_LLM_PROVIDERS, errors);
+      requireOneOf(
+        obj.llm.provider,
+        "llm.provider",
+        VALID_LLM_PROVIDERS,
+        errors,
+      );
     }
   }
 
   // memory (optional)
   if (obj.memory !== undefined) {
     if (!isRecord(obj.memory)) {
-      errors.push('memory must be an object');
+      errors.push("memory must be an object");
     } else {
-      requireOneOf(obj.memory.backend, 'memory.backend', VALID_MEMORY_BACKENDS, errors);
+      requireOneOf(
+        obj.memory.backend,
+        "memory.backend",
+        VALID_MEMORY_BACKENDS,
+        errors,
+      );
     }
   }
 
   // auth (optional)
   if (obj.auth !== undefined) {
     if (!isRecord(obj.auth)) {
-      errors.push('auth must be an object');
+      errors.push("auth must be an object");
     } else {
       if (obj.auth.secret !== undefined) {
-        if (typeof obj.auth.secret !== 'string') {
-          errors.push('auth.secret must be a string');
+        if (typeof obj.auth.secret !== "string") {
+          errors.push("auth.secret must be a string");
         } else if (obj.auth.secret.length < 32) {
-          errors.push('auth.secret must be at least 32 characters');
+          errors.push("auth.secret must be at least 32 characters");
         }
       }
-      if (obj.auth.expirySeconds !== undefined && typeof obj.auth.expirySeconds !== 'number') {
-        errors.push('auth.expirySeconds must be a number');
+      if (
+        obj.auth.expirySeconds !== undefined &&
+        typeof obj.auth.expirySeconds !== "number"
+      ) {
+        errors.push("auth.expirySeconds must be a number");
       }
-      if (obj.auth.localBypass !== undefined && typeof obj.auth.localBypass !== 'boolean') {
-        errors.push('auth.localBypass must be a boolean');
+      if (
+        obj.auth.localBypass !== undefined &&
+        typeof obj.auth.localBypass !== "boolean"
+      ) {
+        errors.push("auth.localBypass must be a boolean");
       }
     }
   }
@@ -159,12 +202,12 @@ export function validateGatewayConfig(obj: unknown): ValidationResult {
 // ============================================================================
 
 const UNSAFE_KEYS = new Set([
-  'gateway.port',
-  'gateway.bind',
-  'connection.rpcUrl',
-  'connection.keypairPath',
-  'agent.capabilities',
-  'agent.name',
+  "gateway.port",
+  "gateway.bind",
+  "connection.rpcUrl",
+  "connection.keypairPath",
+  "agent.capabilities",
+  "agent.name",
 ]);
 
 export function diffGatewayConfig(
@@ -174,8 +217,12 @@ export function diffGatewayConfig(
   const safe: string[] = [];
   const unsafe: string[] = [];
 
-  const flatOld = flattenConfig(oldConfig as unknown as Record<string, unknown>);
-  const flatNew = flattenConfig(newConfig as unknown as Record<string, unknown>);
+  const flatOld = flattenConfig(
+    oldConfig as unknown as Record<string, unknown>,
+  );
+  const flatNew = flattenConfig(
+    newConfig as unknown as Record<string, unknown>,
+  );
 
   const allKeys = new Set([...Object.keys(flatOld), ...Object.keys(flatNew)]);
 
@@ -197,13 +244,16 @@ export function diffGatewayConfig(
 
 function flattenConfig(
   obj: Record<string, unknown>,
-  prefix = '',
+  prefix = "",
 ): Record<string, unknown> {
   const result: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(obj)) {
     const fullKey = prefix ? `${prefix}.${key}` : key;
-    if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
-      Object.assign(result, flattenConfig(value as Record<string, unknown>, fullKey));
+    if (value !== null && typeof value === "object" && !Array.isArray(value)) {
+      Object.assign(
+        result,
+        flattenConfig(value as Record<string, unknown>, fullKey),
+      );
     } else {
       result[fullKey] = value;
     }
@@ -229,10 +279,7 @@ export class ConfigWatcher {
     this.debounceMs = debounceMs;
   }
 
-  start(
-    onReload: ConfigReloadCallback,
-    onError?: ConfigErrorCallback,
-  ): void {
+  start(onReload: ConfigReloadCallback, onError?: ConfigErrorCallback): void {
     if (this.watcher) return;
 
     try {
@@ -250,7 +297,7 @@ export class ConfigWatcher {
         }, this.debounceMs);
       });
 
-      this.watcher.on('error', (err) => {
+      this.watcher.on("error", (err) => {
         onError?.(err);
       });
     } catch (err) {

@@ -7,10 +7,10 @@
  * @module
  */
 
-import { Connection, PublicKey, TransactionSignature } from '@solana/web3.js';
-import anchor, { Program, AnchorProvider } from '@coral-xyz/anchor';
-import { PROGRAM_ID } from '@agenc/sdk';
-import type { AgencCoordination } from '../types/agenc_coordination.js';
+import { Connection, PublicKey, TransactionSignature } from "@solana/web3.js";
+import anchor, { Program, AnchorProvider } from "@coral-xyz/anchor";
+import { PROGRAM_ID } from "@agenc/sdk";
+import type { AgencCoordination } from "../types/agenc_coordination.js";
 import {
   AgentState,
   AgentStatus,
@@ -23,19 +23,15 @@ import {
   MAX_ENDPOINT_LENGTH,
   MAX_METADATA_URI_LENGTH,
   isValidAgentStatus,
-} from './types.js';
-import {
-  deriveAgentPda,
-  findAgentPda,
-  findProtocolPda,
-} from './pda.js';
+} from "./types.js";
+import { deriveAgentPda, findAgentPda, findProtocolPda } from "./pda.js";
 import {
   subscribeToAllAgentEvents,
   type EventSubscription,
   type AgentEventCallbacks,
-} from './events.js';
-import { ProtocolConfig, parseProtocolConfig } from '../types/protocol.js';
-import type { Wallet } from '../types/wallet.js';
+} from "./events.js";
+import { ProtocolConfig, parseProtocolConfig } from "../types/protocol.js";
+import type { Wallet } from "../types/wallet.js";
 import {
   AgentNotRegisteredError,
   AgentAlreadyRegisteredError,
@@ -44,10 +40,10 @@ import {
   ActiveTasksError,
   PendingDisputeVotesError,
   RecentVoteActivityError,
-} from '../types/errors.js';
-import { createProgram, createReadOnlyProgram } from '../idl.js';
-import { Logger, silentLogger } from '../utils/logger.js';
-import { agentIdToShortString } from '../utils/encoding.js';
+} from "../types/errors.js";
+import { createProgram, createReadOnlyProgram } from "../idl.js";
+import { Logger, silentLogger } from "../utils/logger.js";
+import { agentIdToShortString } from "../utils/encoding.js";
 
 /**
  * Options for protocol config cache behavior.
@@ -217,13 +213,18 @@ export class AgentManager {
 
     // Initialize protocol config cache settings
     const cacheOptions = config.protocolConfigCache ?? {};
-    this.protocolConfigTtlMs = cacheOptions.ttlMs ?? DEFAULT_PROTOCOL_CONFIG_TTL_MS;
-    this.protocolConfigReturnStaleOnError = cacheOptions.returnStaleOnError ?? false;
+    this.protocolConfigTtlMs =
+      cacheOptions.ttlMs ?? DEFAULT_PROTOCOL_CONFIG_TTL_MS;
+    this.protocolConfigReturnStaleOnError =
+      cacheOptions.returnStaleOnError ?? false;
 
     // Validate cache TTL (must be non-negative number, not NaN)
-    if (this.protocolConfigTtlMs < 0 || Number.isNaN(this.protocolConfigTtlMs)) {
+    if (
+      this.protocolConfigTtlMs < 0 ||
+      Number.isNaN(this.protocolConfigTtlMs)
+    ) {
       throw new ValidationError(
-        `Protocol config cache TTL must be a non-negative number, got: ${this.protocolConfigTtlMs}`
+        `Protocol config cache TTL must be a non-negative number, got: ${this.protocolConfigTtlMs}`,
       );
     }
 
@@ -231,11 +232,9 @@ export class AgentManager {
     if (config.program) {
       this.program = config.program;
     } else {
-      const provider = new AnchorProvider(
-        this.connection,
-        this.wallet,
-        { commitment: 'confirmed' }
-      );
+      const provider = new AnchorProvider(this.connection, this.wallet, {
+        commitment: "confirmed",
+      });
       this.program = createProgram(provider, this.programId);
     }
   }
@@ -268,10 +267,15 @@ export class AgentManager {
     this.validateRegistrationParams(params);
 
     // Check if agent already exists
-    const { address: agentPda } = deriveAgentPda(params.agentId, this.programId);
+    const { address: agentPda } = deriveAgentPda(
+      params.agentId,
+      this.programId,
+    );
     const existing = await this.fetchAgentAccount(agentPda);
     if (existing !== null) {
-      throw new AgentAlreadyRegisteredError(agentIdToShortString(params.agentId));
+      throw new AgentAlreadyRegisteredError(
+        agentIdToShortString(params.agentId),
+      );
     }
 
     // Get protocol config to validate stake
@@ -281,12 +285,12 @@ export class AgentManager {
     if (params.stakeAmount < protocolConfig.minAgentStake) {
       throw new InsufficientStakeError(
         protocolConfig.minAgentStake,
-        params.stakeAmount
+        params.stakeAmount,
       );
     }
 
     this.logger.info(
-      `Registering agent ${agentIdToShortString(params.agentId)} with capabilities ${params.capabilities}`
+      `Registering agent ${agentIdToShortString(params.agentId)} with capabilities ${params.capabilities}`,
     );
 
     // Build and send transaction
@@ -296,7 +300,7 @@ export class AgentManager {
         new anchor.BN(params.capabilities.toString()),
         params.endpoint,
         params.metadataUri ?? null,
-        new anchor.BN(params.stakeAmount.toString())
+        new anchor.BN(params.stakeAmount.toString()),
       )
       .accountsPartial({
         agent: agentPda,
@@ -335,7 +339,7 @@ export class AgentManager {
   async load(agentId: Uint8Array): Promise<AgentState> {
     if (agentId.length !== AGENT_ID_LENGTH) {
       throw new ValidationError(
-        `Invalid agentId length: ${agentId.length} (must be ${AGENT_ID_LENGTH})`
+        `Invalid agentId length: ${agentId.length} (must be ${AGENT_ID_LENGTH})`,
       );
     }
 
@@ -396,13 +400,17 @@ export class AgentManager {
     if (state.lastVoteTimestamp > 0) {
       const timeSinceLastVote = nowUnix - state.lastVoteTimestamp;
       if (timeSinceLastVote < VOTE_COOLDOWN_SECONDS) {
-        throw new RecentVoteActivityError(new Date(state.lastVoteTimestamp * 1000));
+        throw new RecentVoteActivityError(
+          new Date(state.lastVoteTimestamp * 1000),
+        );
       }
     }
 
     const protocolPda = findProtocolPda(this.programId);
 
-    this.logger.info(`Deregistering agent ${agentIdToShortString(this.agentId!)}`);
+    this.logger.info(
+      `Deregistering agent ${agentIdToShortString(this.agentId!)}`,
+    );
 
     const signature = await this.program.methods
       .deregisterAgent()
@@ -421,7 +429,7 @@ export class AgentManager {
     // Unsubscribe from events
     await this.unsubscribeAll();
 
-    this.logger.info('Agent deregistered successfully');
+    this.logger.info("Agent deregistered successfully");
 
     return signature;
   }
@@ -453,9 +461,10 @@ export class AgentManager {
     this.validateUpdateParams(params);
 
     // Prepare update values (null means "keep current value" in the instruction)
-    const capabilities = params.capabilities !== undefined
-      ? new anchor.BN(params.capabilities.toString())
-      : null;
+    const capabilities =
+      params.capabilities !== undefined
+        ? new anchor.BN(params.capabilities.toString())
+        : null;
     const endpoint = params.endpoint ?? null;
     const metadataUri = params.metadataUri ?? null;
     const status = params.status ?? null;
@@ -477,15 +486,12 @@ export class AgentManager {
       });
     }
 
-    this.logger.debug(`Updating agent: capabilities=${capabilities}, status=${status}`);
+    this.logger.debug(
+      `Updating agent: capabilities=${capabilities}, status=${status}`,
+    );
 
     await this.program.methods
-      .updateAgent(
-        capabilities,
-        endpoint,
-        metadataUri,
-        status
-      )
+      .updateAgent(capabilities, endpoint, metadataUri, status)
       .accountsPartial({
         agent: this.agentPda!,
         authority: this.wallet.publicKey,
@@ -530,7 +536,7 @@ export class AgentManager {
    */
   async updateCapabilities(capabilities: bigint): Promise<AgentState> {
     if (capabilities < 0n) {
-      throw new ValidationError('Capabilities must be non-negative');
+      throw new ValidationError("Capabilities must be non-negative");
     }
     return this.update({ capabilities });
   }
@@ -549,7 +555,7 @@ export class AgentManager {
   async updateEndpoint(endpoint: string): Promise<AgentState> {
     if (endpoint.length > MAX_ENDPOINT_LENGTH) {
       throw new ValidationError(
-        `Endpoint too long: ${endpoint.length} (max ${MAX_ENDPOINT_LENGTH})`
+        `Endpoint too long: ${endpoint.length} (max ${MAX_ENDPOINT_LENGTH})`,
       );
     }
     return this.update({ endpoint });
@@ -569,7 +575,7 @@ export class AgentManager {
   async updateMetadataUri(metadataUri: string): Promise<AgentState> {
     if (metadataUri.length > MAX_METADATA_URI_LENGTH) {
       throw new ValidationError(
-        `Metadata URI too long: ${metadataUri.length} (max ${MAX_METADATA_URI_LENGTH})`
+        `Metadata URI too long: ${metadataUri.length} (max ${MAX_METADATA_URI_LENGTH})`,
       );
     }
     return this.update({ metadataUri });
@@ -702,12 +708,16 @@ export class AgentManager {
 
     const nowUnix = Math.floor(Date.now() / 1000);
 
-    return computeRateLimitState(state, {
-      taskCreationCooldown: config.taskCreationCooldown,
-      maxTasksPer24h: config.maxTasksPer24h,
-      disputeInitiationCooldown: config.disputeInitiationCooldown,
-      maxDisputesPer24h: config.maxDisputesPer24h,
-    }, nowUnix);
+    return computeRateLimitState(
+      state,
+      {
+        taskCreationCooldown: config.taskCreationCooldown,
+        maxTasksPer24h: config.maxTasksPer24h,
+        disputeInitiationCooldown: config.disputeInitiationCooldown,
+        maxDisputesPer24h: config.maxDisputesPer24h,
+      },
+      nowUnix,
+    );
   }
 
   /**
@@ -732,14 +742,16 @@ export class AgentManager {
    * const freshConfig = await manager.getProtocolConfig({ forceRefresh: true });
    * ```
    */
-  async getProtocolConfig(options?: GetProtocolConfigOptions): Promise<ProtocolConfig> {
+  async getProtocolConfig(
+    options?: GetProtocolConfigOptions,
+  ): Promise<ProtocolConfig> {
     const forceRefresh = options?.forceRefresh ?? false;
 
     // Fast path: return cached value if fresh and not forcing refresh
     if (!forceRefresh) {
       const cached = this.getCachedProtocolConfigIfFresh();
       if (cached !== null) {
-        this.logger.debug('Returning cached protocol config');
+        this.logger.debug("Returning cached protocol config");
         return cached;
       }
     }
@@ -748,24 +760,27 @@ export class AgentManager {
     // piggyback on it rather than starting a new one.
     // All callers await the same promise and get the same result/error handling.
     if (this.protocolConfigFetchPromise !== null) {
-      this.logger.debug('Waiting for in-flight protocol config fetch');
+      this.logger.debug("Waiting for in-flight protocol config fetch");
       return this.protocolConfigFetchPromise;
     }
 
     // Start a new fetch with error handling baked into the promise.
     // This ensures ALL callers (including piggybacking ones) get the same
     // stale-fallback behavior, not just the initiating caller.
-    this.logger.debug('Fetching protocol config from chain');
+    this.logger.debug("Fetching protocol config from chain");
 
     // Create the promise chain and capture the reference so we can
     // conditionally clear it in finally (avoiding clobbering a newer fetch)
     const fetchPromise = this.fetchAndCacheProtocolConfig()
       .catch((error) => {
         // If configured and we have stale data, return it instead of throwing
-        if (this.protocolConfigReturnStaleOnError && this.protocolConfigCache !== null) {
+        if (
+          this.protocolConfigReturnStaleOnError &&
+          this.protocolConfigCache !== null
+        ) {
           this.logger.warn(
-            'Protocol config fetch failed, returning stale cached data',
-            error instanceof Error ? error.message : String(error)
+            "Protocol config fetch failed, returning stale cached data",
+            error instanceof Error ? error.message : String(error),
           );
           return this.protocolConfigCache.value;
         }
@@ -812,7 +827,7 @@ export class AgentManager {
     // Existing callers who already have the promise reference will still
     // receive their result, but the data won't be cached (generation mismatch).
     this.protocolConfigFetchPromise = null;
-    this.logger.debug('Protocol config cache invalidated');
+    this.logger.debug("Protocol config cache invalidated");
   }
 
   /**
@@ -901,7 +916,7 @@ export class AgentManager {
     this.eventSubscription = subscribeToAllAgentEvents(
       this.program,
       callbacks,
-      options
+      options,
     );
 
     return this.eventSubscription;
@@ -940,11 +955,11 @@ export class AgentManager {
   static async fetchAgent(
     connection: Connection,
     agentId: Uint8Array,
-    programId: PublicKey = PROGRAM_ID
+    programId: PublicKey = PROGRAM_ID,
   ): Promise<AgentState | null> {
     if (agentId.length !== AGENT_ID_LENGTH) {
       throw new ValidationError(
-        `Invalid agentId length: ${agentId.length} (must be ${AGENT_ID_LENGTH})`
+        `Invalid agentId length: ${agentId.length} (must be ${AGENT_ID_LENGTH})`,
       );
     }
 
@@ -963,7 +978,7 @@ export class AgentManager {
   static async fetchAgentByPda(
     connection: Connection,
     agentPda: PublicKey,
-    programId: PublicKey = PROGRAM_ID
+    programId: PublicKey = PROGRAM_ID,
   ): Promise<AgentState | null> {
     const program = createReadOnlyProgram(connection, programId);
 
@@ -974,8 +989,8 @@ export class AgentManager {
       // Check if account doesn't exist
       if (
         err instanceof Error &&
-        (err.message.includes('Account does not exist') ||
-          err.message.includes('could not find'))
+        (err.message.includes("Account does not exist") ||
+          err.message.includes("could not find"))
       ) {
         return null;
       }
@@ -1002,7 +1017,7 @@ export class AgentManager {
   static async agentExists(
     connection: Connection,
     agentId: Uint8Array,
-    programId: PublicKey = PROGRAM_ID
+    programId: PublicKey = PROGRAM_ID,
   ): Promise<boolean> {
     const state = await AgentManager.fetchAgent(connection, agentId, programId);
     return state !== null;
@@ -1028,28 +1043,31 @@ export class AgentManager {
   private validateRegistrationParams(params: AgentRegistrationParams): void {
     if (params.agentId.length !== AGENT_ID_LENGTH) {
       throw new ValidationError(
-        `Invalid agentId length: ${params.agentId.length} (must be ${AGENT_ID_LENGTH})`
+        `Invalid agentId length: ${params.agentId.length} (must be ${AGENT_ID_LENGTH})`,
       );
     }
 
     if (params.capabilities < 0n) {
-      throw new ValidationError('Capabilities must be non-negative');
+      throw new ValidationError("Capabilities must be non-negative");
     }
 
     if (params.endpoint.length > MAX_ENDPOINT_LENGTH) {
       throw new ValidationError(
-        `Endpoint too long: ${params.endpoint.length} (max ${MAX_ENDPOINT_LENGTH})`
+        `Endpoint too long: ${params.endpoint.length} (max ${MAX_ENDPOINT_LENGTH})`,
       );
     }
 
-    if (params.metadataUri && params.metadataUri.length > MAX_METADATA_URI_LENGTH) {
+    if (
+      params.metadataUri &&
+      params.metadataUri.length > MAX_METADATA_URI_LENGTH
+    ) {
       throw new ValidationError(
-        `Metadata URI too long: ${params.metadataUri.length} (max ${MAX_METADATA_URI_LENGTH})`
+        `Metadata URI too long: ${params.metadataUri.length} (max ${MAX_METADATA_URI_LENGTH})`,
       );
     }
 
     if (params.stakeAmount < 0n) {
-      throw new ValidationError('Stake amount must be non-negative');
+      throw new ValidationError("Stake amount must be non-negative");
     }
   }
 
@@ -1058,18 +1076,24 @@ export class AgentManager {
    */
   private validateUpdateParams(params: AgentUpdateParams): void {
     if (params.capabilities !== undefined && params.capabilities < 0n) {
-      throw new ValidationError('Capabilities must be non-negative');
+      throw new ValidationError("Capabilities must be non-negative");
     }
 
-    if (params.endpoint !== undefined && params.endpoint.length > MAX_ENDPOINT_LENGTH) {
+    if (
+      params.endpoint !== undefined &&
+      params.endpoint.length > MAX_ENDPOINT_LENGTH
+    ) {
       throw new ValidationError(
-        `Endpoint too long: ${params.endpoint.length} (max ${MAX_ENDPOINT_LENGTH})`
+        `Endpoint too long: ${params.endpoint.length} (max ${MAX_ENDPOINT_LENGTH})`,
       );
     }
 
-    if (params.metadataUri !== undefined && params.metadataUri.length > MAX_METADATA_URI_LENGTH) {
+    if (
+      params.metadataUri !== undefined &&
+      params.metadataUri.length > MAX_METADATA_URI_LENGTH
+    ) {
       throw new ValidationError(
-        `Metadata URI too long: ${params.metadataUri.length} (max ${MAX_METADATA_URI_LENGTH})`
+        `Metadata URI too long: ${params.metadataUri.length} (max ${MAX_METADATA_URI_LENGTH})`,
       );
     }
 
@@ -1081,16 +1105,19 @@ export class AgentManager {
   /**
    * Fetch agent account, returning null if not found.
    */
-  private async fetchAgentAccount(agentPda: PublicKey): Promise<AgentState | null> {
+  private async fetchAgentAccount(
+    agentPda: PublicKey,
+  ): Promise<AgentState | null> {
     try {
-      const rawData = await this.program.account.agentRegistration.fetch(agentPda);
+      const rawData =
+        await this.program.account.agentRegistration.fetch(agentPda);
       return parseAgentState(rawData);
     } catch (err) {
       // Check if account doesn't exist
       if (
         err instanceof Error &&
-        (err.message.includes('Account does not exist') ||
-          err.message.includes('could not find'))
+        (err.message.includes("Account does not exist") ||
+          err.message.includes("could not find"))
       ) {
         return null;
       }
@@ -1102,7 +1129,9 @@ export class AgentManager {
    * Fetch and cache current state.
    */
   private async fetchAndCacheState(): Promise<AgentState> {
-    const rawData = await this.program.account.agentRegistration.fetch(this.agentPda!);
+    const rawData = await this.program.account.agentRegistration.fetch(
+      this.agentPda!,
+    );
     return parseAgentState(rawData);
   }
 
@@ -1129,7 +1158,7 @@ export class AgentManager {
     const age = Date.now() - this.protocolConfigCache.fetchedAt;
     if (age >= this.protocolConfigTtlMs) {
       this.logger.debug(
-        `Protocol config cache stale (age: ${age}ms, ttl: ${this.protocolConfigTtlMs}ms)`
+        `Protocol config cache stale (age: ${age}ms, ttl: ${this.protocolConfigTtlMs}ms)`,
       );
       return null;
     }
@@ -1153,7 +1182,8 @@ export class AgentManager {
     const startGeneration = this.protocolConfigCacheGeneration;
 
     const protocolPda = findProtocolPda(this.programId);
-    const rawData = await this.program.account.protocolConfig.fetch(protocolPda);
+    const rawData =
+      await this.program.account.protocolConfig.fetch(protocolPda);
     const config = parseProtocolConfig(rawData);
 
     // Only update cache if generation hasn't changed (no invalidation during fetch)
@@ -1162,10 +1192,10 @@ export class AgentManager {
         value: config,
         fetchedAt: Date.now(),
       };
-      this.logger.debug('Protocol config fetched and cached');
+      this.logger.debug("Protocol config fetched and cached");
     } else {
       this.logger.debug(
-        'Protocol config fetched but cache was invalidated during fetch, not caching'
+        "Protocol config fetched but cache was invalidated during fetch, not caching",
       );
     }
 

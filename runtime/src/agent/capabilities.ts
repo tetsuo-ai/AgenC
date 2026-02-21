@@ -48,7 +48,7 @@ export function hasCapability(agentCaps: bigint, required: bigint): boolean {
  */
 export function hasAllCapabilities(
   agentCaps: bigint,
-  required: bigint[]
+  required: bigint[],
 ): boolean {
   return required.every((cap) => hasCapability(agentCaps, cap));
 }
@@ -88,7 +88,7 @@ export function parseCapabilities(names: CapabilityName[]): bigint {
  * formatCapabilities(3n) // "COMPUTE, INFERENCE"
  */
 export function formatCapabilities(caps: bigint): string {
-  return getCapabilityNames(caps).join(', ') || 'None';
+  return getCapabilityNames(caps).join(", ") || "None";
 }
 
 /**

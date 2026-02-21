@@ -1,18 +1,18 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { PublicKey, Keypair } from '@solana/web3.js';
-import { AgentDiscovery } from './discovery.js';
-import { ProfileCache } from './cache.js';
-import { AgentDiscoveryError } from './errors.js';
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { PublicKey, Keypair } from "@solana/web3.js";
+import { AgentDiscovery } from "./discovery.js";
+import { ProfileCache } from "./cache.js";
+import { AgentDiscoveryError } from "./errors.js";
 import {
   AGENT_STATUS_OFFSET,
   agentStateToProfile,
   type DiscoveryConfig,
   type AgentProfile,
-} from './types.js';
-import { AgentStatus } from '../agent/types.js';
-import { Capability } from '../agent/capabilities.js';
-import { RuntimeErrorCodes } from '../types/errors.js';
-import { silentLogger } from '../utils/logger.js';
+} from "./types.js";
+import { AgentStatus } from "../agent/types.js";
+import { Capability } from "../agent/capabilities.js";
+import { RuntimeErrorCodes } from "../types/errors.js";
+import { silentLogger } from "../utils/logger.js";
 
 // ============================================================================
 // Test Helpers
@@ -29,14 +29,16 @@ function mockBN(value: number | bigint) {
 }
 
 /** Create a mock raw agent account matching RawAgentRegistrationData shape */
-function mockRawAgent(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+function mockRawAgent(
+  overrides: Record<string, unknown> = {},
+): Record<string, unknown> {
   return {
     agentId: new Uint8Array(32).fill(1),
     authority: randomPubkey(),
     capabilities: mockBN(3), // COMPUTE | INFERENCE
     status: { active: {} },
-    endpoint: 'https://agent.example.com',
-    metadataUri: '',
+    endpoint: "https://agent.example.com",
+    metadataUri: "",
     registeredAt: mockBN(1700000000),
     lastActive: mockBN(1700001000),
     tasksCompleted: mockBN(10),
@@ -87,7 +89,7 @@ function buildDiscovery(
   opts: Partial<DiscoveryConfig> = {},
 ): AgentDiscovery {
   return new AgentDiscovery({
-    program: program as unknown as DiscoveryConfig['program'],
+    program: program as unknown as DiscoveryConfig["program"],
     logger: silentLogger,
     cache: { ttlMs: 60_000, maxEntries: 200 },
     ...opts,
@@ -98,7 +100,7 @@ function buildDiscovery(
 // Tests
 // ============================================================================
 
-describe('AgentDiscovery', () => {
+describe("AgentDiscovery", () => {
   let program: ReturnType<typeof createMockProgram>;
   let discovery: AgentDiscovery;
 
@@ -111,14 +113,14 @@ describe('AgentDiscovery', () => {
   // getProfile
   // --------------------------------------------------------------------------
 
-  describe('getProfile', () => {
-    it('returns null when account does not exist', async () => {
+  describe("getProfile", () => {
+    it("returns null when account does not exist", async () => {
       program.account.agentRegistration.fetchNullable.mockResolvedValue(null);
       const result = await discovery.getProfile(randomPubkey());
       expect(result).toBeNull();
     });
 
-    it('returns parsed profile when account exists', async () => {
+    it("returns parsed profile when account exists", async () => {
       const pda = randomPubkey();
       const raw = mockRawAgent({ reputation: 9500 });
       program.account.agentRegistration.fetchNullable.mockResolvedValue(raw);
@@ -130,40 +132,44 @@ describe('AgentDiscovery', () => {
       expect(result!.status).toBe(AgentStatus.Active);
     });
 
-    it('caches profile and returns from cache on second call', async () => {
+    it("caches profile and returns from cache on second call", async () => {
       const pda = randomPubkey();
       program.account.agentRegistration.fetchNullable.mockResolvedValue(
-        mockRawAgent()
+        mockRawAgent(),
       );
 
       const first = await discovery.getProfile(pda);
       const second = await discovery.getProfile(pda);
 
       expect(first).toEqual(second);
-      expect(program.account.agentRegistration.fetchNullable).toHaveBeenCalledTimes(1);
+      expect(
+        program.account.agentRegistration.fetchNullable,
+      ).toHaveBeenCalledTimes(1);
     });
 
-    it('throws AgentDiscoveryError on RPC failure', async () => {
+    it("throws AgentDiscoveryError on RPC failure", async () => {
       program.account.agentRegistration.fetchNullable.mockRejectedValue(
-        new Error('RPC timeout')
+        new Error("RPC timeout"),
       );
 
       await expect(discovery.getProfile(randomPubkey())).rejects.toThrow(
-        AgentDiscoveryError
+        AgentDiscoveryError,
       );
     });
 
-    it('skips cache when cache is disabled', async () => {
+    it("skips cache when cache is disabled", async () => {
       const noCacheDiscovery = buildDiscovery(program, { cache: undefined });
       const pda = randomPubkey();
       program.account.agentRegistration.fetchNullable.mockResolvedValue(
-        mockRawAgent()
+        mockRawAgent(),
       );
 
       await noCacheDiscovery.getProfile(pda);
       await noCacheDiscovery.getProfile(pda);
 
-      expect(program.account.agentRegistration.fetchNullable).toHaveBeenCalledTimes(2);
+      expect(
+        program.account.agentRegistration.fetchNullable,
+      ).toHaveBeenCalledTimes(2);
     });
   });
 
@@ -171,8 +177,8 @@ describe('AgentDiscovery', () => {
   // listByCapability
   // --------------------------------------------------------------------------
 
-  describe('listByCapability', () => {
-    it('returns agents matching capability bitmask (AND)', async () => {
+  describe("listByCapability", () => {
+    it("returns agents matching capability bitmask (AND)", async () => {
       const computeOnly = mockAccountEntry({
         capabilities: mockBN(Number(Capability.COMPUTE)),
         reputation: 5000,
@@ -192,58 +198,63 @@ describe('AgentDiscovery', () => {
       ]);
 
       const results = await discovery.listByCapability(
-        Capability.COMPUTE | Capability.INFERENCE
+        Capability.COMPUTE | Capability.INFERENCE,
       );
 
       // Only computeInference has BOTH
       expect(results).toHaveLength(1);
-      expect(results[0].capabilities).toBe(Capability.COMPUTE | Capability.INFERENCE);
+      expect(results[0].capabilities).toBe(
+        Capability.COMPUTE | Capability.INFERENCE,
+      );
     });
 
-    it('filters by minimum reputation', async () => {
+    it("filters by minimum reputation", async () => {
       const lowRep = mockAccountEntry({ reputation: 3000 });
       const highRep = mockAccountEntry({ reputation: 9000 });
-      program.account.agentRegistration.all.mockResolvedValue([lowRep, highRep]);
+      program.account.agentRegistration.all.mockResolvedValue([
+        lowRep,
+        highRep,
+      ]);
 
       const results = await discovery.listByCapability(
         Capability.COMPUTE | Capability.INFERENCE,
-        5000
+        5000,
       );
 
       expect(results).toHaveLength(1);
       expect(results[0].reputation).toBe(9000);
     });
 
-    it('returns results sorted by reputation descending', async () => {
+    it("returns results sorted by reputation descending", async () => {
       const a = mockAccountEntry({ reputation: 5000 });
       const b = mockAccountEntry({ reputation: 9000 });
       const c = mockAccountEntry({ reputation: 7000 });
       program.account.agentRegistration.all.mockResolvedValue([a, b, c]);
 
       const results = await discovery.listByCapability(
-        Capability.COMPUTE | Capability.INFERENCE
+        Capability.COMPUTE | Capability.INFERENCE,
       );
 
       expect(results.map((r) => r.reputation)).toEqual([9000, 7000, 5000]);
     });
 
-    it('returns empty array when no agents match', async () => {
+    it("returns empty array when no agents match", async () => {
       program.account.agentRegistration.all.mockResolvedValue([]);
       const results = await discovery.listByCapability(Capability.STORAGE);
       expect(results).toEqual([]);
     });
 
-    it('falls back to full scan when memcmp fails', async () => {
+    it("falls back to full scan when memcmp fails", async () => {
       // First call (memcmp) fails, second call (full scan) succeeds
       program.account.agentRegistration.all
-        .mockRejectedValueOnce(new Error('memcmp not supported'))
+        .mockRejectedValueOnce(new Error("memcmp not supported"))
         .mockResolvedValueOnce([
           mockAccountEntry({ status: { active: {} } }),
           mockAccountEntry({ status: { inactive: {} } }),
         ]);
 
       const results = await discovery.listByCapability(
-        Capability.COMPUTE | Capability.INFERENCE
+        Capability.COMPUTE | Capability.INFERENCE,
       );
 
       // Should still return results (active agent only after fallback filter)
@@ -256,8 +267,8 @@ describe('AgentDiscovery', () => {
   // search
   // --------------------------------------------------------------------------
 
-  describe('search', () => {
-    it('returns all active agents with no filters', async () => {
+  describe("search", () => {
+    it("returns all active agents with no filters", async () => {
       program.account.agentRegistration.all.mockResolvedValue([
         mockAccountEntry(),
         mockAccountEntry(),
@@ -267,7 +278,7 @@ describe('AgentDiscovery', () => {
       expect(results).toHaveLength(2);
     });
 
-    it('filters by capabilities', async () => {
+    it("filters by capabilities", async () => {
       program.account.agentRegistration.all.mockResolvedValue([
         mockAccountEntry({ capabilities: mockBN(Number(Capability.COMPUTE)) }),
         mockAccountEntry({
@@ -282,7 +293,7 @@ describe('AgentDiscovery', () => {
       expect(results).toHaveLength(1);
     });
 
-    it('filters by minReputation', async () => {
+    it("filters by minReputation", async () => {
       program.account.agentRegistration.all.mockResolvedValue([
         mockAccountEntry({ reputation: 2000 }),
         mockAccountEntry({ reputation: 8000 }),
@@ -293,18 +304,18 @@ describe('AgentDiscovery', () => {
       expect(results[0].reputation).toBe(8000);
     });
 
-    it('filters by onlineOnly (active + non-empty endpoint)', async () => {
+    it("filters by onlineOnly (active + non-empty endpoint)", async () => {
       program.account.agentRegistration.all.mockResolvedValue([
-        mockAccountEntry({ endpoint: '' }),
-        mockAccountEntry({ endpoint: 'https://agent.com' }),
+        mockAccountEntry({ endpoint: "" }),
+        mockAccountEntry({ endpoint: "https://agent.com" }),
       ]);
 
       const results = await discovery.search({ onlineOnly: true });
       expect(results).toHaveLength(1);
-      expect(results[0].endpoint).toBe('https://agent.com');
+      expect(results[0].endpoint).toBe("https://agent.com");
     });
 
-    it('filters by minStake', async () => {
+    it("filters by minStake", async () => {
       program.account.agentRegistration.all.mockResolvedValue([
         mockAccountEntry({ stake: mockBN(500_000_000) }),
         mockAccountEntry({ stake: mockBN(2_000_000_000) }),
@@ -315,7 +326,7 @@ describe('AgentDiscovery', () => {
       expect(results[0].stake).toBe(2_000_000_000n);
     });
 
-    it('applies maxResults', async () => {
+    it("applies maxResults", async () => {
       program.account.agentRegistration.all.mockResolvedValue([
         mockAccountEntry({ reputation: 1000 }),
         mockAccountEntry({ reputation: 2000 }),
@@ -326,7 +337,7 @@ describe('AgentDiscovery', () => {
       expect(results).toHaveLength(2);
     });
 
-    it('sorts by specified field ascending', async () => {
+    it("sorts by specified field ascending", async () => {
       program.account.agentRegistration.all.mockResolvedValue([
         mockAccountEntry({ reputation: 9000 }),
         mockAccountEntry({ reputation: 3000 }),
@@ -334,14 +345,14 @@ describe('AgentDiscovery', () => {
       ]);
 
       const results = await discovery.search({
-        sortBy: 'reputation',
-        sortOrder: 'asc',
+        sortBy: "reputation",
+        sortOrder: "asc",
       });
 
       expect(results.map((r) => r.reputation)).toEqual([3000, 6000, 9000]);
     });
 
-    it('sorts by lastActive descending', async () => {
+    it("sorts by lastActive descending", async () => {
       program.account.agentRegistration.all.mockResolvedValue([
         mockAccountEntry({ lastActive: mockBN(100) }),
         mockAccountEntry({ lastActive: mockBN(300) }),
@@ -349,14 +360,14 @@ describe('AgentDiscovery', () => {
       ]);
 
       const results = await discovery.search({
-        sortBy: 'lastActive',
-        sortOrder: 'desc',
+        sortBy: "lastActive",
+        sortOrder: "desc",
       });
 
       expect(results.map((r) => r.lastActive)).toEqual([300, 200, 100]);
     });
 
-    it('sorts by tasksCompleted', async () => {
+    it("sorts by tasksCompleted", async () => {
       program.account.agentRegistration.all.mockResolvedValue([
         mockAccountEntry({ tasksCompleted: mockBN(5) }),
         mockAccountEntry({ tasksCompleted: mockBN(50) }),
@@ -364,14 +375,14 @@ describe('AgentDiscovery', () => {
       ]);
 
       const results = await discovery.search({
-        sortBy: 'tasksCompleted',
-        sortOrder: 'desc',
+        sortBy: "tasksCompleted",
+        sortOrder: "desc",
       });
 
       expect(results.map((r) => r.tasksCompleted)).toEqual([50n, 20n, 5n]);
     });
 
-    it('sorts by stake', async () => {
+    it("sorts by stake", async () => {
       program.account.agentRegistration.all.mockResolvedValue([
         mockAccountEntry({ stake: mockBN(100) }),
         mockAccountEntry({ stake: mockBN(300) }),
@@ -379,14 +390,14 @@ describe('AgentDiscovery', () => {
       ]);
 
       const results = await discovery.search({
-        sortBy: 'stake',
-        sortOrder: 'asc',
+        sortBy: "stake",
+        sortOrder: "asc",
       });
 
       expect(results.map((r) => r.stake)).toEqual([100n, 200n, 300n]);
     });
 
-    it('includes non-active agents when activeOnly is false', async () => {
+    it("includes non-active agents when activeOnly is false", async () => {
       program.account.agentRegistration.all.mockResolvedValue([
         mockAccountEntry({ status: { inactive: {} } }),
         mockAccountEntry({ status: { active: {} } }),
@@ -397,25 +408,25 @@ describe('AgentDiscovery', () => {
       expect(results).toHaveLength(3);
     });
 
-    it('combines multiple filters', async () => {
+    it("combines multiple filters", async () => {
       program.account.agentRegistration.all.mockResolvedValue([
         mockAccountEntry({
           capabilities: mockBN(Number(Capability.COMPUTE | Capability.STORAGE)),
           reputation: 9000,
           stake: mockBN(2_000_000_000),
-          endpoint: 'https://agent.com',
+          endpoint: "https://agent.com",
         }),
         mockAccountEntry({
           capabilities: mockBN(Number(Capability.COMPUTE)),
           reputation: 9000,
           stake: mockBN(2_000_000_000),
-          endpoint: 'https://agent2.com',
+          endpoint: "https://agent2.com",
         }),
         mockAccountEntry({
           capabilities: mockBN(Number(Capability.COMPUTE | Capability.STORAGE)),
           reputation: 3000,
           stake: mockBN(2_000_000_000),
-          endpoint: 'https://agent3.com',
+          endpoint: "https://agent3.com",
         }),
       ]);
 
@@ -436,19 +447,19 @@ describe('AgentDiscovery', () => {
   // listOnlineAgents
   // --------------------------------------------------------------------------
 
-  describe('listOnlineAgents', () => {
-    it('returns active agents with endpoints sorted by lastActive', async () => {
+  describe("listOnlineAgents", () => {
+    it("returns active agents with endpoints sorted by lastActive", async () => {
       program.account.agentRegistration.all.mockResolvedValue([
         mockAccountEntry({
-          endpoint: 'https://a.com',
+          endpoint: "https://a.com",
           lastActive: mockBN(100),
         }),
         mockAccountEntry({
-          endpoint: '',
+          endpoint: "",
           lastActive: mockBN(300),
         }),
         mockAccountEntry({
-          endpoint: 'https://b.com',
+          endpoint: "https://b.com",
           lastActive: mockBN(200),
         }),
       ]);
@@ -459,11 +470,11 @@ describe('AgentDiscovery', () => {
       expect(results[1].lastActive).toBe(100);
     });
 
-    it('respects limit parameter', async () => {
+    it("respects limit parameter", async () => {
       program.account.agentRegistration.all.mockResolvedValue([
-        mockAccountEntry({ endpoint: 'https://a.com' }),
-        mockAccountEntry({ endpoint: 'https://b.com' }),
-        mockAccountEntry({ endpoint: 'https://c.com' }),
+        mockAccountEntry({ endpoint: "https://a.com" }),
+        mockAccountEntry({ endpoint: "https://b.com" }),
+        mockAccountEntry({ endpoint: "https://c.com" }),
       ]);
 
       const results = await discovery.listOnlineAgents(2);
@@ -475,11 +486,11 @@ describe('AgentDiscovery', () => {
   // dispose
   // --------------------------------------------------------------------------
 
-  describe('dispose', () => {
-    it('clears cache', async () => {
+  describe("dispose", () => {
+    it("clears cache", async () => {
       const pda = randomPubkey();
       program.account.agentRegistration.fetchNullable.mockResolvedValue(
-        mockRawAgent()
+        mockRawAgent(),
       );
 
       await discovery.getProfile(pda);
@@ -487,17 +498,19 @@ describe('AgentDiscovery', () => {
 
       // After dispose, must fetch from RPC again
       await discovery.getProfile(pda);
-      expect(program.account.agentRegistration.fetchNullable).toHaveBeenCalledTimes(2);
+      expect(
+        program.account.agentRegistration.fetchNullable,
+      ).toHaveBeenCalledTimes(2);
     });
 
-    it('is idempotent', () => {
+    it("is idempotent", () => {
       expect(() => {
         discovery.dispose();
         discovery.dispose();
       }).not.toThrow();
     });
 
-    it('works when cache is disabled', () => {
+    it("works when cache is disabled", () => {
       const noCacheDiscovery = buildDiscovery(program, { cache: undefined });
       expect(() => noCacheDiscovery.dispose()).not.toThrow();
     });
@@ -507,12 +520,12 @@ describe('AgentDiscovery', () => {
   // Per-account fault tolerance
   // --------------------------------------------------------------------------
 
-  describe('fault tolerance', () => {
-    it('skips corrupted accounts during bulk queries', async () => {
+  describe("fault tolerance", () => {
+    it("skips corrupted accounts during bulk queries", async () => {
       const validEntry = mockAccountEntry({ reputation: 7000 });
       const corruptedEntry = {
         publicKey: randomPubkey(),
-        account: { invalid: 'data' }, // Will fail parseAgentState
+        account: { invalid: "data" }, // Will fail parseAgentState
       };
 
       program.account.agentRegistration.all.mockResolvedValue([
@@ -531,7 +544,7 @@ describe('AgentDiscovery', () => {
 // ProfileCache unit tests
 // ============================================================================
 
-describe('ProfileCache', () => {
+describe("ProfileCache", () => {
   function makeProfile(overrides: Partial<AgentProfile> = {}): AgentProfile {
     return {
       pda: randomPubkey(),
@@ -539,8 +552,8 @@ describe('ProfileCache', () => {
       authority: randomPubkey(),
       capabilities: 3n,
       status: AgentStatus.Active,
-      endpoint: 'https://agent.com',
-      metadataUri: '',
+      endpoint: "https://agent.com",
+      metadataUri: "",
       registeredAt: 1700000000,
       lastActive: 1700001000,
       tasksCompleted: 10n,
@@ -552,12 +565,12 @@ describe('ProfileCache', () => {
     };
   }
 
-  it('returns undefined for missing entries', () => {
+  it("returns undefined for missing entries", () => {
     const cache = new ProfileCache();
     expect(cache.get(randomPubkey())).toBeUndefined();
   });
 
-  it('stores and retrieves profiles', () => {
+  it("stores and retrieves profiles", () => {
     const cache = new ProfileCache();
     const pda = randomPubkey();
     const profile = makeProfile({ pda });
@@ -566,7 +579,7 @@ describe('ProfileCache', () => {
     expect(cache.get(pda)).toEqual(profile);
   });
 
-  it('returns undefined for expired entries', () => {
+  it("returns undefined for expired entries", () => {
     const cache = new ProfileCache({ ttlMs: 1 }); // 1ms TTL
     const pda = randomPubkey();
     cache.set(pda, makeProfile({ pda }));
@@ -581,7 +594,7 @@ describe('ProfileCache', () => {
     }
   });
 
-  it('evicts oldest entry when at capacity', () => {
+  it("evicts oldest entry when at capacity", () => {
     const cache = new ProfileCache({ maxEntries: 2 });
 
     const pda1 = randomPubkey();
@@ -599,7 +612,7 @@ describe('ProfileCache', () => {
     expect(cache.size).toBe(2);
   });
 
-  it('promotes entry on access (LRU)', () => {
+  it("promotes entry on access (LRU)", () => {
     const cache = new ProfileCache({ maxEntries: 2 });
 
     const pda1 = randomPubkey();
@@ -620,7 +633,7 @@ describe('ProfileCache', () => {
     expect(cache.get(pda3)).toBeDefined();
   });
 
-  it('clear removes all entries', () => {
+  it("clear removes all entries", () => {
     const cache = new ProfileCache();
     cache.set(randomPubkey(), makeProfile());
     cache.set(randomPubkey(), makeProfile());
@@ -629,7 +642,7 @@ describe('ProfileCache', () => {
     expect(cache.size).toBe(0);
   });
 
-  it('reports size correctly', () => {
+  it("reports size correctly", () => {
     const cache = new ProfileCache();
     expect(cache.size).toBe(0);
 
@@ -645,8 +658,8 @@ describe('ProfileCache', () => {
 // agentStateToProfile
 // ============================================================================
 
-describe('agentStateToProfile', () => {
-  it('maps all AgentState fields to AgentProfile', () => {
+describe("agentStateToProfile", () => {
+  it("maps all AgentState fields to AgentProfile", () => {
     const pda = randomPubkey();
     const state = {
       agentId: new Uint8Array(32).fill(42),
@@ -656,8 +669,8 @@ describe('agentStateToProfile', () => {
       status: AgentStatus.Active,
       registeredAt: 1700000000,
       lastActive: 1700001000,
-      endpoint: 'https://test.com',
-      metadataUri: 'ipfs://abc',
+      endpoint: "https://test.com",
+      metadataUri: "ipfs://abc",
       tasksCompleted: 100n,
       totalEarned: 10_000_000_000n,
       reputation: 9500,
@@ -681,8 +694,8 @@ describe('agentStateToProfile', () => {
     expect(profile.authority.equals(state.authority)).toBe(true);
     expect(profile.capabilities).toBe(7n);
     expect(profile.status).toBe(AgentStatus.Active);
-    expect(profile.endpoint).toBe('https://test.com');
-    expect(profile.metadataUri).toBe('ipfs://abc');
+    expect(profile.endpoint).toBe("https://test.com");
+    expect(profile.metadataUri).toBe("ipfs://abc");
     expect(profile.reputation).toBe(9500);
     expect(profile.tasksCompleted).toBe(100n);
     expect(profile.totalEarned).toBe(10_000_000_000n);
@@ -697,8 +710,8 @@ describe('agentStateToProfile', () => {
 // AGENT_STATUS_OFFSET
 // ============================================================================
 
-describe('AGENT_STATUS_OFFSET', () => {
-  it('equals 80 (discriminator 8 + agent_id 32 + authority 32 + capabilities 8)', () => {
+describe("AGENT_STATUS_OFFSET", () => {
+  it("equals 80 (discriminator 8 + agent_id 32 + authority 32 + capabilities 8)", () => {
     expect(AGENT_STATUS_OFFSET).toBe(80);
   });
 });
@@ -707,12 +720,12 @@ describe('AGENT_STATUS_OFFSET', () => {
 // AgentDiscoveryError
 // ============================================================================
 
-describe('AgentDiscoveryError', () => {
-  it('has correct code and message', () => {
-    const err = new AgentDiscoveryError('test reason');
+describe("AgentDiscoveryError", () => {
+  it("has correct code and message", () => {
+    const err = new AgentDiscoveryError("test reason");
     expect(err.code).toBe(RuntimeErrorCodes.DISCOVERY_ERROR);
-    expect(err.message).toBe('Agent discovery failed: test reason');
-    expect(err.name).toBe('AgentDiscoveryError');
-    expect(err.reason).toBe('test reason');
+    expect(err.message).toBe("Agent discovery failed: test reason");
+    expect(err.name).toBe("AgentDiscoveryError");
+    expect(err.reason).toBe("test reason");
   });
 });

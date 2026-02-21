@@ -4,7 +4,7 @@
  * @module
  */
 
-import { RuntimeError, RuntimeErrorCodes } from '../types/errors.js';
+import { RuntimeError, RuntimeErrorCodes } from "../types/errors.js";
 
 /**
  * Thrown when workflow definition fails validation.
@@ -13,7 +13,7 @@ import { RuntimeError, RuntimeErrorCodes } from '../types/errors.js';
 export class WorkflowValidationError extends RuntimeError {
   constructor(message: string) {
     super(message, RuntimeErrorCodes.WORKFLOW_VALIDATION_ERROR);
-    this.name = 'WorkflowValidationError';
+    this.name = "WorkflowValidationError";
   }
 }
 
@@ -25,8 +25,11 @@ export class WorkflowSubmissionError extends RuntimeError {
   public readonly nodeName: string;
 
   constructor(nodeName: string, message: string) {
-    super(`Submission failed for node "${nodeName}": ${message}`, RuntimeErrorCodes.WORKFLOW_SUBMISSION_ERROR);
-    this.name = 'WorkflowSubmissionError';
+    super(
+      `Submission failed for node "${nodeName}": ${message}`,
+      RuntimeErrorCodes.WORKFLOW_SUBMISSION_ERROR,
+    );
+    this.name = "WorkflowSubmissionError";
     this.nodeName = nodeName;
   }
 }
@@ -37,7 +40,7 @@ export class WorkflowSubmissionError extends RuntimeError {
 export class WorkflowMonitoringError extends RuntimeError {
   constructor(message: string) {
     super(message, RuntimeErrorCodes.WORKFLOW_MONITORING_ERROR);
-    this.name = 'WorkflowMonitoringError';
+    this.name = "WorkflowMonitoringError";
   }
 }
 
@@ -47,6 +50,6 @@ export class WorkflowMonitoringError extends RuntimeError {
 export class WorkflowStateError extends RuntimeError {
   constructor(message: string) {
     super(message, RuntimeErrorCodes.WORKFLOW_STATE_ERROR);
-    this.name = 'WorkflowStateError';
+    this.name = "WorkflowStateError";
   }
 }

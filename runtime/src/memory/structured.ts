@@ -5,23 +5,34 @@
  * @module
  */
 
-import { readFile, writeFile, mkdir, appendFile, readdir, rename } from 'node:fs/promises';
-import { join, basename, dirname } from 'node:path';
+import {
+  readFile,
+  writeFile,
+  mkdir,
+  appendFile,
+  readdir,
+  rename,
+} from "node:fs/promises";
+import { join, basename, dirname } from "node:path";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
 function isEnoent(err: unknown): boolean {
-  return err instanceof Error && 'code' in err && (err as NodeJS.ErrnoException).code === 'ENOENT';
+  return (
+    err instanceof Error &&
+    "code" in err &&
+    (err as NodeJS.ErrnoException).code === "ENOENT"
+  );
 }
 
 /** Returns `YYYY-MM-DD` in UTC for the given date (defaults to now). */
 export function formatLogDate(date?: Date): string {
   const d = date ?? new Date();
   const year = d.getUTCFullYear();
-  const month = String(d.getUTCMonth() + 1).padStart(2, '0');
-  const day = String(d.getUTCDate()).padStart(2, '0');
+  const month = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(d.getUTCDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
 }
 
@@ -49,7 +60,10 @@ export interface EntityExtractor {
 // ---------------------------------------------------------------------------
 
 export class NoopEntityExtractor implements EntityExtractor {
-  async extract(_text: string, _sessionId: string): Promise<StructuredMemoryEntry[]> {
+  async extract(
+    _text: string,
+    _sessionId: string,
+  ): Promise<StructuredMemoryEntry[]> {
     return [];
   }
 }
@@ -66,22 +80,26 @@ export class DailyLogManager {
   }
 
   get todayPath(): string {
-    return join(this.logDir, formatLogDate() + '.md');
+    return join(this.logDir, formatLogDate() + ".md");
   }
 
-  async append(sessionId: string, role: 'user' | 'assistant', content: string): Promise<void> {
+  async append(
+    sessionId: string,
+    role: "user" | "assistant",
+    content: string,
+  ): Promise<void> {
     await mkdir(this.logDir, { recursive: true });
     const now = new Date();
-    const hh = String(now.getUTCHours()).padStart(2, '0');
-    const mm = String(now.getUTCMinutes()).padStart(2, '0');
-    const label = role === 'user' ? 'User' : 'Agent';
+    const hh = String(now.getUTCHours()).padStart(2, "0");
+    const mm = String(now.getUTCMinutes()).padStart(2, "0");
+    const label = role === "user" ? "User" : "Agent";
     const line = `## ${hh}:${mm} [${sessionId}]\n**${label}:** ${content}\n\n`;
     await appendFile(this.todayPath, line);
   }
 
   async readLog(date: string): Promise<string | undefined> {
     try {
-      return await readFile(join(this.logDir, date + '.md'), 'utf-8');
+      return await readFile(join(this.logDir, date + ".md"), "utf-8");
     } catch (err) {
       if (isEnoent(err)) return undefined;
       throw err;
@@ -93,7 +111,7 @@ export class DailyLogManager {
       const files = await readdir(this.logDir);
       return files
         .filter((f) => /^\d{4}-\d{2}-\d{2}\.md$/.test(f))
-        .map((f) => basename(f, '.md'))
+        .map((f) => basename(f, ".md"))
         .sort();
     } catch (err) {
       if (isEnoent(err)) return [];
@@ -115,9 +133,9 @@ export class CuratedMemoryManager {
 
   async load(): Promise<string> {
     try {
-      return await readFile(this.memoryFilePath, 'utf-8');
+      return await readFile(this.memoryFilePath, "utf-8");
     } catch (err) {
-      if (isEnoent(err)) return '';
+      if (isEnoent(err)) return "";
       throw err;
     }
   }
@@ -134,20 +152,20 @@ export class CuratedMemoryManager {
   async removeFact(fact: string): Promise<boolean> {
     let content: string;
     try {
-      content = await readFile(this.memoryFilePath, 'utf-8');
+      content = await readFile(this.memoryFilePath, "utf-8");
     } catch (err) {
       if (isEnoent(err)) return false;
       throw err;
     }
 
-    const lines = content.split('\n');
-    const target = '- ' + fact;
+    const lines = content.split("\n");
+    const target = "- " + fact;
     const idx = lines.findIndex((line) => line.trimEnd() === target);
     if (idx === -1) return false;
 
     lines.splice(idx, 1);
-    const tmpPath = this.memoryFilePath + '.tmp';
-    await writeFile(tmpPath, lines.join('\n'));
+    const tmpPath = this.memoryFilePath + ".tmp";
+    await writeFile(tmpPath, lines.join("\n"));
     await rename(tmpPath, this.memoryFilePath);
     return true;
   }

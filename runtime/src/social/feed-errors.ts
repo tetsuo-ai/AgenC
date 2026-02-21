@@ -6,7 +6,7 @@
  * @module
  */
 
-import { RuntimeError, RuntimeErrorCodes } from '../types/errors.js';
+import { RuntimeError, RuntimeErrorCodes } from "../types/errors.js";
 
 /**
  * Error thrown when a feed post operation fails (creation or retrieval).
@@ -16,11 +16,8 @@ export class FeedPostError extends RuntimeError {
   public readonly reason: string;
 
   constructor(reason: string) {
-    super(
-      `Feed post failed: ${reason}`,
-      RuntimeErrorCodes.FEED_POST_ERROR,
-    );
-    this.name = 'FeedPostError';
+    super(`Feed post failed: ${reason}`, RuntimeErrorCodes.FEED_POST_ERROR);
+    this.name = "FeedPostError";
     this.reason = reason;
   }
 }
@@ -39,7 +36,7 @@ export class FeedUpvoteError extends RuntimeError {
       `Feed upvote failed for post ${postPda}: ${reason}`,
       RuntimeErrorCodes.FEED_UPVOTE_ERROR,
     );
-    this.name = 'FeedUpvoteError';
+    this.name = "FeedUpvoteError";
     this.postPda = postPda;
     this.reason = reason;
   }
@@ -53,11 +50,8 @@ export class FeedQueryError extends RuntimeError {
   public readonly reason: string;
 
   constructor(reason: string) {
-    super(
-      `Feed query failed: ${reason}`,
-      RuntimeErrorCodes.FEED_QUERY_ERROR,
-    );
-    this.name = 'FeedQueryError';
+    super(`Feed query failed: ${reason}`, RuntimeErrorCodes.FEED_QUERY_ERROR);
+    this.name = "FeedQueryError";
     this.reason = reason;
   }
 }

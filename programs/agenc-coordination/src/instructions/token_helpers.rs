@@ -123,10 +123,7 @@ pub fn validate_unchecked_token_mint(
         .try_into()
         .map_err(|_| error!(CoordinationError::InvalidTokenEscrow))?;
     let mint = Pubkey::new_from_array(mint_bytes);
-    require!(
-        mint == *expected_mint,
-        CoordinationError::InvalidTokenMint
-    );
+    require!(mint == *expected_mint, CoordinationError::InvalidTokenMint);
 
     // Validate token account authority (bytes 32..64)
     let owner_bytes: [u8; 32] = data[32..64]

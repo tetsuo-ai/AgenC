@@ -4,7 +4,7 @@
  * @module
  */
 
-import { RuntimeError, RuntimeErrorCodes } from '../../types/errors.js';
+import { RuntimeError, RuntimeErrorCodes } from "../../types/errors.js";
 
 /**
  * Error thrown when a channel plugin cannot connect or its optional
@@ -18,7 +18,7 @@ export class ChannelConnectionError extends RuntimeError {
       `${channelName} connection error: ${message}`,
       RuntimeErrorCodes.GATEWAY_CONNECTION_ERROR,
     );
-    this.name = 'ChannelConnectionError';
+    this.name = "ChannelConnectionError";
     this.channelName = channelName;
   }
 }

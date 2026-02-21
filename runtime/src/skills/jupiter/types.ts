@@ -4,7 +4,7 @@
  * @module
  */
 
-import type { PublicKey } from '@solana/web3.js';
+import type { PublicKey } from "@solana/web3.js";
 
 /**
  * Well-known token mint descriptor.

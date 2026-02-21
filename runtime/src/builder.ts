@@ -7,35 +7,35 @@
  * @module
  */
 
-import type { Connection, PublicKey, Keypair } from '@solana/web3.js';
-import type { Wallet } from './types/wallet.js';
-import { ensureWallet } from './types/wallet.js';
-import type { LogLevel, Logger } from './utils/logger.js';
-import { createLogger, silentLogger } from './utils/logger.js';
-import type { LLMProvider } from './llm/types.js';
-import type { GrokProviderConfig } from './llm/grok/types.js';
-import type { AnthropicProviderConfig } from './llm/anthropic/types.js';
-import type { OllamaProviderConfig } from './llm/ollama/types.js';
-import { GrokProvider } from './llm/grok/adapter.js';
-import { AnthropicProvider } from './llm/anthropic/adapter.js';
-import { OllamaProvider } from './llm/ollama/adapter.js';
-import { LLMTaskExecutor } from './llm/executor.js';
-import type { MemoryBackend } from './memory/types.js';
-import type { InMemoryBackendConfig } from './memory/in-memory/index.js';
-import { InMemoryBackend } from './memory/in-memory/backend.js';
-import type { SqliteBackendConfig } from './memory/sqlite/types.js';
-import { SqliteBackend } from './memory/sqlite/backend.js';
-import type { RedisBackendConfig } from './memory/redis/types.js';
-import { RedisBackend } from './memory/redis/backend.js';
-import type { ProofEngineConfig } from './proof/types.js';
-import { ProofEngine } from './proof/engine.js';
-import type { Skill, SkillContext } from './skills/types.js';
-import type { Tool } from './tools/types.js';
-import { ToolRegistry } from './tools/registry.js';
-import type { ActionSchemaMap } from './tools/skill-adapter.js';
-import { skillToTools } from './tools/skill-adapter.js';
-import { createAgencTools } from './tools/agenc/index.js';
-import { AutonomousAgent } from './autonomous/agent.js';
+import type { Connection, PublicKey, Keypair } from "@solana/web3.js";
+import type { Wallet } from "./types/wallet.js";
+import { ensureWallet } from "./types/wallet.js";
+import type { LogLevel, Logger } from "./utils/logger.js";
+import { createLogger, silentLogger } from "./utils/logger.js";
+import type { LLMProvider } from "./llm/types.js";
+import type { GrokProviderConfig } from "./llm/grok/types.js";
+import type { AnthropicProviderConfig } from "./llm/anthropic/types.js";
+import type { OllamaProviderConfig } from "./llm/ollama/types.js";
+import { GrokProvider } from "./llm/grok/adapter.js";
+import { AnthropicProvider } from "./llm/anthropic/adapter.js";
+import { OllamaProvider } from "./llm/ollama/adapter.js";
+import { LLMTaskExecutor } from "./llm/executor.js";
+import type { MemoryBackend } from "./memory/types.js";
+import type { InMemoryBackendConfig } from "./memory/in-memory/index.js";
+import { InMemoryBackend } from "./memory/in-memory/backend.js";
+import type { SqliteBackendConfig } from "./memory/sqlite/types.js";
+import { SqliteBackend } from "./memory/sqlite/backend.js";
+import type { RedisBackendConfig } from "./memory/redis/types.js";
+import { RedisBackend } from "./memory/redis/backend.js";
+import type { ProofEngineConfig } from "./proof/types.js";
+import { ProofEngine } from "./proof/engine.js";
+import type { Skill, SkillContext } from "./skills/types.js";
+import type { Tool } from "./tools/types.js";
+import { ToolRegistry } from "./tools/registry.js";
+import type { ActionSchemaMap } from "./tools/skill-adapter.js";
+import { skillToTools } from "./tools/skill-adapter.js";
+import { createAgencTools } from "./tools/agenc/index.js";
+import { AutonomousAgent } from "./autonomous/agent.js";
 import type {
   TaskExecutor,
   TaskFilter,
@@ -48,42 +48,53 @@ import type {
   VerifierLaneConfig,
   VerifierEscalationMetadata,
   VerifierVerdictPayload,
-} from './autonomous/types.js';
-import { DisputeOperations } from './dispute/operations.js';
-import type { AgencCoordination } from './types/agenc_coordination.js';
-import type { Program } from '@coral-xyz/anchor';
-import { ConnectionManager } from './connection/manager.js';
-import type { EndpointConfig, ConnectionManagerConfig } from './connection/types.js';
-import type { TelemetryCollector, TelemetryConfig, TelemetrySnapshot } from './telemetry/types.js';
-import { UnifiedTelemetryCollector } from './telemetry/collector.js';
-import { PolicyEngine } from './policy/engine.js';
-import type { RuntimePolicyConfig, PolicyViolation } from './policy/types.js';
-import type { WorkflowOptimizerRuntimeConfig } from './workflow/optimizer.js';
-import type { GatewayConfig } from './gateway/types.js';
+} from "./autonomous/types.js";
+import { DisputeOperations } from "./dispute/operations.js";
+import type { AgencCoordination } from "./types/agenc_coordination.js";
+import type { Program } from "@coral-xyz/anchor";
+import { ConnectionManager } from "./connection/manager.js";
+import type {
+  EndpointConfig,
+  ConnectionManagerConfig,
+} from "./connection/types.js";
+import type {
+  TelemetryCollector,
+  TelemetryConfig,
+  TelemetrySnapshot,
+} from "./telemetry/types.js";
+import { UnifiedTelemetryCollector } from "./telemetry/collector.js";
+import { PolicyEngine } from "./policy/engine.js";
+import type { RuntimePolicyConfig, PolicyViolation } from "./policy/types.js";
+import type { WorkflowOptimizerRuntimeConfig } from "./workflow/optimizer.js";
+import type { GatewayConfig } from "./gateway/types.js";
 
 // ============================================================================
 // LLM provider type discriminator
 // ============================================================================
 
-type LLMProviderType = 'grok' | 'anthropic' | 'ollama';
+type LLMProviderType = "grok" | "anthropic" | "ollama";
 
-type LLMConfigForType<T extends LLMProviderType> =
-  T extends 'grok' ? Omit<GrokProviderConfig, 'tools'>
-  : T extends 'anthropic' ? Omit<AnthropicProviderConfig, 'tools'>
-  : T extends 'ollama' ? Omit<OllamaProviderConfig, 'tools'>
-  : never;
+type LLMConfigForType<T extends LLMProviderType> = T extends "grok"
+  ? Omit<GrokProviderConfig, "tools">
+  : T extends "anthropic"
+    ? Omit<AnthropicProviderConfig, "tools">
+    : T extends "ollama"
+      ? Omit<OllamaProviderConfig, "tools">
+      : never;
 
 // ============================================================================
 // Memory backend type discriminator
 // ============================================================================
 
-type MemoryProviderType = 'memory' | 'sqlite' | 'redis';
+type MemoryProviderType = "memory" | "sqlite" | "redis";
 
-type MemoryConfigForType<T extends MemoryProviderType> =
-  T extends 'memory' ? InMemoryBackendConfig
-  : T extends 'sqlite' ? SqliteBackendConfig
-  : T extends 'redis' ? RedisBackendConfig
-  : never;
+type MemoryConfigForType<T extends MemoryProviderType> = T extends "memory"
+  ? InMemoryBackendConfig
+  : T extends "sqlite"
+    ? SqliteBackendConfig
+    : T extends "redis"
+      ? RedisBackendConfig
+      : never;
 
 // ============================================================================
 // Skill registration entry
@@ -105,7 +116,11 @@ export interface AgentCallbacks {
   onTaskCompleted?: (task: Task, txSignature: string) => void;
   onTaskFailed?: (task: Task, error: Error) => void;
   onEarnings?: (amount: bigint, task: Task, mint?: PublicKey | null) => void;
-  onProofGenerated?: (task: Task, proofSizeBytes: number, durationMs: number) => void;
+  onProofGenerated?: (
+    task: Task,
+    proofSizeBytes: number,
+    durationMs: number,
+  ) => void;
   onVerifierVerdict?: (task: Task, verdict: VerifierVerdictPayload) => void;
   onTaskEscalated?: (task: Task, metadata: VerifierEscalationMetadata) => void;
   onPolicyViolation?: (violation: PolicyViolation) => void;
@@ -226,7 +241,10 @@ export class AgentBuilder {
     return this;
   }
 
-  withLLM<T extends LLMProviderType>(type: T, config: LLMConfigForType<T>): this {
+  withLLM<T extends LLMProviderType>(
+    type: T,
+    config: LLMConfigForType<T>,
+  ): this {
     this.llmType = type;
     this.llmConfig = config as Record<string, unknown>;
     return this;
@@ -237,7 +255,10 @@ export class AgentBuilder {
     return this;
   }
 
-  withMemory<T extends MemoryProviderType>(type: T, config?: MemoryConfigForType<T>): this {
+  withMemory<T extends MemoryProviderType>(
+    type: T,
+    config?: MemoryConfigForType<T>,
+  ): this {
     this.memoryType = type;
     this.memoryConfig = (config ?? {}) as Record<string, unknown>;
     return this;
@@ -342,12 +363,14 @@ export class AgentBuilder {
    */
   withRpcEndpoints(
     endpoints: (string | EndpointConfig)[],
-    config?: Omit<ConnectionManagerConfig, 'endpoints' | 'logger'>,
+    config?: Omit<ConnectionManagerConfig, "endpoints" | "logger">,
   ): this {
     this.connectionManager = new ConnectionManager({
       ...config,
       endpoints,
-      logger: this.logLevel ? createLogger(this.logLevel, '[ConnectionManager]') : undefined,
+      logger: this.logLevel
+        ? createLogger(this.logLevel, "[ConnectionManager]")
+        : undefined,
     });
     return this;
   }
@@ -396,23 +419,28 @@ export class AgentBuilder {
    */
   async build(): Promise<BuiltAgent> {
     if (!this.capabilities) {
-      throw new Error('capabilities required — call withCapabilities()');
+      throw new Error("capabilities required — call withCapabilities()");
     }
     if (!this.executor && !this.llmType) {
-      throw new Error('executor or LLM required — call withExecutor() or withLLM()');
+      throw new Error(
+        "executor or LLM required — call withExecutor() or withLLM()",
+      );
     }
 
     const logger = this.logLevel
-      ? createLogger(this.logLevel, '[AgentBuilder]')
+      ? createLogger(this.logLevel, "[AgentBuilder]")
       : silentLogger;
 
     const builderWallet: Wallet = ensureWallet(this.wallet);
 
-    const resolvedConnection = this.connectionManager?.getConnection() ?? this.connection;
+    const resolvedConnection =
+      this.connectionManager?.getConnection() ?? this.connection;
 
     // Gateway integration will be wired here in a future PR (#1055+)
     if (this.gatewayConfig) {
-      logger.debug('Gateway config provided — will be used once Gateway integration lands');
+      logger.debug(
+        "Gateway config provided — will be used once Gateway integration lands",
+      );
     }
 
     // Create telemetry collector if configured
@@ -420,7 +448,11 @@ export class AgentBuilder {
       ? new UnifiedTelemetryCollector(this.telemetryConfig, logger)
       : undefined;
     const policyEngine = this.policyConfig
-      ? new PolicyEngine({ policy: this.policyConfig, logger, metrics: telemetry })
+      ? new PolicyEngine({
+          policy: this.policyConfig,
+          logger,
+          metrics: telemetry,
+        })
       : undefined;
 
     // Inject metrics into connection manager (created before collector exists)
@@ -434,7 +466,9 @@ export class AgentBuilder {
       resolvedConnection,
       policyEngine,
     );
-    const memory = this.memoryType ? this.createMemoryBackend(telemetry) : undefined;
+    const memory = this.memoryType
+      ? this.createMemoryBackend(telemetry)
+      : undefined;
     const taskExecutor = this.buildExecutor(registry, memory, telemetry);
     const proofEngine = this.proofConfig
       ? new ProofEngine({ ...this.proofConfig, logger, metrics: telemetry })
@@ -466,18 +500,30 @@ export class AgentBuilder {
     wallet: Wallet,
     resolvedConnection: Connection,
     policyEngine?: PolicyEngine,
-  ): Promise<{ registry: ToolRegistry | undefined; initializedSkills: Skill[] }> {
-    const hasTools = this.customTools.length > 0 || this.skillEntries.length > 0 || this.useAgencTools;
+  ): Promise<{
+    registry: ToolRegistry | undefined;
+    initializedSkills: Skill[];
+  }> {
+    const hasTools =
+      this.customTools.length > 0 ||
+      this.skillEntries.length > 0 ||
+      this.useAgencTools;
     if (!hasTools) return { registry: undefined, initializedSkills: [] };
 
     const registry = new ToolRegistry({ logger, policyEngine });
     const initializedSkills: Skill[] = [];
 
     for (const entry of this.skillEntries) {
-      const ctx: SkillContext = { connection: resolvedConnection, wallet, logger };
+      const ctx: SkillContext = {
+        connection: resolvedConnection,
+        wallet,
+        logger,
+      };
       await entry.skill.initialize(ctx);
       initializedSkills.push(entry.skill);
-      registry.registerAll(skillToTools(entry.skill, { schemas: entry.schemas }));
+      registry.registerAll(
+        skillToTools(entry.skill, { schemas: entry.schemas }),
+      );
     }
 
     for (const tool of this.customTools) {
@@ -485,12 +531,14 @@ export class AgentBuilder {
     }
 
     if (this.useAgencTools) {
-      registry.registerAll(createAgencTools({
-        connection: resolvedConnection,
-        wallet,
-        programId: this.programId,
-        logger,
-      }));
+      registry.registerAll(
+        createAgencTools({
+          connection: resolvedConnection,
+          wallet,
+          programId: this.programId,
+          logger,
+        }),
+      );
     }
 
     return { registry, initializedSkills };
@@ -557,15 +605,19 @@ export class AgentBuilder {
     });
   }
 
-  private createLLMProvider(tools?: ReturnType<ToolRegistry['toLLMTools']>): LLMProvider {
+  private createLLMProvider(
+    tools?: ReturnType<ToolRegistry["toLLMTools"]>,
+  ): LLMProvider {
     const config = { ...this.llmConfig, tools };
 
     switch (this.llmType) {
-      case 'grok':
+      case "grok":
         return new GrokProvider(config as unknown as GrokProviderConfig);
-      case 'anthropic':
-        return new AnthropicProvider(config as unknown as AnthropicProviderConfig);
-      case 'ollama':
+      case "anthropic":
+        return new AnthropicProvider(
+          config as unknown as AnthropicProviderConfig,
+        );
+      case "ollama":
         return new OllamaProvider(config as unknown as OllamaProviderConfig);
       default:
         throw new Error(`Unknown LLM provider type: ${this.llmType}`);
@@ -576,11 +628,11 @@ export class AgentBuilder {
     const config = { ...(this.memoryConfig ?? {}), metrics };
 
     switch (this.memoryType) {
-      case 'memory':
+      case "memory":
         return new InMemoryBackend(config as InMemoryBackendConfig);
-      case 'sqlite':
+      case "sqlite":
         return new SqliteBackend(config as SqliteBackendConfig);
-      case 'redis':
+      case "redis":
         return new RedisBackend(config as RedisBackendConfig);
       default:
         throw new Error(`Unknown memory backend type: ${this.memoryType}`);
@@ -628,14 +680,17 @@ export class BuiltAgent {
     try {
       await this.autonomous.stop();
     } catch (e) {
-      this.logger.error('Error stopping autonomous agent:', e);
+      this.logger.error("Error stopping autonomous agent:", e);
     }
 
     for (const skill of this.skills) {
       try {
         await skill.shutdown();
       } catch (e) {
-        this.logger.error(`Error shutting down skill ${skill.metadata.name}:`, e);
+        this.logger.error(
+          `Error shutting down skill ${skill.metadata.name}:`,
+          e,
+        );
       }
     }
 
@@ -643,7 +698,7 @@ export class BuiltAgent {
       try {
         await this.memory.close();
       } catch (e) {
-        this.logger.error('Error closing memory backend:', e);
+        this.logger.error("Error closing memory backend:", e);
       }
     }
 
@@ -666,14 +721,15 @@ export class BuiltAgent {
   getDisputeOps(): DisputeOperations {
     if (this._disputeOps) return this._disputeOps;
 
-    const program: Program<AgencCoordination> | null = this.autonomous.getProgram();
+    const program: Program<AgencCoordination> | null =
+      this.autonomous.getProgram();
     if (!program) {
-      throw new Error('Agent not started — call start() first');
+      throw new Error("Agent not started — call start() first");
     }
 
     const agentId = this.autonomous.getAgentId();
     if (!agentId) {
-      throw new Error('Agent not registered — call start() first');
+      throw new Error("Agent not registered — call start() first");
     }
 
     this._disputeOps = new DisputeOperations({

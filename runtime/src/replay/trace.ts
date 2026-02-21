@@ -8,8 +8,8 @@
  * @module
  */
 
-import { createHash } from 'node:crypto';
-import { createRequire } from 'node:module';
+import { createHash } from "node:crypto";
+import { createRequire } from "node:module";
 
 export interface ReplayTraceContext {
   traceId: string;
@@ -63,12 +63,15 @@ interface ReplayOtelSpan {
 
 interface ReplayOtelModule {
   trace: {
-    getTracer: (name: string, version?: string) => {
+    getTracer: (
+      name: string,
+      version?: string,
+    ) => {
       startSpan: (
         name: string,
         options: {
           attributes?: Record<string, string | number | boolean>;
-        }
+        },
       ) => ReplayOtelSpan;
     };
   };
@@ -91,17 +94,19 @@ function resolveOtelModule(cacheKey: string): ReplayOtelModule | null {
   }
 
   try {
-    const module = otelRequire('@opentelemetry/api') as { trace?: unknown };
+    const module = otelRequire("@opentelemetry/api") as { trace?: unknown };
     const tracerApi = module?.trace as { getTracer?: unknown } | undefined;
     if (tracerApi?.getTracer !== undefined) {
       otelCache.set(cacheKey, {
         trace: {
-          getTracer: tracerApi.getTracer as ReplayOtelModule['trace']['getTracer'],
+          getTracer:
+            tracerApi.getTracer as ReplayOtelModule["trace"]["getTracer"],
         },
       });
       return {
         trace: {
-          getTracer: tracerApi.getTracer as ReplayOtelModule['trace']['getTracer'],
+          getTracer:
+            tracerApi.getTracer as ReplayOtelModule["trace"]["getTracer"],
         },
       };
     }
@@ -123,7 +128,7 @@ function normalizeSampleRate(sampleRate: number | undefined): number {
 }
 
 function hashHex(value: string): string {
-  return createHash('sha256').update(value).digest('hex');
+  return createHash("sha256").update(value).digest("hex");
 }
 
 function deterministicSample(key: string, sampleRate: number): boolean {
@@ -134,14 +139,22 @@ function deterministicSample(key: string, sampleRate: number): boolean {
     return false;
   }
   const value = Number.parseInt(hashHex(key).slice(0, 8), 16);
-  return (value / 0xFFFF_FFFF) < sampleRate;
+  return value / 0xffff_ffff < sampleRate;
 }
 
-export function deriveTraceId(base: string | undefined, slot: number, signature: string, eventName: string, eventSequence?: number): string {
+export function deriveTraceId(
+  base: string | undefined,
+  slot: number,
+  signature: string,
+  eventName: string,
+  eventSequence?: number,
+): string {
   if (base && base.length > 0) {
     return base;
   }
-  return hashHex(`agenc-runtime:${slot}:${signature}:${eventName}:${eventSequence ?? 0}`).slice(0, 32);
+  return hashHex(
+    `agenc-runtime:${slot}:${signature}:${eventName}:${eventSequence ?? 0}`,
+  ).slice(0, 32);
 }
 
 function deriveSpanId(
@@ -151,27 +164,39 @@ function deriveSpanId(
   signature: string,
   eventSequence: number,
 ): string {
-  return hashHex(`${traceId}:${eventName}:${slot}:${signature}:${eventSequence}`).slice(0, 16);
+  return hashHex(
+    `${traceId}:${eventName}:${slot}:${signature}:${eventSequence}`,
+  ).slice(0, 16);
 }
 
 /**
  * Build a deterministic trace context for a single event stream item.
  */
-export function buildReplayTraceContext(
-  args: {
-    traceId?: string;
-    eventName: string;
-    slot: number;
-    signature: string;
-    eventSequence: number;
-    parentSpanId?: string;
-    sampleRate?: number;
-  },
-): ReplayTraceContext {
+export function buildReplayTraceContext(args: {
+  traceId?: string;
+  eventName: string;
+  slot: number;
+  signature: string;
+  eventSequence: number;
+  parentSpanId?: string;
+  sampleRate?: number;
+}): ReplayTraceContext {
   const normalizedSampleRate = normalizeSampleRate(args.sampleRate);
-  const traceId = deriveTraceId(args.traceId, args.slot, args.signature, args.eventName, args.eventSequence);
+  const traceId = deriveTraceId(
+    args.traceId,
+    args.slot,
+    args.signature,
+    args.eventName,
+    args.eventSequence,
+  );
   const spanIdSeed = `${traceId}:${args.eventName}:${args.slot}:${args.signature}:${args.eventSequence}`;
-  const spanId = deriveSpanId(traceId, args.eventName, args.slot, args.signature, args.eventSequence);
+  const spanId = deriveSpanId(
+    traceId,
+    args.eventName,
+    args.slot,
+    args.signature,
+    args.eventSequence,
+  );
   const sampled = deterministicSample(spanIdSeed, normalizedSampleRate);
 
   return {
@@ -182,7 +207,9 @@ export function buildReplayTraceContext(
   };
 }
 
-export function toReplayTraceEnvelope(context: ReplayTraceContext | undefined): ReplayTraceEnvelope | undefined {
+export function toReplayTraceEnvelope(
+  context: ReplayTraceContext | undefined,
+): ReplayTraceEnvelope | undefined {
   if (!context) {
     return undefined;
   }
@@ -232,32 +259,32 @@ export function startReplaySpan(context: ReplaySpanContext): ReplaySpanHandle {
     return { end: () => undefined };
   }
 
-  const otel = resolveOtelModule('default');
+  const otel = resolveOtelModule("default");
   if (!otel) {
     return { end: () => undefined };
   }
 
   const attributes = {
     ...context.attributes,
-    'agenc.replay.trace_id': context.trace.traceId,
-    'agenc.replay.span_id': context.trace.spanId,
-    'agenc.replay.sampled': context.trace.sampled,
+    "agenc.replay.trace_id": context.trace.traceId,
+    "agenc.replay.span_id": context.trace.spanId,
+    "agenc.replay.sampled": context.trace.sampled,
   } as const;
   if (context.trace.parentSpanId !== undefined) {
-    (attributes as { 'agenc.replay.parent_span_id'?: string })['agenc.replay.parent_span_id'] = context.trace.parentSpanId;
+    (attributes as { "agenc.replay.parent_span_id"?: string })[
+      "agenc.replay.parent_span_id"
+    ] = context.trace.parentSpanId;
   }
 
   const span = otel.trace
-    .getTracer('agenc-runtime-replay', '0.1.0')
+    .getTracer("agenc-runtime-replay", "0.1.0")
     .startSpan(context.name, { attributes });
 
   return {
     end(error?: unknown): void {
       if (error !== undefined) {
         span.recordException?.(error);
-        const message = error instanceof Error
-          ? error.message
-          : String(error);
+        const message = error instanceof Error ? error.message : String(error);
         span.setStatus?.({ code: 2, message });
       }
       span.end();

@@ -4,22 +4,22 @@
  * @module
  */
 
-import { randomUUID } from 'node:crypto';
-import type { MemoryBackend } from './types.js';
+import { randomUUID } from "node:crypto";
+import type { MemoryBackend } from "./types.js";
 
-const NODE_PREFIX = 'graph:node:';
-const EDGE_PREFIX = 'graph:edge:';
-const SESSION_INDEX_PREFIX = 'graph:index:session:';
+const NODE_PREFIX = "graph:node:";
+const EDGE_PREFIX = "graph:edge:";
+const SESSION_INDEX_PREFIX = "graph:index:session:";
 
 const DEFAULT_CONFIDENCE_HALF_LIFE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 export type ProvenanceSourceType =
-  | 'onchain_event'
-  | 'tool_output'
-  | 'tx_signature'
-  | 'external_doc'
-  | 'materialization'
-  | 'manual';
+  | "onchain_event"
+  | "tool_output"
+  | "tx_signature"
+  | "external_doc"
+  | "materialization"
+  | "manual";
 
 export interface ProvenanceSource {
   type: ProvenanceSourceType;
@@ -29,10 +29,10 @@ export interface ProvenanceSource {
 }
 
 export type MemoryEdgeType =
-  | 'derived_from'
-  | 'supports'
-  | 'contradicts'
-  | 'supersedes';
+  | "derived_from"
+  | "supports"
+  | "contradicts"
+  | "supersedes";
 
 export interface MemoryGraphNode {
   id: string;
@@ -116,7 +116,8 @@ export class MemoryGraph {
 
   constructor(backend: MemoryBackend, config: MemoryGraphConfig = {}) {
     this.backend = backend;
-    this.confidenceHalfLifeMs = config.confidenceHalfLifeMs ?? DEFAULT_CONFIDENCE_HALF_LIFE_MS;
+    this.confidenceHalfLifeMs =
+      config.confidenceHalfLifeMs ?? DEFAULT_CONFIDENCE_HALF_LIFE_MS;
     this.now = config.now ?? Date.now;
   }
 
@@ -127,28 +128,35 @@ export class MemoryGraph {
     const existing = input.id ? await this.getNode(input.id) : null;
     const node: MemoryGraphNode = existing
       ? {
-        ...existing,
-        content: input.content,
-        sessionId: input.sessionId ?? existing.sessionId,
-        taskPda: input.taskPda ?? existing.taskPda,
-        baseConfidence: this.normalizeConfidence(input.baseConfidence ?? existing.baseConfidence),
-        tags: input.tags ?? existing.tags,
-        metadata: input.metadata ?? existing.metadata,
-        provenance: this.mergeProvenance(existing.provenance, input.provenance),
-        updatedAt: timestamp,
-      }
+          ...existing,
+          content: input.content,
+          sessionId: input.sessionId ?? existing.sessionId,
+          taskPda: input.taskPda ?? existing.taskPda,
+          baseConfidence: this.normalizeConfidence(
+            input.baseConfidence ?? existing.baseConfidence,
+          ),
+          tags: input.tags ?? existing.tags,
+          metadata: input.metadata ?? existing.metadata,
+          provenance: this.mergeProvenance(
+            existing.provenance,
+            input.provenance,
+          ),
+          updatedAt: timestamp,
+        }
       : {
-        id: input.id ?? randomUUID(),
-        content: input.content,
-        sessionId: input.sessionId,
-        taskPda: input.taskPda,
-        createdAt: timestamp,
-        updatedAt: timestamp,
-        baseConfidence: this.normalizeConfidence(input.baseConfidence ?? 0.75),
-        tags: input.tags,
-        metadata: input.metadata,
-        provenance: [...input.provenance],
-      };
+          id: input.id ?? randomUUID(),
+          content: input.content,
+          sessionId: input.sessionId,
+          taskPda: input.taskPda,
+          createdAt: timestamp,
+          updatedAt: timestamp,
+          baseConfidence: this.normalizeConfidence(
+            input.baseConfidence ?? 0.75,
+          ),
+          tags: input.tags,
+          metadata: input.metadata,
+          provenance: [...input.provenance],
+        };
 
     await this.backend.set(this.nodeKey(node.id), node);
     if (node.sessionId) {
@@ -190,7 +198,9 @@ export class MemoryGraph {
 
   async listNodes(sessionId?: string): Promise<MemoryGraphNode[]> {
     if (sessionId) {
-      const ids = await this.backend.get<string[]>(this.sessionIndexKey(sessionId));
+      const ids = await this.backend.get<string[]>(
+        this.sessionIndexKey(sessionId),
+      );
       if (!ids || ids.length === 0) return [];
       const nodes = await Promise.all(ids.map((id) => this.getNode(id)));
       return nodes.filter((node): node is MemoryGraphNode => node !== null);
@@ -217,16 +227,24 @@ export class MemoryGraph {
     const edges = await this.listEdges();
 
     const contradictedIds = new Set(
-      edges.filter((edge) => edge.type === 'contradicts').map((edge) => edge.toId),
+      edges
+        .filter((edge) => edge.type === "contradicts")
+        .map((edge) => edge.toId),
     );
     const supersededIds = new Set(
-      edges.filter((edge) => edge.type === 'supersedes').map((edge) => edge.toId),
+      edges
+        .filter((edge) => edge.type === "supersedes")
+        .map((edge) => edge.toId),
     );
 
     const results: MemoryGraphResult[] = [];
     for (const node of nodes) {
       if (query.taskPda && node.taskPda !== query.taskPda) continue;
-      if (query.textContains && !node.content.toLowerCase().includes(query.textContains.toLowerCase())) continue;
+      if (
+        query.textContains &&
+        !node.content.toLowerCase().includes(query.textContains.toLowerCase())
+      )
+        continue;
       if (query.tagsAny && query.tagsAny.length > 0) {
         const tags = node.tags ?? [];
         if (!query.tagsAny.some((tag) => tags.includes(tag))) continue;
@@ -235,7 +253,12 @@ export class MemoryGraph {
       const sources = node.provenance ?? [];
       if (query.requireProvenance && sources.length === 0) continue;
       if (query.provenanceTypes && query.provenanceTypes.length > 0) {
-        if (!sources.some((source) => query.provenanceTypes!.includes(source.type))) continue;
+        if (
+          !sources.some((source) =>
+            query.provenanceTypes!.includes(source.type),
+          )
+        )
+          continue;
       }
 
       const contradicted = contradictedIds.has(node.id);
@@ -244,7 +267,11 @@ export class MemoryGraph {
       if (superseded && query.includeSuperseded === false) continue;
 
       const effectiveConfidence = this.computeEffectiveConfidence(node, now);
-      if (query.minConfidence !== undefined && effectiveConfidence < query.minConfidence) continue;
+      if (
+        query.minConfidence !== undefined &&
+        effectiveConfidence < query.minConfidence
+      )
+        continue;
 
       results.push({
         node,
@@ -268,21 +295,28 @@ export class MemoryGraph {
     return results;
   }
 
-  async materializeSessionSummary(sessionId: string, limit = 50): Promise<MemoryGraphNode> {
+  async materializeSessionSummary(
+    sessionId: string,
+    limit = 50,
+  ): Promise<MemoryGraphNode> {
     const entries = await this.backend.getThread(sessionId, limit);
-    const summaryLines = entries.slice(-5).map((entry) => `${entry.role}: ${entry.content}`);
-    const summary = summaryLines.join('\n');
+    const summaryLines = entries
+      .slice(-5)
+      .map((entry) => `${entry.role}: ${entry.content}`);
+    const summary = summaryLines.join("\n");
 
     return await this.upsertNode({
-      content: summary.length > 0 ? summary : 'No session history available',
+      content: summary.length > 0 ? summary : "No session history available",
       sessionId,
-      tags: ['summary', 'materialized'],
+      tags: ["summary", "materialized"],
       baseConfidence: 0.65,
-      provenance: [{
-        type: 'materialization',
-        sourceId: `session:${sessionId}`,
-        description: `Materialized from ${entries.length} thread entries`,
-      }],
+      provenance: [
+        {
+          type: "materialization",
+          sourceId: `session:${sessionId}`,
+          description: `Materialized from ${entries.length} thread entries`,
+        },
+      ],
     });
   }
 
@@ -298,15 +332,17 @@ export class MemoryGraph {
       content: options.output,
       sessionId: options.sessionId,
       taskPda: options.taskPda,
-      tags: ['tool-output', options.toolName],
+      tags: ["tool-output", options.toolName],
       baseConfidence: options.confidence ?? 0.8,
       metadata: options.metadata,
-      provenance: [{
-        type: 'tool_output',
-        sourceId: `${options.toolName}:${this.now()}`,
-        description: `Tool output from ${options.toolName}`,
-        metadata: options.metadata,
-      }],
+      provenance: [
+        {
+          type: "tool_output",
+          sourceId: `${options.toolName}:${this.now()}`,
+          description: `Tool output from ${options.toolName}`,
+          metadata: options.metadata,
+        },
+      ],
     });
   }
 
@@ -323,19 +359,23 @@ export class MemoryGraph {
       content: options.payload,
       sessionId: options.sessionId,
       taskPda: options.taskPda,
-      tags: ['onchain-event', options.eventName],
+      tags: ["onchain-event", options.eventName],
       baseConfidence: options.confidence ?? 0.9,
       metadata: options.metadata,
-      provenance: [{
-        type: 'onchain_event',
-        sourceId: options.txSignature,
-        description: options.eventName,
-        metadata: options.metadata,
-      }],
+      provenance: [
+        {
+          type: "onchain_event",
+          sourceId: options.txSignature,
+          description: options.eventName,
+          metadata: options.metadata,
+        },
+      ],
     });
   }
 
-  async compact(options: CompactOptions = {}): Promise<{ removedNodes: number; removedEdges: number }> {
+  async compact(
+    options: CompactOptions = {},
+  ): Promise<{ removedNodes: number; removedEdges: number }> {
     const now = this.now();
     const nodes = await this.listNodes();
     const retentionMs = options.retentionMs;
@@ -343,8 +383,11 @@ export class MemoryGraph {
 
     const toRemove = new Set<string>();
     for (const node of nodes) {
-      const stale = retentionMs !== undefined && now - node.updatedAt > retentionMs;
-      const weak = minBaseConfidence !== undefined && node.baseConfidence < minBaseConfidence;
+      const stale =
+        retentionMs !== undefined && now - node.updatedAt > retentionMs;
+      const weak =
+        minBaseConfidence !== undefined &&
+        node.baseConfidence < minBaseConfidence;
       if (stale || weak) {
         toRemove.add(node.id);
       }
@@ -366,7 +409,10 @@ export class MemoryGraph {
     return { removedNodes: toRemove.size, removedEdges };
   }
 
-  private computeEffectiveConfidence(node: MemoryGraphNode, nowMs: number): number {
+  private computeEffectiveConfidence(
+    node: MemoryGraphNode,
+    nowMs: number,
+  ): number {
     if (this.confidenceHalfLifeMs <= 0) {
       return node.baseConfidence;
     }
@@ -375,7 +421,10 @@ export class MemoryGraph {
     return node.baseConfidence * decay;
   }
 
-  private async addSessionIndex(sessionId: string, nodeId: string): Promise<void> {
+  private async addSessionIndex(
+    sessionId: string,
+    nodeId: string,
+  ): Promise<void> {
     const key = this.sessionIndexKey(sessionId);
     const ids = (await this.backend.get<string[]>(key)) ?? [];
     if (!ids.includes(nodeId)) {
@@ -392,8 +441,7 @@ export class MemoryGraph {
     for (const source of incoming) {
       const exists = merged.some(
         (current) =>
-          current.type === source.type
-          && current.sourceId === source.sourceId,
+          current.type === source.type && current.sourceId === source.sourceId,
       );
       if (!exists) {
         merged.push(source);
@@ -404,11 +452,13 @@ export class MemoryGraph {
 
   private assertProvenance(provenance: ProvenanceSource[]): void {
     if (!Array.isArray(provenance) || provenance.length === 0) {
-      throw new Error('Memory graph writes require provenance metadata');
+      throw new Error("Memory graph writes require provenance metadata");
     }
     for (const source of provenance) {
       if (!source.type || !source.sourceId) {
-        throw new Error('Invalid provenance entry: type and sourceId are required');
+        throw new Error(
+          "Invalid provenance entry: type and sourceId are required",
+        );
       }
     }
   }
@@ -432,4 +482,3 @@ export class MemoryGraph {
     return `${SESSION_INDEX_PREFIX}${sessionId}`;
   }
 }
-

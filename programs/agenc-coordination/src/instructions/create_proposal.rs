@@ -96,7 +96,7 @@ pub fn handler(
         ProposalType::FeeChange => {
             let fee_bps = u16::from_le_bytes([payload[0], payload[1]]);
             require!(
-                fee_bps <= MAX_PROTOCOL_FEE_BPS as u16,
+                fee_bps <= MAX_PROTOCOL_FEE_BPS,
                 CoordinationError::InvalidProposalPayload
             );
         }
@@ -116,11 +116,11 @@ pub fn handler(
             let max_disputes_per_24h = payload[17];
 
             require!(
-                task_creation_cooldown >= 0 && task_creation_cooldown <= MAX_COOLDOWN,
+                (0..=MAX_COOLDOWN).contains(&task_creation_cooldown),
                 CoordinationError::InvalidProposalPayload
             );
             require!(
-                dispute_initiation_cooldown >= 0 && dispute_initiation_cooldown <= MAX_COOLDOWN,
+                (0..=MAX_COOLDOWN).contains(&dispute_initiation_cooldown),
                 CoordinationError::InvalidProposalPayload
             );
             require!(

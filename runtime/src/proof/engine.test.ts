@@ -1,8 +1,8 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { Keypair, PublicKey } from '@solana/web3.js';
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { Keypair, PublicKey } from "@solana/web3.js";
 
 // Mock @agenc/sdk before imports
-vi.mock('@agenc/sdk', () => {
+vi.mock("@agenc/sdk", () => {
   const mockSeal = Buffer.alloc(260, 0xab);
   const mockJournal = Buffer.alloc(192, 0xcd);
   const mockImageId = Buffer.alloc(32, 0xef);
@@ -36,9 +36,9 @@ vi.mock('@agenc/sdk', () => {
     }),
     generateSalt: vi.fn().mockReturnValue(999n),
     // Re-export types that the module expects
-    PROGRAM_ID: new PublicKey('5j9ZbT3mnPX5QjWVMrDaWFuaGf8ddji6LW1HVJw6kUE7'),
-    DEVNET_RPC: 'https://api.devnet.solana.com',
-    MAINNET_RPC: 'https://api.mainnet-beta.solana.com',
+    PROGRAM_ID: new PublicKey("5j9ZbT3mnPX5QjWVMrDaWFuaGf8ddji6LW1HVJw6kUE7"),
+    DEVNET_RPC: "https://api.devnet.solana.com",
+    MAINNET_RPC: "https://api.mainnet-beta.solana.com",
     SEEDS: {},
     HASH_SIZE: 32,
     RESULT_DATA_SIZE: 64,
@@ -48,7 +48,7 @@ vi.mock('@agenc/sdk', () => {
     PROOF_SIZE_BYTES: 256,
     PERCENT_BASE: 10000,
     DEFAULT_FEE_PERCENT: 250,
-    PRIVACY_CASH_PROGRAM_ID: new PublicKey('11111111111111111111111111111111'),
+    PRIVACY_CASH_PROGRAM_ID: new PublicKey("11111111111111111111111111111111"),
     TaskState: { Open: 0, InProgress: 1 },
     TaskStatus: {},
     // Logger re-exports needed by utils/logger.ts
@@ -75,12 +75,16 @@ import {
   verifyProofLocally as mockVerifyProofLocally,
   computeHashes as mockComputeHashes,
   generateSalt as mockGenerateSalt,
-} from '@agenc/sdk';
-import { ProofEngine, buildSdkProverConfig } from './engine.js';
-import { ProofCache, deriveCacheKey } from './cache.js';
-import { ProofGenerationError, ProofVerificationError, ProofCacheError } from './errors.js';
-import { RuntimeErrorCodes, RuntimeError } from '../types/errors.js';
-import type { ProofInputs, EngineProofResult } from './types.js';
+} from "@agenc/sdk";
+import { ProofEngine, buildSdkProverConfig } from "./engine.js";
+import { ProofCache, deriveCacheKey } from "./cache.js";
+import {
+  ProofGenerationError,
+  ProofVerificationError,
+  ProofCacheError,
+} from "./errors.js";
+import { RuntimeErrorCodes, RuntimeError } from "../types/errors.js";
+import type { ProofInputs, EngineProofResult } from "./types.js";
 
 function makeInputs(): ProofInputs {
   return {
@@ -91,7 +95,7 @@ function makeInputs(): ProofInputs {
   };
 }
 
-describe('ProofEngine', () => {
+describe("ProofEngine", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -100,29 +104,29 @@ describe('ProofEngine', () => {
   // Construction
   // ==========================================================================
 
-  describe('construction', () => {
-    it('creates with default config', () => {
+  describe("construction", () => {
+    it("creates with default config", () => {
       const engine = new ProofEngine();
       expect(engine).toBeInstanceOf(ProofEngine);
     });
 
-    it('creates with custom config', () => {
+    it("creates with custom config", () => {
       const engine = new ProofEngine({
         methodId: new Uint8Array(32),
-        proverBackend: { kind: 'deterministic-local' },
+        proverBackend: { kind: "deterministic-local" },
         verifyAfterGeneration: true,
         cache: { ttlMs: 60_000, maxEntries: 50 },
       });
       expect(engine).toBeInstanceOf(ProofEngine);
     });
 
-    it('rejects invalid methodId length', () => {
+    it("rejects invalid methodId length", () => {
       expect(() => new ProofEngine({ methodId: new Uint8Array(31) })).toThrow(
-        'methodId must be 32 bytes',
+        "methodId must be 32 bytes",
       );
     });
 
-    it('creates without cache when config.cache is omitted', () => {
+    it("creates without cache when config.cache is omitted", () => {
       const engine = new ProofEngine({});
       const stats = engine.getStats();
       expect(stats.cacheSize).toBe(0);
@@ -133,8 +137,8 @@ describe('ProofEngine', () => {
   // generate() without cache
   // ==========================================================================
 
-  describe('generate without cache', () => {
-    it('calls SDK generateProof and returns EngineProofResult', async () => {
+  describe("generate without cache", () => {
+    it("calls SDK generateProof and returns EngineProofResult", async () => {
       const engine = new ProofEngine();
       const inputs = makeInputs();
       const result = await engine.generate(inputs);
@@ -156,44 +160,56 @@ describe('ProofEngine', () => {
       expect(result.generationTimeMs).toBeGreaterThanOrEqual(0);
     });
 
-    it('does not pass legacy path args to SDK', async () => {
+    it("does not pass legacy path args to SDK", async () => {
       const engine = new ProofEngine();
       const inputs = makeInputs();
       await engine.generate(inputs);
 
       const args = vi.mocked(mockGenerateProof).mock.calls[0]?.[0];
       expect(args).toBeDefined();
-      expect(Object.prototype.hasOwnProperty.call(args, 'legacyPath')).toBe(false);
+      expect(Object.prototype.hasOwnProperty.call(args, "legacyPath")).toBe(
+        false,
+      );
     });
 
-    it('enforces configured methodId against generated imageId', async () => {
+    it("enforces configured methodId against generated imageId", async () => {
       const pinnedMethodId = new Uint8Array(32).fill(0x7f);
       const engine = new ProofEngine({ methodId: pinnedMethodId });
 
       await expect(engine.generate(makeInputs())).rejects.toThrow(
-        'Generated imageId does not match configured methodId',
+        "Generated imageId does not match configured methodId",
       );
     });
 
-    it('wraps SDK errors in ProofGenerationError', async () => {
-      vi.mocked(mockGenerateProof).mockRejectedValueOnce(new Error('proof backend boom'));
+    it("wraps SDK errors in ProofGenerationError", async () => {
+      vi.mocked(mockGenerateProof).mockRejectedValueOnce(
+        new Error("proof backend boom"),
+      );
       const engine = new ProofEngine();
 
-      await expect(engine.generate(makeInputs())).rejects.toThrow(ProofGenerationError);
+      await expect(engine.generate(makeInputs())).rejects.toThrow(
+        ProofGenerationError,
+      );
     });
 
-    it('ProofGenerationError message includes SDK error details', async () => {
-      vi.mocked(mockGenerateProof).mockRejectedValueOnce(new Error('proof backend boom'));
+    it("ProofGenerationError message includes SDK error details", async () => {
+      vi.mocked(mockGenerateProof).mockRejectedValueOnce(
+        new Error("proof backend boom"),
+      );
       const engine = new ProofEngine();
 
-      await expect(engine.generate(makeInputs())).rejects.toThrow('proof backend boom');
+      await expect(engine.generate(makeInputs())).rejects.toThrow(
+        "proof backend boom",
+      );
     });
 
-    it('wraps non-Error SDK throws in ProofGenerationError', async () => {
-      vi.mocked(mockGenerateProof).mockRejectedValueOnce('string error');
+    it("wraps non-Error SDK throws in ProofGenerationError", async () => {
+      vi.mocked(mockGenerateProof).mockRejectedValueOnce("string error");
       const engine = new ProofEngine();
 
-      await expect(engine.generate(makeInputs())).rejects.toThrow(ProofGenerationError);
+      await expect(engine.generate(makeInputs())).rejects.toThrow(
+        ProofGenerationError,
+      );
     });
   });
 
@@ -201,8 +217,8 @@ describe('ProofEngine', () => {
   // generate() with cache
   // ==========================================================================
 
-  describe('generate with cache', () => {
-    it('stores result in cache on miss', async () => {
+  describe("generate with cache", () => {
+    it("stores result in cache on miss", async () => {
       const engine = new ProofEngine({ cache: { ttlMs: 60_000 } });
       const inputs = makeInputs();
 
@@ -215,7 +231,7 @@ describe('ProofEngine', () => {
       expect(mockGenerateProof).toHaveBeenCalledOnce(); // Only first call
     });
 
-    it('returns cached result with fromCache: true', async () => {
+    it("returns cached result with fromCache: true", async () => {
       const engine = new ProofEngine({ cache: { ttlMs: 60_000 } });
       const inputs = makeInputs();
 
@@ -227,7 +243,7 @@ describe('ProofEngine', () => {
       expect(cached.sealBytes.length).toBe(260);
     });
 
-    it('respects cache TTL expiry', async () => {
+    it("respects cache TTL expiry", async () => {
       vi.useFakeTimers();
       const engine = new ProofEngine({ cache: { ttlMs: 1000 } });
       const inputs = makeInputs();
@@ -243,8 +259,10 @@ describe('ProofEngine', () => {
       vi.useRealTimers();
     });
 
-    it('evicts oldest entry when cache is full', async () => {
-      const engine = new ProofEngine({ cache: { ttlMs: 60_000, maxEntries: 2 } });
+    it("evicts oldest entry when cache is full", async () => {
+      const engine = new ProofEngine({
+        cache: { ttlMs: 60_000, maxEntries: 2 },
+      });
 
       const inputs1 = makeInputs();
       const inputs2 = makeInputs();
@@ -265,7 +283,7 @@ describe('ProofEngine', () => {
       expect(mockGenerateProof).not.toHaveBeenCalled();
     });
 
-    it('clearCache clears all entries', async () => {
+    it("clearCache clears all entries", async () => {
       const engine = new ProofEngine({ cache: { ttlMs: 60_000 } });
       const inputs = makeInputs();
 
@@ -282,8 +300,8 @@ describe('ProofEngine', () => {
   // generate() with verification
   // ==========================================================================
 
-  describe('generate with verification', () => {
-    it('verifies proof after generation when configured', async () => {
+  describe("generate with verification", () => {
+    it("verifies proof after generation when configured", async () => {
       vi.mocked(mockVerifyProofLocally).mockResolvedValueOnce(true);
       const engine = new ProofEngine({ verifyAfterGeneration: true });
 
@@ -292,21 +310,27 @@ describe('ProofEngine', () => {
       expect(result.verified).toBe(true);
     });
 
-    it('throws ProofVerificationError when verification returns false', async () => {
+    it("throws ProofVerificationError when verification returns false", async () => {
       vi.mocked(mockVerifyProofLocally).mockResolvedValueOnce(false);
       const engine = new ProofEngine({ verifyAfterGeneration: true });
 
-      await expect(engine.generate(makeInputs())).rejects.toThrow(ProofVerificationError);
+      await expect(engine.generate(makeInputs())).rejects.toThrow(
+        ProofVerificationError,
+      );
     });
 
-    it('throws ProofVerificationError when verification throws', async () => {
-      vi.mocked(mockVerifyProofLocally).mockRejectedValueOnce(new Error('vkey not found'));
+    it("throws ProofVerificationError when verification throws", async () => {
+      vi.mocked(mockVerifyProofLocally).mockRejectedValueOnce(
+        new Error("vkey not found"),
+      );
       const engine = new ProofEngine({ verifyAfterGeneration: true });
 
-      await expect(engine.generate(makeInputs())).rejects.toThrow(ProofVerificationError);
+      await expect(engine.generate(makeInputs())).rejects.toThrow(
+        ProofVerificationError,
+      );
     });
 
-    it('does not verify when verifyAfterGeneration is false', async () => {
+    it("does not verify when verifyAfterGeneration is false", async () => {
       const engine = new ProofEngine({ verifyAfterGeneration: false });
       await engine.generate(makeInputs());
       expect(mockVerifyProofLocally).not.toHaveBeenCalled();
@@ -317,17 +341,20 @@ describe('ProofEngine', () => {
   // verify()
   // ==========================================================================
 
-  describe('verify', () => {
-    it('delegates to SDK verifyProofLocally', async () => {
+  describe("verify", () => {
+    it("delegates to SDK verifyProofLocally", async () => {
       vi.mocked(mockVerifyProofLocally).mockResolvedValueOnce(true);
       const engine = new ProofEngine();
 
-      const valid = await engine.verify(new Uint8Array(256), new Uint8Array(192));
+      const valid = await engine.verify(
+        new Uint8Array(256),
+        new Uint8Array(192),
+      );
       expect(valid).toBe(true);
       expect(mockVerifyProofLocally).toHaveBeenCalledOnce();
     });
 
-    it('tracks verification stats on success', async () => {
+    it("tracks verification stats on success", async () => {
       vi.mocked(mockVerifyProofLocally).mockResolvedValueOnce(true);
       const engine = new ProofEngine();
 
@@ -337,7 +364,7 @@ describe('ProofEngine', () => {
       expect(stats.verificationsFailed).toBe(0);
     });
 
-    it('tracks verification stats on failure', async () => {
+    it("tracks verification stats on failure", async () => {
       vi.mocked(mockVerifyProofLocally).mockResolvedValueOnce(false);
       const engine = new ProofEngine();
 
@@ -347,13 +374,15 @@ describe('ProofEngine', () => {
       expect(stats.verificationsFailed).toBe(1);
     });
 
-    it('throws ProofVerificationError when SDK throws', async () => {
-      vi.mocked(mockVerifyProofLocally).mockRejectedValueOnce(new Error('boom'));
+    it("throws ProofVerificationError when SDK throws", async () => {
+      vi.mocked(mockVerifyProofLocally).mockRejectedValueOnce(
+        new Error("boom"),
+      );
       const engine = new ProofEngine();
 
-      await expect(engine.verify(new Uint8Array(256), new Uint8Array(192))).rejects.toThrow(
-        ProofVerificationError,
-      );
+      await expect(
+        engine.verify(new Uint8Array(256), new Uint8Array(192)),
+      ).rejects.toThrow(ProofVerificationError);
     });
   });
 
@@ -361,8 +390,8 @@ describe('ProofEngine', () => {
   // computeHashes()
   // ==========================================================================
 
-  describe('computeHashes', () => {
-    it('delegates to SDK computeHashes', () => {
+  describe("computeHashes", () => {
+    it("delegates to SDK computeHashes", () => {
       const engine = new ProofEngine();
       const inputs = makeInputs();
 
@@ -385,8 +414,8 @@ describe('ProofEngine', () => {
   // generateSalt()
   // ==========================================================================
 
-  describe('generateSalt', () => {
-    it('delegates to SDK generateSalt', () => {
+  describe("generateSalt", () => {
+    it("delegates to SDK generateSalt", () => {
       const engine = new ProofEngine();
       const salt = engine.generateSalt();
       expect(mockGenerateSalt).toHaveBeenCalledOnce();
@@ -398,17 +427,17 @@ describe('ProofEngine', () => {
   // checkTools()
   // ==========================================================================
 
-  describe('checkTools', () => {
-    it('reports local RISC0 backend status', () => {
+  describe("checkTools", () => {
+    it("reports local RISC0 backend status", () => {
       const engine = new ProofEngine();
       const status = engine.checkTools();
       expect(status.risc0).toBe(true);
-      expect(status.proverBackend).toBe('deterministic-local');
+      expect(status.proverBackend).toBe("deterministic-local");
       expect(status.methodIdPinned).toBe(false);
       expect(status.routerPinned).toBe(false);
     });
 
-    it('marks methodId and router as pinned when configured', () => {
+    it("marks methodId and router as pinned when configured", () => {
       const engine = new ProofEngine({
         methodId: new Uint8Array(32).fill(7),
         routerConfig: {
@@ -428,8 +457,8 @@ describe('ProofEngine', () => {
   // getStats()
   // ==========================================================================
 
-  describe('getStats', () => {
-    it('returns initial zero stats', () => {
+  describe("getStats", () => {
+    it("returns initial zero stats", () => {
       const engine = new ProofEngine();
       const stats = engine.getStats();
 
@@ -443,7 +472,7 @@ describe('ProofEngine', () => {
       expect(stats.cacheSize).toBe(0);
     });
 
-    it('tracks generation stats', async () => {
+    it("tracks generation stats", async () => {
       const engine = new ProofEngine();
 
       await engine.generate(makeInputs());
@@ -455,7 +484,7 @@ describe('ProofEngine', () => {
       expect(stats.avgGenerationTimeMs).toBeGreaterThanOrEqual(0);
     });
 
-    it('tracks cache hit/miss stats', async () => {
+    it("tracks cache hit/miss stats", async () => {
       const engine = new ProofEngine({ cache: { ttlMs: 60_000 } });
       const inputs = makeInputs();
 
@@ -475,30 +504,27 @@ describe('ProofEngine', () => {
   // ProofGenerator interface
   // ==========================================================================
 
-  describe('ProofGenerator interface', () => {
-    it('generatePublicProof returns proofHash', async () => {
+  describe("ProofGenerator interface", () => {
+    it("generatePublicProof returns proofHash", async () => {
       const engine = new ProofEngine();
       const proofHash = new Uint8Array(32).fill(0xaa);
-      const result = await engine.generatePublicProof(
-        {} as any,
-        { proofHash, resultData: new Uint8Array(64) },
-      );
+      const result = await engine.generatePublicProof({} as any, {
+        proofHash,
+        resultData: new Uint8Array(64),
+      });
       expect(result).toBe(proofHash);
     });
 
-    it('generatePrivateProof returns seal bytes', async () => {
+    it("generatePrivateProof returns seal bytes", async () => {
       const engine = new ProofEngine();
       const sealBytes = new Uint8Array(260).fill(0xbb);
-      const result = await engine.generatePrivateProof(
-        {} as any,
-        {
-          sealBytes,
-          journal: new Uint8Array(192),
-          imageId: new Uint8Array(32),
-          bindingSeed: new Uint8Array(32),
-          nullifierSeed: new Uint8Array(32),
-        },
-      );
+      const result = await engine.generatePrivateProof({} as any, {
+        sealBytes,
+        journal: new Uint8Array(192),
+        imageId: new Uint8Array(32),
+        bindingSeed: new Uint8Array(32),
+        nullifierSeed: new Uint8Array(32),
+      });
       expect(result).toBe(sealBytes);
     });
   });
@@ -508,57 +534,57 @@ describe('ProofEngine', () => {
 // buildSdkProverConfig unit tests
 // =============================================================================
 
-describe('buildSdkProverConfig', () => {
-  it('maps local-binary config correctly', () => {
+describe("buildSdkProverConfig", () => {
+  it("maps local-binary config correctly", () => {
     const result = buildSdkProverConfig({
-      kind: 'local-binary',
-      binaryPath: '/usr/bin/agenc-zkvm-host',
+      kind: "local-binary",
+      binaryPath: "/usr/bin/agenc-zkvm-host",
       timeoutMs: 60_000,
     });
     expect(result).toEqual({
-      kind: 'local-binary',
-      binaryPath: '/usr/bin/agenc-zkvm-host',
+      kind: "local-binary",
+      binaryPath: "/usr/bin/agenc-zkvm-host",
       timeoutMs: 60_000,
     });
   });
 
-  it('maps remote config correctly with headers', () => {
+  it("maps remote config correctly with headers", () => {
     const result = buildSdkProverConfig({
-      kind: 'remote',
-      endpoint: 'https://prover.example.com',
+      kind: "remote",
+      endpoint: "https://prover.example.com",
       timeoutMs: 120_000,
-      headers: { Authorization: 'Bearer token123' },
+      headers: { Authorization: "Bearer token123" },
     });
     expect(result).toEqual({
-      kind: 'remote',
-      endpoint: 'https://prover.example.com',
+      kind: "remote",
+      endpoint: "https://prover.example.com",
       timeoutMs: 120_000,
-      headers: { Authorization: 'Bearer token123' },
+      headers: { Authorization: "Bearer token123" },
     });
   });
 
-  it('throws ProofGenerationError when binaryPath missing for local-binary', () => {
-    expect(() => buildSdkProverConfig({ kind: 'local-binary' })).toThrow(
+  it("throws ProofGenerationError when binaryPath missing for local-binary", () => {
+    expect(() => buildSdkProverConfig({ kind: "local-binary" })).toThrow(
       ProofGenerationError,
     );
-    expect(() => buildSdkProverConfig({ kind: 'local-binary' })).toThrow(
-      'binaryPath is required',
+    expect(() => buildSdkProverConfig({ kind: "local-binary" })).toThrow(
+      "binaryPath is required",
     );
   });
 
-  it('throws ProofGenerationError when endpoint missing for remote', () => {
-    expect(() => buildSdkProverConfig({ kind: 'remote' })).toThrow(
+  it("throws ProofGenerationError when endpoint missing for remote", () => {
+    expect(() => buildSdkProverConfig({ kind: "remote" })).toThrow(
       ProofGenerationError,
     );
-    expect(() => buildSdkProverConfig({ kind: 'remote' })).toThrow(
-      'endpoint is required',
+    expect(() => buildSdkProverConfig({ kind: "remote" })).toThrow(
+      "endpoint is required",
     );
   });
 
-  it('throws for unsupported kind', () => {
-    expect(() => buildSdkProverConfig({ kind: 'deterministic-local' as any })).toThrow(
-      'unsupported kind',
-    );
+  it("throws for unsupported kind", () => {
+    expect(() =>
+      buildSdkProverConfig({ kind: "deterministic-local" as any }),
+    ).toThrow("unsupported kind");
   });
 });
 
@@ -566,14 +592,17 @@ describe('buildSdkProverConfig', () => {
 // ProofEngine with real prover backends
 // =============================================================================
 
-describe('ProofEngine with local-binary backend', () => {
+describe("ProofEngine with local-binary backend", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it('calls generateProofWithProver instead of generateProof', async () => {
+  it("calls generateProofWithProver instead of generateProof", async () => {
     const engine = new ProofEngine({
-      proverBackend: { kind: 'local-binary', binaryPath: '/usr/bin/agenc-zkvm-host' },
+      proverBackend: {
+        kind: "local-binary",
+        binaryPath: "/usr/bin/agenc-zkvm-host",
+      },
     });
     await engine.generate(makeInputs());
 
@@ -581,11 +610,11 @@ describe('ProofEngine with local-binary backend', () => {
     expect(mockGenerateProof).not.toHaveBeenCalled();
   });
 
-  it('passes correct prover config to SDK', async () => {
+  it("passes correct prover config to SDK", async () => {
     const engine = new ProofEngine({
       proverBackend: {
-        kind: 'local-binary',
-        binaryPath: '/usr/bin/agenc-zkvm-host',
+        kind: "local-binary",
+        binaryPath: "/usr/bin/agenc-zkvm-host",
         timeoutMs: 60_000,
       },
     });
@@ -593,33 +622,37 @@ describe('ProofEngine with local-binary backend', () => {
 
     const args = vi.mocked(mockGenerateProofWithProver).mock.calls[0];
     expect(args[1]).toEqual({
-      kind: 'local-binary',
-      binaryPath: '/usr/bin/agenc-zkvm-host',
+      kind: "local-binary",
+      binaryPath: "/usr/bin/agenc-zkvm-host",
       timeoutMs: 60_000,
     });
   });
 
-  it('throws ProofGenerationError when binaryPath is missing', async () => {
+  it("throws ProofGenerationError when binaryPath is missing", async () => {
     const engine = new ProofEngine({
-      proverBackend: { kind: 'local-binary' },
+      proverBackend: { kind: "local-binary" },
     });
 
-    await expect(engine.generate(makeInputs())).rejects.toThrow(ProofGenerationError);
-    await expect(engine.generate(makeInputs())).rejects.toThrow('binaryPath is required');
+    await expect(engine.generate(makeInputs())).rejects.toThrow(
+      ProofGenerationError,
+    );
+    await expect(engine.generate(makeInputs())).rejects.toThrow(
+      "binaryPath is required",
+    );
   });
 });
 
-describe('ProofEngine with remote backend', () => {
+describe("ProofEngine with remote backend", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it('calls generateProofWithProver with remote config', async () => {
+  it("calls generateProofWithProver with remote config", async () => {
     const engine = new ProofEngine({
       proverBackend: {
-        kind: 'remote',
-        endpoint: 'https://prover.example.com',
-        headers: { Authorization: 'Bearer abc' },
+        kind: "remote",
+        endpoint: "https://prover.example.com",
+        headers: { Authorization: "Bearer abc" },
       },
     });
     await engine.generate(makeInputs());
@@ -629,78 +662,99 @@ describe('ProofEngine with remote backend', () => {
 
     const args = vi.mocked(mockGenerateProofWithProver).mock.calls[0];
     expect(args[1]).toEqual({
-      kind: 'remote',
-      endpoint: 'https://prover.example.com',
-      headers: { Authorization: 'Bearer abc' },
+      kind: "remote",
+      endpoint: "https://prover.example.com",
+      headers: { Authorization: "Bearer abc" },
       timeoutMs: undefined,
     });
   });
 
-  it('throws ProofGenerationError when endpoint is missing', async () => {
+  it("throws ProofGenerationError when endpoint is missing", async () => {
     const engine = new ProofEngine({
-      proverBackend: { kind: 'remote' },
+      proverBackend: { kind: "remote" },
     });
 
-    await expect(engine.generate(makeInputs())).rejects.toThrow(ProofGenerationError);
-    await expect(engine.generate(makeInputs())).rejects.toThrow('endpoint is required');
-  });
-});
-
-describe('ProofEngine real backend skips verification', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  it('does not call verifyProofLocally for local-binary backend', async () => {
-    const engine = new ProofEngine({
-      proverBackend: { kind: 'local-binary', binaryPath: '/usr/bin/agenc-zkvm-host' },
-      verifyAfterGeneration: true,
-    });
-    const result = await engine.generate(makeInputs());
-
-    expect(mockVerifyProofLocally).not.toHaveBeenCalled();
-    expect(result.verified).toBe(false);
-  });
-
-  it('does not call verifyProofLocally for remote backend', async () => {
-    const engine = new ProofEngine({
-      proverBackend: { kind: 'remote', endpoint: 'https://prover.example.com' },
-      verifyAfterGeneration: true,
-    });
-    const result = await engine.generate(makeInputs());
-
-    expect(mockVerifyProofLocally).not.toHaveBeenCalled();
-    expect(result.verified).toBe(false);
-  });
-
-  it('logs a warning when verifyAfterGeneration is set with real backend', async () => {
-    const warnFn = vi.fn();
-    const engine = new ProofEngine({
-      proverBackend: { kind: 'local-binary', binaryPath: '/usr/bin/agenc-zkvm-host' },
-      verifyAfterGeneration: true,
-      logger: { debug: vi.fn(), info: vi.fn(), warn: warnFn, error: vi.fn(), setLevel: vi.fn() },
-    });
-    await engine.generate(makeInputs());
-
-    expect(warnFn).toHaveBeenCalledWith(
-      expect.stringContaining('verifyAfterGeneration is not supported with real prover backends'),
+    await expect(engine.generate(makeInputs())).rejects.toThrow(
+      ProofGenerationError,
+    );
+    await expect(engine.generate(makeInputs())).rejects.toThrow(
+      "endpoint is required",
     );
   });
 });
 
-describe('checkTools with new backend kinds', () => {
-  it('reports local-binary backend', () => {
-    const engine = new ProofEngine({
-      proverBackend: { kind: 'local-binary', binaryPath: '/usr/bin/agenc-zkvm-host' },
-    });
-    expect(engine.checkTools().proverBackend).toBe('local-binary');
+describe("ProofEngine real backend skips verification", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
   });
 
-  it('reports remote backend', () => {
+  it("does not call verifyProofLocally for local-binary backend", async () => {
     const engine = new ProofEngine({
-      proverBackend: { kind: 'remote', endpoint: 'https://prover.example.com' },
+      proverBackend: {
+        kind: "local-binary",
+        binaryPath: "/usr/bin/agenc-zkvm-host",
+      },
+      verifyAfterGeneration: true,
     });
-    expect(engine.checkTools().proverBackend).toBe('remote');
+    const result = await engine.generate(makeInputs());
+
+    expect(mockVerifyProofLocally).not.toHaveBeenCalled();
+    expect(result.verified).toBe(false);
+  });
+
+  it("does not call verifyProofLocally for remote backend", async () => {
+    const engine = new ProofEngine({
+      proverBackend: { kind: "remote", endpoint: "https://prover.example.com" },
+      verifyAfterGeneration: true,
+    });
+    const result = await engine.generate(makeInputs());
+
+    expect(mockVerifyProofLocally).not.toHaveBeenCalled();
+    expect(result.verified).toBe(false);
+  });
+
+  it("logs a warning when verifyAfterGeneration is set with real backend", async () => {
+    const warnFn = vi.fn();
+    const engine = new ProofEngine({
+      proverBackend: {
+        kind: "local-binary",
+        binaryPath: "/usr/bin/agenc-zkvm-host",
+      },
+      verifyAfterGeneration: true,
+      logger: {
+        debug: vi.fn(),
+        info: vi.fn(),
+        warn: warnFn,
+        error: vi.fn(),
+        setLevel: vi.fn(),
+      },
+    });
+    await engine.generate(makeInputs());
+
+    expect(warnFn).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "verifyAfterGeneration is not supported with real prover backends",
+      ),
+    );
+  });
+});
+
+describe("checkTools with new backend kinds", () => {
+  it("reports local-binary backend", () => {
+    const engine = new ProofEngine({
+      proverBackend: {
+        kind: "local-binary",
+        binaryPath: "/usr/bin/agenc-zkvm-host",
+      },
+    });
+    expect(engine.checkTools().proverBackend).toBe("local-binary");
+  });
+
+  it("reports remote backend", () => {
+    const engine = new ProofEngine({
+      proverBackend: { kind: "remote", endpoint: "https://prover.example.com" },
+    });
+    expect(engine.checkTools().proverBackend).toBe("remote");
   });
 });
 
@@ -708,7 +762,7 @@ describe('checkTools with new backend kinds', () => {
 // ProofCache unit tests
 // =============================================================================
 
-describe('ProofCache', () => {
+describe("ProofCache", () => {
   function makeCacheResult(): EngineProofResult {
     return {
       sealBytes: new Uint8Array(260).fill(0x01),
@@ -723,12 +777,12 @@ describe('ProofCache', () => {
     };
   }
 
-  it('returns undefined for missing key', () => {
+  it("returns undefined for missing key", () => {
     const cache = new ProofCache();
     expect(cache.get(makeInputs())).toBeUndefined();
   });
 
-  it('stores and retrieves entries', () => {
+  it("stores and retrieves entries", () => {
     const cache = new ProofCache();
     const inputs = makeInputs();
     const result = makeCacheResult();
@@ -740,7 +794,7 @@ describe('ProofCache', () => {
     expect(retrieved!.sealBytes).toEqual(result.sealBytes);
   });
 
-  it('clears all entries', () => {
+  it("clears all entries", () => {
     const cache = new ProofCache();
     cache.set(makeInputs(), makeCacheResult());
     cache.set(makeInputs(), makeCacheResult());
@@ -755,8 +809,8 @@ describe('ProofCache', () => {
 // deriveCacheKey unit tests
 // =============================================================================
 
-describe('deriveCacheKey', () => {
-  it('produces deterministic key from inputs', () => {
+describe("deriveCacheKey", () => {
+  it("produces deterministic key from inputs", () => {
     const taskPda = Keypair.generate().publicKey;
     const agentPubkey = Keypair.generate().publicKey;
     const inputs: ProofInputs = {
@@ -774,7 +828,7 @@ describe('deriveCacheKey', () => {
     expect(key1).toHaveLength(64);
   });
 
-  it('produces different keys for different inputs', () => {
+  it("produces different keys for different inputs", () => {
     const inputs1 = makeInputs();
     const inputs2 = makeInputs();
 
@@ -786,29 +840,29 @@ describe('deriveCacheKey', () => {
 // Error class tests
 // =============================================================================
 
-describe('Proof error classes', () => {
-  it('ProofGenerationError has correct properties', () => {
-    const err = new ProofGenerationError('prover not found');
-    expect(err.name).toBe('ProofGenerationError');
+describe("Proof error classes", () => {
+  it("ProofGenerationError has correct properties", () => {
+    const err = new ProofGenerationError("prover not found");
+    expect(err.name).toBe("ProofGenerationError");
     expect(err.code).toBe(RuntimeErrorCodes.PROOF_GENERATION_ERROR);
-    expect(err.cause).toBe('prover not found');
-    expect(err.message).toContain('prover not found');
+    expect(err.cause).toBe("prover not found");
+    expect(err.message).toContain("prover not found");
     expect(err instanceof RuntimeError).toBe(true);
   });
 
-  it('ProofVerificationError has correct properties', () => {
-    const err = new ProofVerificationError('invalid proof');
-    expect(err.name).toBe('ProofVerificationError');
+  it("ProofVerificationError has correct properties", () => {
+    const err = new ProofVerificationError("invalid proof");
+    expect(err.name).toBe("ProofVerificationError");
     expect(err.code).toBe(RuntimeErrorCodes.PROOF_VERIFICATION_ERROR);
-    expect(err.message).toContain('invalid proof');
+    expect(err.message).toContain("invalid proof");
     expect(err instanceof RuntimeError).toBe(true);
   });
 
-  it('ProofCacheError has correct properties', () => {
-    const err = new ProofCacheError('serialization failed');
-    expect(err.name).toBe('ProofCacheError');
+  it("ProofCacheError has correct properties", () => {
+    const err = new ProofCacheError("serialization failed");
+    expect(err.name).toBe("ProofCacheError");
     expect(err.code).toBe(RuntimeErrorCodes.PROOF_CACHE_ERROR);
-    expect(err.message).toContain('serialization failed');
+    expect(err.message).toContain("serialization failed");
     expect(err instanceof RuntimeError).toBe(true);
   });
 });

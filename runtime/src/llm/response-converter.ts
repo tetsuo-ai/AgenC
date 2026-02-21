@@ -9,8 +9,8 @@
  * @module
  */
 
-import { createHash } from 'crypto';
-import { proofHashToBigints } from '../utils/encoding.js';
+import { createHash } from "crypto";
+import { proofHashToBigints } from "../utils/encoding.js";
 
 /**
  * Convert an LLM text response to 4 bigints via SHA-256 hashing.
@@ -21,6 +21,6 @@ import { proofHashToBigints } from '../utils/encoding.js';
  * @returns Array of exactly 4 bigints
  */
 export function responseToOutput(response: string): bigint[] {
-  const hash = createHash('sha256').update(response, 'utf-8').digest();
+  const hash = createHash("sha256").update(response, "utf-8").digest();
   return proofHashToBigints(new Uint8Array(hash));
 }

@@ -2,7 +2,7 @@ export interface SchemaChangeEntry {
   schema: string;
   version: string;
   date: string;
-  changeType: 'breaking' | 'additive' | 'deprecation';
+  changeType: "breaking" | "additive" | "deprecation";
   description: string;
   affectedFields: string[];
   migration?: string;
@@ -10,68 +10,68 @@ export interface SchemaChangeEntry {
 
 export const REPLAY_SCHEMA_CHANGELOG: SchemaChangeEntry[] = [
   {
-    schema: 'replay.backfill.output.v1',
-    version: '0.1.0',
-    date: '2026-02-01',
-    changeType: 'additive',
-    description: 'Initial schema release',
-    affectedFields: ['*'],
+    schema: "replay.backfill.output.v1",
+    version: "0.1.0",
+    date: "2026-02-01",
+    changeType: "additive",
+    description: "Initial schema release",
+    affectedFields: ["*"],
   },
   {
-    schema: 'replay.compare.output.v1',
-    version: '0.1.0',
-    date: '2026-02-01',
-    changeType: 'additive',
-    description: 'Initial schema release',
-    affectedFields: ['*'],
+    schema: "replay.compare.output.v1",
+    version: "0.1.0",
+    date: "2026-02-01",
+    changeType: "additive",
+    description: "Initial schema release",
+    affectedFields: ["*"],
   },
   {
-    schema: 'replay.incident.output.v1',
-    version: '0.1.0',
-    date: '2026-02-01',
-    changeType: 'additive',
-    description: 'Initial schema release',
-    affectedFields: ['*'],
+    schema: "replay.incident.output.v1",
+    version: "0.1.0",
+    date: "2026-02-01",
+    changeType: "additive",
+    description: "Initial schema release",
+    affectedFields: ["*"],
   },
   {
-    schema: 'replay.status.output.v1',
-    version: '0.1.0',
-    date: '2026-02-01',
-    changeType: 'additive',
-    description: 'Initial schema release',
-    affectedFields: ['*'],
+    schema: "replay.status.output.v1",
+    version: "0.1.0",
+    date: "2026-02-01",
+    changeType: "additive",
+    description: "Initial schema release",
+    affectedFields: ["*"],
   },
   {
-    schema: 'replay.backfill.output.v1',
-    version: '0.1.1',
-    date: '2026-02-14',
-    changeType: 'additive',
-    description: 'Added schema_hash field for drift detection',
-    affectedFields: ['schema_hash'],
+    schema: "replay.backfill.output.v1",
+    version: "0.1.1",
+    date: "2026-02-14",
+    changeType: "additive",
+    description: "Added schema_hash field for drift detection",
+    affectedFields: ["schema_hash"],
   },
   {
-    schema: 'replay.compare.output.v1',
-    version: '0.1.1',
-    date: '2026-02-14',
-    changeType: 'additive',
-    description: 'Added schema_hash field for drift detection',
-    affectedFields: ['schema_hash'],
+    schema: "replay.compare.output.v1",
+    version: "0.1.1",
+    date: "2026-02-14",
+    changeType: "additive",
+    description: "Added schema_hash field for drift detection",
+    affectedFields: ["schema_hash"],
   },
   {
-    schema: 'replay.incident.output.v1',
-    version: '0.1.1',
-    date: '2026-02-14',
-    changeType: 'additive',
-    description: 'Added schema_hash field for drift detection',
-    affectedFields: ['schema_hash'],
+    schema: "replay.incident.output.v1",
+    version: "0.1.1",
+    date: "2026-02-14",
+    changeType: "additive",
+    description: "Added schema_hash field for drift detection",
+    affectedFields: ["schema_hash"],
   },
   {
-    schema: 'replay.status.output.v1',
-    version: '0.1.1',
-    date: '2026-02-14',
-    changeType: 'additive',
-    description: 'Added schema_hash field for drift detection',
-    affectedFields: ['schema_hash'],
+    schema: "replay.status.output.v1",
+    version: "0.1.1",
+    date: "2026-02-14",
+    changeType: "additive",
+    description: "Added schema_hash field for drift detection",
+    affectedFields: ["schema_hash"],
   },
 ];
 
@@ -101,7 +101,11 @@ function compareVersions(left: string, right: string): number {
   return 0;
 }
 
-export function getSchemaChanges(schema: string, fromVersion?: string, toVersion?: string): SchemaChangeEntry[] {
+export function getSchemaChanges(
+  schema: string,
+  fromVersion?: string,
+  toVersion?: string,
+): SchemaChangeEntry[] {
   return REPLAY_SCHEMA_CHANGELOG.filter((entry) => {
     if (entry.schema !== schema) {
       return false;
@@ -116,7 +120,12 @@ export function getSchemaChanges(schema: string, fromVersion?: string, toVersion
   });
 }
 
-export function hasBreakingChanges(schema: string, fromVersion: string, toVersion: string): boolean {
-  return getSchemaChanges(schema, fromVersion, toVersion).some((entry) => entry.changeType === 'breaking');
+export function hasBreakingChanges(
+  schema: string,
+  fromVersion: string,
+  toVersion: string,
+): boolean {
+  return getSchemaChanges(schema, fromVersion, toVersion).some(
+    (entry) => entry.changeType === "breaking",
+  );
 }
-

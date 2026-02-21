@@ -1,16 +1,20 @@
-import { describe, it, expect, vi } from 'vitest';
-import { PublicKey, SystemProgram } from '@solana/web3.js';
+import { describe, it, expect, vi } from "vitest";
+import { PublicKey, SystemProgram } from "@solana/web3.js";
 import {
   autonomousTaskToOnChainTask,
   onChainTaskToAutonomousTask,
   packBigintsToProofHash,
   executorToTaskHandler,
-} from './speculation-adapter.js';
-import { TaskStatus, type Task, type TaskExecutor } from './types.js';
-import { OnChainTaskStatus, type OnChainTask, type TaskExecutionContext } from '../task/types.js';
-import { TaskType } from '../events/types.js';
-import { silentLogger } from '../utils/logger.js';
-import { createTask as createBaseTask } from './test-utils.js';
+} from "./speculation-adapter.js";
+import { TaskStatus, type Task, type TaskExecutor } from "./types.js";
+import {
+  OnChainTaskStatus,
+  type OnChainTask,
+  type TaskExecutionContext,
+} from "../task/types.js";
+import { TaskType } from "../events/types.js";
+import { silentLogger } from "../utils/logger.js";
+import { createTask as createBaseTask } from "./test-utils.js";
 
 // ============================================================================
 // Test Helpers
@@ -59,8 +63,8 @@ function makeOnChainTask(overrides: Partial<OnChainTask> = {}): OnChainTask {
 // autonomousTaskToOnChainTask
 // ============================================================================
 
-describe('autonomousTaskToOnChainTask', () => {
-  it('maps core fields correctly', () => {
+describe("autonomousTaskToOnChainTask", () => {
+  it("maps core fields correctly", () => {
     const task = makeTask();
     const result = autonomousTaskToOnChainTask(task);
 
@@ -75,20 +79,29 @@ describe('autonomousTaskToOnChainTask', () => {
     expect(result.deadline).toBe(task.deadline);
   });
 
-  it('maps status correctly', () => {
-    expect(autonomousTaskToOnChainTask(makeTask({ status: TaskStatus.Open })).status)
-      .toBe(OnChainTaskStatus.Open);
-    expect(autonomousTaskToOnChainTask(makeTask({ status: TaskStatus.InProgress })).status)
-      .toBe(OnChainTaskStatus.InProgress);
-    expect(autonomousTaskToOnChainTask(makeTask({ status: TaskStatus.Completed })).status)
-      .toBe(OnChainTaskStatus.Completed);
-    expect(autonomousTaskToOnChainTask(makeTask({ status: TaskStatus.Cancelled })).status)
-      .toBe(OnChainTaskStatus.Cancelled);
-    expect(autonomousTaskToOnChainTask(makeTask({ status: TaskStatus.Disputed })).status)
-      .toBe(OnChainTaskStatus.Disputed);
+  it("maps status correctly", () => {
+    expect(
+      autonomousTaskToOnChainTask(makeTask({ status: TaskStatus.Open })).status,
+    ).toBe(OnChainTaskStatus.Open);
+    expect(
+      autonomousTaskToOnChainTask(makeTask({ status: TaskStatus.InProgress }))
+        .status,
+    ).toBe(OnChainTaskStatus.InProgress);
+    expect(
+      autonomousTaskToOnChainTask(makeTask({ status: TaskStatus.Completed }))
+        .status,
+    ).toBe(OnChainTaskStatus.Completed);
+    expect(
+      autonomousTaskToOnChainTask(makeTask({ status: TaskStatus.Cancelled }))
+        .status,
+    ).toBe(OnChainTaskStatus.Cancelled);
+    expect(
+      autonomousTaskToOnChainTask(makeTask({ status: TaskStatus.Disputed }))
+        .status,
+    ).toBe(OnChainTaskStatus.Disputed);
   });
 
-  it('fills default values for fields not in autonomous Task', () => {
+  it("fills default values for fields not in autonomous Task", () => {
     const result = autonomousTaskToOnChainTask(makeTask());
 
     expect(result.taskType).toBe(TaskType.Exclusive);
@@ -106,8 +119,8 @@ describe('autonomousTaskToOnChainTask', () => {
 // onChainTaskToAutonomousTask
 // ============================================================================
 
-describe('onChainTaskToAutonomousTask', () => {
-  it('maps core fields correctly', () => {
+describe("onChainTaskToAutonomousTask", () => {
+  it("maps core fields correctly", () => {
     const onChain = makeOnChainTask();
     const pda = PublicKey.unique();
     const result = onChainTaskToAutonomousTask(onChain, pda);
@@ -124,22 +137,46 @@ describe('onChainTaskToAutonomousTask', () => {
     expect(result.currentClaims).toBe(onChain.currentWorkers);
   });
 
-  it('maps OnChainTaskStatus to TaskStatus', () => {
+  it("maps OnChainTaskStatus to TaskStatus", () => {
     const pda = PublicKey.unique();
 
-    expect(onChainTaskToAutonomousTask(makeOnChainTask({ status: OnChainTaskStatus.Open }), pda).status)
-      .toBe(TaskStatus.Open);
-    expect(onChainTaskToAutonomousTask(makeOnChainTask({ status: OnChainTaskStatus.InProgress }), pda).status)
-      .toBe(TaskStatus.InProgress);
-    expect(onChainTaskToAutonomousTask(makeOnChainTask({ status: OnChainTaskStatus.Completed }), pda).status)
-      .toBe(TaskStatus.Completed);
-    expect(onChainTaskToAutonomousTask(makeOnChainTask({ status: OnChainTaskStatus.Cancelled }), pda).status)
-      .toBe(TaskStatus.Cancelled);
-    expect(onChainTaskToAutonomousTask(makeOnChainTask({ status: OnChainTaskStatus.Disputed }), pda).status)
-      .toBe(TaskStatus.Disputed);
+    expect(
+      onChainTaskToAutonomousTask(
+        makeOnChainTask({ status: OnChainTaskStatus.Open }),
+        pda,
+      ).status,
+    ).toBe(TaskStatus.Open);
+    expect(
+      onChainTaskToAutonomousTask(
+        makeOnChainTask({ status: OnChainTaskStatus.InProgress }),
+        pda,
+      ).status,
+    ).toBe(TaskStatus.InProgress);
+    expect(
+      onChainTaskToAutonomousTask(
+        makeOnChainTask({ status: OnChainTaskStatus.Completed }),
+        pda,
+      ).status,
+    ).toBe(TaskStatus.Completed);
+    expect(
+      onChainTaskToAutonomousTask(
+        makeOnChainTask({ status: OnChainTaskStatus.Cancelled }),
+        pda,
+      ).status,
+    ).toBe(TaskStatus.Cancelled);
+    expect(
+      onChainTaskToAutonomousTask(
+        makeOnChainTask({ status: OnChainTaskStatus.Disputed }),
+        pda,
+      ).status,
+    ).toBe(TaskStatus.Disputed);
     // PendingValidation maps to InProgress
-    expect(onChainTaskToAutonomousTask(makeOnChainTask({ status: OnChainTaskStatus.PendingValidation }), pda).status)
-      .toBe(TaskStatus.InProgress);
+    expect(
+      onChainTaskToAutonomousTask(
+        makeOnChainTask({ status: OnChainTaskStatus.PendingValidation }),
+        pda,
+      ).status,
+    ).toBe(TaskStatus.InProgress);
   });
 });
 
@@ -147,8 +184,8 @@ describe('onChainTaskToAutonomousTask', () => {
 // Round-trip conversion
 // ============================================================================
 
-describe('round-trip conversion', () => {
-  it('preserves core fields through Task → OnChainTask → Task', () => {
+describe("round-trip conversion", () => {
+  it("preserves core fields through Task → OnChainTask → Task", () => {
     const original = makeTask();
     const onChain = autonomousTaskToOnChainTask(original);
     const roundTripped = onChainTaskToAutonomousTask(onChain, original.pda);
@@ -156,7 +193,9 @@ describe('round-trip conversion', () => {
     expect(roundTripped.pda).toBe(original.pda);
     expect(roundTripped.taskId).toBe(original.taskId);
     expect(roundTripped.creator).toBe(original.creator);
-    expect(roundTripped.requiredCapabilities).toBe(original.requiredCapabilities);
+    expect(roundTripped.requiredCapabilities).toBe(
+      original.requiredCapabilities,
+    );
     expect(roundTripped.reward).toBe(original.reward);
     expect(roundTripped.description).toBe(original.description);
     expect(roundTripped.constraintHash).toBe(original.constraintHash);
@@ -171,8 +210,8 @@ describe('round-trip conversion', () => {
 // packBigintsToProofHash
 // ============================================================================
 
-describe('packBigintsToProofHash', () => {
-  it('encodes bigints in LE format', () => {
+describe("packBigintsToProofHash", () => {
+  it("encodes bigints in LE format", () => {
     const result = packBigintsToProofHash([1n, 0n, 0n, 0n]);
 
     // 1n in 8-byte LE: [1, 0, 0, 0, 0, 0, 0, 0]
@@ -182,7 +221,7 @@ describe('packBigintsToProofHash', () => {
     expect(result.length).toBe(32);
   });
 
-  it('encodes a multi-byte value correctly', () => {
+  it("encodes a multi-byte value correctly", () => {
     // 0x0102 = 258 → LE: [2, 1, 0, 0, 0, 0, 0, 0]
     const result = packBigintsToProofHash([258n, 0n, 0n, 0n]);
 
@@ -191,7 +230,7 @@ describe('packBigintsToProofHash', () => {
     expect(result[2]).toBe(0);
   });
 
-  it('handles all 4 elements', () => {
+  it("handles all 4 elements", () => {
     const result = packBigintsToProofHash([1n, 2n, 3n, 4n]);
 
     // Element 0 at offset 0
@@ -204,13 +243,13 @@ describe('packBigintsToProofHash', () => {
     expect(result[24]).toBe(4);
   });
 
-  it('returns 32-byte array for empty input', () => {
+  it("returns 32-byte array for empty input", () => {
     const result = packBigintsToProofHash([]);
     expect(result.length).toBe(32);
     expect(result.every((b) => b === 0)).toBe(true);
   });
 
-  it('handles more than 4 elements by truncating', () => {
+  it("handles more than 4 elements by truncating", () => {
     const result = packBigintsToProofHash([1n, 2n, 3n, 4n, 5n, 6n]);
     // Only first 4 should be encoded
     expect(result[0]).toBe(1);
@@ -220,7 +259,7 @@ describe('packBigintsToProofHash', () => {
     expect(result.length).toBe(32);
   });
 
-  it('encodes large bigints correctly (8-byte LE)', () => {
+  it("encodes large bigints correctly (8-byte LE)", () => {
     // Max u64: 2^64 - 1 = 18446744073709551615
     const maxU64 = (1n << 64n) - 1n;
     const result = packBigintsToProofHash([maxU64, 0n, 0n, 0n]);
@@ -236,8 +275,8 @@ describe('packBigintsToProofHash', () => {
 // executorToTaskHandler
 // ============================================================================
 
-describe('executorToTaskHandler', () => {
-  it('converts executor output to TaskExecutionResult', async () => {
+describe("executorToTaskHandler", () => {
+  it("converts executor output to TaskExecutionResult", async () => {
     const executor: TaskExecutor = {
       execute: vi.fn().mockResolvedValue([10n, 20n, 30n, 40n]),
     };
@@ -265,7 +304,7 @@ describe('executorToTaskHandler', () => {
     expect(result.proofHash[24]).toBe(40);
   });
 
-  it('passes converted autonomous Task to executor', async () => {
+  it("passes converted autonomous Task to executor", async () => {
     const executeFn = vi.fn().mockResolvedValue([1n, 2n, 3n, 4n]);
     const executor: TaskExecutor = { execute: executeFn };
 
@@ -292,9 +331,9 @@ describe('executorToTaskHandler', () => {
     expect(receivedTask.taskId).toBe(onChainTask.taskId);
   });
 
-  it('propagates executor errors', async () => {
+  it("propagates executor errors", async () => {
     const executor: TaskExecutor = {
-      execute: vi.fn().mockRejectedValue(new Error('execution failed')),
+      execute: vi.fn().mockRejectedValue(new Error("execution failed")),
     };
 
     const handler = executorToTaskHandler(executor);
@@ -309,6 +348,6 @@ describe('executorToTaskHandler', () => {
       signal: new AbortController().signal,
     };
 
-    await expect(handler(context)).rejects.toThrow('execution failed');
+    await expect(handler(context)).rejects.toThrow("execution failed");
   });
 });

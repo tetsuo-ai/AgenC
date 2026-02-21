@@ -4,7 +4,7 @@
  * @module
  */
 
-import { RuntimeError, RuntimeErrorCodes } from '../types/errors.js';
+import { RuntimeError, RuntimeErrorCodes } from "../types/errors.js";
 
 /**
  * Transient RPC connection error after all retries on a single endpoint.
@@ -15,7 +15,7 @@ export class ConnectionError extends RuntimeError {
 
   constructor(message: string, endpoint: string, httpStatus?: number) {
     super(message, RuntimeErrorCodes.CONNECTION_ERROR);
-    this.name = 'ConnectionError';
+    this.name = "ConnectionError";
     this.endpoint = endpoint;
     this.httpStatus = httpStatus;
   }
@@ -35,7 +35,7 @@ export class AllEndpointsUnhealthyError extends RuntimeError {
       `All ${endpoints.length} RPC endpoints are unhealthy`,
       RuntimeErrorCodes.ALL_ENDPOINTS_UNHEALTHY,
     );
-    this.name = 'AllEndpointsUnhealthyError';
+    this.name = "AllEndpointsUnhealthyError";
     this.endpointCount = endpoints.length;
     this.endpoints = endpoints;
   }

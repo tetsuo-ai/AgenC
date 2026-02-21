@@ -1,12 +1,12 @@
-import assert from 'node:assert/strict';
-import test from 'node:test';
-import { summarizeBenchmarkMutationArtifacts } from './testing.js';
+import assert from "node:assert/strict";
+import test from "node:test";
+import { summarizeBenchmarkMutationArtifacts } from "./testing.js";
 
-test('summarizeBenchmarkMutationArtifacts renders benchmark and mutation deltas', () => {
+test("summarizeBenchmarkMutationArtifacts renders benchmark and mutation deltas", () => {
   const summary = summarizeBenchmarkMutationArtifacts({
     benchmarkArtifact: {
-      runId: 'benchmark-v1',
-      corpusVersion: 'v1.0.0',
+      runId: "benchmark-v1",
+      corpusVersion: "v1.0.0",
       aggregate: {
         scorecard: {
           aggregate: {
@@ -18,7 +18,7 @@ test('summarizeBenchmarkMutationArtifacts renders benchmark and mutation deltas'
       },
     },
     mutationArtifact: {
-      runId: 'mutation-v1',
+      runId: "mutation-v1",
       mutationSeed: 17,
       aggregate: {
         deltasFromBaseline: {
@@ -28,8 +28,8 @@ test('summarizeBenchmarkMutationArtifacts renders benchmark and mutation deltas'
         },
       },
       topRegressions: [
-        { scope: 'scenario', id: 'policy_regression', passRateDelta: -0.6 },
-        { scope: 'operator', id: 'tool.inject_failure', passRateDelta: -0.4 },
+        { scope: "scenario", id: "policy_regression", passRateDelta: -0.6 },
+        { scope: "operator", id: "tool.inject_failure", passRateDelta: -0.4 },
       ],
     },
   });
@@ -40,11 +40,11 @@ test('summarizeBenchmarkMutationArtifacts renders benchmark and mutation deltas'
   assert.match(summary, /\[scenario\] policy_regression: -0\.6000/);
 });
 
-test('summarizeBenchmarkMutationArtifacts handles missing mutation artifact', () => {
+test("summarizeBenchmarkMutationArtifacts handles missing mutation artifact", () => {
   const summary = summarizeBenchmarkMutationArtifacts({
     benchmarkArtifact: {
-      runId: 'benchmark-only',
-      corpusVersion: 'v1',
+      runId: "benchmark-only",
+      corpusVersion: "v1",
       aggregate: {
         scorecard: {
           aggregate: {
@@ -58,4 +58,3 @@ test('summarizeBenchmarkMutationArtifacts handles missing mutation artifact', ()
   assert.match(summary, /Benchmark run: benchmark-only/);
   assert.match(summary, /Mutation artifact not provided/);
 });
-

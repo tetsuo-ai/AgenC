@@ -24,7 +24,7 @@ import * as bs58 from "bs58";
 import { AgencCoordination } from "../target/types/agenc_coordination";
 
 const BPF_LOADER_UPGRADEABLE_ID = new PublicKey(
-  "BPFLoaderUpgradeab1e11111111111111111111111"
+  "BPFLoaderUpgradeab1e11111111111111111111111",
 );
 
 export interface LiteSVMContext {
@@ -42,11 +42,11 @@ export interface LiteSVMContext {
 function setupProgramDataAccount(
   svm: LiteSVM,
   programId: PublicKey,
-  authority: PublicKey
+  authority: PublicKey,
 ): void {
   const [programDataPda] = PublicKey.findProgramAddressSync(
     [programId.toBuffer()],
-    BPF_LOADER_UPGRADEABLE_ID
+    BPF_LOADER_UPGRADEABLE_ID,
   );
 
   // ProgramData layout:
@@ -56,9 +56,9 @@ function setupProgramDataAccount(
   //   32 bytes: upgrade_authority pubkey
   const data = new Uint8Array(45);
   const view = new DataView(data.buffer);
-  view.setUint32(0, 3, true);       // AccountType::ProgramData
-  view.setBigUint64(4, 0n, true);   // slot = 0
-  data[12] = 1;                      // Option::Some
+  view.setUint32(0, 3, true); // AccountType::ProgramData
+  view.setBigUint64(4, 0n, true); // slot = 0
+  data[12] = 1; // Option::Some
   data.set(authority.toBytes(), 13); // upgrade_authority
 
   svm.setAccount(programDataPda, {
@@ -82,7 +82,7 @@ function setupProgramDataAccount(
 function extendConnectionProxy(
   svm: LiteSVM,
   connection: any,
-  walletRef: { publicKey: PublicKey }
+  walletRef: { publicKey: PublicKey },
 ): void {
   // Save original getAccountInfo to wrap it
   const originalGetAccountInfo = connection.getAccountInfo.bind(connection);
@@ -91,7 +91,7 @@ function extendConnectionProxy(
   // This matches the real Connection behavior and is required by @solana/spl-token.
   connection.getAccountInfo = async (
     publicKey: PublicKey,
-    commitmentOrConfig?: any
+    commitmentOrConfig?: any,
   ) => {
     const account = svm.getAccount(publicKey);
     if (!account) return null;
@@ -104,7 +104,7 @@ function extendConnectionProxy(
   // Also override getAccountInfoAndContext for consistency
   connection.getAccountInfoAndContext = async (
     publicKey: PublicKey,
-    commitmentOrConfig?: any
+    commitmentOrConfig?: any,
   ) => {
     const account = svm.getAccount(publicKey);
     if (!account) {
@@ -125,7 +125,7 @@ function extendConnectionProxy(
   // getBalance — used ~48 times across tests for balance verification
   connection.getBalance = async (
     address: PublicKey,
-    _commitment?: any
+    _commitment?: any,
   ): Promise<number> => {
     const balance = svm.getBalance(address);
     return balance !== null ? Number(balance) : 0;
@@ -142,7 +142,7 @@ function extendConnectionProxy(
   connection.sendTransaction = async (
     transaction: Transaction | VersionedTransaction,
     signersOrOptions?: any,
-    options?: any
+    options?: any,
   ): Promise<string> => {
     if ("version" in transaction) {
       // VersionedTransaction
@@ -186,7 +186,7 @@ function extendConnectionProxy(
   // confirmTransaction — no-op since LiteSVM is synchronous
   connection.confirmTransaction = async (
     _strategyOrSignature?: any,
-    _commitment?: any
+    _commitment?: any,
   ): Promise<any> => ({
     context: { slot: Number(svm.getClock().slot) },
     value: { err: null },
@@ -195,7 +195,7 @@ function extendConnectionProxy(
   // requestAirdrop — delegates to svm.airdrop(), returns a dummy signature
   connection.requestAirdrop = async (
     address: PublicKey,
-    lamports: number
+    lamports: number,
   ): Promise<string> => {
     svm.airdrop(address, BigInt(lamports));
     return "litesvm-airdrop-" + address.toBase58().slice(0, 8);
@@ -215,7 +215,7 @@ function extendConnectionProxy(
   // Returns a simplified object matching the fields tests actually check.
   connection.getTransaction = async (
     signature: string,
-    _opts?: any
+    _opts?: any,
   ): Promise<any> => {
     let sigBytes: Uint8Array;
     try {
@@ -254,7 +254,7 @@ function extendConnectionProxy(
   // getSignatureStatus — no-op, everything is confirmed
   connection.getSignatureStatuses = async (
     _signatures: string[],
-    _config?: any
+    _config?: any,
   ) => ({
     context: { slot: Number(svm.getClock().slot) },
     value: _signatures.map(() => ({
@@ -302,7 +302,10 @@ export function createLiteSVMContext(opts?: {
 
   // Create Anchor-compatible provider
   const wallet = new anchor.Wallet(payer);
-  const provider = new LiteSVMProvider(svm, wallet) as unknown as anchor.AnchorProvider;
+  const provider = new LiteSVMProvider(
+    svm,
+    wallet,
+  ) as unknown as anchor.AnchorProvider;
 
   // Extend the connection proxy with missing methods
   extendConnectionProxy(svm, (provider as any).connection, wallet);
@@ -328,7 +331,7 @@ export function createLiteSVMContext(opts?: {
 export function fundAccount(
   svm: LiteSVM,
   pubkey: PublicKey,
-  lamports: number | bigint
+  lamports: number | bigint,
 ): void {
   svm.airdrop(pubkey, BigInt(lamports));
 }

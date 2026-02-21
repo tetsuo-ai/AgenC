@@ -8,31 +8,31 @@
  * @module
  */
 
-import type { PublicKey } from '@solana/web3.js';
+import type { PublicKey } from "@solana/web3.js";
 import {
   DependencyGraph,
   DependencyType,
   type TaskNode,
-} from './dependency-graph.js';
+} from "./dependency-graph.js";
 import {
   CommitmentLedger,
   type CommitmentLedgerConfig,
   type SpeculativeCommitment,
-} from './commitment-ledger.js';
+} from "./commitment-ledger.js";
 import {
   ProofDeferralManager,
   type ProofDeferralConfig,
   type DeferredProof,
-} from './proof-deferral.js';
+} from "./proof-deferral.js";
 import {
   RollbackController,
   type RollbackConfig,
   type RollbackResult,
   type RollbackReason,
-} from './rollback-controller.js';
-import type { ProofPipeline } from './proof-pipeline.js';
-import type { Logger } from '../utils/logger.js';
-import { silentLogger } from '../utils/logger.js';
+} from "./rollback-controller.js";
+import type { ProofPipeline } from "./proof-pipeline.js";
+import type { Logger } from "../utils/logger.js";
+import { silentLogger } from "../utils/logger.js";
 
 // ============================================================================
 // Type Definitions
@@ -58,7 +58,7 @@ export interface SpeculativeSchedulerConfig {
   proofTimeoutMs: number;
 
   /** Strategy for ordering speculative execution */
-  schedulingStrategy: 'fifo' | 'priority' | 'reward-weighted';
+  schedulingStrategy: "fifo" | "priority" | "reward-weighted";
 
   /** Only speculate on these dependency types */
   speculatableDependencyTypes: DependencyType[];
@@ -96,14 +96,14 @@ export interface SpeculationDecision {
  * Reasons speculation may be denied.
  */
 export type SpeculationDenialReason =
-  | 'disabled' // Speculation globally disabled
-  | 'dependency_type_not_speculatable' // Dependency type not in allowed list
-  | 'depth_limit' // Max speculation depth reached
-  | 'stake_limit' // Max stake at risk reached
-  | 'private_speculation_disabled' // Private task speculation not allowed
-  | 'low_reputation' // Agent reputation too low
-  | 'rollback_rate_exceeded' // Auto-disabled due to high rollback rate
-  | 'task_not_found'; // Task not in dependency graph
+  | "disabled" // Speculation globally disabled
+  | "dependency_type_not_speculatable" // Dependency type not in allowed list
+  | "depth_limit" // Max speculation depth reached
+  | "stake_limit" // Max stake at risk reached
+  | "private_speculation_disabled" // Private task speculation not allowed
+  | "low_reputation" // Agent reputation too low
+  | "rollback_rate_exceeded" // Auto-disabled due to high rollback rate
+  | "task_not_found"; // Task not in dependency graph
 
 /**
  * Event callbacks for the speculative scheduler.
@@ -120,7 +120,11 @@ export interface SpeculativeSchedulerEvents {
   /** Called when rollback completes */
   onRollbackCompleted?: (result: RollbackResult) => void;
   /** Called when depth limit blocks speculation */
-  onDepthLimitReached?: (taskPda: PublicKey, currentDepth: number, maxDepth: number) => void;
+  onDepthLimitReached?: (
+    taskPda: PublicKey,
+    currentDepth: number,
+    maxDepth: number,
+  ) => void;
   /** Called when stake limit blocks speculation */
   onStakeLimitReached?: (totalAtRisk: bigint, limit: bigint) => void;
   /** Called when speculation is auto-disabled */
@@ -175,10 +179,10 @@ export interface SpeculationMetrics {
  * Reason for speculative cancellation.
  */
 export type CancellationReason =
-  | 'creator_cancelled'
-  | 'deadline_expired'
-  | 'manual'
-  | 'policy_violation';
+  | "creator_cancelled"
+  | "deadline_expired"
+  | "manual"
+  | "policy_violation";
 
 /**
  * Result of speculative cancellation.
@@ -206,7 +210,7 @@ const DEFAULT_CONFIG: SpeculativeSchedulerConfig = {
   allowPrivateSpeculation: false,
   minReputationForSpeculation: 500,
   proofTimeoutMs: 300_000, // 5 minutes
-  schedulingStrategy: 'fifo',
+  schedulingStrategy: "fifo",
   speculatableDependencyTypes: [DependencyType.Data, DependencyType.Order],
   maxRollbackRatePercent: 20,
   enableSpeculation: true,
@@ -283,8 +287,10 @@ export class SpeculativeTaskScheduler {
   };
 
   // Tracking for active speculations
-  private activeSpeculations: Map<string, { startedAt: number; depth: number }> =
-    new Map();
+  private activeSpeculations: Map<
+    string,
+    { startedAt: number; depth: number }
+  > = new Map();
 
   /**
    * Creates a new SpeculativeTaskScheduler instance.
@@ -298,7 +304,7 @@ export class SpeculativeTaskScheduler {
     config: Partial<SpeculativeSchedulerConfig>,
     events: SpeculativeSchedulerEvents,
     dependencyGraph: DependencyGraph,
-    proofPipeline: ProofPipeline
+    proofPipeline: ProofPipeline,
   ) {
     this.config = { ...DEFAULT_CONFIG, ...config };
     this.events = events;
@@ -323,13 +329,13 @@ export class SpeculativeTaskScheduler {
         onProofFailed: (taskPda, error, _stage) =>
           this.handleProofFailed(taskPda, error.message),
         onProofTimedOut: (taskPda, _stage) =>
-          this.handleProofFailed(taskPda, 'timeout'),
+          this.handleProofFailed(taskPda, "timeout"),
         onProofCancelled: (taskPda, _ancestorPda) =>
-          this.handleProofFailed(taskPda, 'ancestor_failed'),
+          this.handleProofFailed(taskPda, "ancestor_failed"),
       },
       this.commitmentLedger,
       this.dependencyGraph,
-      proofPipeline
+      proofPipeline,
     );
 
     // Create rollback controller with wired events
@@ -348,7 +354,7 @@ export class SpeculativeTaskScheduler {
           this.updateMetricsOnRollback(result);
           this.events.onRollbackCompleted?.(result);
         },
-      }
+      },
     );
   }
 
@@ -361,12 +367,12 @@ export class SpeculativeTaskScheduler {
    */
   start(): void {
     if (this.running) {
-      this.logger.warn('Scheduler already running');
+      this.logger.warn("Scheduler already running");
       return;
     }
 
     this.running = true;
-    this.logger.info('SpeculativeTaskScheduler started');
+    this.logger.info("SpeculativeTaskScheduler started");
   }
 
   /**
@@ -377,12 +383,12 @@ export class SpeculativeTaskScheduler {
    */
   stop(): void {
     if (!this.running) {
-      this.logger.warn('Scheduler not running');
+      this.logger.warn("Scheduler not running");
       return;
     }
 
     this.running = false;
-    this.logger.info('SpeculativeTaskScheduler stopped');
+    this.logger.info("SpeculativeTaskScheduler stopped");
   }
 
   // ==========================================================================
@@ -411,31 +417,35 @@ export class SpeculativeTaskScheduler {
     taskPda: PublicKey,
     taskNode?: TaskNode,
     isPrivate: boolean = false,
-    agentReputation: number = 1000
+    agentReputation: number = 1000,
   ): SpeculationDecision {
     // 1. Check global enable
     if (!this.speculationEnabled) {
-      return { allowed: false, reason: 'disabled' };
+      return { allowed: false, reason: "disabled" };
     }
 
     // Get task node if not provided
     const node = taskNode ?? this.dependencyGraph.getNode(taskPda);
     if (!node) {
-      return { allowed: false, reason: 'task_not_found' };
+      return { allowed: false, reason: "task_not_found" };
     }
 
     // 2. Check dependency type
     if (
       !this.config.speculatableDependencyTypes.includes(node.dependencyType)
     ) {
-      return { allowed: false, reason: 'dependency_type_not_speculatable' };
+      return { allowed: false, reason: "dependency_type_not_speculatable" };
     }
 
     // 3. Check depth limit
     const depth = this.dependencyGraph.getDepth(taskPda);
     if (depth >= this.config.maxSpeculationDepth) {
-      this.events.onDepthLimitReached?.(taskPda, depth, this.config.maxSpeculationDepth);
-      return { allowed: false, reason: 'depth_limit' };
+      this.events.onDepthLimitReached?.(
+        taskPda,
+        depth,
+        this.config.maxSpeculationDepth,
+      );
+      return { allowed: false, reason: "depth_limit" };
     }
 
     // 4. Check stake limit
@@ -443,25 +453,25 @@ export class SpeculativeTaskScheduler {
     if (currentStake >= this.config.maxSpeculativeStake) {
       this.events.onStakeLimitReached?.(
         currentStake,
-        this.config.maxSpeculativeStake
+        this.config.maxSpeculativeStake,
       );
-      return { allowed: false, reason: 'stake_limit' };
+      return { allowed: false, reason: "stake_limit" };
     }
 
     // 5. Check private task policy
     if (isPrivate && !this.config.allowPrivateSpeculation) {
-      return { allowed: false, reason: 'private_speculation_disabled' };
+      return { allowed: false, reason: "private_speculation_disabled" };
     }
 
     // 6. Check reputation threshold
     if (agentReputation < this.config.minReputationForSpeculation) {
-      return { allowed: false, reason: 'low_reputation' };
+      return { allowed: false, reason: "low_reputation" };
     }
 
     // 7. Check rollback rate (auto-disable)
     if (this.metrics.rollbackRate > this.config.maxRollbackRatePercent) {
-      this.disableSpeculation('rollback_rate_exceeded');
-      return { allowed: false, reason: 'rollback_rate_exceeded' };
+      this.disableSpeculation("rollback_rate_exceeded");
+      return { allowed: false, reason: "rollback_rate_exceeded" };
     }
 
     return { allowed: true };
@@ -513,7 +523,7 @@ export class SpeculativeTaskScheduler {
    * @param reason - Optional reason for failure
    */
   onProofFailed(taskPda: PublicKey, reason?: string): void {
-    this.handleProofFailed(taskPda, reason ?? 'proof_failed');
+    this.handleProofFailed(taskPda, reason ?? "proof_failed");
   }
 
   /**
@@ -525,7 +535,7 @@ export class SpeculativeTaskScheduler {
    */
   async forceRollback(
     taskPda: PublicKey,
-    reason: RollbackReason = 'manual'
+    reason: RollbackReason = "manual",
   ): Promise<RollbackResult> {
     return this.rollbackController.rollback(taskPda, reason);
   }
@@ -542,7 +552,7 @@ export class SpeculativeTaskScheduler {
    */
   cancelSpeculation(
     taskPda: PublicKey,
-    reason: CancellationReason
+    reason: CancellationReason,
   ): SpeculativeCancellationResult {
     const cancelledTaskKey = taskPda.toBase58();
     const descendants = this.dependencyGraph.getDescendants(taskPda);
@@ -560,14 +570,14 @@ export class SpeculativeTaskScheduler {
       const commitment = this.commitmentLedger.getByTask(descendant.taskPda);
       if (
         commitment &&
-        commitment.status !== 'confirmed' &&
-        commitment.status !== 'failed'
+        commitment.status !== "confirmed" &&
+        commitment.status !== "failed"
       ) {
         stakeReleased += commitment.stakeAtRisk;
-        this.commitmentLedger.updateStatus(descendant.taskPda, 'rolled_back');
+        this.commitmentLedger.updateStatus(descendant.taskPda, "rolled_back");
       }
 
-      this.dependencyGraph.updateStatus(descendant.taskPda, 'failed');
+      this.dependencyGraph.updateStatus(descendant.taskPda, "failed");
     }
 
     // Cancel the root task itself
@@ -575,20 +585,20 @@ export class SpeculativeTaskScheduler {
     const rootCommitment = this.commitmentLedger.getByTask(taskPda);
     if (
       rootCommitment &&
-      rootCommitment.status !== 'confirmed' &&
-      rootCommitment.status !== 'failed'
+      rootCommitment.status !== "confirmed" &&
+      rootCommitment.status !== "failed"
     ) {
       stakeReleased += rootCommitment.stakeAtRisk;
-      this.commitmentLedger.updateStatus(taskPda, 'rolled_back');
+      this.commitmentLedger.updateStatus(taskPda, "rolled_back");
     }
-    this.dependencyGraph.updateStatus(taskPda, 'failed');
+    this.dependencyGraph.updateStatus(taskPda, "failed");
 
     // Cancel proofs waiting on this ancestry chain (best-effort)
     const subtreeKeys = new Set(descendants.map((n) => n.taskPda.toBase58()));
     subtreeKeys.add(cancelledTaskKey);
     const blockedProofs = this.proofDeferralManager.getBlockedProofs();
     const cancelledProofs = blockedProofs.filter((proof) =>
-      subtreeKeys.has(proof.taskPda.toBase58())
+      subtreeKeys.has(proof.taskPda.toBase58()),
     ).length;
     this.proofDeferralManager.onAncestorFailed(taskPda);
 
@@ -637,12 +647,14 @@ export class SpeculativeTaskScheduler {
    * Returns commitments that are not yet confirmed, failed, or rolled back.
    */
   getActiveCommitments(): SpeculativeCommitment[] {
-    return this.commitmentLedger.getAllCommitments().filter(
-      (c) =>
-        c.status !== 'confirmed' &&
-        c.status !== 'failed' &&
-        c.status !== 'rolled_back'
-    );
+    return this.commitmentLedger
+      .getAllCommitments()
+      .filter(
+        (c) =>
+          c.status !== "confirmed" &&
+          c.status !== "failed" &&
+          c.status !== "rolled_back",
+      );
   }
 
   /**
@@ -663,7 +675,7 @@ export class SpeculativeTaskScheduler {
     if (!this.speculationEnabled) {
       this.speculationEnabled = true;
       this.events.onSpeculationEnabled?.();
-      this.logger.info('Speculation enabled');
+      this.logger.info("Speculation enabled");
     }
   }
 
@@ -745,7 +757,7 @@ export class SpeculativeTaskScheduler {
     }
 
     // Update dependency graph
-    this.dependencyGraph.updateStatus(taskPda, 'completed');
+    this.dependencyGraph.updateStatus(taskPda, "completed");
 
     // Recalculate hit rate
     this.updateHitRate();
@@ -770,7 +782,7 @@ export class SpeculativeTaskScheduler {
     }
 
     // Trigger rollback of all dependents
-    this.rollbackController.rollback(taskPda, 'proof_failed');
+    this.rollbackController.rollback(taskPda, "proof_failed");
 
     // Notify proof deferral manager to cancel waiting proofs
     this.proofDeferralManager.onAncestorFailed(taskPda);

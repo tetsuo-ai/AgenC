@@ -10,7 +10,7 @@
 
 /** Describes the format of an audio buffer. */
 export interface AudioFormat {
-  readonly codec: 'opus' | 'mp3' | 'wav' | 'ogg' | 'webm' | 'flac';
+  readonly codec: "opus" | "mp3" | "wav" | "ogg" | "webm" | "flac";
   readonly sampleRate: number;
   readonly channels: number;
 }
@@ -60,7 +60,7 @@ export interface SpeechToTextProvider {
 export interface TTSOptions {
   readonly voice?: string;
   readonly speed?: number;
-  readonly format?: 'mp3' | 'wav' | 'opus' | 'flac';
+  readonly format?: "mp3" | "wav" | "opus" | "flac";
   readonly signal?: AbortSignal;
 }
 
@@ -76,7 +76,7 @@ export interface VoiceInfo {
   readonly id: string;
   readonly name: string;
   readonly language: string;
-  readonly gender?: 'male' | 'female' | 'neutral';
+  readonly gender?: "male" | "female" | "neutral";
 }
 
 /** Provider that converts text to speech audio. */
@@ -92,7 +92,7 @@ export interface TextToSpeechProvider {
 
 /** STT provider configuration. */
 export interface STTConfig {
-  readonly provider: 'whisper-api';
+  readonly provider: "whisper-api";
   readonly apiKey: string;
   readonly model?: string;
   readonly baseURL?: string;
@@ -100,7 +100,7 @@ export interface STTConfig {
 
 /** TTS provider configuration. */
 export interface TTSConfig {
-  readonly provider: 'elevenlabs' | 'openai-tts' | 'edge-tts';
+  readonly provider: "elevenlabs" | "openai-tts" | "edge-tts";
   readonly apiKey?: string;
   readonly voice?: string;
   readonly model?: string;
@@ -108,9 +108,9 @@ export interface TTSConfig {
 
 /** xAI Realtime voice provider configuration. */
 export interface RealtimeVoiceConfig {
-  readonly provider: 'xai-realtime';
+  readonly provider: "xai-realtime";
   readonly apiKey: string;
-  readonly voice?: 'Ara' | 'Rex' | 'Sal' | 'Eve' | 'Leo';
+  readonly voice?: "Ara" | "Rex" | "Sal" | "Eve" | "Leo";
   readonly model?: string;
 }
 

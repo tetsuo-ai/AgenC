@@ -1,14 +1,20 @@
 import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
 import BN from "bn.js";
-import { Keypair, PublicKey, SystemProgram, LAMPORTS_PER_SOL } from "@solana/web3.js";
+import {
+  Keypair,
+  PublicKey,
+  SystemProgram,
+  LAMPORTS_PER_SOL,
+} from "@solana/web3.js";
 import { AgencCoordination } from "../target/types/agenc_coordination";
 
 describe("minimal-test", () => {
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
 
-  const program = anchor.workspace.AgencCoordination as Program<AgencCoordination>;
+  const program = anchor.workspace
+    .AgencCoordination as Program<AgencCoordination>;
 
   it("debugs registerAgent", async () => {
     // Print program info
@@ -16,9 +22,12 @@ describe("minimal-test", () => {
 
     // Print IDL instruction info
     const registerAgentIx = (program.idl as any).instructions.find(
-      (ix: any) => ix.name === "registerAgent" || ix.name === "register_agent"
+      (ix: any) => ix.name === "registerAgent" || ix.name === "register_agent",
     );
-    console.log("registerAgent instruction:", JSON.stringify(registerAgentIx, null, 2));
+    console.log(
+      "registerAgent instruction:",
+      JSON.stringify(registerAgentIx, null, 2),
+    );
 
     // Generate test data
     const worker = Keypair.generate();
@@ -27,12 +36,12 @@ describe("minimal-test", () => {
     // Derive PDA
     const [agentPda] = PublicKey.findProgramAddressSync(
       [Buffer.from("agent"), agentId],
-      program.programId
+      program.programId,
     );
 
     const [protocolPda] = PublicKey.findProgramAddressSync(
       [Buffer.from("protocol")],
-      program.programId
+      program.programId,
     );
 
     console.log("Agent PDA:", agentPda.toString());
@@ -41,8 +50,11 @@ describe("minimal-test", () => {
 
     // Airdrop
     await provider.connection.confirmTransaction(
-      await provider.connection.requestAirdrop(worker.publicKey, 2 * LAMPORTS_PER_SOL),
-      "confirmed"
+      await provider.connection.requestAirdrop(
+        worker.publicKey,
+        2 * LAMPORTS_PER_SOL,
+      ),
+      "confirmed",
     );
 
     // Try to register
@@ -55,7 +67,7 @@ describe("minimal-test", () => {
           new BN(1),
           "https://test.example.com",
           null,
-          new BN(1 * LAMPORTS_PER_SOL)  // stakeAmount (1 SOL minimum)
+          new BN(1 * LAMPORTS_PER_SOL), // stakeAmount (1 SOL minimum)
         )
         .accounts({
           agent: agentPda,

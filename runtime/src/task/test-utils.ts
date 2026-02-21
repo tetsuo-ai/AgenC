@@ -1,16 +1,20 @@
-import { Keypair } from '@solana/web3.js';
-import { vi } from 'vitest';
-import type { TaskOperations } from './operations.js';
-import type { TaskDiscovery, TaskDiscoveryResult, TaskDiscoveryListener } from './discovery.js';
-import type { ProofPipeline } from './proof-pipeline.js';
+import { Keypair } from "@solana/web3.js";
+import { vi } from "vitest";
+import type { TaskOperations } from "./operations.js";
+import type {
+  TaskDiscovery,
+  TaskDiscoveryResult,
+  TaskDiscoveryListener,
+} from "./discovery.js";
+import type { ProofPipeline } from "./proof-pipeline.js";
 import type {
   OnChainTask,
   OnChainTaskClaim,
   ClaimResult,
   CompleteResult,
-} from './types.js';
-import { OnChainTaskStatus } from './types.js';
-import { TaskType } from '../events/types.js';
+} from "./types.js";
+import { OnChainTaskStatus } from "./types.js";
+import { TaskType } from "../events/types.js";
 
 const COMPUTE = 1n << 0n;
 
@@ -44,7 +48,9 @@ export function randomPda() {
   return Keypair.generate().publicKey;
 }
 
-export function createSpeculationTask(overrides: Partial<OnChainTask> = {}): OnChainTask {
+export function createSpeculationTask(
+  overrides: Partial<OnChainTask> = {},
+): OnChainTask {
   return createTask({
     taskId: new Uint8Array(32).fill(Math.floor(Math.random() * 256)),
     creator: randomPda(),
@@ -63,7 +69,7 @@ export function createDiscoveryResult(
     pda: Keypair.generate().publicKey,
     task: createTask(),
     discoveredAt: Date.now(),
-    source: 'poll',
+    source: "poll",
     ...overrides,
   };
 }
@@ -88,19 +94,19 @@ export function createMockOperations(): TaskOperations & {
       success: true,
       taskId: new Uint8Array(32),
       claimPda,
-      transactionSignature: 'claim-sig',
+      transactionSignature: "claim-sig",
     } satisfies ClaimResult),
     completeTask: vi.fn().mockResolvedValue({
       success: true,
       taskId: new Uint8Array(32),
       isPrivate: false,
-      transactionSignature: 'complete-sig',
+      transactionSignature: "complete-sig",
     } satisfies CompleteResult),
     completeTaskPrivate: vi.fn().mockResolvedValue({
       success: true,
       taskId: new Uint8Array(32),
       isPrivate: true,
-      transactionSignature: 'private-complete-sig',
+      transactionSignature: "private-complete-sig",
     } satisfies CompleteResult),
   } as unknown as TaskOperations & {
     claimTask: ReturnType<typeof vi.fn>;
@@ -115,7 +121,7 @@ export function createMockOperations(): TaskOperations & {
 export function createMockProofPipeline(): ProofPipeline {
   return {
     queueProofGeneration: vi.fn(),
-    submitProof: vi.fn().mockResolvedValue('mock-signature'),
+    submitProof: vi.fn().mockResolvedValue("mock-signature"),
     getQueuedJobs: vi.fn().mockReturnValue([]),
     getActiveJobs: vi.fn().mockReturnValue([]),
     getCompletedJobs: vi.fn().mockReturnValue([]),
@@ -206,7 +212,7 @@ export async function waitFor(
   const start = Date.now();
   while (!condition()) {
     if (Date.now() - start > timeoutMs) {
-      throw new Error('waitFor timeout');
+      throw new Error("waitFor timeout");
     }
     await new Promise((resolve) => setTimeout(resolve, intervalMs));
   }

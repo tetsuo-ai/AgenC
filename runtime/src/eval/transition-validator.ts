@@ -2,12 +2,12 @@
  * Deterministic transition validation for replay projection streams.
  */
 
-import { OnChainTaskStatus } from '../task/types.js';
-import { OnChainDisputeStatus } from '../dispute/types.js';
+import { OnChainTaskStatus } from "../task/types.js";
+import { OnChainDisputeStatus } from "../dispute/types.js";
 
 export { OnChainTaskStatus, OnChainDisputeStatus };
 
-export type ReplayLifecycleType = 'task' | 'dispute' | 'speculation';
+export type ReplayLifecycleType = "task" | "dispute" | "speculation";
 
 /**
  * On-chain task transition matrix.
@@ -16,13 +16,15 @@ export type ReplayLifecycleType = 'task' | 'dispute' | 'speculation';
  * Key = from status, Value = set of valid to statuses.
  * Terminal states (Completed, Cancelled) have empty sets.
  */
-export const ON_CHAIN_TASK_TRANSITIONS: Readonly<Record<OnChainTaskStatus, ReadonlySet<OnChainTaskStatus>>> = {
+export const ON_CHAIN_TASK_TRANSITIONS: Readonly<
+  Record<OnChainTaskStatus, ReadonlySet<OnChainTaskStatus>>
+> = {
   [OnChainTaskStatus.Open]: new Set([
     OnChainTaskStatus.InProgress,
     OnChainTaskStatus.Cancelled,
   ]),
   [OnChainTaskStatus.InProgress]: new Set([
-    OnChainTaskStatus.InProgress,      // additional claims on collaborative tasks
+    OnChainTaskStatus.InProgress, // additional claims on collaborative tasks
     OnChainTaskStatus.Completed,
     OnChainTaskStatus.Cancelled,
     OnChainTaskStatus.Disputed,
@@ -32,8 +34,8 @@ export const ON_CHAIN_TASK_TRANSITIONS: Readonly<Record<OnChainTaskStatus, Reado
     OnChainTaskStatus.Completed,
     OnChainTaskStatus.Disputed,
   ]),
-  [OnChainTaskStatus.Completed]: new Set(),   // terminal
-  [OnChainTaskStatus.Cancelled]: new Set(),   // terminal
+  [OnChainTaskStatus.Completed]: new Set(), // terminal
+  [OnChainTaskStatus.Cancelled]: new Set(), // terminal
   [OnChainTaskStatus.Disputed]: new Set([
     OnChainTaskStatus.Completed,
     OnChainTaskStatus.Cancelled,
@@ -41,7 +43,8 @@ export const ON_CHAIN_TASK_TRANSITIONS: Readonly<Record<OnChainTaskStatus, Reado
 };
 
 /** Valid start states for tasks (initial status when created). */
-export const ON_CHAIN_TASK_START_STATES: ReadonlySet<OnChainTaskStatus> = new Set([OnChainTaskStatus.Open]);
+export const ON_CHAIN_TASK_START_STATES: ReadonlySet<OnChainTaskStatus> =
+  new Set([OnChainTaskStatus.Open]);
 
 /**
  * On-chain dispute transition matrix.
@@ -51,35 +54,41 @@ export const ON_CHAIN_TASK_START_STATES: ReadonlySet<OnChainTaskStatus> = new Se
  * Active can go to Resolved, Expired, or Cancelled.
  * All other states are terminal.
  */
-export const ON_CHAIN_DISPUTE_TRANSITIONS: Readonly<Record<OnChainDisputeStatus, ReadonlySet<OnChainDisputeStatus>>> = {
+export const ON_CHAIN_DISPUTE_TRANSITIONS: Readonly<
+  Record<OnChainDisputeStatus, ReadonlySet<OnChainDisputeStatus>>
+> = {
   [OnChainDisputeStatus.Active]: new Set([
     OnChainDisputeStatus.Resolved,
     OnChainDisputeStatus.Expired,
     OnChainDisputeStatus.Cancelled,
   ]),
-  [OnChainDisputeStatus.Resolved]: new Set(),  // terminal
-  [OnChainDisputeStatus.Expired]: new Set(),    // terminal
-  [OnChainDisputeStatus.Cancelled]: new Set(),  // terminal
+  [OnChainDisputeStatus.Resolved]: new Set(), // terminal
+  [OnChainDisputeStatus.Expired]: new Set(), // terminal
+  [OnChainDisputeStatus.Cancelled]: new Set(), // terminal
 };
 
 /** Valid start states for disputes. */
-export const ON_CHAIN_DISPUTE_START_STATES: ReadonlySet<OnChainDisputeStatus> = new Set([OnChainDisputeStatus.Active]);
+export const ON_CHAIN_DISPUTE_START_STATES: ReadonlySet<OnChainDisputeStatus> =
+  new Set([OnChainDisputeStatus.Active]);
 
 /**
  * Maps on-chain event names to the on-chain TaskStatus they transition TO.
  * Used to validate that replay events correspond to valid on-chain transitions.
  */
-export const EVENT_TO_TASK_STATUS: Readonly<Record<string, OnChainTaskStatus>> = {
-  taskCreated: OnChainTaskStatus.Open,
-  taskClaimed: OnChainTaskStatus.InProgress,
-  taskCompleted: OnChainTaskStatus.Completed,
-  taskCancelled: OnChainTaskStatus.Cancelled,
-};
+export const EVENT_TO_TASK_STATUS: Readonly<Record<string, OnChainTaskStatus>> =
+  {
+    taskCreated: OnChainTaskStatus.Open,
+    taskClaimed: OnChainTaskStatus.InProgress,
+    taskCompleted: OnChainTaskStatus.Completed,
+    taskCancelled: OnChainTaskStatus.Cancelled,
+  };
 
 /**
  * Maps on-chain event names to the on-chain DisputeStatus they transition TO.
  */
-export const EVENT_TO_DISPUTE_STATUS: Readonly<Record<string, OnChainDisputeStatus>> = {
+export const EVENT_TO_DISPUTE_STATUS: Readonly<
+  Record<string, OnChainDisputeStatus>
+> = {
   disputeInitiated: OnChainDisputeStatus.Active,
   disputeResolved: OnChainDisputeStatus.Resolved,
   disputeExpired: OnChainDisputeStatus.Expired,
@@ -115,17 +124,17 @@ export interface TransitionValidationOptions {
 }
 
 export const ANOMALY_CODES = {
-  TASK_DOUBLE_COMPLETE: 'TASK_DOUBLE_COMPLETE',
-  TASK_INVALID_START: 'TASK_INVALID_START',
-  TASK_TERMINAL_TRANSITION: 'TASK_TERMINAL_TRANSITION',
-  DISPUTE_INVALID_START: 'DISPUTE_INVALID_START',
-  DISPUTE_TERMINAL_TRANSITION: 'DISPUTE_TERMINAL_TRANSITION',
-  SPECULATION_INVALID_START: 'SPECULATION_INVALID_START',
-  SPECULATION_TERMINAL_TRANSITION: 'SPECULATION_TERMINAL_TRANSITION',
-  UNKNOWN_TRANSITION: 'UNKNOWN_TRANSITION',
+  TASK_DOUBLE_COMPLETE: "TASK_DOUBLE_COMPLETE",
+  TASK_INVALID_START: "TASK_INVALID_START",
+  TASK_TERMINAL_TRANSITION: "TASK_TERMINAL_TRANSITION",
+  DISPUTE_INVALID_START: "DISPUTE_INVALID_START",
+  DISPUTE_TERMINAL_TRANSITION: "DISPUTE_TERMINAL_TRANSITION",
+  SPECULATION_INVALID_START: "SPECULATION_INVALID_START",
+  SPECULATION_TERMINAL_TRANSITION: "SPECULATION_TERMINAL_TRANSITION",
+  UNKNOWN_TRANSITION: "UNKNOWN_TRANSITION",
 } as const;
 
-const SEPARATOR = ' -> ';
+const SEPARATOR = " -> ";
 
 function deriveAnomalyCode(
   scope: ReplayLifecycleType,
@@ -137,7 +146,7 @@ function deriveAnomalyCode(
     return `${scope.toUpperCase()}_INVALID_START`;
   }
 
-  if (previousState === nextState && nextState === 'completed') {
+  if (previousState === nextState && nextState === "completed") {
     return ANOMALY_CODES.TASK_DOUBLE_COMPLETE;
   }
 
@@ -150,8 +159,11 @@ function deriveAnomalyCode(
   return ANOMALY_CODES.UNKNOWN_TRANSITION;
 }
 
-export function validateTransition(options: TransitionValidationOptions): TransitionValidationViolation | undefined {
-  const { previousState, nextState, allowedStarts, transitions, ...details } = options;
+export function validateTransition(
+  options: TransitionValidationOptions,
+): TransitionValidationViolation | undefined {
+  const { previousState, nextState, allowedStarts, transitions, ...details } =
+    options;
   if (previousState === undefined) {
     if (!allowedStarts.has(nextState)) {
       return {
@@ -159,7 +171,12 @@ export function validateTransition(options: TransitionValidationOptions): Transi
         fromState: undefined,
         toState: nextState,
         reason: `none${SEPARATOR}${nextState}`,
-        anomalyCode: deriveAnomalyCode(details.scope, previousState, nextState, transitions),
+        anomalyCode: deriveAnomalyCode(
+          details.scope,
+          previousState,
+          nextState,
+          transitions,
+        ),
       };
     }
     return undefined;
@@ -175,11 +192,18 @@ export function validateTransition(options: TransitionValidationOptions): Transi
     fromState: previousState,
     toState: nextState,
     reason: `${previousState}${SEPARATOR}${nextState}`,
-    anomalyCode: deriveAnomalyCode(details.scope, previousState, nextState, transitions),
+    anomalyCode: deriveAnomalyCode(
+      details.scope,
+      previousState,
+      nextState,
+      transitions,
+    ),
   };
 }
 
-export function transitionViolationMessage(violation: TransitionValidationViolation): string {
+export function transitionViolationMessage(
+  violation: TransitionValidationViolation,
+): string {
   return `${violation.scope}:${violation.entityId}@${violation.signature}: ${violation.reason} for ${violation.eventName}`;
 }
 
@@ -189,7 +213,7 @@ export interface TransitionValidationResult {
 }
 
 export interface TransitionAnomalyPayload {
-  type: 'transition_invalid';
+  type: "transition_invalid";
   scope: ReplayLifecycleType;
   from: string | undefined;
   to: string;
@@ -215,7 +239,10 @@ export interface TransitionAnomalyPayload {
  */
 export class TransitionValidator {
   private readonly onChainTaskStates = new Map<string, OnChainTaskStatus>();
-  private readonly onChainDisputeStates = new Map<string, OnChainDisputeStatus>();
+  private readonly onChainDisputeStates = new Map<
+    string,
+    OnChainDisputeStatus
+  >();
 
   /**
    * Validate a replay lifecycle transition AND the corresponding on-chain
@@ -229,7 +256,7 @@ export class TransitionValidator {
     }
 
     // 2. If this event maps to an on-chain status, validate that too
-    if (options.scope === 'task') {
+    if (options.scope === "task") {
       const onChainTo = EVENT_TO_TASK_STATUS[options.eventName];
       if (onChainTo !== undefined) {
         const onChainFrom = this.onChainTaskStates.get(options.entityId);
@@ -239,7 +266,7 @@ export class TransitionValidator {
             return {
               valid: false,
               violation: {
-                scope: 'task',
+                scope: "task",
                 entityId: options.entityId,
                 eventName: options.eventName,
                 eventType: options.eventType,
@@ -258,7 +285,7 @@ export class TransitionValidator {
       }
     }
 
-    if (options.scope === 'dispute') {
+    if (options.scope === "dispute") {
       const onChainTo = EVENT_TO_DISPUTE_STATUS[options.eventName];
       if (onChainTo !== undefined) {
         const onChainFrom = this.onChainDisputeStates.get(options.entityId);
@@ -268,7 +295,7 @@ export class TransitionValidator {
             return {
               valid: false,
               violation: {
-                scope: 'dispute',
+                scope: "dispute",
                 entityId: options.entityId,
                 eventName: options.eventName,
                 eventType: options.eventType,
@@ -291,12 +318,15 @@ export class TransitionValidator {
   }
 
   /** Emit a structured anomaly payload for a transition violation. */
-  toAnomaly(violation: TransitionValidationViolation, context?: {
-    taskPda?: string;
-    disputePda?: string;
-  }): TransitionAnomalyPayload {
+  toAnomaly(
+    violation: TransitionValidationViolation,
+    context?: {
+      taskPda?: string;
+      disputePda?: string;
+    },
+  ): TransitionAnomalyPayload {
     return {
-      type: 'transition_invalid',
+      type: "transition_invalid",
       scope: violation.scope,
       from: violation.fromState,
       to: violation.toState,

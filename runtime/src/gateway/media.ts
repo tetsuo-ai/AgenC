@@ -13,13 +13,13 @@
  * @module
  */
 
-import { join, resolve } from 'node:path';
-import { tmpdir } from 'node:os';
-import { readdir, lstat, unlink } from 'node:fs/promises';
-import type { GatewayMessage, MessageAttachment } from './message.js';
-import { validateAttachment } from './message.js';
-import type { ValidationResult } from '../utils/validation.js';
-import { withTimeout } from '../llm/timeout.js';
+import { join, resolve } from "node:path";
+import { tmpdir } from "node:os";
+import { readdir, lstat, unlink } from "node:fs/promises";
+import type { GatewayMessage, MessageAttachment } from "./message.js";
+import { validateAttachment } from "./message.js";
+import type { ValidationResult } from "../utils/validation.js";
+import { withTimeout } from "../llm/timeout.js";
 
 // ============================================================================
 // Logger (inline to avoid transitive @agenc/sdk runtime dependency)
@@ -54,7 +54,7 @@ const silentMediaLogger: MediaLogger = {
 export const DEFAULT_MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
 
 /** Default temp directory for media processing. */
-export const DEFAULT_TEMP_DIR = join(tmpdir(), 'agenc-media');
+export const DEFAULT_TEMP_DIR = join(tmpdir(), "agenc-media");
 
 /** Default temp file TTL: 1 hour. */
 export const DEFAULT_TEMP_FILE_TTL_MS = 60 * 60 * 1000;
@@ -95,12 +95,20 @@ export interface MediaProcessingResult {
 
 /** Provider that converts audio data to text. */
 export interface TranscriptionProvider {
-  transcribe(data: Uint8Array, mimeType: string, signal: AbortSignal): Promise<string>;
+  transcribe(
+    data: Uint8Array,
+    mimeType: string,
+    signal: AbortSignal,
+  ): Promise<string>;
 }
 
 /** Provider that converts image data to a text description. */
 export interface ImageDescriptionProvider {
-  describe(data: Uint8Array, mimeType: string, signal: AbortSignal): Promise<string>;
+  describe(
+    data: Uint8Array,
+    mimeType: string,
+    signal: AbortSignal,
+  ): Promise<string>;
 }
 
 // ============================================================================
@@ -109,14 +117,22 @@ export interface ImageDescriptionProvider {
 
 /** Placeholder transcription provider that returns a stub string. */
 export class NoopTranscriptionProvider implements TranscriptionProvider {
-  async transcribe(_data: Uint8Array, mimeType: string, _signal: AbortSignal): Promise<string> {
+  async transcribe(
+    _data: Uint8Array,
+    mimeType: string,
+    _signal: AbortSignal,
+  ): Promise<string> {
     return `[Transcription placeholder for ${mimeType} audio]`;
   }
 }
 
 /** Placeholder image description provider that returns a stub string. */
 export class NoopImageDescriptionProvider implements ImageDescriptionProvider {
-  async describe(_data: Uint8Array, mimeType: string, _signal: AbortSignal): Promise<string> {
+  async describe(
+    _data: Uint8Array,
+    mimeType: string,
+    _signal: AbortSignal,
+  ): Promise<string> {
     return `[Description placeholder for ${mimeType} image]`;
   }
 }
@@ -126,16 +142,16 @@ export class NoopImageDescriptionProvider implements ImageDescriptionProvider {
 // ============================================================================
 
 function baseMime(mimeType: string): string {
-  const idx = mimeType.indexOf(';');
+  const idx = mimeType.indexOf(";");
   return idx >= 0 ? mimeType.slice(0, idx).trim() : mimeType;
 }
 
 export function isAudioMime(mimeType: string): boolean {
-  return baseMime(mimeType).startsWith('audio/');
+  return baseMime(mimeType).startsWith("audio/");
 }
 
 export function isImageMime(mimeType: string): boolean {
-  return baseMime(mimeType).startsWith('image/');
+  return baseMime(mimeType).startsWith("image/");
 }
 
 // ============================================================================
@@ -186,7 +202,10 @@ export class MediaPipeline {
 
   /** Validate an attachment against pipeline size constraints. */
   validate(attachment: MessageAttachment): ValidationResult {
-    const result = validateAttachment(attachment, this.config.maxAttachmentBytes);
+    const result = validateAttachment(
+      attachment,
+      this.config.maxAttachmentBytes,
+    );
     if (!result.valid) return result;
 
     // Check actual data size when sizeBytes is absent
@@ -212,7 +231,7 @@ export class MediaPipeline {
     if (!attachment.data) {
       return {
         success: false,
-        error: 'Attachment has no inline data',
+        error: "Attachment has no inline data",
         mimeType,
         processingTimeMs: Date.now() - start,
       };
@@ -222,7 +241,7 @@ export class MediaPipeline {
     if (!validation.valid) {
       return {
         success: false,
-        error: validation.errors.join('; '),
+        error: validation.errors.join("; "),
         mimeType,
         processingTimeMs: Date.now() - start,
       };
@@ -241,12 +260,20 @@ export class MediaPipeline {
       const text = await withTimeout(
         (signal) => {
           if (isAudioMime(mimeType)) {
-            return this.transcriber.transcribe(attachment.data!, mimeType, signal);
+            return this.transcriber.transcribe(
+              attachment.data!,
+              mimeType,
+              signal,
+            );
           }
-          return this.imageDescriber.describe(attachment.data!, mimeType, signal);
+          return this.imageDescriber.describe(
+            attachment.data!,
+            mimeType,
+            signal,
+          );
         },
         this.config.processingTimeoutMs,
-        'MediaPipeline',
+        "MediaPipeline",
       );
 
       return {
@@ -284,7 +311,10 @@ export class MediaPipeline {
     for (const attachment of message.attachments) {
       if (!attachment.data) continue;
 
-      if (isAudioMime(attachment.mimeType) && !this.config.autoTranscribeVoice) {
+      if (
+        isAudioMime(attachment.mimeType) &&
+        !this.config.autoTranscribeVoice
+      ) {
         continue;
       }
 
@@ -302,9 +332,9 @@ export class MediaPipeline {
       return message;
     }
 
-    const enrichmentBlock = enrichments.join('\n');
+    const enrichmentBlock = enrichments.join("\n");
     const enrichedContent =
-      message.content === ''
+      message.content === ""
         ? enrichmentBlock
         : `${message.content}\n\n${enrichmentBlock}`;
 
@@ -334,7 +364,7 @@ export class MediaPipeline {
       try {
         const filePath = join(this.config.tempDir, entry);
         const resolvedPath = resolve(filePath);
-        if (!resolvedPath.startsWith(resolvedTempDir + '/')) continue;
+        if (!resolvedPath.startsWith(resolvedTempDir + "/")) continue;
 
         const info = await lstat(filePath);
         if (!info.isFile()) continue;

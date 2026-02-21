@@ -7,8 +7,8 @@
  * @module
  */
 
-import { ensureLazyModule } from '../utils/lazy-import.js';
-import { MemoryConnectionError } from './errors.js';
+import { ensureLazyModule } from "../utils/lazy-import.js";
+import { MemoryConnectionError } from "./errors.js";
 
 /**
  * Dynamically import an optional memory backend package.

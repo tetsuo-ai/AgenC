@@ -8,9 +8,14 @@ export const BPS_BASE = 10_000;
 export const BID_ID_MAX_LENGTH = 96;
 export const MARKETPLACE_ID_PATTERN = /^[a-z0-9:_-]+$/;
 
-export type BidStatus = 'active' | 'accepted' | 'cancelled' | 'expired' | 'rejected';
+export type BidStatus =
+  | "active"
+  | "accepted"
+  | "cancelled"
+  | "expired"
+  | "rejected";
 
-export type MatchingPolicy = 'best_price' | 'best_eta' | 'weighted_score';
+export type MatchingPolicy = "best_price" | "best_eta" | "weighted_score";
 
 export interface WeightedScoreWeights {
   priceWeightBps: number;
@@ -102,15 +107,18 @@ export function canonicalizeMarketplaceId(value: string): string {
   return value.trim().toLowerCase();
 }
 
-export function validateMarketplaceId(value: string, maxLength = BID_ID_MAX_LENGTH): string | null {
+export function validateMarketplaceId(
+  value: string,
+  maxLength = BID_ID_MAX_LENGTH,
+): string | null {
   if (value.length === 0) {
-    return 'must not be empty';
+    return "must not be empty";
   }
   if (value.length > maxLength) {
     return `must be <= ${maxLength} characters`;
   }
   if (!MARKETPLACE_ID_PATTERN.test(value)) {
-    return 'must match [a-z0-9:_-]';
+    return "must match [a-z0-9:_-]";
   }
   return null;
 }

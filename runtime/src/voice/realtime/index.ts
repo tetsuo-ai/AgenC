@@ -15,10 +15,10 @@ export type {
   ServerEvent,
   VoiceSessionCallbacks,
   XaiRealtimeClientConfig,
-} from './types.js';
+} from "./types.js";
 
 // Error classes
-export { VoiceRealtimeError } from './errors.js';
+export { VoiceRealtimeError } from "./errors.js";
 
 // Client
-export { XaiRealtimeClient } from './client.js';
+export { XaiRealtimeClient } from "./client.js";

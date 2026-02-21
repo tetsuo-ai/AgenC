@@ -4,7 +4,7 @@
  * @module
  */
 
-import { RuntimeError, RuntimeErrorCodes } from '../types/errors.js';
+import { RuntimeError, RuntimeErrorCodes } from "../types/errors.js";
 
 /**
  * Error thrown when ZK proof generation fails.
@@ -17,7 +17,7 @@ export class ProofGenerationError extends RuntimeError {
       `Proof generation failed: ${cause}`,
       RuntimeErrorCodes.PROOF_GENERATION_ERROR,
     );
-    this.name = 'ProofGenerationError';
+    this.name = "ProofGenerationError";
     this.cause = cause;
   }
 }
@@ -31,7 +31,7 @@ export class ProofVerificationError extends RuntimeError {
       `Proof verification failed: ${message}`,
       RuntimeErrorCodes.PROOF_VERIFICATION_ERROR,
     );
-    this.name = 'ProofVerificationError';
+    this.name = "ProofVerificationError";
   }
 }
 
@@ -40,10 +40,7 @@ export class ProofVerificationError extends RuntimeError {
  */
 export class ProofCacheError extends RuntimeError {
   constructor(message: string) {
-    super(
-      `Proof cache error: ${message}`,
-      RuntimeErrorCodes.PROOF_CACHE_ERROR,
-    );
-    this.name = 'ProofCacheError';
+    super(`Proof cache error: ${message}`, RuntimeErrorCodes.PROOF_CACHE_ERROR);
+    this.name = "ProofCacheError";
   }
 }

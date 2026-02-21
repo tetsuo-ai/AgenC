@@ -4,7 +4,7 @@
  * @module
  */
 
-import type { Logger } from '../../utils/logger.js';
+import type { Logger } from "../../utils/logger.js";
 
 // ============================================================================
 // Bash tool types
@@ -70,84 +70,84 @@ export interface BashExecutionResult {
  */
 export const DEFAULT_DENY_LIST: readonly string[] = [
   // Destructive operations
-  'rm',
-  'dd',
-  'mkfs',
-  'shutdown',
-  'reboot',
-  'halt',
-  'poweroff',
-  'init',
+  "rm",
+  "dd",
+  "mkfs",
+  "shutdown",
+  "reboot",
+  "halt",
+  "poweroff",
+  "init",
   // Shell re-invocation (defeats shell: false security model)
-  'bash',
-  'sh',
-  'zsh',
-  'dash',
-  'csh',
-  'fish',
-  'ksh',
-  'tcsh',
+  "bash",
+  "sh",
+  "zsh",
+  "dash",
+  "csh",
+  "fish",
+  "ksh",
+  "tcsh",
   // Privilege escalation
-  'sudo',
-  'su',
-  'doas',
+  "sudo",
+  "su",
+  "doas",
   // Process termination
-  'kill',
-  'killall',
-  'pkill',
+  "kill",
+  "killall",
+  "pkill",
   // Reverse shells / network tools
-  'nc',
-  'netcat',
-  'ncat',
-  'socat',
+  "nc",
+  "netcat",
+  "ncat",
+  "socat",
   // Download-and-execute vectors
-  'curl',
-  'wget',
+  "curl",
+  "wget",
   // Network access / data exfiltration
-  'ssh',
-  'scp',
-  'sftp',
-  'rsync',
-  'telnet',
+  "ssh",
+  "scp",
+  "sftp",
+  "rsync",
+  "telnet",
   // Script interpreters (can bypass all restrictions)
-  'python',
-  'python3',
-  'node',
-  'nodejs',
-  'perl',
-  'ruby',
-  'php',
-  'lua',
-  'deno',
-  'bun',
-  'tclsh',
+  "python",
+  "python3",
+  "node",
+  "nodejs",
+  "perl",
+  "ruby",
+  "php",
+  "lua",
+  "deno",
+  "bun",
+  "tclsh",
   // Command execution wrappers
-  'xargs',
-  'env',
-  'nohup',
+  "xargs",
+  "env",
+  "nohup",
   // Dangerous text processing (can write files / execute commands)
-  'awk',
-  'gawk',
-  'nawk',
+  "awk",
+  "gawk",
+  "nawk",
   // Environment exfiltration
-  'printenv',
+  "printenv",
   // Permission changes
-  'chmod',
-  'chown',
-  'chgrp',
+  "chmod",
+  "chown",
+  "chgrp",
   // File writing via non-obvious tools
-  'tee',
-  'install',
+  "tee",
+  "install",
   // Process inspection / debugging
-  'strace',
-  'ltrace',
-  'gdb',
+  "strace",
+  "ltrace",
+  "gdb",
   // Filesystem manipulation
-  'mount',
-  'umount',
+  "mount",
+  "umount",
   // Scheduled execution
-  'crontab',
-  'at',
+  "crontab",
+  "at",
 ];
 
 /**
@@ -156,13 +156,13 @@ export const DEFAULT_DENY_LIST: readonly string[] = [
  * Checked via `basename.startsWith(prefix)` in addition to exact deny set matches.
  */
 export const DEFAULT_DENY_PREFIXES: readonly string[] = [
-  'python',
-  'pypy',
-  'ruby',
-  'perl',
-  'php',
-  'lua',
-  'node',
+  "python",
+  "pypy",
+  "ruby",
+  "perl",
+  "php",
+  "lua",
+  "node",
 ];
 
 export const DEFAULT_TIMEOUT_MS = 30_000;

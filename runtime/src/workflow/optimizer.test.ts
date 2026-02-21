@@ -1,13 +1,20 @@
-import { describe, expect, it } from 'vitest';
-import { WorkflowOptimizer } from './optimizer.js';
+import { describe, expect, it } from "vitest";
+import { WorkflowOptimizer } from "./optimizer.js";
 import {
   WORKFLOW_FEATURE_SCHEMA_VERSION,
   type WorkflowFeatureVector,
-} from './optimizer-types.js';
-import { OnChainDependencyType, type TaskTemplate, type WorkflowDefinition } from './types.js';
-import { validateWorkflow } from './validation.js';
+} from "./optimizer-types.js";
+import {
+  OnChainDependencyType,
+  type TaskTemplate,
+  type WorkflowDefinition,
+} from "./types.js";
+import { validateWorkflow } from "./validation.js";
 
-function makeTask(name: string, overrides: Partial<TaskTemplate> = {}): TaskTemplate {
+function makeTask(
+  name: string,
+  overrides: Partial<TaskTemplate> = {},
+): TaskTemplate {
   return {
     name,
     requiredCapabilities: 1n,
@@ -22,20 +29,33 @@ function makeTask(name: string, overrides: Partial<TaskTemplate> = {}): TaskTemp
 
 function makeBaseline(): WorkflowDefinition {
   return {
-    id: 'wf-optimize',
+    id: "wf-optimize",
     tasks: [
-      makeTask('root', { rewardAmount: 100n }),
-      makeTask('execute', { rewardAmount: 150n, taskType: 1 }),
-      makeTask('review', { rewardAmount: 125n, taskType: 2 }),
+      makeTask("root", { rewardAmount: 100n }),
+      makeTask("execute", { rewardAmount: 150n, taskType: 1 }),
+      makeTask("review", { rewardAmount: 125n, taskType: 2 }),
     ],
     edges: [
-      { from: 'root', to: 'execute', dependencyType: OnChainDependencyType.Data },
-      { from: 'execute', to: 'review', dependencyType: OnChainDependencyType.Ordering },
+      {
+        from: "root",
+        to: "execute",
+        dependencyType: OnChainDependencyType.Data,
+      },
+      {
+        from: "execute",
+        to: "review",
+        dependencyType: OnChainDependencyType.Ordering,
+      },
     ],
   };
 }
 
-function makeHistoryPoint(id: string, success: boolean, latencyMs: number, costUnits: number): WorkflowFeatureVector {
+function makeHistoryPoint(
+  id: string,
+  success: boolean,
+  latencyMs: number,
+  costUnits: number,
+): WorkflowFeatureVector {
   return {
     schemaVersion: WORKFLOW_FEATURE_SCHEMA_VERSION,
     workflowId: id,
@@ -48,14 +68,14 @@ function makeHistoryPoint(id: string, success: boolean, latencyMs: number, costU
       averageBranchingFactor: 1,
     },
     composition: {
-      taskTypeHistogram: { '0': 1, '1': 1, '2': 1 },
-      dependencyTypeHistogram: { '0': 1, '1': 1, '2': 1 },
+      taskTypeHistogram: { "0": 1, "1": 1, "2": 1 },
+      dependencyTypeHistogram: { "0": 1, "1": 1, "2": 1 },
       privateTaskCount: 0,
-      totalRewardLamports: '375',
+      totalRewardLamports: "375",
       averageRewardLamports: 125,
     },
     outcomes: {
-      outcome: success ? 'completed' : 'failed',
+      outcome: success ? "completed" : "failed",
       success,
       elapsedMs: latencyMs,
       completionRate: success ? 1 : 0.34,
@@ -68,27 +88,27 @@ function makeHistoryPoint(id: string, success: boolean, latencyMs: number, costU
     },
     nodeFeatures: [
       {
-        name: 'root',
+        name: "root",
         taskType: 0,
         dependencyType: 0,
-        rewardLamports: '100',
+        rewardLamports: "100",
         maxWorkers: 1,
         minReputation: 0,
         hasConstraintHash: false,
-        status: success ? 'completed' : 'failed',
+        status: success ? "completed" : "failed",
       },
     ],
-    metadata: { workflow_source: 'single_agent' },
+    metadata: { workflow_source: "single_agent" },
   };
 }
 
-describe('WorkflowOptimizer', () => {
-  it('generates, scores, and selects deterministic workflow variants with audit metadata', () => {
+describe("WorkflowOptimizer", () => {
+  it("generates, scores, and selects deterministic workflow variants with audit metadata", () => {
     const baseline = makeBaseline();
     const history = [
-      makeHistoryPoint('h1', true, 1_200, 1.1),
-      makeHistoryPoint('h2', true, 1_000, 1.0),
-      makeHistoryPoint('h3', false, 2_200, 1.8),
+      makeHistoryPoint("h1", true, 1_200, 1.1),
+      makeHistoryPoint("h2", true, 1_000, 1.0),
+      makeHistoryPoint("h3", false, 2_200, 1.8),
     ];
 
     const optimizer = new WorkflowOptimizer({ seed: 19, maxCandidates: 6 });
@@ -97,7 +117,9 @@ describe('WorkflowOptimizer', () => {
     expect(result.candidates.length).toBeGreaterThan(1);
     expect(result.selected.id).toBe(result.scored[0].candidateId);
     expect(result.audit.selectedCandidateId).toBe(result.selected.id);
-    expect(result.audit.rationaleMetadata.candidateCount).toBe(result.candidates.length);
+    expect(result.audit.rationaleMetadata.candidateCount).toBe(
+      result.candidates.length,
+    );
     expect(result.audit.rationaleMetadata.mutationOperators).toBeDefined();
 
     // Deterministic selection with same seed + history.
@@ -105,24 +127,34 @@ describe('WorkflowOptimizer', () => {
     expect(second.selected.id).toBe(result.selected.id);
   });
 
-  it('ensures every candidate is validation-safe before selection', () => {
+  it("ensures every candidate is validation-safe before selection", () => {
     const baseline = makeBaseline();
     const optimizer = new WorkflowOptimizer({ seed: 7, maxCandidates: 8 });
-    const result = optimizer.optimize({ baseline, history: [makeHistoryPoint('h', true, 900, 1)] });
+    const result = optimizer.optimize({
+      baseline,
+      history: [makeHistoryPoint("h", true, 900, 1)],
+    });
 
     for (const candidate of result.candidates) {
       expect(() => validateWorkflow(candidate.definition)).not.toThrow();
     }
   });
 
-  it('returns baseline-only plan when optimizer feature flag is disabled', () => {
+  it("returns baseline-only plan when optimizer feature flag is disabled", () => {
     const baseline = makeBaseline();
-    const optimizer = new WorkflowOptimizer({ enabled: false, seed: 10, maxCandidates: 10 });
+    const optimizer = new WorkflowOptimizer({
+      enabled: false,
+      seed: 10,
+      maxCandidates: 10,
+    });
 
-    const result = optimizer.optimize({ baseline, history: [makeHistoryPoint('h', true, 800, 1)] });
+    const result = optimizer.optimize({
+      baseline,
+      history: [makeHistoryPoint("h", true, 800, 1)],
+    });
 
     expect(result.candidates).toHaveLength(1);
-    expect(result.selected.id).toBe('baseline');
-    expect(result.audit.selectedCandidateId).toBe('baseline');
+    expect(result.selected.id).toBe("baseline");
+    expect(result.audit.selectedCandidateId).toBe("baseline");
   });
 });

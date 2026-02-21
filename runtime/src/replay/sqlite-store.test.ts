@@ -1,8 +1,8 @@
-import { createRequire } from 'node:module';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { randomUUID } from 'node:crypto';
-import { describe, expect, it } from 'vitest';
+import { createRequire } from "node:module";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { randomUUID } from "node:crypto";
+import { describe, expect, it } from "vitest";
 import {
   BackfillFetcher,
   computeProjectionHash,
@@ -10,13 +10,13 @@ import {
   ReplayBackfillService,
   SqliteReplayTimelineStore,
   stableReplayCursorString,
-} from './index.js';
+} from "./index.js";
 
 const hasSqliteDependency = (() => {
   const require = createRequire(import.meta.url);
   try {
-    require.resolve('better-sqlite3');
-    const loaded = require('better-sqlite3') as
+    require.resolve("better-sqlite3");
+    const loaded = require("better-sqlite3") as
       | (new (path: string) => {
           close?: () => void;
           prepare?: (sql: string) => { get?: () => unknown };
@@ -28,16 +28,16 @@ const hasSqliteDependency = (() => {
           };
         };
     const Database =
-      typeof loaded === 'function'
+      typeof loaded === "function"
         ? loaded
-        : typeof loaded.default === 'function'
+        : typeof loaded.default === "function"
           ? loaded.default
           : null;
     if (!Database) {
       return false;
     }
-    const db = new Database(':memory:');
-    db.prepare?.('select 1').get?.();
+    const db = new Database(":memory:");
+    db.prepare?.("select 1").get?.();
     db.close?.();
     return true;
   } catch (_error) {
@@ -56,16 +56,16 @@ function makeRecord(
   const record = {
     seq,
     type,
-    taskPda: 'task-1',
+    taskPda: "task-1",
     timestampMs: slot * 10 + seq,
     payload: { value: seq, onchain: { signature, slot, eventType: type } },
     slot,
     signature,
-    sourceEventName: type === 'discovered' ? 'taskCreated' : 'taskClaimed',
+    sourceEventName: type === "discovered" ? "taskCreated" : "taskClaimed",
     sourceEventSequence: seq - 1,
     sourceEventType: type,
     disputePda: undefined,
-    projectionHash: '',
+    projectionHash: "",
   };
 
   return {
@@ -84,32 +84,38 @@ function makeRecord(
   };
 }
 
-sqliteStoreDescribe('SqliteReplayTimelineStore', () => {
-  it('persists replay records and cursor deterministically', async () => {
+sqliteStoreDescribe("SqliteReplayTimelineStore", () => {
+  it("persists replay records and cursor deterministically", async () => {
     const path = join(tmpdir(), `replay-store-${randomUUID()}.sqlite`);
     const store = new SqliteReplayTimelineStore(path);
 
     await store.save([
-      makeRecord(2, 'claimed', 2, 'SIG_B'),
-      makeRecord(1, 'discovered', 1, 'SIG_A'),
-      makeRecord(3, 'claimed', 3, 'SIG_C'),
+      makeRecord(2, "claimed", 2, "SIG_B"),
+      makeRecord(1, "discovered", 1, "SIG_A"),
+      makeRecord(3, "claimed", 3, "SIG_C"),
     ]);
 
     await store.saveCursor({
       slot: 3,
-      signature: 'SIG_C',
-      eventName: 'taskClaimed',
-      traceId: 'trace-930',
-      traceSpanId: 'span-2',
+      signature: "SIG_C",
+      eventName: "taskClaimed",
+      traceId: "trace-930",
+      traceSpanId: "span-2",
     });
 
     const reopened = new SqliteReplayTimelineStore(path);
-    const timeline = await reopened.query({ taskPda: 'task-1' });
+    const timeline = await reopened.query({ taskPda: "task-1" });
     const cursor = await reopened.getCursor();
 
-    expect(timeline.map((entry) => entry.signature)).toEqual(['SIG_A', 'SIG_B', 'SIG_C']);
+    expect(timeline.map((entry) => entry.signature)).toEqual([
+      "SIG_A",
+      "SIG_B",
+      "SIG_C",
+    ]);
     expect(timeline.map((entry) => entry.seq)).toEqual([1, 2, 3]);
-    expect(stableReplayCursorString(cursor)).toBe('3:SIG_C:taskClaimed:trace-930:span-2');
+    expect(stableReplayCursorString(cursor)).toBe(
+      "3:SIG_C:taskClaimed:trace-930:span-2",
+    );
 
     await reopened.clear();
     const cleared = await reopened.query();
@@ -118,7 +124,7 @@ sqliteStoreDescribe('SqliteReplayTimelineStore', () => {
     expect(clearedCursor).toBeNull();
   });
 
-  it('applies ttl retention and drops old events', async () => {
+  it("applies ttl retention and drops old events", async () => {
     const path = join(tmpdir(), `replay-store-ttl-${randomUUID()}.sqlite`);
     const store = new SqliteReplayTimelineStore(path, {
       retention: {
@@ -128,17 +134,23 @@ sqliteStoreDescribe('SqliteReplayTimelineStore', () => {
 
     const baseTime = Date.now();
     await store.save([
-      { ...makeRecord(1, 'discovered', 1, 'SIG_OLD'), timestampMs: baseTime - 5_000 },
-      { ...makeRecord(2, 'claimed', 2, 'SIG_NEW'), timestampMs: baseTime + 1 },
+      {
+        ...makeRecord(1, "discovered", 1, "SIG_OLD"),
+        timestampMs: baseTime - 5_000,
+      },
+      { ...makeRecord(2, "claimed", 2, "SIG_NEW"), timestampMs: baseTime + 1 },
     ]);
 
-    const timeline = await store.query({ taskPda: 'task-1' });
+    const timeline = await store.query({ taskPda: "task-1" });
     expect(timeline).toHaveLength(1);
-    expect(timeline[0]?.signature).toBe('SIG_NEW');
+    expect(timeline[0]?.signature).toBe("SIG_NEW");
   });
 
-  it('applies max events per task and preserves deterministic ordering', async () => {
-    const path = join(tmpdir(), `replay-store-task-limit-${randomUUID()}.sqlite`);
+  it("applies max events per task and preserves deterministic ordering", async () => {
+    const path = join(
+      tmpdir(),
+      `replay-store-task-limit-${randomUUID()}.sqlite`,
+    );
     const store = new SqliteReplayTimelineStore(path, {
       retention: {
         maxEventsPerTask: 2,
@@ -146,19 +158,25 @@ sqliteStoreDescribe('SqliteReplayTimelineStore', () => {
     });
 
     await store.save([
-      makeRecord(1, 'taskA', 10, 'SIG_A'),
-      makeRecord(2, 'taskA', 11, 'SIG_B'),
-      makeRecord(3, 'taskA', 12, 'SIG_C'),
-      makeRecord(4, 'taskA', 13, 'SIG_D'),
+      makeRecord(1, "taskA", 10, "SIG_A"),
+      makeRecord(2, "taskA", 11, "SIG_B"),
+      makeRecord(3, "taskA", 12, "SIG_C"),
+      makeRecord(4, "taskA", 13, "SIG_D"),
     ]);
 
-    const timeline = await store.query({ taskPda: 'task-1' });
-    expect(timeline.map((entry) => entry.signature)).toEqual(['SIG_C', 'SIG_D']);
+    const timeline = await store.query({ taskPda: "task-1" });
+    expect(timeline.map((entry) => entry.signature)).toEqual([
+      "SIG_C",
+      "SIG_D",
+    ]);
     expect(timeline.map((entry) => entry.seq)).toEqual([3, 4]);
   });
 
-  it('applies max events per dispute', async () => {
-    const path = join(tmpdir(), `replay-store-dispute-limit-${randomUUID()}.sqlite`);
+  it("applies max events per dispute", async () => {
+    const path = join(
+      tmpdir(),
+      `replay-store-dispute-limit-${randomUUID()}.sqlite`,
+    );
     const store = new SqliteReplayTimelineStore(path, {
       retention: {
         maxEventsPerDispute: 1,
@@ -166,18 +184,21 @@ sqliteStoreDescribe('SqliteReplayTimelineStore', () => {
     });
 
     await store.save([
-      { ...makeRecord(1, 'taskA', 10, 'SIG_A'), disputePda: 'dispute-1' },
-      { ...makeRecord(2, 'taskA', 11, 'SIG_B'), disputePda: 'dispute-1' },
-      { ...makeRecord(3, 'taskA', 12, 'SIG_C'), disputePda: 'dispute-2' },
+      { ...makeRecord(1, "taskA", 10, "SIG_A"), disputePda: "dispute-1" },
+      { ...makeRecord(2, "taskA", 11, "SIG_B"), disputePda: "dispute-1" },
+      { ...makeRecord(3, "taskA", 12, "SIG_C"), disputePda: "dispute-2" },
     ]);
 
-    const disputeTimeline = await store.query({ disputePda: 'dispute-1' });
+    const disputeTimeline = await store.query({ disputePda: "dispute-1" });
     expect(disputeTimeline).toHaveLength(1);
-    expect(disputeTimeline[0]?.signature).toBe('SIG_B');
+    expect(disputeTimeline[0]?.signature).toBe("SIG_B");
   });
 
-  it('applies max total event cap', async () => {
-    const path = join(tmpdir(), `replay-store-total-limit-${randomUUID()}.sqlite`);
+  it("applies max total event cap", async () => {
+    const path = join(
+      tmpdir(),
+      `replay-store-total-limit-${randomUUID()}.sqlite`,
+    );
     const store = new SqliteReplayTimelineStore(path, {
       retention: {
         maxEventsTotal: 3,
@@ -185,20 +206,27 @@ sqliteStoreDescribe('SqliteReplayTimelineStore', () => {
     });
 
     await store.save([
-      { ...makeRecord(1, 'taskA', 10, 'SIG_A'), taskPda: 'task-1' },
-      { ...makeRecord(2, 'taskA', 11, 'SIG_B'), taskPda: 'task-1' },
-      { ...makeRecord(3, 'taskA', 12, 'SIG_C'), taskPda: 'task-1' },
-      { ...makeRecord(4, 'taskA', 13, 'SIG_D'), taskPda: 'task-1' },
-      { ...makeRecord(5, 'taskA', 14, 'SIG_E'), taskPda: 'task-1' },
+      { ...makeRecord(1, "taskA", 10, "SIG_A"), taskPda: "task-1" },
+      { ...makeRecord(2, "taskA", 11, "SIG_B"), taskPda: "task-1" },
+      { ...makeRecord(3, "taskA", 12, "SIG_C"), taskPda: "task-1" },
+      { ...makeRecord(4, "taskA", 13, "SIG_D"), taskPda: "task-1" },
+      { ...makeRecord(5, "taskA", 14, "SIG_E"), taskPda: "task-1" },
     ]);
 
     const timeline = await store.query();
     expect(timeline).toHaveLength(3);
-    expect(timeline.map((entry) => entry.signature)).toEqual(['SIG_C', 'SIG_D', 'SIG_E']);
+    expect(timeline.map((entry) => entry.signature)).toEqual([
+      "SIG_C",
+      "SIG_D",
+      "SIG_E",
+    ]);
   });
 
-  it('compacts deterministically when compaction is enabled', async () => {
-    const path = join(tmpdir(), `replay-store-compaction-${randomUUID()}.sqlite`);
+  it("compacts deterministically when compaction is enabled", async () => {
+    const path = join(
+      tmpdir(),
+      `replay-store-compaction-${randomUUID()}.sqlite`,
+    );
     const store = new SqliteReplayTimelineStore(path, {
       compaction: {
         enabled: true,
@@ -206,30 +234,53 @@ sqliteStoreDescribe('SqliteReplayTimelineStore', () => {
       },
     });
 
-    await store.save([makeRecord(1, 'taskA', 1, 'SIG_A'), makeRecord(2, 'taskA', 2, 'SIG_B')]);
-    await store.save([makeRecord(3, 'taskA', 3, 'SIG_C')]);
+    await store.save([
+      makeRecord(1, "taskA", 1, "SIG_A"),
+      makeRecord(2, "taskA", 2, "SIG_B"),
+    ]);
+    await store.save([makeRecord(3, "taskA", 3, "SIG_C")]);
 
-    const timeline = await store.query({ taskPda: 'task-1' });
-    expect(timeline.map((entry) => entry.signature)).toEqual(['SIG_A', 'SIG_B', 'SIG_C']);
+    const timeline = await store.query({ taskPda: "task-1" });
+    expect(timeline.map((entry) => entry.signature)).toEqual([
+      "SIG_A",
+      "SIG_B",
+      "SIG_C",
+    ]);
   });
-  it('resumes backfill from persisted cursor for sqlite store', async () => {
+  it("resumes backfill from persisted cursor for sqlite store", async () => {
     const file = join(tmpdir(), `replay-store-backfill-${randomUUID()}.sqlite`);
     const store = new SqliteReplayTimelineStore(file);
 
     const pageOne = [
       {
-        eventName: 'taskCreated',
+        eventName: "taskCreated",
         slot: 1,
-        signature: 'A',
-        event: { taskId: new Uint8Array(32).fill(1), creator: new Uint8Array(32).fill(1), requiredCapabilities: 1n, rewardAmount: 1n, taskType: 0, deadline: 1, minReputation: 0, rewardMint: null, timestamp: 1 },
+        signature: "A",
+        event: {
+          taskId: new Uint8Array(32).fill(1),
+          creator: new Uint8Array(32).fill(1),
+          requiredCapabilities: 1n,
+          rewardAmount: 1n,
+          taskType: 0,
+          deadline: 1,
+          minReputation: 0,
+          rewardMint: null,
+          timestamp: 1,
+        },
       },
     ];
     const pageTwo = [
       {
-        eventName: 'taskClaimed',
+        eventName: "taskClaimed",
         slot: 2,
-        signature: 'B',
-        event: { taskId: new Uint8Array(32).fill(1), worker: new Uint8Array(32).fill(2), currentWorkers: 1, maxWorkers: 1, timestamp: 2 },
+        signature: "B",
+        event: {
+          taskId: new Uint8Array(32).fill(1),
+          worker: new Uint8Array(32).fill(2),
+          currentWorkers: 1,
+          maxWorkers: 1,
+          timestamp: 2,
+        },
       },
     ];
 
@@ -240,14 +291,14 @@ sqliteStoreDescribe('SqliteReplayTimelineStore', () => {
         if (!cursor) {
           return {
             events: pageOne,
-            nextCursor: { slot: 1, signature: 'A', eventName: 'taskCreated' },
+            nextCursor: { slot: 1, signature: "A", eventName: "taskCreated" },
             done: false,
           };
         }
 
-        if (cursor.signature === 'A' && !this.failOnce) {
+        if (cursor.signature === "A" && !this.failOnce) {
           this.failOnce = true;
-          throw new Error('simulated rpc failure');
+          throw new Error("simulated rpc failure");
         }
 
         return {
@@ -264,17 +315,21 @@ sqliteStoreDescribe('SqliteReplayTimelineStore', () => {
       fetcher,
     });
 
-    await expect(service.runBackfill()).rejects.toThrow('simulated rpc failure');
+    await expect(service.runBackfill()).rejects.toThrow(
+      "simulated rpc failure",
+    );
 
     const cursor = await store.getCursor();
-    expect(stableReplayCursorString(cursor)).toMatch(/^1:A:taskCreated:replay-backfill:/);
+    expect(stableReplayCursorString(cursor)).toMatch(
+      /^1:A:taskCreated:replay-backfill:/,
+    );
 
     const completed = await service.runBackfill();
     const fullTimeline = await store.query();
 
     expect(completed.processed).toBe(1);
     expect(completed.duplicates).toBe(0);
-    expect(stableReplayCursorString(completed.cursor)).toBe('');
+    expect(stableReplayCursorString(completed.cursor)).toBe("");
     expect(fullTimeline).toHaveLength(2);
   });
 });

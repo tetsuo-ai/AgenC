@@ -3,8 +3,8 @@
  * @module
  */
 
-import { Program } from '@coral-xyz/anchor';
-import type { AgencCoordination } from '../types/agenc_coordination.js';
+import { Program } from "@coral-xyz/anchor";
+import type { AgencCoordination } from "../types/agenc_coordination.js";
 import type {
   EventCallback,
   EventSubscription,
@@ -20,15 +20,15 @@ import type {
   RawTaskClaimedEvent,
   RawTaskCompletedEvent,
   RawTaskCancelledEvent,
-} from './types.js';
+} from "./types.js";
 import {
   parseTaskCreatedEvent,
   parseTaskClaimedEvent,
   parseTaskCompletedEvent,
   parseTaskCancelledEvent,
   parseDependentTaskCreatedEvent,
-} from './parse.js';
-import { createEventSubscription } from './factory.js';
+} from "./parse.js";
+import { createEventSubscription } from "./factory.js";
 
 /**
  * Subscribes to TaskCreated events.
@@ -41,12 +41,16 @@ import { createEventSubscription } from './factory.js';
 export function subscribeToTaskCreated(
   program: Program<AgencCoordination>,
   callback: EventCallback<TaskCreatedEvent>,
-  options?: TaskEventFilterOptions
+  options?: TaskEventFilterOptions,
 ): EventSubscription {
-  return createEventSubscription<RawTaskCreatedEvent, TaskCreatedEvent, TaskEventFilterOptions>(
+  return createEventSubscription<
+    RawTaskCreatedEvent,
+    TaskCreatedEvent,
+    TaskEventFilterOptions
+  >(
     program,
     {
-      eventName: 'taskCreated',
+      eventName: "taskCreated",
       parse: parseTaskCreatedEvent,
       getFilterId: (event) => event.taskId,
       getFilterValue: (opts) => opts.taskId,
@@ -67,12 +71,16 @@ export function subscribeToTaskCreated(
 export function subscribeToTaskClaimed(
   program: Program<AgencCoordination>,
   callback: EventCallback<TaskClaimedEvent>,
-  options?: TaskEventFilterOptions
+  options?: TaskEventFilterOptions,
 ): EventSubscription {
-  return createEventSubscription<RawTaskClaimedEvent, TaskClaimedEvent, TaskEventFilterOptions>(
+  return createEventSubscription<
+    RawTaskClaimedEvent,
+    TaskClaimedEvent,
+    TaskEventFilterOptions
+  >(
     program,
     {
-      eventName: 'taskClaimed',
+      eventName: "taskClaimed",
       parse: parseTaskClaimedEvent,
       getFilterId: (event) => event.taskId,
       getFilterValue: (opts) => opts.taskId,
@@ -93,12 +101,16 @@ export function subscribeToTaskClaimed(
 export function subscribeToTaskCompleted(
   program: Program<AgencCoordination>,
   callback: EventCallback<TaskCompletedEvent>,
-  options?: TaskEventFilterOptions
+  options?: TaskEventFilterOptions,
 ): EventSubscription {
-  return createEventSubscription<RawTaskCompletedEvent, TaskCompletedEvent, TaskEventFilterOptions>(
+  return createEventSubscription<
+    RawTaskCompletedEvent,
+    TaskCompletedEvent,
+    TaskEventFilterOptions
+  >(
     program,
     {
-      eventName: 'taskCompleted',
+      eventName: "taskCompleted",
       parse: parseTaskCompletedEvent,
       getFilterId: (event) => event.taskId,
       getFilterValue: (opts) => opts.taskId,
@@ -119,12 +131,16 @@ export function subscribeToTaskCompleted(
 export function subscribeToTaskCancelled(
   program: Program<AgencCoordination>,
   callback: EventCallback<TaskCancelledEvent>,
-  options?: TaskEventFilterOptions
+  options?: TaskEventFilterOptions,
 ): EventSubscription {
-  return createEventSubscription<RawTaskCancelledEvent, TaskCancelledEvent, TaskEventFilterOptions>(
+  return createEventSubscription<
+    RawTaskCancelledEvent,
+    TaskCancelledEvent,
+    TaskEventFilterOptions
+  >(
     program,
     {
-      eventName: 'taskCancelled',
+      eventName: "taskCancelled",
       parse: parseTaskCancelledEvent,
       getFilterId: (event) => event.taskId,
       getFilterValue: (opts) => opts.taskId,
@@ -146,10 +162,14 @@ export function subscribeToDependentTaskCreated(
   program: Program<AgencCoordination>,
   callback: EventCallback<DependentTaskCreatedEvent>,
 ): EventSubscription {
-  return createEventSubscription<RawDependentTaskCreatedEvent, DependentTaskCreatedEvent, never>(
+  return createEventSubscription<
+    RawDependentTaskCreatedEvent,
+    DependentTaskCreatedEvent,
+    never
+  >(
     program,
     {
-      eventName: 'dependentTaskCreated',
+      eventName: "dependentTaskCreated",
       parse: parseDependentTaskCreatedEvent,
     },
     callback,
@@ -167,29 +187,42 @@ export function subscribeToDependentTaskCreated(
 export function subscribeToAllTaskEvents(
   program: Program<AgencCoordination>,
   callbacks: TaskEventCallbacks,
-  options?: TaskEventFilterOptions
+  options?: TaskEventFilterOptions,
 ): EventSubscription {
   const subscriptions: EventSubscription[] = [];
 
   if (callbacks.onTaskCreated) {
-    subscriptions.push(subscribeToTaskCreated(program, callbacks.onTaskCreated, options));
+    subscriptions.push(
+      subscribeToTaskCreated(program, callbacks.onTaskCreated, options),
+    );
   }
   if (callbacks.onTaskClaimed) {
-    subscriptions.push(subscribeToTaskClaimed(program, callbacks.onTaskClaimed, options));
+    subscriptions.push(
+      subscribeToTaskClaimed(program, callbacks.onTaskClaimed, options),
+    );
   }
   if (callbacks.onTaskCompleted) {
-    subscriptions.push(subscribeToTaskCompleted(program, callbacks.onTaskCompleted, options));
+    subscriptions.push(
+      subscribeToTaskCompleted(program, callbacks.onTaskCompleted, options),
+    );
   }
   if (callbacks.onTaskCancelled) {
-    subscriptions.push(subscribeToTaskCancelled(program, callbacks.onTaskCancelled, options));
+    subscriptions.push(
+      subscribeToTaskCancelled(program, callbacks.onTaskCancelled, options),
+    );
   }
   if (callbacks.onDependentTaskCreated) {
-    subscriptions.push(subscribeToDependentTaskCreated(program, callbacks.onDependentTaskCreated));
+    subscriptions.push(
+      subscribeToDependentTaskCreated(
+        program,
+        callbacks.onDependentTaskCreated,
+      ),
+    );
   }
 
   return {
     unsubscribe: async () => {
-      await Promise.all(subscriptions.map(s => s.unsubscribe()));
+      await Promise.all(subscriptions.map((s) => s.unsubscribe()));
     },
   };
 }

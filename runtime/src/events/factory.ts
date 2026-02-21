@@ -7,9 +7,9 @@
  * @module
  */
 
-import { Program } from '@coral-xyz/anchor';
-import { agentIdsEqual } from '../utils/encoding.js';
-import type { EventSubscription } from './types.js';
+import { Program } from "@coral-xyz/anchor";
+import { agentIdsEqual } from "../utils/encoding.js";
+import type { EventSubscription } from "./types.js";
 
 /**
  * Configuration for a single event subscription.

@@ -4,7 +4,7 @@
  * @module
  */
 
-import { RuntimeError, RuntimeErrorCodes } from '../types/errors.js';
+import { RuntimeError, RuntimeErrorCodes } from "../types/errors.js";
 
 /**
  * Error thrown when speech-to-text transcription fails.
@@ -18,7 +18,7 @@ export class VoiceTranscriptionError extends RuntimeError {
       `${providerName} transcription failed: ${message}`,
       RuntimeErrorCodes.VOICE_TRANSCRIPTION_ERROR,
     );
-    this.name = 'VoiceTranscriptionError';
+    this.name = "VoiceTranscriptionError";
     this.providerName = providerName;
     this.statusCode = statusCode;
   }
@@ -36,7 +36,7 @@ export class VoiceSynthesisError extends RuntimeError {
       `${providerName} synthesis failed: ${message}`,
       RuntimeErrorCodes.VOICE_SYNTHESIS_ERROR,
     );
-    this.name = 'VoiceSynthesisError';
+    this.name = "VoiceSynthesisError";
     this.providerName = providerName;
     this.statusCode = statusCode;
   }

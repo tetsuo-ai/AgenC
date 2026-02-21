@@ -8,14 +8,14 @@ import {
   BPS_BASE,
   DEFAULT_WEIGHTED_SCORE_WEIGHTS,
   isValidBps,
-} from '@agenc/sdk';
+} from "@agenc/sdk";
 import type {
   MatchingPolicyConfig,
   TaskBid,
   WeightedScoreWeights,
-} from '@agenc/sdk';
-import { MarketplaceValidationError } from './errors.js';
-import type { RankedTaskBid } from './types.js';
+} from "@agenc/sdk";
+import { MarketplaceValidationError } from "./errors.js";
+import type { RankedTaskBid } from "./types.js";
 
 const SCORE_SCALE = 1_000_000n;
 
@@ -44,17 +44,17 @@ export function rankTaskBids(
   }
 
   switch (policy.policy) {
-    case 'best_price':
+    case "best_price":
       return [...bids]
         .sort(compareByBestPrice)
-        .map((bid) => ({ bid, policy: 'best_price' }));
+        .map((bid) => ({ bid, policy: "best_price" }));
 
-    case 'best_eta':
+    case "best_eta":
       return [...bids]
         .sort(compareByBestEta)
-        .map((bid) => ({ bid, policy: 'best_eta' }));
+        .map((bid) => ({ bid, policy: "best_eta" }));
 
-    case 'weighted_score': {
+    case "weighted_score": {
       const weights = normalizeWeights(policy.weights);
       const scored = bids.map((bid) => ({
         bid,
@@ -70,7 +70,7 @@ export function rankTaskBids(
 
       return scored.map(({ bid, breakdown }) => ({
         bid,
-        policy: 'weighted_score',
+        policy: "weighted_score",
         weightedBreakdown: breakdown,
       }));
     }
@@ -84,8 +84,12 @@ export function computeWeightedScore(
 ): WeightedScoreComputation {
   const rewardValues = candidates.map((candidate) => candidate.rewardLamports);
   const etaValues = candidates.map((candidate) => candidate.etaSeconds);
-  const confidenceValues = candidates.map((candidate) => candidate.confidenceBps);
-  const reliabilityValues = candidates.map((candidate) => candidate.reliabilityBps ?? candidate.confidenceBps);
+  const confidenceValues = candidates.map(
+    (candidate) => candidate.confidenceBps,
+  );
+  const reliabilityValues = candidates.map(
+    (candidate) => candidate.reliabilityBps ?? candidate.confidenceBps,
+  );
 
   const priceScore = normalizeLowerBigint(
     bid.rewardLamports,
@@ -125,7 +129,9 @@ export function computeWeightedScore(
   };
 }
 
-function normalizeWeights(weights: WeightedScoreWeights | undefined): WeightedScoreWeights {
+function normalizeWeights(
+  weights: WeightedScoreWeights | undefined,
+): WeightedScoreWeights {
   const merged: WeightedScoreWeights = {
     ...DEFAULT_WEIGHTED_SCORE_WEIGHTS,
     ...(weights ?? {}),
@@ -133,7 +139,9 @@ function normalizeWeights(weights: WeightedScoreWeights | undefined): WeightedSc
 
   for (const [key, value] of Object.entries(merged)) {
     if (!isValidBps(value)) {
-      throw new MarketplaceValidationError(`invalid weighted score bps for "${key}"`);
+      throw new MarketplaceValidationError(
+        `invalid weighted score bps for "${key}"`,
+      );
     }
   }
 
@@ -183,7 +191,11 @@ function normalizeLowerNumber(value: number, min: number, max: number): bigint {
   return (BigInt(max - value) * SCORE_SCALE) / BigInt(max - min);
 }
 
-function normalizeHigherNumber(value: number, min: number, max: number): bigint {
+function normalizeHigherNumber(
+  value: number,
+  min: number,
+  max: number,
+): bigint {
   if (max === min) return SCORE_SCALE;
   return (BigInt(value - min) * SCORE_SCALE) / BigInt(max - min);
 }

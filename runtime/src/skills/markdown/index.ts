@@ -10,27 +10,31 @@ export type {
   SkillRequirements,
   SkillInstallStep,
   SkillParseError,
-} from './types.js';
+} from "./types.js";
 
 export {
   isSkillMarkdown,
   parseSkillContent,
   parseSkillFile,
   validateSkillMetadata,
-} from './parser.js';
+} from "./parser.js";
 
 export type {
   DiscoveryPaths,
   DiscoveryTier,
   DiscoveredSkill,
   MissingRequirement,
-} from './discovery.js';
+} from "./discovery.js";
 
-export { SkillDiscovery } from './discovery.js';
+export { SkillDiscovery } from "./discovery.js";
 
 // Skill injection engine (Phase 3.3)
-export type { SkillInjectorConfig, InjectionResult } from './injector.js';
-export { MarkdownSkillInjector, estimateTokens, scoreRelevance } from './injector.js';
+export type { SkillInjectorConfig, InjectionResult } from "./injector.js";
+export {
+  MarkdownSkillInjector,
+  estimateTokens,
+  scoreRelevance,
+} from "./injector.js";
 
 // OpenClaw compatibility bridge
 export {
@@ -38,4 +42,4 @@ export {
   convertOpenClawSkill,
   mapOpenClawMetadata,
   importSkill,
-} from './compat.js';
+} from "./compat.js";

@@ -4,7 +4,7 @@
  * @module
  */
 
-import type { MemoryBackendConfig } from '../types.js';
+import type { MemoryBackendConfig } from "../types.js";
 
 /**
  * Configuration for the Redis memory backend.

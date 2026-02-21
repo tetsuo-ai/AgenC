@@ -8,12 +8,12 @@
  * @module
  */
 
-import type { Logger } from '../../utils/logger.js';
-import { silentLogger } from '../../utils/logger.js';
-import type { SkillInjector } from '../../llm/chat-executor.js';
-import type { MarkdownSkill } from './types.js';
-import type { DiscoveredSkill } from './discovery.js';
-import { SkillDiscovery } from './discovery.js';
+import type { Logger } from "../../utils/logger.js";
+import { silentLogger } from "../../utils/logger.js";
+import type { SkillInjector } from "../../llm/chat-executor.js";
+import type { MarkdownSkill } from "./types.js";
+import type { DiscoveredSkill } from "./discovery.js";
+import { SkillDiscovery } from "./discovery.js";
 
 // ============================================================================
 // Types
@@ -52,20 +52,129 @@ const SKILL_COMMAND_REGEX = /\/skill\s+(\S+)/gi;
 
 /** Common English stopwords filtered from keyword matching. */
 const STOPWORDS = new Set([
-  'a', 'an', 'the', 'is', 'are', 'was', 'were', 'be', 'been', 'being',
-  'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could',
-  'should', 'may', 'might', 'shall', 'can', 'need', 'dare', 'ought',
-  'used', 'to', 'of', 'in', 'for', 'on', 'with', 'at', 'by', 'from',
-  'as', 'into', 'through', 'during', 'before', 'after', 'above', 'below',
-  'between', 'out', 'off', 'over', 'under', 'again', 'further', 'then',
-  'once', 'here', 'there', 'when', 'where', 'why', 'how', 'all', 'each',
-  'every', 'both', 'few', 'more', 'most', 'other', 'some', 'such', 'no',
-  'nor', 'not', 'only', 'own', 'same', 'so', 'than', 'too', 'very',
-  'just', 'because', 'but', 'and', 'or', 'if', 'while', 'about',
-  'up', 'down', 'i', 'me', 'my', 'we', 'our', 'you', 'your', 'he',
-  'him', 'his', 'she', 'her', 'it', 'its', 'they', 'them', 'their',
-  'what', 'which', 'who', 'whom', 'this', 'that', 'these', 'those',
-  'am', 'let', 'get', 'got', 'make', 'go', 'going', 'want',
+  "a",
+  "an",
+  "the",
+  "is",
+  "are",
+  "was",
+  "were",
+  "be",
+  "been",
+  "being",
+  "have",
+  "has",
+  "had",
+  "do",
+  "does",
+  "did",
+  "will",
+  "would",
+  "could",
+  "should",
+  "may",
+  "might",
+  "shall",
+  "can",
+  "need",
+  "dare",
+  "ought",
+  "used",
+  "to",
+  "of",
+  "in",
+  "for",
+  "on",
+  "with",
+  "at",
+  "by",
+  "from",
+  "as",
+  "into",
+  "through",
+  "during",
+  "before",
+  "after",
+  "above",
+  "below",
+  "between",
+  "out",
+  "off",
+  "over",
+  "under",
+  "again",
+  "further",
+  "then",
+  "once",
+  "here",
+  "there",
+  "when",
+  "where",
+  "why",
+  "how",
+  "all",
+  "each",
+  "every",
+  "both",
+  "few",
+  "more",
+  "most",
+  "other",
+  "some",
+  "such",
+  "no",
+  "nor",
+  "not",
+  "only",
+  "own",
+  "same",
+  "so",
+  "than",
+  "too",
+  "very",
+  "just",
+  "because",
+  "but",
+  "and",
+  "or",
+  "if",
+  "while",
+  "about",
+  "up",
+  "down",
+  "i",
+  "me",
+  "my",
+  "we",
+  "our",
+  "you",
+  "your",
+  "he",
+  "him",
+  "his",
+  "she",
+  "her",
+  "it",
+  "its",
+  "they",
+  "them",
+  "their",
+  "what",
+  "which",
+  "who",
+  "whom",
+  "this",
+  "that",
+  "these",
+  "those",
+  "am",
+  "let",
+  "get",
+  "got",
+  "make",
+  "go",
+  "going",
+  "want",
 ]);
 
 // ============================================================================
@@ -176,7 +285,10 @@ export class MarkdownSkillInjector implements SkillInjector {
   // SkillInjector interface
   // --------------------------------------------------------------------------
 
-  async inject(message: string, sessionId: string): Promise<string | undefined> {
+  async inject(
+    message: string,
+    sessionId: string,
+  ): Promise<string | undefined> {
     const result = await this.injectDetailed(message, sessionId);
     return result.content;
   }
@@ -185,11 +297,16 @@ export class MarkdownSkillInjector implements SkillInjector {
   // Detailed injection
   // --------------------------------------------------------------------------
 
-  async injectDetailed(message: string, sessionId: string): Promise<InjectionResult> {
+  async injectDetailed(
+    message: string,
+    sessionId: string,
+  ): Promise<InjectionResult> {
     const available = await this.getAvailableSkills(sessionId);
 
     // Filter by capabilities
-    const capable = available.filter((ds) => meetsCapabilities(ds.skill, this.agentCaps));
+    const capable = available.filter((ds) =>
+      meetsCapabilities(ds.skill, this.agentCaps),
+    );
 
     // Score and sort
     const scored = capable
@@ -217,13 +334,18 @@ export class MarkdownSkillInjector implements SkillInjector {
     }
 
     if (blocks.length === 0) {
-      return { content: undefined, injectedSkills: [], excludedSkills: [], estimatedTokens: 0 };
+      return {
+        content: undefined,
+        injectedSkills: [],
+        excludedSkills: [],
+        estimatedTokens: 0,
+      };
     }
 
-    const content = blocks.join('\n\n');
+    const content = blocks.join("\n\n");
 
     this.logger.debug(
-      `Injected ${injected.length} skills (${totalTokens} est. tokens): ${injected.join(', ')}`,
+      `Injected ${injected.length} skills (${totalTokens} est. tokens): ${injected.join(", ")}`,
     );
 
     return {
@@ -250,7 +372,9 @@ export class MarkdownSkillInjector implements SkillInjector {
   // Internal
   // --------------------------------------------------------------------------
 
-  private async getAvailableSkills(sessionId: string): Promise<DiscoveredSkill[]> {
+  private async getAvailableSkills(
+    sessionId: string,
+  ): Promise<DiscoveredSkill[]> {
     const cached = this.cache.get(sessionId);
     if (cached && Date.now() - cached.ts < this.cacheTtlMs) {
       return cached.skills;

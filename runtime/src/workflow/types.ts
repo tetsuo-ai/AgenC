@@ -8,10 +8,10 @@
  * @module
  */
 
-import type { PublicKey } from '@solana/web3.js';
-import type { Program } from '@coral-xyz/anchor';
-import type { AgencCoordination } from '../types/agenc_coordination.js';
-import type { Logger } from '../utils/logger.js';
+import type { PublicKey } from "@solana/web3.js";
+import type { Program } from "@coral-xyz/anchor";
+import type { AgencCoordination } from "../types/agenc_coordination.js";
+import type { Logger } from "../utils/logger.js";
 
 // ============================================================================
 // On-Chain Dependency Type
@@ -100,12 +100,12 @@ export interface WorkflowConfig {
 
 /** Status of an individual workflow node. */
 export enum WorkflowNodeStatus {
-  Pending = 'pending',
-  Creating = 'creating',
-  Created = 'created',
-  Completed = 'completed',
-  Failed = 'failed',
-  Cancelled = 'cancelled',
+  Pending = "pending",
+  Creating = "creating",
+  Created = "created",
+  Completed = "completed",
+  Failed = "failed",
+  Cancelled = "cancelled",
 }
 
 /**
@@ -140,11 +140,11 @@ export interface WorkflowNode {
 
 /** Overall workflow status. */
 export enum WorkflowStatus {
-  Pending = 'pending',
-  Running = 'running',
-  Completed = 'completed',
-  Failed = 'failed',
-  PartiallyCompleted = 'partially_completed',
+  Pending = "pending",
+  Running = "running",
+  Completed = "completed",
+  Failed = "failed",
+  PartiallyCompleted = "partially_completed",
 }
 
 /**

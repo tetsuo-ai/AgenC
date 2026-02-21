@@ -1,13 +1,9 @@
-import {
-  Connection,
-  Keypair,
-  PublicKey,
-  SystemProgram,
-} from '@solana/web3.js';
-import anchor, { type Program } from '@coral-xyz/anchor';
-import { PROGRAM_ID, SEEDS } from './constants';
-import { getAccount } from './anchor-utils';
-import { toBigInt, toNumber } from './utils/numeric';
+import { Connection, Keypair, PublicKey, SystemProgram } from "@solana/web3.js";
+import anchor, { type Program } from "@coral-xyz/anchor";
+import { PROGRAM_ID, SEEDS } from "./constants";
+import { getAccount } from "./anchor-utils";
+import { deriveProtocolPda } from "./protocol";
+import { toBigInt, toNumber } from "./utils/numeric";
 
 export interface CoordinationState {
   owner: PublicKey;
@@ -26,22 +22,29 @@ export interface UpdateStateParams {
   version: number | bigint;
 }
 
-function toFixedBytes(value: Uint8Array | number[], length: number, fieldName: string): Uint8Array {
+function toFixedBytes(
+  value: Uint8Array | number[],
+  length: number,
+  fieldName: string,
+): Uint8Array {
   const bytes = value instanceof Uint8Array ? value : Uint8Array.from(value);
   if (bytes.length !== length) {
-    throw new Error(`Invalid ${fieldName} length: ${bytes.length}. Expected ${length} bytes.`);
+    throw new Error(
+      `Invalid ${fieldName} length: ${bytes.length}. Expected ${length} bytes.`,
+    );
   }
   return bytes;
 }
 
-function deriveAgentPda(agentId: Uint8Array | number[], programId: PublicKey): PublicKey {
-  const idBytes = toFixedBytes(agentId, 32, 'agentId');
-  const [pda] = PublicKey.findProgramAddressSync([SEEDS.AGENT, idBytes], programId);
-  return pda;
-}
-
-function deriveProtocolPda(programId: PublicKey): PublicKey {
-  const [pda] = PublicKey.findProgramAddressSync([SEEDS.PROTOCOL], programId);
+function deriveAgentPda(
+  agentId: Uint8Array | number[],
+  programId: PublicKey,
+): PublicKey {
+  const idBytes = toFixedBytes(agentId, 32, "agentId");
+  const [pda] = PublicKey.findProgramAddressSync(
+    [SEEDS.AGENT, idBytes],
+    programId,
+  );
   return pda;
 }
 
@@ -50,9 +53,9 @@ export function deriveStatePda(
   stateKey: Uint8Array | number[],
   programId: PublicKey = PROGRAM_ID,
 ): PublicKey {
-  const keyBytes = toFixedBytes(stateKey, 32, 'stateKey');
+  const keyBytes = toFixedBytes(stateKey, 32, "stateKey");
   const [pda] = PublicKey.findProgramAddressSync(
-    [Buffer.from('state'), authority.toBuffer(), keyBytes],
+    [Buffer.from("state"), authority.toBuffer(), keyBytes],
     programId,
   );
   return pda;
@@ -65,8 +68,8 @@ export async function updateState(
   params: UpdateStateParams,
 ): Promise<{ statePda: PublicKey; txSignature: string }> {
   const programId = program.programId;
-  const stateKey = toFixedBytes(params.stateKey, 32, 'stateKey');
-  const stateValue = toFixedBytes(params.stateValue, 64, 'stateValue');
+  const stateKey = toFixedBytes(params.stateKey, 32, "stateKey");
+  const stateValue = toFixedBytes(params.stateValue, 64, "stateValue");
 
   const statePda = deriveStatePda(authority.publicKey, stateKey, programId);
   const agentPda = deriveAgentPda(params.agentId, programId);
@@ -88,7 +91,7 @@ export async function updateState(
     .signers([authority])
     .rpc();
 
-  await connection.confirmTransaction(tx, 'confirmed');
+  await connection.confirmTransaction(tx, "confirmed");
   return { statePda, txSignature: tx };
 }
 
@@ -97,12 +100,18 @@ export async function getState(
   statePda: PublicKey,
 ): Promise<CoordinationState | null> {
   try {
-    const raw = (await getAccount(program, 'coordinationState').fetch(statePda)) as Record<string, unknown>;
+    const raw = (await getAccount(program, "coordinationState").fetch(
+      statePda,
+    )) as Record<string, unknown>;
 
     return {
       owner: raw.owner as PublicKey,
-      stateKey: new Uint8Array((raw.stateKey ?? raw.state_key ?? []) as number[]),
-      stateValue: new Uint8Array((raw.stateValue ?? raw.state_value ?? []) as number[]),
+      stateKey: new Uint8Array(
+        (raw.stateKey ?? raw.state_key ?? []) as number[],
+      ),
+      stateValue: new Uint8Array(
+        (raw.stateValue ?? raw.state_value ?? []) as number[],
+      ),
       lastUpdater: (raw.lastUpdater ?? raw.last_updater) as PublicKey,
       version: toBigInt(raw.version),
       updatedAt: toNumber(raw.updatedAt ?? raw.updated_at),
@@ -110,7 +119,10 @@ export async function getState(
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    if (message.includes('Account does not exist') || message.includes('could not find account')) {
+    if (
+      message.includes("Account does not exist") ||
+      message.includes("could not find account")
+    ) {
       return null;
     }
     throw error;

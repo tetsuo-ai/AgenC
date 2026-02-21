@@ -1,9 +1,9 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { Keypair, PublicKey } from '@solana/web3.js';
-import type { Program } from '@coral-xyz/anchor';
-import type { AgencCoordination } from '../types/agenc_coordination.js';
-import { TaskScanner } from './scanner.js';
-import { Task, TaskStatus } from './types.js';
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { Keypair, PublicKey } from "@solana/web3.js";
+import type { Program } from "@coral-xyz/anchor";
+import type { AgencCoordination } from "../types/agenc_coordination.js";
+import { TaskScanner } from "./scanner.js";
+import { Task, TaskStatus } from "./types.js";
 
 // Generate test keypairs once (reused across tests)
 const testKeys = {
@@ -20,7 +20,10 @@ const testKeys = {
 /**
  * Mock BN-like object
  */
-function mockBN(value: bigint | number): { toNumber: () => number; toString: () => string } {
+function mockBN(value: bigint | number): {
+  toNumber: () => number;
+  toString: () => string;
+} {
   const bigValue = BigInt(value);
   return {
     toNumber: () => Number(bigValue),
@@ -45,7 +48,7 @@ function createMockTaskAccount(
     status: { open: {} };
     taskType: number;
     rewardMint: PublicKey | null;
-  }> = {}
+  }> = {},
 ) {
   return {
     taskId: overrides.taskId ?? Array(32).fill(1),
@@ -67,10 +70,14 @@ function createMockTaskAccount(
  * Create a mock program
  */
 function createMockProgram() {
-  const eventCallbacks = new Map<number, { eventName: string; callback: Function }>();
+  const eventCallbacks = new Map<
+    number,
+    { eventName: string; callback: Function }
+  >();
   let nextListenerId = 1;
 
-  const mockTaskAccounts: Array<{ publicKey: PublicKey; account: unknown }> = [];
+  const mockTaskAccounts: Array<{ publicKey: PublicKey; account: unknown }> =
+    [];
 
   const mockProgram = {
     programId: testKeys.programId,
@@ -79,7 +86,7 @@ function createMockProgram() {
         all: vi.fn(async () => mockTaskAccounts),
         fetch: vi.fn(async (pda: PublicKey) => {
           const found = mockTaskAccounts.find((a) => a.publicKey.equals(pda));
-          if (!found) throw new Error('Account not found');
+          if (!found) throw new Error("Account not found");
           return found.account;
         }),
       },
@@ -99,7 +106,12 @@ function createMockProgram() {
     _clearTasks: () => {
       mockTaskAccounts.length = 0;
     },
-    _emit: (eventName: string, rawEvent: unknown, slot: number, signature: string) => {
+    _emit: (
+      eventName: string,
+      rawEvent: unknown,
+      slot: number,
+      signature: string,
+    ) => {
       for (const { eventName: name, callback } of eventCallbacks.values()) {
         if (name === eventName) {
           callback(rawEvent, slot, signature);
@@ -145,7 +157,7 @@ function createMockTaskObject(overrides: Partial<Task> = {}): Task {
   };
 }
 
-describe('TaskScanner', () => {
+describe("TaskScanner", () => {
   let mockProgram: ReturnType<typeof createMockProgram>;
   let scanner: TaskScanner;
 
@@ -157,13 +169,13 @@ describe('TaskScanner', () => {
     });
   });
 
-  describe('scan()', () => {
-    it('returns empty array when no tasks exist', async () => {
+  describe("scan()", () => {
+    it("returns empty array when no tasks exist", async () => {
       const tasks = await scanner.scan();
       expect(tasks).toEqual([]);
     });
 
-    it('returns open tasks', async () => {
+    it("returns open tasks", async () => {
       mockProgram._addTask(testKeys.task1, createMockTaskAccount());
 
       const tasks = await scanner.scan();
@@ -173,10 +185,19 @@ describe('TaskScanner', () => {
       expect(tasks[0].status).toBe(TaskStatus.Open);
     });
 
-    it('filters out non-open tasks', async () => {
-      mockProgram._addTask(testKeys.task1, createMockTaskAccount({ status: { open: {} } }));
-      mockProgram._addTask(testKeys.task2, createMockTaskAccount({ status: { inProgress: {} } as any }));
-      mockProgram._addTask(testKeys.task3, createMockTaskAccount({ status: { completed: {} } as any }));
+    it("filters out non-open tasks", async () => {
+      mockProgram._addTask(
+        testKeys.task1,
+        createMockTaskAccount({ status: { open: {} } }),
+      );
+      mockProgram._addTask(
+        testKeys.task2,
+        createMockTaskAccount({ status: { inProgress: {} } as any }),
+      );
+      mockProgram._addTask(
+        testKeys.task3,
+        createMockTaskAccount({ status: { completed: {} } as any }),
+      );
 
       const tasks = await scanner.scan();
 
@@ -184,9 +205,15 @@ describe('TaskScanner', () => {
       expect(tasks[0].pda.equals(testKeys.task1)).toBe(true);
     });
 
-    it('filters out fully claimed tasks', async () => {
-      mockProgram._addTask(testKeys.task1, createMockTaskAccount({ maxWorkers: 2, currentClaims: 1 }));
-      mockProgram._addTask(testKeys.task2, createMockTaskAccount({ maxWorkers: 2, currentClaims: 2 }));
+    it("filters out fully claimed tasks", async () => {
+      mockProgram._addTask(
+        testKeys.task1,
+        createMockTaskAccount({ maxWorkers: 2, currentClaims: 1 }),
+      );
+      mockProgram._addTask(
+        testKeys.task2,
+        createMockTaskAccount({ maxWorkers: 2, currentClaims: 2 }),
+      );
 
       const tasks = await scanner.scan();
 
@@ -194,7 +221,7 @@ describe('TaskScanner', () => {
       expect(tasks[0].pda.equals(testKeys.task1)).toBe(true);
     });
 
-    it('parses task data correctly', async () => {
+    it("parses task data correctly", async () => {
       // Use a fresh key to avoid any cache issues
       const freshTaskPda = Keypair.generate().publicKey;
       // Use a future deadline to avoid being filtered as expired
@@ -209,7 +236,7 @@ describe('TaskScanner', () => {
           deadline: mockBN(futureDeadline),
           maxWorkers: 5,
           currentClaims: 0, // No claims yet
-        })
+        }),
       );
 
       const tasks = await scanner.scan();
@@ -225,13 +252,13 @@ describe('TaskScanner', () => {
       expect(task.currentClaims).toBe(0);
     });
 
-    it('parses task type when available', async () => {
+    it("parses task type when available", async () => {
       const freshTaskPda = Keypair.generate().publicKey;
       mockProgram._addTask(
         freshTaskPda,
         createMockTaskAccount({
           taskType: 2,
-        })
+        }),
       );
 
       const tasks = await scanner.scan();
@@ -241,13 +268,13 @@ describe('TaskScanner', () => {
     });
   });
 
-  describe('matchesFilter()', () => {
-    it('passes all tasks when no filter set', () => {
+  describe("matchesFilter()", () => {
+    it("passes all tasks when no filter set", () => {
       const task = createMockTaskObject();
       expect(scanner.matchesFilter(task)).toBe(true);
     });
 
-    it('filters by minimum reward', () => {
+    it("filters by minimum reward", () => {
       scanner.setFilter({ minReward: 100_000_000n });
 
       const lowReward = createMockTaskObject({ reward: 50_000_000n });
@@ -257,27 +284,31 @@ describe('TaskScanner', () => {
       expect(scanner.matchesFilter(highReward)).toBe(true);
     });
 
-    it('filters by maximum reward', () => {
+    it("filters by maximum reward", () => {
       scanner.setFilter({ maxReward: 500_000_000n });
 
       const normalReward = createMockTaskObject({ reward: 200_000_000n });
-      const suspiciousReward = createMockTaskObject({ reward: 1_000_000_000_000n });
+      const suspiciousReward = createMockTaskObject({
+        reward: 1_000_000_000_000n,
+      });
 
       expect(scanner.matchesFilter(normalReward)).toBe(true);
       expect(scanner.matchesFilter(suspiciousReward)).toBe(false);
     });
 
-    it('filters by trusted creators', () => {
+    it("filters by trusted creators", () => {
       scanner.setFilter({ trustedCreators: [testKeys.trusted] });
 
       const trustedTask = createMockTaskObject({ creator: testKeys.trusted });
-      const untrustedTask = createMockTaskObject({ creator: testKeys.creator1 });
+      const untrustedTask = createMockTaskObject({
+        creator: testKeys.creator1,
+      });
 
       expect(scanner.matchesFilter(trustedTask)).toBe(true);
       expect(scanner.matchesFilter(untrustedTask)).toBe(false);
     });
 
-    it('filters by blocked creators', () => {
+    it("filters by blocked creators", () => {
       scanner.setFilter({ blockedCreators: [testKeys.blocked] });
 
       const blockedTask = createMockTaskObject({ creator: testKeys.blocked });
@@ -287,27 +318,35 @@ describe('TaskScanner', () => {
       expect(scanner.matchesFilter(okTask)).toBe(true);
     });
 
-    it('filters for private only tasks', () => {
+    it("filters for private only tasks", () => {
       scanner.setFilter({ privateOnly: true });
 
-      const publicTask = createMockTaskObject({ constraintHash: new Uint8Array(32) });
-      const privateTask = createMockTaskObject({ constraintHash: new Uint8Array(32).fill(1) });
+      const publicTask = createMockTaskObject({
+        constraintHash: new Uint8Array(32),
+      });
+      const privateTask = createMockTaskObject({
+        constraintHash: new Uint8Array(32).fill(1),
+      });
 
       expect(scanner.matchesFilter(publicTask)).toBe(false);
       expect(scanner.matchesFilter(privateTask)).toBe(true);
     });
 
-    it('filters for public only tasks', () => {
+    it("filters for public only tasks", () => {
       scanner.setFilter({ publicOnly: true });
 
-      const publicTask = createMockTaskObject({ constraintHash: new Uint8Array(32) });
-      const privateTask = createMockTaskObject({ constraintHash: new Uint8Array(32).fill(1) });
+      const publicTask = createMockTaskObject({
+        constraintHash: new Uint8Array(32),
+      });
+      const privateTask = createMockTaskObject({
+        constraintHash: new Uint8Array(32).fill(1),
+      });
 
       expect(scanner.matchesFilter(publicTask)).toBe(true);
       expect(scanner.matchesFilter(privateTask)).toBe(false);
     });
 
-    it('filters by capabilities', () => {
+    it("filters by capabilities", () => {
       // Agent has COMPUTE (0x01) and INFERENCE (0x02)
       scanner.setFilter({ capabilities: 0x03n });
 
@@ -318,7 +357,7 @@ describe('TaskScanner', () => {
       expect(scanner.matchesFilter(storageTask)).toBe(false);
     });
 
-    it('uses custom filter function', () => {
+    it("uses custom filter function", () => {
       scanner.setFilter({
         custom: (task) => task.maxWorkers > 1,
       });
@@ -330,7 +369,7 @@ describe('TaskScanner', () => {
       expect(scanner.matchesFilter(multiWorker)).toBe(true);
     });
 
-    it('filters by rewardMint (single mint)', () => {
+    it("filters by rewardMint (single mint)", () => {
       const mintA = PublicKey.unique();
       const mintB = PublicKey.unique();
       scanner.setFilter({ rewardMint: mintA });
@@ -344,45 +383,68 @@ describe('TaskScanner', () => {
       expect(scanner.matchesFilter(solTask)).toBe(false);
     });
 
-    it('filters by rewardMint array', () => {
+    it("filters by rewardMint array", () => {
       const mintA = PublicKey.unique();
       const mintB = PublicKey.unique();
       const mintC = PublicKey.unique();
       scanner.setFilter({ rewardMint: [mintA, mintB] });
 
-      expect(scanner.matchesFilter(createMockTaskObject({ rewardMint: mintA }))).toBe(true);
-      expect(scanner.matchesFilter(createMockTaskObject({ rewardMint: mintB }))).toBe(true);
-      expect(scanner.matchesFilter(createMockTaskObject({ rewardMint: mintC }))).toBe(false);
-      expect(scanner.matchesFilter(createMockTaskObject({ rewardMint: null }))).toBe(false);
+      expect(
+        scanner.matchesFilter(createMockTaskObject({ rewardMint: mintA })),
+      ).toBe(true);
+      expect(
+        scanner.matchesFilter(createMockTaskObject({ rewardMint: mintB })),
+      ).toBe(true);
+      expect(
+        scanner.matchesFilter(createMockTaskObject({ rewardMint: mintC })),
+      ).toBe(false);
+      expect(
+        scanner.matchesFilter(createMockTaskObject({ rewardMint: null })),
+      ).toBe(false);
     });
 
-    it('filters SOL-only when rewardMint is null', () => {
+    it("filters SOL-only when rewardMint is null", () => {
       const mint = PublicKey.unique();
       scanner.setFilter({ rewardMint: null });
 
-      expect(scanner.matchesFilter(createMockTaskObject({ rewardMint: null }))).toBe(true);
-      expect(scanner.matchesFilter(createMockTaskObject({ rewardMint: mint }))).toBe(false);
+      expect(
+        scanner.matchesFilter(createMockTaskObject({ rewardMint: null })),
+      ).toBe(true);
+      expect(
+        scanner.matchesFilter(createMockTaskObject({ rewardMint: mint })),
+      ).toBe(false);
     });
 
-    it('preserves legacy acceptedMints behavior', () => {
+    it("preserves legacy acceptedMints behavior", () => {
       const mint = PublicKey.unique();
       scanner.setFilter({ acceptedMints: [mint, null] });
 
-      expect(scanner.matchesFilter(createMockTaskObject({ rewardMint: mint }))).toBe(true);
-      expect(scanner.matchesFilter(createMockTaskObject({ rewardMint: null }))).toBe(true);
-      expect(scanner.matchesFilter(createMockTaskObject({ rewardMint: PublicKey.unique() }))).toBe(false);
+      expect(
+        scanner.matchesFilter(createMockTaskObject({ rewardMint: mint })),
+      ).toBe(true);
+      expect(
+        scanner.matchesFilter(createMockTaskObject({ rewardMint: null })),
+      ).toBe(true);
+      expect(
+        scanner.matchesFilter(
+          createMockTaskObject({ rewardMint: PublicKey.unique() }),
+        ),
+      ).toBe(false);
     });
   });
 
-  describe('subscribeToNewTasks()', () => {
-    it('registers event listener', () => {
+  describe("subscribeToNewTasks()", () => {
+    it("registers event listener", () => {
       const callback = vi.fn();
       scanner.subscribeToNewTasks(callback);
 
-      expect(mockProgram.addEventListener).toHaveBeenCalledWith('taskCreated', expect.any(Function));
+      expect(mockProgram.addEventListener).toHaveBeenCalledWith(
+        "taskCreated",
+        expect.any(Function),
+      );
     });
 
-    it('unsubscribes correctly', async () => {
+    it("unsubscribes correctly", async () => {
       const callback = vi.fn();
       const subscription = scanner.subscribeToNewTasks(callback);
 
@@ -392,8 +454,8 @@ describe('TaskScanner', () => {
     });
   });
 
-  describe('getTask()', () => {
-    it('fetches task by PDA', async () => {
+  describe("getTask()", () => {
+    it("fetches task by PDA", async () => {
       mockProgram._addTask(testKeys.task1, createMockTaskAccount());
 
       const task = await scanner.getTask(testKeys.task1);
@@ -402,7 +464,7 @@ describe('TaskScanner', () => {
       expect(task!.pda.equals(testKeys.task1)).toBe(true);
     });
 
-    it('returns null for non-existent task', async () => {
+    it("returns null for non-existent task", async () => {
       const nonExistent = Keypair.generate().publicKey;
       const task = await scanner.getTask(nonExistent);
 
@@ -410,9 +472,12 @@ describe('TaskScanner', () => {
     });
   });
 
-  describe('isTaskAvailable()', () => {
-    it('returns true for open task with available slots', async () => {
-      mockProgram._addTask(testKeys.task1, createMockTaskAccount({ maxWorkers: 2, currentClaims: 1 }));
+  describe("isTaskAvailable()", () => {
+    it("returns true for open task with available slots", async () => {
+      mockProgram._addTask(
+        testKeys.task1,
+        createMockTaskAccount({ maxWorkers: 2, currentClaims: 1 }),
+      );
 
       const task = await scanner.getTask(testKeys.task1);
       const available = await scanner.isTaskAvailable(task!);
@@ -420,8 +485,11 @@ describe('TaskScanner', () => {
       expect(available).toBe(true);
     });
 
-    it('returns false for fully claimed task', async () => {
-      mockProgram._addTask(testKeys.task1, createMockTaskAccount({ maxWorkers: 1, currentClaims: 1 }));
+    it("returns false for fully claimed task", async () => {
+      mockProgram._addTask(
+        testKeys.task1,
+        createMockTaskAccount({ maxWorkers: 1, currentClaims: 1 }),
+      );
 
       const task = await scanner.getTask(testKeys.task1);
       const available = await scanner.isTaskAvailable(task!);
@@ -429,8 +497,11 @@ describe('TaskScanner', () => {
       expect(available).toBe(false);
     });
 
-    it('returns false for non-open task', async () => {
-      mockProgram._addTask(testKeys.task1, createMockTaskAccount({ status: { completed: {} } as any }));
+    it("returns false for non-open task", async () => {
+      mockProgram._addTask(
+        testKeys.task1,
+        createMockTaskAccount({ status: { completed: {} } as any }),
+      );
 
       const task = await scanner.getTask(testKeys.task1);
       const available = await scanner.isTaskAvailable(task!);
@@ -439,8 +510,8 @@ describe('TaskScanner', () => {
     });
   });
 
-  describe('clearCache()', () => {
-    it('clears known task PDAs', async () => {
+  describe("clearCache()", () => {
+    it("clears known task PDAs", async () => {
       mockProgram._addTask(testKeys.task1, createMockTaskAccount());
 
       // First scan adds to cache
@@ -453,8 +524,8 @@ describe('TaskScanner', () => {
     });
   });
 
-  describe('setFilter() and getFilter()', () => {
-    it('updates and retrieves filter', () => {
+  describe("setFilter() and getFilter()", () => {
+    it("updates and retrieves filter", () => {
       const filter = { minReward: 100n, maxReward: 1000n };
       scanner.setFilter(filter);
 
@@ -464,7 +535,7 @@ describe('TaskScanner', () => {
       expect(retrieved.maxReward).toBe(1000n);
     });
 
-    it('returns a copy of filter', () => {
+    it("returns a copy of filter", () => {
       scanner.setFilter({ minReward: 100n });
 
       const filter1 = scanner.getFilter();

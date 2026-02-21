@@ -4,14 +4,14 @@
  * @module
  */
 
-import type { Tool, ToolRegistryConfig } from './types.js';
-import { safeStringify } from './types.js';
-import { ToolNotFoundError, ToolAlreadyRegisteredError } from './errors.js';
-import type { LLMTool, ToolHandler } from '../llm/types.js';
-import type { Logger } from '../utils/logger.js';
-import { silentLogger } from '../utils/logger.js';
-import type { PolicyEngine } from '../policy/engine.js';
-import type { PolicyAction } from '../policy/types.js';
+import type { Tool, ToolRegistryConfig } from "./types.js";
+import { safeStringify } from "./types.js";
+import { ToolNotFoundError, ToolAlreadyRegisteredError } from "./errors.js";
+import type { LLMTool, ToolHandler } from "../llm/types.js";
+import type { Logger } from "../utils/logger.js";
+import { silentLogger } from "../utils/logger.js";
+import type { PolicyEngine } from "../policy/engine.js";
+import type { PolicyAction } from "../policy/types.js";
 
 /**
  * Registry for managing tool instances.
@@ -128,7 +128,7 @@ export class ToolRegistry {
     for (const tool of this.tools.values()) {
       if (allowedTools && !allowedTools.has(tool.name)) continue;
       result.push({
-        type: 'function',
+        type: "function",
         function: {
           name: tool.name,
           description: tool.description,
@@ -149,7 +149,10 @@ export class ToolRegistry {
    * 4. Returns JSON error string on failure (never throws — LLM needs errors as content)
    */
   createToolHandler(): ToolHandler {
-    return async (name: string, args: Record<string, unknown>): Promise<string> => {
+    return async (
+      name: string,
+      args: Record<string, unknown>,
+    ): Promise<string> => {
       const tool = this.tools.get(name);
       if (!tool) {
         this.logger.warn(`Tool not found: "${name}"`);
@@ -158,7 +161,7 @@ export class ToolRegistry {
 
       if (this.policyEngine) {
         const action: PolicyAction = {
-          type: 'tool_call',
+          type: "tool_call",
           name,
           access: inferToolAccess(name),
           metadata: { args },
@@ -167,10 +170,10 @@ export class ToolRegistry {
         if (!decision.allowed) {
           const violation = decision.violations[0];
           this.logger.warn(
-            `Tool "${name}" blocked by policy (${violation?.code ?? 'unknown'})`,
+            `Tool "${name}" blocked by policy (${violation?.code ?? "unknown"})`,
           );
           return safeStringify({
-            error: violation?.message ?? 'Tool blocked by policy',
+            error: violation?.message ?? "Tool blocked by policy",
             violation,
           });
         }
@@ -191,13 +194,13 @@ export class ToolRegistry {
   }
 }
 
-function inferToolAccess(toolName: string): 'read' | 'write' {
+function inferToolAccess(toolName: string): "read" | "write" {
   // Extract action segment (last dot-separated part), e.g. "system.readFile" → "readfile"
-  const action = (toolName.split('.').pop() ?? toolName).toLowerCase();
+  const action = (toolName.split(".").pop() ?? toolName).toLowerCase();
   // Exact match for standalone read actions
-  if (action === 'stat' || action === 'status') return 'read';
+  if (action === "stat" || action === "status") return "read";
   // Prefix match for compound read actions (getTask, listDir, readFile, queryBalance, etc.)
-  const readPrefixes = ['get', 'list', 'query', 'inspect', 'read'];
-  if (readPrefixes.some((p) => action.startsWith(p))) return 'read';
-  return 'write';
+  const readPrefixes = ["get", "list", "query", "inspect", "read"];
+  if (readPrefixes.some((p) => action.startsWith(p))) return "read";
+  return "write";
 }

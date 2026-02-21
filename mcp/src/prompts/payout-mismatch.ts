@@ -1,4 +1,4 @@
-import type { DisputeDriftPromptOutput } from './dispute-drift.js';
+import type { DisputeDriftPromptOutput } from "./dispute-drift.js";
 
 export interface PayoutMismatchPromptInput {
   task_pda: string;
@@ -6,18 +6,23 @@ export interface PayoutMismatchPromptInput {
   trace_id?: string;
 }
 
-export function buildPayoutMismatchPrompt(input: PayoutMismatchPromptInput): DisputeDriftPromptOutput {
+export function buildPayoutMismatchPrompt(
+  input: PayoutMismatchPromptInput,
+): DisputeDriftPromptOutput {
   const expectedRef = input.expected_payout_lamports
     ? `\nExpected payout: ${input.expected_payout_lamports} lamports`
-    : '';
-  const traceRef = input.trace_id ? `\nTrace ID for correlation: ${input.trace_id}` : '';
+    : "";
+  const traceRef = input.trace_id
+    ? `\nTrace ID for correlation: ${input.trace_id}`
+    : "";
 
   return {
-    messages: [{
-      role: 'user',
-      content: {
-        type: 'text',
-        text: `Investigate payout mismatch for task at PDA ${input.task_pda}.${expectedRef}${traceRef}
+    messages: [
+      {
+        role: "user",
+        content: {
+          type: "text",
+          text: `Investigate payout mismatch for task at PDA ${input.task_pda}.${expectedRef}${traceRef}
 
 ## Investigation Steps
 
@@ -60,9 +65,9 @@ Provide:
 2. Whether discrepancy is in fee calculation, distribution, or escrow balance
 3. Root cause hypothesis
 4. If overpaid/underpaid: exact lamport/token difference
-${input.trace_id ? `\nInclude trace_id "${input.trace_id}" in any follow-up tool calls.` : ''}`,
+${input.trace_id ? `\nInclude trace_id "${input.trace_id}" in any follow-up tool calls.` : ""}`,
+        },
       },
-    }],
+    ],
   };
 }
-

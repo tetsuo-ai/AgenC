@@ -15,16 +15,20 @@ import type {
   VoiceSessionConfig,
   VoiceSessionCallbacks,
   XaiRealtimeClientConfig,
-} from './types.js';
-import { VoiceRealtimeError } from './errors.js';
-import { uint8ToBase64, base64ToUint8 } from '../../utils/encoding.js';
+} from "./types.js";
+import { VoiceRealtimeError } from "./errors.js";
+import { uint8ToBase64, base64ToUint8 } from "../../utils/encoding.js";
 
-const DEFAULT_BASE_URL = 'wss://api.x.ai/v1/realtime';
+const DEFAULT_BASE_URL = "wss://api.x.ai/v1/realtime";
 const MAX_RECONNECT_ATTEMPTS = 5;
 const BASE_RECONNECT_DELAY_MS = 1_000;
 const MAX_RECONNECT_DELAY_MS = 16_000;
 
-type ConnectionState = 'disconnected' | 'connecting' | 'connected' | 'reconnecting';
+type ConnectionState =
+  | "disconnected"
+  | "connecting"
+  | "connected"
+  | "reconnecting";
 
 /**
  * WebSocket client for xAI's real-time voice API.
@@ -46,7 +50,7 @@ type ConnectionState = 'disconnected' | 'connecting' | 'connected' | 'reconnecti
  */
 export class XaiRealtimeClient {
   private ws: unknown | null = null;
-  private _state: ConnectionState = 'disconnected';
+  private _state: ConnectionState = "disconnected";
   private reconnectAttempts = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private intentionalClose = false;
@@ -56,14 +60,15 @@ export class XaiRealtimeClient {
   private readonly sessionConfig: VoiceSessionConfig | undefined;
   private readonly callbacks: VoiceSessionCallbacks;
   private readonly maxReconnectAttempts: number;
-  private readonly logger: XaiRealtimeClientConfig['logger'];
+  private readonly logger: XaiRealtimeClientConfig["logger"];
 
   constructor(config: XaiRealtimeClientConfig) {
     this.apiKey = config.apiKey;
     this.baseUrl = config.baseUrl ?? DEFAULT_BASE_URL;
     this.sessionConfig = config.sessionConfig;
     this.callbacks = config.callbacks ?? {};
-    this.maxReconnectAttempts = config.maxReconnectAttempts ?? MAX_RECONNECT_ATTEMPTS;
+    this.maxReconnectAttempts =
+      config.maxReconnectAttempts ?? MAX_RECONNECT_ATTEMPTS;
     this.logger = config.logger;
   }
 
@@ -77,10 +82,10 @@ export class XaiRealtimeClient {
    * Sends session.update with the initial config after connect.
    */
   async connect(): Promise<void> {
-    if (this._state === 'connected' || this._state === 'connecting') return;
+    if (this._state === "connected" || this._state === "connecting") return;
 
     this.intentionalClose = false;
-    this.setState(this.reconnectAttempts > 0 ? 'reconnecting' : 'connecting');
+    this.setState(this.reconnectAttempts > 0 ? "reconnecting" : "connecting");
 
     const WebSocket = await this.loadWebSocket();
     const ws = new WebSocket(this.baseUrl, {
@@ -93,12 +98,15 @@ export class XaiRealtimeClient {
       ws.onopen = () => {
         this.ws = ws;
         this.reconnectAttempts = 0;
-        this.setState('connected');
-        this.logger?.info?.('xAI Realtime connected');
+        this.setState("connected");
+        this.logger?.info?.("xAI Realtime connected");
 
         // Send initial session config
         if (this.sessionConfig) {
-          this.sendEvent({ type: 'session.update', session: this.sessionConfig });
+          this.sendEvent({
+            type: "session.update",
+            session: this.sessionConfig,
+          });
         }
 
         resolve();
@@ -109,8 +117,8 @@ export class XaiRealtimeClient {
       };
 
       ws.onerror = (event: { message?: string }) => {
-        const msg = event.message ?? 'WebSocket error';
-        if (this._state === 'connecting') {
+        const msg = event.message ?? "WebSocket error";
+        if (this._state === "connecting") {
           reject(new VoiceRealtimeError(`Connection failed: ${msg}`));
         }
       };
@@ -118,11 +126,13 @@ export class XaiRealtimeClient {
       ws.onclose = () => {
         this.ws = null;
         if (!this.intentionalClose) {
-          this.logger?.debug?.('xAI Realtime disconnected unexpectedly, scheduling reconnect');
-          this.setState('disconnected');
+          this.logger?.debug?.(
+            "xAI Realtime disconnected unexpectedly, scheduling reconnect",
+          );
+          this.setState("disconnected");
           this.scheduleReconnect();
         } else {
-          this.setState('disconnected');
+          this.setState("disconnected");
         }
       };
     });
@@ -130,38 +140,38 @@ export class XaiRealtimeClient {
 
   /** Update the voice session configuration (voice, tools, instructions, etc). */
   updateSession(config: VoiceSessionConfig): void {
-    this.sendEvent({ type: 'session.update', session: config });
+    this.sendEvent({ type: "session.update", session: config });
   }
 
   /** Stream raw PCM audio to the server. */
   sendAudio(pcm: Uint8Array): void {
     const base64 = uint8ToBase64(pcm);
-    this.sendEvent({ type: 'input_audio_buffer.append', audio: base64 });
+    this.sendEvent({ type: "input_audio_buffer.append", audio: base64 });
   }
 
   /** Stream pre-encoded base64 PCM audio to the server (avoids re-encoding). */
   sendAudioBase64(base64: string): void {
-    this.sendEvent({ type: 'input_audio_buffer.append', audio: base64 });
+    this.sendEvent({ type: "input_audio_buffer.append", audio: base64 });
   }
 
   /** Commit the audio buffer (for push-to-talk mode). */
   commitAudio(): void {
-    this.sendEvent({ type: 'input_audio_buffer.commit' });
+    this.sendEvent({ type: "input_audio_buffer.commit" });
   }
 
   /** Clear the pending audio buffer. */
   clearAudio(): void {
-    this.sendEvent({ type: 'input_audio_buffer.clear' });
+    this.sendEvent({ type: "input_audio_buffer.clear" });
   }
 
   /** Explicitly request the model to generate a response. */
   requestResponse(): void {
-    this.sendEvent({ type: 'response.create' });
+    this.sendEvent({ type: "response.create" });
   }
 
   /** Cancel an in-progress response. */
   cancelResponse(): void {
-    this.sendEvent({ type: 'response.cancel' });
+    this.sendEvent({ type: "response.cancel" });
   }
 
   /** Gracefully close the WebSocket connection. */
@@ -175,7 +185,7 @@ export class XaiRealtimeClient {
       (this.ws as { close(): void }).close();
       this.ws = null;
     }
-    this.setState('disconnected');
+    this.setState("disconnected");
   }
 
   // --------------------------------------------------------------------------
@@ -195,18 +205,18 @@ export class XaiRealtimeClient {
     try {
       event = JSON.parse(raw) as ServerEvent;
     } catch {
-      this.logger?.warn?.('Failed to parse xAI Realtime event');
+      this.logger?.warn?.("Failed to parse xAI Realtime event");
       return;
     }
 
-    this.logger?.debug?.('xAI event:', event.type);
+    this.logger?.debug?.("xAI event:", event.type);
 
     switch (event.type) {
-      case 'session.created':
+      case "session.created":
         this.callbacks.onSessionCreated?.();
         break;
 
-      case 'response.output_audio.delta': {
+      case "response.output_audio.delta": {
         // Prefer base64 callback to avoid unnecessary decode/re-encode
         if (this.callbacks.onAudioDeltaBase64) {
           this.callbacks.onAudioDeltaBase64(event.delta);
@@ -216,35 +226,43 @@ export class XaiRealtimeClient {
         break;
       }
 
-      case 'response.output_audio_transcript.delta':
+      case "response.output_audio_transcript.delta":
         this.callbacks.onTranscriptDelta?.(event.delta);
         break;
 
-      case 'response.output_audio_transcript.done':
+      case "response.output_audio_transcript.done":
         this.callbacks.onTranscriptDone?.(event.transcript);
         break;
 
-      case 'response.function_call_arguments.done':
+      case "response.function_call_arguments.done":
         if (this.callbacks.onFunctionCall) {
-          this.logger?.debug?.('Tool call:', event.name);
-          void this.handleFunctionCall(event.name, event.arguments, event.call_id);
+          this.logger?.debug?.("Tool call:", event.name);
+          void this.handleFunctionCall(
+            event.name,
+            event.arguments,
+            event.call_id,
+          );
         }
         break;
 
-      case 'input_audio_buffer.speech_started':
+      case "input_audio_buffer.speech_started":
         this.callbacks.onSpeechStarted?.();
         break;
 
-      case 'input_audio_buffer.speech_stopped':
+      case "input_audio_buffer.speech_stopped":
         this.callbacks.onSpeechStopped?.();
         break;
 
-      case 'response.done':
+      case "response.done":
         this.callbacks.onResponseDone?.();
         break;
 
-      case 'error':
-        this.logger?.warn?.('xAI Realtime error:', event.error.type, event.error.message);
+      case "error":
+        this.logger?.warn?.(
+          "xAI Realtime error:",
+          event.error.type,
+          event.error.message,
+        );
         this.callbacks.onError?.(event.error);
         break;
 
@@ -254,7 +272,11 @@ export class XaiRealtimeClient {
     }
   }
 
-  private async handleFunctionCall(name: string, args: string, callId: string): Promise<void> {
+  private async handleFunctionCall(
+    name: string,
+    args: string,
+    callId: string,
+  ): Promise<void> {
     if (!this.callbacks.onFunctionCall) return;
 
     try {
@@ -262,27 +284,27 @@ export class XaiRealtimeClient {
 
       // Send tool result back
       this.sendEvent({
-        type: 'conversation.item.create',
+        type: "conversation.item.create",
         item: {
-          type: 'function_call_output',
+          type: "function_call_output",
           call_id: callId,
           output: result,
         },
       });
 
       // Request the model to continue with the tool result
-      this.sendEvent({ type: 'response.create' });
+      this.sendEvent({ type: "response.create" });
     } catch (err) {
       // Send error as tool output so the model can recover
       this.sendEvent({
-        type: 'conversation.item.create',
+        type: "conversation.item.create",
         item: {
-          type: 'function_call_output',
+          type: "function_call_output",
           call_id: callId,
           output: JSON.stringify({ error: (err as Error).message }),
         },
       });
-      this.sendEvent({ type: 'response.create' });
+      this.sendEvent({ type: "response.create" });
     }
   }
 
@@ -290,7 +312,7 @@ export class XaiRealtimeClient {
     if (this.intentionalClose) return;
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
       this.callbacks.onError?.({
-        type: 'reconnect_failed',
+        type: "reconnect_failed",
         message: `Max reconnect attempts (${this.maxReconnectAttempts}) reached`,
       });
       return;
@@ -301,7 +323,9 @@ export class XaiRealtimeClient {
       MAX_RECONNECT_DELAY_MS,
     );
     this.reconnectAttempts++;
-    this.logger?.debug?.(`Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
+    this.logger?.debug?.(
+      `Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`,
+    );
 
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
@@ -317,16 +341,21 @@ export class XaiRealtimeClient {
     this.callbacks.onConnectionStateChange?.(state);
   }
 
-  private async loadWebSocket(): Promise<new (url: string, opts?: Record<string, unknown>) => {
-    onopen: (() => void) | null;
-    onmessage: ((event: { data: string }) => void) | null;
-    onerror: ((event: { message?: string }) => void) | null;
-    onclose: (() => void) | null;
-    send(data: string): void;
-    close(): void;
-  }> {
+  private async loadWebSocket(): Promise<
+    new (
+      url: string,
+      opts?: Record<string, unknown>,
+    ) => {
+      onopen: (() => void) | null;
+      onmessage: ((event: { data: string }) => void) | null;
+      onerror: ((event: { message?: string }) => void) | null;
+      onclose: (() => void) | null;
+      send(data: string): void;
+      close(): void;
+    }
+  > {
     try {
-      const mod = await import('ws');
+      const mod = await import("ws");
       return (mod.default ?? mod.WebSocket ?? mod) as any;
     } catch {
       throw new VoiceRealtimeError(

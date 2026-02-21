@@ -1,9 +1,13 @@
-import { describe, expect, it } from 'vitest';
-import type { GeneratedExecutionCandidate } from './candidate-generator.js';
-import { arbitrateCandidates } from './arbitration.js';
-import type { InconsistencyDetectionResult } from './inconsistency-detector.js';
+import { describe, expect, it } from "vitest";
+import type { GeneratedExecutionCandidate } from "./candidate-generator.js";
+import { arbitrateCandidates } from "./arbitration.js";
+import type { InconsistencyDetectionResult } from "./inconsistency-detector.js";
 
-function candidate(id: string, attempt: number, noveltyScore: number): GeneratedExecutionCandidate {
+function candidate(
+  id: string,
+  attempt: number,
+  noveltyScore: number,
+): GeneratedExecutionCandidate {
   return {
     id,
     attempt,
@@ -15,36 +19,42 @@ function candidate(id: string, attempt: number, noveltyScore: number): Generated
   };
 }
 
-function inconsistencies(overrides: Partial<InconsistencyDetectionResult> = {}): InconsistencyDetectionResult {
+function inconsistencies(
+  overrides: Partial<InconsistencyDetectionResult> = {},
+): InconsistencyDetectionResult {
   return {
     totalPairs: 3,
     totalDisagreements: 1,
     disagreementRate: 1 / 3,
-    disagreements: [{
-      leftCandidateId: 'c1',
-      rightCandidateId: 'c2',
-      semanticDistance: 1,
-      reasons: [{ code: 'value_mismatch', message: 'different outputs' }],
-      provenanceLinkIds: ['edge-1'],
-    }],
-    provenanceLinks: [{
-      edgeId: 'edge-1',
-      fromNodeId: 'n1',
-      toNodeId: 'n2',
-      fromCandidateId: 'c1',
-      toCandidateId: 'c2',
-      reasonCodes: ['value_mismatch'],
-    }],
+    disagreements: [
+      {
+        leftCandidateId: "c1",
+        rightCandidateId: "c2",
+        semanticDistance: 1,
+        reasons: [{ code: "value_mismatch", message: "different outputs" }],
+        provenanceLinkIds: ["edge-1"],
+      },
+    ],
+    provenanceLinks: [
+      {
+        edgeId: "edge-1",
+        fromNodeId: "n1",
+        toNodeId: "n2",
+        fromCandidateId: "c1",
+        toCandidateId: "c2",
+        reasonCodes: ["value_mismatch"],
+      },
+    ],
     ...overrides,
   };
 }
 
-describe('arbitrateCandidates', () => {
-  it('selects deterministically under fixed seed/config', () => {
+describe("arbitrateCandidates", () => {
+  it("selects deterministically under fixed seed/config", () => {
     const candidates = [
-      candidate('c1', 1, 0.2),
-      candidate('c2', 2, 0.8),
-      candidate('c3', 3, 0.5),
+      candidate("c1", 1, 0.2),
+      candidate("c2", 2, 0.8),
+      candidate("c3", 3, 0.5),
     ];
     const input = {
       candidates,
@@ -69,9 +79,9 @@ describe('arbitrateCandidates', () => {
     const first = arbitrateCandidates(input);
     const second = arbitrateCandidates(input);
 
-    expect(first.outcome).toBe('selected');
-    expect(second.outcome).toBe('selected');
-    if (first.outcome === 'selected' && second.outcome === 'selected') {
+    expect(first.outcome).toBe("selected");
+    expect(second.outcome).toBe("selected");
+    if (first.outcome === "selected" && second.outcome === "selected") {
       expect(first.selected.id).toBe(second.selected.id);
       expect(first.ranked.map((entry) => entry.candidateId)).toEqual(
         second.ranked.map((entry) => entry.candidateId),
@@ -79,9 +89,9 @@ describe('arbitrateCandidates', () => {
     }
   });
 
-  it('escalates when disagreement thresholds are exceeded', () => {
+  it("escalates when disagreement thresholds are exceeded", () => {
     const decision = arbitrateCandidates({
-      candidates: [candidate('c1', 1, 0.1), candidate('c2', 2, 0.9)],
+      candidates: [candidate("c1", 1, 0.1), candidate("c2", 2, 0.9)],
       inconsistencies: inconsistencies({
         totalPairs: 1,
         totalDisagreements: 1,
@@ -96,11 +106,11 @@ describe('arbitrateCandidates', () => {
       },
     });
 
-    expect(decision.outcome).toBe('escalate');
-    if (decision.outcome === 'escalate') {
-      expect(decision.reason).toBe('disagreement_threshold');
-      expect(decision.metadata.reasonCodes).toContain('value_mismatch');
-      expect(decision.metadata.provenanceLinkIds).toContain('edge-1');
+    expect(decision.outcome).toBe("escalate");
+    if (decision.outcome === "escalate") {
+      expect(decision.reason).toBe("disagreement_threshold");
+      expect(decision.metadata.reasonCodes).toContain("value_mismatch");
+      expect(decision.metadata.provenanceLinkIds).toContain("edge-1");
     }
   });
 });

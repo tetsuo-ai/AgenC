@@ -7,8 +7,8 @@
  * @module
  */
 
-import { ensureLazyModule } from '../../utils/lazy-import.js';
-import { ChannelConnectionError } from './errors.js';
+import { ensureLazyModule } from "../../utils/lazy-import.js";
+import { ChannelConnectionError } from "./errors.js";
 
 /**
  * Dynamically import an optional channel SDK package.

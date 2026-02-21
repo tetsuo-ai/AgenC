@@ -8,9 +8,9 @@ import type {
   Task,
   VerifierAdaptiveRiskConfig,
   VerifierAdaptiveRiskWeights,
-} from './types.js';
+} from "./types.js";
 
-export type RiskTier = 'low' | 'medium' | 'high';
+export type RiskTier = "low" | "medium" | "high";
 
 export interface RiskFeatureVector {
   rewardSignal: number;
@@ -91,9 +91,9 @@ function resolveWeights(
 }
 
 function riskTier(score: number, medium: number, high: number): RiskTier {
-  if (score >= high) return 'high';
-  if (score >= medium) return 'medium';
-  return 'low';
+  if (score >= high) return "high";
+  if (score >= medium) return "medium";
+  return "low";
 }
 
 /**
@@ -119,12 +119,16 @@ export function extractTaskRiskFeatures(
     }
   }
 
-  const claimPressureSignal = clamp01(task.currentClaims / Math.max(1, task.maxWorkers));
+  const claimPressureSignal = clamp01(
+    task.currentClaims / Math.max(1, task.maxWorkers),
+  );
 
   const taskTypeMultipliers = config.taskTypeRiskMultipliers ?? {};
   const taskTypeMultiplier =
     context.taskTypeRiskMultiplier ??
-    (task.taskType !== undefined ? taskTypeMultipliers[task.taskType] : undefined) ??
+    (task.taskType !== undefined
+      ? taskTypeMultipliers[task.taskType]
+      : undefined) ??
     (task.taskType === 2 ? 0.75 : task.taskType === 1 ? 0.5 : 0.3);
 
   return {
@@ -150,15 +154,26 @@ export function scoreTaskRisk(
   const weights = resolveWeights(adaptiveRisk, scoringConfig);
 
   const entries: Array<[keyof RiskFeatureVector, number, number]> = [
-    ['rewardSignal', features.rewardSignal, weights.rewardWeight],
-    ['deadlineSignal', features.deadlineSignal, weights.deadlineWeight],
-    ['claimPressureSignal', features.claimPressureSignal, weights.claimPressureWeight],
-    ['taskTypeSignal', features.taskTypeSignal, weights.taskTypeWeight],
-    ['verifierDisagreementSignal', features.verifierDisagreementSignal, weights.verifierDisagreementWeight],
-    ['rollbackSignal', features.rollbackSignal, weights.rollbackWeight],
+    ["rewardSignal", features.rewardSignal, weights.rewardWeight],
+    ["deadlineSignal", features.deadlineSignal, weights.deadlineWeight],
+    [
+      "claimPressureSignal",
+      features.claimPressureSignal,
+      weights.claimPressureWeight,
+    ],
+    ["taskTypeSignal", features.taskTypeSignal, weights.taskTypeWeight],
+    [
+      "verifierDisagreementSignal",
+      features.verifierDisagreementSignal,
+      weights.verifierDisagreementWeight,
+    ],
+    ["rollbackSignal", features.rollbackSignal, weights.rollbackWeight],
   ];
 
-  const totalWeight = entries.reduce((sum, [, , weight]) => sum + Math.max(0, weight), 0);
+  const totalWeight = entries.reduce(
+    (sum, [, , weight]) => sum + Math.max(0, weight),
+    0,
+  );
   const normalizedWeight = totalWeight > 0 ? totalWeight : 1;
 
   let weightedScore = 0;
@@ -179,10 +194,14 @@ export function scoreTaskRisk(
 
   const score = clamp01(weightedScore / normalizedWeight);
   const mediumThreshold = clamp01(
-    adaptiveRisk?.mediumRiskThreshold ?? scoringConfig.mediumRiskThreshold ?? DEFAULT_MEDIUM_THRESHOLD,
+    adaptiveRisk?.mediumRiskThreshold ??
+      scoringConfig.mediumRiskThreshold ??
+      DEFAULT_MEDIUM_THRESHOLD,
   );
   const highThreshold = clamp01(
-    adaptiveRisk?.highRiskThreshold ?? scoringConfig.highRiskThreshold ?? DEFAULT_HIGH_THRESHOLD,
+    adaptiveRisk?.highRiskThreshold ??
+      scoringConfig.highRiskThreshold ??
+      DEFAULT_HIGH_THRESHOLD,
   );
 
   return {

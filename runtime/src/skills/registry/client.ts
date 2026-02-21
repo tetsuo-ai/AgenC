@@ -9,29 +9,32 @@
  * @module
  */
 
-import { createHash } from 'node:crypto';
-import { readFile, writeFile, mkdir } from 'node:fs/promises';
-import { dirname } from 'node:path';
-import { Connection, PublicKey } from '@solana/web3.js';
-import type { Logger } from '../../utils/logger.js';
-import { silentLogger } from '../../utils/logger.js';
-import { derivePda } from '../../utils/pda.js';
-import { ValidationError } from '../../types/errors.js';
-import type { Wallet } from '../../types/wallet.js';
-import { parseSkillContent, validateSkillMetadata } from '../markdown/parser.js';
+import { createHash } from "node:crypto";
+import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { dirname } from "node:path";
+import { Connection, PublicKey } from "@solana/web3.js";
+import type { Logger } from "../../utils/logger.js";
+import { silentLogger } from "../../utils/logger.js";
+import { derivePda } from "../../utils/pda.js";
+import { ValidationError } from "../../types/errors.js";
+import type { Wallet } from "../../types/wallet.js";
+import {
+  parseSkillContent,
+  validateSkillMetadata,
+} from "../markdown/parser.js";
 import type {
   SkillListing,
   SkillListingEntry,
   SkillRegistryClient,
   SkillRegistryClientConfig,
   SearchOptions,
-} from './types.js';
+} from "./types.js";
 import {
   SkillRegistryNotFoundError,
   SkillDownloadError,
   SkillVerificationError,
   SkillPublishError,
-} from './errors.js';
+} from "./errors.js";
 
 // ============================================================================
 // Constants
@@ -42,14 +45,14 @@ import {
  * Will be replaced with the real program ID in Phase 6.2.
  */
 export const SKILL_REGISTRY_PROGRAM_ID = new PublicKey(
-  '6cdqQ8wxWLnHAEJrdw89wJe6ZRdSnTuHfRgDp3r5tZ8K',
+  "6cdqQ8wxWLnHAEJrdw89wJe6ZRdSnTuHfRgDp3r5tZ8K",
 );
 
 /** PDA seed prefix for skill accounts. */
-const SKILL_SEED = Buffer.from('skill');
+const SKILL_SEED = Buffer.from("skill");
 
 /** Default IPFS content gateway URL. */
-const DEFAULT_CONTENT_GATEWAY = 'https://gateway.ipfs.io';
+const DEFAULT_CONTENT_GATEWAY = "https://gateway.ipfs.io";
 
 /** Default search result limit. */
 const DEFAULT_SEARCH_LIMIT = 10;
@@ -110,7 +113,7 @@ function deserializeSkillAccount(data: Buffer): SkillListing {
   function readString(): string {
     const len = data.readUInt32LE(offset);
     offset += 4;
-    const str = data.subarray(offset, offset + len).toString('utf-8');
+    const str = data.subarray(offset, offset + len).toString("utf-8");
     offset += len;
     return str;
   }
@@ -202,14 +205,24 @@ export class OnChainSkillRegistryClient implements SkillRegistryClient {
   /**
    * Search for skills by query string and optional filters.
    */
-  async search(query: string, options?: SearchOptions): Promise<readonly SkillListingEntry[]> {
-    const limit = Math.max(1, Math.min(options?.limit ?? DEFAULT_SEARCH_LIMIT, MAX_SEARCH_LIMIT));
+  async search(
+    query: string,
+    options?: SearchOptions,
+  ): Promise<readonly SkillListingEntry[]> {
+    const limit = Math.max(
+      1,
+      Math.min(options?.limit ?? DEFAULT_SEARCH_LIMIT, MAX_SEARCH_LIMIT),
+    );
     const offset = options?.offset ?? 0;
     const filterTags = options?.tags;
 
-    this.logger.debug(`Searching registry for "${query}" (limit=${limit}, offset=${offset})`);
+    this.logger.debug(
+      `Searching registry for "${query}" (limit=${limit}, offset=${offset})`,
+    );
 
-    const accounts = await this.connection.getProgramAccounts(SKILL_REGISTRY_PROGRAM_ID);
+    const accounts = await this.connection.getProgramAccounts(
+      SKILL_REGISTRY_PROGRAM_ID,
+    );
 
     const queryLower = query.toLowerCase();
     const matches: SkillListing[] = [];
@@ -220,8 +233,8 @@ export class OnChainSkillRegistryClient implements SkillRegistryClient {
 
         // Substring match on name or description
         if (
-          !listing.name.toLowerCase().includes(queryLower)
-          && !listing.description.toLowerCase().includes(queryLower)
+          !listing.name.toLowerCase().includes(queryLower) &&
+          !listing.description.toLowerCase().includes(queryLower)
         ) {
           continue;
         }
@@ -229,14 +242,16 @@ export class OnChainSkillRegistryClient implements SkillRegistryClient {
         // Tag filter: listing must contain all requested tags
         if (filterTags && filterTags.length > 0) {
           const listingTagsLower = listing.tags.map((t) => t.toLowerCase());
-          const allTagsMatch = filterTags.every((t) => listingTagsLower.includes(t.toLowerCase()));
+          const allTagsMatch = filterTags.every((t) =>
+            listingTagsLower.includes(t.toLowerCase()),
+          );
           if (!allTagsMatch) continue;
         }
 
         matches.push(listing);
       } catch {
         // Skip malformed accounts
-        this.logger.debug('Skipping malformed skill account during search');
+        this.logger.debug("Skipping malformed skill account during search");
       }
     }
 
@@ -283,7 +298,7 @@ export class OnChainSkillRegistryClient implements SkillRegistryClient {
     } catch (err) {
       throw new SkillDownloadError(
         skillId,
-        err instanceof Error ? err.message : 'Fetch failed',
+        err instanceof Error ? err.message : "Fetch failed",
       );
     }
 
@@ -297,9 +312,13 @@ export class OnChainSkillRegistryClient implements SkillRegistryClient {
     const content = Buffer.from(await response.arrayBuffer());
 
     // Verify content hash
-    const actualHash = createHash('sha256').update(content).digest('hex');
+    const actualHash = createHash("sha256").update(content).digest("hex");
     if (actualHash !== listing.contentHash) {
-      throw new SkillVerificationError(skillId, listing.contentHash, actualHash);
+      throw new SkillVerificationError(
+        skillId,
+        listing.contentHash,
+        actualHash,
+      );
     }
 
     // Write to filesystem
@@ -319,7 +338,12 @@ export class OnChainSkillRegistryClient implements SkillRegistryClient {
    */
   async publish(
     skillPath: string,
-    metadata: { name: string; description: string; tags?: readonly string[]; priceLamports?: bigint },
+    metadata: {
+      name: string;
+      description: string;
+      tags?: readonly string[];
+      priceLamports?: bigint;
+    },
   ): Promise<string> {
     this.logger.info(`Publishing skill from ${skillPath}`);
 
@@ -329,26 +353,26 @@ export class OnChainSkillRegistryClient implements SkillRegistryClient {
     } catch (err) {
       throw new SkillPublishError(
         skillPath,
-        err instanceof Error ? err.message : 'Failed to read file',
+        err instanceof Error ? err.message : "Failed to read file",
       );
     }
 
     // Validate SKILL.md format
-    const parsed = parseSkillContent(content.toString('utf-8'), skillPath);
+    const parsed = parseSkillContent(content.toString("utf-8"), skillPath);
     const errors = validateSkillMetadata(parsed);
     if (errors.length > 0) {
       throw new SkillPublishError(
         skillPath,
-        `Invalid SKILL.md: ${errors.map((e) => e.message).join('; ')}`,
+        `Invalid SKILL.md: ${errors.map((e) => e.message).join("; ")}`,
       );
     }
 
-    const hash = createHash('sha256').update(content).digest('hex');
+    const hash = createHash("sha256").update(content).digest("hex");
 
     this.logger.info(`Skill content hash: ${hash}`);
     this.logger.debug(
-      'IPFS upload deferred to Phase 6.2. '
-      + `Metadata: name="${metadata.name}", tags=[${(metadata.tags ?? []).join(', ')}]`,
+      "IPFS upload deferred to Phase 6.2. " +
+        `Metadata: name="${metadata.name}", tags=[${(metadata.tags ?? []).join(", ")}]`,
     );
 
     return hash;
@@ -361,21 +385,25 @@ export class OnChainSkillRegistryClient implements SkillRegistryClient {
    */
   async rate(skillId: string, rating: number, review?: string): Promise<void> {
     if (rating < 1 || rating > 5 || !Number.isInteger(rating)) {
-      throw new ValidationError('Rating must be an integer between 1 and 5');
+      throw new ValidationError("Rating must be an integer between 1 and 5");
     }
 
     if (!this.wallet) {
-      throw new ValidationError('Wallet required to rate skills');
+      throw new ValidationError("Wallet required to rate skills");
     }
 
-    this.logger.info(`Rating skill "${skillId}": ${rating}/5${review ? ` — "${review}"` : ''}`);
-    this.logger.debug('On-chain rating instruction deferred to Phase 6.2');
+    this.logger.info(
+      `Rating skill "${skillId}": ${rating}/5${review ? ` — "${review}"` : ""}`,
+    );
+    this.logger.debug("On-chain rating instruction deferred to Phase 6.2");
   }
 
   /**
    * List skills published by a specific author.
    */
-  async listByAuthor(authorPubkey: string): Promise<readonly SkillListingEntry[]> {
+  async listByAuthor(
+    authorPubkey: string,
+  ): Promise<readonly SkillListingEntry[]> {
     // Validate base58 pubkey
     let authorKey: PublicKey;
     try {
@@ -387,23 +415,26 @@ export class OnChainSkillRegistryClient implements SkillRegistryClient {
     this.logger.debug(`Listing skills by author: ${authorKey.toBase58()}`);
 
     // memcmp filter: author pubkey starts at offset 8 (after discriminator)
-    const accounts = await this.connection.getProgramAccounts(SKILL_REGISTRY_PROGRAM_ID, {
-      filters: [
-        {
-          memcmp: {
-            offset: 8,
-            bytes: authorKey.toBase58(),
+    const accounts = await this.connection.getProgramAccounts(
+      SKILL_REGISTRY_PROGRAM_ID,
+      {
+        filters: [
+          {
+            memcmp: {
+              offset: 8,
+              bytes: authorKey.toBase58(),
+            },
           },
-        },
-      ],
-    });
+        ],
+      },
+    );
 
     const listings: SkillListing[] = [];
     for (const { account } of accounts) {
       try {
         listings.push(deserializeSkillAccount(account.data as Buffer));
       } catch {
-        this.logger.debug('Skipping malformed skill account in listByAuthor');
+        this.logger.debug("Skipping malformed skill account in listByAuthor");
       }
     }
 

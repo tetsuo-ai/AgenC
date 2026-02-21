@@ -129,7 +129,7 @@ pub fn handler(
     // Check rate limits and update agent state
     check_task_creation_rate_limits(creator_agent, config, &clock)?;
 
-    if reward_mint.is_some() {
+    if let Some(expected_mint) = reward_mint {
         // Token path: validate required token accounts are provided
         require!(
             ctx.accounts.reward_mint.is_some()
@@ -148,7 +148,7 @@ pub fn handler(
 
         // Validate mint matches the provided reward_mint
         require!(
-            mint.key() == reward_mint.unwrap(),
+            mint.key() == expected_mint,
             CoordinationError::InvalidTokenMint
         );
 

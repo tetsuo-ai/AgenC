@@ -9,11 +9,11 @@
  * @see https://github.com/tetsuo-ai/AgenC/issues/262
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { PublicKey, Connection, Keypair } from '@solana/web3.js';
-import * as queries from '../queries';
-import { PROGRAM_ID } from '../constants';
-import { TaskState } from '../tasks';
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { PublicKey, Connection, Keypair } from "@solana/web3.js";
+import * as queries from "../queries";
+import { PROGRAM_ID } from "../constants";
+import { TaskState } from "../tasks";
 
 const {
   TASK_FIELD_OFFSETS,
@@ -29,63 +29,63 @@ const makeTestPubkey = (seed: number): PublicKey => {
   return new PublicKey(bytes);
 };
 
-describe('TASK_FIELD_OFFSETS', () => {
-  describe('offset values match on-chain Task struct', () => {
+describe("TASK_FIELD_OFFSETS", () => {
+  describe("offset values match on-chain Task struct", () => {
     // Values MUST match programs/agenc-coordination/src/state.rs:Task
-    it('DISCRIMINATOR offset is 0', () => {
+    it("DISCRIMINATOR offset is 0", () => {
       expect(TASK_FIELD_OFFSETS.DISCRIMINATOR).toBe(0);
     });
 
-    it('TASK_ID offset is 8 (after 8-byte discriminator)', () => {
+    it("TASK_ID offset is 8 (after 8-byte discriminator)", () => {
       expect(TASK_FIELD_OFFSETS.TASK_ID).toBe(8);
     });
 
-    it('CREATOR offset is 40 (after task_id)', () => {
+    it("CREATOR offset is 40 (after task_id)", () => {
       // discriminator(8) + task_id(32) = 40
       expect(TASK_FIELD_OFFSETS.CREATOR).toBe(40);
     });
 
-    it('BUMP offset is 310', () => {
+    it("BUMP offset is 310", () => {
       expect(TASK_FIELD_OFFSETS.BUMP).toBe(310);
     });
 
-    it('PROTOCOL_FEE_BPS offset is 311 (after bump)', () => {
+    it("PROTOCOL_FEE_BPS offset is 311 (after bump)", () => {
       // bump(310) + 1 = 311
       expect(TASK_FIELD_OFFSETS.PROTOCOL_FEE_BPS).toBe(311);
     });
 
-    it('DEPENDS_ON offset is 313 (after protocol_fee_bps)', () => {
+    it("DEPENDS_ON offset is 313 (after protocol_fee_bps)", () => {
       // protocol_fee_bps(311) + 2 = 313
       expect(TASK_FIELD_OFFSETS.DEPENDS_ON).toBe(313);
     });
 
-    it('DEPENDS_ON_PUBKEY offset is 314 (after Option discriminator)', () => {
+    it("DEPENDS_ON_PUBKEY offset is 314 (after Option discriminator)", () => {
       // The Pubkey value is 1 byte after the Option discriminator
       expect(TASK_FIELD_OFFSETS.DEPENDS_ON_PUBKEY).toBe(314);
     });
 
-    it('DEPENDENCY_TYPE offset is 346 (after depends_on)', () => {
+    it("DEPENDENCY_TYPE offset is 346 (after depends_on)", () => {
       // DEPENDS_ON(313) + Option<Pubkey>(33) = 346
       expect(TASK_FIELD_OFFSETS.DEPENDENCY_TYPE).toBe(346);
     });
 
-    it('MIN_REPUTATION offset is 347 (after dependency_type)', () => {
+    it("MIN_REPUTATION offset is 347 (after dependency_type)", () => {
       // DEPENDENCY_TYPE(346) + 1 = 347
       expect(TASK_FIELD_OFFSETS.MIN_REPUTATION).toBe(347);
     });
 
-    it('REWARD_MINT offset is 349 (after min_reputation)', () => {
+    it("REWARD_MINT offset is 349 (after min_reputation)", () => {
       // MIN_REPUTATION(347) + 2 = 349
       expect(TASK_FIELD_OFFSETS.REWARD_MINT).toBe(349);
     });
 
-    it('REWARD_MINT_PUBKEY offset is 350 (after Option discriminator)', () => {
+    it("REWARD_MINT_PUBKEY offset is 350 (after Option discriminator)", () => {
       expect(TASK_FIELD_OFFSETS.REWARD_MINT_PUBKEY).toBe(350);
     });
   });
 
-  describe('offset calculation verification', () => {
-    it('offsets are in ascending order', () => {
+  describe("offset calculation verification", () => {
+    it("offsets are in ascending order", () => {
       const offsets = [
         TASK_FIELD_OFFSETS.DISCRIMINATOR,
         TASK_FIELD_OFFSETS.TASK_ID,
@@ -118,20 +118,36 @@ describe('TASK_FIELD_OFFSETS', () => {
       }
     });
 
-    it('field sizes are correct', () => {
+    it("field sizes are correct", () => {
       // Verify key field size calculations
-      expect(TASK_FIELD_OFFSETS.TASK_ID - TASK_FIELD_OFFSETS.DISCRIMINATOR).toBe(8); // discriminator size
+      expect(
+        TASK_FIELD_OFFSETS.TASK_ID - TASK_FIELD_OFFSETS.DISCRIMINATOR,
+      ).toBe(8); // discriminator size
       expect(TASK_FIELD_OFFSETS.CREATOR - TASK_FIELD_OFFSETS.TASK_ID).toBe(32); // task_id size
-      expect(TASK_FIELD_OFFSETS.REQUIRED_CAPABILITIES - TASK_FIELD_OFFSETS.CREATOR).toBe(32); // creator (pubkey) size
-      expect(TASK_FIELD_OFFSETS.DEPENDS_ON_PUBKEY - TASK_FIELD_OFFSETS.DEPENDS_ON).toBe(1); // Option discriminator size
-      expect(TASK_FIELD_OFFSETS.DEPENDS_ON - TASK_FIELD_OFFSETS.PROTOCOL_FEE_BPS).toBe(2); // protocol_fee_bps size
-      expect(TASK_FIELD_OFFSETS.DEPENDENCY_TYPE - TASK_FIELD_OFFSETS.DEPENDS_ON).toBe(33); // Option<Pubkey> size
-      expect(TASK_FIELD_OFFSETS.MIN_REPUTATION - TASK_FIELD_OFFSETS.DEPENDENCY_TYPE).toBe(1); // dependency_type size
-      expect(TASK_FIELD_OFFSETS.REWARD_MINT - TASK_FIELD_OFFSETS.MIN_REPUTATION).toBe(2); // min_reputation size
-      expect(TASK_FIELD_OFFSETS.REWARD_MINT_PUBKEY - TASK_FIELD_OFFSETS.REWARD_MINT).toBe(1); // Option discriminator size
+      expect(
+        TASK_FIELD_OFFSETS.REQUIRED_CAPABILITIES - TASK_FIELD_OFFSETS.CREATOR,
+      ).toBe(32); // creator (pubkey) size
+      expect(
+        TASK_FIELD_OFFSETS.DEPENDS_ON_PUBKEY - TASK_FIELD_OFFSETS.DEPENDS_ON,
+      ).toBe(1); // Option discriminator size
+      expect(
+        TASK_FIELD_OFFSETS.DEPENDS_ON - TASK_FIELD_OFFSETS.PROTOCOL_FEE_BPS,
+      ).toBe(2); // protocol_fee_bps size
+      expect(
+        TASK_FIELD_OFFSETS.DEPENDENCY_TYPE - TASK_FIELD_OFFSETS.DEPENDS_ON,
+      ).toBe(33); // Option<Pubkey> size
+      expect(
+        TASK_FIELD_OFFSETS.MIN_REPUTATION - TASK_FIELD_OFFSETS.DEPENDENCY_TYPE,
+      ).toBe(1); // dependency_type size
+      expect(
+        TASK_FIELD_OFFSETS.REWARD_MINT - TASK_FIELD_OFFSETS.MIN_REPUTATION,
+      ).toBe(2); // min_reputation size
+      expect(
+        TASK_FIELD_OFFSETS.REWARD_MINT_PUBKEY - TASK_FIELD_OFFSETS.REWARD_MINT,
+      ).toBe(1); // Option discriminator size
     });
 
-    it('total struct size matches on-chain SIZE constant', () => {
+    it("total struct size matches on-chain SIZE constant", () => {
       // Task::SIZE on-chain = 8 + 32+32+8+64+32+8+1+1+1+1+8+8+8+32+64+1+1+1+2+33+1+2+33 = 382
       const endOfRewardMint = TASK_FIELD_OFFSETS.REWARD_MINT + 33; // Option<Pubkey>
       expect(endOfRewardMint).toBe(382);
@@ -139,7 +155,7 @@ describe('TASK_FIELD_OFFSETS', () => {
   });
 });
 
-describe('getTasksByDependency', () => {
+describe("getTasksByDependency", () => {
   let mockConnection: Connection;
   let parentTaskPda: PublicKey;
 
@@ -150,7 +166,7 @@ describe('getTasksByDependency', () => {
     } as unknown as Connection;
   });
 
-  it('calls getProgramAccounts with correct memcmp filter', async () => {
+  it("calls getProgramAccounts with correct memcmp filter", async () => {
     vi.mocked(mockConnection.getProgramAccounts).mockResolvedValue([]);
 
     await getTasksByDependency(mockConnection, PROGRAM_ID, parentTaskPda);
@@ -165,34 +181,42 @@ describe('getTasksByDependency', () => {
             }),
           }),
         ]),
-      })
+      }),
     );
   });
 
-  it('builds correct filter bytes for Some(Pubkey)', async () => {
+  it("builds correct filter bytes for Some(Pubkey)", async () => {
     vi.mocked(mockConnection.getProgramAccounts).mockResolvedValue([]);
 
     await getTasksByDependency(mockConnection, PROGRAM_ID, parentTaskPda);
 
     const call = vi.mocked(mockConnection.getProgramAccounts).mock.calls[0];
-    const filter = (call[1] as { filters: Array<{ memcmp: { bytes: string } }> }).filters[0];
-    const bytes = Buffer.from(filter.memcmp.bytes, 'base64');
+    const filter = (
+      call[1] as { filters: Array<{ memcmp: { bytes: string } }> }
+    ).filters[0];
+    const bytes = Buffer.from(filter.memcmp.bytes, "base64");
 
     // First byte should be 1 (Some discriminator)
     expect(bytes[0]).toBe(1);
     // Remaining 32 bytes should be the pubkey
-    expect(bytes.subarray(1).toString('hex')).toBe(parentTaskPda.toBuffer().toString('hex'));
+    expect(bytes.subarray(1).toString("hex")).toBe(
+      parentTaskPda.toBuffer().toString("hex"),
+    );
   });
 
-  it('returns empty array when no tasks found', async () => {
+  it("returns empty array when no tasks found", async () => {
     vi.mocked(mockConnection.getProgramAccounts).mockResolvedValue([]);
 
-    const result = await getTasksByDependency(mockConnection, PROGRAM_ID, parentTaskPda);
+    const result = await getTasksByDependency(
+      mockConnection,
+      PROGRAM_ID,
+      parentTaskPda,
+    );
 
     expect(result).toEqual([]);
   });
 
-  it('parses task data correctly including new fields', async () => {
+  it("parses task data correctly including new fields", async () => {
     const taskPda = makeTestPubkey(2);
     const creator = makeTestPubkey(3);
     const rewardMint = makeTestPubkey(10);
@@ -210,10 +234,22 @@ describe('getTasksByDependency', () => {
     });
 
     vi.mocked(mockConnection.getProgramAccounts).mockResolvedValue([
-      { pubkey: taskPda, account: { data: taskData, executable: false, lamports: 0, owner: PROGRAM_ID } },
+      {
+        pubkey: taskPda,
+        account: {
+          data: taskData,
+          executable: false,
+          lamports: 0,
+          owner: PROGRAM_ID,
+        },
+      },
     ]);
 
-    const result = await getTasksByDependency(mockConnection, PROGRAM_ID, parentTaskPda);
+    const result = await getTasksByDependency(
+      mockConnection,
+      PROGRAM_ID,
+      parentTaskPda,
+    );
 
     expect(result).toHaveLength(1);
     expect(result[0].publicKey.equals(taskPda)).toBe(true);
@@ -228,7 +264,7 @@ describe('getTasksByDependency', () => {
     expect(result[0].rewardMint!.equals(rewardMint)).toBe(true);
   });
 
-  it('parses task with null rewardMint (SOL task)', async () => {
+  it("parses task with null rewardMint (SOL task)", async () => {
     const taskPda = makeTestPubkey(2);
     const creator = makeTestPubkey(3);
     const taskData = createMockTaskData({
@@ -238,17 +274,29 @@ describe('getTasksByDependency', () => {
     });
 
     vi.mocked(mockConnection.getProgramAccounts).mockResolvedValue([
-      { pubkey: taskPda, account: { data: taskData, executable: false, lamports: 0, owner: PROGRAM_ID } },
+      {
+        pubkey: taskPda,
+        account: {
+          data: taskData,
+          executable: false,
+          lamports: 0,
+          owner: PROGRAM_ID,
+        },
+      },
     ]);
 
-    const result = await getTasksByDependency(mockConnection, PROGRAM_ID, parentTaskPda);
+    const result = await getTasksByDependency(
+      mockConnection,
+      PROGRAM_ID,
+      parentTaskPda,
+    );
 
     expect(result[0].rewardMint).toBeNull();
     expect(result[0].protocolFeeBps).toBe(0);
     expect(result[0].minReputation).toBe(0);
   });
 
-  it('handles multiple dependent tasks', async () => {
+  it("handles multiple dependent tasks", async () => {
     const taskPda1 = makeTestPubkey(2);
     const taskPda2 = makeTestPubkey(4);
     const creator = makeTestPubkey(3);
@@ -257,17 +305,37 @@ describe('getTasksByDependency', () => {
     const taskData2 = createMockTaskData({ creator, dependsOn: parentTaskPda });
 
     vi.mocked(mockConnection.getProgramAccounts).mockResolvedValue([
-      { pubkey: taskPda1, account: { data: taskData1, executable: false, lamports: 0, owner: PROGRAM_ID } },
-      { pubkey: taskPda2, account: { data: taskData2, executable: false, lamports: 0, owner: PROGRAM_ID } },
+      {
+        pubkey: taskPda1,
+        account: {
+          data: taskData1,
+          executable: false,
+          lamports: 0,
+          owner: PROGRAM_ID,
+        },
+      },
+      {
+        pubkey: taskPda2,
+        account: {
+          data: taskData2,
+          executable: false,
+          lamports: 0,
+          owner: PROGRAM_ID,
+        },
+      },
     ]);
 
-    const result = await getTasksByDependency(mockConnection, PROGRAM_ID, parentTaskPda);
+    const result = await getTasksByDependency(
+      mockConnection,
+      PROGRAM_ID,
+      parentTaskPda,
+    );
 
     expect(result).toHaveLength(2);
   });
 });
 
-describe('getDependentTaskCount', () => {
+describe("getDependentTaskCount", () => {
   let mockConnection: Connection;
   let parentTaskPda: PublicKey;
 
@@ -278,7 +346,7 @@ describe('getDependentTaskCount', () => {
     } as unknown as Connection;
   });
 
-  it('calls getProgramAccounts with dataSlice for efficiency', async () => {
+  it("calls getProgramAccounts with dataSlice for efficiency", async () => {
     vi.mocked(mockConnection.getProgramAccounts).mockResolvedValue([]);
 
     await getDependentTaskCount(mockConnection, PROGRAM_ID, parentTaskPda);
@@ -287,32 +355,64 @@ describe('getDependentTaskCount', () => {
       PROGRAM_ID,
       expect.objectContaining({
         dataSlice: { offset: 0, length: 0 },
-      })
+      }),
     );
   });
 
-  it('returns 0 when no tasks found', async () => {
+  it("returns 0 when no tasks found", async () => {
     vi.mocked(mockConnection.getProgramAccounts).mockResolvedValue([]);
 
-    const count = await getDependentTaskCount(mockConnection, PROGRAM_ID, parentTaskPda);
+    const count = await getDependentTaskCount(
+      mockConnection,
+      PROGRAM_ID,
+      parentTaskPda,
+    );
 
     expect(count).toBe(0);
   });
 
-  it('returns correct count for multiple tasks', async () => {
+  it("returns correct count for multiple tasks", async () => {
     vi.mocked(mockConnection.getProgramAccounts).mockResolvedValue([
-      { pubkey: makeTestPubkey(1), account: { data: Buffer.alloc(0), executable: false, lamports: 0, owner: PROGRAM_ID } },
-      { pubkey: makeTestPubkey(2), account: { data: Buffer.alloc(0), executable: false, lamports: 0, owner: PROGRAM_ID } },
-      { pubkey: makeTestPubkey(3), account: { data: Buffer.alloc(0), executable: false, lamports: 0, owner: PROGRAM_ID } },
+      {
+        pubkey: makeTestPubkey(1),
+        account: {
+          data: Buffer.alloc(0),
+          executable: false,
+          lamports: 0,
+          owner: PROGRAM_ID,
+        },
+      },
+      {
+        pubkey: makeTestPubkey(2),
+        account: {
+          data: Buffer.alloc(0),
+          executable: false,
+          lamports: 0,
+          owner: PROGRAM_ID,
+        },
+      },
+      {
+        pubkey: makeTestPubkey(3),
+        account: {
+          data: Buffer.alloc(0),
+          executable: false,
+          lamports: 0,
+          owner: PROGRAM_ID,
+        },
+      },
     ]);
 
-    const count = await getDependentTaskCount(mockConnection, PROGRAM_ID, parentTaskPda);
+    const count = await getDependentTaskCount(
+      mockConnection,
+      PROGRAM_ID,
+      parentTaskPda,
+    );
 
     expect(count).toBe(3);
   });
 });
 
-describe('hasDependents', () => {
+describe("hasDependents", () => {
   let mockConnection: Connection;
   let taskPda: PublicKey;
 
@@ -323,7 +423,7 @@ describe('hasDependents', () => {
     } as unknown as Connection;
   });
 
-  it('returns false when task has no dependents', async () => {
+  it("returns false when task has no dependents", async () => {
     vi.mocked(mockConnection.getProgramAccounts).mockResolvedValue([]);
 
     const result = await hasDependents(mockConnection, PROGRAM_ID, taskPda);
@@ -331,9 +431,17 @@ describe('hasDependents', () => {
     expect(result).toBe(false);
   });
 
-  it('returns true when task has at least one dependent', async () => {
+  it("returns true when task has at least one dependent", async () => {
     vi.mocked(mockConnection.getProgramAccounts).mockResolvedValue([
-      { pubkey: makeTestPubkey(2), account: { data: Buffer.alloc(0), executable: false, lamports: 0, owner: PROGRAM_ID } },
+      {
+        pubkey: makeTestPubkey(2),
+        account: {
+          data: Buffer.alloc(0),
+          executable: false,
+          lamports: 0,
+          owner: PROGRAM_ID,
+        },
+      },
     ]);
 
     const result = await hasDependents(mockConnection, PROGRAM_ID, taskPda);
@@ -374,7 +482,10 @@ function createMockTaskData(params: {
 
   // Write reward_amount (8 bytes at offset 176)
   if (params.rewardAmount !== undefined) {
-    data.writeBigUInt64LE(params.rewardAmount, TASK_FIELD_OFFSETS.REWARD_AMOUNT);
+    data.writeBigUInt64LE(
+      params.rewardAmount,
+      TASK_FIELD_OFFSETS.REWARD_AMOUNT,
+    );
   }
 
   // Write status (1 byte at offset 186)
@@ -394,13 +505,18 @@ function createMockTaskData(params: {
 
   // Write protocol_fee_bps (2 bytes at offset 311)
   if (params.protocolFeeBps !== undefined) {
-    data.writeUInt16LE(params.protocolFeeBps, TASK_FIELD_OFFSETS.PROTOCOL_FEE_BPS);
+    data.writeUInt16LE(
+      params.protocolFeeBps,
+      TASK_FIELD_OFFSETS.PROTOCOL_FEE_BPS,
+    );
   }
 
   // Write depends_on (Option<Pubkey> at offset 313)
   if (params.dependsOn) {
     data.writeUInt8(1, TASK_FIELD_OFFSETS.DEPENDS_ON); // Some discriminator
-    params.dependsOn.toBuffer().copy(data, TASK_FIELD_OFFSETS.DEPENDS_ON_PUBKEY);
+    params.dependsOn
+      .toBuffer()
+      .copy(data, TASK_FIELD_OFFSETS.DEPENDS_ON_PUBKEY);
   } else {
     data.writeUInt8(0, TASK_FIELD_OFFSETS.DEPENDS_ON); // None discriminator
   }
@@ -413,7 +529,9 @@ function createMockTaskData(params: {
   // Write reward_mint (Option<Pubkey> at offset 349)
   if (params.rewardMint) {
     data.writeUInt8(1, TASK_FIELD_OFFSETS.REWARD_MINT); // Some discriminator
-    params.rewardMint.toBuffer().copy(data, TASK_FIELD_OFFSETS.REWARD_MINT_PUBKEY);
+    params.rewardMint
+      .toBuffer()
+      .copy(data, TASK_FIELD_OFFSETS.REWARD_MINT_PUBKEY);
   } else {
     data.writeUInt8(0, TASK_FIELD_OFFSETS.REWARD_MINT); // None discriminator
   }

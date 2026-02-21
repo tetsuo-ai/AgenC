@@ -4,12 +4,12 @@
  * @module
  */
 
-import { TeamPayoutError } from './errors.js';
+import { TeamPayoutError } from "./errors.js";
 import type {
   TeamCheckpointState,
   TeamPayoutResult,
   TeamTemplate,
-} from './types.js';
+} from "./types.js";
 
 export interface TeamPayoutComputationInput {
   totalRewardLamports: bigint;
@@ -18,17 +18,21 @@ export interface TeamPayoutComputationInput {
   roleAssignments: Readonly<Record<string, readonly string[]>>;
 }
 
-export function computeTeamPayout(input: TeamPayoutComputationInput): TeamPayoutResult {
+export function computeTeamPayout(
+  input: TeamPayoutComputationInput,
+): TeamPayoutResult {
   if (input.totalRewardLamports < 0n) {
-    throw new TeamPayoutError('total reward must be non-negative');
+    throw new TeamPayoutError("total reward must be non-negative");
   }
 
-  const roleIds = input.template.roles.map((role) => role.id).sort((a, b) => a.localeCompare(b));
+  const roleIds = input.template.roles
+    .map((role) => role.id)
+    .sort((a, b) => a.localeCompare(b));
   const checkpoints = Object.values(input.checkpoints);
 
   const failedRoles = new Set<string>();
   for (const checkpoint of checkpoints) {
-    if (checkpoint.status === 'failed') {
+    if (checkpoint.status === "failed") {
       failedRoles.add(checkpoint.roleId);
     }
   }
@@ -37,11 +41,16 @@ export function computeTeamPayout(input: TeamPayoutComputationInput): TeamPayout
   let unallocatedLamports = 0n;
 
   switch (input.template.payout.mode) {
-    case 'fixed': {
-      const bpsByRole = initializeNumericRoleMap(roleIds, input.template.payout.rolePayoutBps);
+    case "fixed": {
+      const bpsByRole = initializeNumericRoleMap(
+        roleIds,
+        input.template.payout.rolePayoutBps,
+      );
       const sumBps = sumNumbers(Object.values(bpsByRole));
       if (sumBps !== 10_000) {
-        throw new TeamPayoutError(`fixed role payout bps must sum to 10000 (received ${sumBps})`);
+        throw new TeamPayoutError(
+          `fixed role payout bps must sum to 10000 (received ${sumBps})`,
+        );
       }
       for (const [roleId, bps] of Object.entries(bpsByRole)) {
         assertBps(bps, `fixed payout bps for role "${roleId}"`);
@@ -56,15 +65,22 @@ export function computeTeamPayout(input: TeamPayoutComputationInput): TeamPayout
       break;
     }
 
-    case 'weighted': {
-      const weightsByRole = initializeNumericRoleMap(roleIds, input.template.payout.roleWeights);
+    case "weighted": {
+      const weightsByRole = initializeNumericRoleMap(
+        roleIds,
+        input.template.payout.roleWeights,
+      );
       const totalWeight = sumNumbers(Object.values(weightsByRole));
       if (totalWeight <= 0) {
-        throw new TeamPayoutError('weighted payout requires at least one positive role weight');
+        throw new TeamPayoutError(
+          "weighted payout requires at least one positive role weight",
+        );
       }
       for (const [roleId, weight] of Object.entries(weightsByRole)) {
         if (!Number.isInteger(weight) || weight < 0) {
-          throw new TeamPayoutError(`role weight for "${roleId}" must be a non-negative integer`);
+          throw new TeamPayoutError(
+            `role weight for "${roleId}" must be a non-negative integer`,
+          );
         }
       }
 
@@ -76,22 +92,27 @@ export function computeTeamPayout(input: TeamPayoutComputationInput): TeamPayout
       break;
     }
 
-    case 'milestone': {
+    case "milestone": {
       const milestoneBps = input.template.payout.milestonePayoutBps;
 
       let realizedBps = 0;
       const realizedRoleBps = initializeRoleMap(roleIds, 0n);
 
       for (const checkpoint of checkpoints) {
-        if (checkpoint.status !== 'completed') continue;
+        if (checkpoint.status !== "completed") continue;
         const bps = milestoneBps[checkpoint.id] ?? 0;
-        assertBps(bps, `milestone payout bps for checkpoint "${checkpoint.id}"`);
+        assertBps(
+          bps,
+          `milestone payout bps for checkpoint "${checkpoint.id}"`,
+        );
         realizedBps += bps;
         realizedRoleBps[checkpoint.roleId] += BigInt(bps);
       }
 
       if (realizedBps > 10_000) {
-        throw new TeamPayoutError(`milestone payout bps cannot exceed 10000 (received ${realizedBps})`);
+        throw new TeamPayoutError(
+          `milestone payout bps cannot exceed 10000 (received ${realizedBps})`,
+        );
       }
 
       if (realizedBps === 0) {
@@ -99,7 +120,8 @@ export function computeTeamPayout(input: TeamPayoutComputationInput): TeamPayout
         break;
       }
 
-      const accountedTotal = (input.totalRewardLamports * BigInt(realizedBps)) / 10_000n;
+      const accountedTotal =
+        (input.totalRewardLamports * BigInt(realizedBps)) / 10_000n;
       unallocatedLamports = input.totalRewardLamports - accountedTotal;
 
       const allocated = allocateByRatio(
@@ -114,7 +136,8 @@ export function computeTeamPayout(input: TeamPayoutComputationInput): TeamPayout
 
   const rolePenalties = initializeRoleMap(roleIds);
   let penaltyPool = 0n;
-  const roleFailurePenaltyBps = input.template.payout.roleFailurePenaltyBps ?? {};
+  const roleFailurePenaltyBps =
+    input.template.payout.roleFailurePenaltyBps ?? {};
 
   for (const roleId of roleIds) {
     const penaltyBps = roleFailurePenaltyBps[roleId] ?? 0;
@@ -160,7 +183,9 @@ export function computeTeamPayout(input: TeamPayoutComputationInput): TeamPayout
     const roleAmount = rolePayouts[roleId];
     if (roleAmount === 0n) continue;
 
-    const members = [...(input.roleAssignments[roleId] ?? [])].sort((a, b) => a.localeCompare(b));
+    const members = [...(input.roleAssignments[roleId] ?? [])].sort((a, b) =>
+      a.localeCompare(b),
+    );
     if (members.length === 0) {
       unallocatedLamports += roleAmount;
       continue;
@@ -173,7 +198,7 @@ export function computeTeamPayout(input: TeamPayoutComputationInput): TeamPayout
 
     for (const checkpoint of checkpoints) {
       if (checkpoint.roleId !== roleId) continue;
-      if (checkpoint.status !== 'completed') continue;
+      if (checkpoint.status !== "completed") continue;
       if (!checkpoint.completedBy) continue;
 
       if (contributionWeights.has(checkpoint.completedBy)) {
@@ -184,8 +209,10 @@ export function computeTeamPayout(input: TeamPayoutComputationInput): TeamPayout
       }
     }
 
-    const totalContribution = Array.from(contributionWeights.values())
-      .reduce((sum, value) => sum + value, 0n);
+    const totalContribution = Array.from(contributionWeights.values()).reduce(
+      (sum, value) => sum + value,
+      0n,
+    );
 
     const effectiveWeights = new Map<string, bigint>();
     if (totalContribution > 0n) {
@@ -218,7 +245,10 @@ export function computeTeamPayout(input: TeamPayoutComputationInput): TeamPayout
   };
 }
 
-function initializeRoleMap(roleIds: readonly string[], initial = 0n): Record<string, bigint> {
+function initializeRoleMap(
+  roleIds: readonly string[],
+  initial = 0n,
+): Record<string, bigint> {
   const out: Record<string, bigint> = {};
   for (const roleId of roleIds) {
     out[roleId] = initial;
@@ -237,7 +267,10 @@ function initializeNumericRoleMap(
   return out;
 }
 
-function mergeAmounts(target: Record<string, bigint>, delta: Map<string, bigint>): void {
+function mergeAmounts(
+  target: Record<string, bigint>,
+  delta: Map<string, bigint>,
+): void {
   for (const [key, value] of delta.entries()) {
     target[key] = (target[key] ?? 0n) + value;
   }
@@ -257,20 +290,29 @@ function allocateByRatio(
   denominator: bigint,
 ): Map<string, bigint> {
   if (denominator <= 0n) {
-    throw new TeamPayoutError('allocation denominator must be positive');
+    throw new TeamPayoutError("allocation denominator must be positive");
   }
 
-  const map = numerators instanceof Map
-    ? new Map(numerators)
-    : new Map(Object.entries(numerators));
+  const map =
+    numerators instanceof Map
+      ? new Map(numerators)
+      : new Map(Object.entries(numerators));
 
   return allocate(total, map, denominator);
 }
 
-function allocateByWeights(total: bigint, weights: Map<string, bigint>): Map<string, bigint> {
-  const totalWeight = Array.from(weights.values()).reduce((sum, weight) => sum + weight, 0n);
+function allocateByWeights(
+  total: bigint,
+  weights: Map<string, bigint>,
+): Map<string, bigint> {
+  const totalWeight = Array.from(weights.values()).reduce(
+    (sum, weight) => sum + weight,
+    0n,
+  );
   if (totalWeight <= 0n) {
-    throw new TeamPayoutError('allocation requires at least one positive weight');
+    throw new TeamPayoutError(
+      "allocation requires at least one positive weight",
+    );
   }
   return allocate(total, weights, totalWeight);
 }
@@ -285,7 +327,9 @@ function allocate(
   for (const key of keys) {
     const value = weights.get(key) ?? 0n;
     if (value < 0n) {
-      throw new TeamPayoutError(`allocation weight for "${key}" must be non-negative`);
+      throw new TeamPayoutError(
+        `allocation weight for "${key}" must be non-negative`,
+      );
     }
   }
 
@@ -304,7 +348,9 @@ function allocate(
 
   let leftover = total - allocated;
   if (leftover < 0n) {
-    throw new TeamPayoutError('allocation overflow: allocated amount exceeds total');
+    throw new TeamPayoutError(
+      "allocation overflow: allocated amount exceeds total",
+    );
   }
 
   remainders.sort((a, b) => {
@@ -327,7 +373,9 @@ function allocate(
 
 function assertBps(value: number, label: string): void {
   if (!Number.isInteger(value) || value < 0 || value > 10_000) {
-    throw new TeamPayoutError(`${label} must be an integer between 0 and 10000`);
+    throw new TeamPayoutError(
+      `${label} must be an integer between 0 and 10000`,
+    );
   }
 }
 

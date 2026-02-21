@@ -4,15 +4,15 @@
  * @module
  */
 
-import { hasCapability } from '../agent/capabilities.js';
-import { InMemoryTeamAuditStore } from './audit.js';
-import type { TeamAuditStore } from './audit.js';
+import { hasCapability } from "../agent/capabilities.js";
+import { InMemoryTeamAuditStore } from "./audit.js";
+import type { TeamAuditStore } from "./audit.js";
 import {
   TeamContractStateError,
   TeamContractValidationError,
   TeamPayoutError,
-} from './errors.js';
-import { computeTeamPayout } from './payout.js';
+} from "./errors.js";
+import { computeTeamPayout } from "./payout.js";
 import type {
   RoleFailureAttribution,
   TeamAuditEvent,
@@ -23,15 +23,9 @@ import type {
   TeamMemberInput,
   TeamPayoutResult,
   TeamTemplate,
-} from './types.js';
-import {
-  canonicalizeTeamId,
-  validateTeamId,
-} from './types.js';
-import {
-  normalizeTeamTemplate,
-  validateTeamTemplate,
-} from './validation.js';
+} from "./types.js";
+import { canonicalizeTeamId, validateTeamId } from "./types.js";
+import { normalizeTeamTemplate, validateTeamTemplate } from "./validation.js";
 
 export interface TeamContractEngineConfig {
   now?: () => number;
@@ -86,7 +80,7 @@ interface TeamContractRecord {
   id: string;
   creatorId: string;
   template: TeamTemplate;
-  status: TeamContractSnapshot['status'];
+  status: TeamContractSnapshot["status"];
   members: Map<string, TeamMember>;
   roleAssignments: Map<string, string[]>;
   checkpoints: Map<string, TeamCheckpointState>;
@@ -108,20 +102,25 @@ export class TeamContractEngine {
   constructor(config: TeamContractEngineConfig = {}) {
     this.now = config.now ?? Date.now;
     this.hooks = config.hooks ?? {};
-    this.auditStore = config.auditStore ?? new InMemoryTeamAuditStore({
-      maxEventsPerContract: config.maxAuditEventsPerContract,
-    });
-    this.requireSingleParentTopology = config.requireSingleParentTopology ?? true;
+    this.auditStore =
+      config.auditStore ??
+      new InMemoryTeamAuditStore({
+        maxEventsPerContract: config.maxAuditEventsPerContract,
+      });
+    this.requireSingleParentTopology =
+      config.requireSingleParentTopology ?? true;
   }
 
   createContract(input: CreateTeamContractInput): TeamContractSnapshot {
     this.assertNotInHook();
 
-    const contractId = normalizeIdOrThrow(input.contractId, 'contract id');
-    const creatorId = normalizeIdOrThrow(input.creatorId, 'creator id');
+    const contractId = normalizeIdOrThrow(input.contractId, "contract id");
+    const creatorId = normalizeIdOrThrow(input.creatorId, "creator id");
 
     if (this.contracts.has(contractId)) {
-      throw new TeamContractStateError(`contract "${contractId}" already exists`);
+      throw new TeamContractStateError(
+        `contract "${contractId}" already exists`,
+      );
     }
 
     const normalizedTemplate = normalizeTeamTemplate(input.template);
@@ -139,7 +138,7 @@ export class TeamContractEngine {
         label: checkpoint.label,
         dependsOn: [...(checkpoint.dependsOn ?? [])],
         required: checkpoint.required ?? true,
-        status: (checkpoint.dependsOn?.length ?? 0) === 0 ? 'ready' : 'pending',
+        status: (checkpoint.dependsOn?.length ?? 0) === 0 ? "ready" : "pending",
         completedBy: null,
         completedAt: null,
         outputDigest: null,
@@ -158,7 +157,7 @@ export class TeamContractEngine {
       id: contractId,
       creatorId,
       template: deepFreeze(cloneTemplate(normalizedTemplate)) as TeamTemplate,
-      status: 'draft',
+      status: "draft",
       members: new Map<string, TeamMember>(),
       roleAssignments,
       checkpoints,
@@ -171,7 +170,7 @@ export class TeamContractEngine {
 
     this.contracts.set(contractId, record);
 
-    this.recordAuditEvent(record, 'contract_created', {
+    this.recordAuditEvent(record, "contract_created", {
       creatorId,
       templateId: normalizedTemplate.id,
       roleCount: normalizedTemplate.roles.length,
@@ -184,11 +183,13 @@ export class TeamContractEngine {
   joinContract(input: JoinTeamContractInput): TeamContractSnapshot {
     this.assertNotInHook();
     const record = this.getContractRecordOrThrow(input.contractId);
-    this.assertStatus(record, 'draft', 'join members');
+    this.assertStatus(record, "draft", "join members");
 
     const member = normalizeMemberInput(input.member);
     if (record.members.has(member.id)) {
-      throw new TeamContractStateError(`member "${member.id}" already exists in contract`);
+      throw new TeamContractStateError(
+        `member "${member.id}" already exists in contract`,
+      );
     }
 
     const memberRecord: TeamMember = {
@@ -203,7 +204,7 @@ export class TeamContractEngine {
 
     record.members.set(memberRecord.id, memberRecord);
 
-    this.recordAuditEvent(record, 'member_joined', {
+    this.recordAuditEvent(record, "member_joined", {
       memberId: memberRecord.id,
       capabilityMask: memberRecord.capabilities.toString(),
     });
@@ -218,12 +219,14 @@ export class TeamContractEngine {
   leaveContract(contractId: string, memberId: string): TeamContractSnapshot {
     this.assertNotInHook();
     const record = this.getContractRecordOrThrow(contractId);
-    this.assertStatus(record, 'draft', 'leave members');
+    this.assertStatus(record, "draft", "leave members");
 
-    const canonicalMemberId = normalizeIdOrThrow(memberId, 'member id');
+    const canonicalMemberId = normalizeIdOrThrow(memberId, "member id");
     const member = record.members.get(canonicalMemberId);
     if (!member || !member.active) {
-      throw new TeamContractStateError(`member "${canonicalMemberId}" is not active`);
+      throw new TeamContractStateError(
+        `member "${canonicalMemberId}" is not active`,
+      );
     }
 
     for (const roleId of member.roles) {
@@ -238,7 +241,7 @@ export class TeamContractEngine {
     member.leftAt = this.now();
     member.roles = [];
 
-    this.recordAuditEvent(record, 'member_left', {
+    this.recordAuditEvent(record, "member_left", {
       memberId: canonicalMemberId,
     });
 
@@ -248,10 +251,10 @@ export class TeamContractEngine {
   assignRole(input: AssignTeamRoleInput): TeamContractSnapshot {
     this.assertNotInHook();
     const record = this.getContractRecordOrThrow(input.contractId);
-    this.assertStatus(record, 'draft', 'assign roles');
+    this.assertStatus(record, "draft", "assign roles");
 
-    const memberId = normalizeIdOrThrow(input.memberId, 'member id');
-    const roleId = normalizeIdOrThrow(input.roleId, 'role id');
+    const memberId = normalizeIdOrThrow(input.memberId, "member id");
+    const roleId = normalizeIdOrThrow(input.roleId, "role id");
     this.assignRoleInternal(record, memberId, roleId, true);
 
     return this.toSnapshot(record);
@@ -260,7 +263,7 @@ export class TeamContractEngine {
   startRun(contractId: string): TeamContractSnapshot {
     this.assertNotInHook();
     const record = this.getContractRecordOrThrow(contractId);
-    this.assertStatus(record, 'draft', 'start run');
+    this.assertStatus(record, "draft", "start run");
 
     for (const role of record.template.roles) {
       const assignedCount = (record.roleAssignments.get(role.id) ?? []).length;
@@ -286,12 +289,14 @@ export class TeamContractEngine {
       });
     });
 
-    record.status = 'active';
+    record.status = "active";
     record.startedAt = this.now();
     this.refreshCheckpointReadiness(record);
 
-    this.recordAuditEvent(record, 'run_started', {
-      activeMembers: Array.from(record.members.values()).filter((member) => member.active).length,
+    this.recordAuditEvent(record, "run_started", {
+      activeMembers: Array.from(record.members.values()).filter(
+        (member) => member.active,
+      ).length,
     });
 
     return this.toSnapshot(record);
@@ -301,21 +306,23 @@ export class TeamContractEngine {
     this.assertNotInHook();
     const record = this.getContractRecordOrThrow(input.contractId);
 
-    if (record.status === 'cancelled') {
+    if (record.status === "cancelled") {
       return this.toSnapshot(record);
     }
 
-    if (record.status === 'completed' || record.status === 'failed') {
-      throw new TeamContractStateError(`cannot cancel contract in terminal state "${record.status}"`);
+    if (record.status === "completed" || record.status === "failed") {
+      throw new TeamContractStateError(
+        `cannot cancel contract in terminal state "${record.status}"`,
+      );
     }
 
     const now = this.now();
-    record.status = 'cancelled';
+    record.status = "cancelled";
     record.cancelledAt = now;
     record.completedAt = now;
 
-    this.recordAuditEvent(record, 'contract_cancelled', {
-      reason: input.reason ?? 'cancelled',
+    this.recordAuditEvent(record, "contract_cancelled", {
+      reason: input.reason ?? "cancelled",
     });
 
     return this.toSnapshot(record);
@@ -324,20 +331,25 @@ export class TeamContractEngine {
   completeCheckpoint(input: CompleteTeamCheckpointInput): TeamContractSnapshot {
     this.assertNotInHook();
     const record = this.getContractRecordOrThrow(input.contractId);
-    this.assertStatus(record, 'active', 'complete checkpoints');
+    this.assertStatus(record, "active", "complete checkpoints");
 
-    const checkpointId = normalizeIdOrThrow(input.checkpointId, 'checkpoint id');
-    const memberId = normalizeIdOrThrow(input.memberId, 'member id');
+    const checkpointId = normalizeIdOrThrow(
+      input.checkpointId,
+      "checkpoint id",
+    );
+    const memberId = normalizeIdOrThrow(input.memberId, "member id");
 
     const checkpoint = record.checkpoints.get(checkpointId);
     if (!checkpoint) {
-      throw new TeamContractStateError(`checkpoint "${checkpointId}" not found`);
+      throw new TeamContractStateError(
+        `checkpoint "${checkpointId}" not found`,
+      );
     }
 
-    if (checkpoint.status === 'completed') {
+    if (checkpoint.status === "completed") {
       return this.toSnapshot(record);
     }
-    if (checkpoint.status === 'failed' || checkpoint.status === 'blocked') {
+    if (checkpoint.status === "failed" || checkpoint.status === "blocked") {
       throw new TeamContractStateError(
         `checkpoint "${checkpointId}" cannot be completed from status "${checkpoint.status}"`,
       );
@@ -351,21 +363,21 @@ export class TeamContractEngine {
       );
     }
 
-    checkpoint.status = 'completed';
+    checkpoint.status = "completed";
     checkpoint.completedBy = memberId;
     checkpoint.completedAt = this.now();
     checkpoint.outputDigest = input.outputDigest?.trim() || null;
 
     this.refreshCheckpointReadiness(record);
 
-    this.recordAuditEvent(record, 'checkpoint_completed', {
+    this.recordAuditEvent(record, "checkpoint_completed", {
       checkpointId,
       roleId: checkpoint.roleId,
       memberId,
     });
 
     if (this.areAllRequiredCheckpointsCompleted(record)) {
-      record.status = 'completed';
+      record.status = "completed";
       record.completedAt = this.now();
     }
 
@@ -375,32 +387,39 @@ export class TeamContractEngine {
   failCheckpoint(input: FailTeamCheckpointInput): TeamContractSnapshot {
     this.assertNotInHook();
     const record = this.getContractRecordOrThrow(input.contractId);
-    this.assertStatus(record, 'active', 'fail checkpoints');
+    this.assertStatus(record, "active", "fail checkpoints");
 
-    const checkpointId = normalizeIdOrThrow(input.checkpointId, 'checkpoint id');
-    const memberId = normalizeIdOrThrow(input.memberId, 'member id');
+    const checkpointId = normalizeIdOrThrow(
+      input.checkpointId,
+      "checkpoint id",
+    );
+    const memberId = normalizeIdOrThrow(input.memberId, "member id");
     const reason = input.reason.trim();
 
     if (reason.length === 0) {
-      throw new TeamContractValidationError('failure reason must not be empty');
+      throw new TeamContractValidationError("failure reason must not be empty");
     }
 
     const checkpoint = record.checkpoints.get(checkpointId);
     if (!checkpoint) {
-      throw new TeamContractStateError(`checkpoint "${checkpointId}" not found`);
+      throw new TeamContractStateError(
+        `checkpoint "${checkpointId}" not found`,
+      );
     }
 
-    if (checkpoint.status === 'failed') {
+    if (checkpoint.status === "failed") {
       return this.toSnapshot(record);
     }
-    if (checkpoint.status === 'completed') {
-      throw new TeamContractStateError(`checkpoint "${checkpointId}" is already completed`);
+    if (checkpoint.status === "completed") {
+      throw new TeamContractStateError(
+        `checkpoint "${checkpointId}" is already completed`,
+      );
     }
 
     this.assertMemberCanActOnRole(record, memberId, checkpoint.roleId);
 
     const failedAt = this.now();
-    checkpoint.status = 'failed';
+    checkpoint.status = "failed";
     checkpoint.failedBy = memberId;
     checkpoint.failedAt = failedAt;
     checkpoint.failureReason = reason;
@@ -408,7 +427,7 @@ export class TeamContractEngine {
     this.blockDependentCheckpoints(record, checkpointId);
 
     if (checkpoint.required) {
-      record.status = 'failed';
+      record.status = "failed";
       record.completedAt = failedAt;
     }
 
@@ -421,7 +440,7 @@ export class TeamContractEngine {
       atMs: failedAt,
     };
 
-    this.recordAuditEvent(record, 'checkpoint_failed', {
+    this.recordAuditEvent(record, "checkpoint_failed", {
       checkpointId,
       roleId: checkpoint.roleId,
       memberId,
@@ -439,30 +458,34 @@ export class TeamContractEngine {
     this.assertNotInHook();
     const record = this.getContractRecordOrThrow(input.contractId);
 
-    if (record.status === 'cancelled') {
-      throw new TeamContractStateError('cannot finalize payout for cancelled contract');
+    if (record.status === "cancelled") {
+      throw new TeamContractStateError(
+        "cannot finalize payout for cancelled contract",
+      );
     }
 
     if (record.finalizedPayout) {
       return record.finalizedPayout;
     }
 
-    if (record.status === 'draft') {
-      throw new TeamContractStateError('cannot finalize payout before run start');
+    if (record.status === "draft") {
+      throw new TeamContractStateError(
+        "cannot finalize payout before run start",
+      );
     }
 
-    if (record.status === 'active') {
+    if (record.status === "active") {
       if (!this.areAllRequiredCheckpointsCompleted(record)) {
         throw new TeamContractStateError(
-          'cannot finalize payout while required checkpoints remain incomplete',
+          "cannot finalize payout while required checkpoints remain incomplete",
         );
       }
-      record.status = 'completed';
+      record.status = "completed";
       record.completedAt = this.now();
     }
 
     if (input.totalRewardLamports < 0n) {
-      throw new TeamPayoutError('total reward must be non-negative');
+      throw new TeamPayoutError("total reward must be non-negative");
     }
 
     const payout = computeTeamPayout({
@@ -472,9 +495,11 @@ export class TeamContractEngine {
       roleAssignments: this.roleAssignmentRecord(record),
     });
 
-    record.finalizedPayout = deepFreeze(clonePayoutResult(payout)) as Readonly<TeamPayoutResult>;
+    record.finalizedPayout = deepFreeze(
+      clonePayoutResult(payout),
+    ) as Readonly<TeamPayoutResult>;
 
-    this.recordAuditEvent(record, 'payout_finalized', {
+    this.recordAuditEvent(record, "payout_finalized", {
       totalRewardLamports: input.totalRewardLamports.toString(),
       unallocatedLamports: payout.unallocatedLamports.toString(),
     });
@@ -483,13 +508,13 @@ export class TeamContractEngine {
   }
 
   getContract(contractId: string): TeamContractSnapshot | null {
-    const id = normalizeIdOrThrow(contractId, 'contract id');
+    const id = normalizeIdOrThrow(contractId, "contract id");
     const record = this.contracts.get(id);
     return record ? this.toSnapshot(record) : null;
   }
 
   listAuditEvents(contractId: string): TeamAuditEvent[] {
-    const id = normalizeIdOrThrow(contractId, 'contract id');
+    const id = normalizeIdOrThrow(contractId, "contract id");
     return this.auditStore.list(id);
   }
 
@@ -504,7 +529,9 @@ export class TeamContractEngine {
       throw new TeamContractStateError(`member "${memberId}" is not active`);
     }
 
-    const role = record.template.roles.find((candidate) => candidate.id === roleId);
+    const role = record.template.roles.find(
+      (candidate) => candidate.id === roleId,
+    );
     if (!role) {
       throw new TeamContractValidationError(`unknown role "${roleId}"`);
     }
@@ -531,11 +558,13 @@ export class TeamContractEngine {
     assigned.sort((a, b) => a.localeCompare(b));
     record.roleAssignments.set(roleId, assigned);
 
-    const memberRoles = [...member.roles, roleId].sort((a, b) => a.localeCompare(b));
+    const memberRoles = [...member.roles, roleId].sort((a, b) =>
+      a.localeCompare(b),
+    );
     member.roles = uniqueSorted(memberRoles);
 
     if (emitAudit) {
-      this.recordAuditEvent(record, 'role_assigned', {
+      this.recordAuditEvent(record, "role_assigned", {
         memberId,
         roleId,
       });
@@ -568,25 +597,29 @@ export class TeamContractEngine {
       changed = false;
 
       for (const checkpoint of record.checkpoints.values()) {
-        if (checkpoint.status === 'completed' || checkpoint.status === 'failed' || checkpoint.status === 'blocked') {
+        if (
+          checkpoint.status === "completed" ||
+          checkpoint.status === "failed" ||
+          checkpoint.status === "blocked"
+        ) {
           continue;
         }
 
         const hasFailedDependency = checkpoint.dependsOn
           .map((depId) => record.checkpoints.get(depId))
-          .some((dep) => dep?.status === 'failed' || dep?.status === 'blocked');
+          .some((dep) => dep?.status === "failed" || dep?.status === "blocked");
 
         if (hasFailedDependency) {
-          checkpoint.status = 'blocked';
+          checkpoint.status = "blocked";
           changed = true;
           continue;
         }
 
         const dependenciesComplete = checkpoint.dependsOn
           .map((depId) => record.checkpoints.get(depId))
-          .every((dep) => dep?.status === 'completed');
+          .every((dep) => dep?.status === "completed");
 
-        const nextStatus = dependenciesComplete ? 'ready' : 'pending';
+        const nextStatus = dependenciesComplete ? "ready" : "pending";
         if (checkpoint.status !== nextStatus) {
           checkpoint.status = nextStatus;
           changed = true;
@@ -601,24 +634,29 @@ export class TeamContractEngine {
   ): boolean {
     for (const dependencyId of dependencies) {
       const dependency = record.checkpoints.get(dependencyId);
-      if (!dependency || dependency.status !== 'completed') {
+      if (!dependency || dependency.status !== "completed") {
         return false;
       }
     }
     return true;
   }
 
-  private areAllRequiredCheckpointsCompleted(record: TeamContractRecord): boolean {
+  private areAllRequiredCheckpointsCompleted(
+    record: TeamContractRecord,
+  ): boolean {
     for (const checkpoint of record.checkpoints.values()) {
       if (!checkpoint.required) continue;
-      if (checkpoint.status !== 'completed') {
+      if (checkpoint.status !== "completed") {
         return false;
       }
     }
     return true;
   }
 
-  private blockDependentCheckpoints(record: TeamContractRecord, failedCheckpointId: string): void {
+  private blockDependentCheckpoints(
+    record: TeamContractRecord,
+    failedCheckpointId: string,
+  ): void {
     const queue = [failedCheckpointId];
     const seen = new Set<string>(queue);
 
@@ -631,8 +669,11 @@ export class TeamContractEngine {
 
         seen.add(checkpoint.id);
 
-        if (checkpoint.status !== 'completed' && checkpoint.status !== 'failed') {
-          checkpoint.status = 'blocked';
+        if (
+          checkpoint.status !== "completed" &&
+          checkpoint.status !== "failed"
+        ) {
+          checkpoint.status = "blocked";
         }
 
         queue.push(checkpoint.id);
@@ -641,7 +682,7 @@ export class TeamContractEngine {
   }
 
   private getContractRecordOrThrow(contractId: string): TeamContractRecord {
-    const id = normalizeIdOrThrow(contractId, 'contract id');
+    const id = normalizeIdOrThrow(contractId, "contract id");
     const record = this.contracts.get(id);
     if (!record) {
       throw new TeamContractStateError(`contract "${id}" not found`);
@@ -651,7 +692,7 @@ export class TeamContractEngine {
 
   private assertStatus(
     record: TeamContractRecord,
-    expected: TeamContractRecord['status'],
+    expected: TeamContractRecord["status"],
     operation: string,
   ): void {
     if (record.status !== expected) {
@@ -661,18 +702,26 @@ export class TeamContractEngine {
     }
   }
 
-  private checkpointRecord(record: TeamContractRecord): Record<string, TeamCheckpointState> {
+  private checkpointRecord(
+    record: TeamContractRecord,
+  ): Record<string, TeamCheckpointState> {
     const out: Record<string, TeamCheckpointState> = {};
-    for (const checkpointId of Array.from(record.checkpoints.keys()).sort((a, b) => a.localeCompare(b))) {
+    for (const checkpointId of Array.from(record.checkpoints.keys()).sort(
+      (a, b) => a.localeCompare(b),
+    )) {
       const checkpoint = record.checkpoints.get(checkpointId)!;
       out[checkpointId] = cloneCheckpoint(checkpoint);
     }
     return out;
   }
 
-  private roleAssignmentRecord(record: TeamContractRecord): Record<string, readonly string[]> {
+  private roleAssignmentRecord(
+    record: TeamContractRecord,
+  ): Record<string, readonly string[]> {
     const out: Record<string, readonly string[]> = {};
-    for (const roleId of Array.from(record.roleAssignments.keys()).sort((a, b) => a.localeCompare(b))) {
+    for (const roleId of Array.from(record.roleAssignments.keys()).sort(
+      (a, b) => a.localeCompare(b),
+    )) {
       const members = record.roleAssignments.get(roleId) ?? [];
       out[roleId] = [...members].sort((a, b) => a.localeCompare(b));
     }
@@ -703,7 +752,7 @@ export class TeamContractEngine {
 
   private recordAuditEvent(
     record: TeamContractRecord,
-    type: TeamAuditEvent['type'],
+    type: TeamAuditEvent["type"],
     payload: Record<string, unknown>,
   ): void {
     const event: TeamAuditEvent = {
@@ -741,7 +790,9 @@ export class TeamContractEngine {
 
   private assertNotInHook(): void {
     if (this.inHook) {
-      throw new TeamContractStateError('re-entrant engine mutation from hook is not allowed');
+      throw new TeamContractStateError(
+        "re-entrant engine mutation from hook is not allowed",
+      );
     }
   }
 
@@ -755,11 +806,15 @@ export class TeamContractEngine {
 }
 
 function normalizeMemberInput(input: TeamMemberInput): TeamMemberInput {
-  const id = normalizeIdOrThrow(input.id, 'member id');
-  const roles = uniqueSorted((input.roles ?? []).map((roleId) => normalizeIdOrThrow(roleId, 'role id')));
+  const id = normalizeIdOrThrow(input.id, "member id");
+  const roles = uniqueSorted(
+    (input.roles ?? []).map((roleId) => normalizeIdOrThrow(roleId, "role id")),
+  );
 
-  if (typeof input.capabilities !== 'bigint' || input.capabilities < 0n) {
-    throw new TeamContractValidationError('member capabilities must be a non-negative bigint');
+  if (typeof input.capabilities !== "bigint" || input.capabilities < 0n) {
+    throw new TeamContractValidationError(
+      "member capabilities must be a non-negative bigint",
+    );
   }
 
   return {
@@ -801,25 +856,33 @@ function cloneTemplate(template: TeamTemplate): TeamTemplate {
   };
 }
 
-function clonePayoutConfig(payout: TeamTemplate['payout']): TeamTemplate['payout'] {
+function clonePayoutConfig(
+  payout: TeamTemplate["payout"],
+): TeamTemplate["payout"] {
   switch (payout.mode) {
-    case 'fixed':
+    case "fixed":
       return {
         ...payout,
         rolePayoutBps: { ...payout.rolePayoutBps },
-        roleFailurePenaltyBps: payout.roleFailurePenaltyBps ? { ...payout.roleFailurePenaltyBps } : undefined,
+        roleFailurePenaltyBps: payout.roleFailurePenaltyBps
+          ? { ...payout.roleFailurePenaltyBps }
+          : undefined,
       };
-    case 'weighted':
+    case "weighted":
       return {
         ...payout,
         roleWeights: { ...payout.roleWeights },
-        roleFailurePenaltyBps: payout.roleFailurePenaltyBps ? { ...payout.roleFailurePenaltyBps } : undefined,
+        roleFailurePenaltyBps: payout.roleFailurePenaltyBps
+          ? { ...payout.roleFailurePenaltyBps }
+          : undefined,
       };
-    case 'milestone':
+    case "milestone":
       return {
         ...payout,
         milestonePayoutBps: { ...payout.milestonePayoutBps },
-        roleFailurePenaltyBps: payout.roleFailurePenaltyBps ? { ...payout.roleFailurePenaltyBps } : undefined,
+        roleFailurePenaltyBps: payout.roleFailurePenaltyBps
+          ? { ...payout.roleFailurePenaltyBps }
+          : undefined,
       };
   }
 }
@@ -848,13 +911,15 @@ function clonePayoutResult(payout: TeamPayoutResult): TeamPayoutResult {
   };
 }
 
-function cloneMetadata(metadata: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
+function cloneMetadata(
+  metadata: Record<string, unknown> | undefined,
+): Record<string, unknown> | undefined {
   if (!metadata) return undefined;
   return { ...metadata };
 }
 
 function deepFreeze<T>(value: T): T {
-  if (value === null || typeof value !== 'object') {
+  if (value === null || typeof value !== "object") {
     return value;
   }
 
@@ -865,7 +930,7 @@ function deepFreeze<T>(value: T): T {
   const propNames = Object.getOwnPropertyNames(value);
   for (const name of propNames) {
     const candidate = (value as Record<string, unknown>)[name];
-    if (candidate && typeof candidate === 'object') {
+    if (candidate && typeof candidate === "object") {
       deepFreeze(candidate);
     }
   }

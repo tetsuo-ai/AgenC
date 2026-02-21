@@ -1,4 +1,4 @@
-import type { DisputeDriftPromptOutput } from './dispute-drift.js';
+import type { DisputeDriftPromptOutput } from "./dispute-drift.js";
 
 export interface ReplayAnomalyPromptInput {
   anomaly_id: string;
@@ -9,40 +9,49 @@ export interface ReplayAnomalyPromptInput {
   trace_id?: string;
 }
 
-export function buildReplayAnomalyPrompt(input: ReplayAnomalyPromptInput): DisputeDriftPromptOutput {
+export function buildReplayAnomalyPrompt(
+  input: ReplayAnomalyPromptInput,
+): DisputeDriftPromptOutput {
   const contextLines: string[] = [];
   if (input.task_pda) contextLines.push(`Task PDA: ${input.task_pda}`);
   if (input.dispute_pda) contextLines.push(`Dispute PDA: ${input.dispute_pda}`);
-  if (input.anomaly_code) contextLines.push(`Anomaly code: ${input.anomaly_code}`);
-  if (input.anomaly_message) contextLines.push(`Anomaly message: ${input.anomaly_message}`);
+  if (input.anomaly_code)
+    contextLines.push(`Anomaly code: ${input.anomaly_code}`);
+  if (input.anomaly_message)
+    contextLines.push(`Anomaly message: ${input.anomaly_message}`);
   if (input.trace_id) contextLines.push(`Trace ID: ${input.trace_id}`);
-  const context = contextLines.length > 0 ? `\n${contextLines.join('\n')}` : '';
+  const context = contextLines.length > 0 ? `\n${contextLines.join("\n")}` : "";
 
   return {
-    messages: [{
-      role: 'user',
-      content: {
-        type: 'text',
-        text: `Investigate replay anomaly ${input.anomaly_id}.${context}
+    messages: [
+      {
+        role: "user",
+        content: {
+          type: "text",
+          text: `Investigate replay anomaly ${input.anomaly_id}.${context}
 
 ## Investigation Steps
 
 ### Step 1: Identify Anomaly Context
 The anomaly ID "${input.anomaly_id}" was reported by the replay comparison or incident tool.
-${input.anomaly_code ? `Anomaly type: ${input.anomaly_code}` : 'Determine the anomaly type from the original tool output.'}
+${input.anomaly_code ? `Anomaly type: ${input.anomaly_code}` : "Determine the anomaly type from the original tool output."}
 
 ### Step 2: Fetch Related State
-${input.task_pda
+${
+  input.task_pda
     ? `- Use \`agenc_get_task\` with task_pda="${input.task_pda}" to get current task state.`
-    : '- If a task PDA is available, fetch it with `agenc_get_task`.'}
-${input.dispute_pda
+    : "- If a task PDA is available, fetch it with `agenc_get_task`."
+}
+${
+  input.dispute_pda
     ? `- Use \`agenc_get_dispute\` with dispute_pda="${input.dispute_pda}" to get dispute state.`
-    : '- If a dispute PDA is available, fetch it with `agenc_get_dispute`.'}
+    : "- If a dispute PDA is available, fetch it with `agenc_get_dispute`."
+}
 
 ### Step 3: Replay Timeline Reconstruction
-${input.task_pda ? `Use \`agenc_replay_incident\` with task_pda="${input.task_pda}" to get the full event timeline.` : ''}
-${input.dispute_pda ? `Use \`agenc_replay_incident\` with dispute_pda="${input.dispute_pda}" to get the dispute timeline.` : ''}
-${!input.task_pda && !input.dispute_pda ? 'Use `agenc_replay_status` to check store health, then query with relevant filters.' : ''}
+${input.task_pda ? `Use \`agenc_replay_incident\` with task_pda="${input.task_pda}" to get the full event timeline.` : ""}
+${input.dispute_pda ? `Use \`agenc_replay_incident\` with dispute_pda="${input.dispute_pda}" to get the dispute timeline.` : ""}
+${!input.task_pda && !input.dispute_pda ? "Use `agenc_replay_status` to check store health, then query with relevant filters." : ""}
 
 Look for:
 - Events before and after the anomaly sequence number
@@ -74,9 +83,9 @@ Provide:
 2. Specific evidence from on-chain state and replay timeline
 3. Whether this is a replay infrastructure issue or a protocol issue
 4. Recommended action (re-backfill, manual correction, bug report)
-${input.trace_id ? `\nInclude trace_id "${input.trace_id}" in any follow-up tool calls for correlation.` : ''}`,
+${input.trace_id ? `\nInclude trace_id "${input.trace_id}" in any follow-up tool calls for correlation.` : ""}`,
+        },
       },
-    }],
+    ],
   };
 }
-

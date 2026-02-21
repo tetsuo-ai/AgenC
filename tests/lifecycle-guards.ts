@@ -15,7 +15,12 @@ import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
 import BN from "bn.js";
 import { expect } from "chai";
-import { Keypair, PublicKey, SystemProgram, LAMPORTS_PER_SOL } from "@solana/web3.js";
+import {
+  Keypair,
+  PublicKey,
+  SystemProgram,
+  LAMPORTS_PER_SOL,
+} from "@solana/web3.js";
 import { AgencCoordination } from "../target/types/agenc_coordination";
 import {
   CAPABILITY_COMPUTE,
@@ -33,14 +38,19 @@ import {
   getErrorCode,
   disableRateLimitsForTests,
 } from "./test-utils";
-import { createLiteSVMContext, fundAccount, advanceClock, getClockTimestamp } from "./litesvm-helpers";
+import {
+  createLiteSVMContext,
+  fundAccount,
+  advanceClock,
+  getClockTimestamp,
+} from "./litesvm-helpers";
 
 describe("Task lifecycle guards (#959)", () => {
   const { svm, provider, program } = createLiteSVMContext();
 
   const [protocolPda] = PublicKey.findProgramAddressSync(
     [Buffer.from("protocol")],
-    program.programId
+    program.programId,
   );
 
   const runId = generateRunId();
@@ -81,7 +91,9 @@ describe("Task lifecycle guards (#959)", () => {
     return Buffer.from(`${prefix}-${runId}`.slice(0, 32).padEnd(32, "\0"));
   }
 
-  async function createFreshWorker(capabilities: number = CAPABILITY_COMPUTE): Promise<{
+  async function createFreshWorker(
+    capabilities: number = CAPABILITY_COMPUTE,
+  ): Promise<{
     wallet: Keypair;
     agentId: Buffer;
     agentPda: PublicKey;
@@ -97,7 +109,7 @@ describe("Task lifecycle guards (#959)", () => {
         new BN(capabilities),
         `https://lifecycle-worker-${agentCounter}.example.com`,
         null,
-        new BN(LAMPORTS_PER_SOL / 10)
+        new BN(LAMPORTS_PER_SOL / 10),
       )
       .accountsPartial({
         agent: agentPda,
@@ -260,11 +272,12 @@ describe("Task lifecycle guards (#959)", () => {
       const programDataPda = deriveProgramDataPda(program.programId);
       await program.methods
         .initializeProtocol(
-          51, 100,
+          51,
+          100,
           new BN(LAMPORTS_PER_SOL / 100),
           new BN(LAMPORTS_PER_SOL / 100),
           1,
-          [provider.wallet.publicKey, secondSigner.publicKey]
+          [provider.wallet.publicKey, secondSigner.publicKey],
         )
         .accountsPartial({
           protocolConfig: protocolPda,
@@ -273,12 +286,15 @@ describe("Task lifecycle guards (#959)", () => {
           secondSigner: secondSigner.publicKey,
           systemProgram: SystemProgram.programId,
         })
-        .remainingAccounts([{ pubkey: programDataPda, isSigner: false, isWritable: false }])
+        .remainingAccounts([
+          { pubkey: programDataPda, isSigner: false, isWritable: false },
+        ])
         .signers([secondSigner])
         .rpc();
       treasuryPubkey = secondSigner.publicKey;
     } catch {
-      const protocolConfig = await program.account.protocolConfig.fetch(protocolPda);
+      const protocolConfig =
+        await program.account.protocolConfig.fetch(protocolPda);
       treasuryPubkey = protocolConfig.treasury;
     }
 
@@ -297,7 +313,7 @@ describe("Task lifecycle guards (#959)", () => {
           new BN(CAPABILITY_COMPUTE),
           "https://lifecycle-creator.example.com",
           null,
-          new BN(LAMPORTS_PER_SOL / 10)
+          new BN(LAMPORTS_PER_SOL / 10),
         )
         .accountsPartial({
           agent: creatorAgentPda,
@@ -314,7 +330,10 @@ describe("Task lifecycle guards (#959)", () => {
   it("rejects double completion on competitive task (CompetitiveTaskAlreadyWon)", async () => {
     const taskId = nextTaskId();
     const { taskPda, escrowPda } = await createCompetitiveTask(
-      creator, creatorAgentPda, taskId, 2
+      creator,
+      creatorAgentPda,
+      taskId,
+      2,
     );
 
     const workerA = await createFreshWorker();
@@ -330,24 +349,34 @@ describe("Task lifecycle guards (#959)", () => {
     // is closed (zeroed), so Anchor rejects at account deserialization. Both
     // AccountNotInitialized (escrow gone) and CompetitiveTaskAlreadyWon (guard) are valid.
     try {
-      await completeTask(taskPda, escrowPda, claimB, workerB, creator.publicKey);
+      await completeTask(
+        taskPda,
+        escrowPda,
+        claimB,
+        workerB,
+        creator.publicKey,
+      );
       expect.fail("Should have rejected double completion on competitive task");
     } catch (e: unknown) {
       const code = getErrorCode(e);
       const msg = (e as { message?: string })?.message ?? "";
       expect(
         code === "CompetitiveTaskAlreadyWon" ||
-        code === "TaskAlreadyCompleted" ||
-        code === "AccountNotInitialized" ||
-        msg.includes("AccountNotInitialized") ||
-        msg.includes("Error processing Instruction")
+          code === "TaskAlreadyCompleted" ||
+          code === "AccountNotInitialized" ||
+          msg.includes("AccountNotInitialized") ||
+          msg.includes("Error processing Instruction"),
       ).to.be.true;
     }
   });
 
   it("rejects dispute initiation on completed task (TaskNotInProgress)", async () => {
     const taskId = nextTaskId();
-    const { taskPda, escrowPda } = await createExclusiveTask(creator, creatorAgentPda, taskId);
+    const { taskPda, escrowPda } = await createExclusiveTask(
+      creator,
+      creatorAgentPda,
+      taskId,
+    );
 
     const worker = await createFreshWorker();
     const claimPda = await claimTask(taskPda, worker);
@@ -364,7 +393,7 @@ describe("Task lifecycle guards (#959)", () => {
           Array.from(taskId),
           Array.from(Buffer.from("evidence".padEnd(32, "\0"))),
           0,
-          VALID_EVIDENCE
+          VALID_EVIDENCE,
         )
         .accountsPartial({
           dispute: disputePda,
@@ -388,8 +417,8 @@ describe("Task lifecycle guards (#959)", () => {
       const msg = (e as { message?: string })?.message ?? "";
       expect(
         code === "TaskNotInProgress" ||
-        code === "AccountNotInitialized" ||
-        msg.includes("Error processing Instruction")
+          code === "AccountNotInitialized" ||
+          msg.includes("Error processing Instruction"),
       ).to.be.true;
     }
   });
@@ -397,7 +426,12 @@ describe("Task lifecycle guards (#959)", () => {
   it("rejects claim after task deadline (TaskExpired)", async () => {
     const taskId = nextTaskId();
     const deadline = new BN(getClockTimestamp(svm) + 60);
-    const { taskPda } = await createExclusiveTask(creator, creatorAgentPda, taskId, deadline);
+    const { taskPda } = await createExclusiveTask(
+      creator,
+      creatorAgentPda,
+      taskId,
+      deadline,
+    );
 
     // Advance clock past deadline
     advanceClock(svm, 61);
@@ -426,7 +460,11 @@ describe("Task lifecycle guards (#959)", () => {
 
   it("rejects cancel on completed task (InvalidStatusTransition)", async () => {
     const taskId = nextTaskId();
-    const { taskPda, escrowPda } = await createExclusiveTask(creator, creatorAgentPda, taskId);
+    const { taskPda, escrowPda } = await createExclusiveTask(
+      creator,
+      creatorAgentPda,
+      taskId,
+    );
 
     const worker = await createFreshWorker();
     const claimPda = await claimTask(taskPda, worker);
@@ -456,9 +494,9 @@ describe("Task lifecycle guards (#959)", () => {
       const msg = (e as { message?: string })?.message ?? "";
       expect(
         code === "InvalidStatusTransition" ||
-        msg.includes("AccountNotInitialized") ||
-        msg.includes("does not exist") ||
-        msg.includes("Error processing Instruction")
+          msg.includes("AccountNotInitialized") ||
+          msg.includes("does not exist") ||
+          msg.includes("Error processing Instruction"),
       ).to.be.true;
     }
   });
@@ -466,7 +504,11 @@ describe("Task lifecycle guards (#959)", () => {
   it("rejects deregister with active tasks (AgentHasActiveTasks)", async () => {
     const worker = await createFreshWorker();
     const taskId = nextTaskId();
-    const { taskPda } = await createExclusiveTask(creator, creatorAgentPda, taskId);
+    const { taskPda } = await createExclusiveTask(
+      creator,
+      creatorAgentPda,
+      taskId,
+    );
 
     await claimTask(taskPda, worker);
 
@@ -490,7 +532,11 @@ describe("Task lifecycle guards (#959)", () => {
   it("rejects deregister with disputes_as_defendant > 0 (ActiveDisputesExist)", async () => {
     const worker = await createFreshWorker();
     const taskId = nextTaskId();
-    const { taskPda } = await createExclusiveTask(creator, creatorAgentPda, taskId);
+    const { taskPda } = await createExclusiveTask(
+      creator,
+      creatorAgentPda,
+      taskId,
+    );
 
     const claimPda = await claimTask(taskPda, worker);
 
@@ -503,7 +549,7 @@ describe("Task lifecycle guards (#959)", () => {
         Array.from(taskId),
         Array.from(Buffer.from("evidence".padEnd(32, "\0"))),
         0,
-        VALID_EVIDENCE
+        VALID_EVIDENCE,
       )
       .accountsPartial({
         dispute: disputePda,
@@ -533,15 +579,18 @@ describe("Task lifecycle guards (#959)", () => {
     } catch (e: unknown) {
       const code = getErrorCode(e);
       // Worker has both active tasks and disputes; either error is valid
-      expect(
-        code === "ActiveDisputesExist" || code === "AgentHasActiveTasks"
-      ).to.be.true;
+      expect(code === "ActiveDisputesExist" || code === "AgentHasActiveTasks")
+        .to.be.true;
     }
   });
 
   it("rejects completion of cancelled task (TaskCannotBeCancelled or TaskNotInProgress)", async () => {
     const taskId = nextTaskId();
-    const { taskPda, escrowPda } = await createExclusiveTask(creator, creatorAgentPda, taskId);
+    const { taskPda, escrowPda } = await createExclusiveTask(
+      creator,
+      creatorAgentPda,
+      taskId,
+    );
 
     // Cancel the task before any claims
     await program.methods
@@ -564,7 +613,13 @@ describe("Task lifecycle guards (#959)", () => {
     const worker = await createFreshWorker();
     const claimPda = deriveClaimPda(taskPda, worker.agentPda);
     try {
-      await completeTask(taskPda, escrowPda, claimPda, worker, creator.publicKey);
+      await completeTask(
+        taskPda,
+        escrowPda,
+        claimPda,
+        worker,
+        creator.publicKey,
+      );
       expect.fail("Should have rejected completion of cancelled task");
     } catch (e: unknown) {
       // Task is cancelled and escrow is closed — any error is expected
@@ -572,18 +627,22 @@ describe("Task lifecycle guards (#959)", () => {
       const msg = (e as { message?: string })?.message ?? "";
       expect(
         code === "TaskCannotBeCancelled" ||
-        code === "TaskNotInProgress" ||
-        code === "TaskAlreadyCompleted" ||
-        msg.includes("AccountNotInitialized") ||
-        msg.includes("does not exist") ||
-        msg.includes("Error processing Instruction")
+          code === "TaskNotInProgress" ||
+          code === "TaskAlreadyCompleted" ||
+          msg.includes("AccountNotInitialized") ||
+          msg.includes("does not exist") ||
+          msg.includes("Error processing Instruction"),
       ).to.be.true;
     }
   });
 
   it("rejects claim on cancelled task (TaskNotOpen)", async () => {
     const taskId = nextTaskId();
-    const { taskPda, escrowPda } = await createExclusiveTask(creator, creatorAgentPda, taskId);
+    const { taskPda, escrowPda } = await createExclusiveTask(
+      creator,
+      creatorAgentPda,
+      taskId,
+    );
 
     // Cancel the task
     await program.methods

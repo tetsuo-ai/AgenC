@@ -12,7 +12,7 @@
  * @module
  */
 
-import { Connection } from '@solana/web3.js';
+import { Connection } from "@solana/web3.js";
 import type {
   ConnectionManagerConfig,
   ConnectionManagerStats,
@@ -21,19 +21,19 @@ import type {
   EndpointHealthState,
   HealthCheckConfig,
   RetryConfig,
-} from './types.js';
-import { AllEndpointsUnhealthyError } from './errors.js';
+} from "./types.js";
+import { AllEndpointsUnhealthyError } from "./errors.js";
 import {
   isRetryableError,
   isConnectionLevelError,
   isWriteMethod,
   computeBackoff,
   deriveCoalesceKey,
-} from './retry.js';
-import type { Logger } from '../utils/logger.js';
-import { silentLogger } from '../utils/logger.js';
-import type { MetricsProvider } from '../task/types.js';
-import { TELEMETRY_METRIC_NAMES } from '../telemetry/metric-names.js';
+} from "./retry.js";
+import type { Logger } from "../utils/logger.js";
+import { silentLogger } from "../utils/logger.js";
+import type { MetricsProvider } from "../task/types.js";
+import { TELEMETRY_METRIC_NAMES } from "../telemetry/metric-names.js";
 
 // ============================================================================
 // Defaults
@@ -110,7 +110,7 @@ export class ConnectionManager {
 
   constructor(config: ConnectionManagerConfig) {
     if (!config.endpoints || config.endpoints.length === 0) {
-      throw new Error('ConnectionManager requires at least 1 endpoint');
+      throw new Error("ConnectionManager requires at least 1 endpoint");
     }
 
     this.retryConfig = { ...DEFAULT_RETRY, ...config.retry };
@@ -119,11 +119,11 @@ export class ConnectionManager {
     this.logger = config.logger ?? silentLogger;
     this.metrics = config.metrics;
 
-    const commitment = config.commitment ?? 'confirmed';
+    const commitment = config.commitment ?? "confirmed";
 
     // Normalize endpoints
     const endpoints: EndpointConfig[] = config.endpoints.map((ep) =>
-      typeof ep === 'string' ? { url: ep } : ep,
+      typeof ep === "string" ? { url: ep } : ep,
     );
 
     this.endpointUrls = endpoints.map((ep) => ep.url);
@@ -155,10 +155,10 @@ export class ConnectionManager {
 
     // Runtime guard: verify _rpcRequest is patchable
     const proto = this.primaryConnection as unknown as Record<string, unknown>;
-    if (typeof proto._rpcRequest !== 'function') {
+    if (typeof proto._rpcRequest !== "function") {
       throw new Error(
-        'Connection._rpcRequest is not a function — ' +
-        '@solana/web3.js version may be incompatible. Requires >=1.90.0.',
+        "Connection._rpcRequest is not a function — " +
+          "@solana/web3.js version may be incompatible. Requires >=1.90.0.",
       );
     }
 
@@ -167,7 +167,7 @@ export class ConnectionManager {
 
     this.logger.info(
       `ConnectionManager initialized with ${endpoints.length} endpoint(s), ` +
-      `active: ${this.endpointLabels.get(primaryUrl)}`,
+        `active: ${this.endpointLabels.get(primaryUrl)}`,
     );
   }
 
@@ -221,7 +221,7 @@ export class ConnectionManager {
   destroy(): void {
     this.abortController.abort();
     this.inflight.clear();
-    this.logger.info('ConnectionManager destroyed');
+    this.logger.info("ConnectionManager destroyed");
   }
 
   /**
@@ -238,7 +238,10 @@ export class ConnectionManager {
   // Core resilient request
   // ==========================================================================
 
-  private createResilientRpcRequest(): (method: string, args: unknown[]) => Promise<unknown> {
+  private createResilientRpcRequest(): (
+    method: string,
+    args: unknown[],
+  ) => Promise<unknown> {
     return (method: string, args: unknown[]): Promise<unknown> => {
       this._totalRequests++;
 
@@ -269,7 +272,10 @@ export class ConnectionManager {
   // Write path: no retry, only failover on connection-level errors
   // ==========================================================================
 
-  private async executeWrite(method: string, args: unknown[]): Promise<unknown> {
+  private async executeWrite(
+    method: string,
+    args: unknown[],
+  ): Promise<unknown> {
     const activeUrl = this.endpointUrls[this.activeIndex];
     const conn = this.connections.get(activeUrl)!;
     const rpcStart = Date.now();
@@ -278,7 +284,11 @@ export class ConnectionManager {
       const start = Date.now();
       const result = await this.callRpcRequest(conn, method, args);
       this.recordSuccess(activeUrl, Date.now() - start);
-      this.metrics?.histogram(TELEMETRY_METRIC_NAMES.RPC_REQUEST_DURATION, Date.now() - rpcStart, { method });
+      this.metrics?.histogram(
+        TELEMETRY_METRIC_NAMES.RPC_REQUEST_DURATION,
+        Date.now() - rpcStart,
+        { method },
+      );
       return result;
     } catch (error) {
       this.recordFailure(activeUrl, error);
@@ -288,7 +298,9 @@ export class ConnectionManager {
         const nextUrl = this.getNextHealthyEndpoint(activeUrl);
         if (nextUrl) {
           this._totalFailovers++;
-          this.metrics?.counter(TELEMETRY_METRIC_NAMES.RPC_FAILOVERS_TOTAL, 1, { method });
+          this.metrics?.counter(TELEMETRY_METRIC_NAMES.RPC_FAILOVERS_TOTAL, 1, {
+            method,
+          });
           this.activeIndex = this.endpointUrls.indexOf(nextUrl);
           this.logger.warn(
             `Write failover: ${this.endpointLabels.get(activeUrl)} → ${this.endpointLabels.get(nextUrl)}`,
@@ -299,7 +311,11 @@ export class ConnectionManager {
             const start = Date.now();
             const result = await this.callRpcRequest(nextConn, method, args);
             this.recordSuccess(nextUrl, Date.now() - start);
-            this.metrics?.histogram(TELEMETRY_METRIC_NAMES.RPC_REQUEST_DURATION, Date.now() - rpcStart, { method });
+            this.metrics?.histogram(
+              TELEMETRY_METRIC_NAMES.RPC_REQUEST_DURATION,
+              Date.now() - rpcStart,
+              { method },
+            );
             return result;
           } catch (failoverError) {
             this.recordFailure(nextUrl, failoverError);
@@ -324,10 +340,19 @@ export class ConnectionManager {
 
     while (triedEndpoints < this.endpointUrls.length) {
       const conn = this.connections.get(currentUrl)!;
-      const retryResult = await this.retryOnEndpoint(conn, currentUrl, method, args);
+      const retryResult = await this.retryOnEndpoint(
+        conn,
+        currentUrl,
+        method,
+        args,
+      );
 
       if (retryResult.success) {
-        this.metrics?.histogram(TELEMETRY_METRIC_NAMES.RPC_REQUEST_DURATION, Date.now() - rpcStart, { method });
+        this.metrics?.histogram(
+          TELEMETRY_METRIC_NAMES.RPC_REQUEST_DURATION,
+          Date.now() - rpcStart,
+          { method },
+        );
         return retryResult.value;
       }
 
@@ -338,7 +363,9 @@ export class ConnectionManager {
       if (!nextUrl) break;
 
       this._totalFailovers++;
-      this.metrics?.counter(TELEMETRY_METRIC_NAMES.RPC_FAILOVERS_TOTAL, 1, { method });
+      this.metrics?.counter(TELEMETRY_METRIC_NAMES.RPC_FAILOVERS_TOTAL, 1, {
+        method,
+      });
       currentUrl = nextUrl;
       this.activeIndex = this.endpointUrls.indexOf(currentUrl);
       this.logger.warn(
@@ -359,11 +386,16 @@ export class ConnectionManager {
     url: string,
     method: string,
     args: unknown[],
-  ): Promise<{ success: true; value: unknown } | { success: false; error: unknown }> {
+  ): Promise<
+    { success: true; value: unknown } | { success: false; error: unknown }
+  > {
     for (let attempt = 0; attempt <= this.retryConfig.maxRetries; attempt++) {
       // Check abort
       if (this.abortController.signal.aborted) {
-        return { success: false, error: new Error('ConnectionManager destroyed') };
+        return {
+          success: false,
+          error: new Error("ConnectionManager destroyed"),
+        };
       }
 
       try {
@@ -385,7 +417,9 @@ export class ConnectionManager {
         }
 
         this._totalRetries++;
-        this.metrics?.counter(TELEMETRY_METRIC_NAMES.RPC_RETRIES_TOTAL, 1, { method });
+        this.metrics?.counter(TELEMETRY_METRIC_NAMES.RPC_RETRIES_TOTAL, 1, {
+          method,
+        });
         const delay = computeBackoff(attempt, this.retryConfig);
         this.logger.debug(
           `Retry ${attempt + 1}/${this.retryConfig.maxRetries} on ${this.endpointLabels.get(url)} in ${delay}ms`,
@@ -397,7 +431,10 @@ export class ConnectionManager {
     }
 
     // Should not reach here, but satisfy TypeScript
-    return { success: false, error: new Error('Retry loop exited unexpectedly') };
+    return {
+      success: false,
+      error: new Error("Retry loop exited unexpectedly"),
+    };
   }
 
   // ==========================================================================
@@ -407,8 +444,14 @@ export class ConnectionManager {
   /**
    * Call the real _rpcRequest on a (non-patched) Connection instance.
    */
-  private callRpcRequest(conn: Connection, method: string, args: unknown[]): Promise<unknown> {
-    const proto = conn as unknown as { _rpcRequest: (m: string, a: unknown[]) => Promise<unknown> };
+  private callRpcRequest(
+    conn: Connection,
+    method: string,
+    args: unknown[],
+  ): Promise<unknown> {
+    const proto = conn as unknown as {
+      _rpcRequest: (m: string, a: unknown[]) => Promise<unknown>;
+    };
     return proto._rpcRequest(method, args);
   }
 
@@ -427,7 +470,9 @@ export class ConnectionManager {
         clearTimeout(timer);
         resolve();
       };
-      this.abortController.signal.addEventListener('abort', onAbort, { once: true });
+      this.abortController.signal.addEventListener("abort", onAbort, {
+        once: true,
+      });
     });
   }
 
@@ -444,12 +489,16 @@ export class ConnectionManager {
     h.consecutiveFailures = 0;
 
     // EMA latency update
-    h.latencyEma = h.latencyEma === 0
-      ? latencyMs
-      : h.latencyEma * (1 - EMA_FACTOR) + latencyMs * EMA_FACTOR;
+    h.latencyEma =
+      h.latencyEma === 0
+        ? latencyMs
+        : h.latencyEma * (1 - EMA_FACTOR) + latencyMs * EMA_FACTOR;
 
     // Recover from unhealthy
-    if (!h.healthy && h.consecutiveSuccesses >= this.healthConfig.healthyThreshold) {
+    if (
+      !h.healthy &&
+      h.consecutiveSuccesses >= this.healthConfig.healthyThreshold
+    ) {
       h.healthy = true;
       this.logger.info(`Endpoint recovered: ${h.label}`);
     }
@@ -466,9 +515,14 @@ export class ConnectionManager {
     h.lastErrorTime = Date.now();
     h.lastError = error instanceof Error ? error.message : String(error);
 
-    if (h.healthy && h.consecutiveFailures >= this.healthConfig.unhealthyThreshold) {
+    if (
+      h.healthy &&
+      h.consecutiveFailures >= this.healthConfig.unhealthyThreshold
+    ) {
       h.healthy = false;
-      this.logger.warn(`Endpoint unhealthy: ${h.label} (${h.consecutiveFailures} consecutive failures)`);
+      this.logger.warn(
+        `Endpoint unhealthy: ${h.label} (${h.consecutiveFailures} consecutive failures)`,
+      );
     }
   }
 
@@ -492,7 +546,10 @@ export class ConnectionManager {
       if (h.healthy) return url;
 
       // Cooldown-based auto-recovery: try unhealthy endpoint if cooldown elapsed
-      if (h.lastErrorTime && now - h.lastErrorTime >= this.healthConfig.unhealthyCooldownMs) {
+      if (
+        h.lastErrorTime &&
+        now - h.lastErrorTime >= this.healthConfig.unhealthyCooldownMs
+      ) {
         this.logger.info(`Attempting recovery of ${h.label} after cooldown`);
         return url;
       }

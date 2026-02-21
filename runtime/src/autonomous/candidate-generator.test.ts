@@ -1,10 +1,11 @@
-import { describe, expect, it, vi } from 'vitest';
-import { generateExecutionCandidates } from './candidate-generator.js';
-import { createTask as makeTask } from './test-utils.js';
+import { describe, expect, it, vi } from "vitest";
+import { generateExecutionCandidates } from "./candidate-generator.js";
+import { createTask as makeTask } from "./test-utils.js";
 
-describe('generateExecutionCandidates', () => {
-  it('enforces candidate/cost/token policy ceilings', async () => {
-    const execute = vi.fn()
+describe("generateExecutionCandidates", () => {
+  it("enforces candidate/cost/token policy ceilings", async () => {
+    const execute = vi
+      .fn()
       .mockResolvedValueOnce([1n])
       .mockResolvedValueOnce([2n])
       .mockResolvedValueOnce([3n])
@@ -32,12 +33,13 @@ describe('generateExecutionCandidates', () => {
     expect(result.budget.maxTokenBudget).toBe(48);
     expect(result.budget.consumedCostLamports).toBe(300n);
     expect(result.budget.consumedTokenUnits).toBe(48);
-    expect(result.budget.stoppedReason).toBe('target_reached');
+    expect(result.budget.stoppedReason).toBe("target_reached");
     expect(execute).toHaveBeenCalledTimes(3);
   });
 
-  it('applies diversity threshold and continues attempts until a novel candidate appears', async () => {
-    const execute = vi.fn()
+  it("applies diversity threshold and continues attempts until a novel candidate appears", async () => {
+    const execute = vi
+      .fn()
       .mockResolvedValueOnce([11n])
       .mockResolvedValueOnce([11n])
       .mockResolvedValueOnce([22n]);
@@ -60,8 +62,9 @@ describe('generateExecutionCandidates', () => {
     expect(execute).toHaveBeenCalledTimes(3);
   });
 
-  it('provides attempt context to policy hooks', async () => {
-    const execute = vi.fn()
+  it("provides attempt context to policy hooks", async () => {
+    const execute = vi
+      .fn()
       .mockResolvedValueOnce([1n])
       .mockResolvedValueOnce([2n]);
     const onBeforeAttempt = vi.fn();

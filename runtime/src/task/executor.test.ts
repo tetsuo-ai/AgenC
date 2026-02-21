@@ -1,6 +1,6 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { PublicKey, Keypair } from '@solana/web3.js';
-import { TaskExecutor } from './executor.js';
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { PublicKey, Keypair } from "@solana/web3.js";
+import { TaskExecutor } from "./executor.js";
 import type {
   TaskExecutionContext,
   TaskExecutionResult,
@@ -10,10 +10,14 @@ import type {
   ClaimResult,
   CompleteResult,
   BackpressureConfig,
-} from './types.js';
-import { isPrivateExecutionResult } from './types.js';
-import { silentLogger } from '../utils/logger.js';
-import { TaskTimeoutError, ClaimExpiredError, RetryExhaustedError } from '../types/errors.js';
+} from "./types.js";
+import { isPrivateExecutionResult } from "./types.js";
+import { silentLogger } from "../utils/logger.js";
+import {
+  TaskTimeoutError,
+  ClaimExpiredError,
+  RetryExhaustedError,
+} from "../types/errors.js";
 import {
   createTask,
   createDiscoveryResult,
@@ -22,16 +26,20 @@ import {
   createMockClaim,
   waitFor,
   flushAsync,
-} from './test-utils.js';
+} from "./test-utils.js";
 
 const agentId = new Uint8Array(32).fill(42);
 const agentPda = Keypair.generate().publicKey;
 
-const defaultHandler = async (_ctx: TaskExecutionContext): Promise<TaskExecutionResult> => ({
+const defaultHandler = async (
+  _ctx: TaskExecutionContext,
+): Promise<TaskExecutionResult> => ({
   proofHash: new Uint8Array(32).fill(1),
 });
 
-function createExecutorConfig(overrides: Partial<TaskExecutorConfig> = {}): TaskExecutorConfig {
+function createExecutorConfig(
+  overrides: Partial<TaskExecutorConfig> = {},
+): TaskExecutorConfig {
   return {
     operations: createMockOperations(),
     handler: defaultHandler,
@@ -46,16 +54,16 @@ function createExecutorConfig(overrides: Partial<TaskExecutorConfig> = {}): Task
 // Tests
 // ============================================================================
 
-describe('TaskExecutor', () => {
+describe("TaskExecutor", () => {
   // ==========================================================================
   // Autonomous Mode
   // ==========================================================================
 
-  describe('autonomous mode', () => {
-    it('starts discovery and enters processing loop', async () => {
+  describe("autonomous mode", () => {
+    it("starts discovery and enters processing loop", async () => {
       const mockDiscovery = createMockDiscovery();
       const config = createExecutorConfig({
-        mode: 'autonomous',
+        mode: "autonomous",
         discovery: mockDiscovery,
       });
       const executor = new TaskExecutor(config);
@@ -72,18 +80,20 @@ describe('TaskExecutor', () => {
       await startPromise;
     });
 
-    it('full pipeline: discover → claim → execute → submit', async () => {
+    it("full pipeline: discover → claim → execute → submit", async () => {
       const mockOps = createMockOperations();
       const mockDiscovery = createMockDiscovery();
       const handlerCalled = vi.fn();
 
-      const handler = async (ctx: TaskExecutionContext): Promise<TaskExecutionResult> => {
+      const handler = async (
+        ctx: TaskExecutionContext,
+      ): Promise<TaskExecutionResult> => {
         handlerCalled(ctx);
         return { proofHash: new Uint8Array(32).fill(1) };
       };
 
       const config = createExecutorConfig({
-        mode: 'autonomous',
+        mode: "autonomous",
         operations: mockOps,
         discovery: mockDiscovery,
         handler,
@@ -115,18 +125,20 @@ describe('TaskExecutor', () => {
       await startPromise;
     });
 
-    it('provides correct TaskExecutionContext to handler', async () => {
+    it("provides correct TaskExecutionContext to handler", async () => {
       const mockOps = createMockOperations();
       const mockDiscovery = createMockDiscovery();
       let capturedContext: TaskExecutionContext | null = null;
 
-      const handler = async (ctx: TaskExecutionContext): Promise<TaskExecutionResult> => {
+      const handler = async (
+        ctx: TaskExecutionContext,
+      ): Promise<TaskExecutionResult> => {
         capturedContext = ctx;
         return { proofHash: new Uint8Array(32).fill(1) };
       };
 
       const config = createExecutorConfig({
-        mode: 'autonomous',
+        mode: "autonomous",
         operations: mockOps,
         discovery: mockDiscovery,
         handler,
@@ -152,17 +164,19 @@ describe('TaskExecutor', () => {
       await startPromise;
     });
 
-    it('throws if discovery is not provided for autonomous mode', async () => {
-      const config = createExecutorConfig({ mode: 'autonomous' });
+    it("throws if discovery is not provided for autonomous mode", async () => {
+      const config = createExecutorConfig({ mode: "autonomous" });
       const executor = new TaskExecutor(config);
 
-      await expect(executor.start()).rejects.toThrow('TaskDiscovery is required');
+      await expect(executor.start()).rejects.toThrow(
+        "TaskDiscovery is required",
+      );
     });
 
-    it('throws if already running', async () => {
+    it("throws if already running", async () => {
       const mockDiscovery = createMockDiscovery();
       const config = createExecutorConfig({
-        mode: 'autonomous',
+        mode: "autonomous",
         discovery: mockDiscovery,
       });
       const executor = new TaskExecutor(config);
@@ -170,7 +184,7 @@ describe('TaskExecutor', () => {
 
       await waitFor(() => executor.isRunning());
 
-      await expect(executor.start()).rejects.toThrow('already running');
+      await expect(executor.start()).rejects.toThrow("already running");
 
       await executor.stop();
       await startPromise;
@@ -181,15 +195,15 @@ describe('TaskExecutor', () => {
   // Batch Mode
   // ==========================================================================
 
-  describe('batch mode', () => {
-    it('processes all specified batch tasks', async () => {
+  describe("batch mode", () => {
+    it("processes all specified batch tasks", async () => {
       const mockOps = createMockOperations();
       const taskPda = Keypair.generate().publicKey;
       const task = createTask();
       mockOps.fetchTask.mockResolvedValue(task);
 
       const config = createExecutorConfig({
-        mode: 'batch',
+        mode: "batch",
         operations: mockOps,
         batchTasks: [{ taskPda }],
       });
@@ -204,13 +218,13 @@ describe('TaskExecutor', () => {
       expect(status.tasksCompleted).toBe(1);
     });
 
-    it('resolves start() promise when batch is complete', async () => {
+    it("resolves start() promise when batch is complete", async () => {
       const mockOps = createMockOperations();
       const taskPda = Keypair.generate().publicKey;
       mockOps.fetchTask.mockResolvedValue(createTask());
 
       const config = createExecutorConfig({
-        mode: 'batch',
+        mode: "batch",
         operations: mockOps,
         batchTasks: [{ taskPda }],
       });
@@ -223,7 +237,7 @@ describe('TaskExecutor', () => {
       expect(executor.getStatus().tasksCompleted).toBe(1);
     });
 
-    it('handles mix of taskPda and creator+taskId batch items', async () => {
+    it("handles mix of taskPda and creator+taskId batch items", async () => {
       const mockOps = createMockOperations();
       const taskPda1 = Keypair.generate().publicKey;
       const creator = Keypair.generate().publicKey;
@@ -232,15 +246,14 @@ describe('TaskExecutor', () => {
       const task1 = createTask();
       const task2 = createTask({ creator, taskId: taskIdBytes });
 
-      mockOps.fetchTask.mockResolvedValueOnce(task1).mockResolvedValueOnce(task2);
+      mockOps.fetchTask
+        .mockResolvedValueOnce(task1)
+        .mockResolvedValueOnce(task2);
 
       const config = createExecutorConfig({
-        mode: 'batch',
+        mode: "batch",
         operations: mockOps,
-        batchTasks: [
-          { taskPda: taskPda1 },
-          { creator, taskId: taskIdBytes },
-        ],
+        batchTasks: [{ taskPda: taskPda1 }, { creator, taskId: taskIdBytes }],
       });
       const executor = new TaskExecutor(config);
       await executor.start();
@@ -249,9 +262,9 @@ describe('TaskExecutor', () => {
       expect(mockOps.completeTask).toHaveBeenCalledTimes(2);
     });
 
-    it('handles empty batch gracefully', async () => {
+    it("handles empty batch gracefully", async () => {
       const config = createExecutorConfig({
-        mode: 'batch',
+        mode: "batch",
         batchTasks: [],
       });
       const executor = new TaskExecutor(config);
@@ -260,12 +273,12 @@ describe('TaskExecutor', () => {
       expect(executor.getStatus().tasksDiscovered).toBe(0);
     });
 
-    it('handles batch task not found on-chain', async () => {
+    it("handles batch task not found on-chain", async () => {
       const mockOps = createMockOperations();
       mockOps.fetchTask.mockResolvedValue(null);
 
       const config = createExecutorConfig({
-        mode: 'batch',
+        mode: "batch",
         operations: mockOps,
         batchTasks: [{ taskPda: Keypair.generate().publicKey }],
       });
@@ -281,21 +294,21 @@ describe('TaskExecutor', () => {
   // Error Handling
   // ==========================================================================
 
-  describe('error handling', () => {
-    it('continues processing on claim failure', async () => {
+  describe("error handling", () => {
+    it("continues processing on claim failure", async () => {
       const mockOps = createMockOperations();
       const mockDiscovery = createMockDiscovery();
       mockOps.claimTask
-        .mockRejectedValueOnce(new Error('TaskFullyClaimed'))
+        .mockRejectedValueOnce(new Error("TaskFullyClaimed"))
         .mockResolvedValueOnce({
           success: true,
           taskId: new Uint8Array(32),
           claimPda: Keypair.generate().publicKey,
-          transactionSignature: 'sig',
+          transactionSignature: "sig",
         } satisfies ClaimResult);
 
       const config = createExecutorConfig({
-        mode: 'autonomous',
+        mode: "autonomous",
         operations: mockOps,
         discovery: mockDiscovery,
         retryPolicy: { maxAttempts: 1 },
@@ -321,16 +334,16 @@ describe('TaskExecutor', () => {
       await startPromise;
     });
 
-    it('increments tasksFailed on handler failure', async () => {
+    it("increments tasksFailed on handler failure", async () => {
       const mockOps = createMockOperations();
       const mockDiscovery = createMockDiscovery();
 
       const handler = async (): Promise<TaskExecutionResult> => {
-        throw new Error('Handler error');
+        throw new Error("Handler error");
       };
 
       const config = createExecutorConfig({
-        mode: 'autonomous',
+        mode: "autonomous",
         operations: mockOps,
         discovery: mockDiscovery,
         handler,
@@ -350,13 +363,13 @@ describe('TaskExecutor', () => {
       await startPromise;
     });
 
-    it('increments submitsFailed on submit failure', async () => {
+    it("increments submitsFailed on submit failure", async () => {
       const mockOps = createMockOperations();
       const mockDiscovery = createMockDiscovery();
-      mockOps.completeTask.mockRejectedValueOnce(new Error('Submit failed'));
+      mockOps.completeTask.mockRejectedValueOnce(new Error("Submit failed"));
 
       const config = createExecutorConfig({
-        mode: 'autonomous',
+        mode: "autonomous",
         operations: mockOps,
         discovery: mockDiscovery,
       });
@@ -378,14 +391,14 @@ describe('TaskExecutor', () => {
   // Status & Metrics
   // ==========================================================================
 
-  describe('status and metrics', () => {
-    it('getStatus() returns correct initial state', () => {
-      const config = createExecutorConfig({ mode: 'batch' });
+  describe("status and metrics", () => {
+    it("getStatus() returns correct initial state", () => {
+      const config = createExecutorConfig({ mode: "batch" });
       const executor = new TaskExecutor(config);
 
       const status = executor.getStatus();
       expect(status.running).toBe(false);
-      expect(status.mode).toBe('batch');
+      expect(status.mode).toBe("batch");
       expect(status.tasksDiscovered).toBe(0);
       expect(status.tasksClaimed).toBe(0);
       expect(status.tasksCompleted).toBe(0);
@@ -397,10 +410,10 @@ describe('TaskExecutor', () => {
       expect(status.uptimeMs).toBe(0);
     });
 
-    it('isRunning() reflects state correctly', async () => {
+    it("isRunning() reflects state correctly", async () => {
       const mockDiscovery = createMockDiscovery();
       const config = createExecutorConfig({
-        mode: 'autonomous',
+        mode: "autonomous",
         discovery: mockDiscovery,
       });
       const executor = new TaskExecutor(config);
@@ -418,10 +431,10 @@ describe('TaskExecutor', () => {
       expect(executor.isRunning()).toBe(false);
     });
 
-    it('getStatus() computes uptimeMs from startedAt', async () => {
+    it("getStatus() computes uptimeMs from startedAt", async () => {
       const mockDiscovery = createMockDiscovery();
       const config = createExecutorConfig({
-        mode: 'autonomous',
+        mode: "autonomous",
         discovery: mockDiscovery,
       });
       const executor = new TaskExecutor(config);
@@ -433,19 +446,19 @@ describe('TaskExecutor', () => {
       await new Promise((r) => setTimeout(r, 50));
 
       const status = executor.getStatus();
-      expect(status.startedAt).toBeTypeOf('number');
+      expect(status.startedAt).toBeTypeOf("number");
       expect(status.uptimeMs).toBeGreaterThan(0);
 
       await executor.stop();
       await startPromise;
     });
 
-    it('tracks metrics across multiple tasks', async () => {
+    it("tracks metrics across multiple tasks", async () => {
       const mockOps = createMockOperations();
       const mockDiscovery = createMockDiscovery();
 
       const config = createExecutorConfig({
-        mode: 'autonomous',
+        mode: "autonomous",
         operations: mockOps,
         discovery: mockDiscovery,
       });
@@ -477,14 +490,14 @@ describe('TaskExecutor', () => {
   // Event Callbacks
   // ==========================================================================
 
-  describe('event callbacks', () => {
-    it('emits onTaskDiscovered when task enters pipeline', async () => {
+  describe("event callbacks", () => {
+    it("emits onTaskDiscovered when task enters pipeline", async () => {
       const mockOps = createMockOperations();
       const mockDiscovery = createMockDiscovery();
       const onTaskDiscovered = vi.fn();
 
       const config = createExecutorConfig({
-        mode: 'autonomous',
+        mode: "autonomous",
         operations: mockOps,
         discovery: mockDiscovery,
       });
@@ -504,13 +517,13 @@ describe('TaskExecutor', () => {
       await startPromise;
     });
 
-    it('emits onTaskClaimed after successful claim', async () => {
+    it("emits onTaskClaimed after successful claim", async () => {
       const mockOps = createMockOperations();
       const mockDiscovery = createMockDiscovery();
       const onTaskClaimed = vi.fn();
 
       const config = createExecutorConfig({
-        mode: 'autonomous',
+        mode: "autonomous",
         operations: mockOps,
         discovery: mockDiscovery,
       });
@@ -530,17 +543,19 @@ describe('TaskExecutor', () => {
       await startPromise;
     });
 
-    it('emits onTaskExecutionStarted when handler begins', async () => {
+    it("emits onTaskExecutionStarted when handler begins", async () => {
       const mockOps = createMockOperations();
       const mockDiscovery = createMockDiscovery();
       const onTaskExecutionStarted = vi.fn();
 
-      const handler = async (ctx: TaskExecutionContext): Promise<TaskExecutionResult> => {
+      const handler = async (
+        ctx: TaskExecutionContext,
+      ): Promise<TaskExecutionResult> => {
         return { proofHash: new Uint8Array(32).fill(1) };
       };
 
       const config = createExecutorConfig({
-        mode: 'autonomous',
+        mode: "autonomous",
         operations: mockOps,
         discovery: mockDiscovery,
         handler,
@@ -555,20 +570,21 @@ describe('TaskExecutor', () => {
       await waitFor(() => onTaskExecutionStarted.mock.calls.length > 0);
 
       expect(onTaskExecutionStarted).toHaveBeenCalledTimes(1);
-      const ctx = onTaskExecutionStarted.mock.calls[0][0] as TaskExecutionContext;
+      const ctx = onTaskExecutionStarted.mock
+        .calls[0][0] as TaskExecutionContext;
       expect(ctx.signal).toBeInstanceOf(AbortSignal);
 
       await executor.stop();
       await startPromise;
     });
 
-    it('emits onTaskCompleted after successful submission', async () => {
+    it("emits onTaskCompleted after successful submission", async () => {
       const mockOps = createMockOperations();
       const mockDiscovery = createMockDiscovery();
       const onTaskCompleted = vi.fn();
 
       const config = createExecutorConfig({
-        mode: 'autonomous',
+        mode: "autonomous",
         operations: mockOps,
         discovery: mockDiscovery,
       });
@@ -588,14 +604,14 @@ describe('TaskExecutor', () => {
       await startPromise;
     });
 
-    it('emits onClaimFailed when claim fails', async () => {
+    it("emits onClaimFailed when claim fails", async () => {
       const mockOps = createMockOperations();
       const mockDiscovery = createMockDiscovery();
       const onClaimFailed = vi.fn();
-      mockOps.claimTask.mockRejectedValueOnce(new Error('claim error'));
+      mockOps.claimTask.mockRejectedValueOnce(new Error("claim error"));
 
       const config = createExecutorConfig({
-        mode: 'autonomous',
+        mode: "autonomous",
         operations: mockOps,
         discovery: mockDiscovery,
       });
@@ -617,17 +633,17 @@ describe('TaskExecutor', () => {
       await startPromise;
     });
 
-    it('emits onTaskFailed when handler throws', async () => {
+    it("emits onTaskFailed when handler throws", async () => {
       const mockOps = createMockOperations();
       const mockDiscovery = createMockDiscovery();
       const onTaskFailed = vi.fn();
 
       const handler = async (): Promise<TaskExecutionResult> => {
-        throw new Error('handler boom');
+        throw new Error("handler boom");
       };
 
       const config = createExecutorConfig({
-        mode: 'autonomous',
+        mode: "autonomous",
         operations: mockOps,
         discovery: mockDiscovery,
         handler,
@@ -643,21 +659,21 @@ describe('TaskExecutor', () => {
       await waitFor(() => onTaskFailed.mock.calls.length > 0);
 
       expect(onTaskFailed).toHaveBeenCalledTimes(1);
-      expect(onTaskFailed.mock.calls[0][0].message).toBe('handler boom');
+      expect(onTaskFailed.mock.calls[0][0].message).toBe("handler boom");
       expect(onTaskFailed.mock.calls[0][1]).toBe(task.pda);
 
       await executor.stop();
       await startPromise;
     });
 
-    it('emits onSubmitFailed when submit fails', async () => {
+    it("emits onSubmitFailed when submit fails", async () => {
       const mockOps = createMockOperations();
       const mockDiscovery = createMockDiscovery();
       const onSubmitFailed = vi.fn();
-      mockOps.completeTask.mockRejectedValueOnce(new Error('submit error'));
+      mockOps.completeTask.mockRejectedValueOnce(new Error("submit error"));
 
       const config = createExecutorConfig({
-        mode: 'autonomous',
+        mode: "autonomous",
         operations: mockOps,
         discovery: mockDiscovery,
       });
@@ -672,7 +688,7 @@ describe('TaskExecutor', () => {
       await waitFor(() => onSubmitFailed.mock.calls.length > 0);
 
       expect(onSubmitFailed).toHaveBeenCalledTimes(1);
-      expect(onSubmitFailed.mock.calls[0][0].message).toBe('submit error');
+      expect(onSubmitFailed.mock.calls[0][0].message).toBe("submit error");
       expect(onSubmitFailed.mock.calls[0][1]).toBe(task.pda);
 
       await executor.stop();
@@ -684,19 +700,21 @@ describe('TaskExecutor', () => {
   // Concurrency
   // ==========================================================================
 
-  describe('concurrency', () => {
-    it('handler receives AbortSignal in context', async () => {
+  describe("concurrency", () => {
+    it("handler receives AbortSignal in context", async () => {
       const mockOps = createMockOperations();
       const mockDiscovery = createMockDiscovery();
       let capturedSignal: AbortSignal | null = null;
 
-      const handler = async (ctx: TaskExecutionContext): Promise<TaskExecutionResult> => {
+      const handler = async (
+        ctx: TaskExecutionContext,
+      ): Promise<TaskExecutionResult> => {
         capturedSignal = ctx.signal;
         return { proofHash: new Uint8Array(32).fill(1) };
       };
 
       const config = createExecutorConfig({
-        mode: 'autonomous',
+        mode: "autonomous",
         operations: mockOps,
         discovery: mockDiscovery,
         handler,
@@ -715,13 +733,15 @@ describe('TaskExecutor', () => {
       await startPromise;
     });
 
-    it('AbortSignal fires on stop()', async () => {
+    it("AbortSignal fires on stop()", async () => {
       const mockOps = createMockOperations();
       const mockDiscovery = createMockDiscovery();
       let capturedSignal: AbortSignal | null = null;
       let handlerResolve: (() => void) | null = null;
 
-      const handler = async (ctx: TaskExecutionContext): Promise<TaskExecutionResult> => {
+      const handler = async (
+        ctx: TaskExecutionContext,
+      ): Promise<TaskExecutionResult> => {
         capturedSignal = ctx.signal;
         // Hold the handler open until we resolve
         await new Promise<void>((resolve) => {
@@ -731,7 +751,7 @@ describe('TaskExecutor', () => {
       };
 
       const config = createExecutorConfig({
-        mode: 'autonomous',
+        mode: "autonomous",
         operations: mockOps,
         discovery: mockDiscovery,
         handler,
@@ -755,14 +775,16 @@ describe('TaskExecutor', () => {
       await startPromise;
     });
 
-    it('respects maxConcurrentTasks limit', async () => {
+    it("respects maxConcurrentTasks limit", async () => {
       const mockOps = createMockOperations();
       const mockDiscovery = createMockDiscovery();
       let activeCount = 0;
       let maxActive = 0;
       const resolvers: (() => void)[] = [];
 
-      const handler = async (ctx: TaskExecutionContext): Promise<TaskExecutionResult> => {
+      const handler = async (
+        ctx: TaskExecutionContext,
+      ): Promise<TaskExecutionResult> => {
         activeCount++;
         maxActive = Math.max(maxActive, activeCount);
         await new Promise<void>((resolve) => {
@@ -773,7 +795,7 @@ describe('TaskExecutor', () => {
       };
 
       const config = createExecutorConfig({
-        mode: 'autonomous',
+        mode: "autonomous",
         operations: mockOps,
         discovery: mockDiscovery,
         handler,
@@ -818,12 +840,14 @@ describe('TaskExecutor', () => {
       await startPromise;
     });
 
-    it('queues tasks beyond limit (not dropped)', async () => {
+    it("queues tasks beyond limit (not dropped)", async () => {
       const mockOps = createMockOperations();
       const mockDiscovery = createMockDiscovery();
       const resolvers: (() => void)[] = [];
 
-      const handler = async (_ctx: TaskExecutionContext): Promise<TaskExecutionResult> => {
+      const handler = async (
+        _ctx: TaskExecutionContext,
+      ): Promise<TaskExecutionResult> => {
         await new Promise<void>((resolve) => {
           resolvers.push(resolve);
         });
@@ -831,7 +855,7 @@ describe('TaskExecutor', () => {
       };
 
       const config = createExecutorConfig({
-        mode: 'autonomous',
+        mode: "autonomous",
         operations: mockOps,
         discovery: mockDiscovery,
         handler,
@@ -876,8 +900,8 @@ describe('TaskExecutor', () => {
   // Private Tasks
   // ==========================================================================
 
-  describe('private tasks', () => {
-    it('calls completeTaskPrivate for PrivateTaskExecutionResult', async () => {
+  describe("private tasks", () => {
+    it("calls completeTaskPrivate for PrivateTaskExecutionResult", async () => {
       const mockOps = createMockOperations();
       const mockDiscovery = createMockDiscovery();
 
@@ -894,7 +918,7 @@ describe('TaskExecutor', () => {
       };
 
       const config = createExecutorConfig({
-        mode: 'autonomous',
+        mode: "autonomous",
         operations: mockOps,
         discovery: mockDiscovery,
         handler,
@@ -913,7 +937,7 @@ describe('TaskExecutor', () => {
       await startPromise;
     });
 
-    it('calls completeTask for TaskExecutionResult', async () => {
+    it("calls completeTask for TaskExecutionResult", async () => {
       const mockOps = createMockOperations();
       const mockDiscovery = createMockDiscovery();
 
@@ -923,7 +947,7 @@ describe('TaskExecutor', () => {
       });
 
       const config = createExecutorConfig({
-        mode: 'autonomous',
+        mode: "autonomous",
         operations: mockOps,
         discovery: mockDiscovery,
         handler,
@@ -942,7 +966,7 @@ describe('TaskExecutor', () => {
       await startPromise;
     });
 
-    it('isPrivateExecutionResult correctly routes result type', () => {
+    it("isPrivateExecutionResult correctly routes result type", () => {
       const publicResult: TaskExecutionResult = {
         proofHash: new Uint8Array(32),
       };
@@ -964,9 +988,9 @@ describe('TaskExecutor', () => {
   // Lifecycle
   // ==========================================================================
 
-  describe('lifecycle', () => {
-    it('stop() is idempotent when not running', async () => {
-      const config = createExecutorConfig({ mode: 'batch' });
+  describe("lifecycle", () => {
+    it("stop() is idempotent when not running", async () => {
+      const config = createExecutorConfig({ mode: "batch" });
       const executor = new TaskExecutor(config);
 
       // Should not throw
@@ -974,10 +998,10 @@ describe('TaskExecutor', () => {
       await executor.stop();
     });
 
-    it('stop() clears queue and stops discovery', async () => {
+    it("stop() clears queue and stops discovery", async () => {
       const mockDiscovery = createMockDiscovery();
       const config = createExecutorConfig({
-        mode: 'autonomous',
+        mode: "autonomous",
         discovery: mockDiscovery,
       });
       const executor = new TaskExecutor(config);
@@ -991,14 +1015,14 @@ describe('TaskExecutor', () => {
       expect(executor.isRunning()).toBe(false);
     });
 
-    it('on() registers multiple event callback sets', async () => {
+    it("on() registers multiple event callback sets", async () => {
       const mockOps = createMockOperations();
       const mockDiscovery = createMockDiscovery();
       const onDiscovered1 = vi.fn();
       const onCompleted2 = vi.fn();
 
       const config = createExecutorConfig({
-        mode: 'autonomous',
+        mode: "autonomous",
         operations: mockOps,
         discovery: mockDiscovery,
       });
@@ -1024,23 +1048,27 @@ describe('TaskExecutor', () => {
   // Task Timeout
   // ==========================================================================
 
-  describe('task timeout', () => {
-    it('times out handler that exceeds taskTimeoutMs', async () => {
+  describe("task timeout", () => {
+    it("times out handler that exceeds taskTimeoutMs", async () => {
       const mockOps = createMockOperations();
       const mockDiscovery = createMockDiscovery();
       const onTaskTimeout = vi.fn();
       const onTaskFailed = vi.fn();
 
-      const handler = async (ctx: TaskExecutionContext): Promise<TaskExecutionResult> => {
+      const handler = async (
+        ctx: TaskExecutionContext,
+      ): Promise<TaskExecutionResult> => {
         // Hang indefinitely until aborted
         await new Promise<void>((_, reject) => {
-          ctx.signal.addEventListener('abort', () => reject(new Error('aborted')));
+          ctx.signal.addEventListener("abort", () =>
+            reject(new Error("aborted")),
+          );
         });
         return { proofHash: new Uint8Array(32).fill(1) };
       };
 
       const config = createExecutorConfig({
-        mode: 'autonomous',
+        mode: "autonomous",
         operations: mockOps,
         discovery: mockDiscovery,
         handler,
@@ -1075,19 +1103,21 @@ describe('TaskExecutor', () => {
       await startPromise;
     });
 
-    it('does not timeout handler that completes within taskTimeoutMs', async () => {
+    it("does not timeout handler that completes within taskTimeoutMs", async () => {
       const mockOps = createMockOperations();
       const mockDiscovery = createMockDiscovery();
       const onTaskTimeout = vi.fn();
       const onTaskCompleted = vi.fn();
 
-      const handler = async (_ctx: TaskExecutionContext): Promise<TaskExecutionResult> => {
+      const handler = async (
+        _ctx: TaskExecutionContext,
+      ): Promise<TaskExecutionResult> => {
         // Complete quickly
         return { proofHash: new Uint8Array(32).fill(1) };
       };
 
       const config = createExecutorConfig({
-        mode: 'autonomous',
+        mode: "autonomous",
         operations: mockOps,
         discovery: mockDiscovery,
         handler,
@@ -1110,21 +1140,25 @@ describe('TaskExecutor', () => {
       await startPromise;
     });
 
-    it('propagates abort signal to handler on timeout', async () => {
+    it("propagates abort signal to handler on timeout", async () => {
       const mockOps = createMockOperations();
       const mockDiscovery = createMockDiscovery();
       let capturedSignal: AbortSignal | null = null;
 
-      const handler = async (ctx: TaskExecutionContext): Promise<TaskExecutionResult> => {
+      const handler = async (
+        ctx: TaskExecutionContext,
+      ): Promise<TaskExecutionResult> => {
         capturedSignal = ctx.signal;
         await new Promise<void>((_, reject) => {
-          ctx.signal.addEventListener('abort', () => reject(new Error('aborted')));
+          ctx.signal.addEventListener("abort", () =>
+            reject(new Error("aborted")),
+          );
         });
         return { proofHash: new Uint8Array(32).fill(1) };
       };
 
       const config = createExecutorConfig({
-        mode: 'autonomous',
+        mode: "autonomous",
         operations: mockOps,
         discovery: mockDiscovery,
         handler,
@@ -1148,18 +1182,22 @@ describe('TaskExecutor', () => {
       await startPromise;
     });
 
-    it('releases concurrency slot on timeout so queued tasks run', async () => {
+    it("releases concurrency slot on timeout so queued tasks run", async () => {
       const mockOps = createMockOperations();
       const mockDiscovery = createMockDiscovery();
       const onTaskTimeout = vi.fn();
       let callCount = 0;
 
-      const handler = async (ctx: TaskExecutionContext): Promise<TaskExecutionResult> => {
+      const handler = async (
+        ctx: TaskExecutionContext,
+      ): Promise<TaskExecutionResult> => {
         callCount++;
         if (callCount === 1) {
           // First task: hang until aborted
           await new Promise<void>((_, reject) => {
-            ctx.signal.addEventListener('abort', () => reject(new Error('aborted')));
+            ctx.signal.addEventListener("abort", () =>
+              reject(new Error("aborted")),
+            );
           });
         }
         // Second task: complete normally
@@ -1167,7 +1205,7 @@ describe('TaskExecutor', () => {
       };
 
       const config = createExecutorConfig({
-        mode: 'autonomous',
+        mode: "autonomous",
         operations: mockOps,
         discovery: mockDiscovery,
         handler,
@@ -1197,13 +1235,15 @@ describe('TaskExecutor', () => {
       await startPromise;
     });
 
-    it('taskTimeoutMs=0 disables timeout', async () => {
+    it("taskTimeoutMs=0 disables timeout", async () => {
       const mockOps = createMockOperations();
       const mockDiscovery = createMockDiscovery();
       const onTaskTimeout = vi.fn();
       let handlerResolve: (() => void) | null = null;
 
-      const handler = async (ctx: TaskExecutionContext): Promise<TaskExecutionResult> => {
+      const handler = async (
+        ctx: TaskExecutionContext,
+      ): Promise<TaskExecutionResult> => {
         await new Promise<void>((resolve) => {
           handlerResolve = resolve;
         });
@@ -1211,7 +1251,7 @@ describe('TaskExecutor', () => {
       };
 
       const config = createExecutorConfig({
-        mode: 'autonomous',
+        mode: "autonomous",
         operations: mockOps,
         discovery: mockDiscovery,
         handler,
@@ -1241,8 +1281,8 @@ describe('TaskExecutor', () => {
       await startPromise;
     });
 
-    it('defaults to 300_000ms timeout', () => {
-      const config = createExecutorConfig({ mode: 'batch' });
+    it("defaults to 300_000ms timeout", () => {
+      const config = createExecutorConfig({ mode: "batch" });
       const executor = new TaskExecutor(config);
 
       // We can't directly access the private field, but we can verify
@@ -1255,8 +1295,8 @@ describe('TaskExecutor', () => {
   // Claim Deadline Monitoring
   // ==========================================================================
 
-  describe('claim deadline monitoring', () => {
-    it('aborts immediately when remaining claim time < buffer', async () => {
+  describe("claim deadline monitoring", () => {
+    it("aborts immediately when remaining claim time < buffer", async () => {
       const mockOps = createMockOperations();
       const mockDiscovery = createMockDiscovery();
       const onClaimExpiring = vi.fn();
@@ -1267,7 +1307,7 @@ describe('TaskExecutor', () => {
       mockOps.fetchClaim.mockResolvedValue(createMockClaim({ expiresAt }));
 
       const config = createExecutorConfig({
-        mode: 'autonomous',
+        mode: "autonomous",
         operations: mockOps,
         discovery: mockDiscovery,
         claimExpiryBufferMs: 30_000,
@@ -1302,7 +1342,7 @@ describe('TaskExecutor', () => {
       await startPromise;
     });
 
-    it('aborts mid-execution when claim deadline timer fires', async () => {
+    it("aborts mid-execution when claim deadline timer fires", async () => {
       const mockOps = createMockOperations();
       const mockDiscovery = createMockDiscovery();
       const onClaimExpiring = vi.fn();
@@ -1313,16 +1353,20 @@ describe('TaskExecutor', () => {
       const expiresAt = Math.floor(Date.now() / 1000) + 1; // 1 second
       mockOps.fetchClaim.mockResolvedValue(createMockClaim({ expiresAt }));
 
-      const handler = async (ctx: TaskExecutionContext): Promise<TaskExecutionResult> => {
+      const handler = async (
+        ctx: TaskExecutionContext,
+      ): Promise<TaskExecutionResult> => {
         // Hang until aborted
         await new Promise<void>((_, reject) => {
-          ctx.signal.addEventListener('abort', () => reject(new Error('aborted')));
+          ctx.signal.addEventListener("abort", () =>
+            reject(new Error("aborted")),
+          );
         });
         return { proofHash: new Uint8Array(32).fill(1) };
       };
 
       const config = createExecutorConfig({
-        mode: 'autonomous',
+        mode: "autonomous",
         operations: mockOps,
         discovery: mockDiscovery,
         handler,
@@ -1341,7 +1385,9 @@ describe('TaskExecutor', () => {
       await waitFor(() => onClaimExpiring.mock.calls.length > 0, 5000);
 
       expect(onClaimExpiring).toHaveBeenCalledTimes(1);
-      expect(onClaimExpiring.mock.calls[0][0]).toBeInstanceOf(ClaimExpiredError);
+      expect(onClaimExpiring.mock.calls[0][0]).toBeInstanceOf(
+        ClaimExpiredError,
+      );
       expect(onClaimExpiring.mock.calls[0][1]).toBe(task.pda);
 
       expect(onTaskFailed).toHaveBeenCalledTimes(1);
@@ -1352,7 +1398,7 @@ describe('TaskExecutor', () => {
       await startPromise;
     });
 
-    it('does not abort when claim has plenty of time remaining', async () => {
+    it("does not abort when claim has plenty of time remaining", async () => {
       const mockOps = createMockOperations();
       const mockDiscovery = createMockDiscovery();
       const onClaimExpiring = vi.fn();
@@ -1363,7 +1409,7 @@ describe('TaskExecutor', () => {
       mockOps.fetchClaim.mockResolvedValue(createMockClaim({ expiresAt }));
 
       const config = createExecutorConfig({
-        mode: 'autonomous',
+        mode: "autonomous",
         operations: mockOps,
         discovery: mockDiscovery,
         claimExpiryBufferMs: 30_000,
@@ -1385,14 +1431,14 @@ describe('TaskExecutor', () => {
       await startPromise;
     });
 
-    it('claimExpiryBufferMs=0 disables claim deadline monitoring', async () => {
+    it("claimExpiryBufferMs=0 disables claim deadline monitoring", async () => {
       const mockOps = createMockOperations();
       const mockDiscovery = createMockDiscovery();
       const onClaimExpiring = vi.fn();
       const onTaskCompleted = vi.fn();
 
       const config = createExecutorConfig({
-        mode: 'autonomous',
+        mode: "autonomous",
         operations: mockOps,
         discovery: mockDiscovery,
         claimExpiryBufferMs: 0,
@@ -1415,7 +1461,7 @@ describe('TaskExecutor', () => {
       await startPromise;
     });
 
-    it('coexists with taskTimeoutMs (shorter timeout fires first)', async () => {
+    it("coexists with taskTimeoutMs (shorter timeout fires first)", async () => {
       const mockOps = createMockOperations();
       const mockDiscovery = createMockDiscovery();
       const onClaimExpiring = vi.fn();
@@ -1425,15 +1471,19 @@ describe('TaskExecutor', () => {
       const expiresAt = Math.floor(Date.now() / 1000) + 3600;
       mockOps.fetchClaim.mockResolvedValue(createMockClaim({ expiresAt }));
 
-      const handler = async (ctx: TaskExecutionContext): Promise<TaskExecutionResult> => {
+      const handler = async (
+        ctx: TaskExecutionContext,
+      ): Promise<TaskExecutionResult> => {
         await new Promise<void>((_, reject) => {
-          ctx.signal.addEventListener('abort', () => reject(new Error('aborted')));
+          ctx.signal.addEventListener("abort", () =>
+            reject(new Error("aborted")),
+          );
         });
         return { proofHash: new Uint8Array(32).fill(1) };
       };
 
       const config = createExecutorConfig({
-        mode: 'autonomous',
+        mode: "autonomous",
         operations: mockOps,
         discovery: mockDiscovery,
         handler,
@@ -1457,7 +1507,7 @@ describe('TaskExecutor', () => {
       await startPromise;
     });
 
-    it('skips deadline check when fetchClaim returns null', async () => {
+    it("skips deadline check when fetchClaim returns null", async () => {
       const mockOps = createMockOperations();
       const mockDiscovery = createMockDiscovery();
       const onClaimExpiring = vi.fn();
@@ -1467,7 +1517,7 @@ describe('TaskExecutor', () => {
       mockOps.fetchClaim.mockResolvedValue(null);
 
       const config = createExecutorConfig({
-        mode: 'autonomous',
+        mode: "autonomous",
         operations: mockOps,
         discovery: mockDiscovery,
         claimExpiryBufferMs: 30_000,
@@ -1488,15 +1538,15 @@ describe('TaskExecutor', () => {
       await startPromise;
     });
 
-    it('defaults to 30_000ms claim expiry buffer', () => {
-      const config = createExecutorConfig({ mode: 'batch' });
+    it("defaults to 30_000ms claim expiry buffer", () => {
+      const config = createExecutorConfig({ mode: "batch" });
       const executor = new TaskExecutor(config);
 
       // Config was accepted without error
       expect(executor).toBeDefined();
     });
 
-    it('increments claimsExpired metric on claim deadline abort', async () => {
+    it("increments claimsExpired metric on claim deadline abort", async () => {
       const mockOps = createMockOperations();
       const mockDiscovery = createMockDiscovery();
       const onClaimExpiring = vi.fn();
@@ -1506,7 +1556,7 @@ describe('TaskExecutor', () => {
       mockOps.fetchClaim.mockResolvedValue(createMockClaim({ expiresAt }));
 
       const config = createExecutorConfig({
-        mode: 'autonomous',
+        mode: "autonomous",
         operations: mockOps,
         discovery: mockDiscovery,
         claimExpiryBufferMs: 30_000,
@@ -1526,7 +1576,7 @@ describe('TaskExecutor', () => {
       await startPromise;
     });
 
-    it('releases concurrency slot on claim deadline abort', async () => {
+    it("releases concurrency slot on claim deadline abort", async () => {
       const mockOps = createMockOperations();
       const mockDiscovery = createMockDiscovery();
       const onClaimExpiring = vi.fn();
@@ -1535,11 +1585,15 @@ describe('TaskExecutor', () => {
       let callCount = 0;
       // First call: claim about to expire; second call: claim has plenty of time
       mockOps.fetchClaim
-        .mockResolvedValueOnce(createMockClaim({ expiresAt: Math.floor(Date.now() / 1000) + 5 }))
-        .mockResolvedValueOnce(createMockClaim({ expiresAt: Math.floor(Date.now() / 1000) + 3600 }));
+        .mockResolvedValueOnce(
+          createMockClaim({ expiresAt: Math.floor(Date.now() / 1000) + 5 }),
+        )
+        .mockResolvedValueOnce(
+          createMockClaim({ expiresAt: Math.floor(Date.now() / 1000) + 3600 }),
+        );
 
       const config = createExecutorConfig({
-        mode: 'autonomous',
+        mode: "autonomous",
         operations: mockOps,
         discovery: mockDiscovery,
         maxConcurrentTasks: 1,
@@ -1573,26 +1627,31 @@ describe('TaskExecutor', () => {
   // Retry with Exponential Backoff
   // ==========================================================================
 
-  describe('retry with exponential backoff', () => {
-    it('retries claim on transient failure and succeeds on second attempt', async () => {
+  describe("retry with exponential backoff", () => {
+    it("retries claim on transient failure and succeeds on second attempt", async () => {
       const mockOps = createMockOperations();
       const mockDiscovery = createMockDiscovery();
       const claimPda = Keypair.generate().publicKey;
 
       mockOps.claimTask
-        .mockRejectedValueOnce(new Error('RPC timeout'))
+        .mockRejectedValueOnce(new Error("RPC timeout"))
         .mockResolvedValueOnce({
           success: true,
           taskId: new Uint8Array(32),
           claimPda,
-          transactionSignature: 'retry-sig',
+          transactionSignature: "retry-sig",
         } satisfies ClaimResult);
 
       const config = createExecutorConfig({
-        mode: 'autonomous',
+        mode: "autonomous",
         operations: mockOps,
         discovery: mockDiscovery,
-        retryPolicy: { maxAttempts: 3, baseDelayMs: 10, maxDelayMs: 100, jitter: false },
+        retryPolicy: {
+          maxAttempts: 3,
+          baseDelayMs: 10,
+          maxDelayMs: 100,
+          jitter: false,
+        },
       });
       const executor = new TaskExecutor(config);
       const startPromise = executor.start();
@@ -1610,24 +1669,29 @@ describe('TaskExecutor', () => {
       await startPromise;
     });
 
-    it('retries submit on transient failure and succeeds on second attempt', async () => {
+    it("retries submit on transient failure and succeeds on second attempt", async () => {
       const mockOps = createMockOperations();
       const mockDiscovery = createMockDiscovery();
 
       mockOps.completeTask
-        .mockRejectedValueOnce(new Error('network blip'))
+        .mockRejectedValueOnce(new Error("network blip"))
         .mockResolvedValueOnce({
           success: true,
           taskId: new Uint8Array(32),
           isPrivate: false,
-          transactionSignature: 'retry-submit-sig',
+          transactionSignature: "retry-submit-sig",
         } satisfies CompleteResult);
 
       const config = createExecutorConfig({
-        mode: 'autonomous',
+        mode: "autonomous",
         operations: mockOps,
         discovery: mockDiscovery,
-        retryPolicy: { maxAttempts: 3, baseDelayMs: 10, maxDelayMs: 100, jitter: false },
+        retryPolicy: {
+          maxAttempts: 3,
+          baseDelayMs: 10,
+          maxDelayMs: 100,
+          jitter: false,
+        },
       });
       const executor = new TaskExecutor(config);
       const startPromise = executor.start();
@@ -1644,19 +1708,24 @@ describe('TaskExecutor', () => {
       await startPromise;
     });
 
-    it('throws RetryExhaustedError when all claim attempts fail', async () => {
+    it("throws RetryExhaustedError when all claim attempts fail", async () => {
       const mockOps = createMockOperations();
       const mockDiscovery = createMockDiscovery();
       const onClaimFailed = vi.fn();
       const onTaskFailed = vi.fn();
 
-      mockOps.claimTask.mockRejectedValue(new Error('persistent RPC failure'));
+      mockOps.claimTask.mockRejectedValue(new Error("persistent RPC failure"));
 
       const config = createExecutorConfig({
-        mode: 'autonomous',
+        mode: "autonomous",
         operations: mockOps,
         discovery: mockDiscovery,
-        retryPolicy: { maxAttempts: 3, baseDelayMs: 10, maxDelayMs: 50, jitter: false },
+        retryPolicy: {
+          maxAttempts: 3,
+          baseDelayMs: 10,
+          maxDelayMs: 50,
+          jitter: false,
+        },
       });
       const executor = new TaskExecutor(config);
       executor.on({ onClaimFailed });
@@ -1681,17 +1750,24 @@ describe('TaskExecutor', () => {
       await startPromise;
     });
 
-    it('throws RetryExhaustedError when all submit attempts fail', async () => {
+    it("throws RetryExhaustedError when all submit attempts fail", async () => {
       const mockOps = createMockOperations();
       const mockDiscovery = createMockDiscovery();
 
-      mockOps.completeTask.mockRejectedValue(new Error('persistent submit failure'));
+      mockOps.completeTask.mockRejectedValue(
+        new Error("persistent submit failure"),
+      );
 
       const config = createExecutorConfig({
-        mode: 'autonomous',
+        mode: "autonomous",
         operations: mockOps,
         discovery: mockDiscovery,
-        retryPolicy: { maxAttempts: 2, baseDelayMs: 10, maxDelayMs: 50, jitter: false },
+        retryPolicy: {
+          maxAttempts: 2,
+          baseDelayMs: 10,
+          maxDelayMs: 50,
+          jitter: false,
+        },
       });
       const executor = new TaskExecutor(config);
 
@@ -1710,22 +1786,27 @@ describe('TaskExecutor', () => {
       await startPromise;
     });
 
-    it('does not retry handler execution failures', async () => {
+    it("does not retry handler execution failures", async () => {
       const mockOps = createMockOperations();
       const mockDiscovery = createMockDiscovery();
       let handlerCallCount = 0;
 
       const handler = async (): Promise<TaskExecutionResult> => {
         handlerCallCount++;
-        throw new Error('handler logic error');
+        throw new Error("handler logic error");
       };
 
       const config = createExecutorConfig({
-        mode: 'autonomous',
+        mode: "autonomous",
         operations: mockOps,
         discovery: mockDiscovery,
         handler,
-        retryPolicy: { maxAttempts: 3, baseDelayMs: 10, maxDelayMs: 100, jitter: false },
+        retryPolicy: {
+          maxAttempts: 3,
+          baseDelayMs: 10,
+          maxDelayMs: 100,
+          jitter: false,
+        },
       });
       const executor = new TaskExecutor(config);
 
@@ -1743,18 +1824,23 @@ describe('TaskExecutor', () => {
       await startPromise;
     });
 
-    it('respects abort signal during retry backoff wait', async () => {
+    it("respects abort signal during retry backoff wait", async () => {
       const mockOps = createMockOperations();
       const mockDiscovery = createMockDiscovery();
 
       // Claim always fails so we enter retry backoff
-      mockOps.claimTask.mockRejectedValue(new Error('fail'));
+      mockOps.claimTask.mockRejectedValue(new Error("fail"));
 
       const config = createExecutorConfig({
-        mode: 'autonomous',
+        mode: "autonomous",
         operations: mockOps,
         discovery: mockDiscovery,
-        retryPolicy: { maxAttempts: 5, baseDelayMs: 60_000, maxDelayMs: 60_000, jitter: false },
+        retryPolicy: {
+          maxAttempts: 5,
+          baseDelayMs: 60_000,
+          maxDelayMs: 60_000,
+          jitter: false,
+        },
       });
       const executor = new TaskExecutor(config);
 
@@ -1774,27 +1860,32 @@ describe('TaskExecutor', () => {
       expect(mockOps.claimTask).toHaveBeenCalledTimes(1);
     });
 
-    it('logs retry attempts', async () => {
+    it("logs retry attempts", async () => {
       const mockOps = createMockOperations();
       const mockDiscovery = createMockDiscovery();
       const warnSpy = vi.fn();
       const logger = { ...silentLogger, warn: warnSpy };
 
       mockOps.claimTask
-        .mockRejectedValueOnce(new Error('transient'))
+        .mockRejectedValueOnce(new Error("transient"))
         .mockResolvedValueOnce({
           success: true,
           taskId: new Uint8Array(32),
           claimPda: Keypair.generate().publicKey,
-          transactionSignature: 'sig',
+          transactionSignature: "sig",
         } satisfies ClaimResult);
 
       const config = createExecutorConfig({
-        mode: 'autonomous',
+        mode: "autonomous",
         operations: mockOps,
         discovery: mockDiscovery,
         logger,
-        retryPolicy: { maxAttempts: 3, baseDelayMs: 10, maxDelayMs: 100, jitter: false },
+        retryPolicy: {
+          maxAttempts: 3,
+          baseDelayMs: 10,
+          maxDelayMs: 100,
+          jitter: false,
+        },
       });
       const executor = new TaskExecutor(config);
 
@@ -1806,7 +1897,9 @@ describe('TaskExecutor', () => {
 
       // Verify a retry warning was logged
       const retryLogs = warnSpy.mock.calls.filter(
-        (args: unknown[]) => typeof args[0] === 'string' && (args[0] as string).includes('Retry claim'),
+        (args: unknown[]) =>
+          typeof args[0] === "string" &&
+          (args[0] as string).includes("Retry claim"),
       );
       expect(retryLogs.length).toBeGreaterThanOrEqual(1);
 
@@ -1814,7 +1907,7 @@ describe('TaskExecutor', () => {
       await startPromise;
     });
 
-    it('applies exponential backoff delays (no jitter)', async () => {
+    it("applies exponential backoff delays (no jitter)", async () => {
       const mockOps = createMockOperations();
       const mockDiscovery = createMockDiscovery();
       const timestamps: number[] = [];
@@ -1822,21 +1915,26 @@ describe('TaskExecutor', () => {
       mockOps.claimTask.mockImplementation(async () => {
         timestamps.push(Date.now());
         if (timestamps.length < 3) {
-          throw new Error('transient');
+          throw new Error("transient");
         }
         return {
           success: true,
           taskId: new Uint8Array(32),
           claimPda: Keypair.generate().publicKey,
-          transactionSignature: 'sig',
+          transactionSignature: "sig",
         } satisfies ClaimResult;
       });
 
       const config = createExecutorConfig({
-        mode: 'autonomous',
+        mode: "autonomous",
         operations: mockOps,
         discovery: mockDiscovery,
-        retryPolicy: { maxAttempts: 3, baseDelayMs: 50, maxDelayMs: 5000, jitter: false },
+        retryPolicy: {
+          maxAttempts: 3,
+          baseDelayMs: 50,
+          maxDelayMs: 5000,
+          jitter: false,
+        },
       });
       const executor = new TaskExecutor(config);
 
@@ -1862,17 +1960,22 @@ describe('TaskExecutor', () => {
       await startPromise;
     });
 
-    it('retryPolicy maxAttempts=1 disables retries', async () => {
+    it("retryPolicy maxAttempts=1 disables retries", async () => {
       const mockOps = createMockOperations();
       const mockDiscovery = createMockDiscovery();
 
-      mockOps.claimTask.mockRejectedValue(new Error('fail'));
+      mockOps.claimTask.mockRejectedValue(new Error("fail"));
 
       const config = createExecutorConfig({
-        mode: 'autonomous',
+        mode: "autonomous",
         operations: mockOps,
         discovery: mockDiscovery,
-        retryPolicy: { maxAttempts: 1, baseDelayMs: 10, maxDelayMs: 100, jitter: false },
+        retryPolicy: {
+          maxAttempts: 1,
+          baseDelayMs: 10,
+          maxDelayMs: 100,
+          jitter: false,
+        },
       });
       const executor = new TaskExecutor(config);
 
@@ -1891,16 +1994,16 @@ describe('TaskExecutor', () => {
       await startPromise;
     });
 
-    it('uses default retry policy when none is provided', async () => {
+    it("uses default retry policy when none is provided", async () => {
       const mockOps = createMockOperations();
       const mockDiscovery = createMockDiscovery();
 
       // The default policy has maxAttempts=3, so claim is retried up to 3 times total
       // We'll make it fail all 3 times with a very recognizable error
-      mockOps.claimTask.mockRejectedValue(new Error('default policy test'));
+      mockOps.claimTask.mockRejectedValue(new Error("default policy test"));
 
       const config = createExecutorConfig({
-        mode: 'autonomous',
+        mode: "autonomous",
         operations: mockOps,
         discovery: mockDiscovery,
         // No retryPolicy — uses defaults: maxAttempts=3, baseDelayMs=1000
@@ -1929,13 +2032,15 @@ describe('TaskExecutor', () => {
   // Backpressure
   // ==========================================================================
 
-  describe('backpressure', () => {
-    it('pauses discovery when queue reaches highWaterMark', async () => {
+  describe("backpressure", () => {
+    it("pauses discovery when queue reaches highWaterMark", async () => {
       const mockOps = createMockOperations();
       const mockDiscovery = createMockDiscovery();
       const resolvers: (() => void)[] = [];
 
-      const handler = async (_ctx: TaskExecutionContext): Promise<TaskExecutionResult> => {
+      const handler = async (
+        _ctx: TaskExecutionContext,
+      ): Promise<TaskExecutionResult> => {
         await new Promise<void>((resolve) => {
           resolvers.push(resolve);
         });
@@ -1943,12 +2048,16 @@ describe('TaskExecutor', () => {
       };
 
       const config = createExecutorConfig({
-        mode: 'autonomous',
+        mode: "autonomous",
         operations: mockOps,
         discovery: mockDiscovery,
         handler,
         maxConcurrentTasks: 1,
-        backpressure: { highWaterMark: 3, lowWaterMark: 1, pauseDiscovery: true },
+        backpressure: {
+          highWaterMark: 3,
+          lowWaterMark: 1,
+          pauseDiscovery: true,
+        },
       });
       const executor = new TaskExecutor(config);
       const startPromise = executor.start();
@@ -1975,12 +2084,14 @@ describe('TaskExecutor', () => {
       await startPromise;
     });
 
-    it('resumes discovery when queue drains to lowWaterMark', async () => {
+    it("resumes discovery when queue drains to lowWaterMark", async () => {
       const mockOps = createMockOperations();
       const mockDiscovery = createMockDiscovery();
       const resolvers: (() => void)[] = [];
 
-      const handler = async (_ctx: TaskExecutionContext): Promise<TaskExecutionResult> => {
+      const handler = async (
+        _ctx: TaskExecutionContext,
+      ): Promise<TaskExecutionResult> => {
         await new Promise<void>((resolve) => {
           resolvers.push(resolve);
         });
@@ -1988,12 +2099,16 @@ describe('TaskExecutor', () => {
       };
 
       const config = createExecutorConfig({
-        mode: 'autonomous',
+        mode: "autonomous",
         operations: mockOps,
         discovery: mockDiscovery,
         handler,
         maxConcurrentTasks: 1,
-        backpressure: { highWaterMark: 3, lowWaterMark: 1, pauseDiscovery: true },
+        backpressure: {
+          highWaterMark: 3,
+          lowWaterMark: 1,
+          pauseDiscovery: true,
+        },
       });
       const executor = new TaskExecutor(config);
       const startPromise = executor.start();
@@ -2032,12 +2147,14 @@ describe('TaskExecutor', () => {
       await startPromise;
     });
 
-    it('hysteresis prevents rapid pause/resume oscillation', async () => {
+    it("hysteresis prevents rapid pause/resume oscillation", async () => {
       const mockOps = createMockOperations();
       const mockDiscovery = createMockDiscovery();
       const resolvers: (() => void)[] = [];
 
-      const handler = async (_ctx: TaskExecutionContext): Promise<TaskExecutionResult> => {
+      const handler = async (
+        _ctx: TaskExecutionContext,
+      ): Promise<TaskExecutionResult> => {
         await new Promise<void>((resolve) => {
           resolvers.push(resolve);
         });
@@ -2045,12 +2162,16 @@ describe('TaskExecutor', () => {
       };
 
       const config = createExecutorConfig({
-        mode: 'autonomous',
+        mode: "autonomous",
         operations: mockOps,
         discovery: mockDiscovery,
         handler,
         maxConcurrentTasks: 1,
-        backpressure: { highWaterMark: 3, lowWaterMark: 1, pauseDiscovery: true },
+        backpressure: {
+          highWaterMark: 3,
+          lowWaterMark: 1,
+          pauseDiscovery: true,
+        },
       });
       const executor = new TaskExecutor(config);
       const startPromise = executor.start();
@@ -2086,14 +2207,16 @@ describe('TaskExecutor', () => {
       await startPromise;
     });
 
-    it('emits onBackpressureActivated and onBackpressureReleased events', async () => {
+    it("emits onBackpressureActivated and onBackpressureReleased events", async () => {
       const mockOps = createMockOperations();
       const mockDiscovery = createMockDiscovery();
       const onBackpressureActivated = vi.fn();
       const onBackpressureReleased = vi.fn();
       const resolvers: (() => void)[] = [];
 
-      const handler = async (_ctx: TaskExecutionContext): Promise<TaskExecutionResult> => {
+      const handler = async (
+        _ctx: TaskExecutionContext,
+      ): Promise<TaskExecutionResult> => {
         await new Promise<void>((resolve) => {
           resolvers.push(resolve);
         });
@@ -2101,12 +2224,16 @@ describe('TaskExecutor', () => {
       };
 
       const config = createExecutorConfig({
-        mode: 'autonomous',
+        mode: "autonomous",
         operations: mockOps,
         discovery: mockDiscovery,
         handler,
         maxConcurrentTasks: 1,
-        backpressure: { highWaterMark: 2, lowWaterMark: 0, pauseDiscovery: true },
+        backpressure: {
+          highWaterMark: 2,
+          lowWaterMark: 0,
+          pauseDiscovery: true,
+        },
       });
       const executor = new TaskExecutor(config);
       executor.on({ onBackpressureActivated, onBackpressureReleased });
@@ -2142,12 +2269,14 @@ describe('TaskExecutor', () => {
       await startPromise;
     });
 
-    it('getQueueSize() returns current queue length', async () => {
+    it("getQueueSize() returns current queue length", async () => {
       const mockOps = createMockOperations();
       const mockDiscovery = createMockDiscovery();
       const resolvers: (() => void)[] = [];
 
-      const handler = async (_ctx: TaskExecutionContext): Promise<TaskExecutionResult> => {
+      const handler = async (
+        _ctx: TaskExecutionContext,
+      ): Promise<TaskExecutionResult> => {
         await new Promise<void>((resolve) => {
           resolvers.push(resolve);
         });
@@ -2155,7 +2284,7 @@ describe('TaskExecutor', () => {
       };
 
       const config = createExecutorConfig({
-        mode: 'autonomous',
+        mode: "autonomous",
         operations: mockOps,
         discovery: mockDiscovery,
         handler,
@@ -2185,12 +2314,14 @@ describe('TaskExecutor', () => {
       await startPromise;
     });
 
-    it('does not pause discovery when pauseDiscovery is false', async () => {
+    it("does not pause discovery when pauseDiscovery is false", async () => {
       const mockOps = createMockOperations();
       const mockDiscovery = createMockDiscovery();
       const resolvers: (() => void)[] = [];
 
-      const handler = async (_ctx: TaskExecutionContext): Promise<TaskExecutionResult> => {
+      const handler = async (
+        _ctx: TaskExecutionContext,
+      ): Promise<TaskExecutionResult> => {
         await new Promise<void>((resolve) => {
           resolvers.push(resolve);
         });
@@ -2198,12 +2329,16 @@ describe('TaskExecutor', () => {
       };
 
       const config = createExecutorConfig({
-        mode: 'autonomous',
+        mode: "autonomous",
         operations: mockOps,
         discovery: mockDiscovery,
         handler,
         maxConcurrentTasks: 1,
-        backpressure: { highWaterMark: 2, lowWaterMark: 1, pauseDiscovery: false },
+        backpressure: {
+          highWaterMark: 2,
+          lowWaterMark: 1,
+          pauseDiscovery: false,
+        },
       });
       const executor = new TaskExecutor(config);
       const startPromise = executor.start();
@@ -2228,8 +2363,8 @@ describe('TaskExecutor', () => {
       await startPromise;
     });
 
-    it('getStatus() includes queueSize and backpressureActive', () => {
-      const config = createExecutorConfig({ mode: 'batch' });
+    it("getStatus() includes queueSize and backpressureActive", () => {
+      const config = createExecutorConfig({ mode: "batch" });
       const executor = new TaskExecutor(config);
       const status = executor.getStatus();
 
@@ -2237,12 +2372,14 @@ describe('TaskExecutor', () => {
       expect(status.backpressureActive).toBe(false);
     });
 
-    it('stop() clears backpressure state', async () => {
+    it("stop() clears backpressure state", async () => {
       const mockOps = createMockOperations();
       const mockDiscovery = createMockDiscovery();
       const resolvers: (() => void)[] = [];
 
-      const handler = async (_ctx: TaskExecutionContext): Promise<TaskExecutionResult> => {
+      const handler = async (
+        _ctx: TaskExecutionContext,
+      ): Promise<TaskExecutionResult> => {
         await new Promise<void>((resolve) => {
           resolvers.push(resolve);
         });
@@ -2250,12 +2387,16 @@ describe('TaskExecutor', () => {
       };
 
       const config = createExecutorConfig({
-        mode: 'autonomous',
+        mode: "autonomous",
         operations: mockOps,
         discovery: mockDiscovery,
         handler,
         maxConcurrentTasks: 1,
-        backpressure: { highWaterMark: 2, lowWaterMark: 0, pauseDiscovery: true },
+        backpressure: {
+          highWaterMark: 2,
+          lowWaterMark: 0,
+          pauseDiscovery: true,
+        },
       });
       const executor = new TaskExecutor(config);
       const startPromise = executor.start();

@@ -1,5 +1,5 @@
-import { Connection, PublicKey } from '@solana/web3.js';
-import { type Program } from '@coral-xyz/anchor';
+import { Connection, PublicKey } from "@solana/web3.js";
+import { type Program } from "@coral-xyz/anchor";
 import {
   HASH_SIZE,
   RISC0_IMAGE_ID_LEN,
@@ -8,12 +8,17 @@ import {
   RISC0_SELECTOR_LEN,
   TRUSTED_RISC0_IMAGE_ID,
   TRUSTED_RISC0_SELECTOR,
-} from './constants';
-import { getTask, deriveClaimPda, TaskState, type PrivateCompletionPayload } from './tasks';
-import { getAccount } from './anchor-utils';
+} from "./constants";
+import {
+  getTask,
+  deriveClaimPda,
+  TaskState,
+  type PrivateCompletionPayload,
+} from "./tasks";
+import { getAccount } from "./anchor-utils";
 
-const BINDING_SPEND_SEED = Buffer.from('binding_spend');
-const NULLIFIER_SPEND_SEED = Buffer.from('nullifier_spend');
+const BINDING_SPEND_SEED = Buffer.from("binding_spend");
+const NULLIFIER_SPEND_SEED = Buffer.from("nullifier_spend");
 const JOURNAL_TASK_OFFSET = 0;
 const JOURNAL_AUTHORITY_OFFSET = 32;
 const JOURNAL_CONSTRAINT_OFFSET = 64;
@@ -60,7 +65,7 @@ export interface ProofSubmissionPreflightParams {
   authorityPubkey?: PublicKey;
   proof: Pick<
     PrivateCompletionPayload,
-    'sealBytes' | 'journal' | 'imageId' | 'bindingSeed' | 'nullifierSeed'
+    "sealBytes" | "journal" | "imageId" | "bindingSeed" | "nullifierSeed"
   >;
   proofGeneratedAtMs?: number;
   maxProofAgeMs?: number;
@@ -125,9 +130,9 @@ function bytesEqual(a: Uint8Array | Buffer, b: Uint8Array | Buffer): boolean {
 }
 
 function toNumber(value: unknown): number {
-  if (typeof value === 'number') return value;
-  if (typeof value === 'bigint') return Number(value);
-  if (value && typeof value === 'object' && 'toNumber' in value) {
+  if (typeof value === "number") return value;
+  if (typeof value === "bigint") return Number(value);
+  if (value && typeof value === "object" && "toNumber" in value) {
     return (value as { toNumber: () => number }).toNumber();
   }
   return 0;
@@ -164,7 +169,7 @@ export async function runProofSubmissionPreflight(
 
   if (sealBytes.length !== RISC0_SEAL_BORSH_LEN) {
     failures.push({
-      check: 'seal_length',
+      check: "seal_length",
       message: `sealBytes must be ${RISC0_SEAL_BORSH_LEN} bytes, got ${sealBytes.length}`,
       retriable: false,
     });
@@ -172,8 +177,8 @@ export async function runProofSubmissionPreflight(
     const selector = sealBytes.subarray(0, RISC0_SELECTOR_LEN);
     if (!bytesEqual(selector, TRUSTED_RISC0_SELECTOR)) {
       failures.push({
-        check: 'trusted_selector',
-        message: 'sealBytes selector does not match trusted selector',
+        check: "trusted_selector",
+        message: "sealBytes selector does not match trusted selector",
         retriable: false,
       });
     }
@@ -181,7 +186,7 @@ export async function runProofSubmissionPreflight(
 
   if (journalBytes.length !== RISC0_JOURNAL_LEN) {
     failures.push({
-      check: 'journal_length',
+      check: "journal_length",
       message: `journal must be ${RISC0_JOURNAL_LEN} bytes, got ${journalBytes.length}`,
       retriable: false,
     });
@@ -189,21 +194,21 @@ export async function runProofSubmissionPreflight(
 
   if (imageId.length !== RISC0_IMAGE_ID_LEN) {
     failures.push({
-      check: 'image_id_length',
+      check: "image_id_length",
       message: `imageId must be ${RISC0_IMAGE_ID_LEN} bytes, got ${imageId.length}`,
       retriable: false,
     });
   } else if (!bytesEqual(imageId, TRUSTED_RISC0_IMAGE_ID)) {
     failures.push({
-      check: 'trusted_image_id',
-      message: 'imageId does not match trusted image ID',
+      check: "trusted_image_id",
+      message: "imageId does not match trusted image ID",
       retriable: false,
     });
   }
 
   if (bindingSeed.length !== HASH_SIZE) {
     failures.push({
-      check: 'binding_seed_length',
+      check: "binding_seed_length",
       message: `bindingSeed must be ${HASH_SIZE} bytes, got ${bindingSeed.length}`,
       retriable: false,
     });
@@ -211,7 +216,7 @@ export async function runProofSubmissionPreflight(
 
   if (nullifierSeed.length !== HASH_SIZE) {
     failures.push({
-      check: 'nullifier_seed_length',
+      check: "nullifier_seed_length",
       message: `nullifierSeed must be ${HASH_SIZE} bytes, got ${nullifierSeed.length}`,
       retriable: false,
     });
@@ -223,39 +228,45 @@ export async function runProofSubmissionPreflight(
 
     if (isAllZeros(journal.outputCommitment)) {
       failures.push({
-        check: 'commitment_nonzero',
-        message: 'journal output commitment cannot be all zeros',
+        check: "commitment_nonzero",
+        message: "journal output commitment cannot be all zeros",
         retriable: false,
       });
     }
 
     if (isAllZeros(journal.binding)) {
       failures.push({
-        check: 'binding_nonzero',
-        message: 'journal binding cannot be all zeros',
+        check: "binding_nonzero",
+        message: "journal binding cannot be all zeros",
         retriable: false,
       });
     }
 
     if (isAllZeros(journal.nullifier)) {
       failures.push({
-        check: 'nullifier_nonzero',
-        message: 'journal nullifier cannot be all zeros',
+        check: "nullifier_nonzero",
+        message: "journal nullifier cannot be all zeros",
         retriable: false,
       });
     }
 
-    if (!isAllZeros(journal.binding) && !hasSufficientByteDiversity(journal.binding)) {
+    if (
+      !isAllZeros(journal.binding) &&
+      !hasSufficientByteDiversity(journal.binding)
+    ) {
       failures.push({
-        check: 'binding_entropy',
+        check: "binding_entropy",
         message: `journal binding has insufficient byte diversity (min ${MIN_DISTINCT_BYTES} distinct byte values required)`,
         retriable: false,
       });
     }
 
-    if (!isAllZeros(journal.nullifier) && !hasSufficientByteDiversity(journal.nullifier)) {
+    if (
+      !isAllZeros(journal.nullifier) &&
+      !hasSufficientByteDiversity(journal.nullifier)
+    ) {
       failures.push({
-        check: 'nullifier_entropy',
+        check: "nullifier_entropy",
         message: `journal nullifier has insufficient byte diversity (min ${MIN_DISTINCT_BYTES} distinct byte values required)`,
         retriable: false,
       });
@@ -263,32 +274,41 @@ export async function runProofSubmissionPreflight(
 
     if (!bytesEqual(journal.taskPda, params.taskPda.toBytes())) {
       failures.push({
-        check: 'journal_task_match',
-        message: 'journal task PDA does not match provided task PDA',
+        check: "journal_task_match",
+        message: "journal task PDA does not match provided task PDA",
         retriable: false,
       });
     }
 
-    if (params.authorityPubkey && !bytesEqual(journal.agentAuthority, params.authorityPubkey.toBytes())) {
+    if (
+      params.authorityPubkey &&
+      !bytesEqual(journal.agentAuthority, params.authorityPubkey.toBytes())
+    ) {
       failures.push({
-        check: 'journal_authority_match',
-        message: 'journal authority does not match submitting authority',
+        check: "journal_authority_match",
+        message: "journal authority does not match submitting authority",
         retriable: false,
       });
     }
 
-    if (bindingSeed.length === HASH_SIZE && !bytesEqual(journal.binding, bindingSeed)) {
+    if (
+      bindingSeed.length === HASH_SIZE &&
+      !bytesEqual(journal.binding, bindingSeed)
+    ) {
       failures.push({
-        check: 'binding_seed_match',
-        message: 'journal binding does not match bindingSeed',
+        check: "binding_seed_match",
+        message: "journal binding does not match bindingSeed",
         retriable: false,
       });
     }
 
-    if (nullifierSeed.length === HASH_SIZE && !bytesEqual(journal.nullifier, nullifierSeed)) {
+    if (
+      nullifierSeed.length === HASH_SIZE &&
+      !bytesEqual(journal.nullifier, nullifierSeed)
+    ) {
       failures.push({
-        check: 'nullifier_seed_match',
-        message: 'journal nullifier does not match nullifierSeed',
+        check: "nullifier_seed_match",
+        message: "journal nullifier does not match nullifierSeed",
         retriable: false,
       });
     }
@@ -300,13 +320,13 @@ export async function runProofSubmissionPreflight(
 
     if (age > maxAge) {
       failures.push({
-        check: 'proof_freshness',
+        check: "proof_freshness",
         message: `Proof is ${Math.floor(age / 1000)}s old, max allowed is ${Math.floor(maxAge / 1000)}s`,
         retriable: false,
       });
     } else if (age > maxAge * 0.8) {
       warnings.push({
-        check: 'proof_freshness',
+        check: "proof_freshness",
         message: `Proof is ${Math.floor(age / 1000)}s old, approaching expiry at ${Math.floor(maxAge / 1000)}s`,
       });
     }
@@ -315,8 +335,8 @@ export async function runProofSubmissionPreflight(
   const task = await getTask(program, params.taskPda);
   if (!task) {
     failures.push({
-      check: 'task_exists',
-      message: 'Task account not found',
+      check: "task_exists",
+      message: "Task account not found",
       retriable: false,
     });
 
@@ -325,7 +345,7 @@ export async function runProofSubmissionPreflight(
 
   if (task.state !== TaskState.InProgress) {
     failures.push({
-      check: 'task_in_progress',
+      check: "task_in_progress",
       message: `Task is in state ${task.state}, expected InProgress (1)`,
       retriable: false,
     });
@@ -333,14 +353,17 @@ export async function runProofSubmissionPreflight(
 
   if (!task.constraintHash || isAllZeros(task.constraintHash)) {
     failures.push({
-      check: 'task_is_private',
-      message: 'Task has no constraint hash and is not private',
+      check: "task_is_private",
+      message: "Task has no constraint hash and is not private",
       retriable: false,
     });
-  } else if (journal && !bytesEqual(task.constraintHash, journal.constraintHash)) {
+  } else if (
+    journal &&
+    !bytesEqual(task.constraintHash, journal.constraintHash)
+  ) {
     failures.push({
-      check: 'constraint_hash_match',
-      message: 'Journal constraint hash does not match task constraint hash',
+      check: "constraint_hash_match",
+      message: "Journal constraint hash does not match task constraint hash",
       retriable: false,
     });
   }
@@ -350,19 +373,19 @@ export async function runProofSubmissionPreflight(
 
     if (now > task.deadline) {
       failures.push({
-        check: 'task_deadline',
+        check: "task_deadline",
         message: `Task deadline passed (${task.deadline}), current time is ${now}`,
         retriable: false,
       });
     } else if (task.deadline - now < 60) {
       warnings.push({
-        check: 'task_deadline',
+        check: "task_deadline",
         message: `Task deadline is in ${task.deadline - now}s and may expire before confirmation`,
       });
     }
   }
 
-  const rawTask = await getAccount(program, 'task').fetch(params.taskPda) as {
+  const rawTask = (await getAccount(program, "task").fetch(params.taskPda)) as {
     taskType?: number;
     task_type?: number;
     completions?: number;
@@ -372,15 +395,19 @@ export async function runProofSubmissionPreflight(
   const completions = toNumber(rawTask.completions);
   if (taskType === 2 && completions > 0) {
     failures.push({
-      check: 'competitive_not_won',
-      message: 'Competitive task already completed by another worker',
+      check: "competitive_not_won",
+      message: "Competitive task already completed by another worker",
       retriable: false,
     });
   }
 
-  const claimPda = deriveClaimPda(params.taskPda, params.workerAgentPda, program.programId);
+  const claimPda = deriveClaimPda(
+    params.taskPda,
+    params.workerAgentPda,
+    program.programId,
+  );
   try {
-    const claim = await getAccount(program, 'taskClaim').fetch(claimPda) as {
+    const claim = (await getAccount(program, "taskClaim").fetch(claimPda)) as {
       completed?: boolean;
       isCompleted?: boolean;
       is_completed?: boolean;
@@ -388,11 +415,13 @@ export async function runProofSubmissionPreflight(
       expires_at?: { toNumber: () => number };
     };
 
-    const isCompleted = Boolean(claim.completed ?? claim.isCompleted ?? claim.is_completed ?? false);
+    const isCompleted = Boolean(
+      claim.completed ?? claim.isCompleted ?? claim.is_completed ?? false,
+    );
     if (isCompleted) {
       failures.push({
-        check: 'claim_not_completed',
-        message: 'Claim is already completed',
+        check: "claim_not_completed",
+        message: "Claim is already completed",
         retriable: false,
       });
     }
@@ -402,7 +431,7 @@ export async function runProofSubmissionPreflight(
       const now = Math.floor(Date.now() / 1000);
       if (now > expiresAt) {
         failures.push({
-          check: 'claim_not_expired',
+          check: "claim_not_expired",
           message: `Claim expired at ${expiresAt}, current time is ${now}`,
           retriable: false,
         });
@@ -410,8 +439,8 @@ export async function runProofSubmissionPreflight(
     }
   } catch {
     failures.push({
-      check: 'claim_exists',
-      message: 'Claim account not found for worker/task pair',
+      check: "claim_exists",
+      message: "Claim account not found for worker/task pair",
       retriable: false,
     });
   }
@@ -424,8 +453,8 @@ export async function runProofSubmissionPreflight(
     const bindingSpendInfo = await connection.getAccountInfo(bindingSpendPda);
     if (bindingSpendInfo !== null) {
       failures.push({
-        check: 'binding_not_spent',
-        message: 'Binding has already been spent',
+        check: "binding_not_spent",
+        message: "Binding has already been spent",
         retriable: false,
       });
     }
@@ -436,11 +465,12 @@ export async function runProofSubmissionPreflight(
       [NULLIFIER_SPEND_SEED, nullifierSeed],
       program.programId,
     );
-    const nullifierSpendInfo = await connection.getAccountInfo(nullifierSpendPda);
+    const nullifierSpendInfo =
+      await connection.getAccountInfo(nullifierSpendPda);
     if (nullifierSpendInfo !== null) {
       failures.push({
-        check: 'nullifier_not_spent',
-        message: 'Nullifier has already been spent',
+        check: "nullifier_not_spent",
+        message: "Nullifier has already been spent",
         retriable: false,
       });
     }

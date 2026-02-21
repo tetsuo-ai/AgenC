@@ -7,12 +7,12 @@
  * @module
  */
 
-import type { PublicKey } from '@solana/web3.js';
-import type { Keypair } from '@solana/web3.js';
-import type { Program } from '@coral-xyz/anchor';
-import type { AgencCoordination } from '../idl.js';
-import type { Logger } from '../utils/logger.js';
-import type { ReputationSignalCallback } from './reputation-types.js';
+import type { PublicKey } from "@solana/web3.js";
+import type { Keypair } from "@solana/web3.js";
+import type { Program } from "@coral-xyz/anchor";
+import type { AgencCoordination } from "../idl.js";
+import type { Logger } from "../utils/logger.js";
+import type { ReputationSignalCallback } from "./reputation-types.js";
 
 // ============================================================================
 // Constants
@@ -29,7 +29,7 @@ export const MSG_CONTENT_MAX_ONCHAIN = 64;
 // ============================================================================
 
 /** Message delivery mode */
-export type MessageMode = 'on-chain' | 'off-chain' | 'auto';
+export type MessageMode = "on-chain" | "off-chain" | "auto";
 
 /** Core message object */
 export interface AgentMessage {
@@ -77,7 +77,7 @@ export interface MessagingConfig {
 
 /** JSON wire format for off-chain WebSocket messages */
 export interface OffChainEnvelope {
-  type: 'message';
+  type: "message";
   sender: string;
   recipient: string;
   content: string;
@@ -116,7 +116,10 @@ export interface MessagingOpsConfig {
  *
  * The 20-byte recipient prefix (~160 bits) is effectively collision-free.
  */
-export function encodeMessageStateKey(recipient: PublicKey, nonce: number): Uint8Array {
+export function encodeMessageStateKey(
+  recipient: PublicKey,
+  nonce: number,
+): Uint8Array {
   const key = new Uint8Array(32);
 
   // Magic prefix (4 bytes)
@@ -130,7 +133,7 @@ export function encodeMessageStateKey(recipient: PublicKey, nonce: number): Uint
   const view = new DataView(key.buffer, key.byteOffset + 24, 8);
   // Split nonce into high and low 32 bits for safe handling of large numbers
   view.setUint32(0, Math.floor(nonce / 0x100000000) >>> 0);
-  view.setUint32(4, (nonce >>> 0));
+  view.setUint32(4, nonce >>> 0);
 
   return key;
 }
@@ -168,7 +171,7 @@ export function decodeMessageStateKey(
  */
 export function encodeMessageStateValue(content: string): Uint8Array {
   if (content.length === 0) {
-    throw new Error('Message content cannot be empty');
+    throw new Error("Message content cannot be empty");
   }
 
   const encoded = new TextEncoder().encode(content);

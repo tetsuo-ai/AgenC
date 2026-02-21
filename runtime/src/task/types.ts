@@ -5,18 +5,18 @@
  * @module
  */
 
-import type { PublicKey, TransactionSignature } from '@solana/web3.js';
-import { TaskType } from '../events/types.js';
-import type { Logger } from '../utils/logger.js';
-import { toUint8Array } from '../utils/encoding.js';
-import type { TaskOperations } from './operations.js';
-import type { TaskDiscovery, TaskDiscoveryResult } from './discovery.js';
+import type { PublicKey, TransactionSignature } from "@solana/web3.js";
+import { TaskType } from "../events/types.js";
+import type { Logger } from "../utils/logger.js";
+import { toUint8Array } from "../utils/encoding.js";
+import type { TaskOperations } from "./operations.js";
+import type { TaskDiscovery, TaskDiscoveryResult } from "./discovery.js";
 
 // Re-export TaskType for consumers importing from task module directly
-export { TaskType } from '../events/types.js';
+export { TaskType } from "../events/types.js";
 
 // Re-export TASK_ID_LENGTH from pda.ts
-export { TASK_ID_LENGTH } from './pda.js';
+export { TASK_ID_LENGTH } from "./pda.js";
 
 // ============================================================================
 // On-Chain Task Status Enum (matches state.rs TaskStatus)
@@ -138,8 +138,19 @@ export interface RawOnChainTask {
   rewardAmount: { toString: () => string };
   maxWorkers: number;
   currentWorkers: number;
-  status: { open?: object; inProgress?: object; pendingValidation?: object; completed?: object; cancelled?: object; disputed?: object } | number;
-  taskType: { exclusive?: object; collaborative?: object; competitive?: object } | number;
+  status:
+    | {
+        open?: object;
+        inProgress?: object;
+        pendingValidation?: object;
+        completed?: object;
+        cancelled?: object;
+        disputed?: object;
+      }
+    | number;
+  taskType:
+    | { exclusive?: object; collaborative?: object; competitive?: object }
+    | number;
   createdAt: { toNumber: () => number };
   deadline: { toNumber: () => number };
   completedAt: { toNumber: () => number };
@@ -178,18 +189,21 @@ export interface RawOnChainTaskClaim {
  */
 function isBNLike(value: unknown): value is { toString: () => string } {
   return (
-    typeof value === 'object' &&
+    typeof value === "object" &&
     value !== null &&
-    typeof (value as Record<string, unknown>).toString === 'function'
+    typeof (value as Record<string, unknown>).toString === "function"
   );
 }
 
 /**
  * Checks if a value is a BN-like object with toNumber method (for i64 fields).
  */
-function isBNLikeWithToNumber(value: unknown): value is { toNumber: () => number } {
+function isBNLikeWithToNumber(
+  value: unknown,
+): value is { toNumber: () => number } {
   return (
-    isBNLike(value) && typeof (value as Record<string, unknown>).toNumber === 'function'
+    isBNLike(value) &&
+    typeof (value as Record<string, unknown>).toNumber === "function"
   );
 }
 
@@ -198,20 +212,38 @@ function isBNLikeWithToNumber(value: unknown): value is { toNumber: () => number
  * Validates all required fields are present with correct types.
  */
 export function isRawOnChainTask(data: unknown): data is RawOnChainTask {
-  if (typeof data !== 'object' || data === null) {
+  if (typeof data !== "object" || data === null) {
     return false;
   }
   const obj = data as Record<string, unknown>;
 
   // Array/Uint8Array fields
-  if (!Array.isArray(obj.taskId) && !(obj.taskId instanceof Uint8Array)) return false;
-  if (!Array.isArray(obj.description) && !(obj.description instanceof Uint8Array)) return false;
-  if (!Array.isArray(obj.constraintHash) && !(obj.constraintHash instanceof Uint8Array)) return false;
-  if (!Array.isArray(obj.result) && !(obj.result instanceof Uint8Array)) return false;
+  if (!Array.isArray(obj.taskId) && !(obj.taskId instanceof Uint8Array))
+    return false;
+  if (
+    !Array.isArray(obj.description) &&
+    !(obj.description instanceof Uint8Array)
+  )
+    return false;
+  if (
+    !Array.isArray(obj.constraintHash) &&
+    !(obj.constraintHash instanceof Uint8Array)
+  )
+    return false;
+  if (!Array.isArray(obj.result) && !(obj.result instanceof Uint8Array))
+    return false;
 
   // PublicKey fields
-  if (!(obj.creator instanceof Object) || typeof (obj.creator as Record<string, unknown>).toBuffer !== 'function') return false;
-  if (!(obj.escrow instanceof Object) || typeof (obj.escrow as Record<string, unknown>).toBuffer !== 'function') return false;
+  if (
+    !(obj.creator instanceof Object) ||
+    typeof (obj.creator as Record<string, unknown>).toBuffer !== "function"
+  )
+    return false;
+  if (
+    !(obj.escrow instanceof Object) ||
+    typeof (obj.escrow as Record<string, unknown>).toBuffer !== "function"
+  )
+    return false;
 
   // BN-like fields (u64)
   if (!isBNLike(obj.requiredCapabilities)) return false;
@@ -223,19 +255,25 @@ export function isRawOnChainTask(data: unknown): data is RawOnChainTask {
   if (!isBNLikeWithToNumber(obj.completedAt)) return false;
 
   // Number fields (u8)
-  if (typeof obj.maxWorkers !== 'number') return false;
-  if (typeof obj.currentWorkers !== 'number') return false;
-  if (typeof obj.completions !== 'number') return false;
-  if (typeof obj.requiredCompletions !== 'number') return false;
-  if (typeof obj.bump !== 'number') return false;
+  if (typeof obj.maxWorkers !== "number") return false;
+  if (typeof obj.currentWorkers !== "number") return false;
+  if (typeof obj.completions !== "number") return false;
+  if (typeof obj.requiredCompletions !== "number") return false;
+  if (typeof obj.bump !== "number") return false;
 
   // Status and taskType can be object (Anchor enum) or number
-  if (typeof obj.status !== 'object' && typeof obj.status !== 'number') return false;
-  if (typeof obj.taskType !== 'object' && typeof obj.taskType !== 'number') return false;
+  if (typeof obj.status !== "object" && typeof obj.status !== "number")
+    return false;
+  if (typeof obj.taskType !== "object" && typeof obj.taskType !== "number")
+    return false;
 
   // rewardMint is optional: null (SOL) or PublicKey-like
   if (obj.rewardMint !== null && obj.rewardMint !== undefined) {
-    if (!(obj.rewardMint instanceof Object) || typeof (obj.rewardMint as Record<string, unknown>).toBuffer !== 'function') return false;
+    if (
+      !(obj.rewardMint instanceof Object) ||
+      typeof (obj.rewardMint as Record<string, unknown>).toBuffer !== "function"
+    )
+      return false;
   }
 
   return true;
@@ -245,15 +283,25 @@ export function isRawOnChainTask(data: unknown): data is RawOnChainTask {
  * Type guard for RawOnChainTaskClaim data.
  * Validates all required fields are present with correct types.
  */
-export function isRawOnChainTaskClaim(data: unknown): data is RawOnChainTaskClaim {
-  if (typeof data !== 'object' || data === null) {
+export function isRawOnChainTaskClaim(
+  data: unknown,
+): data is RawOnChainTaskClaim {
+  if (typeof data !== "object" || data === null) {
     return false;
   }
   const obj = data as Record<string, unknown>;
 
   // PublicKey fields
-  if (!(obj.task instanceof Object) || typeof (obj.task as Record<string, unknown>).toBuffer !== 'function') return false;
-  if (!(obj.worker instanceof Object) || typeof (obj.worker as Record<string, unknown>).toBuffer !== 'function') return false;
+  if (
+    !(obj.task instanceof Object) ||
+    typeof (obj.task as Record<string, unknown>).toBuffer !== "function"
+  )
+    return false;
+  if (
+    !(obj.worker instanceof Object) ||
+    typeof (obj.worker as Record<string, unknown>).toBuffer !== "function"
+  )
+    return false;
 
   // BN-like fields (i64)
   if (!isBNLikeWithToNumber(obj.claimedAt)) return false;
@@ -264,15 +312,17 @@ export function isRawOnChainTaskClaim(data: unknown): data is RawOnChainTaskClai
   if (!isBNLike(obj.rewardPaid)) return false;
 
   // Array/Uint8Array fields
-  if (!Array.isArray(obj.proofHash) && !(obj.proofHash instanceof Uint8Array)) return false;
-  if (!Array.isArray(obj.resultData) && !(obj.resultData instanceof Uint8Array)) return false;
+  if (!Array.isArray(obj.proofHash) && !(obj.proofHash instanceof Uint8Array))
+    return false;
+  if (!Array.isArray(obj.resultData) && !(obj.resultData instanceof Uint8Array))
+    return false;
 
   // Boolean fields
-  if (typeof obj.isCompleted !== 'boolean') return false;
-  if (typeof obj.isValidated !== 'boolean') return false;
+  if (typeof obj.isCompleted !== "boolean") return false;
+  if (typeof obj.isValidated !== "boolean") return false;
 
   // Number fields (u8)
-  if (typeof obj.bump !== 'number') return false;
+  if (typeof obj.bump !== "number") return false;
 
   return true;
 }
@@ -296,23 +346,35 @@ export function isRawOnChainTaskClaim(data: unknown): data is RawOnChainTaskClai
  * ```
  */
 export function parseTaskStatus(
-  status: { open?: object; inProgress?: object; pendingValidation?: object; completed?: object; cancelled?: object; disputed?: object } | number
+  status:
+    | {
+        open?: object;
+        inProgress?: object;
+        pendingValidation?: object;
+        completed?: object;
+        cancelled?: object;
+        disputed?: object;
+      }
+    | number,
 ): OnChainTaskStatus {
-  if (typeof status === 'number') {
-    if (status < OnChainTaskStatus.Open || status > OnChainTaskStatus.Disputed) {
+  if (typeof status === "number") {
+    if (
+      status < OnChainTaskStatus.Open ||
+      status > OnChainTaskStatus.Disputed
+    ) {
       throw new Error(`Invalid task status value: ${status}`);
     }
     return status;
   }
 
-  if ('open' in status) return OnChainTaskStatus.Open;
-  if ('inProgress' in status) return OnChainTaskStatus.InProgress;
-  if ('pendingValidation' in status) return OnChainTaskStatus.PendingValidation;
-  if ('completed' in status) return OnChainTaskStatus.Completed;
-  if ('cancelled' in status) return OnChainTaskStatus.Cancelled;
-  if ('disputed' in status) return OnChainTaskStatus.Disputed;
+  if ("open" in status) return OnChainTaskStatus.Open;
+  if ("inProgress" in status) return OnChainTaskStatus.InProgress;
+  if ("pendingValidation" in status) return OnChainTaskStatus.PendingValidation;
+  if ("completed" in status) return OnChainTaskStatus.Completed;
+  if ("cancelled" in status) return OnChainTaskStatus.Cancelled;
+  if ("disputed" in status) return OnChainTaskStatus.Disputed;
 
-  throw new Error('Invalid task status format');
+  throw new Error("Invalid task status format");
 }
 
 /**
@@ -330,20 +392,22 @@ export function parseTaskStatus(
  * ```
  */
 export function parseTaskType(
-  type: { exclusive?: object; collaborative?: object; competitive?: object } | number
+  type:
+    | { exclusive?: object; collaborative?: object; competitive?: object }
+    | number,
 ): TaskType {
-  if (typeof type === 'number') {
+  if (typeof type === "number") {
     if (type < TaskType.Exclusive || type > TaskType.Competitive) {
       throw new Error(`Invalid task type value: ${type}`);
     }
     return type;
   }
 
-  if ('exclusive' in type) return TaskType.Exclusive;
-  if ('collaborative' in type) return TaskType.Collaborative;
-  if ('competitive' in type) return TaskType.Competitive;
+  if ("exclusive" in type) return TaskType.Exclusive;
+  if ("collaborative" in type) return TaskType.Collaborative;
+  if ("competitive" in type) return TaskType.Competitive;
 
-  throw new Error('Invalid task type format');
+  throw new Error("Invalid task type format");
 }
 
 /**
@@ -362,7 +426,7 @@ export function parseTaskType(
  */
 export function parseOnChainTask(data: unknown): OnChainTask {
   if (!isRawOnChainTask(data)) {
-    throw new Error('Invalid task data: missing required fields');
+    throw new Error("Invalid task data: missing required fields");
   }
 
   return {
@@ -404,7 +468,7 @@ export function parseOnChainTask(data: unknown): OnChainTask {
  */
 export function parseOnChainTaskClaim(data: unknown): OnChainTaskClaim {
   if (!isRawOnChainTaskClaim(data)) {
-    throw new Error('Invalid task claim data: missing required fields');
+    throw new Error("Invalid task claim data: missing required fields");
   }
 
   return {
@@ -496,11 +560,11 @@ export function isPrivateExecutionResult(
   result: TaskExecutionResult | PrivateTaskExecutionResult,
 ): result is PrivateTaskExecutionResult {
   return (
-    'sealBytes' in result &&
-    'journal' in result &&
-    'imageId' in result &&
-    'bindingSeed' in result &&
-    'nullifierSeed' in result
+    "sealBytes" in result &&
+    "journal" in result &&
+    "imageId" in result &&
+    "bindingSeed" in result &&
+    "nullifierSeed" in result
   );
 }
 
@@ -519,17 +583,17 @@ export function isPrivateExecutionResult(
 export function taskStatusToString(status: OnChainTaskStatus): string {
   switch (status) {
     case OnChainTaskStatus.Open:
-      return 'Open';
+      return "Open";
     case OnChainTaskStatus.InProgress:
-      return 'InProgress';
+      return "InProgress";
     case OnChainTaskStatus.PendingValidation:
-      return 'PendingValidation';
+      return "PendingValidation";
     case OnChainTaskStatus.Completed:
-      return 'Completed';
+      return "Completed";
     case OnChainTaskStatus.Cancelled:
-      return 'Cancelled';
+      return "Cancelled";
     case OnChainTaskStatus.Disputed:
-      return 'Disputed';
+      return "Disputed";
     default:
       return `Unknown (${status})`;
   }
@@ -550,11 +614,11 @@ export function taskStatusToString(status: OnChainTaskStatus): string {
 export function taskTypeToString(type: TaskType): string {
   switch (type) {
     case TaskType.Exclusive:
-      return 'Exclusive';
+      return "Exclusive";
     case TaskType.Collaborative:
-      return 'Collaborative';
+      return "Collaborative";
     case TaskType.Competitive:
-      return 'Competitive';
+      return "Competitive";
     default:
       return `Unknown (${type})`;
   }
@@ -773,7 +837,7 @@ export interface BackpressureConfig {
 /**
  * Pipeline stage at which the task failed.
  */
-export type DeadLetterStage = 'claim' | 'execute' | 'submit';
+export type DeadLetterStage = "claim" | "execute" | "submit";
 
 /**
  * An entry in the dead letter queue, capturing full context of a failed task.
@@ -814,7 +878,7 @@ export interface DeadLetterQueueConfig {
 /**
  * Pipeline stage recorded in a checkpoint.
  */
-export type CheckpointStage = 'claimed' | 'executed' | 'submitted';
+export type CheckpointStage = "claimed" | "executed" | "submitted";
 
 /**
  * Snapshot of a task's pipeline progress, persisted after each stage transition.
@@ -886,7 +950,7 @@ export interface Span {
   /** Set an attribute on the span. */
   setAttribute(key: string, value: string | number): void;
   /** Set the span status. */
-  setStatus(status: 'ok' | 'error', message?: string): void;
+  setStatus(status: "ok" | "error", message?: string): void;
   /** End the span, recording its duration. */
   end(): void;
 }
@@ -898,7 +962,7 @@ export interface Span {
 /**
  * Operating mode for the task executor.
  */
-export type OperatingMode = 'autonomous' | 'batch';
+export type OperatingMode = "autonomous" | "batch";
 
 /**
  * A batch task item for batch mode execution.

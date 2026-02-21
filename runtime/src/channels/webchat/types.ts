@@ -8,7 +8,7 @@
  */
 
 // Re-export the canonical WebChatHandler from gateway/types to avoid duplication
-export type { WebChatHandler } from '../../gateway/types.js';
+export type { WebChatHandler } from "../../gateway/types.js";
 
 // ============================================================================
 // WebChatDeps (dependency injection)
@@ -20,21 +20,34 @@ export type { WebChatHandler } from '../../gateway/types.js';
 export interface WebChatDeps {
   /** Gateway instance for status queries. */
   gateway: {
-    getStatus(): { state: string; uptimeMs: number; channels: string[]; activeSessions: number; controlPlanePort: number };
-    config: { agent?: { name?: string }; connection?: { rpcUrl?: string; keypairPath?: string } };
+    getStatus(): {
+      state: string;
+      uptimeMs: number;
+      channels: string[];
+      activeSessions: number;
+      controlPlanePort: number;
+    };
+    config: {
+      agent?: { name?: string };
+      connection?: { rpcUrl?: string; keypairPath?: string };
+    };
   };
   /** Optional skill listing for skills.list handler. */
-  skills?: ReadonlyArray<{ name: string; description: string; enabled: boolean }>;
+  skills?: ReadonlyArray<{
+    name: string;
+    description: string;
+    enabled: boolean;
+  }>;
   /** Optional voice bridge for real-time voice sessions. */
-  voiceBridge?: import('../../gateway/voice-bridge.js').VoiceBridge;
+  voiceBridge?: import("../../gateway/voice-bridge.js").VoiceBridge;
   /** Optional memory backend for memory.search / memory.sessions handlers. */
-  memoryBackend?: import('../../memory/types.js').MemoryBackend;
+  memoryBackend?: import("../../memory/types.js").MemoryBackend;
   /** Optional approval engine for approval.respond handler. */
-  approvalEngine?: import('../../gateway/approvals.js').ApprovalEngine;
+  approvalEngine?: import("../../gateway/approvals.js").ApprovalEngine;
   /** Optional callback to toggle a skill's enabled state. */
   skillToggle?: (name: string, enabled: boolean) => void;
   /** Optional Solana connection for on-chain task operations. */
-  connection?: import('@solana/web3.js').Connection;
+  connection?: import("@solana/web3.js").Connection;
   /** Optional callback to broadcast events to all subscribed WS clients. */
   broadcastEvent?: (eventType: string, data: Record<string, unknown>) => void;
 }
@@ -53,92 +66,92 @@ export interface WebChatChannelConfig {
 // ============================================================================
 
 export interface ChatMessageRequest {
-  type: 'chat.message';
+  type: "chat.message";
   content: string;
   attachments?: Array<{ type: string; url?: string; mimeType: string }>;
   id?: string;
 }
 
 export interface ChatTypingRequest {
-  type: 'chat.typing';
+  type: "chat.typing";
   active: boolean;
   id?: string;
 }
 
 export interface ChatHistoryRequest {
-  type: 'chat.history';
+  type: "chat.history";
   limit?: number;
   id?: string;
 }
 
 export interface ChatResumeRequest {
-  type: 'chat.resume';
+  type: "chat.resume";
   sessionId: string;
   id?: string;
 }
 
 export interface StatusGetRequest {
-  type: 'status.get';
+  type: "status.get";
   id?: string;
 }
 
 export interface SkillsListRequest {
-  type: 'skills.list';
+  type: "skills.list";
   id?: string;
 }
 
 export interface SkillsToggleRequest {
-  type: 'skills.toggle';
+  type: "skills.toggle";
   skillName: string;
   enabled: boolean;
   id?: string;
 }
 
 export interface TasksListRequest {
-  type: 'tasks.list';
+  type: "tasks.list";
   filter?: { status?: string };
   id?: string;
 }
 
 export interface TasksCreateRequest {
-  type: 'tasks.create';
+  type: "tasks.create";
   params: Record<string, unknown>;
   id?: string;
 }
 
 export interface TasksCancelRequest {
-  type: 'tasks.cancel';
+  type: "tasks.cancel";
   taskId: string;
   id?: string;
 }
 
 export interface MemorySearchRequest {
-  type: 'memory.search';
+  type: "memory.search";
   query: string;
   id?: string;
 }
 
 export interface MemorySessionsRequest {
-  type: 'memory.sessions';
+  type: "memory.sessions";
   limit?: number;
   id?: string;
 }
 
 export interface ApprovalRespondRequest {
-  type: 'approval.respond';
+  type: "approval.respond";
   requestId: string;
   approved: boolean;
   id?: string;
 }
 
 export interface EventsSubscribeRequest {
-  type: 'events.subscribe';
+  type: "events.subscribe";
   filters?: string[];
   id?: string;
 }
 
 export interface EventsUnsubscribeRequest {
-  type: 'events.unsubscribe';
+  type: "events.unsubscribe";
   id?: string;
 }
 
@@ -147,43 +160,43 @@ export interface EventsUnsubscribeRequest {
 // ============================================================================
 
 export interface ChatMessageResponse {
-  type: 'chat.message';
+  type: "chat.message";
   content: string;
-  sender: 'agent';
+  sender: "agent";
   timestamp: number;
   id?: string;
 }
 
 export interface ChatTypingResponse {
-  type: 'chat.typing';
+  type: "chat.typing";
   active: boolean;
 }
 
 export interface ChatHistoryResponse {
-  type: 'chat.history';
+  type: "chat.history";
   messages: Array<{
     content: string;
-    sender: 'user' | 'agent';
+    sender: "user" | "agent";
     timestamp: number;
   }>;
   id?: string;
 }
 
 export interface ChatResumedResponse {
-  type: 'chat.resumed';
+  type: "chat.resumed";
   sessionId: string;
   messageCount: number;
   id?: string;
 }
 
 export interface ToolExecutingResponse {
-  type: 'tools.executing';
+  type: "tools.executing";
   toolName: string;
   args: Record<string, unknown>;
 }
 
 export interface ToolResultResponse {
-  type: 'tools.result';
+  type: "tools.result";
   toolName: string;
   result: string;
   durationMs: number;
@@ -191,19 +204,19 @@ export interface ToolResultResponse {
 }
 
 export interface ChatStreamResponse {
-  type: 'chat.stream';
+  type: "chat.stream";
   content: string;
   done: boolean;
 }
 
 export interface AgentStatusResponse {
-  type: 'agent.status';
-  phase: 'thinking' | 'tool_call' | 'generating' | 'idle';
+  type: "agent.status";
+  phase: "thinking" | "tool_call" | "generating" | "idle";
   detail?: string;
 }
 
 export interface StatusUpdateResponse {
-  type: 'status.update';
+  type: "status.update";
   payload: {
     state: string;
     uptimeMs: number;
@@ -216,7 +229,7 @@ export interface StatusUpdateResponse {
 }
 
 export interface SkillsListResponse {
-  type: 'skills.list';
+  type: "skills.list";
   payload: Array<{
     name: string;
     description: string;
@@ -226,7 +239,7 @@ export interface SkillsListResponse {
 }
 
 export interface TasksListResponse {
-  type: 'tasks.list';
+  type: "tasks.list";
   payload: Array<{
     id: string;
     status: string;
@@ -238,7 +251,7 @@ export interface TasksListResponse {
 }
 
 export interface MemoryResultsResponse {
-  type: 'memory.results';
+  type: "memory.results";
   payload: Array<{
     content: string;
     timestamp: number;
@@ -248,7 +261,7 @@ export interface MemoryResultsResponse {
 }
 
 export interface MemorySessionsResponse {
-  type: 'memory.sessions';
+  type: "memory.sessions";
   payload: Array<{
     id: string;
     messageCount: number;
@@ -258,21 +271,21 @@ export interface MemorySessionsResponse {
 }
 
 export interface ApprovalRequestResponse {
-  type: 'approval.request';
+  type: "approval.request";
   requestId: string;
   action: string;
   details: Record<string, unknown>;
 }
 
 export interface EventsEventResponse {
-  type: 'events.event';
+  type: "events.event";
   eventType: string;
   data: Record<string, unknown>;
   timestamp: number;
 }
 
 export interface ErrorResponse {
-  type: 'error';
+  type: "error";
   error: string;
   id?: string;
 }
@@ -283,22 +296,22 @@ export interface ErrorResponse {
 // ============================================================================
 
 export interface VoiceStartRequest {
-  type: 'voice.start';
+  type: "voice.start";
   id?: string;
 }
 
 export interface VoiceAudioRequest {
-  type: 'voice.audio';
+  type: "voice.audio";
   audio: string; // base64-encoded PCM
   id?: string;
 }
 
 export interface VoiceCommitRequest {
-  type: 'voice.commit';
+  type: "voice.commit";
   id?: string;
 }
 
 export interface VoiceStopRequest {
-  type: 'voice.stop';
+  type: "voice.stop";
   id?: string;
 }

@@ -4,11 +4,11 @@
  * @module
  */
 
-import type { MetricsProvider } from '../task/types.js';
-import { TELEMETRY_METRIC_NAMES } from '../telemetry/metric-names.js';
-import type { TrajectoryReplayResult } from './replay.js';
+import type { MetricsProvider } from "../task/types.js";
+import { TELEMETRY_METRIC_NAMES } from "../telemetry/metric-names.js";
+import type { TrajectoryReplayResult } from "./replay.js";
 
-export type RewardTier = 'low' | 'medium' | 'high' | 'unknown';
+export type RewardTier = "low" | "medium" | "high" | "unknown";
 
 export interface EvalRunRecord {
   id: string;
@@ -41,7 +41,7 @@ export interface EvaluationScorecard {
   aggregate: EvalAggregateMetrics;
   byTaskType: Record<string, EvalAggregateMetrics>;
   byRewardTier: Record<RewardTier, EvalAggregateMetrics>;
-  byVerifierGate: Record<'gated' | 'ungated', EvalAggregateMetrics>;
+  byVerifierGate: Record<"gated" | "ungated", EvalAggregateMetrics>;
 }
 
 export interface ScorecardSerializeResult {
@@ -61,17 +61,19 @@ function safeNumber(value: number | undefined, fallback = 0): number {
   return value;
 }
 
-function toLamportsNumber(value: bigint | number | string | undefined): number | undefined {
+function toLamportsNumber(
+  value: bigint | number | string | undefined,
+): number | undefined {
   if (value === undefined) return undefined;
 
-  if (typeof value === 'bigint') {
+  if (typeof value === "bigint") {
     const maxSafe = BigInt(Number.MAX_SAFE_INTEGER);
     if (value > maxSafe) return Number.MAX_SAFE_INTEGER;
     if (value < 0n) return 0;
     return Number(value);
   }
 
-  if (typeof value === 'number') {
+  if (typeof value === "number") {
     if (!Number.isFinite(value) || value < 0) return undefined;
     return value;
   }
@@ -81,18 +83,24 @@ function toLamportsNumber(value: bigint | number | string | undefined): number |
   return parsed;
 }
 
-export function getRewardTier(rewardLamports: bigint | number | string | undefined): RewardTier {
+export function getRewardTier(
+  rewardLamports: bigint | number | string | undefined,
+): RewardTier {
   const lamports = toLamportsNumber(rewardLamports);
-  if (lamports === undefined) return 'unknown';
-  if (lamports < 1_000_000) return 'low';
-  if (lamports < 100_000_000) return 'medium';
-  return 'high';
+  if (lamports === undefined) return "unknown";
+  if (lamports < 1_000_000) return "low";
+  if (lamports < 100_000_000) return "medium";
+  return "high";
 }
 
 /**
  * Standard pass@k estimate (sampling without replacement).
  */
-export function computePassAtK(totalRuns: number, successRuns: number, k: number): number {
+export function computePassAtK(
+  totalRuns: number,
+  successRuns: number,
+  k: number,
+): number {
   if (totalRuns <= 0 || k <= 0) return 0;
   const n = totalRuns;
   const c = Math.max(0, Math.min(successRuns, totalRuns));
@@ -139,8 +147,14 @@ function computeConformanceScore(records: EvalRunRecord[]): number {
 
   let total = 0;
   for (const record of records) {
-    const policyViolations = Math.max(0, safeNumber(record.policyViolations, 0));
-    const verifierDisagreements = Math.max(0, safeNumber(record.verifierDisagreements, 0));
+    const policyViolations = Math.max(
+      0,
+      safeNumber(record.policyViolations, 0),
+    );
+    const verifierDisagreements = Math.max(
+      0,
+      safeNumber(record.verifierDisagreements, 0),
+    );
     total += 1 / (1 + policyViolations + verifierDisagreements);
   }
 
@@ -170,7 +184,10 @@ function mean(values: number[]): number {
   return sum / values.length;
 }
 
-function computeAggregate(records: EvalRunRecord[], k: number): EvalAggregateMetrics {
+function computeAggregate(
+  records: EvalRunRecord[],
+  k: number,
+): EvalAggregateMetrics {
   if (records.length === 0) {
     return {
       runCount: 0,
@@ -198,12 +215,19 @@ function computeAggregate(records: EvalRunRecord[], k: number): EvalAggregateMet
     riskWeightedSuccess: computeRiskWeightedSuccess(records),
     conformanceScore: computeConformanceScore(records),
     costNormalizedUtility: computeCostNormalizedUtility(records),
-    meanLatencyMs: mean(records.map((record) => safeNumber(record.latencyMs, 0))),
-    meanCostUnits: mean(records.map((record) => safeNumber(record.costUnits, 1))),
+    meanLatencyMs: mean(
+      records.map((record) => safeNumber(record.latencyMs, 0)),
+    ),
+    meanCostUnits: mean(
+      records.map((record) => safeNumber(record.costUnits, 1)),
+    ),
   };
 }
 
-function groupBy<T>(records: EvalRunRecord[], selector: (record: EvalRunRecord) => T): Map<T, EvalRunRecord[]> {
+function groupBy<T>(
+  records: EvalRunRecord[],
+  selector: (record: EvalRunRecord) => T,
+): Map<T, EvalRunRecord[]> {
   const groups = new Map<T, EvalRunRecord[]>();
 
   for (const record of records) {
@@ -219,24 +243,34 @@ function groupBy<T>(records: EvalRunRecord[], selector: (record: EvalRunRecord) 
   return groups;
 }
 
-function extractDurationFromReplay(replay: TrajectoryReplayResult): number | undefined {
+function extractDurationFromReplay(
+  replay: TrajectoryReplayResult,
+): number | undefined {
   const durationValues = replay.trace.events
-    .filter((event) => event.type === 'completed' || event.type === 'completed_speculative')
+    .filter(
+      (event) =>
+        event.type === "completed" || event.type === "completed_speculative",
+    )
     .map((event) => event.payload.durationMs)
-    .filter((value): value is number => typeof value === 'number' && Number.isFinite(value));
+    .filter(
+      (value): value is number =>
+        typeof value === "number" && Number.isFinite(value),
+    );
 
   return durationValues.length > 0 ? mean(durationValues) : undefined;
 }
 
-function extractVerifierDisagreementsFromReplay(replay: TrajectoryReplayResult): number {
+function extractVerifierDisagreementsFromReplay(
+  replay: TrajectoryReplayResult,
+): number {
   let disagreements = 0;
 
   for (const event of replay.trace.events) {
-    if (event.type !== 'verifier_verdict') continue;
+    if (event.type !== "verifier_verdict") continue;
     const verdict = event.payload.verdict;
     const attempt = event.payload.attempt;
 
-    if (verdict !== 'pass' && (attempt === 1 || attempt === undefined)) {
+    if (verdict !== "pass" && (attempt === 1 || attempt === undefined)) {
       disagreements++;
     }
   }
@@ -251,9 +285,10 @@ export function evalRunFromReplayResult(
   replay: TrajectoryReplayResult,
   overrides: Partial<EvalRunRecord> = {},
 ): EvalRunRecord {
-  const passed = replay.summary.completedTasks > 0
-    && replay.summary.failedTasks === 0
-    && replay.summary.escalatedTasks === 0;
+  const passed =
+    replay.summary.completedTasks > 0 &&
+    replay.summary.failedTasks === 0 &&
+    replay.summary.escalatedTasks === 0;
 
   return {
     id: overrides.id ?? replay.trace.traceId,
@@ -264,9 +299,11 @@ export function evalRunFromReplayResult(
     riskScore: overrides.riskScore,
     costUnits: overrides.costUnits,
     latencyMs: overrides.latencyMs ?? extractDurationFromReplay(replay),
-    policyViolations: overrides.policyViolations ?? replay.summary.policyViolations,
+    policyViolations:
+      overrides.policyViolations ?? replay.summary.policyViolations,
     verifierDisagreements:
-      overrides.verifierDisagreements ?? extractVerifierDisagreementsFromReplay(replay),
+      overrides.verifierDisagreements ??
+      extractVerifierDisagreementsFromReplay(replay),
   };
 }
 
@@ -286,23 +323,29 @@ export function computeEvaluationScorecard(
     high: computeAggregate([], k),
     unknown: computeAggregate([], k),
   };
-  const byVerifierGate: Record<'gated' | 'ungated', EvalAggregateMetrics> = {
+  const byVerifierGate: Record<"gated" | "ungated", EvalAggregateMetrics> = {
     gated: computeAggregate([], k),
     ungated: computeAggregate([], k),
   };
 
-  const taskTypeGroups = groupBy(records, (record) => record.taskType ?? 'unknown');
+  const taskTypeGroups = groupBy(
+    records,
+    (record) => record.taskType ?? "unknown",
+  );
   for (const [taskType, taskTypeRecords] of taskTypeGroups) {
     byTaskType[String(taskType)] = computeAggregate(taskTypeRecords, k);
   }
 
-  const rewardTierGroups = groupBy(records, (record) => getRewardTier(record.rewardLamports));
+  const rewardTierGroups = groupBy(records, (record) =>
+    getRewardTier(record.rewardLamports),
+  );
   for (const [rewardTier, tierRecords] of rewardTierGroups) {
     byRewardTier[rewardTier] = computeAggregate(tierRecords, k);
   }
 
   const verifierGateGroups = groupBy(records, (record) =>
-    record.verifierGated ? 'gated' : 'ungated');
+    record.verifierGated ? "gated" : "ungated",
+  );
   for (const [gate, gateRecords] of verifierGateGroups) {
     byVerifierGate[gate] = computeAggregate(gateRecords, k);
   }
@@ -325,9 +368,20 @@ export function recordEvaluationMetrics(
 ): void {
   if (!metrics) return;
 
-  const emit = (labels: Record<string, string>, aggregate: EvalAggregateMetrics): void => {
-    metrics.gauge(TELEMETRY_METRIC_NAMES.EVAL_PASS_AT_K, aggregate.passAtK, labels);
-    metrics.gauge(TELEMETRY_METRIC_NAMES.EVAL_PASS_CARET_K, aggregate.passCaretK, labels);
+  const emit = (
+    labels: Record<string, string>,
+    aggregate: EvalAggregateMetrics,
+  ): void => {
+    metrics.gauge(
+      TELEMETRY_METRIC_NAMES.EVAL_PASS_AT_K,
+      aggregate.passAtK,
+      labels,
+    );
+    metrics.gauge(
+      TELEMETRY_METRIC_NAMES.EVAL_PASS_CARET_K,
+      aggregate.passCaretK,
+      labels,
+    );
     metrics.gauge(
       TELEMETRY_METRIC_NAMES.EVAL_RISK_WEIGHTED_SUCCESS,
       aggregate.riskWeightedSuccess,
@@ -345,25 +399,38 @@ export function recordEvaluationMetrics(
     );
   };
 
-  emit({ scope: 'aggregate', k: String(scorecard.k) }, scorecard.aggregate);
+  emit({ scope: "aggregate", k: String(scorecard.k) }, scorecard.aggregate);
 
   for (const [taskType, aggregate] of Object.entries(scorecard.byTaskType)) {
-    emit({ scope: 'task_type', task_type: taskType, k: String(scorecard.k) }, aggregate);
+    emit(
+      { scope: "task_type", task_type: taskType, k: String(scorecard.k) },
+      aggregate,
+    );
   }
 
-  for (const [rewardTier, aggregate] of Object.entries(scorecard.byRewardTier)) {
-    emit({ scope: 'reward_tier', reward_tier: rewardTier, k: String(scorecard.k) }, aggregate);
+  for (const [rewardTier, aggregate] of Object.entries(
+    scorecard.byRewardTier,
+  )) {
+    emit(
+      { scope: "reward_tier", reward_tier: rewardTier, k: String(scorecard.k) },
+      aggregate,
+    );
   }
 
   for (const [gate, aggregate] of Object.entries(scorecard.byVerifierGate)) {
-    emit({ scope: 'verifier_gate', verifier_gate: gate, k: String(scorecard.k) }, aggregate);
+    emit(
+      { scope: "verifier_gate", verifier_gate: gate, k: String(scorecard.k) },
+      aggregate,
+    );
   }
 }
 
 /**
  * Serialize scorecard for CI artifacts (machine + human readable).
  */
-export function serializeEvaluationScorecard(scorecard: EvaluationScorecard): ScorecardSerializeResult {
+export function serializeEvaluationScorecard(
+  scorecard: EvaluationScorecard,
+): ScorecardSerializeResult {
   const json = JSON.stringify(scorecard, null, 2);
 
   const summaryLines: string[] = [
@@ -382,6 +449,6 @@ export function serializeEvaluationScorecard(scorecard: EvaluationScorecard): Sc
 
   return {
     json,
-    summary: summaryLines.join('\n'),
+    summary: summaryLines.join("\n"),
   };
 }
