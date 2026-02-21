@@ -38,6 +38,7 @@ obj/
 !docs/api-baseline/*.json
 !scripts/idl/*.json
 !tests/fixtures/*.json
+!containers/desktop/seccomp.json
 id.json
 deploy/
 keys/

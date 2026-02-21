@@ -194,6 +194,45 @@ export function validateGatewayConfig(obj: unknown): ValidationResult {
     }
   }
 
+  // desktop (optional)
+  if (obj.desktop !== undefined) {
+    if (!isRecord(obj.desktop)) {
+      errors.push("desktop must be an object");
+    } else {
+      if (
+        obj.desktop.enabled !== undefined &&
+        typeof obj.desktop.enabled !== "boolean"
+      ) {
+        errors.push("desktop.enabled must be a boolean");
+      }
+      if (obj.desktop.maxConcurrent !== undefined) {
+        requireIntRange(
+          obj.desktop.maxConcurrent,
+          "desktop.maxConcurrent",
+          1,
+          32,
+          errors,
+        );
+      }
+      if (obj.desktop.networkMode !== undefined) {
+        requireOneOf(
+          obj.desktop.networkMode,
+          "desktop.networkMode",
+          new Set(["none", "bridge"]),
+          errors,
+        );
+      }
+      if (obj.desktop.securityProfile !== undefined) {
+        requireOneOf(
+          obj.desktop.securityProfile,
+          "desktop.securityProfile",
+          new Set(["strict", "permissive"]),
+          errors,
+        );
+      }
+    }
+  }
+
   return validationResult(errors);
 }
 
@@ -208,6 +247,7 @@ const UNSAFE_KEYS = new Set([
   "connection.keypairPath",
   "agent.capabilities",
   "agent.name",
+  "desktop.enabled",
 ]);
 
 export function diffGatewayConfig(
