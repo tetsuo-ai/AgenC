@@ -19,6 +19,7 @@ import type { ToolHandler } from "../llm/types.js";
 import type { MemoryBackend } from "../memory/types.js";
 import type { ProactiveCommunicator } from "../gateway/proactive.js";
 import type { GoalManager } from "./goal-manager.js";
+import { createGatewayMessage } from "../gateway/message.js";
 
 // ============================================================================
 // Types
@@ -99,14 +100,14 @@ export function createCuriosityAction(config: CuriosityConfig): HeartbeatAction 
 
           // Research the topic using ChatExecutor with tools
           const result = await chatExecutor.execute({
-            message: {
+            message: createGatewayMessage({
               sessionId,
               senderId: "curiosity-module",
+              senderName: "Curiosity",
               content: RESEARCH_PROMPT + topic,
               channel: "internal",
-              scope: "system",
-              timestamp: Date.now(),
-            },
+              scope: "dm",
+            }),
             history: [],
             systemPrompt,
             sessionId,
@@ -136,14 +137,14 @@ export function createCuriosityAction(config: CuriosityConfig): HeartbeatAction 
           let isNoteworthy = false;
           try {
             const evalResult = await chatExecutor.execute({
-              message: {
+              message: createGatewayMessage({
                 sessionId: `curiosity-eval:${Date.now()}`,
                 senderId: "curiosity-module",
+                senderName: "Curiosity",
                 content: EVALUATE_PROMPT + result.content,
                 channel: "internal",
-                scope: "system",
-                timestamp: Date.now(),
-              },
+                scope: "dm",
+              }),
               history: [],
               systemPrompt: "You are a concise evaluator. Return only valid JSON.",
               sessionId: `curiosity-eval:${Date.now()}`,
