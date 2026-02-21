@@ -7,6 +7,7 @@
 import type { MetricsProvider } from "../task/types.js";
 import { TELEMETRY_METRIC_NAMES } from "../telemetry/metric-names.js";
 import { clamp01 } from "../utils/numeric.js";
+import { groupBy } from "../utils/collections.js";
 import type { TrajectoryReplayResult } from "./replay.js";
 
 export type RewardTier = "low" | "medium" | "high" | "unknown";
@@ -220,24 +221,6 @@ function computeAggregate(
   };
 }
 
-function groupBy<T>(
-  records: EvalRunRecord[],
-  selector: (record: EvalRunRecord) => T,
-): Map<T, EvalRunRecord[]> {
-  const groups = new Map<T, EvalRunRecord[]>();
-
-  for (const record of records) {
-    const key = selector(record);
-    const current = groups.get(key);
-    if (current) {
-      current.push(record);
-      continue;
-    }
-    groups.set(key, [record]);
-  }
-
-  return groups;
-}
 
 function extractDurationFromReplay(
   replay: TrajectoryReplayResult,

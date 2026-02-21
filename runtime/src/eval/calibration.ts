@@ -7,6 +7,7 @@
 import type { MetricsProvider } from "../task/types.js";
 import { TELEMETRY_METRIC_NAMES } from "../telemetry/metric-names.js";
 import { clamp01 } from "../utils/numeric.js";
+import { groupBy } from "../utils/collections.js";
 import { getRewardTier, type RewardTier } from "./metrics.js";
 
 export interface CalibrationSample {
@@ -155,21 +156,6 @@ function aggregateCalibration(
   };
 }
 
-function groupBy<T, K>(items: T[], keySelector: (item: T) => K): Map<K, T[]> {
-  const groups = new Map<K, T[]>();
-
-  for (const item of items) {
-    const key = keySelector(item);
-    const existing = groups.get(key);
-    if (existing) {
-      existing.push(item);
-      continue;
-    }
-    groups.set(key, [item]);
-  }
-
-  return groups;
-}
 
 export function buildCalibrationReport(
   samples: CalibrationSample[],

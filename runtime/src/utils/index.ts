@@ -44,6 +44,8 @@ export {
 
 export { isRecord, isStringArray } from "./type-guards.js";
 
+export { groupBy } from "./collections.js";
+
 export {
   clamp01,
   clampRatio,

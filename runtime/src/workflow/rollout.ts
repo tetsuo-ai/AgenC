@@ -266,26 +266,19 @@ export class WorkflowCanaryRollout {
     action: WorkflowRolloutAction,
     reason: WorkflowRolloutReason,
   ): WorkflowRolloutDecision {
-    const baseline = toVariantStats(
-      this.baselineVariantId,
-      this.stats.get(this.baselineVariantId),
-    );
-    const canary = toVariantStats(
-      this.canaryVariantId,
-      this.stats.get(this.canaryVariantId),
-    );
-
     return {
       action,
       reason,
       timestampMs: this.now(),
-      baseline,
-      canary,
-      deltas: {
-        failureRateDelta: canary.failureRate - baseline.failureRate,
-        latencyMsDelta: canary.meanLatencyMs - baseline.meanLatencyMs,
-        costUnitsDelta: canary.meanCostUnits - baseline.meanCostUnits,
-      },
+      baseline: toVariantStats(
+        this.baselineVariantId,
+        this.stats.get(this.baselineVariantId),
+      ),
+      canary: toVariantStats(
+        this.canaryVariantId,
+        this.stats.get(this.canaryVariantId),
+      ),
+      deltas: this.buildDeltas(),
     };
   }
 }
