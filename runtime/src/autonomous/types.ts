@@ -509,6 +509,13 @@ export interface AutonomousAgentConfig extends AgentRuntimeConfig {
   proofEngine?: ProofEngine;
 
   /**
+   * Private witness for nullifier derivation in ZK proofs.
+   * Required when the agent handles private task completions.
+   * Must be kept secret — using a predictable value allows front-running.
+   */
+  agentSecret?: bigint;
+
+  /**
    * Optional memory backend for conversation persistence and lifecycle journaling
    */
   memory?: MemoryBackend;

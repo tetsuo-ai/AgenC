@@ -360,6 +360,8 @@ export async function disableRateLimitsForTests(params: {
   program: Program<AgencCoordination>;
   protocolPda: PublicKey;
   authority: PublicKey;
+  /** Additional multisig signers (required for threshold >= 2). */
+  additionalSigners?: Keypair[];
   /** Defaults to MIN_DISPUTE_STAKE_LAMPORTS (1000). Must be >= 1000. */
   minStakeForDisputeLamports?: number;
   skipPreflight?: boolean;
@@ -368,11 +370,21 @@ export async function disableRateLimitsForTests(params: {
     program,
     protocolPda,
     authority,
+    additionalSigners = [],
     minStakeForDisputeLamports = MIN_DISPUTE_STAKE_LAMPORTS,
     skipPreflight = true,
   } = params;
 
-  await program.methods
+  const remainingAccounts = [
+    { pubkey: authority, isSigner: true, isWritable: false },
+    ...additionalSigners.map((s) => ({
+      pubkey: s.publicKey,
+      isSigner: true,
+      isWritable: false,
+    })),
+  ];
+
+  const builder = program.methods
     .updateRateLimits(
       new BN(0), // task_creation_cooldown = 0 (disabled)
       0, // max_tasks_per_24h = 0 (unlimited)
@@ -381,10 +393,13 @@ export async function disableRateLimitsForTests(params: {
       new BN(minStakeForDisputeLamports), // min_stake_for_dispute (>= 1000)
     )
     .accountsPartial({ protocolConfig: protocolPda })
-    .remainingAccounts([
-      { pubkey: authority, isSigner: true, isWritable: false },
-    ])
-    .rpc({ skipPreflight });
+    .remainingAccounts(remainingAccounts);
+
+  if (additionalSigners.length > 0) {
+    builder.signers(additionalSigners);
+  }
+
+  await builder.rpc({ skipPreflight });
 }
 
 /**

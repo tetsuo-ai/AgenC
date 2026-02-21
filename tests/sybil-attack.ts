@@ -98,8 +98,9 @@ describe("sybil-attack", () => {
     sybilAttacker = Keypair.generate();
     legitimateArbiter = Keypair.generate();
 
+    const thirdSigner = Keypair.generate();
     const airdropAmount = 20 * LAMPORTS_PER_SOL;
-    const wallets = [treasury, creator, sybilAttacker, legitimateArbiter];
+    const wallets = [treasury, thirdSigner, creator, sybilAttacker, legitimateArbiter];
 
     for (const wallet of wallets) {
       await provider.connection.confirmTransaction(
@@ -120,8 +121,8 @@ describe("sybil-attack", () => {
           100,
           new BN(1 * LAMPORTS_PER_SOL),
           new BN(LAMPORTS_PER_SOL / 100),
-          1,
-          [provider.wallet.publicKey, treasury.publicKey],
+          2,
+          [provider.wallet.publicKey, treasury.publicKey, thirdSigner.publicKey],
         )
         .accountsPartial({
           protocolConfig: protocolPda,
@@ -136,8 +137,13 @@ describe("sybil-attack", () => {
             isSigner: false,
             isWritable: false,
           },
+          {
+            pubkey: thirdSigner.publicKey,
+            isSigner: true,
+            isWritable: false,
+          },
         ])
-        .signers([treasury])
+        .signers([treasury, thirdSigner])
         .rpc();
       treasuryPubkey = treasury.publicKey;
     } catch (e: any) {
@@ -151,6 +157,7 @@ describe("sybil-attack", () => {
       program,
       protocolPda,
       authority: provider.wallet.publicKey,
+      additionalSigners: [treasury],
     });
 
     // Register creator agent for task creation

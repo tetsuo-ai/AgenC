@@ -73,6 +73,7 @@ describe("AgenC Integration Tests", () => {
   // ============================================================================
 
   let treasury: Keypair;
+  let thirdSigner: Keypair; // Required for multisig threshold >= 2
   let treasuryPubkey: PublicKey; // Actual treasury from protocol config
   let creator: Keypair;
   let worker1: Keypair;
@@ -118,6 +119,7 @@ describe("AgenC Integration Tests", () => {
   before(async () => {
     // Generate test keypairs
     treasury = Keypair.generate();
+    thirdSigner = Keypair.generate();
     creator = Keypair.generate();
     worker1 = Keypair.generate();
     worker2 = Keypair.generate();
@@ -128,7 +130,7 @@ describe("AgenC Integration Tests", () => {
 
     // Airdrop SOL to test accounts
     const airdropAmount = 10 * LAMPORTS_PER_SOL;
-    const accounts = [treasury, creator, worker1, worker2];
+    const accounts = [treasury, thirdSigner, creator, worker1, worker2];
 
     for (const account of accounts) {
       const sig = await provider.connection.requestAirdrop(
@@ -164,8 +166,8 @@ describe("AgenC Integration Tests", () => {
             PROTOCOL_FEE_BPS, // protocol_fee_bps: u16
             new BN(MIN_STAKE), // min_stake: u64
             new BN(MIN_STAKE / 100), // min_stake_for_dispute: u64
-            1, // multisig_threshold: u8
-            [provider.wallet.publicKey, treasury.publicKey], // multisig_owners: Vec<Pubkey>
+            2, // multisig_threshold: u8 (must be >= 2 and < owners.length)
+            [provider.wallet.publicKey, treasury.publicKey, thirdSigner.publicKey], // multisig_owners: Vec<Pubkey>
           )
           .accountsPartial({
             protocolConfig: protocolConfigPda,
@@ -180,8 +182,13 @@ describe("AgenC Integration Tests", () => {
               isSigner: false,
               isWritable: false,
             },
+            {
+              pubkey: thirdSigner.publicKey,
+              isSigner: true,
+              isWritable: false,
+            },
           ])
-          .signers([treasury])
+          .signers([treasury, thirdSigner])
           .rpc();
 
         treasuryPubkey = treasury.publicKey;
@@ -200,6 +207,7 @@ describe("AgenC Integration Tests", () => {
         program,
         protocolPda: protocolConfigPda,
         authority: provider.wallet.publicKey,
+        additionalSigners: [treasury],
       });
 
       // Verify protocol state

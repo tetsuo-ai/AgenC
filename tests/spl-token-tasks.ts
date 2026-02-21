@@ -70,6 +70,7 @@ describe("spl-token-tasks (issue #860)", () => {
   let treasury: Keypair;
   let treasuryPubkey: PublicKey;
   let secondSigner: Keypair;
+  let thirdSigner: Keypair;
   let creator: Keypair;
   let worker: Keypair;
   let worker2: Keypair;
@@ -206,8 +207,8 @@ describe("spl-token-tasks (issue #860)", () => {
           PROTOCOL_FEE_BPS,
           minStake,
           minStakeForDispute,
-          1,
-          [provider.wallet.publicKey, secondSigner.publicKey],
+          2,
+          [provider.wallet.publicKey, secondSigner.publicKey, thirdSigner.publicKey],
         )
         .accountsPartial({
           protocolConfig: protocolPda,
@@ -222,8 +223,13 @@ describe("spl-token-tasks (issue #860)", () => {
             isSigner: false,
             isWritable: false,
           },
+          {
+            pubkey: thirdSigner.publicKey,
+            isSigner: true,
+            isWritable: false,
+          },
         ])
-        .signers([secondSigner])
+        .signers([secondSigner, thirdSigner])
         .rpc();
       treasuryPubkey = secondSigner.publicKey;
       minAgentStake = LAMPORTS_PER_SOL;
@@ -247,7 +253,13 @@ describe("spl-token-tasks (issue #860)", () => {
             isSigner: true,
             isWritable: false,
           },
+          {
+            pubkey: secondSigner.publicKey,
+            isSigner: true,
+            isWritable: false,
+          },
         ])
+        .signers([secondSigner])
         .rpc();
     } catch {
       // May already be configured
@@ -397,6 +409,7 @@ describe("spl-token-tasks (issue #860)", () => {
   before(async () => {
     treasury = Keypair.generate();
     secondSigner = Keypair.generate();
+    thirdSigner = Keypair.generate();
     creator = Keypair.generate();
     worker = Keypair.generate();
     worker2 = Keypair.generate();
@@ -415,6 +428,7 @@ describe("spl-token-tasks (issue #860)", () => {
     await airdrop([
       treasury,
       secondSigner,
+      thirdSigner,
       creator,
       worker,
       worker2,

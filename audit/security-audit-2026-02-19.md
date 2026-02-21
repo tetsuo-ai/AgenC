@@ -204,12 +204,17 @@ RISC Zero integration must be completed before mainnet.
 - [x] HIGH-1, HIGH-15: Reorder token CPIs after state updates (**FIXED** — checks-effects-interactions in completion_helpers.rs)
 - [x] HIGH-2: init_if_needed claim bypass prevented (**FIXED** — CLOSED_ACCOUNT_DISCRIMINATOR in cancel_task.rs)
 - [x] HIGH-4: Enforce minimum governance quorum (**FIXED** — quorum_factor min=2)
-- [ ] HIGH-6: Enforce multisig threshold >= 2
-- [ ] HIGH-7: Change active_tasks to u16 or u32
-- [ ] HIGH-13: Prepend ComputeBudgetProgram to SDK transactions
+- [x] HIGH-6: Enforce multisig threshold >= 2 (**FIXED** — threshold >= 2 in multisig.rs, initialize_protocol.rs, update_multisig.rs)
+- [x] HIGH-7: Change active_tasks to u16 (**FIXED** — u8 → u16, absorbed byte from _reserved to keep SIZE unchanged)
+- [x] HIGH-9: Validate slash_percentage <= 100 (**FIXED** — require! in slash_helpers.rs + apply_initiator_slash.rs, compile-time assert on default)
+- [x] HIGH-10: Make agentSecret required (**FIXED** — removed optional fallback in SDK proofs.ts + runtime ProofInputs)
+- [x] HIGH-13: Prepend ComputeBudgetProgram to SDK transactions (**FIXED** — all task functions in tasks.ts now set CU limits)
 - [x] HIGH-14: Add null byte and newline to DANGEROUS_CHARS (**FIXED**)
 - [x] HIGH-16: Enforce monotonically increasing min_version (**FIXED**)
-- [ ] HIGH-17: Use integer arithmetic for SOL formatting
+- [x] HIGH-17: Use integer arithmetic for SOL formatting (**FIXED** — Math.trunc + modulo in client.ts)
+- [x] HIGH-18: NullifierCache timestamp tracking (**FIXED** — unconfirmed entries timeout after 120s, confirmUsed() after successful tx)
+- [x] MED-14: Max deadline validation (1 year) (**FIXED** — MAX_DEADLINE_SECONDS in task_init_helpers.rs)
+- [x] MED-15: Minimum reputation for dispute voters (**FIXED** — reputation > 0 check in vote_dispute.rs)
 
 ### Strengths (No Action Needed)
 
@@ -250,7 +255,20 @@ RISC Zero integration must be completed before mainnet.
 | CLAIM-001 | High | Write CLOSED_ACCOUNT_DISCRIMINATOR (`[255u8; 8]`) after zeroing claim data to prevent init_if_needed bypass | `cancel_task.rs` |
 | DISPUTE-001 | High | Added 2-minute grace period on voting_deadline for expire_dispute, giving resolve_dispute priority | `expire_dispute.rs` |
 
-**Total: 13 fixes applied across 12 files. All verified: anchor build + 100 Rust unit tests pass.**
+### Round 4 (Security Hardening Phase 2)
+| ID | Severity | Fix | File |
+|---|---|---|---|
+| HIGH-6 | High | Enforce multisig threshold >= 2 | `multisig.rs`, `initialize_protocol.rs`, `update_multisig.rs` |
+| HIGH-7 | High | `active_tasks` u8 → u16 (absorbed byte from _reserved) | `state.rs`, `claim_task.rs` |
+| HIGH-9 | High | Validate slash_percentage <= 100 | `slash_helpers.rs`, `apply_initiator_slash.rs`, `initialize_protocol.rs` |
+| HIGH-10 | High | Make agentSecret required (remove pubkey fallback) | `sdk/src/proofs.ts`, `runtime/src/proof/types.ts` |
+| HIGH-13 | High | Prepend ComputeBudgetProgram to all SDK tx functions | `sdk/src/tasks.ts`, `sdk/src/constants.ts` |
+| HIGH-17 | High | Integer math for SOL formatting | `sdk/src/client.ts` |
+| HIGH-18 | High | NullifierCache timestamp tracking + confirmUsed() | `sdk/src/nullifier-cache.ts`, `sdk/src/tasks.ts` |
+| MED-14 | Medium | Max deadline validation (1 year) | `constants.rs`, `task_init_helpers.rs` |
+| MED-15 | Medium | Minimum reputation > 0 for dispute voters | `vote_dispute.rs` |
+
+**Total: 22 fixes applied across 20+ files. All verified: anchor build + Rust unit tests + LiteSVM integration tests pass.**
 
 ---
 

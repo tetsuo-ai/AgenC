@@ -54,6 +54,7 @@ export interface TestContext {
   treasury: Keypair;
   treasuryPubkey: PublicKey;
   secondSigner: Keypair;
+  thirdSigner: Keypair;
   creator: Keypair;
   worker1: Keypair;
   worker2: Keypair;
@@ -86,6 +87,7 @@ export function setupTestContext(ctx: TestContext): void {
   before(async () => {
     ctx.treasury = Keypair.generate();
     ctx.secondSigner = Keypair.generate();
+    ctx.thirdSigner = Keypair.generate();
     ctx.creator = Keypair.generate();
     ctx.worker1 = Keypair.generate();
     ctx.worker2 = Keypair.generate();
@@ -102,6 +104,7 @@ export function setupTestContext(ctx: TestContext): void {
     const wallets = [
       ctx.treasury,
       ctx.secondSigner,
+      ctx.thirdSigner,
       ctx.creator,
       ctx.worker1,
       ctx.worker2,
@@ -124,9 +127,10 @@ export function setupTestContext(ctx: TestContext): void {
       const minStakeForDispute = new BN(LAMPORTS_PER_SOL / 100);
       const programDataPda = deriveProgramDataPda(program.programId);
       await program.methods
-        .initializeProtocol(51, 100, minStake, minStakeForDispute, 1, [
+        .initializeProtocol(51, 100, minStake, minStakeForDispute, 2, [
           provider.wallet.publicKey,
           ctx.secondSigner.publicKey,
+          ctx.thirdSigner.publicKey,
         ])
         .accountsPartial({
           protocolConfig: protocolPda,
@@ -141,8 +145,13 @@ export function setupTestContext(ctx: TestContext): void {
             isSigner: false,
             isWritable: false,
           },
+          {
+            pubkey: ctx.thirdSigner.publicKey,
+            isSigner: true,
+            isWritable: false,
+          },
         ])
-        .signers([ctx.secondSigner])
+        .signers([ctx.secondSigner, ctx.thirdSigner])
         .rpc();
       ctx.treasuryPubkey = ctx.treasury.publicKey;
     } catch {
@@ -155,6 +164,7 @@ export function setupTestContext(ctx: TestContext): void {
       program,
       protocolPda,
       authority: provider.wallet.publicKey,
+      additionalSigners: [ctx.secondSigner],
     });
 
     // Register agents

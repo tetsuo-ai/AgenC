@@ -155,11 +155,17 @@ describe("security-audit-fixes", () => {
 
   before(async () => {
     const treasury = Keypair.generate();
+    const thirdSigner = Keypair.generate();
     creator = await freshKeypair();
 
     await fundWallet(
       provider.connection,
       treasury.publicKey,
+      5 * LAMPORTS_PER_SOL,
+    );
+    await fundWallet(
+      provider.connection,
+      thirdSigner.publicKey,
       5 * LAMPORTS_PER_SOL,
     );
 
@@ -172,8 +178,8 @@ describe("security-audit-fixes", () => {
           100,
           new BN(LAMPORTS_PER_SOL),
           new BN(LAMPORTS_PER_SOL / 100),
-          1,
-          [provider.wallet.publicKey, treasury.publicKey],
+          2,
+          [provider.wallet.publicKey, treasury.publicKey, thirdSigner.publicKey],
         )
         .accountsPartial({
           protocolConfig: protocolPda,
@@ -188,8 +194,13 @@ describe("security-audit-fixes", () => {
             isSigner: false,
             isWritable: false,
           },
+          {
+            pubkey: thirdSigner.publicKey,
+            isSigner: true,
+            isWritable: false,
+          },
         ])
-        .signers([treasury])
+        .signers([treasury, thirdSigner])
         .rpc();
       treasuryPubkey = treasury.publicKey;
     } catch {
@@ -201,6 +212,7 @@ describe("security-audit-fixes", () => {
       program,
       protocolPda,
       authority: provider.wallet.publicKey,
+      additionalSigners: [treasury],
       skipPreflight: false,
     });
 

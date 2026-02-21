@@ -58,6 +58,7 @@ describe("Task lifecycle guards (#959)", () => {
   let treasury: Keypair;
   let treasuryPubkey: PublicKey;
   let secondSigner: Keypair;
+  let thirdSigner: Keypair;
   let creator: Keypair;
   let creatorAgentId: Buffer;
   let creatorAgentPda: PublicKey;
@@ -257,12 +258,13 @@ describe("Task lifecycle guards (#959)", () => {
   before(async () => {
     treasury = Keypair.generate();
     secondSigner = Keypair.generate();
+    thirdSigner = Keypair.generate();
     creator = Keypair.generate();
 
     creatorAgentId = makeAgentId("lcr");
     creatorAgentPda = deriveAgentPda(creatorAgentId);
 
-    const wallets = [treasury, secondSigner, creator];
+    const wallets = [treasury, secondSigner, thirdSigner, creator];
     for (const wallet of wallets) {
       fundAccount(svm, wallet.publicKey, 100 * LAMPORTS_PER_SOL);
     }
@@ -276,8 +278,8 @@ describe("Task lifecycle guards (#959)", () => {
           100,
           new BN(LAMPORTS_PER_SOL / 100),
           new BN(LAMPORTS_PER_SOL / 100),
-          1,
-          [provider.wallet.publicKey, secondSigner.publicKey],
+          2,
+          [provider.wallet.publicKey, secondSigner.publicKey, thirdSigner.publicKey],
         )
         .accountsPartial({
           protocolConfig: protocolPda,
@@ -288,8 +290,13 @@ describe("Task lifecycle guards (#959)", () => {
         })
         .remainingAccounts([
           { pubkey: programDataPda, isSigner: false, isWritable: false },
+          {
+            pubkey: thirdSigner.publicKey,
+            isSigner: true,
+            isWritable: false,
+          },
         ])
-        .signers([secondSigner])
+        .signers([secondSigner, thirdSigner])
         .rpc();
       treasuryPubkey = secondSigner.publicKey;
     } catch {
@@ -303,6 +310,7 @@ describe("Task lifecycle guards (#959)", () => {
       program,
       protocolPda,
       authority: provider.wallet.publicKey,
+      additionalSigners: [secondSigner],
     });
 
     // Register creator agent

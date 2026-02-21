@@ -220,8 +220,9 @@ describe("proofs", () => {
       const agentPubkey = Keypair.generate().publicKey;
       const output = [1n, 2n, 3n, 4n];
       const salt = generateSalt();
+      const agentSecret = 42n;
 
-      const result = computeHashes(taskPda, agentPubkey, output, salt);
+      const result = computeHashes(taskPda, agentPubkey, output, salt, agentSecret);
 
       expect(result.constraintHash).toBeGreaterThanOrEqual(0n);
       expect(result.constraintHash).toBeLessThan(FIELD_MODULUS);
@@ -238,8 +239,9 @@ describe("proofs", () => {
       const agentPubkey = Keypair.generate().publicKey;
       const output = [1n, 2n, 3n, 4n];
       const salt = 12345n;
+      const agentSecret = 67890n;
 
-      const result = computeHashes(taskPda, agentPubkey, output, salt);
+      const result = computeHashes(taskPda, agentPubkey, output, salt, agentSecret);
 
       // Verify against individual function calls
       const constraintHash = computeConstraintHash(output);
@@ -250,12 +252,11 @@ describe("proofs", () => {
       expect(result.constraintHash).toBe(constraintHash);
       expect(result.outputCommitment).toBe(outputCommitment);
       expect(result.binding).toBe(binding);
-      // computeHashes falls back to pubkeyToField when no agentSecret provided
       expect(result.nullifier).toBe(
         computeNullifierFromAgentSecret(
           constraintHash,
           outputCommitment,
-          pubkeyToField(agentPubkey),
+          agentSecret,
         ),
       );
     });
@@ -624,16 +625,14 @@ describe("proofs", () => {
       agentPubkey: PublicKey;
       output: bigint[];
       salt: bigint;
-      agentSecret?: bigint;
+      agentSecret: bigint;
     }): Buffer {
-      const agentSecret =
-        params.agentSecret ?? pubkeyToField(params.agentPubkey);
       const hashes = computeHashes(
         params.taskPda,
         params.agentPubkey,
         params.output,
         params.salt,
-        agentSecret,
+        params.agentSecret,
       );
 
       const toBytes32 = (v: bigint): Buffer => {

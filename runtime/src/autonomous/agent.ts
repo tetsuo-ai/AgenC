@@ -176,6 +176,7 @@ export class AutonomousAgent extends AgentRuntime {
   private readonly maxConcurrentTasks: number;
   private readonly generateProofs: boolean;
   private readonly proofEngine?: ProofEngine;
+  private readonly agentSecret?: bigint;
   private readonly memory?: MemoryBackend;
   private readonly memoryTtlMs: number;
   private readonly autonomousLogger: Logger;
@@ -273,6 +274,7 @@ export class AutonomousAgent extends AgentRuntime {
       config.maxConcurrentTasks ?? DEFAULT_MAX_CONCURRENT_TASKS;
     this.generateProofs = config.generateProofs ?? true;
     this.proofEngine = config.proofEngine;
+    this.agentSecret = config.agentSecret;
     this.memory = config.memory;
     this.memoryTtlMs = config.memoryTtlMs ?? DEFAULT_MEMORY_TTL_MS;
     this.discoveryMode = config.discoveryMode ?? DEFAULT_DISCOVERY_MODE;
@@ -1449,12 +1451,18 @@ export class AutonomousAgent extends AgentRuntime {
       proofSize: number;
     };
     if (this.proofEngine) {
+      if (this.agentSecret === undefined) {
+        throw new Error(
+          "Private task completion requires agentSecret in AutonomousAgent config.",
+        );
+      }
       const salt = this.proofEngine.generateSalt();
       proofResult = await this.proofEngine.generate({
         taskPda: task.pda,
         agentPubkey: this.agentWallet.publicKey,
         output,
         salt,
+        agentSecret: this.agentSecret,
       });
     } else {
       throw new Error(

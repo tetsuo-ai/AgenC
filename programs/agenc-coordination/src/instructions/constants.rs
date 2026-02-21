@@ -61,6 +61,9 @@ pub const MIN_DELEGATION_AMOUNT: u16 = 100;
 // Default Rate Limit Constants
 // ============================================================================
 
+/// Maximum deadline relative to current time (1 year in seconds)
+pub const MAX_DEADLINE_SECONDS: i64 = 365 * 24 * 3600;
+
 /// Default cooldown between task creations in seconds
 pub const DEFAULT_TASK_CREATION_COOLDOWN: i64 = 60;
 

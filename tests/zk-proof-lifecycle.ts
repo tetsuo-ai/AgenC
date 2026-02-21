@@ -212,6 +212,8 @@ describe("ZK Proof Verification Lifecycle (LiteSVM)", () => {
     return { taskPda, escrowPda, claimPda };
   }
 
+  const TEST_AGENT_SECRET = 42n;
+
   function buildProofForTask(
     taskPda: PublicKey,
     workerPublicKey: PublicKey,
@@ -219,7 +221,7 @@ describe("ZK Proof Verification Lifecycle (LiteSVM)", () => {
     output: bigint[],
     salt: bigint,
   ) {
-    const hashes = computeHashes(taskPda, workerPublicKey, output, salt);
+    const hashes = computeHashes(taskPda, workerPublicKey, output, salt, TEST_AGENT_SECRET);
     const bindingSeed = bigintToBytes32(hashes.binding);
     const nullifierSeed = bigintToBytes32(hashes.nullifier);
     const outputCommitment = bigintToBytes32(hashes.outputCommitment);
@@ -255,9 +257,10 @@ describe("ZK Proof Verification Lifecycle (LiteSVM)", () => {
     verifierEntryPda = deriveVerifierEntryPda();
 
     treasury = Keypair.generate();
+    const thirdSigner = Keypair.generate();
     taskCreator = Keypair.generate();
     worker = Keypair.generate();
-    for (const kp of [treasury, taskCreator, worker]) {
+    for (const kp of [treasury, thirdSigner, taskCreator, worker]) {
       fundAccount(ctx.svm, kp.publicKey, 50 * LAMPORTS_PER_SOL);
     }
 
@@ -267,8 +270,8 @@ describe("ZK Proof Verification Lifecycle (LiteSVM)", () => {
         100,
         new BN(LAMPORTS_PER_SOL / 10),
         new BN(LAMPORTS_PER_SOL / 100),
-        1,
-        [ctx.payer.publicKey, treasury.publicKey],
+        2,
+        [ctx.payer.publicKey, treasury.publicKey, thirdSigner.publicKey],
       )
       .accountsPartial({
         protocolConfig: protocolPda,
@@ -283,14 +286,20 @@ describe("ZK Proof Verification Lifecycle (LiteSVM)", () => {
           isSigner: false,
           isWritable: false,
         },
+        {
+          pubkey: thirdSigner.publicKey,
+          isSigner: true,
+          isWritable: false,
+        },
       ])
-      .signers([treasury])
+      .signers([treasury, thirdSigner])
       .rpc();
 
     await disableRateLimitsForTests({
       program,
       protocolPda,
       authority: ctx.payer.publicKey,
+      additionalSigners: [treasury],
     });
 
     const creatorAgentId = makeAgentId("zlc", runId);

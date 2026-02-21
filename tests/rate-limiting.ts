@@ -60,11 +60,12 @@ describe("rate-limiting", () => {
 
   before(async () => {
     treasury = Keypair.generate();
+    const thirdSigner = Keypair.generate();
     creator = Keypair.generate();
     worker = Keypair.generate();
 
     const airdropAmount = 100 * LAMPORTS_PER_SOL;
-    const wallets = [treasury, creator, worker];
+    const wallets = [treasury, thirdSigner, creator, worker];
 
     for (const wallet of wallets) {
       await provider.connection.confirmTransaction(
@@ -85,8 +86,8 @@ describe("rate-limiting", () => {
           100, // protocol_fee_bps
           new BN(LAMPORTS_PER_SOL), // min_arbiter_stake
           new BN(LAMPORTS_PER_SOL / 100), // min_stake_for_dispute
-          1, // multisig_threshold
-          [provider.wallet.publicKey, treasury.publicKey], // multisig_owners
+          2, // multisig_threshold (must be >= 2 and < owners.length)
+          [provider.wallet.publicKey, treasury.publicKey, thirdSigner.publicKey], // multisig_owners
         )
         .accountsPartial({
           protocolConfig: protocolPda,
@@ -101,8 +102,13 @@ describe("rate-limiting", () => {
             isSigner: false,
             isWritable: false,
           },
+          {
+            pubkey: thirdSigner.publicKey,
+            isSigner: true,
+            isWritable: false,
+          },
         ])
-        .signers([treasury])
+        .signers([treasury, thirdSigner])
         .rpc();
     } catch (e) {
       // Protocol may already be initialized
@@ -126,7 +132,13 @@ describe("rate-limiting", () => {
           isSigner: true,
           isWritable: false,
         },
+        {
+          pubkey: treasury.publicKey,
+          isSigner: true,
+          isWritable: false,
+        },
       ])
+      .signers([treasury])
       .rpc();
   });
 
@@ -566,7 +578,13 @@ describe("rate-limiting", () => {
             isSigner: true,
             isWritable: false,
           },
+          {
+            pubkey: treasury.publicKey,
+            isSigner: true,
+            isWritable: false,
+          },
         ])
+        .signers([treasury])
         .rpc();
 
       const config = await program.account.protocolConfig.fetch(protocolPda);

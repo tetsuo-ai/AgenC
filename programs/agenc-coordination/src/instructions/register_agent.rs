@@ -115,7 +115,7 @@ pub fn handler(
     agent.last_vote_timestamp = 0;
     agent.last_state_update = 0;
     agent.disputes_as_defendant = 0;
-    agent._reserved = [0u8; 5];
+    agent._reserved = [0u8; 4];
 
     // Update protocol stats
     let config = &mut ctx.accounts.protocol_config;

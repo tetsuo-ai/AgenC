@@ -74,6 +74,7 @@ describe("dispute-slash-logic (issue #136)", () => {
   let treasury: Keypair;
   let treasuryPubkey: PublicKey;
   let secondSigner: Keypair; // Required for protocol initialization (fix #556)
+  let thirdSigner: Keypair; // Required for multisig threshold >= 2
   let creator: Keypair;
   let worker: Keypair;
   let arbiter1: Keypair;
@@ -188,8 +189,8 @@ describe("dispute-slash-logic (issue #136)", () => {
           100, // protocol_fee_bps
           minStake, // min_stake
           minStakeForDispute, // min_stake_for_dispute (new arg)
-          1, // multisig_threshold (must be < owners.length)
-          [provider.wallet.publicKey, secondSigner.publicKey], // multisig_owners (need at least 2)
+          2, // multisig_threshold (must be >= 2 and < owners.length)
+          [provider.wallet.publicKey, secondSigner.publicKey, thirdSigner.publicKey], // multisig_owners (need at least 3 for threshold=2)
         )
         .accountsPartial({
           protocolConfig: protocolPda,
@@ -204,8 +205,13 @@ describe("dispute-slash-logic (issue #136)", () => {
             isSigner: false,
             isWritable: false,
           },
+          {
+            pubkey: thirdSigner.publicKey,
+            isSigner: true,
+            isWritable: false,
+          },
         ])
-        .signers([secondSigner])
+        .signers([secondSigner, thirdSigner])
         .rpc();
       treasuryPubkey = secondSigner.publicKey;
       minAgentStake = LAMPORTS_PER_SOL;
@@ -231,7 +237,13 @@ describe("dispute-slash-logic (issue #136)", () => {
             isSigner: true,
             isWritable: false,
           },
+          {
+            pubkey: secondSigner.publicKey,
+            isSigner: true,
+            isWritable: false,
+          },
         ])
+        .signers([secondSigner])
         .rpc();
     } catch {
       // May already be configured
@@ -270,6 +282,7 @@ describe("dispute-slash-logic (issue #136)", () => {
   before(async () => {
     treasury = Keypair.generate();
     secondSigner = Keypair.generate(); // Required for protocol initialization (fix #556)
+    thirdSigner = Keypair.generate(); // Required for multisig threshold >= 2
     creator = Keypair.generate();
     worker = Keypair.generate();
     arbiter1 = Keypair.generate();
@@ -283,10 +296,11 @@ describe("dispute-slash-logic (issue #136)", () => {
     arbiter2AgentId = makeId("ar2");
     arbiter3AgentId = makeId("ar3");
 
-    // Airdrop SOL to all participants (including secondSigner for initialization)
+    // Airdrop SOL to all participants (including secondSigner/thirdSigner for initialization)
     await airdrop([
       treasury,
       secondSigner,
+      thirdSigner,
       creator,
       worker,
       arbiter1,

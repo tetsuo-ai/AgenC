@@ -60,18 +60,21 @@ describe("litesvm-poc", () => {
 
   let treasury: Keypair;
   let secondSigner: Keypair;
+  let thirdSigner: Keypair;
   let creator: Keypair;
   let worker: Keypair;
 
   before(() => {
     treasury = Keypair.generate();
     secondSigner = Keypair.generate();
+    thirdSigner = Keypair.generate();
     creator = Keypair.generate();
     worker = Keypair.generate();
 
     // Fund accounts instantly (no airdrop latency)
     fundAccount(svm, treasury.publicKey, 10 * LAMPORTS_PER_SOL);
     fundAccount(svm, secondSigner.publicKey, 10 * LAMPORTS_PER_SOL);
+    fundAccount(svm, thirdSigner.publicKey, 10 * LAMPORTS_PER_SOL);
     fundAccount(svm, creator.publicKey, 100 * LAMPORTS_PER_SOL);
     fundAccount(svm, worker.publicKey, 100 * LAMPORTS_PER_SOL);
   });
@@ -88,9 +91,10 @@ describe("litesvm-poc", () => {
       const programDataPda = deriveProgramDataPda(program.programId);
 
       await program.methods
-        .initializeProtocol(51, 100, minStake, minStakeForDispute, 1, [
+        .initializeProtocol(51, 100, minStake, minStakeForDispute, 2, [
           provider.wallet.publicKey,
           secondSigner.publicKey,
+          thirdSigner.publicKey,
         ])
         .accountsPartial({
           protocolConfig: protocolPda,
@@ -101,8 +105,13 @@ describe("litesvm-poc", () => {
         })
         .remainingAccounts([
           { pubkey: programDataPda, isSigner: false, isWritable: false },
+          {
+            pubkey: thirdSigner.publicKey,
+            isSigner: true,
+            isWritable: false,
+          },
         ])
-        .signers([secondSigner])
+        .signers([secondSigner, thirdSigner])
         .rpc();
 
       // Verify protocol was initialized
@@ -129,7 +138,13 @@ describe("litesvm-poc", () => {
             isSigner: true,
             isWritable: false,
           },
+          {
+            pubkey: secondSigner.publicKey,
+            isSigner: true,
+            isWritable: false,
+          },
         ])
+        .signers([secondSigner])
         .rpc();
     });
 

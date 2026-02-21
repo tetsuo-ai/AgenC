@@ -95,6 +95,7 @@ describe("CU Benchmarks", () => {
 
   let treasury: Keypair;
   let secondSigner: Keypair;
+  let thirdSigner: Keypair;
   let creator: Keypair;
   let worker: Keypair;
   let creatorAgentId: Buffer;
@@ -103,6 +104,7 @@ describe("CU Benchmarks", () => {
   before(async () => {
     treasury = Keypair.generate();
     secondSigner = Keypair.generate();
+    thirdSigner = Keypair.generate();
     creator = Keypair.generate();
     worker = Keypair.generate();
     creatorAgentId = makeAgentId("cub", runId);
@@ -110,7 +112,7 @@ describe("CU Benchmarks", () => {
 
     // Fund wallets
     const airdropAmount = 100 * LAMPORTS_PER_SOL;
-    const wallets = [treasury, secondSigner, creator, worker];
+    const wallets = [treasury, secondSigner, thirdSigner, creator, worker];
     const sigs = await Promise.all(
       wallets.map((w) =>
         provider.connection.requestAirdrop(w.publicKey, airdropAmount),
@@ -124,9 +126,10 @@ describe("CU Benchmarks", () => {
     try {
       const minStake = new BN(LAMPORTS_PER_SOL / 100);
       await program.methods
-        .initializeProtocol(51, 100, minStake, minStake, 1, [
+        .initializeProtocol(51, 100, minStake, minStake, 2, [
           provider.wallet.publicKey,
           secondSigner.publicKey,
+          thirdSigner.publicKey,
         ])
         .accountsPartial({
           protocolConfig: protocolPda,
@@ -141,8 +144,13 @@ describe("CU Benchmarks", () => {
             isSigner: false,
             isWritable: false,
           },
+          {
+            pubkey: thirdSigner.publicKey,
+            isSigner: true,
+            isWritable: false,
+          },
         ])
-        .signers([secondSigner])
+        .signers([secondSigner, thirdSigner])
         .rpc();
     } catch {
       // Already initialized
@@ -153,6 +161,7 @@ describe("CU Benchmarks", () => {
       program,
       protocolPda,
       authority: provider.wallet.publicKey,
+      additionalSigners: [secondSigner],
     });
   });
 

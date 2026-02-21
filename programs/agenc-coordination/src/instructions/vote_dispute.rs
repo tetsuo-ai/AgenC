@@ -131,6 +131,12 @@ pub fn handler(ctx: Context<VoteDispute>, approve: bool) -> Result<()> {
         CoordinationError::InsufficientStake
     );
 
+    // Verify arbiter has non-zero reputation to prevent sybil voting
+    require!(
+        arbiter.reputation > 0,
+        CoordinationError::InsufficientReputation
+    );
+
     // Cap vote weight to prevent stake-boost attacks (fix #445)
     // Max weight is 10x the minimum arbiter stake to limit plutocratic influence
     // while still rewarding larger stakes
