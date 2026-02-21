@@ -10,8 +10,6 @@
 
 import {
   generateProof as sdkGenerateProof,
-  generateProofWithProver as sdkGenerateProofWithProver,
-  verifyProofLocally as sdkVerifyProofLocally,
   computeHashes as sdkComputeHashes,
   generateSalt as sdkGenerateSalt,
 } from "@agenc/sdk";
@@ -37,7 +35,7 @@ import type {
   ToolsStatus,
 } from "./types.js";
 import { ProofCache } from "./cache.js";
-import { ProofGenerationError, ProofVerificationError } from "./errors.js";
+import { ProofGenerationError } from "./errors.js";
 const METHOD_ID_LEN = 32;
 
 /**
@@ -47,7 +45,12 @@ const METHOD_ID_LEN = 32;
 export function buildSdkProverConfig(
   config: ProverBackendConfig,
 ): SdkProverConfig {
-  const kind = config.kind ?? "deterministic-local";
+  const kind = config.kind;
+  if (!kind) {
+    throw new ProofGenerationError(
+      "ProofEngine requires an explicit proverBackend kind (local-binary or remote)",
+    );
+  }
   switch (kind) {
     case "local-binary": {
       if (!config.binaryPath) {
@@ -128,7 +131,7 @@ export class ProofEngine implements ProofGenerator {
     }
     this.routerConfig = config?.routerConfig ?? null;
     this.proverBackendConfig = config?.proverBackend;
-    this.proverBackend = config?.proverBackend?.kind ?? "deterministic-local";
+    this.proverBackend = config?.proverBackend?.kind ?? "local-binary";
     this.verifyAfterGeneration = config?.verifyAfterGeneration ?? false;
     this.cache = config?.cache ? new ProofCache(config.cache) : null;
     this.logger = config?.logger ?? silentLogger;
@@ -174,31 +177,24 @@ export class ProofEngine implements ProofGenerator {
 
     // Generate proof via SDK
     const startTime = Date.now();
-    const useRealProver =
-      this.proverBackend === "local-binary" || this.proverBackend === "remote";
+    if (!this.proverBackendConfig) {
+      throw new ProofGenerationError(
+        "ProofEngine requires an explicit proverBackend configuration (local-binary or remote)",
+      );
+    }
     let sdkResult;
     try {
-      if (useRealProver) {
-        const sdkProverConfig = buildSdkProverConfig(this.proverBackendConfig!);
-        sdkResult = await sdkGenerateProofWithProver(
-          {
-            taskPda: inputs.taskPda,
-            agentPubkey: inputs.agentPubkey,
-            output: inputs.output,
-            salt: inputs.salt,
-            agentSecret: inputs.agentSecret,
-          },
-          sdkProverConfig,
-        );
-      } else {
-        sdkResult = await sdkGenerateProof({
+      const sdkProverConfig = buildSdkProverConfig(this.proverBackendConfig);
+      sdkResult = await sdkGenerateProof(
+        {
           taskPda: inputs.taskPda,
           agentPubkey: inputs.agentPubkey,
           output: inputs.output,
           salt: inputs.salt,
           agentSecret: inputs.agentSecret,
-        });
-      }
+        },
+        sdkProverConfig,
+      );
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       throw new ProofGenerationError(message);
@@ -239,38 +235,12 @@ export class ProofEngine implements ProofGenerator {
       generationTimeMs,
     );
 
-    // Verify if configured
+    // Note: verifyAfterGeneration is a no-op — local verification was removed.
+    // On-chain Verifier Router CPI is the authoritative verification.
     if (this.verifyAfterGeneration) {
-      if (useRealProver) {
-        // verifyProofLocally() only verifies the simulated XOR transform and would
-        // always return false for real Groth16 proofs. On-chain Verifier Router CPI
-        // is the authoritative verification for real prover backends.
-        this.logger.warn(
-          "verifyAfterGeneration is not supported with real prover backends — on-chain Verifier Router CPI is the authoritative verification",
-        );
-      } else {
-        this._verificationsPerformed++;
-        try {
-          const valid = await sdkVerifyProofLocally(
-            sdkResult.sealBytes,
-            sdkResult.journal,
-          );
-          if (!valid) {
-            this._verificationsFailed++;
-            throw new ProofVerificationError(
-              "Generated proof failed local verification",
-            );
-          }
-          result.verified = true;
-        } catch (err) {
-          if (err instanceof ProofVerificationError) {
-            throw err;
-          }
-          this._verificationsFailed++;
-          const message = err instanceof Error ? err.message : String(err);
-          throw new ProofVerificationError(message);
-        }
-      }
+      this.logger.warn(
+        "verifyAfterGeneration is not supported — on-chain Verifier Router CPI is the authoritative verification",
+      );
     }
 
     // Cache result
@@ -280,28 +250,6 @@ export class ProofEngine implements ProofGenerator {
 
     this.logger.debug(`Proof generated in ${generationTimeMs}ms`);
     return result;
-  }
-
-  /**
-   * Verify a proof locally against its journal.
-   */
-  async verify(proof: Uint8Array, journal: Uint8Array): Promise<boolean> {
-    this._verificationsPerformed++;
-    try {
-      const proofBuffer = Buffer.from(proof);
-      const valid = await sdkVerifyProofLocally(
-        proofBuffer,
-        Buffer.from(journal),
-      );
-      if (!valid) {
-        this._verificationsFailed++;
-      }
-      return valid;
-    } catch (err) {
-      this._verificationsFailed++;
-      const message = err instanceof Error ? err.message : String(err);
-      throw new ProofVerificationError(message);
-    }
   }
 
   /**

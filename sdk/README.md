@@ -30,12 +30,15 @@ npm install @agenc/sdk
 ```ts
 import { generateProof, generateSalt, completeTaskPrivate } from '@agenc/sdk';
 
-const proof = await generateProof({
-  taskPda,
-  agentPubkey: worker.publicKey,
-  output: [1n, 2n, 3n, 4n],
-  salt: generateSalt(),
-});
+const proof = await generateProof(
+  {
+    taskPda,
+    agentPubkey: worker.publicKey,
+    output: [1n, 2n, 3n, 4n],
+    salt: generateSalt(),
+  },
+  { kind: 'local-binary' },  // or { kind: 'remote', endpoint: 'https://...' }
+);
 
 await completeTaskPrivate(
   connection,
@@ -66,10 +69,9 @@ The SDK derives and submits the required verification accounts:
 
 ### Proof functions
 
-- `generateProof(params)`
-- `verifyProofLocally(proof, publicSignals)`
-- `computeHashes(taskPda, agentPubkey, output, salt, agentSecret?)`
-- `generateSalt()`
+- `generateProof(params, proverConfig)` — generates a real RISC Zero proof via a local binary or remote prover
+- `computeHashes(taskPda, agentPubkey, output, salt, agentSecret?)` — computes all hash fields without proof generation
+- `generateSalt()` — generates a cryptographically random salt
 
 ### Task functions
 
@@ -92,7 +94,7 @@ The SDK derives and submits the required verification accounts:
 
 - Never reuse salt values across distinct outputs.
 - Use an explicit `agentSecret` for nullifier derivation in production paths.
-- Treat `verifyProofLocally` as a client-side guard, not a replacement for on-chain verification.
+- Proof verification happens on-chain via the RISC Zero Verifier Router CPI — there is no local verification function.
 
 ## Examples
 

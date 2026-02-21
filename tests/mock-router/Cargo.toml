@@ -1,0 +1,9 @@
+[package]
+name = "mock-router"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+
+# No dependencies — raw BPF entrypoint that always succeeds

@@ -13,7 +13,6 @@ import {
 } from "@solana/web3.js";
 import { type Idl, Program, AnchorProvider, Wallet } from "@coral-xyz/anchor";
 import { DEVNET_RPC, MAINNET_RPC } from "./constants";
-import { validateProverEndpoint } from "./validation";
 import {
   createLogger,
   silentLogger,
@@ -25,6 +24,7 @@ import {
   generateSalt,
   type ProofGenerationParams,
 } from "./proofs";
+import type { ProverConfig } from "./prover";
 import { completeTaskPrivate as submitCompleteTaskPrivate } from "./tasks";
 
 export interface PrivacyClientConfig {
@@ -32,8 +32,8 @@ export interface PrivacyClientConfig {
   rpcUrl?: string;
   /** Use devnet (default: false for mainnet) */
   devnet?: boolean;
-  /** Optional external RISC0 prover endpoint */
-  proverEndpoint?: string;
+  /** Prover backend configuration (required for completeTaskPrivate) */
+  proverConfig?: ProverConfig;
   /** Owner wallet keypair */
   wallet?: Keypair;
   /** Agent ID (32 bytes) — required for completeTaskPrivate */
@@ -52,15 +52,12 @@ export class PrivacyClient {
   private config: PrivacyClientConfig;
   private wallet: Keypair | null = null;
   private agentId: Uint8Array | number[] | null = null;
+  private proverConfig: ProverConfig | null = null;
   private logger: Logger;
 
   constructor(config: PrivacyClientConfig = {}) {
-    if (config.proverEndpoint !== undefined) {
-      try {
-        validateProverEndpoint(config.proverEndpoint);
-      } catch (e) {
-        throw new Error(`Invalid prover endpoint: ${(e as Error).message}`);
-      }
+    if (config.proverConfig) {
+      this.proverConfig = config.proverConfig;
     }
 
     // Validate RPC URL format if provided
@@ -109,8 +106,8 @@ export class PrivacyClient {
     this.logger.debug(
       `  Network: ${this.config.devnet ? "devnet" : "mainnet"}`,
     );
-    if (this.config.proverEndpoint) {
-      this.logger.debug(`  Prover endpoint: ${this.config.proverEndpoint}`);
+    if (this.proverConfig) {
+      this.logger.debug(`  Prover backend: ${this.proverConfig.kind}`);
     }
   }
 
@@ -208,6 +205,12 @@ export class PrivacyClient {
       );
     }
 
+    if (!this.proverConfig) {
+      throw new Error(
+        "PrivacyClient requires proverConfig for private task completion",
+      );
+    }
+
     // Generate the ZK proof
     const proofParams: ProofGenerationParams = {
       taskPda: params.taskPda,
@@ -216,7 +219,7 @@ export class PrivacyClient {
       salt,
       agentSecret: params.agentSecret,
     };
-    const proofResult = await generateProof(proofParams);
+    const proofResult = await generateProof(proofParams, this.proverConfig);
 
     this.logger.debug(`Proof generated in ${proofResult.generationTime}ms`);
 

@@ -17,6 +17,14 @@ import {
 } from "@solana/web3.js";
 import type { AgencCoordination } from "../target/types/agenc_coordination";
 
+// Re-export SDK ZK helpers for integration tests
+export {
+  computeHashes,
+  computeConstraintHash,
+  generateSalt,
+  bigintToBytes32,
+} from "@agenc/sdk";
+
 // ============================================================================
 // Capability Constants (matches program)
 // ============================================================================
@@ -647,4 +655,115 @@ export function errorContainsAny(error: unknown, patterns: string[]): boolean {
 export function getErrorCode(error: unknown): string | undefined {
   return (error as { error?: { errorCode?: { code: string } } })?.error
     ?.errorCode?.code;
+}
+
+// ============================================================================
+// ZK Proof Test Helpers
+// ============================================================================
+
+/** Trusted RISC0 selector bytes */
+const ZK_TRUSTED_SELECTOR = Buffer.from([0x52, 0x5a, 0x56, 0x4d]);
+
+/** Trusted RISC0 image ID — must match on-chain constant */
+export const TRUSTED_IMAGE_ID = Buffer.from([
+  202, 175, 194, 115, 244, 76, 8, 9, 197, 55, 54, 103, 21, 34, 178, 245, 211,
+  97, 58, 48, 7, 14, 121, 214, 109, 60, 64, 137, 170, 156, 79, 219,
+]);
+
+/** Trusted router program ID */
+export const TRUSTED_ROUTER_PROGRAM_ID = new PublicKey(
+  "6JvFfBrvCcWgANKh1Eae9xDq4RC6cfJuBcf71rp2k9Y7",
+);
+
+/** Trusted verifier program ID */
+export const TRUSTED_VERIFIER_PROGRAM_ID = new PublicKey(
+  "THq1qFYQoh7zgcjXoMXduDBqiZRCPeg3PvvMbrVQUge",
+);
+
+/**
+ * Build a 260-byte Borsh-encoded Risc0Seal with the trusted selector
+ * and non-zero proof body. Valid for on-chain decode_and_validate_seal().
+ */
+export function buildTestSealBytes(): Buffer {
+  const seal = Buffer.alloc(260);
+  // Selector (4 bytes)
+  ZK_TRUSTED_SELECTOR.copy(seal, 0);
+  // Groth16 proof body (256 bytes): pi_a(64) + pi_b(128) + pi_c(64)
+  // Fill with non-zero bytes to pass Borsh deserialization
+  for (let i = 4; i < 260; i++) {
+    seal[i] = ((i * 7 + 13) % 255) + 1; // non-zero pseudo-random fill
+  }
+  return seal;
+}
+
+/**
+ * Build a 192-byte journal from 6 x 32-byte fields.
+ * Field order: taskPda, authority, constraintHash, outputCommitment, binding, nullifier
+ */
+export function buildTestJournal(fields: {
+  taskPda: Buffer | Uint8Array;
+  authority: Buffer | Uint8Array;
+  constraintHash: Buffer | Uint8Array;
+  outputCommitment: Buffer | Uint8Array;
+  binding: Buffer | Uint8Array;
+  nullifier: Buffer | Uint8Array;
+}): Buffer {
+  return Buffer.concat([
+    Buffer.from(fields.taskPda),
+    Buffer.from(fields.authority),
+    Buffer.from(fields.constraintHash),
+    Buffer.from(fields.outputCommitment),
+    Buffer.from(fields.binding),
+    Buffer.from(fields.nullifier),
+  ]);
+}
+
+/**
+ * Derive a binding_spend PDA.
+ * Seeds: ["binding_spend", bindingSeed]
+ */
+export function deriveBindingSpendPda(
+  bindingSeed: Buffer | Uint8Array,
+  programId: PublicKey,
+): PublicKey {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("binding_spend"), Buffer.from(bindingSeed)],
+    programId,
+  )[0];
+}
+
+/**
+ * Derive a nullifier_spend PDA.
+ * Seeds: ["nullifier_spend", nullifierSeed]
+ */
+export function deriveNullifierSpendPda(
+  nullifierSeed: Buffer | Uint8Array,
+  programId: PublicKey,
+): PublicKey {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("nullifier_spend"), Buffer.from(nullifierSeed)],
+    programId,
+  )[0];
+}
+
+/**
+ * Derive the router PDA under the trusted router program.
+ * Seeds: ["router"] under TRUSTED_RISC0_ROUTER_PROGRAM_ID
+ */
+export function deriveRouterPda(): PublicKey {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("router")],
+    TRUSTED_ROUTER_PROGRAM_ID,
+  )[0];
+}
+
+/**
+ * Derive the verifier-entry PDA under the trusted router program.
+ * Seeds: ["verifier", selector] under TRUSTED_RISC0_ROUTER_PROGRAM_ID
+ */
+export function deriveVerifierEntryPda(): PublicKey {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("verifier"), ZK_TRUSTED_SELECTOR],
+    TRUSTED_ROUTER_PROGRAM_ID,
+  )[0];
 }
