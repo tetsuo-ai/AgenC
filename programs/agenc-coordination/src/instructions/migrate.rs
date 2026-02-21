@@ -71,15 +71,20 @@ pub fn handler(ctx: Context<MigrateProtocol>, target_version: u8) -> Result<()> 
     let old_version = config.protocol_version;
     config.protocol_version = target_version;
 
-    // Only emit MigrationCompleted if there was an authority in remaining_accounts
-    if let Some(authority_account) = ctx.remaining_accounts.first() {
-        emit!(MigrationCompleted {
-            from_version: old_version,
-            to_version: target_version,
-            authority: authority_account.key(),
-            timestamp: clock.unix_timestamp,
-        });
-    }
+    // Migration events are high-value audit records and must always fire (MIG-002).
+    let authority = ctx
+        .remaining_accounts
+        .iter()
+        .find(|a| a.is_signer)
+        .map(|a| a.key())
+        .unwrap_or_default();
+
+    emit!(MigrationCompleted {
+        from_version: old_version,
+        to_version: target_version,
+        authority,
+        timestamp: clock.unix_timestamp,
+    });
 
     emit!(ProtocolVersionUpdated {
         old_version,
@@ -105,14 +110,9 @@ fn apply_migration(_config: &mut ProtocolConfig, version: u8) -> Result<()> {
             // Version 1 is the initial version, no migration needed
             Ok(())
         }
-        // Version 2 migration is intentionally a no-op
-        // Placeholder for future schema changes
-        2 => {
-            // No-op: Reserved for future use
-            Ok(())
-        }
         _ => {
-            // Unknown version - this shouldn't happen if validation is correct
+            // Unknown version — add real migration logic here alongside the
+            // CURRENT_PROTOCOL_VERSION bump when a new version is needed (MIG-001).
             Err(CoordinationError::InvalidMigrationTarget.into())
         }
     }
@@ -200,12 +200,10 @@ mod tests {
     }
 
     #[test]
-    fn test_migration_v2_is_noop() {
+    fn test_migration_v2_fails_no_placeholder() {
         let mut config = default_config();
-        let original_fee = config.protocol_fee_bps;
-        apply_migration(&mut config, 2).unwrap();
-        assert_eq!(config.protocol_fee_bps, original_fee);
-        assert_eq!(config._padding, [0u8; 2]);
+        let result = apply_migration(&mut config, 2);
+        assert!(result.is_err());
     }
 
     #[test]
@@ -223,11 +221,11 @@ mod tests {
     }
 
     #[test]
-    fn test_sequential_migration_v1_to_v2_preserves_padding() {
+    fn test_sequential_migration_v1_then_v2_fails() {
         let mut config = default_config();
         apply_migration(&mut config, 1).unwrap();
-        apply_migration(&mut config, 2).unwrap();
-        assert_eq!(config._padding, [0u8; 2]);
+        let result = apply_migration(&mut config, 2);
+        assert!(result.is_err());
     }
 
     #[test]

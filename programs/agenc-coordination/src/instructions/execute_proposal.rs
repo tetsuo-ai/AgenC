@@ -124,6 +124,12 @@ pub fn handler(ctx: Context<ExecuteProposal>) -> Result<()> {
         CoordinationError::TimelockNotElapsed
     );
 
+    // Checks-effects-interactions: set final state BEFORE any CPI (EXECPROP-002).
+    // This prevents reentrancy from observing an Active proposal during the
+    // system_program::transfer CPI in the TreasurySpend path.
+    proposal.status = ProposalStatus::Executed;
+    proposal.executed_at = clock.unix_timestamp;
+
     // Execute based on proposal type
     match proposal.proposal_type {
         ProposalType::FeeChange => execute_fee_change(proposal, config)?,
@@ -139,9 +145,6 @@ pub fn handler(ctx: Context<ExecuteProposal>) -> Result<()> {
             // Protocol upgrade is a signaling marker — actual upgrade handled externally
         }
     }
-
-    proposal.status = ProposalStatus::Executed;
-    proposal.executed_at = clock.unix_timestamp;
 
     emit!(ProposalExecuted {
         proposal: proposal.key(),
@@ -203,6 +206,19 @@ fn execute_treasury_spend<'info>(
 
     require!(
         treasury.lamports() >= amount,
+        CoordinationError::TreasuryInsufficientBalance
+    );
+
+    // Prevent draining treasury below rent-exempt minimum (EXECPROP-001).
+    // A treasury drained below this threshold gets garbage-collected by the
+    // runtime, permanently destroying the account and any remaining funds.
+    let rent_exempt_min = Rent::get()?.minimum_balance(treasury.data_len());
+    let post_transfer = treasury
+        .lamports()
+        .checked_sub(amount)
+        .ok_or(CoordinationError::ArithmeticOverflow)?;
+    require!(
+        post_transfer >= rent_exempt_min,
         CoordinationError::TreasuryInsufficientBalance
     );
 

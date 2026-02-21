@@ -3,6 +3,7 @@
 use anchor_lang::prelude::*;
 
 use crate::errors::CoordinationError;
+use crate::events::RateLimitsUpdated;
 use crate::state::ProtocolConfig;
 use crate::utils::multisig::require_multisig;
 
@@ -79,6 +80,23 @@ pub fn handler(
     config.dispute_initiation_cooldown = dispute_initiation_cooldown;
     config.max_disputes_per_24h = max_disputes_per_24h;
     config.min_stake_for_dispute = min_stake_for_dispute;
+
+    let updated_by = ctx
+        .remaining_accounts
+        .iter()
+        .find(|a| a.is_signer)
+        .map(|a| a.key())
+        .unwrap_or_default();
+
+    emit!(RateLimitsUpdated {
+        task_creation_cooldown,
+        max_tasks_per_24h,
+        dispute_initiation_cooldown,
+        max_disputes_per_24h,
+        min_stake_for_dispute,
+        updated_by,
+        timestamp: Clock::get()?.unix_timestamp,
+    });
 
     Ok(())
 }

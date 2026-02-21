@@ -14,6 +14,8 @@ pub struct StakeReputation<'info> {
 
     #[account(
         has_one = authority @ CoordinationError::UnauthorizedAgent,
+        seeds = [b"agent", agent.agent_id.as_ref()],
+        bump = agent.bump,
     )]
     pub agent: Account<'info, AgentRegistration>,
 

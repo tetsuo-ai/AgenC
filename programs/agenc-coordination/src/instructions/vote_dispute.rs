@@ -143,11 +143,13 @@ pub fn handler(ctx: Context<VoteDispute>, approve: bool) -> Result<()> {
     let max_vote_weight = config.min_arbiter_stake.saturating_mul(10);
     let stake_weight = arbiter.stake.min(max_vote_weight);
     // Apply reputation multiplier: rep/10000 scales weight 0-100%
-    let vote_weight = (stake_weight as u128)
+    let vote_weight_u128 = (stake_weight as u128)
         .checked_mul(arbiter.reputation as u128)
         .ok_or(CoordinationError::ArithmeticOverflow)?
         .checked_div(crate::instructions::constants::MAX_REPUTATION as u128)
-        .ok_or(CoordinationError::ArithmeticOverflow)? as u64;
+        .ok_or(CoordinationError::ArithmeticOverflow)?;
+    let vote_weight =
+        u64::try_from(vote_weight_u128).map_err(|_| CoordinationError::ArithmeticOverflow)?;
     // Ensure minimum weight of 1 if arbiter has any stake
     let vote_weight = if stake_weight > 0 {
         vote_weight.max(1)

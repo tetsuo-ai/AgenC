@@ -34,7 +34,8 @@ pub fn handler(ctx: Context<UpdateProtocolFee>, protocol_fee_bps: u16) -> Result
         new_fee_bps: protocol_fee_bps,
         updated_by: ctx
             .remaining_accounts
-            .first()
+            .iter()
+            .find(|a| a.is_signer)
             .map(|a| a.key())
             .unwrap_or_default(),
         timestamp: Clock::get()?.unix_timestamp,

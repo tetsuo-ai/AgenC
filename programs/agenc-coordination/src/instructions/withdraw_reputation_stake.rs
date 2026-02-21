@@ -12,6 +12,8 @@ pub struct WithdrawReputationStake<'info> {
 
     #[account(
         has_one = authority @ CoordinationError::UnauthorizedAgent,
+        seeds = [b"agent", agent.agent_id.as_ref()],
+        bump = agent.bump,
     )]
     pub agent: Account<'info, AgentRegistration>,
 
@@ -48,14 +50,23 @@ pub fn handler(ctx: Context<WithdrawReputationStake>, amount: u64) -> Result<()>
         CoordinationError::ReputationStakeInsufficientBalance
     );
 
-    // Transfer lamports from PDA to authority (program-owned account manipulation)
+    // Prevent withdrawing below rent-exempt minimum to avoid PDA garbage
+    // collection, which would destroy the account and reset slash_count (WITHDRAW-002).
     let stake_info = stake.to_account_info();
-    let authority_info = ctx.accounts.authority.to_account_info();
-
-    **stake_info.try_borrow_mut_lamports()? = stake_info
+    let rent_exempt_min = Rent::get()?.minimum_balance(stake_info.data_len());
+    let post_withdraw = stake_info
         .lamports()
         .checked_sub(amount)
         .ok_or(CoordinationError::ArithmeticOverflow)?;
+    require!(
+        post_withdraw >= rent_exempt_min,
+        CoordinationError::ReputationStakeInsufficientBalance
+    );
+
+    // Transfer lamports from PDA to authority (program-owned account manipulation)
+    let authority_info = ctx.accounts.authority.to_account_info();
+
+    **stake_info.try_borrow_mut_lamports()? = post_withdraw;
     **authority_info.try_borrow_mut_lamports()? = authority_info
         .lamports()
         .checked_add(amount)

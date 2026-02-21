@@ -262,6 +262,9 @@ function deriveAgentPda(
 ): PublicKey {
   const idBytes =
     agentId instanceof Uint8Array ? agentId : Buffer.from(agentId);
+  if (idBytes.length !== 32) {
+    throw new Error(`agentId must be exactly 32 bytes, got ${idBytes.length}`);
+  }
   const [pda] = PublicKey.findProgramAddressSync(
     [SEEDS.AGENT, idBytes],
     programId,

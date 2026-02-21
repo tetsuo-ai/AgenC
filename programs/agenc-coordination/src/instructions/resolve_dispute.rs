@@ -412,7 +412,7 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
         .accounts
         .worker
         .as_mut()
-        .expect("worker account validated above");
+        .ok_or(CoordinationError::WorkerAgentRequired)?;
     worker.active_tasks = worker
         .active_tasks
         .checked_sub(1)
@@ -490,12 +490,12 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
             .accounts
             .worker_claim
             .as_ref()
-            .expect("worker claim validated above");
+            .ok_or(CoordinationError::WorkerClaimRequired)?;
         let worker_authority = ctx
             .accounts
             .worker_authority
             .as_ref()
-            .expect("worker authority validated above");
+            .ok_or(CoordinationError::IncompleteWorkerAccounts)?;
         claim.close(worker_authority.to_account_info())?;
     }
 
