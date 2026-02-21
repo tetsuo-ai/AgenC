@@ -1167,6 +1167,132 @@ export async function getTasksByCreator(
 }
 
 /**
+ * Fetch all claims for a task and build timeline events for each claim/completion.
+ */
+async function buildClaimTimelineEvents(
+  program: Program,
+  taskPda: PublicKey,
+): Promise<TaskLifecycleEvent[]> {
+  const claims = await getAccount(program, "taskClaim").all([
+    {
+      memcmp: {
+        offset: DISCRIMINATOR_SIZE, // discriminator + task pubkey at offset 8
+        bytes: taskPda.toBase58(),
+      },
+    },
+  ]);
+
+  const events: TaskLifecycleEvent[] = [];
+  for (const claim of claims) {
+    const claimAccount = claim.account as {
+      worker?: PublicKey;
+      claimedAt?: { toNumber: () => number };
+      claimed_at?: { toNumber: () => number };
+      completedAt?: { toNumber: () => number };
+      completed_at?: { toNumber: () => number };
+    };
+
+    const claimedAt =
+      claimAccount.claimedAt?.toNumber() ??
+      claimAccount.claimed_at?.toNumber() ??
+      0;
+    if (claimedAt > 0) {
+      events.push({
+        eventName: "taskClaimed",
+        timestamp: claimedAt,
+        actor: claimAccount.worker,
+        data: { claimPda: claim.publicKey.toBase58() },
+      });
+    }
+
+    const claimCompletedAt =
+      claimAccount.completedAt?.toNumber() ??
+      claimAccount.completed_at?.toNumber() ??
+      0;
+    if (claimCompletedAt > 0) {
+      events.push({
+        eventName: "taskClaimCompleted",
+        timestamp: claimCompletedAt,
+        actor: claimAccount.worker,
+        data: { claimPda: claim.publicKey.toBase58() },
+      });
+    }
+  }
+
+  return events;
+}
+
+/**
+ * Fetch all disputes for a task and build timeline events, tracking active dispute state.
+ */
+async function buildDisputeTimelineEvents(
+  program: Program,
+  taskPda: PublicKey,
+): Promise<{ events: TaskLifecycleEvent[]; hasActiveDispute: boolean }> {
+  const disputes = await getAccount(program, "dispute").all([
+    {
+      memcmp: {
+        offset: DISCRIMINATOR_SIZE + 32, // discriminator + dispute_id
+        bytes: taskPda.toBase58(),
+      },
+    },
+  ]);
+
+  const parseDisputeStatus = (status: unknown): number => {
+    if (typeof status === "number") return status;
+    if (!status || typeof status !== "object") return 0;
+    const key = Object.keys(status as Record<string, unknown>)[0];
+    const map: Record<string, number> = {
+      active: 0,
+      resolved: 1,
+      expired: 2,
+      cancelled: 3,
+    };
+    return map[key] ?? 0;
+  };
+
+  const events: TaskLifecycleEvent[] = [];
+  let hasActiveDispute = false;
+  for (const dispute of disputes) {
+    const d = dispute.account as {
+      initiator?: PublicKey;
+      createdAt?: { toNumber: () => number };
+      created_at?: { toNumber: () => number };
+      resolvedAt?: { toNumber: () => number };
+      resolved_at?: { toNumber: () => number };
+      status?: unknown;
+    };
+
+    const created = d.createdAt?.toNumber() ?? d.created_at?.toNumber() ?? 0;
+    const resolved = d.resolvedAt?.toNumber() ?? d.resolved_at?.toNumber() ?? 0;
+    const status = parseDisputeStatus(d.status);
+
+    if (status === 0) {
+      hasActiveDispute = true;
+    }
+
+    if (created > 0) {
+      events.push({
+        eventName: "disputeInitiated",
+        timestamp: created,
+        actor: d.initiator,
+        data: { disputePda: dispute.publicKey.toBase58() },
+      });
+    }
+
+    if (resolved > 0 && status === 1) {
+      events.push({
+        eventName: "disputeResolved",
+        timestamp: resolved,
+        data: { disputePda: dispute.publicKey.toBase58() },
+      });
+    }
+  }
+
+  return { events, hasActiveDispute };
+}
+
+/**
  * Build a timeline summary for a task from task/claim/dispute accounts.
  *
  * @example
@@ -1212,50 +1338,8 @@ export async function getTaskLifecycleSummary(
     },
   ];
 
-  const claims = await getAccount(program, "taskClaim").all([
-    {
-      memcmp: {
-        offset: DISCRIMINATOR_SIZE, // discriminator + task pubkey at offset 8
-        bytes: taskPda.toBase58(),
-      },
-    },
-  ]);
-
-  for (const claim of claims) {
-    const claimAccount = claim.account as {
-      worker?: PublicKey;
-      claimedAt?: { toNumber: () => number };
-      claimed_at?: { toNumber: () => number };
-      completedAt?: { toNumber: () => number };
-      completed_at?: { toNumber: () => number };
-    };
-
-    const claimedAt =
-      claimAccount.claimedAt?.toNumber() ??
-      claimAccount.claimed_at?.toNumber() ??
-      0;
-    if (claimedAt > 0) {
-      timeline.push({
-        eventName: "taskClaimed",
-        timestamp: claimedAt,
-        actor: claimAccount.worker,
-        data: { claimPda: claim.publicKey.toBase58() },
-      });
-    }
-
-    const claimCompletedAt =
-      claimAccount.completedAt?.toNumber() ??
-      claimAccount.completed_at?.toNumber() ??
-      0;
-    if (claimCompletedAt > 0) {
-      timeline.push({
-        eventName: "taskClaimCompleted",
-        timestamp: claimCompletedAt,
-        actor: claimAccount.worker,
-        data: { claimPda: claim.publicKey.toBase58() },
-      });
-    }
-  }
+  const claimEvents = await buildClaimTimelineEvents(program, taskPda);
+  timeline.push(...claimEvents);
 
   if (task.state === TaskState.Completed && completedAt && completedAt > 0) {
     timeline.push({
@@ -1272,64 +1356,9 @@ export async function getTaskLifecycleSummary(
     });
   }
 
-  const disputes = await getAccount(program, "dispute").all([
-    {
-      memcmp: {
-        offset: DISCRIMINATOR_SIZE + 32, // discriminator + dispute_id
-        bytes: taskPda.toBase58(),
-      },
-    },
-  ]);
-
-  const parseDisputeStatus = (status: unknown): number => {
-    if (typeof status === "number") return status;
-    if (!status || typeof status !== "object") return 0;
-    const key = Object.keys(status as Record<string, unknown>)[0];
-    const map: Record<string, number> = {
-      active: 0,
-      resolved: 1,
-      expired: 2,
-      cancelled: 3,
-    };
-    return map[key] ?? 0;
-  };
-
-  let hasActiveDispute = false;
-  for (const dispute of disputes) {
-    const d = dispute.account as {
-      initiator?: PublicKey;
-      createdAt?: { toNumber: () => number };
-      created_at?: { toNumber: () => number };
-      resolvedAt?: { toNumber: () => number };
-      resolved_at?: { toNumber: () => number };
-      status?: unknown;
-    };
-
-    const created = d.createdAt?.toNumber() ?? d.created_at?.toNumber() ?? 0;
-    const resolved = d.resolvedAt?.toNumber() ?? d.resolved_at?.toNumber() ?? 0;
-    const status = parseDisputeStatus(d.status);
-
-    if (status === 0) {
-      hasActiveDispute = true;
-    }
-
-    if (created > 0) {
-      timeline.push({
-        eventName: "disputeInitiated",
-        timestamp: created,
-        actor: d.initiator,
-        data: { disputePda: dispute.publicKey.toBase58() },
-      });
-    }
-
-    if (resolved > 0 && status === 1) {
-      timeline.push({
-        eventName: "disputeResolved",
-        timestamp: resolved,
-        data: { disputePda: dispute.publicKey.toBase58() },
-      });
-    }
-  }
+  const disputeResult = await buildDisputeTimelineEvents(program, taskPda);
+  timeline.push(...disputeResult.events);
+  const hasActiveDispute = disputeResult.hasActiveDispute;
 
   timeline.sort((a, b) => a.timestamp - b.timestamp);
 
