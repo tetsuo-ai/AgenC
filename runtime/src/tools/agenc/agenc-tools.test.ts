@@ -169,6 +169,9 @@ function createMockProgram() {
             uiAmountString: "2.5",
           },
         })),
+        getProgramAccounts: vi.fn(async () => [
+          { pubkey: AGENT_PDA, account: { data: Buffer.alloc(0) } },
+        ]),
       },
     },
     account: {

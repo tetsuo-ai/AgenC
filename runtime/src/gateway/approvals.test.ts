@@ -165,12 +165,16 @@ describe("ApprovalEngine", () => {
       expect(engine.requiresApproval("wallet.transfer", {})).toBeNull();
     });
 
-    it("matches agenc.createTask with reward > 1", () => {
+    it("matches agenc.createTask with reward > 1 SOL (in lamports)", () => {
       expect(
-        engine.requiresApproval("agenc.createTask", { reward: 2 }),
+        engine.requiresApproval("agenc.createTask", {
+          reward: 2_000_000_000,
+        }),
       ).not.toBeNull();
       expect(
-        engine.requiresApproval("agenc.createTask", { reward: 0.5 }),
+        engine.requiresApproval("agenc.createTask", {
+          reward: 500_000_000,
+        }),
       ).toBeNull();
     });
 
@@ -631,11 +635,11 @@ describe("ApprovalEngine", () => {
       expect(rule!.conditions!.minAmount).toBe(0.1);
     });
 
-    it("agenc.createTask has minAmount 1", () => {
+    it("agenc.createTask has minAmount 1 SOL in lamports", () => {
       const rule = DEFAULT_APPROVAL_RULES.find(
         (r) => r.tool === "agenc.createTask",
       );
-      expect(rule!.conditions!.minAmount).toBe(1);
+      expect(rule!.conditions!.minAmount).toBe(1_000_000_000);
     });
   });
 });
