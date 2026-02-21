@@ -369,6 +369,63 @@ function buildTaskCreationContext(
   };
 }
 
+type CompletionTokenAccounts = Record<string, PublicKey | null>;
+
+function buildCompletionTokenAccounts(
+  mint: PublicKey | null,
+  escrowPda: PublicKey,
+  workerPubkey: PublicKey,
+  treasury: PublicKey,
+): CompletionTokenAccounts {
+  if (mint) {
+    return {
+      tokenEscrowAta: getAssociatedTokenAddressSync(mint, escrowPda, true),
+      workerTokenAccount: getAssociatedTokenAddressSync(mint, workerPubkey),
+      treasuryTokenAccount: getAssociatedTokenAddressSync(mint, treasury),
+      rewardMint: mint,
+      tokenProgram: TOKEN_PROGRAM_ID,
+    };
+  }
+  return {
+    tokenEscrowAta: null,
+    workerTokenAccount: null,
+    treasuryTokenAccount: null,
+    rewardMint: null,
+    tokenProgram: null,
+  };
+}
+
+interface CompletionContext {
+  task: {
+    creator: PublicKey;
+    rewardMint: PublicKey | null;
+    taskId?: number[] | Uint8Array;
+  };
+  protocolConfig: {
+    treasury: PublicKey;
+  };
+}
+
+async function fetchCompletionContext(
+  program: Program,
+  taskPda: PublicKey,
+  protocolPda: PublicKey,
+): Promise<CompletionContext> {
+  const task = (await getAccount(program, "task").fetch(taskPda)) as {
+    creator: PublicKey;
+    taskId: number[] | Uint8Array;
+    rewardMint: PublicKey | null;
+  };
+
+  const protocolConfig = (await getAccount(program, "protocolConfig").fetch(
+    protocolPda,
+  )) as {
+    treasury: PublicKey;
+  };
+
+  return { task, protocolConfig };
+}
+
 async function submitTaskCreationTransaction(
   connection: Connection,
   operation: "createTask" | "createDependentTask",
@@ -609,43 +666,19 @@ export async function completeTask(
   const escrowPda = deriveEscrowPda(taskPda, programId);
   const protocolPda = deriveProtocolPda(programId);
 
-  // Fetch task to get creator and reward_mint
-  const task = (await getAccount(program, "task").fetch(taskPda)) as {
-    creator: PublicKey;
-    rewardMint: PublicKey | null;
-  };
-
-  // Fetch protocol config to get treasury
-  const protocolConfig = (await getAccount(program, "protocolConfig").fetch(
+  const { task, protocolConfig } = await fetchCompletionContext(
+    program,
+    taskPda,
     protocolPda,
-  )) as {
-    treasury: PublicKey;
-  };
+  );
 
   const mint = task.rewardMint;
-
-  // Build token-specific accounts
-  let tokenAccounts: Record<string, PublicKey | null>;
-  if (mint) {
-    tokenAccounts = {
-      tokenEscrowAta: getAssociatedTokenAddressSync(mint, escrowPda, true),
-      workerTokenAccount: getAssociatedTokenAddressSync(mint, worker.publicKey),
-      treasuryTokenAccount: getAssociatedTokenAddressSync(
-        mint,
-        protocolConfig.treasury,
-      ),
-      rewardMint: mint,
-      tokenProgram: TOKEN_PROGRAM_ID,
-    };
-  } else {
-    tokenAccounts = {
-      tokenEscrowAta: null,
-      workerTokenAccount: null,
-      treasuryTokenAccount: null,
-      rewardMint: null,
-      tokenProgram: null,
-    };
-  }
+  const tokenAccounts = buildCompletionTokenAccounts(
+    mint,
+    escrowPda,
+    worker.publicKey,
+    protocolConfig.treasury,
+  );
 
   const proofHashArr = Array.from(proofHash);
   const resultDataBuf = resultData ? Buffer.from(resultData) : null;
@@ -738,48 +771,23 @@ export async function completeTaskPrivate(
     TRUSTED_RISC0_ROUTER_PROGRAM_ID,
   );
 
-  // Fetch task to get creator, taskId, and reward_mint
-  const task = (await getAccount(program, "task").fetch(taskPda)) as {
-    creator: PublicKey;
-    taskId: number[] | Uint8Array;
-    rewardMint: PublicKey | null;
-  };
+  const { task, protocolConfig } = await fetchCompletionContext(
+    program,
+    taskPda,
+    protocolPda,
+  );
 
   // Extract task_id as u64 (first 8 bytes LE)
-  const taskIdBuf = Buffer.from(task.taskId);
+  const taskIdBuf = Buffer.from(task.taskId!);
   const taskIdU64 = new anchor.BN(taskIdBuf.subarray(0, 8), "le");
 
-  // Fetch protocol config to get treasury
-  const protocolConfig = (await getAccount(program, "protocolConfig").fetch(
-    protocolPda,
-  )) as {
-    treasury: PublicKey;
-  };
-
   const mint = task.rewardMint;
-
-  // Build token-specific accounts
-  let tokenAccounts: Record<string, PublicKey | null>;
-  if (mint) {
-    tokenAccounts = {
-      tokenEscrowAta: getAssociatedTokenAddressSync(mint, escrowPda, true),
-      workerTokenAccount: getAssociatedTokenAddressSync(mint, worker.publicKey),
-      treasuryTokenAccount: getAssociatedTokenAddressSync(
-        mint,
-        protocolConfig.treasury,
-      ),
-      rewardMint: mint,
-      tokenProgram: TOKEN_PROGRAM_ID,
-    };
-  } else {
-    tokenAccounts = {
-      tokenEscrowAta: null,
-      workerTokenAccount: null,
-      treasuryTokenAccount: null,
-      rewardMint: null,
-      tokenProgram: null,
-    };
-  }
+  const tokenAccounts = buildCompletionTokenAccounts(
+    mint,
+    escrowPda,
+    worker.publicKey,
+    protocolConfig.treasury,
+  );
 
   const cuLimit = mint
     ? RECOMMENDED_CU_COMPLETE_TASK_PRIVATE_TOKEN
