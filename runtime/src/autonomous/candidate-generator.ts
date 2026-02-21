@@ -6,6 +6,7 @@
 
 import type { MultiCandidateConfig, Task } from "./types.js";
 import { fnv1aHashHex as hashString } from "../utils/encoding.js";
+import { clampInteger, clampRatio } from "../utils/numeric.js";
 
 export interface GeneratedExecutionCandidate {
   id: string;
@@ -61,22 +62,6 @@ interface ResolvedGenerationPolicy {
 }
 
 const DEFAULT_MAX_CANDIDATES = 3;
-
-function clampInteger(
-  value: number | undefined,
-  fallback: number,
-  min = 1,
-): number {
-  if (value === undefined || !Number.isFinite(value)) return fallback;
-  return Math.max(min, Math.floor(value));
-}
-
-function clampRatio(value: number | undefined, fallback: number): number {
-  if (value === undefined || !Number.isFinite(value)) return fallback;
-  if (value <= 0) return 0;
-  if (value >= 1) return 1;
-  return value;
-}
 
 
 function fingerprintOutput(output: readonly bigint[]): string {

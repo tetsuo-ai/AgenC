@@ -9,6 +9,7 @@ import type {
   VerifierAdaptiveRiskConfig,
   VerifierAdaptiveRiskWeights,
 } from "./types.js";
+import { clamp01 } from "../utils/numeric.js";
 
 export type RiskTier = "low" | "medium" | "high";
 
@@ -64,13 +65,6 @@ const DEFAULT_WEIGHTS: Required<VerifierAdaptiveRiskWeights> = {
 
 const DEFAULT_MEDIUM_THRESHOLD = 0.35;
 const DEFAULT_HIGH_THRESHOLD = 0.7;
-
-function clamp01(value: number): number {
-  if (!Number.isFinite(value)) return 0;
-  if (value <= 0) return 0;
-  if (value >= 1) return 1;
-  return value;
-}
 
 function toSafeNumber(value: bigint): number {
   const maxSafe = BigInt(Number.MAX_SAFE_INTEGER);

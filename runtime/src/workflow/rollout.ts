@@ -7,6 +7,7 @@
 import type { Logger } from "../utils/logger.js";
 import { silentLogger } from "../utils/logger.js";
 import { fnv1aHash as hashString } from "../utils/encoding.js";
+import { clamp01, nonNegative } from "../utils/numeric.js";
 import type { PolicyEngine } from "../policy/engine.js";
 
 export interface WorkflowRolloutStopLossThresholds {
@@ -79,19 +80,6 @@ const DEFAULT_STOP_LOSS: WorkflowRolloutStopLossThresholds = {
   maxLatencyMsDelta: 2_000,
   maxCostUnitsDelta: 0.5,
 };
-
-function clamp01(value: number): number {
-  if (!Number.isFinite(value)) return 0;
-  if (value <= 0) return 0;
-  if (value >= 1) return 1;
-  return value;
-}
-
-function nonNegative(value: number): number {
-  if (!Number.isFinite(value)) return 0;
-  return value < 0 ? 0 : value;
-}
-
 
 function toVariantStats(
   variantId: string,

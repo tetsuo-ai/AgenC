@@ -44,6 +44,13 @@ export {
 
 export { isRecord, isStringArray } from "./type-guards.js";
 
+export {
+  clamp01,
+  clampRatio,
+  clampInteger,
+  nonNegative,
+} from "./numeric.js";
+
 export type { ValidationResult } from "./validation.js";
 
 export {
