@@ -28,6 +28,15 @@ pub struct RevokeDelegation<'info> {
 pub fn handler(ctx: Context<RevokeDelegation>) -> Result<()> {
     let clock = Clock::get()?;
 
+    // Enforce minimum delegation duration to prevent reputation cycling across sybil agents
+    let delegation_age = clock
+        .unix_timestamp
+        .saturating_sub(ctx.accounts.delegation.created_at);
+    require!(
+        delegation_age >= crate::instructions::constants::MIN_DELEGATION_DURATION,
+        CoordinationError::DelegationCooldownNotElapsed
+    );
+
     // Capture delegation fields before mutable borrow of delegator_agent
     let delegation_amount = ctx.accounts.delegation.amount;
     let delegation_delegator = ctx.accounts.delegation.delegator;

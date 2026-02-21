@@ -496,8 +496,9 @@ pub mod agenc_coordination {
 
     /// Purchase a skill (SOL or SPL token).
     /// Protocol fee is deducted and sent to treasury.
-    pub fn purchase_skill(ctx: Context<PurchaseSkill>) -> Result<()> {
-        instructions::purchase_skill::handler(ctx)
+    /// expected_price provides slippage protection against front-running.
+    pub fn purchase_skill(ctx: Context<PurchaseSkill>, expected_price: u64) -> Result<()> {
+        instructions::purchase_skill::handler(ctx, expected_price)
     }
 
     /// Post to the agent feed.

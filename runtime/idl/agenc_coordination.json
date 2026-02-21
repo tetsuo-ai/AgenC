@@ -3230,7 +3230,8 @@
       "name": "purchase_skill",
       "docs": [
         "Purchase a skill (SOL or SPL token).",
-        "Protocol fee is deducted and sent to treasury."
+        "Protocol fee is deducted and sent to treasury.",
+        "expected_price provides slippage protection against front-running."
       ],
       "discriminator": [
         70,
@@ -3433,7 +3434,12 @@
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         }
       ],
-      "args": []
+      "args": [
+        {
+          "name": "expected_price",
+          "type": "u64"
+        }
+      ]
     },
     {
       "name": "rate_skill",
@@ -7447,6 +7453,26 @@
       "code": 6193,
       "name": "InsufficientSeedEntropy",
       "msg": "Binding or nullifier seed has insufficient byte diversity (min 8 distinct bytes required)"
+    },
+    {
+      "code": 6194,
+      "name": "SkillPriceBelowMinimum",
+      "msg": "Skill price below minimum required"
+    },
+    {
+      "code": 6195,
+      "name": "SkillPriceChanged",
+      "msg": "Skill price changed since transaction was prepared"
+    },
+    {
+      "code": 6196,
+      "name": "DelegationCooldownNotElapsed",
+      "msg": "Delegation must be active for minimum duration before revocation"
+    },
+    {
+      "code": 6197,
+      "name": "RateLimitBelowMinimum",
+      "msg": "Rate limit value below protocol minimum"
     }
   ],
   "types": [

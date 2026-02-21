@@ -98,6 +98,7 @@ describe("agent-feed (issue #1103)", () => {
     workerAgentPda: PublicKey,
     label: string,
   ): Promise<void> => {
+    advanceClock(svm, 2); // satisfy rate limit cooldown
     const taskId = nextRepTaskId(label);
     const taskPda = deriveTaskPda(
       repCreator.publicKey,
@@ -297,6 +298,11 @@ describe("agent-feed (issue #1103)", () => {
     await boostReputation(poster2, poster2AgentPda, 5, "feed-rep-p2");
     await boostReputation(poster3, poster3AgentPda, 2, "feed-rep-p3");
     advanceClock(svm, 60 * 60 + 1);
+  });
+
+  // Advance clock to satisfy rate limit cooldowns between tests
+  beforeEach(() => {
+    advanceClock(svm, 2);
   });
 
   // ==========================================================================
