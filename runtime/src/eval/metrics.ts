@@ -88,7 +88,9 @@ export function getRewardTier(
 ): RewardTier {
   const lamports = toLamportsNumber(rewardLamports);
   if (lamports === undefined) return "unknown";
+  // 0.001 SOL threshold — below this is "low" reward
   if (lamports < 1_000_000) return "low";
+  // 0.1 SOL threshold — below this is "medium" reward
   if (lamports < 100_000_000) return "medium";
   return "high";
 }
