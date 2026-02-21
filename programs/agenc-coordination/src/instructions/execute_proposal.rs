@@ -129,7 +129,7 @@ pub fn handler(ctx: Context<ExecuteProposal>) -> Result<()> {
         ProposalType::FeeChange => {
             let new_fee_bps = u16::from_le_bytes([proposal.payload[0], proposal.payload[1]]);
             require!(
-                new_fee_bps <= MAX_PROTOCOL_FEE_BPS as u16,
+                new_fee_bps <= MAX_PROTOCOL_FEE_BPS,
                 CoordinationError::InvalidProposalPayload
             );
             config.protocol_fee_bps = new_fee_bps;
@@ -228,11 +228,11 @@ pub fn handler(ctx: Context<ExecuteProposal>) -> Result<()> {
 
             // Validate bounds (same as update_rate_limits.rs)
             require!(
-                task_creation_cooldown >= 0 && task_creation_cooldown <= MAX_COOLDOWN,
+                (0..=MAX_COOLDOWN).contains(&task_creation_cooldown),
                 CoordinationError::InvalidProposalPayload
             );
             require!(
-                dispute_initiation_cooldown >= 0 && dispute_initiation_cooldown <= MAX_COOLDOWN,
+                (0..=MAX_COOLDOWN).contains(&dispute_initiation_cooldown),
                 CoordinationError::InvalidProposalPayload
             );
             require!(
