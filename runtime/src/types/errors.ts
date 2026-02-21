@@ -210,6 +210,14 @@ export const RuntimeErrorCodes = {
   REPUTATION_WITHDRAW_ERROR: "REPUTATION_WITHDRAW_ERROR",
   /** Reputation portability proof operation failed */
   REPUTATION_PORTABILITY_ERROR: "REPUTATION_PORTABILITY_ERROR",
+  /** Desktop sandbox container lifecycle error (create, start, stop, destroy) */
+  DESKTOP_SANDBOX_LIFECYCLE_ERROR: "DESKTOP_SANDBOX_LIFECYCLE_ERROR",
+  /** Desktop sandbox container health check failed */
+  DESKTOP_SANDBOX_HEALTH_ERROR: "DESKTOP_SANDBOX_HEALTH_ERROR",
+  /** Desktop sandbox REST API connection failed */
+  DESKTOP_SANDBOX_CONNECTION_ERROR: "DESKTOP_SANDBOX_CONNECTION_ERROR",
+  /** Desktop sandbox pool at max capacity */
+  DESKTOP_SANDBOX_POOL_EXHAUSTED: "DESKTOP_SANDBOX_POOL_EXHAUSTED",
 } as const;
 
 /** Union type of all runtime error code values */
