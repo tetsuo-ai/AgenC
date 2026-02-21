@@ -42,11 +42,19 @@ function truncate(
   return { text: truncatedText + "\n[truncated]", truncated: true };
 }
 
-function buildDenySet(configDenyList?: readonly string[]): Set<string> {
+function buildDenySet(
+  configDenyList?: readonly string[],
+  denyExclusions?: readonly string[],
+): Set<string> {
   const set = new Set<string>(DEFAULT_DENY_LIST);
   if (configDenyList) {
     for (const cmd of configDenyList) {
       set.add(cmd);
+    }
+  }
+  if (denyExclusions) {
+    for (const cmd of denyExclusions) {
+      set.delete(cmd);
     }
   }
   return set;
@@ -128,7 +136,7 @@ export function createBashTool(config?: BashToolConfig): Tool {
   const unrestricted = config?.unrestricted ?? false;
   const denySet = unrestricted
     ? new Set<string>()
-    : buildDenySet(config?.denyList);
+    : buildDenySet(config?.denyList, config?.denyExclusions);
   const allowSet =
     !unrestricted && config?.allowList && config.allowList.length > 0
       ? new Set<string>(config.allowList)

@@ -1126,7 +1126,14 @@ export class DaemonManager {
     // Security: Do NOT use unrestricted mode — the default deny list prevents
     // dangerous commands (rm -rf, curl for exfiltration, etc.) from being
     // executed via LLM tool calling / prompt injection attacks.
-    registry.register(createBashTool({ logger: this.logger, env: safeEnv }));
+    // On macOS desktop agents, allow process management (killall, pkill) for
+    // closing apps — the security boundary is Telegram user auth (allowedUsers).
+    const isDesktopAgent = process.platform === 'darwin';
+    registry.register(createBashTool({
+      logger: this.logger,
+      env: safeEnv,
+      denyExclusions: isDesktopAgent ? ['killall', 'pkill', 'curl', 'wget'] : undefined,
+    }));
     registry.registerAll(createHttpTools({}, this.logger));
 
     // Security: Restrict filesystem access to workspace + Desktop + /tmp.

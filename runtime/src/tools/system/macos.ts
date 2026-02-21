@@ -28,7 +28,6 @@ const DENIED_PATTERNS = [
   /keychain/i,
   /security\s+(find|delete|add|dump)/i,
   /do\s+shell\s+script.*with\s+administrator/i,
-  /System\s+Events.*keystroke/i,
   /delete\s+every/i,
 ];
 
