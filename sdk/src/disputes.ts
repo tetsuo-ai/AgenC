@@ -13,6 +13,7 @@ import {
 import { PROGRAM_ID, SEEDS } from "./constants";
 import { getAccount } from "./anchor-utils";
 import { deriveClaimPda, deriveEscrowPda } from "./tasks";
+import { deriveProtocolPda } from "./protocol";
 import { toBigInt, toNumber } from "./utils/numeric";
 
 export enum DisputeStatus {
@@ -142,11 +143,6 @@ function parseDisputeStatus(raw: unknown): DisputeStatus {
     if ("cancelled" in enumObj) return DisputeStatus.Cancelled;
   }
   return DisputeStatus.Active;
-}
-
-function deriveProtocolPda(programId: PublicKey): PublicKey {
-  const [pda] = PublicKey.findProgramAddressSync([SEEDS.PROTOCOL], programId);
-  return pda;
 }
 
 function deriveAgentPda(

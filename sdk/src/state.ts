@@ -2,6 +2,7 @@ import { Connection, Keypair, PublicKey, SystemProgram } from "@solana/web3.js";
 import anchor, { type Program } from "@coral-xyz/anchor";
 import { PROGRAM_ID, SEEDS } from "./constants";
 import { getAccount } from "./anchor-utils";
+import { deriveProtocolPda } from "./protocol";
 import { toBigInt, toNumber } from "./utils/numeric";
 
 export interface CoordinationState {
@@ -44,11 +45,6 @@ function deriveAgentPda(
     [SEEDS.AGENT, idBytes],
     programId,
   );
-  return pda;
-}
-
-function deriveProtocolPda(programId: PublicKey): PublicKey {
-  const [pda] = PublicKey.findProgramAddressSync([SEEDS.PROTOCOL], programId);
   return pda;
 }
 

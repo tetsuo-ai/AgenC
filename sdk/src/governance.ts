@@ -6,6 +6,7 @@ import { Connection, Keypair, PublicKey, SystemProgram } from "@solana/web3.js";
 import anchor, { type Program } from "@coral-xyz/anchor";
 import { PROGRAM_ID, SEEDS } from "./constants.js";
 import { getAccount } from "./anchor-utils.js";
+import { deriveProtocolPda } from "./protocol.js";
 import { toBigInt, toNumber } from "./utils/numeric.js";
 
 // ============================================================================
@@ -145,10 +146,7 @@ export async function initializeGovernance(
   params: InitializeGovernanceParams,
 ): Promise<{ txSignature: string; governanceConfigPda: PublicKey }> {
   const [governanceConfigPda] = deriveGovernanceConfigPda(program.programId);
-  const [protocolPda] = PublicKey.findProgramAddressSync(
-    [SEEDS.PROTOCOL],
-    program.programId,
-  );
+  const protocolPda = deriveProtocolPda(program.programId);
 
   const tx = await program.methods
     .initializeGovernance(
@@ -182,10 +180,7 @@ export async function createProposal(
     params.nonce,
     program.programId,
   );
-  const [protocolPda] = PublicKey.findProgramAddressSync(
-    [SEEDS.PROTOCOL],
-    program.programId,
-  );
+  const protocolPda = deriveProtocolPda(program.programId);
   const [governanceConfigPda] = deriveGovernanceConfigPda(program.programId);
 
   const tx = await program.methods
@@ -225,10 +220,7 @@ export async function voteProposal(
     authority.publicKey,
     program.programId,
   );
-  const [protocolPda] = PublicKey.findProgramAddressSync(
-    [SEEDS.PROTOCOL],
-    program.programId,
-  );
+  const protocolPda = deriveProtocolPda(program.programId);
 
   const tx = await program.methods
     .voteProposal(approve)
@@ -255,10 +247,7 @@ export async function executeProposal(
   treasury?: PublicKey,
   recipient?: PublicKey,
 ): Promise<{ txSignature: string }> {
-  const [protocolPda] = PublicKey.findProgramAddressSync(
-    [SEEDS.PROTOCOL],
-    program.programId,
-  );
+  const protocolPda = deriveProtocolPda(program.programId);
   const [governanceConfigPda] = deriveGovernanceConfigPda(program.programId);
 
   const accounts: Record<string, PublicKey> = {

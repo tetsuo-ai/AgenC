@@ -35,6 +35,7 @@ import {
 } from "./constants";
 import { getAccount } from "./anchor-utils";
 import { getSdkLogger } from "./logger";
+import { deriveProtocolPda } from "./protocol";
 import { getDependentTaskCount } from "./queries";
 import {
   runProofSubmissionPreflight,
@@ -245,11 +246,6 @@ export function deriveEscrowPda(
 // ============================================================================
 // Internal Helpers
 // ============================================================================
-
-function deriveProtocolPda(programId: PublicKey): PublicKey {
-  const [pda] = PublicKey.findProgramAddressSync([SEEDS.PROTOCOL], programId);
-  return pda;
-}
 
 function deriveAgentPda(
   agentId: Uint8Array | number[],
