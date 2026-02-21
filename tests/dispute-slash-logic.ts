@@ -222,10 +222,10 @@ describe("dispute-slash-logic (issue #136)", () => {
     try {
       await program.methods
         .updateRateLimits(
-          new BN(0), // task_creation_cooldown = 0 (disabled)
-          0, // max_tasks_per_24h = 0 (unlimited)
-          new BN(0), // dispute_initiation_cooldown = 0 (disabled)
-          0, // max_disputes_per_24h = 0 (unlimited)
+          new BN(1), // task_creation_cooldown = 1s (minimum allowed)
+          255, // max_tasks_per_24h = 255 (effectively unlimited)
+          new BN(1), // dispute_initiation_cooldown = 1s (minimum allowed)
+          255, // max_disputes_per_24h = 255 (effectively unlimited)
           new BN(LAMPORTS_PER_SOL / 100), // min_stake_for_dispute = 0.01 SOL (must be > 0)
         )
         .accountsPartial({
@@ -341,6 +341,11 @@ describe("dispute-slash-logic (issue #136)", () => {
       CAPABILITY_ARBITER,
       minArbiterStake,
     );
+  });
+
+  // Advance clock to satisfy rate limit cooldowns between tests
+  beforeEach(() => {
+    advanceClock(svm, 2);
   });
 
   describe("applyDisputeSlash preconditions", () => {

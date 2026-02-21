@@ -217,7 +217,7 @@ export type RuntimeErrorCode =
   (typeof RuntimeErrorCodes)[keyof typeof RuntimeErrorCodes];
 
 // ============================================================================
-// Anchor Error Codes (194 codes: 6000-6193)
+// Anchor Error Codes (198 codes: 6000-6197)
 // ============================================================================
 
 /**
@@ -419,6 +419,10 @@ export const AnchorErrorCodes = {
   PrivateTaskRequiresZkProof: 6191,
   InvalidTokenAccountOwner: 6192,
   InsufficientSeedEntropy: 6193,
+  SkillPriceBelowMinimum: 6194,
+  SkillPriceChanged: 6195,
+  DelegationCooldownNotElapsed: 6196,
+  RateLimitBelowMinimum: 6197,
 } as const;
 
 /** Union type of all Anchor error code values */
@@ -628,10 +632,14 @@ const AnchorErrorMessages: Record<AnchorErrorCode, string> = {
   6191: "Private tasks (non-zero constraint_hash) must use complete_task_private",
   6192: "Token account owner does not match expected authority",
   6193: "Binding or nullifier seed has insufficient byte diversity (min 8 distinct bytes required)",
+  6194: "Skill price below minimum required",
+  6195: "Skill price changed since transaction was prepared",
+  6196: "Delegation must be active for minimum duration before revocation",
+  6197: "Rate limit value below protocol minimum",
 };
 
 const ANCHOR_ERROR_MIN_CODE = 6000;
-const ANCHOR_ERROR_MAX_CODE = 6193;
+const ANCHOR_ERROR_MAX_CODE = 6197;
 
 // ============================================================================
 // Validation Helpers

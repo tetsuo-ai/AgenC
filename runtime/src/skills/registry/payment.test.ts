@@ -7,6 +7,7 @@ import { RuntimeErrorCodes, AnchorErrorCodes } from "../../types/errors.js";
 import { PROGRAM_ID } from "@agenc/sdk";
 import { silentLogger } from "../../utils/logger.js";
 import { generateAgentId } from "../../utils/encoding.js";
+import BN from "bn.js";
 
 // ============================================================================
 // Test Helpers
@@ -195,8 +196,12 @@ describe("SkillPurchaseManager", () => {
       expect(result.transactionSignature).toBe("mock-tx-signature");
       expect(result.contentPath).toBe("/tmp/skill.md");
 
-      // Verify tx was submitted
-      expect(program.methods.purchaseSkill).toHaveBeenCalled();
+      // Verify tx was submitted with expected_price slippage protection
+      expect(program.methods.purchaseSkill).toHaveBeenCalledWith(
+        expect.objectContaining({ toString: expect.any(Function) }),
+      );
+      const purchaseArg = program.methods.purchaseSkill.mock.calls[0][0];
+      expect(purchaseArg.toString()).toBe("1000000");
       expect(program._methodBuilder.accountsPartial).toHaveBeenCalled();
       expect(registryClient.install).toHaveBeenCalledWith(
         "test-skill",

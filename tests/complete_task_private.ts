@@ -22,6 +22,7 @@ import {
   createLiteSVMContext,
   fundAccount,
   getClockTimestamp,
+  advanceClock,
   injectMockVerifierRouter,
   type LiteSVMContext,
 } from "./litesvm-helpers";
@@ -320,6 +321,11 @@ describe("complete_task_private (LiteSVM + mock router)", () => {
     });
   });
 
+  // Advance clock to satisfy rate limit cooldowns between tests
+  beforeEach(() => {
+    advanceClock(ctx.svm, 2);
+  });
+
   it("completes private task end-to-end with real hashes", async () => {
     const output = [11n, 22n, 33n, 44n];
     const salt = generateSalt();
@@ -407,6 +413,7 @@ describe("complete_task_private (LiteSVM + mock router)", () => {
     });
 
     // Second task reusing the same binding/nullifier seeds should fail
+    advanceClock(ctx.svm, 2); // satisfy rate limit cooldown
     const taskIdBuf2 = makeTaskId("zkp2b", runId);
     const { taskPda: task2Pda, escrowPda: escrow2Pda, claimPda: claim2Pda } =
       await createTaskAndClaim(constraintHashBuf, taskIdBuf2);

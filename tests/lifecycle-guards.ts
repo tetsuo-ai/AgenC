@@ -335,6 +335,11 @@ describe("Task lifecycle guards (#959)", () => {
     }
   });
 
+  // Advance clock to satisfy rate limit cooldowns between tests
+  beforeEach(() => {
+    advanceClock(svm, 2);
+  });
+
   it("rejects double completion on competitive task (CompetitiveTaskAlreadyWon)", async () => {
     const taskId = nextTaskId();
     const { taskPda, escrowPda } = await createCompetitiveTask(

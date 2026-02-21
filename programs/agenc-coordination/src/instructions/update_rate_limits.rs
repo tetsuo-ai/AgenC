@@ -73,6 +73,26 @@ pub fn handler(
         CoordinationError::InvalidInput
     );
 
+    // Enforce minimum rate limits to prevent spam even with compromised multisig.
+    // Cooldowns must be >= 1 second (prevents 0 = "disabled" attack vector).
+    // Per-24h limits must be >= 1 (prevents 0 = "unlimited" attack vector).
+    require!(
+        task_creation_cooldown >= 1,
+        CoordinationError::RateLimitBelowMinimum
+    );
+    require!(
+        max_tasks_per_24h >= 1,
+        CoordinationError::RateLimitBelowMinimum
+    );
+    require!(
+        dispute_initiation_cooldown >= 1,
+        CoordinationError::RateLimitBelowMinimum
+    );
+    require!(
+        max_disputes_per_24h >= 1,
+        CoordinationError::RateLimitBelowMinimum
+    );
+
     let config = &mut ctx.accounts.protocol_config;
     config.task_creation_cooldown = task_creation_cooldown;
     config.max_tasks_per_24h = max_tasks_per_24h;
