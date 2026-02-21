@@ -8,6 +8,7 @@
  */
 
 import type { GatewayAuthConfig } from "./remote-types.js";
+import type { DesktopSandboxConfig } from "../desktop/types.js";
 
 // ============================================================================
 // Gateway Configuration
@@ -97,6 +98,7 @@ export interface GatewayConfig {
   auth?: GatewayAuthConfig;
   voice?: GatewayVoiceConfig;
   telemetry?: GatewayTelemetryConfig;
+  desktop?: DesktopSandboxConfig;
 }
 
 // ============================================================================

@@ -1,0 +1,10 @@
+services:
+  desktop:
+    build:
+      context: ./desktop
+    ports:
+      - "6080:6080"
+      - "9990:9990"
+    environment:
+      - DISPLAY_WIDTH=1024
+      - DISPLAY_HEIGHT=768

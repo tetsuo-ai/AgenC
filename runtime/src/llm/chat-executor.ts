@@ -361,12 +361,34 @@ export class ChatExecutor {
           durationMs: toolDuration,
         });
 
-        messages.push({
-          role: "tool",
-          content: result,
-          toolCallId: toolCall.id,
-          toolName: toolCall.name,
-        });
+        // If the tool result contains a screenshot data URL, create multimodal
+        // content parts so vision-capable LLMs can "see" the image.
+        const dataUrlMatch = result.match(
+          /data:image\/png;base64,([A-Za-z0-9+/=]+)/,
+        );
+        if (dataUrlMatch) {
+          const dataUrl = dataUrlMatch[0];
+          // Strip the base64 image from the text result to avoid duplication
+          const textContent = result
+            .replace(/"dataUrl"\s*:\s*"[^"]*"/, '"dataUrl":"(see image)"')
+            .trim();
+          messages.push({
+            role: "tool",
+            content: [
+              { type: "image_url" as const, image_url: { url: dataUrl } },
+              { type: "text" as const, text: textContent },
+            ],
+            toolCallId: toolCall.id,
+            toolName: toolCall.name,
+          });
+        } else {
+          messages.push({
+            role: "tool",
+            content: result,
+            toolCallId: toolCall.id,
+            toolName: toolCall.name,
+          });
+        }
       }
 
       // Re-call LLM
