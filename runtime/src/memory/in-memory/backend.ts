@@ -36,6 +36,9 @@ interface KVEntry {
   expiresAt?: number;
 }
 
+const DEFAULT_MAX_ENTRIES_PER_SESSION = 1000;
+const DEFAULT_MAX_TOTAL_ENTRIES = 100_000;
+
 export class InMemoryBackend implements MemoryBackend {
   readonly name = 'in-memory';
 
@@ -52,8 +55,8 @@ export class InMemoryBackend implements MemoryBackend {
   constructor(config: InMemoryBackendConfig = {}) {
     this.logger = config.logger ?? silentLogger;
     this.defaultTtlMs = config.defaultTtlMs ?? 0;
-    this.maxEntriesPerSession = config.maxEntriesPerSession ?? 1000;
-    this.maxTotalEntries = config.maxTotalEntries ?? 100_000;
+    this.maxEntriesPerSession = config.maxEntriesPerSession ?? DEFAULT_MAX_ENTRIES_PER_SESSION;
+    this.maxTotalEntries = config.maxTotalEntries ?? DEFAULT_MAX_TOTAL_ENTRIES;
     this.metrics = config.metrics;
   }
 

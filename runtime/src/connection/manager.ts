@@ -52,6 +52,7 @@ const DEFAULT_HEALTH: HealthCheckConfig = {
   unhealthyCooldownMs: 30_000,
 };
 
+/** Exponential moving average weight — 10% new sample, 90% history. */
 const EMA_FACTOR = 0.1;
 
 // ============================================================================

@@ -182,6 +182,9 @@ export interface RollbackStats {
 // Default Configuration
 // ============================================================================
 
+/** Maximum number of rollback history entries to retain. */
+const DEFAULT_MAX_HISTORY_SIZE = 1000;
+
 const DEFAULT_CONFIG: RollbackConfig = {
   allowRetry: false,
   maxRetries: 0,
@@ -242,7 +245,7 @@ export class RollbackController {
   private rollbackHistory: RollbackResult[] = [];
 
   /** Maximum history entries to keep */
-  private readonly maxHistorySize: number = 1000;
+  private readonly maxHistorySize: number = DEFAULT_MAX_HISTORY_SIZE;
 
   /** Cumulative statistics */
   private stats: RollbackStats = {
