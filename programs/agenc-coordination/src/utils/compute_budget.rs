@@ -32,9 +32,6 @@ pub const RECOMMENDED_CU_REGISTER_AGENT: u32 = 40_000;
 /// Update agent: state read + conditional writes (~10k measured)
 pub const RECOMMENDED_CU_UPDATE_AGENT: u32 = 20_000;
 
-/// Deregister agent: state read + account close (~10k measured)
-pub const RECOMMENDED_CU_DEREGISTER_AGENT: u32 = 20_000;
-
 /// Create task: PDA derivation + escrow init + CPI transfer + state writes (~35k measured)
 pub const RECOMMENDED_CU_CREATE_TASK: u32 = 50_000;
 
@@ -62,12 +59,6 @@ pub const RECOMMENDED_CU_VOTE_DISPUTE: u32 = 30_000;
 
 /// Resolve dispute: vote counting + reward transfer + state updates (~45k measured)
 pub const RECOMMENDED_CU_RESOLVE_DISPUTE: u32 = 60_000;
-
-/// Update state: version check + state write (~10k measured)
-pub const RECOMMENDED_CU_UPDATE_STATE: u32 = 20_000;
-
-/// Initialize protocol: one-time setup (~30k measured)
-pub const RECOMMENDED_CU_INITIALIZE_PROTOCOL: u32 = 40_000;
 
 // ============================================================================
 // Fee Tier Structure

@@ -3,7 +3,7 @@
 use crate::errors::CoordinationError;
 use crate::events::{dispute_outcome, DisputeResolved};
 use crate::instructions::completion_helpers::update_protocol_stats;
-use crate::instructions::constants::PERCENT_BASE;
+use crate::instructions::constants::{MIN_VOTERS_FOR_RESOLUTION, PERCENT_BASE};
 use crate::instructions::dispute_helpers::{
     check_duplicate_arbiters, check_duplicate_workers, process_arbiter_vote_pair,
     process_worker_claim_pair, validate_remaining_accounts_structure,
@@ -159,9 +159,8 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
 
     // Require minimum quorum for dispute resolution (fix #546)
     // A single arbiter should not be able to unilaterally decide outcomes
-    const MIN_VOTERS_FOR_RESOLUTION: u8 = 3;
     require!(
-        dispute.total_voters >= MIN_VOTERS_FOR_RESOLUTION,
+        dispute.total_voters as usize >= MIN_VOTERS_FOR_RESOLUTION,
         CoordinationError::InsufficientQuorum
     );
 
@@ -176,38 +175,8 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
         CoordinationError::InvalidStatusTransition
     );
 
-    // Determine outcome: if no votes, treat as rejected (refund to creator)
-    // This prevents tasks from being stuck between voting_deadline and expires_at
-    //
-    // Fix #425: We now explicitly track whether this was a no-vote default vs an actual
-    // rejection. This distinction matters because:
-    // - No votes could mean arbiters didn't see the dispute (apathy), not that they rejected it
-    // - Consumers may want to handle no-vote defaults differently (e.g., extend deadline, split)
-    // - Workers should not be penalized the same way for arbiter apathy vs active rejection
-    //
-    // The `outcome` field in DisputeResolved event distinguishes these cases:
-    // - REJECTED (0): Arbiters actively voted against approval
-    // - APPROVED (1): Arbiters voted in favor and met threshold
-    // - NO_VOTE_DEFAULT (2): No votes cast, defaulted to rejection
-    let (approved, outcome) = if total_votes == 0 {
-        // No votes = dispute rejected by default (not by active vote)
-        // This is arbiter apathy, not an active rejection decision
-        (false, dispute_outcome::NO_VOTE_DEFAULT)
-    } else {
-        let approval_pct = dispute
-            .votes_for
-            .checked_mul(PERCENT_BASE)
-            .ok_or(CoordinationError::ArithmeticOverflow)?
-            .checked_div(total_votes)
-            .ok_or(CoordinationError::ArithmeticOverflow)?;
-        let is_approved = approval_pct >= config.dispute_threshold as u64;
-        let outcome = if is_approved {
-            dispute_outcome::APPROVED
-        } else {
-            dispute_outcome::REJECTED
-        };
-        (is_approved, outcome)
-    };
+    let (approved, outcome) =
+        determine_dispute_outcome(dispute.votes_for, dispute.votes_against, total_votes, config)?;
 
     // Calculate remaining escrow funds
     let remaining_funds = escrow
@@ -262,6 +231,11 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
     let defer_token_escrow_close = is_token_task && worker_slash_pending;
     let defer_worker_claim_close = worker_slash_pending;
 
+    // Pre-compute escrow PDA signer seeds (used by all token paths)
+    let task_key_bytes = task_key.to_bytes();
+    let bump_slice = [escrow.bump];
+    let escrow_seeds: &[&[u8]] = &[b"escrow", task_key_bytes.as_ref(), &bump_slice];
+
     // Execute resolution based on type and approval
     if approved {
         match dispute.resolution_type {
@@ -274,9 +248,6 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
                         CoordinationError::MissingTokenAccounts
                     );
                     let creator_ta = ctx.accounts.creator_token_account.as_ref().unwrap();
-                    let task_key_bytes = task_key.to_bytes();
-                    let bump_slice = [escrow.bump];
-                    let escrow_seeds: &[&[u8]] = &[b"escrow", task_key_bytes.as_ref(), &bump_slice];
                     let creator_refund = remaining_funds
                         .checked_sub(token_slash_reserve)
                         .ok_or(CoordinationError::ArithmeticOverflow)?;
@@ -316,9 +287,6 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
                         CoordinationError::MissingTokenAccounts
                     );
                     let worker_ta = ctx.accounts.worker_token_account_ata.as_ref().unwrap();
-                    let task_key_bytes = task_key.to_bytes();
-                    let bump_slice = [escrow.bump];
-                    let escrow_seeds: &[&[u8]] = &[b"escrow", task_key_bytes.as_ref(), &bump_slice];
                     transfer_tokens_from_escrow(
                         token_escrow,
                         &worker_ta.to_account_info(),
@@ -369,10 +337,6 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
                         );
                         let creator_ta = ctx.accounts.creator_token_account.as_ref().unwrap();
                         let worker_ta = ctx.accounts.worker_token_account_ata.as_ref().unwrap();
-                        let task_key_bytes = task_key.to_bytes();
-                        let bump_slice = [escrow.bump];
-                        let escrow_seeds: &[&[u8]] =
-                            &[b"escrow", task_key_bytes.as_ref(), &bump_slice];
                         transfer_tokens_from_escrow(
                             token_escrow,
                             &creator_ta.to_account_info(),
@@ -418,9 +382,6 @@ pub fn handler(ctx: Context<ResolveDispute>) -> Result<()> {
                 CoordinationError::MissingTokenAccounts
             );
             let creator_ta = ctx.accounts.creator_token_account.as_ref().unwrap();
-            let task_key_bytes = task_key.to_bytes();
-            let bump_slice = [escrow.bump];
-            let escrow_seeds: &[&[u8]] = &[b"escrow", task_key_bytes.as_ref(), &bump_slice];
             transfer_tokens_from_escrow(
                 token_escrow,
                 &creator_ta.to_account_info(),
@@ -593,4 +554,34 @@ fn validate_worker_accounts(
     );
 
     Ok(())
+}
+
+/// Determine dispute outcome from vote counts.
+///
+/// Returns `(approved, outcome_code)` where outcome_code is one of:
+/// - `dispute_outcome::REJECTED` (0): Arbiters actively voted against
+/// - `dispute_outcome::APPROVED` (1): Arbiters voted in favor and met threshold
+/// - `dispute_outcome::NO_VOTE_DEFAULT` (2): No votes cast, defaulted to rejection
+fn determine_dispute_outcome(
+    votes_for: u64,
+    _votes_against: u64,
+    total_votes: u64,
+    config: &ProtocolConfig,
+) -> Result<(bool, u8)> {
+    if total_votes == 0 {
+        return Ok((false, dispute_outcome::NO_VOTE_DEFAULT));
+    }
+
+    let approval_pct = votes_for
+        .checked_mul(PERCENT_BASE)
+        .ok_or(CoordinationError::ArithmeticOverflow)?
+        .checked_div(total_votes)
+        .ok_or(CoordinationError::ArithmeticOverflow)?;
+    let is_approved = approval_pct >= config.dispute_threshold as u64;
+    let outcome = if is_approved {
+        dispute_outcome::APPROVED
+    } else {
+        dispute_outcome::REJECTED
+    };
+    Ok((is_approved, outcome))
 }
