@@ -12,6 +12,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { BaseChannelPlugin } from "../../gateway/channel.js";
+import { createGatewayMessage } from "../../gateway/message.js";
 import type { OutboundMessage } from "../../gateway/message.js";
 import type { IMessageChannelConfig } from "./types.js";
 
@@ -166,14 +167,14 @@ export class IMessageChannel extends BaseChannelPlugin {
         const sessionId = `imessage:${msg.sender}`;
         this.sessionMap.set(sessionId, msg.sender);
 
-        await this.context.onMessage({
+        await this.context.onMessage(createGatewayMessage({
           sessionId,
           senderId: msg.sender,
+          senderName: msg.sender,
           content: msg.text,
           channel: "imessage",
           scope: "dm",
-          timestamp: Date.now(),
-        });
+        }));
       }
 
       if (!this.healthy) {
