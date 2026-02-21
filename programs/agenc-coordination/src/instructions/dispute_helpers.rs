@@ -39,16 +39,22 @@ pub(crate) fn validate_remaining_accounts_structure(
     Ok(arbiter_accounts)
 }
 
-/// Checks for duplicate arbiters in remaining_accounts (fix #583).
+/// Checks for duplicate arbiters and vote accounts in remaining_accounts (fix #583).
 ///
-/// Iterates over (vote, arbiter) pairs and ensures no arbiter appears twice.
+/// Iterates over (vote, arbiter) pairs and ensures no arbiter or vote account appears twice.
 pub(crate) fn check_duplicate_arbiters(
     remaining_accounts: &[AccountInfo],
     arbiter_accounts: usize,
 ) -> Result<()> {
     let mut seen_arbiters: HashSet<Pubkey> = HashSet::new();
+    let mut seen_votes: HashSet<Pubkey> = HashSet::new();
     for i in (0..arbiter_accounts).step_by(2) {
+        let vote_key = remaining_accounts[i].key();
         let arbiter_key = remaining_accounts[i + 1].key();
+        require!(
+            seen_votes.insert(vote_key),
+            CoordinationError::DuplicateArbiter
+        );
         require!(
             seen_arbiters.insert(arbiter_key),
             CoordinationError::DuplicateArbiter
@@ -82,15 +88,27 @@ pub(crate) fn check_duplicate_workers(
 
 /// Processes a single (vote, arbiter) pair from remaining_accounts.
 ///
-/// Validates ownership, deserializes the vote, verifies it belongs to the dispute
-/// and matches the arbiter, then decrements the arbiter's active_dispute_votes counter.
+/// Validates ownership, PDA derivation, deserializes the vote, verifies it belongs
+/// to the dispute and matches the arbiter, then decrements the arbiter's
+/// active_dispute_votes counter.
 pub(crate) fn process_arbiter_vote_pair(
     vote_info: &AccountInfo,
     arbiter_info: &AccountInfo,
     dispute_key: &Pubkey,
+    program_id: &Pubkey,
 ) -> Result<()> {
     validate_account_owner(vote_info)?;
     validate_account_owner(arbiter_info)?;
+
+    // Validate vote PDA derivation to prevent crafted program-owned accounts
+    let (expected_vote_pda, _) = Pubkey::find_program_address(
+        &[b"vote", dispute_key.as_ref(), arbiter_info.key().as_ref()],
+        program_id,
+    );
+    require!(
+        vote_info.key() == expected_vote_pda,
+        CoordinationError::InvalidInput
+    );
 
     let vote_data = vote_info.try_borrow_data()?;
     let vote = DisputeVote::try_deserialize(&mut &**vote_data)?;
@@ -119,16 +137,27 @@ pub(crate) fn process_arbiter_vote_pair(
 
 /// Processes a single (claim, worker) pair from remaining_accounts.
 ///
-/// Validates ownership, deserializes the claim, verifies it belongs to the task
-/// and matches the worker, then decrements the worker's active_tasks counter.
+/// Validates ownership, PDA derivation, deserializes the claim, verifies it belongs
+/// to the task and matches the worker, then decrements the worker's active_tasks counter.
 /// Used for collaborative tasks where multiple workers claimed the task.
 pub(crate) fn process_worker_claim_pair(
     claim_info: &AccountInfo,
     worker_info: &AccountInfo,
     task_key: &Pubkey,
+    program_id: &Pubkey,
 ) -> Result<()> {
     validate_account_owner(claim_info)?;
     validate_account_owner(worker_info)?;
+
+    // Validate claim PDA derivation to prevent crafted program-owned accounts
+    let (expected_claim_pda, _) = Pubkey::find_program_address(
+        &[b"claim", task_key.as_ref(), worker_info.key().as_ref()],
+        program_id,
+    );
+    require!(
+        claim_info.key() == expected_claim_pda,
+        CoordinationError::InvalidInput
+    );
 
     let claim_data = claim_info.try_borrow_data()?;
     let claim = TaskClaim::try_deserialize(&mut &**claim_data)?;

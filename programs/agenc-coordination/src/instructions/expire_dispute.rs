@@ -285,6 +285,7 @@ pub fn handler(ctx: Context<ExpireDispute>) -> Result<()> {
             &ctx.remaining_accounts[i],
             &ctx.remaining_accounts[i + 1],
             &dispute.key(),
+            &crate::ID,
         )?;
     }
 
@@ -318,6 +319,7 @@ pub fn handler(ctx: Context<ExpireDispute>) -> Result<()> {
             &ctx.remaining_accounts[i],
             &ctx.remaining_accounts[i + 1],
             &task.key(),
+            &crate::ID,
         )?;
     }
 

@@ -360,6 +360,11 @@ export function advanceClock(svm: LiteSVM, seconds: number): void {
   clock.unixTimestamp = newTimestamp;
   clock.slot = newSlot;
   svm.setClock(clock);
+  // Expire the current blockhash so subsequent transactions get a fresh one.
+  // Without this, two identical transactions (same accounts, instruction, signers)
+  // sent before and after a clock advance would share the same blockhash,
+  // producing identical bytes and triggering AlreadyProcessed (error 6).
+  svm.expireBlockhash();
 }
 
 // ============================================================================

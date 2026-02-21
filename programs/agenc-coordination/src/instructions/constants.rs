@@ -57,6 +57,12 @@ pub const REPUTATION_STAKING_COOLDOWN: i64 = 7 * 24 * 60 * 60;
 /// Minimum delegation amount in reputation points (1% of max reputation)
 pub const MIN_DELEGATION_AMOUNT: u16 = 100;
 
+/// Minimum skill price in lamports to prevent free sybil rating attacks (~$0.0002)
+pub const MIN_SKILL_PRICE: u64 = 1_000;
+
+/// Minimum duration a delegation must be active before revocation (7 days in seconds)
+pub const MIN_DELEGATION_DURATION: i64 = 7 * 24 * 60 * 60;
+
 // ============================================================================
 // Default Rate Limit Constants
 // ============================================================================

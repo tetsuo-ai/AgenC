@@ -618,4 +618,16 @@ pub enum CoordinationError {
         "Binding or nullifier seed has insufficient byte diversity (min 8 distinct bytes required)"
     )]
     InsufficientSeedEntropy,
+
+    #[msg("Skill price below minimum required")]
+    SkillPriceBelowMinimum,
+
+    #[msg("Skill price changed since transaction was prepared")]
+    SkillPriceChanged,
+
+    #[msg("Delegation must be active for minimum duration before revocation")]
+    DelegationCooldownNotElapsed,
+
+    #[msg("Rate limit value below protocol minimum")]
+    RateLimitBelowMinimum,
 }

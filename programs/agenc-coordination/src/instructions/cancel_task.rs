@@ -99,8 +99,9 @@ pub fn handler(ctx: Context<CancelTask>) -> Result<()> {
         .ok_or(CoordinationError::ArithmeticOverflow)?;
 
     // Transfer refund to creator
-    if task.reward_mint.is_some() {
-        // Token path: transfer tokens back to creator, then close token escrow ATA
+    let is_token_task = task.reward_mint.is_some();
+    if is_token_task {
+        // Token path: transfer tokens back to creator
         require!(
             ctx.accounts.token_escrow_ata.is_some()
                 && ctx.accounts.creator_token_account.is_some()
@@ -135,14 +136,8 @@ pub fn handler(ctx: Context<CancelTask>) -> Result<()> {
             token_program,
         )?;
 
-        // Close token escrow ATA, return rent to creator
-        close_token_escrow(
-            token_escrow,
-            &ctx.accounts.creator.to_account_info(),
-            &escrow.to_account_info(),
-            escrow_seeds,
-            token_program,
-        )?;
+        // NOTE: Token escrow ATA close is deferred until after worker processing
+        // to ensure all claims are resolved before the ATA is closed.
     } else {
         // SOL path: existing lamport transfer (unchanged)
         transfer_lamports(
@@ -228,6 +223,23 @@ pub fn handler(ctx: Context<CancelTask>) -> Result<()> {
         let mut claim_data = claim_info.try_borrow_mut_data()?;
         claim_data.fill(0);
         claim_data[..8].copy_from_slice(&[255u8; 8]);
+    }
+
+    // Close token escrow ATA AFTER all worker claims are processed
+    if is_token_task {
+        let token_escrow = ctx.accounts.token_escrow_ata.as_ref().unwrap();
+        let token_program = ctx.accounts.token_program.as_ref().unwrap();
+        let task_key = task.key();
+        let task_key_bytes = task_key.to_bytes();
+        let bump_slice = [escrow.bump];
+        let escrow_seeds: &[&[u8]] = &[b"escrow", task_key_bytes.as_ref(), &bump_slice];
+        close_token_escrow(
+            token_escrow,
+            &ctx.accounts.creator.to_account_info(),
+            &escrow.to_account_info(),
+            escrow_seeds,
+            token_program,
+        )?;
     }
 
     // Reset current_workers since all workers are removed on cancel

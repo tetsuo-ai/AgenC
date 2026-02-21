@@ -350,6 +350,9 @@ describe("test_1", () => {
   // This prevents cascading failures when a test deactivates an agent
   // and ensures agents are registered even if before() had issues
   beforeEach(async () => {
+    // Advance clock to satisfy rate limit cooldowns between tests
+    advanceClock(svm, 2);
+
     const agentsToCheck = [
       {
         id: agentId1,
@@ -10035,6 +10038,7 @@ describe("test_1", () => {
         expect(agent.activeTasks).to.equal(1);
 
         // Claim task 2
+        advanceClock(svm, 2); // satisfy rate limit cooldown
         const taskId2 = Buffer.from("track-task-002".padEnd(32, "\0"));
         const taskPda2 = deriveTaskPda(creator.publicKey, taskId2);
         const escrowPda2 = deriveEscrowPda(taskPda2);
@@ -10870,6 +10874,7 @@ describe("test_1", () => {
 
         // Create and claim 10 tasks
         for (let i = 0; i < 10; i++) {
+          advanceClock(svm, 2); // satisfy rate limit cooldown
           const taskId = Buffer.from(
             `busy-task-${i.toString().padStart(3, "0")}`.padEnd(32, "\0"),
           );
@@ -10923,6 +10928,7 @@ describe("test_1", () => {
         expect(agent.activeTasks).to.equal(10);
 
         // 11th claim should fail
+        advanceClock(svm, 2); // satisfy rate limit cooldown
         const taskId11 = Buffer.from("busy-task-010".padEnd(32, "\0"));
         const taskPda11 = deriveTaskPda(creator.publicKey, taskId11);
         const escrowPda11 = deriveEscrowPda(taskPda11);

@@ -12,7 +12,7 @@ import {
   getAssociatedTokenAddressSync,
   TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
-import type { Program } from "@coral-xyz/anchor";
+import { type Program, BN } from "@coral-xyz/anchor";
 import type { AgencCoordination } from "../../types/agenc_coordination.js";
 import type { Logger } from "../../utils/logger.js";
 import { silentLogger } from "../../utils/logger.js";
@@ -146,7 +146,7 @@ export class SkillPurchaseManager {
 
     try {
       const sig = await this.program.methods
-        .purchaseSkill()
+        .purchaseSkill(new BN(price.toString()))
         .accountsPartial({
           skill: skillPda,
           buyer: this.buyerAgentPda,
