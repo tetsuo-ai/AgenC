@@ -124,12 +124,6 @@ pub fn handler(ctx: Context<ExecuteProposal>) -> Result<()> {
         CoordinationError::TimelockNotElapsed
     );
 
-    // Checks-effects-interactions: set final state BEFORE any CPI (EXECPROP-002).
-    // This prevents reentrancy from observing an Active proposal during the
-    // system_program::transfer CPI in the TreasurySpend path.
-    proposal.status = ProposalStatus::Executed;
-    proposal.executed_at = clock.unix_timestamp;
-
     // Execute based on proposal type
     match proposal.proposal_type {
         ProposalType::FeeChange => execute_fee_change(proposal, config)?,
@@ -145,6 +139,9 @@ pub fn handler(ctx: Context<ExecuteProposal>) -> Result<()> {
             // Protocol upgrade is a signaling marker — actual upgrade handled externally
         }
     }
+
+    proposal.status = ProposalStatus::Executed;
+    proposal.executed_at = clock.unix_timestamp;
 
     emit!(ProposalExecuted {
         proposal: proposal.key(),
