@@ -482,7 +482,7 @@ describe("prove — local-binary backend", () => {
     const { prove: proveMocked } = await import("../prover");
     const config: LocalBinaryProverConfig = {
       kind: "local-binary",
-      binaryPath: "/test/bin",
+      binaryPath: "/test/agenc-zkvm-host",
     };
 
     const result = await proveMocked(validInput(), config);
@@ -514,7 +514,7 @@ describe("prove — local-binary backend", () => {
     const { prove: proveMocked } = await import("../prover");
     await proveMocked(validInput(), {
       kind: "local-binary",
-      binaryPath: "/test/bin",
+      binaryPath: "/test/agenc-zkvm-host",
     });
 
     expect(child.stdin.write).toHaveBeenCalled();
@@ -530,7 +530,7 @@ describe("prove — local-binary backend", () => {
     const { prove: proveMocked } = await import("../prover");
     const config: LocalBinaryProverConfig = {
       kind: "local-binary",
-      binaryPath: "/test/bin",
+      binaryPath: "/test/agenc-zkvm-host",
     };
 
     try {
@@ -550,7 +550,7 @@ describe("prove — local-binary backend", () => {
     const { prove: proveMocked } = await import("../prover");
     const config: LocalBinaryProverConfig = {
       kind: "local-binary",
-      binaryPath: "/nonexistent/bin",
+      binaryPath: "/nonexistent/agenc-zkvm-host",
     };
 
     try {
@@ -569,7 +569,7 @@ describe("prove — local-binary backend", () => {
     const { prove: proveMocked } = await import("../prover");
     const config: LocalBinaryProverConfig = {
       kind: "local-binary",
-      binaryPath: "/test/bin",
+      binaryPath: "/test/agenc-zkvm-host",
     };
 
     try {
@@ -581,6 +581,42 @@ describe("prove — local-binary backend", () => {
         "failed to parse prover output",
       );
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Local binary path validation
+// ---------------------------------------------------------------------------
+
+describe("prove — local-binary path validation", () => {
+  it("rejects relative binary path", async () => {
+    const config: LocalBinaryProverConfig = {
+      kind: "local-binary",
+      binaryPath: "relative/agenc-zkvm-host",
+    };
+    await expect(prove(validInput(), config)).rejects.toThrow(
+      "binaryPath must be an absolute path",
+    );
+  });
+
+  it("rejects path with .. segments", async () => {
+    const config: LocalBinaryProverConfig = {
+      kind: "local-binary",
+      binaryPath: "/test/../etc/agenc-zkvm-host",
+    };
+    await expect(prove(validInput(), config)).rejects.toThrow(
+      "must not contain '..'",
+    );
+  });
+
+  it("rejects binary not named agenc-zkvm-host", async () => {
+    const config: LocalBinaryProverConfig = {
+      kind: "local-binary",
+      binaryPath: "/test/some-other-binary",
+    };
+    await expect(prove(validInput(), config)).rejects.toThrow(
+      "must point to an agenc-zkvm-host binary",
+    );
   });
 });
 

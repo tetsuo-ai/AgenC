@@ -237,8 +237,12 @@ const DEFAULT_REPLAY_RUNTIME: ReplayToolRuntime = {
       },
     };
   },
-  readLocalTrace(path) {
-    const raw = readFileSync(path, "utf8");
+  readLocalTrace(tracePath) {
+    // Security: Reject path traversal sequences to prevent arbitrary file reads
+    if (tracePath.includes("..")) {
+      throw new Error("Trace path must not contain '..' segments (path traversal)");
+    }
+    const raw = readFileSync(tracePath, "utf8");
     return parseTrajectoryTrace(JSON.parse(raw) as unknown);
   },
   async getCurrentSlot(rpcUrl) {
@@ -725,7 +729,7 @@ function buildReplayAnomalyId(anomaly: ReplayAnomaly, seed = 0): string {
     anomaly.message,
   ].join("|");
 
-  return createHash("sha1").update(key).digest("hex").slice(0, 16);
+  return createHash("sha256").update(key).digest("hex").slice(0, 16);
 }
 
 function deriveIncidentTraceId(filters: {
@@ -876,7 +880,7 @@ function validateReplayIncident(
   });
 
   const anomalyIds = [...replay.errors, ...replay.warnings].map((message) => {
-    return createHash("sha1").update(message).digest("hex").slice(0, 16);
+    return createHash("sha256").update(message).digest("hex").slice(0, 16);
   });
 
   const replayTaskCount = Object.keys(replay.tasks).length;

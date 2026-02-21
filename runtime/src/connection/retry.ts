@@ -145,7 +145,9 @@ export function isWriteMethod(methodName: string): boolean {
  */
 export function computeBackoff(attempt: number, config: RetryConfig): number {
   const base = Math.min(config.baseDelayMs * 2 ** attempt, config.maxDelayMs);
-  const jitter = 1 + Math.random() * config.jitterFactor;
+  const buf = new Uint32Array(1);
+  globalThis.crypto.getRandomValues(buf);
+  const jitter = 1 + (buf[0] / 0x100000000) * config.jitterFactor;
   return Math.round(base * jitter);
 }
 
