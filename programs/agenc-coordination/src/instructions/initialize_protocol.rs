@@ -13,7 +13,10 @@
 
 use crate::errors::CoordinationError;
 use crate::events::ProtocolInitialized;
-use crate::instructions::constants::MAX_PROTOCOL_FEE_BPS;
+use crate::instructions::constants::{
+    DEFAULT_DISPUTE_INITIATION_COOLDOWN, DEFAULT_MAX_DISPUTES_PER_24H,
+    DEFAULT_MAX_TASKS_PER_24H, DEFAULT_TASK_CREATION_COOLDOWN, MAX_PROTOCOL_FEE_BPS,
+};
 use crate::state::{ProtocolConfig, CURRENT_PROTOCOL_VERSION, MIN_SUPPORTED_VERSION};
 use crate::utils::multisig::validate_multisig_owners;
 use anchor_lang::prelude::*;
@@ -237,10 +240,10 @@ pub fn handler(
     config.multisig_threshold = multisig_threshold;
     config.multisig_owners_len = multisig_owners.len() as u8;
     // Rate limiting defaults (can be updated post-deployment via update instruction)
-    config.task_creation_cooldown = 60; // 60 seconds between task creations
-    config.max_tasks_per_24h = 50; // 50 tasks per 24h window
-    config.dispute_initiation_cooldown = 300; // 5 minutes between disputes
-    config.max_disputes_per_24h = 10; // 10 disputes per 24h window
+    config.task_creation_cooldown = DEFAULT_TASK_CREATION_COOLDOWN;
+    config.max_tasks_per_24h = DEFAULT_MAX_TASKS_PER_24H;
+    config.dispute_initiation_cooldown = DEFAULT_DISPUTE_INITIATION_COOLDOWN;
+    config.max_disputes_per_24h = DEFAULT_MAX_DISPUTES_PER_24H;
     config.min_stake_for_dispute = min_stake_for_dispute;
     config.slash_percentage = ProtocolConfig::DEFAULT_SLASH_PERCENTAGE;
     config.voting_period = ProtocolConfig::DEFAULT_VOTING_PERIOD;

@@ -56,3 +56,19 @@ pub const REPUTATION_STAKING_COOLDOWN: i64 = 7 * 24 * 60 * 60;
 
 /// Minimum delegation amount in reputation points (1% of max reputation)
 pub const MIN_DELEGATION_AMOUNT: u16 = 100;
+
+// ============================================================================
+// Default Rate Limit Constants
+// ============================================================================
+
+/// Default cooldown between task creations in seconds
+pub const DEFAULT_TASK_CREATION_COOLDOWN: i64 = 60;
+
+/// Default maximum tasks per agent per 24-hour window
+pub const DEFAULT_MAX_TASKS_PER_24H: u8 = 50;
+
+/// Default cooldown between dispute initiations in seconds (5 minutes)
+pub const DEFAULT_DISPUTE_INITIATION_COOLDOWN: i64 = 300;
+
+/// Default maximum disputes per agent per 24-hour window
+pub const DEFAULT_MAX_DISPUTES_PER_24H: u8 = 10;
