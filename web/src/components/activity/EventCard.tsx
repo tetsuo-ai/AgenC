@@ -53,9 +53,6 @@ function CopyButton({ value }: { value: string }) {
   );
 }
 
-/** Known fields we render in structured rows instead of raw JSON. */
-const KNOWN_FIELDS = new Set(['sessionId', 'toolName', 'durationMs', 'taskPda', 'description']);
-
 export function EventCard({ event }: EventCardProps) {
   const time = new Date(event.timestamp).toLocaleTimeString([], {
     hour: '2-digit',
