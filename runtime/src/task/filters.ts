@@ -11,6 +11,9 @@
 import type { DiscoveredTask, TaskFilterConfig, TaskScorer, OnChainTask } from './types.js';
 import { OnChainTaskStatus, isPrivateTask } from './types.js';
 
+/** Default time remaining (1 day in seconds) for tasks with no deadline. */
+const DEFAULT_NO_DEADLINE_SECONDS = 86_400;
+
 /**
  * Checks if an agent has all required capabilities using bitwise AND.
  *
@@ -148,7 +151,7 @@ export function matchesFilter(
  *
  * Score = reward / max(1, timeRemaining).
  * Tasks with higher reward and shorter deadlines score higher.
- * Tasks with no deadline use 86400 (1 day) as the default time remaining.
+ * Tasks with no deadline use DEFAULT_NO_DEADLINE_SECONDS (1 day) as the default time remaining.
  *
  * @param task - The discovered task to score
  * @returns Numeric score (higher = higher priority)
@@ -161,7 +164,7 @@ export function matchesFilter(
 export const defaultTaskScorer: TaskScorer = (task: DiscoveredTask): number => {
   const now = Math.floor(Date.now() / 1000);
   const timeRemaining =
-    task.task.deadline > 0 ? task.task.deadline - now : 86400;
+    task.task.deadline > 0 ? task.task.deadline - now : DEFAULT_NO_DEADLINE_SECONDS;
 
   const denominator = Math.max(1, timeRemaining);
   return Number(task.task.rewardAmount) / denominator;
