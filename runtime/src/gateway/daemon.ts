@@ -523,7 +523,12 @@ export class DaemonManager {
       `<i>Send any message to get started.</i>`;
 
     const telegram = new TelegramChannel();
-    const sessionMgr = new SessionManager({ maxSessions: 100 });
+    const sessionMgr = new SessionManager({
+      scope: "per-channel-peer",
+      reset: { mode: "idle", idleMinutes: 30 },
+      compaction: "truncate",
+      maxHistoryLength: 100,
+    });
     const systemPrompt = await this.buildSystemPrompt(config);
 
     const onMessage = async (msg: GatewayMessage): Promise<void> => {
@@ -625,7 +630,12 @@ export class DaemonManager {
     config: GatewayConfig,
     channelConfig: Record<string, unknown>,
   ): Promise<void> {
-    const sessionMgr = new SessionManager({ maxSessions: 100 });
+    const sessionMgr = new SessionManager({
+      scope: "per-channel-peer",
+      reset: { mode: "idle", idleMinutes: 30 },
+      compaction: "truncate",
+      maxHistoryLength: 100,
+    });
     const systemPrompt = await this.buildSystemPrompt(config);
 
     const onMessage = async (msg: GatewayMessage): Promise<void> => {
@@ -700,7 +710,7 @@ export class DaemonManager {
 
     if (channels.discord) {
       try {
-        const discord = new DiscordChannel();
+        const discord = new DiscordChannel(channels.discord as unknown as ConstructorParameters<typeof DiscordChannel>[0]);
         await this.wireExternalChannel(discord, "discord", config, channels.discord as unknown as Record<string, unknown>);
         this._discordChannel = discord;
       } catch (err) { this.logger.error("Failed to wire Discord channel:", err); }
@@ -708,7 +718,7 @@ export class DaemonManager {
 
     if (channels.slack) {
       try {
-        const slack = new SlackChannel();
+        const slack = new SlackChannel(channels.slack as unknown as ConstructorParameters<typeof SlackChannel>[0]);
         await this.wireExternalChannel(slack, "slack", config, channels.slack as unknown as Record<string, unknown>);
         this._slackChannel = slack;
       } catch (err) { this.logger.error("Failed to wire Slack channel:", err); }
@@ -716,7 +726,7 @@ export class DaemonManager {
 
     if (channels.whatsapp) {
       try {
-        const whatsapp = new WhatsAppChannel();
+        const whatsapp = new WhatsAppChannel(channels.whatsapp as unknown as ConstructorParameters<typeof WhatsAppChannel>[0]);
         await this.wireExternalChannel(whatsapp, "whatsapp", config, channels.whatsapp as unknown as Record<string, unknown>);
         this._whatsAppChannel = whatsapp;
       } catch (err) { this.logger.error("Failed to wire WhatsApp channel:", err); }
@@ -724,7 +734,7 @@ export class DaemonManager {
 
     if (channels.signal) {
       try {
-        const signal = new SignalChannel();
+        const signal = new SignalChannel(channels.signal as unknown as ConstructorParameters<typeof SignalChannel>[0]);
         await this.wireExternalChannel(signal, "signal", config, channels.signal as unknown as Record<string, unknown>);
         this._signalChannel = signal;
       } catch (err) { this.logger.error("Failed to wire Signal channel:", err); }
@@ -732,7 +742,7 @@ export class DaemonManager {
 
     if (channels.matrix) {
       try {
-        const matrix = new MatrixChannel();
+        const matrix = new MatrixChannel(channels.matrix as unknown as ConstructorParameters<typeof MatrixChannel>[0]);
         await this.wireExternalChannel(matrix, "matrix", config, channels.matrix as unknown as Record<string, unknown>);
         this._matrixChannel = matrix;
       } catch (err) { this.logger.error("Failed to wire Matrix channel:", err); }
@@ -756,7 +766,7 @@ export class DaemonManager {
    * and CronScheduler for long-running research tasks (curiosity every 2h, self-learning every 6h).
    */
   private async wireAutonomousFeatures(config: GatewayConfig): Promise<void> {
-    const heartbeatConfig = (config as Record<string, unknown>).heartbeat as
+    const heartbeatConfig = (config as unknown as Record<string, unknown>).heartbeat as
       | { enabled?: boolean; intervalMs?: number }
       | undefined;
     if (heartbeatConfig?.enabled === false) return;
@@ -2025,6 +2035,10 @@ export class DaemonManager {
 
   get goalManager(): import('../autonomous/goal-manager.js').GoalManager | null {
     return this._goalManager;
+  }
+
+  get proactiveCommunicator(): ProactiveCommunicator | null {
+    return this._proactiveCommunicator;
   }
 
   getStatus(): DaemonStatus {
