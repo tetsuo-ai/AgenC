@@ -756,7 +756,21 @@ export class CommitmentLedger {
       throw err;
     }
 
-    const serialized: SerializedCommitment[] = JSON.parse(data);
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(data);
+    } catch {
+      throw new Error("Commitment ledger file contains invalid JSON");
+    }
+
+    if (!Array.isArray(parsed)) {
+      throw new Error("Commitment ledger file must contain a JSON array");
+    }
+
+    const VALID_STATUSES: ReadonlySet<string> = new Set([
+      "pending", "executing", "executed", "proof_generating",
+      "proof_generated", "confirmed", "failed", "rolled_back",
+    ]);
 
     // Clear existing state
     this.commitments.clear();
@@ -764,40 +778,57 @@ export class CommitmentLedger {
     this.byParentTask.clear();
     this.byDepth.clear();
 
-    // Restore commitments
-    for (const item of serialized) {
-      const commitment: SpeculativeCommitment = {
-        id: item.id,
-        sourceTaskPda: new PublicKey(item.sourceTaskPda),
-        sourceTaskId: hexToBytes(item.sourceTaskId),
-        resultHash: hexToBytes(item.resultHash),
-        status: item.status,
-        dependentTaskPdas: item.dependentTaskPdas.map(
-          (pda) => new PublicKey(pda),
-        ),
-        createdAt: item.createdAt,
-        confirmedAt: item.confirmedAt,
-        depth: item.depth,
-        stakeAtRisk: BigInt(item.stakeAtRisk),
-        producerAgent: new PublicKey(item.producerAgent),
-      };
+    // Restore commitments with per-entry validation
+    for (const item of parsed as Record<string, unknown>[]) {
+      try {
+        if (typeof item.id !== "string" || !item.id) continue;
+        if (typeof item.sourceTaskPda !== "string") continue;
+        if (typeof item.sourceTaskId !== "string") continue;
+        if (typeof item.resultHash !== "string") continue;
+        if (typeof item.status !== "string" || !VALID_STATUSES.has(item.status)) continue;
+        if (!Array.isArray(item.dependentTaskPdas)) continue;
+        if (typeof item.createdAt !== "number" || !Number.isFinite(item.createdAt)) continue;
+        if (item.confirmedAt !== null && (typeof item.confirmedAt !== "number" || !Number.isFinite(item.confirmedAt as number))) continue;
+        if (typeof item.depth !== "number" || !Number.isInteger(item.depth) || item.depth < 0) continue;
+        if (typeof item.stakeAtRisk !== "string") continue;
+        if (typeof item.producerAgent !== "string") continue;
 
-      this.commitments.set(commitment.id, commitment);
-      this.byTask.set(commitment.sourceTaskPda.toBase58(), commitment.id);
+        const commitment: SpeculativeCommitment = {
+          id: item.id,
+          sourceTaskPda: new PublicKey(item.sourceTaskPda),
+          sourceTaskId: hexToBytes(item.sourceTaskId),
+          resultHash: hexToBytes(item.resultHash),
+          status: item.status as CommitmentStatus,
+          dependentTaskPdas: (item.dependentTaskPdas as string[]).map(
+            (pda) => new PublicKey(pda),
+          ),
+          createdAt: item.createdAt,
+          confirmedAt: item.confirmedAt as number | null,
+          depth: item.depth,
+          stakeAtRisk: BigInt(item.stakeAtRisk),
+          producerAgent: new PublicKey(item.producerAgent),
+        };
 
-      if (!this.byDepth.has(commitment.depth)) {
-        this.byDepth.set(commitment.depth, new Set());
-      }
-      this.byDepth.get(commitment.depth)!.add(commitment.id);
+        this.commitments.set(commitment.id, commitment);
+        this.byTask.set(commitment.sourceTaskPda.toBase58(), commitment.id);
 
-      for (const dependentPda of commitment.dependentTaskPdas) {
-        const dependentKey = dependentPda.toBase58();
-        if (!this.byParentTask.has(dependentKey)) {
-          this.byParentTask.set(
-            dependentKey,
-            commitment.sourceTaskPda.toBase58(),
-          );
+        if (!this.byDepth.has(commitment.depth)) {
+          this.byDepth.set(commitment.depth, new Set());
         }
+        this.byDepth.get(commitment.depth)!.add(commitment.id);
+
+        for (const dependentPda of commitment.dependentTaskPdas) {
+          const dependentKey = dependentPda.toBase58();
+          if (!this.byParentTask.has(dependentKey)) {
+            this.byParentTask.set(
+              dependentKey,
+              commitment.sourceTaskPda.toBase58(),
+            );
+          }
+        }
+      } catch {
+        // Skip corrupted entries rather than crashing the entire ledger
+        continue;
       }
     }
   }

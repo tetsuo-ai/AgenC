@@ -305,9 +305,8 @@ describe("WebChatChannel", () => {
       );
     });
 
-    it("should resume an existing session", () => {
+    it("should resume an existing session by same client", () => {
       const send1 = vi.fn<(response: ControlResponse) => void>();
-      const send2 = vi.fn<(response: ControlResponse) => void>();
 
       // Client 1 creates a session with a message
       channel.handleMessage(
@@ -320,9 +319,10 @@ describe("WebChatChannel", () => {
       const gatewayMsg = vi.mocked(context.onMessage).mock.calls[0][0];
       const sessionId = gatewayMsg.sessionId;
 
-      // Client 2 resumes the session
+      // Same client resumes the session
+      const send2 = vi.fn<(response: ControlResponse) => void>();
       channel.handleMessage(
-        "client_2",
+        "client_1",
         "chat.resume",
         msg("chat.resume", { sessionId }, "req-3"),
         send2,
@@ -336,6 +336,38 @@ describe("WebChatChannel", () => {
       const response = resumeCall![0] as ControlResponse;
       expect((response.payload as Record<string, unknown>).sessionId).toBe(
         sessionId,
+      );
+    });
+
+    it("should reject resume from different client (session hijacking prevention)", () => {
+      const send1 = vi.fn<(response: ControlResponse) => void>();
+
+      // Client 1 creates a session
+      channel.handleMessage(
+        "client_1",
+        "chat.message",
+        msg("chat.message", { content: "Hello" }),
+        send1,
+      );
+
+      const gatewayMsg = vi.mocked(context.onMessage).mock.calls[0][0];
+      const sessionId = gatewayMsg.sessionId;
+
+      // Client 2 tries to resume — should be rejected
+      const send2 = vi.fn<(response: ControlResponse) => void>();
+      channel.handleMessage(
+        "client_2",
+        "chat.resume",
+        msg("chat.resume", { sessionId }, "req-3"),
+        send2,
+      );
+
+      const errorCall = send2.mock.calls.find(
+        (call) => (call[0] as ControlResponse).error !== undefined,
+      );
+      expect(errorCall).toBeDefined();
+      expect((errorCall![0] as ControlResponse).error).toContain(
+        "Not authorized",
       );
     });
   });

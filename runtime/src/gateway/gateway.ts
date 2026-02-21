@@ -326,15 +326,18 @@ export class Gateway {
       this.wsClients.set(clientId, socket);
       this.logger.debug(`Control plane client connected: ${clientId}`);
 
-      // Auto-authenticate local connections
+      // Auto-authenticate local connections only when explicitly enabled.
+      // Security: localBypass defaults to false — must be explicitly set to true.
+      // Missing remoteAddress is NOT treated as local to prevent spoofing.
       const remoteAddress = request?.socket?.remoteAddress;
       const authSecret = this._config.auth?.secret;
-      const localBypass = this._config.auth?.localBypass !== false;
+      const localBypass = this._config.auth?.localBypass === true;
       const isLocal =
-        !remoteAddress ||
-        remoteAddress === "127.0.0.1" ||
-        remoteAddress === "::1" ||
-        remoteAddress === "::ffff:127.0.0.1";
+        remoteAddress !== undefined &&
+        remoteAddress !== null &&
+        (remoteAddress === "127.0.0.1" ||
+          remoteAddress === "::1" ||
+          remoteAddress === "::ffff:127.0.0.1");
 
       if (!authSecret || (isLocal && localBypass)) {
         this.authenticatedClients.add(clientId);
@@ -393,6 +396,14 @@ export class Gateway {
     });
   }
 
+  /** Privileged operations that require authentication even if no secret is configured. */
+  private static readonly PRIVILEGED_OPS: ReadonlySet<string> = new Set([
+    "reload",
+    "config.set",
+    "sessions.kill",
+    "wallet.airdrop",
+  ]);
+
   private handleControlMessage(
     clientId: string,
     socket: WsWebSocket,
@@ -429,6 +440,21 @@ export class Gateway {
       this.sendResponse(socket, {
         type: "error",
         error: "Authentication required",
+        id,
+      });
+      return;
+    }
+
+    // Security: Privileged operations always require authentication,
+    // even when no auth secret is configured. This prevents unauthenticated
+    // clients from modifying config, killing sessions, or requesting airdrops.
+    if (
+      Gateway.PRIVILEGED_OPS.has(msg.type) &&
+      !this.authenticatedClients.has(clientId)
+    ) {
+      this.sendResponse(socket, {
+        type: "error",
+        error: "Authentication required for privileged operation",
         id,
       });
       return;

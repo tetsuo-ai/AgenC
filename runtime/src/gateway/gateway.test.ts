@@ -392,7 +392,7 @@ describe("Gateway", () => {
 
     it("auto-authenticates local connection (127.0.0.1)", async () => {
       const authGw = new Gateway(
-        makeConfig({ auth: { secret: AUTH_SECRET } }),
+        makeConfig({ auth: { secret: AUTH_SECRET, localBypass: true } }),
         { logger: silentLogger },
       );
       await authGw.start();
@@ -411,7 +411,7 @@ describe("Gateway", () => {
 
     it("auto-authenticates local connection (::1)", async () => {
       const authGw = new Gateway(
-        makeConfig({ auth: { secret: AUTH_SECRET } }),
+        makeConfig({ auth: { secret: AUTH_SECRET, localBypass: true } }),
         { logger: silentLogger },
       );
       await authGw.start();
@@ -429,7 +429,7 @@ describe("Gateway", () => {
 
     it("auto-authenticates local connection (::ffff:127.0.0.1)", async () => {
       const authGw = new Gateway(
-        makeConfig({ auth: { secret: AUTH_SECRET } }),
+        makeConfig({ auth: { secret: AUTH_SECRET, localBypass: true } }),
         { logger: silentLogger },
       );
       await authGw.start();
@@ -445,9 +445,9 @@ describe("Gateway", () => {
       await authGw.stop();
     });
 
-    it("auto-authenticates unix socket (undefined remoteAddress)", async () => {
+    it("rejects undefined remoteAddress even with localBypass", async () => {
       const authGw = new Gateway(
-        makeConfig({ auth: { secret: AUTH_SECRET } }),
+        makeConfig({ auth: { secret: AUTH_SECRET, localBypass: true } }),
         { logger: silentLogger },
       );
       await authGw.start();
@@ -455,9 +455,11 @@ describe("Gateway", () => {
       const mockSocket = createMockSocket();
       wssConnectionHandler!(mockSocket, undefined);
 
+      // Security: undefined remoteAddress is NOT treated as local
       mockSocket.simulateMessage({ type: "status" });
       const response = JSON.parse(mockSocket.send.mock.calls[0][0]);
-      expect(response.type).toBe("status");
+      expect(response.type).toBe("error");
+      expect(response.error).toBe("Authentication required");
 
       await authGw.stop();
     });
@@ -484,7 +486,7 @@ describe("Gateway", () => {
 
     it("cleanup on disconnect removes from authenticatedClients", async () => {
       const authGw = new Gateway(
-        makeConfig({ auth: { secret: AUTH_SECRET } }),
+        makeConfig({ auth: { secret: AUTH_SECRET, localBypass: true } }),
         { logger: silentLogger },
       );
       await authGw.start();

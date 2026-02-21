@@ -33,7 +33,20 @@ function findProjectRoot(): string {
   return process.cwd();
 }
 const PROJECT_ROOT = findProjectRoot();
-const COMMAND_ENV = { ...process.env, FORCE_COLOR: "0", NO_COLOR: "1" };
+// Security: Only pass necessary env vars to test child processes.
+// Avoids leaking secrets (API keys, private key paths) to test runners.
+const SAFE_TEST_ENV_KEYS = [
+  'PATH', 'HOME', 'USER', 'SHELL', 'LANG', 'TERM', 'NODE_ENV', 'NODE_PATH',
+  'npm_config_prefix', 'npm_config_cache', 'NVM_DIR', 'NVM_BIN',
+  'SOLANA_RPC_URL', 'ANCHOR_PROVIDER_URL', 'ANCHOR_WALLET',
+];
+const COMMAND_ENV: Record<string, string> = { FORCE_COLOR: "0", NO_COLOR: "1" };
+for (const key of SAFE_TEST_ENV_KEYS) {
+  const value = process.env[key];
+  if (value !== undefined) {
+    COMMAND_ENV[key] = value;
+  }
+}
 
 /** Directory containing test files */
 const TESTS_DIR = path.join(PROJECT_ROOT, "tests");
@@ -295,9 +308,18 @@ function resolveArtifactPath(
   if (!candidate) {
     return fallback;
   }
-  return path.isAbsolute(candidate)
+  // Security: Reject path traversal sequences to prevent arbitrary file reads
+  if (candidate.includes("..")) {
+    throw new Error("Artifact path must not contain '..' segments");
+  }
+  const resolved = path.isAbsolute(candidate)
     ? candidate
     : path.resolve(PROJECT_ROOT, candidate);
+  // Security: Ensure resolved path is within PROJECT_ROOT
+  if (!resolved.startsWith(PROJECT_ROOT)) {
+    throw new Error("Artifact path must be within the project directory");
+  }
+  return resolved;
 }
 
 /**

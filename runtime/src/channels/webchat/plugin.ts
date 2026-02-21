@@ -55,6 +55,8 @@ export class WebChatChannel
   private readonly sessionClients = new Map<string, string>();
   // clientId → send function (for pushing messages to specific clients)
   private readonly clientSenders = new Map<string, SendFn>();
+  // Security: sessionId → creator clientId (prevents session hijacking)
+  private readonly sessionOwners = new Map<string, string>();
   // sessionId → chat history for resume support
   private readonly sessionHistory = new Map<
     string,
@@ -94,6 +96,7 @@ export class WebChatChannel
     this.clientSessions.clear();
     this.sessionClients.clear();
     this.clientSenders.clear();
+    this.sessionOwners.clear();
     this.sessionHistory.clear();
     this.eventSubscribers.clear();
     this.healthy = false;
@@ -425,6 +428,18 @@ export class WebChatChannel
       return;
     }
 
+    // Security: Verify session ownership to prevent session hijacking.
+    // Only the client that created a session can resume it.
+    const owner = this.sessionOwners.get(targetSessionId);
+    if (owner && owner !== clientId) {
+      send({
+        type: "error",
+        error: "Not authorized to resume this session",
+        id,
+      });
+      return;
+    }
+
     // Remove old mapping if exists
     const oldSession = this.clientSessions.get(clientId);
     if (oldSession) {
@@ -446,7 +461,7 @@ export class WebChatChannel
   }
 
   private handleChatSessions(
-    _clientId: string,
+    clientId: string,
     id: string | undefined,
     send: SendFn,
   ): void {
@@ -459,6 +474,9 @@ export class WebChatChannel
 
     for (const [sessionId, history] of this.sessionHistory) {
       if (history.length === 0) continue;
+      // Security: Only show sessions owned by this client
+      const owner = this.sessionOwners.get(sessionId);
+      if (owner && owner !== clientId) continue;
       const firstUserMsg = history.find((m) => m.sender === "user");
       const label = firstUserMsg
         ? firstUserMsg.content.slice(0, 80)
@@ -538,6 +556,10 @@ export class WebChatChannel
 
     this.clientSessions.set(clientId, sessionId);
     this.sessionClients.set(sessionId, clientId);
+    // Track session creator for ownership verification on resume
+    if (!this.sessionOwners.has(sessionId)) {
+      this.sessionOwners.set(sessionId, clientId);
+    }
 
     return sessionId;
   }

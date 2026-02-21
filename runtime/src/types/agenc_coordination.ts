@@ -11,7 +11,7 @@
  * IDL can be found at `target/idl/agenc_coordination.json`.
  */
 export type AgencCoordination = {
-  "address": "EopUaCV2svxj9j4hd7KjbrWfdjkspmm2BCBe7jGpKzKZ",
+  "address": "5j9ZbT3mnPX5QjWVMrDaWFuaGf8ddji6LW1HVJw6kUE7",
   "metadata": {
     "name": "agencCoordination",
     "version": "0.1.0",
@@ -2041,7 +2041,8 @@ export type AgencCoordination = {
           ]
         },
         {
-          "name": "delegatorAgent"
+          "name": "delegatorAgent",
+          "writable": true
         },
         {
           "name": "delegateeAgent"
@@ -4132,7 +4133,8 @@ export type AgencCoordination = {
           ]
         },
         {
-          "name": "delegatorAgent"
+          "name": "delegatorAgent",
+          "writable": true
         },
         {
           "name": "delegation",
@@ -7638,7 +7640,7 @@ export type AgencCoordination = {
             "docs": [
               "Active task count"
             ],
-            "type": "u8"
+            "type": "u16"
           },
           {
             "name": "stake",
@@ -7727,7 +7729,7 @@ export type AgencCoordination = {
             "type": {
               "array": [
                 "u8",
-                5
+                4
               ]
             }
           }
