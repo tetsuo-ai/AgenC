@@ -618,4 +618,17 @@ pub enum CoordinationError {
         "Binding or nullifier seed has insufficient byte diversity (min 8 distinct bytes required)"
     )]
     InsufficientSeedEntropy,
+
+    // Audit hardening errors (sequential from enum position)
+    #[msg("Proposal cannot be cancelled after votes have been cast")]
+    ProposalHasVotes,
+
+    #[msg("Token-denominated skill must have a non-zero price")]
+    SkillTokenPriceRequired,
+
+    #[msg("Voting period too short: must be at least 1 hour")]
+    VotingPeriodTooShort,
+
+    #[msg("Treasury spend amount must be greater than zero")]
+    TreasurySpendAmountZero,
 }

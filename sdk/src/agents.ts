@@ -64,7 +64,7 @@ function parseAgentStatus(raw: unknown): AgentStatus {
     if ("suspended" in enumObj) return AgentStatus.Suspended;
   }
 
-  return AgentStatus.Inactive;
+  throw new Error(`Unknown agent status: ${JSON.stringify(raw)}`);
 }
 
 export function deriveAgentPda(

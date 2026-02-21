@@ -64,7 +64,7 @@ function parseProposalType(raw: unknown): ProposalType {
     if ("rateLimitChange" in obj || "rate_limit_change" in obj)
       return ProposalType.RateLimitChange;
   }
-  return ProposalType.ProtocolUpgrade;
+  throw new Error(`Unknown proposal type: ${JSON.stringify(raw)}`);
 }
 
 function parseProposalStatus(raw: unknown): ProposalStatus {
@@ -76,7 +76,7 @@ function parseProposalStatus(raw: unknown): ProposalStatus {
     if ("defeated" in obj) return ProposalStatus.Defeated;
     if ("cancelled" in obj) return ProposalStatus.Cancelled;
   }
-  return ProposalStatus.Active;
+  throw new Error(`Unknown proposal status: ${JSON.stringify(raw)}`);
 }
 
 // ============================================================================

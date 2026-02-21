@@ -620,10 +620,19 @@ export async function getReplayHealthCheck(
 /**
  * Deserialize raw Task account data into a DependentTask object.
  */
+/** Minimum buffer size for a Task account (through reward_mint field) */
+const MIN_TASK_BUFFER_SIZE = TASK_FIELD_OFFSETS.REWARD_MINT + 33; // 1 Option discriminator + 32 pubkey
+
 function deserializeTaskAccount(
   publicKey: PublicKey,
   data: Buffer,
 ): DependentTask {
+  if (data.length < MIN_TASK_BUFFER_SIZE) {
+    throw new Error(
+      `Task account buffer too small: expected >= ${MIN_TASK_BUFFER_SIZE} bytes, got ${data.length}`,
+    );
+  }
+
   const taskId = data.subarray(
     TASK_FIELD_OFFSETS.TASK_ID,
     TASK_FIELD_OFFSETS.TASK_ID + 32,
@@ -740,6 +749,12 @@ function deserializeDispute(
   data: Buffer,
   role: ActorDisputeSummary["actorRole"],
 ): ActorDisputeSummary {
+  if (data.length < DISPUTE_ACCOUNT_SIZE) {
+    throw new Error(
+      `Dispute account buffer too small: expected >= ${DISPUTE_ACCOUNT_SIZE} bytes, got ${data.length}`,
+    );
+  }
+
   const disputeId = new Uint8Array(
     data.subarray(
       DISPUTE_FIELD_OFFSETS.DISPUTE_ID,

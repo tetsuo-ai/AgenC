@@ -186,7 +186,7 @@ pub fn handler(ctx: Context<ExpireDispute>) -> Result<()> {
         .accounts
         .worker_claim
         .as_ref()
-        .expect("worker claim validated above")
+        .ok_or(CoordinationError::WorkerClaimRequired)?
         .is_completed;
     let no_votes = dispute.total_voters == 0;
 

@@ -100,6 +100,23 @@ pub fn handler(
                 CoordinationError::InvalidProposalPayload
             );
         }
+        ProposalType::TreasurySpend => {
+            // Validate recipient and amount at creation time (CRPROP-003)
+            let recipient_bytes: [u8; 32] = payload[0..32]
+                .try_into()
+                .map_err(|_| error!(CoordinationError::InvalidProposalPayload))?;
+            let recipient_key = Pubkey::from(recipient_bytes);
+            require!(
+                recipient_key != Pubkey::default(),
+                CoordinationError::InvalidProposalPayload
+            );
+            let amount = u64::from_le_bytes(
+                payload[32..40]
+                    .try_into()
+                    .map_err(|_| error!(CoordinationError::InvalidProposalPayload))?,
+            );
+            require!(amount > 0, CoordinationError::TreasurySpendAmountZero);
+        }
         ProposalType::RateLimitChange => {
             // Same bounds as execute_proposal.rs and update_rate_limits.rs
             let task_creation_cooldown = i64::from_le_bytes(
@@ -150,12 +167,19 @@ pub fn handler(
         .checked_mul(quorum_factor)
         .ok_or(CoordinationError::ArithmeticOverflow)?;
 
+    // Minimum voting period: 1 hour to prevent non-votable proposals (CRPROP-004)
+    const MIN_VOTING_PERIOD: i64 = 3600;
+
     // Voting period: use governance config value (capped at MAX), or provided value
     let effective_voting_period = if voting_period > 0 {
         voting_period.min(GovernanceConfig::MAX_VOTING_PERIOD)
     } else {
         governance.voting_period
     };
+    require!(
+        effective_voting_period >= MIN_VOTING_PERIOD,
+        CoordinationError::VotingPeriodTooShort
+    );
 
     let voting_deadline = clock
         .unix_timestamp

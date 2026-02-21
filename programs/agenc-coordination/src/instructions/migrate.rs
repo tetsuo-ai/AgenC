@@ -46,6 +46,15 @@ pub fn handler(ctx: Context<MigrateProtocol>, target_version: u8) -> Result<()> 
         CoordinationError::CorruptedData
     );
 
+    // Verify unused multisig_owners slots are zeroed (MIG-003)
+    let owners_len = config.multisig_owners_len as usize;
+    for i in owners_len..ProtocolConfig::MAX_MULTISIG_OWNERS {
+        require!(
+            config.multisig_owners[i] == Pubkey::default(),
+            CoordinationError::CorruptedData
+        );
+    }
+
     let current_version = config.protocol_version;
 
     // Validate migration path

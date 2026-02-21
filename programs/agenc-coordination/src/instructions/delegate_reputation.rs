@@ -17,6 +17,10 @@ pub struct DelegateReputation<'info> {
     )]
     pub delegator_agent: Account<'info, AgentRegistration>,
 
+    #[account(
+        seeds = [b"agent", delegatee_agent.agent_id.as_ref()],
+        bump = delegatee_agent.bump,
+    )]
     pub delegatee_agent: Account<'info, AgentRegistration>,
 
     #[account(

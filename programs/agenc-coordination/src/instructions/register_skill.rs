@@ -62,6 +62,11 @@ pub fn handler(
         CoordinationError::SkillInvalidContentHash
     );
 
+    // Token-denominated skills must have a non-zero price (REGSKILL-001)
+    if price_mint.is_some() {
+        require!(price > 0, CoordinationError::SkillTokenPriceRequired);
+    }
+
     let clock = Clock::get()?;
     let skill = &mut ctx.accounts.skill;
 

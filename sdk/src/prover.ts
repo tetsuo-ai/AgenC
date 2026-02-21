@@ -15,6 +15,7 @@ import {
   RISC0_IMAGE_ID_LEN,
   HASH_SIZE,
 } from "./constants.js";
+import { validateProverEndpoint } from "./validation.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -230,6 +231,9 @@ async function proveRemote(
   const timeoutMs = config.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  // Validate endpoint URL (MED-6)
+  validateProverEndpoint(config.endpoint);
 
   const url = config.endpoint.endsWith("/prove")
     ? config.endpoint

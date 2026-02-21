@@ -31,7 +31,7 @@ pub fn handler(ctx: Context<CancelProposal>) -> Result<()> {
     // Can only cancel if no votes have been cast
     require!(
         proposal.total_voters == 0,
-        CoordinationError::ProposalVotingEnded
+        CoordinationError::ProposalHasVotes
     );
 
     proposal.status = ProposalStatus::Cancelled;

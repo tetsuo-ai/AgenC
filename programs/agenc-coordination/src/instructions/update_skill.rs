@@ -56,6 +56,11 @@ pub fn handler(
     let clock = Clock::get()?;
     let skill = &mut ctx.accounts.skill;
 
+    // Token-denominated skills must maintain a non-zero price (UPDSKILL-001)
+    if skill.price_mint.is_some() {
+        require!(price > 0, CoordinationError::SkillTokenPriceRequired);
+    }
+
     skill.content_hash = content_hash;
     skill.price = price;
     if let Some(new_tags) = tags {

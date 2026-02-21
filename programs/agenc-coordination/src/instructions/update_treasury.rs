@@ -35,7 +35,10 @@ pub fn handler(ctx: Context<UpdateTreasury>) -> Result<()> {
         CoordinationError::InvalidTreasury
     );
 
-    let is_program_owned = new_treasury.owner == &crate::ID;
+    // For program-owned accounts, verify initialized and rent-exempt (TREAS-001)
+    let is_program_owned = new_treasury.owner == &crate::ID
+        && new_treasury.data_len() > 0
+        && new_treasury.lamports() >= Rent::get()?.minimum_balance(new_treasury.data_len());
     let is_system_owned_signer =
         new_treasury.owner == &system_program::ID && new_treasury.is_signer;
     require!(

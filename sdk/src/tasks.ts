@@ -45,7 +45,7 @@ import {
 import { getAccount } from "./anchor-utils";
 import { getSdkLogger } from "./logger";
 import { deriveProtocolPda } from "./protocol";
-import { getDependentTaskCount } from "./queries";
+import { getDependentTaskCount, TASK_FIELD_OFFSETS } from "./queries";
 import {
   runProofSubmissionPreflight,
   type ProofSubmissionPreflightResult,
@@ -1099,7 +1099,7 @@ export async function getTasksByCreator(
   const tasks = await getAccount(program, "task").all([
     {
       memcmp: {
-        offset: DISCRIMINATOR_SIZE + 32, // After discriminator + task_id
+        offset: TASK_FIELD_OFFSETS.CREATOR,
         bytes: creator.toBase58(),
       },
     },
@@ -1389,7 +1389,11 @@ function parseTaskState(
     cancelled: TaskState.Cancelled,
     disputed: TaskState.Disputed,
   };
-  return stateMap[key] ?? TaskState.Open;
+  const mapped = stateMap[key];
+  if (mapped === undefined) {
+    throw new Error(`Unknown task state: "${key}"`);
+  }
+  return mapped;
 }
 
 /**

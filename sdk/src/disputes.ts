@@ -130,7 +130,7 @@ function parseResolutionType(raw: unknown): ResolutionType {
     if ("complete" in enumObj) return ResolutionType.Complete;
     if ("split" in enumObj) return ResolutionType.Split;
   }
-  return ResolutionType.Refund;
+  throw new Error(`Unknown resolution type: ${JSON.stringify(raw)}`);
 }
 
 function parseDisputeStatus(raw: unknown): DisputeStatus {
@@ -142,7 +142,7 @@ function parseDisputeStatus(raw: unknown): DisputeStatus {
     if ("expired" in enumObj) return DisputeStatus.Expired;
     if ("cancelled" in enumObj) return DisputeStatus.Cancelled;
   }
-  return DisputeStatus.Active;
+  throw new Error(`Unknown dispute status: ${JSON.stringify(raw)}`);
 }
 
 function deriveAgentPda(

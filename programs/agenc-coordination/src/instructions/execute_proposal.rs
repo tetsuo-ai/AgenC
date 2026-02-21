@@ -189,6 +189,9 @@ fn execute_treasury_spend<'info>(
             .map_err(|_| error!(CoordinationError::InvalidProposalPayload))?,
     );
 
+    // Reject zero-amount treasury spends (EXECPROP-005)
+    require!(amount > 0, CoordinationError::TreasurySpendAmountZero);
+
     let treasury = treasury_opt.ok_or(error!(CoordinationError::InvalidProposalPayload))?;
     let recipient = recipient_opt.ok_or(error!(CoordinationError::InvalidProposalPayload))?;
 

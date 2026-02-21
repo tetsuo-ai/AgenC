@@ -157,6 +157,12 @@ pub fn handler(ctx: Context<ApplyDisputeSlash>) -> Result<()> {
 
     require!(slash_amount > 0, CoordinationError::InvalidSlashAmount);
 
+    // Pre-validate lamports before state mutation (DISPUTE-015)
+    require!(
+        worker_agent.to_account_info().lamports() >= slash_amount,
+        CoordinationError::InsufficientFunds
+    );
+
     // Apply reputation penalty for losing the dispute (before lamport transfer to satisfy borrow checker)
     apply_reputation_penalty(worker_agent, &clock)?;
 
