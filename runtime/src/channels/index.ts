@@ -24,3 +24,4 @@ export {
 } from "./whatsapp/index.js";
 export { SignalChannel, type SignalChannelConfig } from "./signal/index.js";
 export { MatrixChannel, type MatrixChannelConfig } from "./matrix/index.js";
+export { IMessageChannel, type IMessageChannelConfig } from "./imessage/index.js";

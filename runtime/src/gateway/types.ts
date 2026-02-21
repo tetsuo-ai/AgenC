@@ -87,6 +87,26 @@ export interface GatewayTelemetryConfig {
   flushIntervalMs?: number;
 }
 
+export interface GatewayMCPConfig {
+  /** External MCP servers to connect to via stdio transport */
+  servers: GatewayMCPServerConfig[];
+}
+
+export interface GatewayMCPServerConfig {
+  /** Human-readable server name (used for tool namespacing) */
+  name: string;
+  /** Executable command (e.g. "npx", "node") */
+  command: string;
+  /** Command arguments */
+  args: string[];
+  /** Optional environment variables for the child process */
+  env?: Record<string, string>;
+  /** Whether this server is enabled. Default: true */
+  enabled?: boolean;
+  /** Connection timeout in ms. Default: 30000 */
+  timeout?: number;
+}
+
 export interface GatewayConfig {
   gateway: GatewayBindConfig;
   agent: GatewayAgentConfig;
@@ -99,6 +119,8 @@ export interface GatewayConfig {
   voice?: GatewayVoiceConfig;
   telemetry?: GatewayTelemetryConfig;
   desktop?: DesktopSandboxConfig;
+  /** External MCP server connections */
+  mcp?: GatewayMCPConfig;
 }
 
 // ============================================================================
