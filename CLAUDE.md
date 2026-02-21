@@ -25,7 +25,10 @@ AgenC is a privacy-preserving AI agent coordination protocol built on Solana. It
 - **MCP Server** (`mcp/`) - Model Context Protocol server exposing protocol operations as MCP tools (`@agenc/mcp` v0.1.0)
 - **Docs MCP Server** (`docs-mcp/`) - MCP server providing AI-assisted architecture doc lookups per roadmap issue
 - **Demo App** (`demo-app/`) - React web interface for privacy workflow demonstration
+- **Web App** (`web/`) - Web UI application (Vite + React + Tailwind)
+- **Mobile App** (`mobile/`) - Expo React Native mobile application
 - **ZK VM** (`zkvm/`) - RISC Zero guest (journal schema) + host (prover, seal encoding) crates for private task completion proofs (Groth16 via Verifier Router CPI)
+- **Desktop Sandbox** (`containers/`) - Docker-based headless desktop (Ubuntu/XFCE/VNC) with REST API for autonomous desktop automation
 - **Test Infrastructure** (`tests/`) - LiteSVM-based integration tests, CU benchmarks, and Rust fuzz testing
 
 ## Quick Start
@@ -86,7 +89,7 @@ npm run test               # Run vitest unit tests
 cd runtime
 npm run build              # Build (outputs to dist/)
 npm run typecheck           # Type checking only
-npm run test               # Run vitest (~1800+ tests)
+npm run test               # Run vitest (~4800+ tests)
 npm run benchmark           # Run deterministic benchmark corpus
 npm run benchmark:ci        # Benchmark with artifact output
 npm run mutation            # Run mutation test suite
@@ -235,9 +238,9 @@ AgenC/
 │   │   ├── autonomous/             # Autonomous agents (scanner, verifier, risk scoring, arbitration, escalation, speculation)
 │   │   ├── task/                    # Task pipeline (operations, discovery, speculative execution, proofs, DLQ, rollback, priority queue, checkpoints)
 │   │   ├── gateway/                 # Persistent agent gateway (lifecycle, channels, config watcher, WebSocket control, sessions, workspace, scheduler, heartbeat, hooks, identity, personality, media, approvals, slash commands, JWT, routing, sandbox, sub-agents, remote, voice-bridge)
-│   │   ├── channels/               # Channel plugins: telegram/, discord/, webchat/, slack/, whatsapp/, signal/, matrix/ (7 plugins)
+│   │   ├── channels/               # Channel plugins: telegram/, discord/, webchat/, slack/, whatsapp/, signal/, matrix/, imessage/ (8 plugins)
 │   │   ├── governance/             # On-chain governance operations (5 instructions, PDA helpers)
-│   │   ├── tools/                   # Tool registry + built-in AgenC tools + system tools (HTTP, filesystem, browser, bash)
+│   │   ├── tools/                   # Tool registry + built-in AgenC tools + system tools (HTTP, filesystem, browser, bash, macOS)
 │   │   ├── llm/                     # LLM adapters (Grok, Anthropic, Ollama) + ChatExecutor + FallbackProvider
 │   │   ├── memory/                  # Memory backends (InMemory, SQLite, Redis) + structured memory, embeddings, graph, encryption, vector store, ingestion, retriever
 │   │   ├── proof/                   # ZK Proof Engine (caching, stats)
@@ -256,7 +259,9 @@ AgenC/
 │   │   ├── social/                  # Agent discovery, messaging, feed, reputation scoring, collaboration protocol
 │   │   ├── bridges/                 # External integrations: LangChain, X402 payments, Farcaster
 │   │   ├── reputation/             # On-chain reputation economy (staking, delegation, portability)
-│   │   ├── types/                   # Protocol types, errors (97 runtime codes, 192 anchor codes), wallet, config migration
+│   │   ├── desktop/                # Desktop sandbox manager (pool, health, REST bridge, session router)
+│   │   ├── mcp-client/             # MCP client (external server connections, tool bridging via stdio)
+│   │   ├── types/                   # Protocol types, errors (101 runtime codes, 198 anchor codes), wallet, config migration
 │   │   └── utils/                   # Encoding, logger, PDA, query, treasury, lazy-import, token, async, validation, process, type-guards
 │   ├── scripts/                     # Benchmark + mutation CLI scripts
 │   ├── benchmarks/                  # Benchmark manifests + CI artifacts
@@ -270,11 +275,19 @@ AgenC/
 │   │   └── utils/                   # connection, formatting, json, schema-hash, truncation
 │   └── dist/                        # Build output
 ├── docs-mcp/                        # Docs MCP Server (architecture doc lookups)
+├── containers/                      # Desktop sandbox (Docker)
+│   ├── docker-compose.yml           # Orchestrator (ports 6080, 9990)
+│   └── desktop/                     # Headless Ubuntu/XFCE + VNC + REST API
+│       ├── Dockerfile               # Ubuntu 22.04, XFCE4, VNC, noVNC, Node.js 20
+│       ├── supervisord.conf         # 5 managed processes (Xvfb, XFCE, VNC, websockify, REST)
+│       ├── seccomp.json             # Syscall security profile (x86_64 + aarch64)
+│       ├── xfce-config/             # Disable screensaver, power mgmt, login prompts
+│       └── server/src/              # REST API + 13 desktop automation tools
 ├── demo-app/                        # React + Vite web interface
 ├── zkvm/                           # RISC Zero guest (journal schema) + host (prover)
 │   ├── guest/src/lib.rs             # Journal schema: JournalFields struct, serialize/deserialize
 │   └── host/src/                    # Proof generation, config, CLI
-├── examples/                        # autonomous-agent, dispute-arbiter, event-dashboard, helius-webhook, llm-agent, memory-agent, risc0-proof-demo, simple-usage, skill-jupiter, tetsuo-integration, zk-proof-demo
+├── examples/                        # autonomous-agent, dispute-arbiter, event-dashboard, helius-webhook, llm-agent, memory-agent, risc0-proof-demo, simple-usage, skill-jupiter, tetsuo-integration
 ├── tests/                           # LiteSVM-based integration tests
 │   ├── test_1.ts                    # Main integration suite (140 tests)
 │   ├── dispute-slash-logic.ts       # Dispute slashing tests
@@ -292,10 +305,19 @@ AgenC/
 │   ├── sybil-attack.ts              # Sybil attack resistance tests
 │   ├── upgrades.ts                  # Protocol upgrade tests
 │   ├── test_cu_benchmarks.ts        # Compute unit benchmarks
+│   ├── integration.ts               # Additional integration tests
+│   ├── e2e-real-proof.ts            # End-to-end real RISC Zero proof tests
+│   ├── smoke.ts                     # Smoke tests
+│   ├── minimal.ts                   # Minimal test file
+│   ├── minimal-debug.ts             # Minimal debug test file
 │   ├── litesvm-helpers.ts           # LiteSVM test adapter
 │   ├── litesvm-poc.ts               # 13 PoC tests validating LiteSVM API
 │   ├── test-setup.ts                # Shared lifecycle hooks (DRY)
 │   └── test-utils.ts                # Canonical test constants + PDA helpers
+├── demo/                            # Demo scripts (e2e_devnet_test, private_task_demo)
+├── web/                             # Web UI application (Vite + React + Tailwind)
+├── mobile/                          # Mobile app (Expo/React Native)
+├── security/                        # Security audit documentation
 ├── scripts/                         # Build/deployment/sync scripts
 ├── docs/                            # Documentation
 ├── audit/                           # Bug bounty & reviews
@@ -572,6 +594,9 @@ import { checkVersionCompatibility, requireVersionCompatibility, getFeaturesForV
 // Query helpers
 import { getTasksByDependency, getDependentTaskCount, getRootTasks, hasDependents, getDisputesByActor, getReplayHealthCheck, TASK_FIELD_OFFSETS, DISPUTE_FIELD_OFFSETS } from '@agenc/sdk';
 
+// Prover backends (local-binary + remote)
+import { LocalBinaryProverConfig, RemoteProverConfig, ProverConfig, ProverError } from '@agenc/sdk';
+
 // Logging
 import { createLogger, silentLogger, setSdkLogLevel, getSdkLogger } from '@agenc/sdk';
 ```
@@ -636,7 +661,7 @@ The `@agenc/runtime` package (~90k lines of TypeScript) provides comprehensive a
 
 - **Version:** `0.1.0`
 - **Build Tool:** `tsup` (ESM + CJS, externals: openai, @anthropic-ai/sdk, ollama, better-sqlite3, ioredis, ws, grammy, discord.js, @slack/bolt, @whiskeysockets/baileys, matrix-js-sdk, cheerio, playwright, edge-tts)
-- **Test Framework:** `vitest` (~1800+ tests)
+- **Test Framework:** `vitest` (~4800+ tests)
 - **Node:** `>=18.0.0`
 - **Peer Dependencies:** `@coral-xyz/anchor >=0.29.0`, `@solana/web3.js >=1.90.0`, `@solana/spl-token >=0.4.0`
 - **Optional Dependencies:** openai, @anthropic-ai/sdk, ollama, better-sqlite3, ioredis, ws, grammy, discord.js, @slack/bolt, @whiskeysockets/baileys, matrix-js-sdk, cheerio, playwright, edge-tts
@@ -652,14 +677,14 @@ runtime/src/
 │   ├── bin/                # CLI entry points (agenc-runtime, daemon)
 │   ├── cli/                # CLI commands (health, onboard, replay, jobs, logs, sessions, security, skills, wizard, daemon, registry-cli)
 │   ├── agent/              # AgentManager, events, PDA, capabilities
-│   └── types/              # Errors (97 codes), wallet, protocol, config migration
+│   └── types/              # Errors (101 codes), wallet, protocol, config migration
 │
 ├── Gateway (Persistent Agent Process)
 │   ├── gateway/            # Gateway lifecycle, config watcher, WebSocket control plane
 │   │                       # Sessions, workspace, scheduler (cron), heartbeat, hooks
 │   │                       # Identity resolver, personality, media pipeline, approvals, slash commands
 │   │                       # JWT auth, routing, sandbox, sub-agents, remote gateway, voice bridge
-│   └── channels/           # 7 channel plugins: telegram, discord, webchat, slack, whatsapp, signal, matrix
+│   └── channels/           # 8 channel plugins: telegram, discord, webchat, slack, whatsapp, signal, matrix, imessage
 │
 ├── Task Execution
 │   ├── task/               # Operations, discovery, speculative executor, proofs, DLQ, rollback
@@ -670,7 +695,7 @@ runtime/src/
 │
 ├── AI Integration
 │   ├── llm/                # Grok, Anthropic, Ollama adapters + ChatExecutor + FallbackProvider
-│   ├── tools/              # ToolRegistry, skill adapter, built-in AgenC tools, system tools (HTTP, filesystem, browser, bash)
+│   ├── tools/              # ToolRegistry, skill adapter, built-in AgenC tools, system tools (HTTP, filesystem, browser, bash, macOS)
 │   ├── skills/             # SkillRegistry + Jupiter DEX + markdown loader + bundled skills + on-chain registry client + catalog + monetization (analytics, revenue)
 │   ├── memory/             # InMemory, SQLite, Redis backends + structured memory, embeddings, graph, encryption, vector store, ingestion, retriever
 │   └── voice/              # STT (Whisper), TTS (ElevenLabs, OpenAI, Edge), Realtime (xAI)
@@ -681,6 +706,10 @@ runtime/src/
 │   ├── proof/              # ProofEngine (caching, stats)
 │   ├── events/             # Event subscriptions + parsing (57 event types) + IDL drift checks
 │   └── reputation/         # On-chain reputation economy (staking, delegation, portability)
+│
+├── Desktop Automation
+│   ├── desktop/            # DesktopSandboxManager (pool, health, REST bridge, session router)
+│   └── mcp-client/         # MCPManager (external MCP server connections, tool bridging)
 │
 ├── Infrastructure
 │   ├── connection/         # ConnectionManager (retry, failover, coalescing)
@@ -755,10 +784,10 @@ import { GrokProvider, AnthropicProvider, OllamaProvider, LLMTaskExecutor, ChatE
 - **ChatExecutor:** Multi-turn chat with token budget enforcement, skill injection, memory retrieval
 - **FallbackLLMProvider:** Automatic failover across multiple LLM providers
 
-### Channel Plugins (7 total)
+### Channel Plugins (8 total)
 
 ```typescript
-import { TelegramChannel, DiscordChannel, WebChatChannel, SlackChannel, WhatsAppChannel, SignalChannel, MatrixChannel } from '@agenc/runtime';
+import { TelegramChannel, DiscordChannel, WebChatChannel, SlackChannel, WhatsAppChannel, SignalChannel, MatrixChannel, IMessageChannel } from '@agenc/runtime';
 ```
 
 ### Voice Module
@@ -808,7 +837,7 @@ AgentCapabilities.AGGREGATOR  // 1n << 9n
 
 ### Error Classes
 
-97 `RuntimeErrorCodes` organized by category:
+101 `RuntimeErrorCodes` organized by category:
 
 | Category | Codes | Examples |
 |----------|-------|---------|
@@ -827,7 +856,7 @@ AgentCapabilities.AGGREGATOR  // 1n << 9n
 | Governance | 3 | GovernanceProposalNotFound, GovernanceVoteError, GovernanceExecutionError |
 | Identity | 5 | IdentityLinkExpired, IdentityLinkNotFound, IdentitySelfLink, IdentitySignatureInvalid, IdentityValidationError |
 | Heartbeat | 3 | HeartbeatStateError, HeartbeatActionFailed, HeartbeatTimeout |
-| Skills | 6 | SkillRegistryNotFound, SkillDownloadError, SkillVerificationError, SkillPublishError, SkillPurchaseError, SkillSubscriptionError |
+| Skills | 7 | SkillRegistryNotFound, SkillDownloadError, SkillVerificationError, SkillPublishError, SkillPurchaseError, SkillSubscriptionError, SkillRevenueError |
 | Sandbox | 2 | SandboxExecutionError, SandboxUnavailable |
 | Discovery | 1 | DiscoveryError |
 | Voice | 3 | VoiceTranscriptionError, VoiceSynthesisError, VoiceRealtimeError |
@@ -838,6 +867,7 @@ AgentCapabilities.AGGREGATOR  // 1n << 9n
 | Reputation | 6 | ReputationScoringError, ReputationTrackingError, ReputationStakeError, ReputationDelegationError, ReputationWithdrawError, ReputationPortabilityError |
 | Collaboration | 3 | CollaborationRequestError, CollaborationResponseError, CollaborationFormationError |
 | Remote Auth | 1 | RemoteAuthError |
+| Desktop Sandbox | 4 | DesktopSandboxLifecycleError, DesktopSandboxHealthError, DesktopSandboxConnectionError, DesktopSandboxPoolExhausted |
 
 ### Runtime CLI
 
@@ -898,6 +928,251 @@ claude mcp add agenc-dev \
   -e SOLANA_KEYPAIR_PATH=~/.config/solana/id.json \
   -- node /path/to/AgenC/mcp/dist/index.js
 ```
+
+## Desktop Sandbox Container
+
+Headless Linux desktop running in Docker for autonomous agent desktop automation. The agent can see, click, type, and interact with GUI applications.
+
+### Architecture
+
+```
+containers/
+├── docker-compose.yml           # Orchestration config
+└── desktop/
+    ├── Dockerfile               # Ubuntu 22.04 + XFCE4 + VNC + Node.js 20
+    ├── supervisord.conf         # Process manager (5 services)
+    ├── seccomp.json             # Syscall security profile
+    ├── xfce-config/             # 4 XML files (screensaver, power, session, desktop)
+    └── server/
+        └── src/
+            ├── index.ts         # REST API (health, tools list, tool execution)
+            ├── tools.ts         # 13 desktop automation tools
+            └── types.ts         # Tool/result type definitions
+```
+
+### Process Stack (supervisord)
+
+| Process | Priority | Purpose |
+|---------|----------|---------|
+| Xvfb | 100 | Virtual framebuffer (`:1`, configurable resolution) |
+| XFCE4 | 200 | Lightweight desktop environment |
+| x11vnc | 300 | VNC server (no password, shared mode, port 5900) |
+| websockify | 400 | noVNC web proxy (port 6080 → VNC 5900) |
+| rest-server | 500 | Node.js REST API (configurable PORT, default 9990) |
+
+### Exposed Ports
+
+| Port | Protocol | Service |
+|------|----------|---------|
+| 5900 | TCP | Raw VNC (internal) |
+| 6080 | HTTP | noVNC web viewer (human observation) |
+| 9990 | HTTP | REST API (agent tool execution) |
+
+### REST API
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/health` | GET | Health check (status, display, uptime) |
+| `/tools` | GET | List all 13 tool definitions with schemas |
+| `/tools/:name` | POST | Execute a tool by name with JSON body args |
+
+CORS enabled, 1MB max request body.
+
+### Desktop Automation Tools (13 total)
+
+| Tool | Backend | Description |
+|------|---------|-------------|
+| `screenshot` | scrot (ImageMagick fallback) | Capture desktop as base64 PNG with dimensions |
+| `mouse_click` | xdotool | Move to (x,y) and click (button 1/2/3) |
+| `mouse_move` | xdotool | Move cursor to (x,y) |
+| `mouse_drag` | xdotool | Click-and-drag between two points |
+| `mouse_scroll` | xdotool | Scroll up/down/left/right (1-100 clicks) |
+| `keyboard_type` | xdotool | Type text (chunked at 50 chars to prevent X11 buffer overflow) |
+| `keyboard_key` | xdotool | Press key combo (e.g., `ctrl+c`, `alt+Tab`, `Return`) |
+| `bash` | /bin/bash | Execute shell command (120s timeout, 100KB output limit) |
+| `window_list` | xdotool | List open windows with IDs and titles (max 50) |
+| `window_focus` | xdotool | Focus window by title (partial match) |
+| `clipboard_get` | xclip | Read clipboard contents |
+| `clipboard_set` | xclip | Set clipboard contents |
+| `screen_size` | xdpyinfo | Get current screen resolution |
+
+### Security
+
+- **Non-root**: Runs as `agenc` user (no sudo)
+- **Seccomp profile**: Syscall allowlist for x86_64 + aarch64; blocks `init_module`, `delete_module`, `mount`, `umount2`, `pivot_root`, `reboot`, `kexec`, `settimeofday`, `clock_settime`, BPF, `unshare`, `setns`
+- **XFCE hardened**: Screensaver disabled, power management off, no login prompts, no auto-save, no desktop icons
+- **No VNC password**: Designed for local/trusted network only
+
+### Usage
+
+```bash
+# Build and run
+cd containers && docker compose up --build
+
+# Access via browser (noVNC)
+open http://localhost:6080
+
+# Execute tools via REST API
+curl -X POST http://localhost:9990/tools/screenshot
+curl -X POST http://localhost:9990/tools/keyboard_type -H 'Content-Type: application/json' -d '{"text": "hello"}'
+
+# Health check
+curl http://localhost:9990/health
+```
+
+### Environment Variables
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `DISPLAY_WIDTH` | `1024` | Virtual display width |
+| `DISPLAY_HEIGHT` | `768` | Virtual display height |
+| `DISPLAY_DEPTH` | `24` | Color depth |
+| `PORT` | `9990` | REST API port |
+
+## macOS Native Agent (Mac Mini)
+
+Native macOS automation for agents running directly on Mac hardware (e.g., Mac Mini). Uses AppleScript, JXA, and iMessage for desktop control and communication without Docker.
+
+### macOS System Tools
+
+**Location:** `runtime/src/tools/system/macos.ts`
+
+4 tools created by `createMacOSTools()` — returns empty array on non-Darwin platforms:
+
+| Tool | Backend | Description |
+|------|---------|-------------|
+| `system.applescript` | `osascript` | Execute AppleScript (automate apps, dialogs, system settings) |
+| `system.jxa` | `osascript -l JavaScript` | Execute JXA (JavaScript for Automation) |
+| `system.open` | `open` command | Open files, URLs, or applications (optional `-a` app) |
+| `system.notification` | `display notification` | Show macOS notification with optional sound |
+
+**Security (DENIED_PATTERNS):** Blocks scripts matching:
+- `/keychain/i` — Keychain access
+- `/security\s+(find|delete|add|dump)/i` — Security command access
+- `/do\s+shell\s+script.*with\s+administrator/i` — Admin shell scripts
+- `/System\s+Events.*keystroke/i` — System Events keystroke injection
+- `/delete\s+every/i` — Bulk delete operations
+
+**Config:** `MacOSToolsConfig { logger?, timeoutMs? (default: 30000) }`
+
+All tools use `execFile` (no shell injection), max output 8KB.
+
+### iMessage Channel Plugin
+
+**Location:** `runtime/src/channels/imessage/plugin.ts`
+
+macOS-only channel plugin (`IMessageChannel extends BaseChannelPlugin`) that communicates via Apple Messages.app using AppleScript.
+
+| Feature | Detail |
+|---------|--------|
+| Platform check | `process.platform === "darwin"` — skips on non-macOS |
+| Polling | Reads Messages.app via AppleScript at configurable interval (default 5s) |
+| Message format | Tab-separated: `guid \t sender \t text \t date` |
+| Send | AppleScript `send` to participant via iMessage service |
+| Contact filter | Optional `allowedContacts` whitelist (phone/email) |
+| Session mapping | `imessage:{sender}` session IDs, tracks buddy IDs |
+| Exec timeout | 15s for AppleScript calls |
+| Max per poll | 10 messages (configurable) |
+
+**Config (`IMessageChannelConfig`):**
+```typescript
+{
+  enabled?: boolean;           // default: false
+  pollIntervalMs?: number;     // default: 5000
+  allowedContacts?: string[];  // empty = all contacts
+  maxMessagesPerPoll?: number; // default: 10
+}
+```
+
+### Desktop Executor (Autonomous Agent)
+
+**Location:** `runtime/src/autonomous/desktop-executor.ts`
+
+`DesktopExecutor` closes the see-think-act-verify loop for autonomous desktop automation. Uses ChatExecutor for LLM-driven tool calling.
+
+**Execution flow (`executeGoal(goal, source)`):**
+1. **PLAN**: Screenshot desktop → ChatExecutor generates step plan (JSON array)
+2. **EXECUTE-VERIFY LOOP** (per plan step):
+   - Check approval (if `ApprovalEngine` available)
+   - ACT: ChatExecutor executes desktop tools via `ToolHandler`
+   - VERIFY: Screenshot → LLM verification (`{success, confidence, description}`)
+3. **COMPLETE**: Store result in memory, broadcast progress
+
+**Config (`DesktopExecutorConfig`):**
+
+| Field | Type | Default | Purpose |
+|-------|------|---------|---------|
+| `chatExecutor` | ChatExecutor | required | LLM + tool loop |
+| `toolHandler` | ToolHandler | required | Desktop tools from registry |
+| `screenshotTool` | Tool | required | Screenshot capture tool |
+| `llm` | LLMProvider | required | Verification LLM |
+| `memory` | MemoryBackend | required | Audit trail |
+| `approvalEngine` | ApprovalEngine | optional | Safety gate for tool approvals |
+| `communicator` | ProactiveCommunicator | optional | Progress broadcast |
+| `maxSteps` | number | 20 | Max execution steps |
+| `maxConsecutiveFailures` | number | 3 | Failures before "stuck" |
+| `screenshotQuality` | low/medium/high | medium | Verification screenshot quality |
+
+**Goal sources:** `"user"`, `"meta-planner"`, `"awareness"`, `"curiosity"`
+
+**Statuses:** `planning` → `executing` → `completed` | `failed` | `stuck` | `cancelled`
+
+### Desktop Awareness (Heartbeat)
+
+**Location:** `runtime/src/autonomous/desktop-awareness.ts`
+
+`createDesktopAwarenessAction()` returns a `HeartbeatAction` that periodically monitors the desktop:
+
+1. Capture screenshot via Peekaboo MCP tool
+2. LLM interprets context (focus app, user activity, errors/warnings)
+3. Store observation in memory
+4. Report noteworthy events (error dialogs, stuck processes, crashes)
+
+Triggers alerts on keywords: "error", "warning", "stuck", "crash", "should help".
+
+### MCP Client Bridge
+
+**Location:** `runtime/src/mcp-client/`
+
+Connects to external MCP servers (e.g., Peekaboo for screenshots, macos-automator-mcp) as child processes via stdio transport.
+
+| File | Purpose |
+|------|---------|
+| `types.ts` | `MCPServerConfig`, `MCPToolBridge` interfaces |
+| `connection.ts` | Spawn child process, JSON-RPC via `StdioClientTransport` |
+| `tool-bridge.ts` | Convert MCP tools → runtime `Tool[]` (namespaced: `mcp.{server}.{tool}`) |
+| `manager.ts` | `MCPManager` — manages multiple servers, unified tool list |
+
+**MCPManager usage:**
+```typescript
+const manager = new MCPManager([
+  { name: 'peekaboo', command: 'npx', args: ['-y', '@steipete/peekaboo@latest'] },
+  { name: 'macos-automator', command: 'npx', args: ['-y', 'macos-automator-mcp'] },
+], logger);
+
+await manager.start();
+registry.registerAll(manager.getTools());  // Tools namespaced: mcp.peekaboo.*, mcp.macos-automator.*
+await manager.stop();
+```
+
+**Key behaviors:**
+- Individual server failures don't block others (`Promise.allSettled`)
+- Connection timeout with child process cleanup (default 30s)
+- Disposed bridges return error on tool execution
+- Inherits `process.env` + user-specified env overrides
+
+### Docker vs macOS Comparison
+
+| Feature | Docker Desktop Container | macOS Native (Mac Mini) |
+|---------|------------------------|------------------------|
+| Platform | Any (Linux container) | macOS only (darwin) |
+| Desktop | XFCE4 on Xvfb | Native macOS desktop |
+| Screenshots | scrot/ImageMagick via REST | Peekaboo MCP or native |
+| Input automation | xdotool via REST | AppleScript/JXA/MCP tools |
+| Messaging | N/A | iMessage channel plugin |
+| Security | Seccomp + non-root + no VNC auth | DENIED_PATTERNS for scripts |
+| Viewing | noVNC web viewer (port 6080) | Screen sharing / VNC |
+| Agent integration | REST API → ToolHandler | MCP bridge → ToolRegistry |
 
 ## Zero-Knowledge Circuits
 
@@ -962,7 +1237,7 @@ Source of truth: `programs/agenc-coordination/src/errors.rs`.
 
 When you need an exact code, compute it from the enum order rather than relying on comments or external tables.
 
-The runtime's `AnchorErrorCodes` mapping (`runtime/src/types/errors.ts`) maps 192 codes and may drift from the Rust source; prefer the Rust source.
+The runtime's `AnchorErrorCodes` mapping (`runtime/src/types/errors.ts`) maps 198 codes and may drift from the Rust source; prefer the Rust source.
 
 ## Key Design Patterns
 
@@ -1067,7 +1342,7 @@ Tests use LiteSVM for ~50x speedup vs solana-test-validator (PR #866).
 
 | File | Purpose |
 |------|---------  |
-| `tests/litesvm-helpers.ts` | Core adapter: `createLiteSVMContext()`, `fundAccount()`, `advanceClock()`, `getClockTimestamp()` |
+| `tests/litesvm-helpers.ts` | Core adapter: `createLiteSVMContext()`, `fundAccount()`, `advanceClock()`, `getClockTimestamp()`, `injectMockVerifierRouter()` |
 | `tests/test-utils.ts` | **Single source of truth** for all constants (capabilities, task types, PDA helpers) |
 | `tests/test-setup.ts` | Shared before/beforeEach lifecycle hooks (DRY) |
 | `tests/test_1.ts` | Main integration suite (140 tests) |
@@ -1086,6 +1361,11 @@ Tests use LiteSVM for ~50x speedup vs solana-test-validator (PR #866).
 | `tests/sybil-attack.ts` | Sybil attack resistance tests |
 | `tests/upgrades.ts` | Protocol upgrade tests |
 | `tests/test_cu_benchmarks.ts` | Compute unit benchmarks |
+| `tests/integration.ts` | Additional integration tests |
+| `tests/e2e-real-proof.ts` | End-to-end real RISC Zero proof tests |
+| `tests/smoke.ts` | Smoke tests |
+| `tests/minimal.ts` | Minimal test file |
+| `tests/minimal-debug.ts` | Minimal debug test file |
 | `tests/litesvm-poc.ts` | 13 PoC tests validating LiteSVM API |
 
 **LiteSVM Critical Gotchas:**
@@ -1098,7 +1378,7 @@ Tests use LiteSVM for ~50x speedup vs solana-test-validator (PR #866).
 ```bash
 npm run test:fast           # LiteSVM tests (~5s, includes agent-feed)
 npm run test                # SDK + runtime vitest suites
-cd runtime && npm run test  # Runtime only (~1800+ tests)
+cd runtime && npm run test  # Runtime only (~4800+ tests)
 ```
 
 ### Test Constants (from test-utils.ts)
@@ -1110,7 +1390,7 @@ RESOLUTION_TYPE_REFUND = 0, RESOLUTION_TYPE_COMPLETE = 1, RESOLUTION_TYPE_SPLIT 
 ```
 
 **PDA helpers** (all take `programId` parameter):
-`deriveProtocolPda`, `deriveAgentPda`, `deriveTaskPda`, `deriveEscrowPda`, `deriveClaimPda`, `deriveDisputePda`, `deriveVotePda`, `deriveProgramDataPda`
+`deriveProtocolPda`, `deriveAgentPda`, `deriveTaskPda`, `deriveEscrowPda`, `deriveClaimPda`, `deriveDisputePda`, `deriveVotePda`, `deriveAuthorityVotePda`, `deriveStatePda`, `deriveProgramDataPda`
 
 ### Mutation Testing & Regression Gates
 
@@ -1228,9 +1508,14 @@ test = "npx ts-mocha -p ./tsconfig.json -t 300000 tests/test_1.ts tests/dispute-
 | `scripts/setup-dev.sh` | Developer environment setup |
 | `scripts/smoke-test-examples.sh` | Smoke test example projects |
 | `scripts/validate-env.sh` | Validate environment configuration |
+| `scripts/generate-real-proof.ts` | Generate RISC Zero proofs for testing |
+| `scripts/setup-verifier-localnet.sh` | Set up Verifier Router on localnet |
+| `scripts/setup-verifier-localnet.ts` | TypeScript version of verifier setup |
 | `runtime/scripts/run-benchmarks.ts` | Run deterministic benchmark corpus |
 | `runtime/scripts/run-mutations.ts` | Run mutation test suite |
 | `runtime/scripts/check-mutation-gates.ts` | Check mutation regression gates |
+| `runtime/scripts/check-idl-drift.ts` | Check IDL drift between program and runtime |
+| `runtime/scripts/copy-idl.js` | Copy IDL from target/idl/ to runtime/idl/ |
 
 ## Environment Variables
 
