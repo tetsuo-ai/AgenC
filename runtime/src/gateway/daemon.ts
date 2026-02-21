@@ -211,6 +211,7 @@ export class DaemonManager {
   private _llmTools: LLMTool[] = [];
   private _llmProviders: LLMProvider[] = [];
   private _baseToolHandler: ToolHandler | null = null;
+  private _desktopExecutor: import('../autonomous/desktop-executor.js').DesktopExecutor | null = null;
   private shutdownInProgress = false;
   private startedAt = 0;
   private signalHandlersRegistered = false;
@@ -802,6 +803,74 @@ export class DaemonManager {
           );
           this.logger.info("Desktop awareness action registered (Peekaboo available)");
         }
+
+        // Desktop executor: instantiate if Peekaboo + action tools available
+        const peekabooTools = this._mcpManager.getToolsByServer("peekaboo");
+        const screenshotToolForExec = peekabooTools.find((t) =>
+          t.name.includes("takeScreenshot"),
+        );
+        const hasActionTools = peekabooTools.some(
+          (t) => t.name.includes("click") || t.name.includes("type"),
+        );
+
+        if (screenshotToolForExec && hasActionTools) {
+          const { DesktopExecutor } = await import(
+            "../autonomous/desktop-executor.js"
+          );
+          this._desktopExecutor = new DesktopExecutor({
+            chatExecutor: this._chatExecutor!,
+            toolHandler: this._baseToolHandler!,
+            screenshotTool: screenshotToolForExec,
+            llm,
+            memory: this._memoryBackend!,
+            approvalEngine: this._approvalEngine ?? undefined,
+            communicator,
+          });
+          this.logger.info(
+            "Desktop executor ready (Peekaboo action tools available)",
+          );
+        }
+      }
+
+      // Goal executor: check meta-planner goals and execute desktop ones
+      if (this._desktopExecutor) {
+        const desktopExecutor = this._desktopExecutor;
+        const memory = this._memoryBackend!;
+        heartbeatScheduler.registerAction({
+          name: "desktop-goal-executor",
+          enabled: true,
+          async execute() {
+            if (desktopExecutor.isRunning)
+              return { hasOutput: false, quiet: true };
+
+            const goalsRaw = await memory.get?.("goal:active");
+            if (!goalsRaw) return { hasOutput: false, quiet: true };
+
+            let goals: Array<{ description: string }>;
+            try {
+              goals = JSON.parse(goalsRaw);
+            } catch {
+              return { hasOutput: false, quiet: true };
+            }
+
+            const desktopGoal = goals.find((g) =>
+              /\b(open|click|type|navigate|launch|browse|search|download)\b/i.test(
+                g.description,
+              ),
+            );
+            if (!desktopGoal) return { hasOutput: false, quiet: true };
+
+            const result = await desktopExecutor.executeGoal(
+              desktopGoal.description,
+              "meta-planner",
+            );
+            return {
+              hasOutput: true,
+              output: `Desktop goal ${result.success ? "completed" : "failed"}: ${result.summary}`,
+              quiet: false,
+            };
+          },
+        });
       }
 
       heartbeatScheduler.start();
@@ -1669,6 +1738,11 @@ export class DaemonManager {
         clearInterval(this._heartbeatTimer);
         this._heartbeatTimer = null;
       }
+      // Stop desktop executor
+      if (this._desktopExecutor !== null) {
+        this._desktopExecutor.cancel();
+        this._desktopExecutor = null;
+      }
       // Clear proactive communicator
       this._proactiveCommunicator = null;
       // Stop external channels (reverse order of wiring)
@@ -1717,6 +1791,10 @@ export class DaemonManager {
     } finally {
       this.shutdownInProgress = false;
     }
+  }
+
+  get desktopExecutor(): import('../autonomous/desktop-executor.js').DesktopExecutor | null {
+    return this._desktopExecutor;
   }
 
   getStatus(): DaemonStatus {

@@ -156,6 +156,23 @@ export const DEFAULT_APPROVAL_RULES: readonly ApprovalRule[] = [
     tool: 'agenc.registerAgent',
     description: 'Agent registration with staked SOL',
   },
+  // Desktop automation — require approval by default
+  {
+    tool: "mcp.peekaboo.click",
+    description: "Desktop mouse click",
+  },
+  {
+    tool: "mcp.peekaboo.type",
+    description: "Desktop keyboard input",
+  },
+  {
+    tool: "mcp.peekaboo.scroll",
+    description: "Desktop scroll action",
+  },
+  {
+    tool: "mcp.macos-automator.*",
+    description: "macOS automation script",
+  },
 ];
 
 // ============================================================================

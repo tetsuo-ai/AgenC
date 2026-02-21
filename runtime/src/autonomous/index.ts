@@ -114,3 +114,10 @@ export {
   // Default strategy
   DefaultClaimStrategy,
 } from "./types.js";
+export {
+  DesktopExecutor,
+  type DesktopExecutorConfig,
+  type DesktopExecutorResult,
+  type GoalStatus,
+  type ExecutionStep,
+} from "./desktop-executor.js";

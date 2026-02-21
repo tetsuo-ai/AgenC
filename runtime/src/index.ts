@@ -1805,3 +1805,12 @@ export {
   type DesktopAwarenessConfig,
   createDesktopAwarenessAction,
 } from "./autonomous/desktop-awareness.js";
+
+// Desktop Executor (Autonomous see-think-act-verify loop)
+export {
+  DesktopExecutor,
+  type DesktopExecutorConfig,
+  type DesktopExecutorResult,
+  type GoalStatus,
+  type ExecutionStep,
+} from "./autonomous/desktop-executor.js";
