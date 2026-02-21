@@ -15,14 +15,14 @@
 // ============================================================================
 
 export const SPECULATION_METRIC_NAMES = {
-  EXECUTIONS_TOTAL: 'agenc.speculation.executions.total',
-  HITS_TOTAL: 'agenc.speculation.hits.total',
-  MISSES_TOTAL: 'agenc.speculation.misses.total',
-  ROLLBACKS_TOTAL: 'agenc.speculation.rollbacks.total',
-  ACTIVE_COUNT: 'agenc.speculation.active.count',
-  MAX_DEPTH: 'agenc.speculation.max_depth',
-  STAKE_AT_RISK: 'agenc.speculation.stake_at_risk_lamports',
-  HIT_RATE: 'agenc.speculation.hit_rate',
+  EXECUTIONS_TOTAL: "agenc.speculation.executions.total",
+  HITS_TOTAL: "agenc.speculation.hits.total",
+  MISSES_TOTAL: "agenc.speculation.misses.total",
+  ROLLBACKS_TOTAL: "agenc.speculation.rollbacks.total",
+  ACTIVE_COUNT: "agenc.speculation.active.count",
+  MAX_DEPTH: "agenc.speculation.max_depth",
+  STAKE_AT_RISK: "agenc.speculation.stake_at_risk_lamports",
+  HIT_RATE: "agenc.speculation.hit_rate",
 } as const;
 
 // ============================================================================
@@ -139,7 +139,10 @@ export class SpeculationMetricsCollector {
    * @param depth - The current speculation depth
    */
   updateDepth(depth: number): void {
-    this.metrics.currentMaxDepth = Math.max(this.metrics.currentMaxDepth, depth);
+    this.metrics.currentMaxDepth = Math.max(
+      this.metrics.currentMaxDepth,
+      depth,
+    );
   }
 
   /**
@@ -166,7 +169,8 @@ export class SpeculationMetricsCollector {
    * @returns The ratio of hits to total resolved speculations (0-1), or 0 if no speculations have resolved
    */
   getHitRate(): number {
-    const total = this.metrics.speculationHitsTotal + this.metrics.speculationMissesTotal;
+    const total =
+      this.metrics.speculationHitsTotal + this.metrics.speculationMissesTotal;
     return total > 0 ? this.metrics.speculationHitsTotal / total : 0;
   }
 

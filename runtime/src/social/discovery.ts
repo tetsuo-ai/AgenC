@@ -4,13 +4,13 @@
  * @module
  */
 
-import type { PublicKey } from '@solana/web3.js';
-import { hasCapability } from '../agent/capabilities.js';
-import { AgentStatus, parseAgentState } from '../agent/types.js';
-import { silentLogger, type Logger } from '../utils/logger.js';
-import { queryWithFallback, encodeStatusByte } from '../utils/query.js';
-import { ProfileCache } from './cache.js';
-import { AgentDiscoveryError } from './errors.js';
+import type { PublicKey } from "@solana/web3.js";
+import { hasCapability } from "../agent/capabilities.js";
+import { AgentStatus, parseAgentState } from "../agent/types.js";
+import { silentLogger, type Logger } from "../utils/logger.js";
+import { queryWithFallback, encodeStatusByte } from "../utils/query.js";
+import { ProfileCache } from "./cache.js";
+import { AgentDiscoveryError } from "./errors.js";
 import {
   AGENT_STATUS_OFFSET,
   agentStateToProfile,
@@ -19,7 +19,7 @@ import {
   type AgentSortField,
   type DiscoveryConfig,
   type SortOrder,
-} from './types.js';
+} from "./types.js";
 
 // ============================================================================
 // Comparator helpers
@@ -28,13 +28,13 @@ import {
 type Comparator = (a: AgentProfile, b: AgentProfile) => number;
 
 function comparatorFor(field: AgentSortField, order: SortOrder): Comparator {
-  const dir = order === 'asc' ? 1 : -1;
+  const dir = order === "asc" ? 1 : -1;
   switch (field) {
-    case 'reputation':
+    case "reputation":
       return (a, b) => (a.reputation - b.reputation) * dir;
-    case 'lastActive':
+    case "lastActive":
       return (a, b) => (a.lastActive - b.lastActive) * dir;
-    case 'tasksCompleted': {
+    case "tasksCompleted": {
       return (a, b) => {
         const diff = a.tasksCompleted - b.tasksCompleted;
         if (diff < 0n) return -1 * dir;
@@ -42,7 +42,7 @@ function comparatorFor(field: AgentSortField, order: SortOrder): Comparator {
         return 0;
       };
     }
-    case 'stake': {
+    case "stake": {
       return (a, b) => {
         const diff = a.stake - b.stake;
         if (diff < 0n) return -1 * dir;
@@ -65,7 +65,7 @@ function comparatorFor(field: AgentSortField, order: SortOrder): Comparator {
  * and stake.
  */
 export class AgentDiscovery {
-  private readonly program: DiscoveryConfig['program'];
+  private readonly program: DiscoveryConfig["program"];
   private readonly programId: PublicKey;
   private readonly logger: Logger;
   private readonly cache: ProfileCache | null;
@@ -95,7 +95,8 @@ export class AgentDiscovery {
     }
 
     try {
-      const raw = await this.program.account.agentRegistration.fetchNullable(agentPda);
+      const raw =
+        await this.program.account.agentRegistration.fetchNullable(agentPda);
       if (!raw) return null;
 
       const state = parseAgentState(raw);
@@ -108,7 +109,7 @@ export class AgentDiscovery {
       return profile;
     } catch (err) {
       throw new AgentDiscoveryError(
-        `Failed to fetch agent profile ${agentPda.toBase58()}: ${err instanceof Error ? err.message : String(err)}`
+        `Failed to fetch agent profile ${agentPda.toBase58()}: ${err instanceof Error ? err.message : String(err)}`,
       );
     }
   }
@@ -126,7 +127,8 @@ export class AgentDiscovery {
     return profiles
       .filter((p) => {
         if (!hasCapability(p.capabilities, capabilities)) return false;
-        if (minReputation !== undefined && p.reputation < minReputation) return false;
+        if (minReputation !== undefined && p.reputation < minReputation)
+          return false;
         return true;
       })
       .sort((a, b) => b.reputation - a.reputation);
@@ -157,7 +159,7 @@ export class AgentDiscovery {
 
     if (filters.onlineOnly) {
       results = results.filter(
-        (p) => p.status === AgentStatus.Active && p.endpoint.length > 0
+        (p) => p.status === AgentStatus.Active && p.endpoint.length > 0,
       );
     }
 
@@ -167,8 +169,8 @@ export class AgentDiscovery {
     }
 
     // Sort
-    const sortBy = filters.sortBy ?? 'reputation';
-    const sortOrder = filters.sortOrder ?? 'desc';
+    const sortBy = filters.sortBy ?? "reputation";
+    const sortOrder = filters.sortOrder ?? "desc";
     results.sort(comparatorFor(sortBy, sortOrder));
 
     // Pagination
@@ -187,8 +189,8 @@ export class AgentDiscovery {
       activeOnly: true,
       onlineOnly: true,
       maxResults: limit,
-      sortBy: 'lastActive',
-      sortOrder: 'desc',
+      sortBy: "lastActive",
+      sortOrder: "desc",
     });
   }
 
@@ -210,18 +212,21 @@ export class AgentDiscovery {
   private async fetchActiveProfiles(): Promise<AgentProfile[]> {
     return queryWithFallback(
       () => this.fetchWithStatusFilter(AgentStatus.Active),
-      () => this.fetchAllProfiles().then((all) =>
-        all.filter((p) => p.status === AgentStatus.Active)
-      ),
+      () =>
+        this.fetchAllProfiles().then((all) =>
+          all.filter((p) => p.status === AgentStatus.Active),
+        ),
       this.logger,
-      'AgentDiscovery.fetchActiveProfiles',
+      "AgentDiscovery.fetchActiveProfiles",
     );
   }
 
   /**
    * Fetch agents with a memcmp status filter.
    */
-  private async fetchWithStatusFilter(status: AgentStatus): Promise<AgentProfile[]> {
+  private async fetchWithStatusFilter(
+    status: AgentStatus,
+  ): Promise<AgentProfile[]> {
     const accounts = await this.program.account.agentRegistration.all([
       {
         memcmp: {
@@ -259,7 +264,7 @@ export class AgentDiscovery {
         this.logger.warn(
           `AgentDiscovery: skipping corrupted account ${publicKey.toBase58()}: ${
             err instanceof Error ? err.message : String(err)
-          }`
+          }`,
         );
       }
     }

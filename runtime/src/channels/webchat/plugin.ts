@@ -9,16 +9,23 @@
  * @module
  */
 
-import { BaseChannelPlugin } from '../../gateway/channel.js';
-import type { ChannelContext } from '../../gateway/channel.js';
-import type { OutboundMessage, MessageAttachment } from '../../gateway/message.js';
-import { createGatewayMessage } from '../../gateway/message.js';
-import { deriveSessionId } from '../../gateway/session.js';
-import { DEFAULT_WORKSPACE_ID } from '../../gateway/workspace.js';
-import type { ControlMessage, ControlResponse } from '../../gateway/types.js';
-import type { WebChatHandler, WebChatDeps, WebChatChannelConfig } from './types.js';
-import { HANDLER_MAP } from './handlers.js';
-import type { SendFn } from './handlers.js';
+import { BaseChannelPlugin } from "../../gateway/channel.js";
+import type { ChannelContext } from "../../gateway/channel.js";
+import type {
+  OutboundMessage,
+  MessageAttachment,
+} from "../../gateway/message.js";
+import { createGatewayMessage } from "../../gateway/message.js";
+import { deriveSessionId } from "../../gateway/session.js";
+import { DEFAULT_WORKSPACE_ID } from "../../gateway/workspace.js";
+import type { ControlMessage, ControlResponse } from "../../gateway/types.js";
+import type {
+  WebChatHandler,
+  WebChatDeps,
+  WebChatChannelConfig,
+} from "./types.js";
+import { HANDLER_MAP } from "./handlers.js";
+import type { SendFn } from "./handlers.js";
 
 // ============================================================================
 // WebChatChannel
@@ -34,8 +41,11 @@ import type { SendFn } from './handlers.js';
  * counter. This serves as the senderId for deriveSessionId(). Session
  * continuity across reconnects is supported via 'chat.resume'.
  */
-export class WebChatChannel extends BaseChannelPlugin implements WebChatHandler {
-  readonly name = 'webchat';
+export class WebChatChannel
+  extends BaseChannelPlugin
+  implements WebChatHandler
+{
+  readonly name = "webchat";
 
   private deps: WebChatDeps;
 
@@ -46,7 +56,10 @@ export class WebChatChannel extends BaseChannelPlugin implements WebChatHandler 
   // clientId → send function (for pushing messages to specific clients)
   private readonly clientSenders = new Map<string, SendFn>();
   // sessionId → chat history for resume support
-  private readonly sessionHistory = new Map<string, Array<{ content: string; sender: 'user' | 'agent'; timestamp: number }>>();
+  private readonly sessionHistory = new Map<
+    string,
+    Array<{ content: string; sender: "user" | "agent"; timestamp: number }>
+  >();
   // clientIds that have subscribed to real-time events
   private readonly eventSubscribers = new Set<string>();
 
@@ -58,7 +71,9 @@ export class WebChatChannel extends BaseChannelPlugin implements WebChatHandler 
   }
 
   /** Replace the voice bridge at runtime (e.g. after config hot-reload). */
-  updateVoiceBridge(bridge: import('../../gateway/voice-bridge.js').VoiceBridge | null): void {
+  updateVoiceBridge(
+    bridge: import("../../gateway/voice-bridge.js").VoiceBridge | null,
+  ): void {
     this.deps = { ...this.deps, voiceBridge: bridge ?? undefined };
   }
 
@@ -72,7 +87,7 @@ export class WebChatChannel extends BaseChannelPlugin implements WebChatHandler 
 
   override async start(): Promise<void> {
     this.healthy = true;
-    this.context.logger.info('WebChat channel started');
+    this.context.logger.info("WebChat channel started");
   }
 
   override async stop(): Promise<void> {
@@ -82,7 +97,7 @@ export class WebChatChannel extends BaseChannelPlugin implements WebChatHandler 
     this.sessionHistory.clear();
     this.eventSubscribers.clear();
     this.healthy = false;
-    this.context.logger.info('WebChat channel stopped');
+    this.context.logger.info("WebChat channel stopped");
   }
 
   override isHealthy(): boolean {
@@ -131,15 +146,15 @@ export class WebChatChannel extends BaseChannelPlugin implements WebChatHandler 
     // Store in history for resume
     this.appendHistory(message.sessionId, {
       content: message.content,
-      sender: 'agent',
+      sender: "agent",
       timestamp,
     });
 
     sendFn({
-      type: 'chat.message',
+      type: "chat.message",
       payload: {
         content: message.content,
-        sender: 'agent',
+        sender: "agent",
         timestamp,
       },
     });
@@ -158,43 +173,43 @@ export class WebChatChannel extends BaseChannelPlugin implements WebChatHandler 
     // Store sender for outbound routing
     this.clientSenders.set(clientId, send);
 
-    const id = typeof msg.id === 'string' ? msg.id : undefined;
+    const id = typeof msg.id === "string" ? msg.id : undefined;
     const payload = msg.payload as Record<string, unknown> | undefined;
 
     // Voice messages are routed to the voice bridge
-    if (type.startsWith('voice.')) {
+    if (type.startsWith("voice.")) {
       this.handleVoiceMessage(clientId, type, payload, id, send);
       return;
     }
 
     // Event subscriptions need clientId — handled here, not in HANDLER_MAP
-    if (type.startsWith('events.')) {
+    if (type.startsWith("events.")) {
       this.handleEventMessage(clientId, type, id, send);
       return;
     }
 
     // Chat messages are special — they go through the Gateway's message pipeline
-    if (type === 'chat.message') {
+    if (type === "chat.message") {
       this.handleChatMessage(clientId, payload, id, send);
       return;
     }
 
-    if (type === 'chat.typing') {
+    if (type === "chat.typing") {
       // Typing indicators are noted but not forwarded
       return;
     }
 
-    if (type === 'chat.history') {
+    if (type === "chat.history") {
       this.handleChatHistory(clientId, payload, id, send);
       return;
     }
 
-    if (type === 'chat.resume') {
+    if (type === "chat.resume") {
       this.handleChatResume(clientId, payload, id, send);
       return;
     }
 
-    if (type === 'chat.sessions') {
+    if (type === "chat.sessions") {
       this.handleChatSessions(clientId, id, send);
       return;
     }
@@ -205,14 +220,18 @@ export class WebChatChannel extends BaseChannelPlugin implements WebChatHandler 
       const result = handler(this.deps, payload, id, send);
       if (result instanceof Promise) {
         result.catch((err) => {
-          this.context.logger.warn?.('WebChat handler error:', err);
-          send({ type: 'error', error: `Handler error: ${(err as Error).message}`, id });
+          this.context.logger.warn?.("WebChat handler error:", err);
+          send({
+            type: "error",
+            error: `Handler error: ${(err as Error).message}`,
+            id,
+          });
         });
       }
       return;
     }
 
-    send({ type: 'error', error: `Unknown webchat message type: ${type}`, id });
+    send({ type: "error", error: `Unknown webchat message type: ${type}`, id });
   }
 
   // --------------------------------------------------------------------------
@@ -228,29 +247,38 @@ export class WebChatChannel extends BaseChannelPlugin implements WebChatHandler 
   ): void {
     const bridge = this.deps.voiceBridge;
     if (!bridge) {
-      send({ type: 'error', error: 'Voice not available — no LLM provider with voice support configured', id });
+      send({
+        type: "error",
+        error:
+          "Voice not available — no LLM provider with voice support configured",
+        id,
+      });
       return;
     }
 
     switch (type) {
-      case 'voice.start':
+      case "voice.start":
         void bridge.startSession(clientId, send);
         break;
-      case 'voice.audio': {
+      case "voice.audio": {
         const audio = payload?.audio;
-        if (typeof audio === 'string') {
+        if (typeof audio === "string") {
           bridge.sendAudio(clientId, audio);
         }
         break;
       }
-      case 'voice.commit':
+      case "voice.commit":
         bridge.commitAudio(clientId);
         break;
-      case 'voice.stop':
+      case "voice.stop":
         void bridge.stopSession(clientId);
         break;
       default:
-        send({ type: 'error', error: `Unknown voice message type: ${type}`, id });
+        send({
+          type: "error",
+          error: `Unknown voice message type: ${type}`,
+          id,
+        });
     }
   }
 
@@ -264,13 +292,24 @@ export class WebChatChannel extends BaseChannelPlugin implements WebChatHandler 
     id: string | undefined,
     send: SendFn,
   ): void {
-    const content = (payload as Record<string, unknown> | undefined)?.content ?? (payload as unknown);
-    const rawAttachments = (payload as Record<string, unknown> | undefined)?.attachments;
+    const content =
+      (payload as Record<string, unknown> | undefined)?.content ??
+      (payload as unknown);
+    const rawAttachments = (payload as Record<string, unknown> | undefined)
+      ?.attachments;
 
     // Allow empty content if attachments are present
-    const hasAttachments = Array.isArray(rawAttachments) && rawAttachments.length > 0;
-    if (typeof content !== 'string' || (content.trim().length === 0 && !hasAttachments)) {
-      send({ type: 'error', error: 'Missing or empty content in chat.message', id });
+    const hasAttachments =
+      Array.isArray(rawAttachments) && rawAttachments.length > 0;
+    if (
+      typeof content !== "string" ||
+      (content.trim().length === 0 && !hasAttachments)
+    ) {
+      send({
+        type: "error",
+        error: "Missing or empty content in chat.message",
+        id,
+      });
       return;
     }
 
@@ -280,7 +319,7 @@ export class WebChatChannel extends BaseChannelPlugin implements WebChatHandler 
     // Store user message in history
     this.appendHistory(sessionId, {
       content: content as string,
-      sender: 'user',
+      sender: "user",
       timestamp: Date.now(),
     });
 
@@ -289,24 +328,31 @@ export class WebChatChannel extends BaseChannelPlugin implements WebChatHandler 
     if (hasAttachments) {
       attachments = (rawAttachments as Array<Record<string, unknown>>)
         .map((att): MessageAttachment | null => {
-          const filename = typeof att.filename === 'string' ? att.filename : undefined;
-          const mimeType = typeof att.mimeType === 'string' ? att.mimeType : 'application/octet-stream';
-          const base64 = typeof att.data === 'string' ? att.data : undefined;
-          const sizeBytes = typeof att.sizeBytes === 'number' ? att.sizeBytes : undefined;
+          const filename =
+            typeof att.filename === "string" ? att.filename : undefined;
+          const mimeType =
+            typeof att.mimeType === "string"
+              ? att.mimeType
+              : "application/octet-stream";
+          const base64 = typeof att.data === "string" ? att.data : undefined;
+          const sizeBytes =
+            typeof att.sizeBytes === "number" ? att.sizeBytes : undefined;
 
           let data: Uint8Array | undefined;
           if (base64) {
             try {
-              const binary = Buffer.from(base64, 'base64');
+              const binary = Buffer.from(base64, "base64");
               data = new Uint8Array(binary);
             } catch {
               return null;
             }
           }
 
-          const type = mimeType.startsWith('image/') ? 'image'
-            : mimeType.startsWith('audio/') ? 'audio'
-            : 'file';
+          const type = mimeType.startsWith("image/")
+            ? "image"
+            : mimeType.startsWith("audio/")
+              ? "audio"
+              : "file";
 
           return { type, mimeType, data, filename, sizeBytes };
         })
@@ -315,20 +361,23 @@ export class WebChatChannel extends BaseChannelPlugin implements WebChatHandler 
 
     // Create a GatewayMessage and deliver to the Gateway pipeline
     const gatewayMsg = createGatewayMessage({
-      channel: 'webchat',
+      channel: "webchat",
       senderId: clientId,
       senderName: `WebClient(${clientId})`,
       sessionId,
       content: content as string,
-      scope: 'dm',
+      scope: "dm",
       ...(attachments && attachments.length > 0 ? { attachments } : {}),
     });
 
     this.context.onMessage(gatewayMsg).catch((err) => {
-      this.context.logger.warn?.('WebChat: error delivering message to gateway:', err);
+      this.context.logger.warn?.(
+        "WebChat: error delivering message to gateway:",
+        err,
+      );
       send({
-        type: 'error',
-        error: 'Failed to process message',
+        type: "error",
+        error: "Failed to process message",
         id,
       });
     });
@@ -342,15 +391,15 @@ export class WebChatChannel extends BaseChannelPlugin implements WebChatHandler 
   ): void {
     const sessionId = this.clientSessions.get(clientId);
     if (!sessionId) {
-      send({ type: 'chat.history', payload: [], id });
+      send({ type: "chat.history", payload: [], id });
       return;
     }
 
-    const limit = typeof payload?.limit === 'number' ? payload.limit : 50;
+    const limit = typeof payload?.limit === "number" ? payload.limit : 50;
     const history = this.sessionHistory.get(sessionId) ?? [];
     const messages = history.slice(-limit);
 
-    send({ type: 'chat.history', payload: messages, id });
+    send({ type: "chat.history", payload: messages, id });
   }
 
   private handleChatResume(
@@ -359,15 +408,20 @@ export class WebChatChannel extends BaseChannelPlugin implements WebChatHandler 
     id: string | undefined,
     send: SendFn,
   ): void {
-    const targetSessionId = (payload as Record<string, unknown> | undefined)?.sessionId;
-    if (!targetSessionId || typeof targetSessionId !== 'string') {
-      send({ type: 'error', error: 'Missing sessionId in chat.resume', id });
+    const targetSessionId = (payload as Record<string, unknown> | undefined)
+      ?.sessionId;
+    if (!targetSessionId || typeof targetSessionId !== "string") {
+      send({ type: "error", error: "Missing sessionId in chat.resume", id });
       return;
     }
 
     const history = this.sessionHistory.get(targetSessionId);
     if (!history) {
-      send({ type: 'error', error: `Session "${targetSessionId}" not found`, id });
+      send({
+        type: "error",
+        error: `Session "${targetSessionId}" not found`,
+        id,
+      });
       return;
     }
 
@@ -382,7 +436,7 @@ export class WebChatChannel extends BaseChannelPlugin implements WebChatHandler 
     this.sessionClients.set(targetSessionId, clientId);
 
     send({
-      type: 'chat.resumed',
+      type: "chat.resumed",
       payload: {
         sessionId: targetSessionId,
         messageCount: history.length,
@@ -405,10 +459,10 @@ export class WebChatChannel extends BaseChannelPlugin implements WebChatHandler 
 
     for (const [sessionId, history] of this.sessionHistory) {
       if (history.length === 0) continue;
-      const firstUserMsg = history.find((m) => m.sender === 'user');
+      const firstUserMsg = history.find((m) => m.sender === "user");
       const label = firstUserMsg
         ? firstUserMsg.content.slice(0, 80)
-        : 'New conversation';
+        : "New conversation";
       const lastEntry = history[history.length - 1];
       sessions.push({
         sessionId,
@@ -419,7 +473,7 @@ export class WebChatChannel extends BaseChannelPlugin implements WebChatHandler 
     }
 
     sessions.sort((a, b) => b.lastActiveAt - a.lastActiveAt);
-    send({ type: 'chat.sessions', payload: sessions, id });
+    send({ type: "chat.sessions", payload: sessions, id });
   }
 
   // --------------------------------------------------------------------------
@@ -433,16 +487,20 @@ export class WebChatChannel extends BaseChannelPlugin implements WebChatHandler 
     send: SendFn,
   ): void {
     switch (type) {
-      case 'events.subscribe':
+      case "events.subscribe":
         this.eventSubscribers.add(clientId);
-        send({ type: 'events.subscribed', payload: { active: true }, id });
+        send({ type: "events.subscribed", payload: { active: true }, id });
         break;
-      case 'events.unsubscribe':
+      case "events.unsubscribe":
         this.eventSubscribers.delete(clientId);
-        send({ type: 'events.unsubscribed', payload: { active: false }, id });
+        send({ type: "events.unsubscribed", payload: { active: false }, id });
         break;
       default:
-        send({ type: 'error', error: `Unknown events message type: ${type}`, id });
+        send({
+          type: "error",
+          error: `Unknown events message type: ${type}`,
+          id,
+        });
     }
   }
 
@@ -451,7 +509,7 @@ export class WebChatChannel extends BaseChannelPlugin implements WebChatHandler 
    */
   broadcastEvent(eventType: string, data: Record<string, unknown>): void {
     const response: ControlResponse = {
-      type: 'events.event',
+      type: "events.event",
       payload: { eventType, data, timestamp: Date.now() },
     };
     for (const clientId of this.eventSubscribers) {
@@ -470,12 +528,12 @@ export class WebChatChannel extends BaseChannelPlugin implements WebChatHandler 
 
     const sessionId = deriveSessionId(
       {
-        channel: 'webchat',
+        channel: "webchat",
         senderId: clientId,
-        scope: 'dm',
+        scope: "dm",
         workspaceId: DEFAULT_WORKSPACE_ID,
       },
-      'per-channel-peer',
+      "per-channel-peer",
     );
 
     this.clientSessions.set(clientId, sessionId);
@@ -486,7 +544,7 @@ export class WebChatChannel extends BaseChannelPlugin implements WebChatHandler 
 
   private appendHistory(
     sessionId: string,
-    entry: { content: string; sender: 'user' | 'agent'; timestamp: number },
+    entry: { content: string; sender: "user" | "agent"; timestamp: number },
   ): void {
     let history = this.sessionHistory.get(sessionId);
     if (!history) {

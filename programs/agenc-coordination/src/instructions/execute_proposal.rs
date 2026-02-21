@@ -126,136 +126,15 @@ pub fn handler(ctx: Context<ExecuteProposal>) -> Result<()> {
 
     // Execute based on proposal type
     match proposal.proposal_type {
-        ProposalType::FeeChange => {
-            let new_fee_bps = u16::from_le_bytes([proposal.payload[0], proposal.payload[1]]);
-            require!(
-                new_fee_bps <= MAX_PROTOCOL_FEE_BPS as u16,
-                CoordinationError::InvalidProposalPayload
-            );
-            config.protocol_fee_bps = new_fee_bps;
-        }
-        ProposalType::TreasurySpend => {
-            let recipient_bytes: [u8; 32] = proposal.payload[0..32]
-                .try_into()
-                .map_err(|_| error!(CoordinationError::InvalidProposalPayload))?;
-            let recipient_key = Pubkey::from(recipient_bytes);
-
-            // Reject zero-pubkey recipient to prevent sending SOL to an unspendable address
-            require!(
-                recipient_key != Pubkey::default(),
-                CoordinationError::InvalidProposalPayload
-            );
-
-            let amount = u64::from_le_bytes(
-                proposal.payload[32..40]
-                    .try_into()
-                    .map_err(|_| error!(CoordinationError::InvalidProposalPayload))?,
-            );
-
-            let treasury = ctx
-                .accounts
-                .treasury
-                .as_ref()
-                .ok_or(error!(CoordinationError::InvalidProposalPayload))?;
-            let recipient = ctx
-                .accounts
-                .recipient
-                .as_ref()
-                .ok_or(error!(CoordinationError::InvalidProposalPayload))?;
-
-            require!(
-                treasury.key() == config.treasury,
-                CoordinationError::InvalidProposalPayload
-            );
-            require!(
-                recipient.key() == recipient_key,
-                CoordinationError::InvalidProposalPayload
-            );
-
-            require!(
-                treasury.lamports() >= amount,
-                CoordinationError::TreasuryInsufficientBalance
-            );
-
-            if treasury.owner == &crate::ID {
-                // Program-owned treasury: mutate lamports directly.
-                transfer_lamports(
-                    &treasury.to_account_info(),
-                    &recipient.to_account_info(),
-                    amount,
-                )?;
-            } else if treasury.owner == &system_program::ID && treasury.is_signer {
-                // System-owned treasury fallback: requires treasury signer at execution.
-                // This keeps governance operable for legacy/system-wallet treasury setups.
-                system_program::transfer(
-                    CpiContext::new(
-                        ctx.accounts.system_program.to_account_info(),
-                        system_program::Transfer {
-                            from: treasury.to_account_info(),
-                            to: recipient.to_account_info(),
-                        },
-                    ),
-                    amount,
-                )?;
-            } else {
-                return Err(CoordinationError::TreasuryNotSpendable.into());
-            }
-        }
-        ProposalType::RateLimitChange => {
-            // Payload layout:
-            // [0..8]   task_creation_cooldown (i64 LE)
-            // [8]      max_tasks_per_24h (u8)
-            // [9..17]  dispute_initiation_cooldown (i64 LE)
-            // [17]     max_disputes_per_24h (u8)
-            // [18..26] min_stake_for_dispute (u64 LE)
-            let task_creation_cooldown = i64::from_le_bytes(
-                proposal.payload[0..8]
-                    .try_into()
-                    .map_err(|_| error!(CoordinationError::InvalidProposalPayload))?,
-            );
-            let max_tasks_per_24h = proposal.payload[8];
-            let dispute_initiation_cooldown = i64::from_le_bytes(
-                proposal.payload[9..17]
-                    .try_into()
-                    .map_err(|_| error!(CoordinationError::InvalidProposalPayload))?,
-            );
-            let max_disputes_per_24h = proposal.payload[17];
-            let min_stake_for_dispute = u64::from_le_bytes(
-                proposal.payload[18..26]
-                    .try_into()
-                    .map_err(|_| error!(CoordinationError::InvalidProposalPayload))?,
-            );
-
-            // Validate bounds (same as update_rate_limits.rs)
-            require!(
-                task_creation_cooldown >= 0 && task_creation_cooldown <= MAX_COOLDOWN,
-                CoordinationError::InvalidProposalPayload
-            );
-            require!(
-                dispute_initiation_cooldown >= 0 && dispute_initiation_cooldown <= MAX_COOLDOWN,
-                CoordinationError::InvalidProposalPayload
-            );
-            require!(
-                (max_tasks_per_24h as u64) <= MAX_RATE_LIMIT,
-                CoordinationError::InvalidProposalPayload
-            );
-            require!(
-                (max_disputes_per_24h as u64) <= MAX_RATE_LIMIT,
-                CoordinationError::InvalidProposalPayload
-            );
-
-            // Enforce minimum dispute stake (matches update_rate_limits.rs)
-            require!(
-                min_stake_for_dispute >= MIN_DISPUTE_STAKE,
-                CoordinationError::InvalidProposalPayload
-            );
-
-            config.task_creation_cooldown = task_creation_cooldown;
-            config.max_tasks_per_24h = max_tasks_per_24h;
-            config.dispute_initiation_cooldown = dispute_initiation_cooldown;
-            config.max_disputes_per_24h = max_disputes_per_24h;
-            config.min_stake_for_dispute = min_stake_for_dispute;
-        }
+        ProposalType::FeeChange => execute_fee_change(proposal, config)?,
+        ProposalType::TreasurySpend => execute_treasury_spend(
+            proposal,
+            config,
+            ctx.accounts.treasury.as_ref(),
+            ctx.accounts.recipient.as_ref(),
+            &ctx.accounts.system_program,
+        )?,
+        ProposalType::RateLimitChange => execute_rate_limit_change(proposal, config)?,
         ProposalType::ProtocolUpgrade => {
             // Protocol upgrade is a signaling marker — actual upgrade handled externally
         }
@@ -273,5 +152,138 @@ pub fn handler(ctx: Context<ExecuteProposal>) -> Result<()> {
         timestamp: clock.unix_timestamp,
     });
 
+    Ok(())
+}
+
+fn execute_fee_change(proposal: &Proposal, config: &mut ProtocolConfig) -> Result<()> {
+    let new_fee_bps = u16::from_le_bytes([proposal.payload[0], proposal.payload[1]]);
+    require!(
+        new_fee_bps <= MAX_PROTOCOL_FEE_BPS,
+        CoordinationError::InvalidProposalPayload
+    );
+    config.protocol_fee_bps = new_fee_bps;
+    Ok(())
+}
+
+fn execute_treasury_spend<'info>(
+    proposal: &Proposal,
+    config: &ProtocolConfig,
+    treasury_opt: Option<&UncheckedAccount<'info>>,
+    recipient_opt: Option<&UncheckedAccount<'info>>,
+    system_prog: &Program<'info, System>,
+) -> Result<()> {
+    let recipient_bytes: [u8; 32] = proposal.payload[0..32]
+        .try_into()
+        .map_err(|_| error!(CoordinationError::InvalidProposalPayload))?;
+    let recipient_key = Pubkey::from(recipient_bytes);
+
+    // Reject zero-pubkey recipient to prevent sending SOL to an unspendable address
+    require!(
+        recipient_key != Pubkey::default(),
+        CoordinationError::InvalidProposalPayload
+    );
+
+    let amount = u64::from_le_bytes(
+        proposal.payload[32..40]
+            .try_into()
+            .map_err(|_| error!(CoordinationError::InvalidProposalPayload))?,
+    );
+
+    let treasury = treasury_opt.ok_or(error!(CoordinationError::InvalidProposalPayload))?;
+    let recipient = recipient_opt.ok_or(error!(CoordinationError::InvalidProposalPayload))?;
+
+    require!(
+        treasury.key() == config.treasury,
+        CoordinationError::InvalidProposalPayload
+    );
+    require!(
+        recipient.key() == recipient_key,
+        CoordinationError::InvalidProposalPayload
+    );
+
+    require!(
+        treasury.lamports() >= amount,
+        CoordinationError::TreasuryInsufficientBalance
+    );
+
+    if treasury.owner == &crate::ID {
+        // Program-owned treasury: mutate lamports directly.
+        transfer_lamports(
+            &treasury.to_account_info(),
+            &recipient.to_account_info(),
+            amount,
+        )?;
+    } else if treasury.owner == &system_program::ID && treasury.is_signer {
+        // System-owned treasury fallback: requires treasury signer at execution.
+        system_program::transfer(
+            CpiContext::new(
+                system_prog.to_account_info(),
+                system_program::Transfer {
+                    from: treasury.to_account_info(),
+                    to: recipient.to_account_info(),
+                },
+            ),
+            amount,
+        )?;
+    } else {
+        return Err(CoordinationError::TreasuryNotSpendable.into());
+    }
+    Ok(())
+}
+
+fn execute_rate_limit_change(proposal: &Proposal, config: &mut ProtocolConfig) -> Result<()> {
+    // Payload layout:
+    // [0..8]   task_creation_cooldown (i64 LE)
+    // [8]      max_tasks_per_24h (u8)
+    // [9..17]  dispute_initiation_cooldown (i64 LE)
+    // [17]     max_disputes_per_24h (u8)
+    // [18..26] min_stake_for_dispute (u64 LE)
+    let task_creation_cooldown = i64::from_le_bytes(
+        proposal.payload[0..8]
+            .try_into()
+            .map_err(|_| error!(CoordinationError::InvalidProposalPayload))?,
+    );
+    let max_tasks_per_24h = proposal.payload[8];
+    let dispute_initiation_cooldown = i64::from_le_bytes(
+        proposal.payload[9..17]
+            .try_into()
+            .map_err(|_| error!(CoordinationError::InvalidProposalPayload))?,
+    );
+    let max_disputes_per_24h = proposal.payload[17];
+    let min_stake_for_dispute = u64::from_le_bytes(
+        proposal.payload[18..26]
+            .try_into()
+            .map_err(|_| error!(CoordinationError::InvalidProposalPayload))?,
+    );
+
+    // Validate bounds (same as update_rate_limits.rs)
+    require!(
+        (0..=MAX_COOLDOWN).contains(&task_creation_cooldown),
+        CoordinationError::InvalidProposalPayload
+    );
+    require!(
+        (0..=MAX_COOLDOWN).contains(&dispute_initiation_cooldown),
+        CoordinationError::InvalidProposalPayload
+    );
+    require!(
+        (max_tasks_per_24h as u64) <= MAX_RATE_LIMIT,
+        CoordinationError::InvalidProposalPayload
+    );
+    require!(
+        (max_disputes_per_24h as u64) <= MAX_RATE_LIMIT,
+        CoordinationError::InvalidProposalPayload
+    );
+
+    // Enforce minimum dispute stake (matches update_rate_limits.rs)
+    require!(
+        min_stake_for_dispute >= MIN_DISPUTE_STAKE,
+        CoordinationError::InvalidProposalPayload
+    );
+
+    config.task_creation_cooldown = task_creation_cooldown;
+    config.max_tasks_per_24h = max_tasks_per_24h;
+    config.dispute_initiation_cooldown = dispute_initiation_cooldown;
+    config.max_disputes_per_24h = max_disputes_per_24h;
+    config.min_stake_for_dispute = min_stake_for_dispute;
     Ok(())
 }

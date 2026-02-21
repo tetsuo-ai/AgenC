@@ -4,8 +4,11 @@
  * @module
  */
 
-import { projectOnChainEvents } from '../eval/projector.js';
-import type { OnChainProjectionInput, ProjectedTimelineEvent } from '../eval/projector.js';
+import { projectOnChainEvents } from "../eval/projector.js";
+import type {
+  OnChainProjectionInput,
+  ProjectedTimelineEvent,
+} from "../eval/projector.js";
 import {
   buildReplayKey,
   computeProjectionHash,
@@ -15,16 +18,16 @@ import {
   type ReplayTimelineRecord,
   type ReplayTimelineStore,
   type ProjectedTimelineInput,
-} from './types.js';
+} from "./types.js";
 import {
   buildReplaySpanEvent,
   buildReplaySpanName,
   buildReplayTraceContext,
   deriveTraceId,
   startReplaySpan,
-} from './trace.js';
-import type { ReplayAlertDispatcher } from './alerting.js';
-import { extractDisputePdaFromPayload } from './pda-utils.js';
+} from "./trace.js";
+import type { ReplayAlertDispatcher } from "./alerting.js";
+import { extractDisputePdaFromPayload } from "./pda-utils.js";
 
 const DEFAULT_BACKFILL_PAGE_SIZE = 100;
 
@@ -63,18 +66,23 @@ export class ReplayBackfillService {
     let duplicates = 0;
     const duplicateKeys: string[] = [];
     let previousCursor = stableReplayCursorString(cursor);
-    const traceId = this.options.tracePolicy?.traceId ?? cursor?.traceId ?? 'replay-backfill';
+    const traceId =
+      this.options.tracePolicy?.traceId ?? cursor?.traceId ?? "replay-backfill";
     const sampleRate = this.options.tracePolicy?.sampleRate ?? 1;
     const emitOtel = this.options.tracePolicy?.emitOtel ?? false;
 
     // Validate cursor integrity on resume
     if (cursor !== null) {
-      if (typeof cursor.slot !== 'number' || !Number.isInteger(cursor.slot) || cursor.slot < 0) {
+      if (
+        typeof cursor.slot !== "number" ||
+        !Number.isInteger(cursor.slot) ||
+        cursor.slot < 0
+      ) {
         void this.options.alertDispatcher?.emit({
-          code: 'replay.backfill.invalid_cursor',
-          severity: 'warning',
-          kind: 'replay_ingestion_lag',
-          message: 'backfill cursor has invalid slot, resetting to null',
+          code: "replay.backfill.invalid_cursor",
+          severity: "warning",
+          kind: "replay_ingestion_lag",
+          message: "backfill cursor has invalid slot, resetting to null",
           traceId,
           metadata: { cursorSlot: cursor.slot },
         });
@@ -83,22 +91,26 @@ export class ReplayBackfillService {
           await this.store.saveCursor(null);
         } catch (error) {
           void this.options.alertDispatcher?.emit({
-            code: 'replay.backfill.cursor_write_failed',
-            severity: 'warning',
-            kind: 'replay_ingestion_lag',
-            message: 'backfill cursor reset failed, continuing with in-memory reset',
+            code: "replay.backfill.cursor_write_failed",
+            severity: "warning",
+            kind: "replay_ingestion_lag",
+            message:
+              "backfill cursor reset failed, continuing with in-memory reset",
             traceId,
             metadata: {
               error: error instanceof Error ? error.message : String(error),
             },
           });
         }
-      } else if (typeof cursor.signature !== 'string' || cursor.signature.length === 0) {
+      } else if (
+        typeof cursor.signature !== "string" ||
+        cursor.signature.length === 0
+      ) {
         void this.options.alertDispatcher?.emit({
-          code: 'replay.backfill.invalid_cursor',
-          severity: 'warning',
-          kind: 'replay_ingestion_lag',
-          message: 'backfill cursor has invalid signature, resetting to null',
+          code: "replay.backfill.invalid_cursor",
+          severity: "warning",
+          kind: "replay_ingestion_lag",
+          message: "backfill cursor has invalid signature, resetting to null",
           traceId,
           metadata: { cursorSignature: String(cursor.signature) },
         });
@@ -107,10 +119,11 @@ export class ReplayBackfillService {
           await this.store.saveCursor(null);
         } catch (error) {
           void this.options.alertDispatcher?.emit({
-            code: 'replay.backfill.cursor_write_failed',
-            severity: 'warning',
-            kind: 'replay_ingestion_lag',
-            message: 'backfill cursor reset failed, continuing with in-memory reset',
+            code: "replay.backfill.cursor_write_failed",
+            severity: "warning",
+            kind: "replay_ingestion_lag",
+            message:
+              "backfill cursor reset failed, continuing with in-memory reset",
             traceId,
             metadata: {
               error: error instanceof Error ? error.message : String(error),
@@ -122,10 +135,10 @@ export class ReplayBackfillService {
 
     if (cursor !== null) {
       void this.options.alertDispatcher?.emit({
-        code: 'replay.backfill.resume_after_crash',
-        severity: 'info',
-        kind: 'replay_ingestion_lag',
-        message: 'backfill resumed from persisted cursor',
+        code: "replay.backfill.resume_after_crash",
+        severity: "info",
+        kind: "replay_ingestion_lag",
+        message: "backfill resumed from persisted cursor",
         slot: cursor.slot,
         signature: cursor.signature,
         traceId,
@@ -137,45 +150,55 @@ export class ReplayBackfillService {
     }
 
     while (true) {
-      const page = await this.options.fetcher.fetchPage(cursor, this.options.toSlot, pageSize);
-      const pageEvents: OnChainProjectionInput[] = page.events.map((event, index) => {
-        const sourceEventSequence = event.sourceEventSequence ?? index;
-        const eventTraceContext = (event as ProjectedTimelineInput).traceContext
-          ?? buildReplayTraceContext({
-            traceId,
-            eventName: event.eventName,
-            slot: event.slot,
-            signature: event.signature,
-            eventSequence: sourceEventSequence,
-            sampleRate,
-          });
+      const page = await this.options.fetcher.fetchPage(
+        cursor,
+        this.options.toSlot,
+        pageSize,
+      );
+      const pageEvents: OnChainProjectionInput[] = page.events.map(
+        (event, index) => {
+          const sourceEventSequence = event.sourceEventSequence ?? index;
+          const eventTraceContext =
+            (event as ProjectedTimelineInput).traceContext ??
+            buildReplayTraceContext({
+              traceId,
+              eventName: event.eventName,
+              slot: event.slot,
+              signature: event.signature,
+              eventSequence: sourceEventSequence,
+              sampleRate,
+            });
 
-        return {
-          ...(event as ProjectedTimelineInput),
-          sourceEventSequence,
-          traceContext: eventTraceContext,
-        };
-      });
+          return {
+            ...(event as ProjectedTimelineInput),
+            sourceEventSequence,
+            traceContext: eventTraceContext,
+          };
+        },
+      );
 
       if (pageEvents.length > 0) {
         const lastEvent = pageEvents.at(-1);
         const spanAnchorSlot = page.nextCursor?.slot ?? lastEvent!.slot;
-        const spanAnchorSignature = page.nextCursor?.signature ?? lastEvent!.signature;
+        const spanAnchorSignature =
+          page.nextCursor?.signature ?? lastEvent!.signature;
         const pageSpan = startReplaySpan({
-          name: buildReplaySpanName('replay.backfill.page', {
+          name: buildReplaySpanName("replay.backfill.page", {
             slot: spanAnchorSlot,
             signature: spanAnchorSignature,
           }),
-          trace: pageEvents[0]?.traceContext ?? buildReplayTraceContext({
-            traceId,
-            eventName: 'replay-backfill',
-            slot: spanAnchorSlot,
-            signature: spanAnchorSignature,
-            eventSequence: 0,
-            sampleRate,
-          }),
+          trace:
+            pageEvents[0]?.traceContext ??
+            buildReplayTraceContext({
+              traceId,
+              eventName: "replay-backfill",
+              slot: spanAnchorSlot,
+              signature: spanAnchorSignature,
+              eventSequence: 0,
+              sampleRate,
+            }),
           emitOtel,
-          attributes: buildReplaySpanEvent('replay.backfill.page', {
+          attributes: buildReplaySpanEvent("replay.backfill.page", {
             slot: spanAnchorSlot,
             signature: spanAnchorSignature,
           }),
@@ -187,17 +210,17 @@ export class ReplayBackfillService {
             seed: 0,
           });
           const records = projection.events.map(toReplayStoreRecord);
-          let writeResult: Awaited<ReturnType<ReplayTimelineStore['save']>>;
+          let writeResult: Awaited<ReturnType<ReplayTimelineStore["save"]>>;
           try {
             writeResult = await this.store.save(records);
           } catch (error) {
             pageSpan.end(error);
 
             void this.options.alertDispatcher?.emit({
-              code: 'replay.backfill.store_write_failed',
-              severity: 'error',
-              kind: 'replay_ingestion_lag',
-              message: 'backfill store write failed, stopping early',
+              code: "replay.backfill.store_write_failed",
+              severity: "error",
+              kind: "replay_ingestion_lag",
+              message: "backfill store write failed, stopping early",
               slot: cursor?.slot,
               signature: cursor?.signature,
               traceId,
@@ -214,9 +237,10 @@ export class ReplayBackfillService {
               processed,
               duplicates,
               cursor,
-              duplicateReport: duplicateKeys.length > 0
-                ? { count: duplicates, keys: [...duplicateKeys].sort() }
-                : undefined,
+              duplicateReport:
+                duplicateKeys.length > 0
+                  ? { count: duplicates, keys: [...duplicateKeys].sort() }
+                  : undefined,
             };
           }
 
@@ -226,14 +250,18 @@ export class ReplayBackfillService {
           // Track duplicate keys deterministically
           if (writeResult.duplicates > 0) {
             for (const record of records) {
-              const key = buildReplayKey(record.slot, record.signature, record.sourceEventType);
+              const key = buildReplayKey(
+                record.slot,
+                record.signature,
+                record.sourceEventType,
+              );
               duplicateKeys.push(key);
             }
 
             void this.options.alertDispatcher?.emit({
-              code: 'replay.backfill.duplicates',
-              severity: 'info',
-              kind: 'replay_ingestion_lag',
+              code: "replay.backfill.duplicates",
+              severity: "info",
+              kind: "replay_ingestion_lag",
               message: `backfill page contained ${writeResult.duplicates} duplicate events`,
               slot: cursor?.slot,
               traceId,
@@ -251,24 +279,25 @@ export class ReplayBackfillService {
         }
       }
 
-      const lastTraceSpanId = pageEvents.length > 0
-        ? pageEvents[pageEvents.length - 1]?.traceContext?.spanId
-        : cursor?.traceSpanId;
+      const lastTraceSpanId =
+        pageEvents.length > 0
+          ? pageEvents[pageEvents.length - 1]?.traceContext?.spanId
+          : cursor?.traceSpanId;
       const nextCursor = page.nextCursor
         ? {
-          ...page.nextCursor,
-          traceId,
-          traceSpanId: page.nextCursor.traceSpanId ?? lastTraceSpanId,
-        }
+            ...page.nextCursor,
+            traceId,
+            traceSpanId: page.nextCursor.traceSpanId ?? lastTraceSpanId,
+          }
         : null;
       try {
         await this.store.saveCursor(nextCursor);
       } catch (error) {
         void this.options.alertDispatcher?.emit({
-          code: 'replay.backfill.cursor_write_failed',
-          severity: 'warning',
-          kind: 'replay_ingestion_lag',
-          message: 'backfill cursor persistence failed, stopping early',
+          code: "replay.backfill.cursor_write_failed",
+          severity: "warning",
+          kind: "replay_ingestion_lag",
+          message: "backfill cursor persistence failed, stopping early",
           slot: cursor?.slot,
           signature: cursor?.signature,
           traceId,
@@ -284,9 +313,10 @@ export class ReplayBackfillService {
           processed,
           duplicates,
           cursor,
-          duplicateReport: duplicateKeys.length > 0
-            ? { count: duplicates, keys: [...duplicateKeys].sort() }
-            : undefined,
+          duplicateReport:
+            duplicateKeys.length > 0
+              ? { count: duplicates, keys: [...duplicateKeys].sort() }
+              : undefined,
         };
       }
       cursor = page.nextCursor;
@@ -296,9 +326,10 @@ export class ReplayBackfillService {
           processed,
           duplicates,
           cursor,
-          duplicateReport: duplicateKeys.length > 0
-            ? { count: duplicates, keys: [...duplicateKeys].sort() }
-            : undefined,
+          duplicateReport:
+            duplicateKeys.length > 0
+              ? { count: duplicates, keys: [...duplicateKeys].sort() }
+              : undefined,
         };
       }
 
@@ -306,10 +337,10 @@ export class ReplayBackfillService {
         const nextCursor = stableReplayCursorString(cursor);
         if (nextCursor === previousCursor) {
           void this.options.alertDispatcher?.emit({
-            code: 'replay.backfill.stalled',
-            severity: 'warning',
-            kind: 'replay_ingestion_lag',
-            message: 'backfill cursor stalled while fetching next page',
+            code: "replay.backfill.stalled",
+            severity: "warning",
+            kind: "replay_ingestion_lag",
+            message: "backfill cursor stalled while fetching next page",
             slot: cursor?.slot,
             sourceEventName: cursor?.eventName,
             signature: cursor?.signature,
@@ -318,7 +349,7 @@ export class ReplayBackfillService {
               toSlot: this.options.toSlot,
             },
           });
-          throw new Error('replay backfill stalled: cursor did not advance');
+          throw new Error("replay backfill stalled: cursor did not advance");
         }
       }
 
@@ -327,19 +358,29 @@ export class ReplayBackfillService {
   }
 }
 
-function toReplayStoreRecord(event: ProjectedTimelineEvent): ReplayTimelineRecord {
-  const trace = (event.payload.onchain as Record<string, unknown> | undefined)?.trace as
+function toReplayStoreRecord(
+  event: ProjectedTimelineEvent,
+): ReplayTimelineRecord {
+  const trace = (event.payload.onchain as Record<string, unknown> | undefined)
+    ?.trace as
     | undefined
-    | { traceId?: string; spanId?: string; parentSpanId?: string; sampled?: boolean };
+    | {
+        traceId?: string;
+        spanId?: string;
+        parentSpanId?: string;
+        sampled?: boolean;
+      };
 
   // Synthesize traceId from canonical tuple when trace context is absent
-  const resolvedTraceId = trace?.traceId ?? deriveTraceId(
-    undefined,
-    event.slot,
-    event.signature,
-    event.sourceEventName,
-    event.sourceEventSequence,
-  );
+  const resolvedTraceId =
+    trace?.traceId ??
+    deriveTraceId(
+      undefined,
+      event.slot,
+      event.signature,
+      event.sourceEventName,
+      event.sourceEventSequence,
+    );
 
   const recordEvent = {
     seq: event.seq,
@@ -357,7 +398,7 @@ function toReplayStoreRecord(event: ProjectedTimelineEvent): ReplayTimelineRecor
     traceSpanId: trace?.spanId,
     traceParentSpanId: trace?.parentSpanId,
     traceSampled: trace?.sampled === true,
-  } as Omit<ReplayTimelineRecord, 'projectionHash'>;
+  } as Omit<ReplayTimelineRecord, "projectionHash">;
 
   return {
     ...recordEvent,
@@ -365,6 +406,6 @@ function toReplayStoreRecord(event: ProjectedTimelineEvent): ReplayTimelineRecor
       ...recordEvent,
       sourceEventName: event.sourceEventName,
       sourceEventSequence: event.sourceEventSequence,
-    } as ReturnType<typeof projectOnChainEvents>['events'][number]),
+    } as ReturnType<typeof projectOnChainEvents>["events"][number]),
   };
 }

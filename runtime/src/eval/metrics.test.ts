@@ -1,7 +1,7 @@
-import { describe, it, expect } from 'vitest';
-import { UnifiedTelemetryCollector } from '../telemetry/collector.js';
-import { TrajectoryRecorder } from './recorder.js';
-import { TrajectoryReplayEngine } from './replay.js';
+import { describe, it, expect } from "vitest";
+import { UnifiedTelemetryCollector } from "../telemetry/collector.js";
+import { TrajectoryRecorder } from "./recorder.js";
+import { TrajectoryReplayEngine } from "./replay.js";
 import {
   computePassAtK,
   computePassCaretK,
@@ -10,10 +10,10 @@ import {
   recordEvaluationMetrics,
   serializeEvaluationScorecard,
   type EvalRunRecord,
-} from './metrics.js';
+} from "./metrics.js";
 
-describe('eval/metrics', () => {
-  it('computes pass@k and pass^k correctly', () => {
+describe("eval/metrics", () => {
+  it("computes pass@k and pass^k correctly", () => {
     const passAt2 = computePassAtK(5, 3, 2);
     const passCaret2 = computePassCaretK(3 / 5, 2);
 
@@ -21,12 +21,12 @@ describe('eval/metrics', () => {
     expect(passCaret2).toBeCloseTo(0.84, 6);
   });
 
-  it('builds stratified scorecard by task type, reward tier, and verifier gate', () => {
+  it("builds stratified scorecard by task type, reward tier, and verifier gate", () => {
     const records: EvalRunRecord[] = [
       {
-        id: 'run-a',
+        id: "run-a",
         passed: true,
-        taskType: 'qa',
+        taskType: "qa",
         rewardLamports: 500_000,
         verifierGated: true,
         riskScore: 0.7,
@@ -36,9 +36,9 @@ describe('eval/metrics', () => {
         verifierDisagreements: 0,
       },
       {
-        id: 'run-b',
+        id: "run-b",
         passed: false,
-        taskType: 'qa',
+        taskType: "qa",
         rewardLamports: 2_000_000,
         verifierGated: true,
         riskScore: 0.9,
@@ -48,9 +48,9 @@ describe('eval/metrics', () => {
         verifierDisagreements: 1,
       },
       {
-        id: 'run-c',
+        id: "run-c",
         passed: true,
-        taskType: 'planning',
+        taskType: "planning",
         rewardLamports: 200_000_000,
         verifierGated: false,
         riskScore: 0.2,
@@ -73,63 +73,84 @@ describe('eval/metrics', () => {
     expect(scorecard.byVerifierGate.ungated.runCount).toBe(1);
   });
 
-  it('records scorecard gauges via existing telemetry collector', () => {
-    const scorecard = computeEvaluationScorecard([
-      {
-        id: 'run-only',
-        passed: true,
-        taskType: 'qa',
-        rewardLamports: 100_000,
-        verifierGated: false,
-        riskScore: 0.5,
-        costUnits: 1,
-        latencyMs: 10,
-        policyViolations: 0,
-        verifierDisagreements: 0,
-      },
-    ], { k: 1 });
+  it("records scorecard gauges via existing telemetry collector", () => {
+    const scorecard = computeEvaluationScorecard(
+      [
+        {
+          id: "run-only",
+          passed: true,
+          taskType: "qa",
+          rewardLamports: 100_000,
+          verifierGated: false,
+          riskScore: 0.5,
+          costUnits: 1,
+          latencyMs: 10,
+          policyViolations: 0,
+          verifierDisagreements: 0,
+        },
+      ],
+      { k: 1 },
+    );
 
     const collector = new UnifiedTelemetryCollector();
     recordEvaluationMetrics(scorecard, collector);
 
     const snapshot = collector.getSnapshot();
-    expect(Object.keys(snapshot.gauges).some((name) => name.startsWith('agenc.eval.pass_at_k'))).toBe(true);
-    expect(Object.keys(snapshot.gauges).some((name) => name.startsWith('agenc.eval.conformance_score'))).toBe(true);
-    expect(Object.keys(snapshot.gauges).some((name) => name.startsWith('agenc.eval.cost_normalized_utility'))).toBe(true);
+    expect(
+      Object.keys(snapshot.gauges).some((name) =>
+        name.startsWith("agenc.eval.pass_at_k"),
+      ),
+    ).toBe(true);
+    expect(
+      Object.keys(snapshot.gauges).some((name) =>
+        name.startsWith("agenc.eval.conformance_score"),
+      ),
+    ).toBe(true);
+    expect(
+      Object.keys(snapshot.gauges).some((name) =>
+        name.startsWith("agenc.eval.cost_normalized_utility"),
+      ),
+    ).toBe(true);
   });
 
-  it('serializes scorecards to json and human-readable summary', () => {
-    const scorecard = computeEvaluationScorecard([
-      {
-        id: 'run-summary',
-        passed: true,
-      },
-    ], { k: 1 });
+  it("serializes scorecards to json and human-readable summary", () => {
+    const scorecard = computeEvaluationScorecard(
+      [
+        {
+          id: "run-summary",
+          passed: true,
+        },
+      ],
+      { k: 1 },
+    );
 
     const serialized = serializeEvaluationScorecard(scorecard);
     expect(serialized.json).toContain('"aggregate"');
-    expect(serialized.summary).toContain('pass_rate=');
-    expect(serialized.summary).toContain('cost_normalized_utility=');
+    expect(serialized.summary).toContain("pass_rate=");
+    expect(serialized.summary).toContain("cost_normalized_utility=");
   });
 
-  it('derives run records from replay results', () => {
-    const recorder = new TrajectoryRecorder({ traceId: 'metrics-from-replay', seed: 22 });
-    recorder.record({ type: 'discovered', taskPda: 'task-replay' });
-    recorder.record({ type: 'claimed', taskPda: 'task-replay' });
+  it("derives run records from replay results", () => {
+    const recorder = new TrajectoryRecorder({
+      traceId: "metrics-from-replay",
+      seed: 22,
+    });
+    recorder.record({ type: "discovered", taskPda: "task-replay" });
+    recorder.record({ type: "claimed", taskPda: "task-replay" });
     recorder.record({
-      type: 'verifier_verdict',
-      taskPda: 'task-replay',
-      payload: { attempt: 1, verdict: 'needs_revision' },
+      type: "verifier_verdict",
+      taskPda: "task-replay",
+      payload: { attempt: 1, verdict: "needs_revision" },
     });
     recorder.record({
-      type: 'completed',
-      taskPda: 'task-replay',
+      type: "completed",
+      taskPda: "task-replay",
       payload: { durationMs: 42 },
     });
 
     const replay = new TrajectoryReplayEngine().replay(recorder.createTrace());
     const run = evalRunFromReplayResult(replay, {
-      taskType: 'qa',
+      taskType: "qa",
       rewardLamports: 100_000,
       verifierGated: true,
       costUnits: 1.5,

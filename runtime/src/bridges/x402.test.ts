@@ -1,22 +1,22 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { Connection, Keypair, PublicKey } from '@solana/web3.js';
-import { X402Bridge } from './x402.js';
-import { BridgePaymentError } from './errors.js';
-import { ValidationError } from '../types/errors.js';
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { Connection, Keypair, PublicKey } from "@solana/web3.js";
+import { X402Bridge } from "./x402.js";
+import { BridgePaymentError } from "./errors.js";
+import { ValidationError } from "../types/errors.js";
 
 // Mock sendAndConfirmTransaction at module level
-vi.mock('@solana/web3.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@solana/web3.js')>();
+vi.mock("@solana/web3.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@solana/web3.js")>();
   return {
     ...actual,
     sendAndConfirmTransaction: vi.fn(),
   };
 });
 
-import { sendAndConfirmTransaction } from '@solana/web3.js';
+import { sendAndConfirmTransaction } from "@solana/web3.js";
 const mockSendAndConfirm = vi.mocked(sendAndConfirmTransaction);
 
-describe('X402Bridge', () => {
+describe("X402Bridge", () => {
   let connection: Connection;
   let payer: Keypair;
   let recipient: string;
@@ -26,11 +26,11 @@ describe('X402Bridge', () => {
     connection = {
       getBalance: vi.fn(),
       getLatestBlockhash: vi.fn().mockResolvedValue({
-        blockhash: 'test-blockhash',
+        blockhash: "test-blockhash",
         lastValidBlockHeight: 1000,
       }),
       getRecentBlockhash: vi.fn().mockResolvedValue({
-        blockhash: 'test-blockhash',
+        blockhash: "test-blockhash",
         feeCalculator: { lamportsPerSignature: 5000 },
       }),
     } as unknown as Connection;
@@ -40,7 +40,7 @@ describe('X402Bridge', () => {
 
   // ---- Validation ----
 
-  it('validates a correct payment request', () => {
+  it("validates a correct payment request", () => {
     const bridge = new X402Bridge(connection, payer);
     expect(() => {
       bridge.validatePaymentRequest({
@@ -50,17 +50,17 @@ describe('X402Bridge', () => {
     }).not.toThrow();
   });
 
-  it('rejects invalid recipient address', () => {
+  it("rejects invalid recipient address", () => {
     const bridge = new X402Bridge(connection, payer);
     expect(() => {
       bridge.validatePaymentRequest({
-        recipient: 'not-a-valid-address!!!',
+        recipient: "not-a-valid-address!!!",
         amountLamports: 100_000n,
       });
     }).toThrow(ValidationError);
   });
 
-  it('rejects zero amount', () => {
+  it("rejects zero amount", () => {
     const bridge = new X402Bridge(connection, payer);
     expect(() => {
       bridge.validatePaymentRequest({
@@ -70,7 +70,7 @@ describe('X402Bridge', () => {
     }).toThrow(ValidationError);
   });
 
-  it('rejects negative amount', () => {
+  it("rejects negative amount", () => {
     const bridge = new X402Bridge(connection, payer);
     expect(() => {
       bridge.validatePaymentRequest({
@@ -80,7 +80,7 @@ describe('X402Bridge', () => {
     }).toThrow(ValidationError);
   });
 
-  it('rejects amount exceeding max cap', () => {
+  it("rejects amount exceeding max cap", () => {
     const bridge = new X402Bridge(connection, payer, {
       maxPaymentLamports: 500_000n,
     });
@@ -92,9 +92,9 @@ describe('X402Bridge', () => {
     }).toThrow(BridgePaymentError);
   });
 
-  it('rejects memo exceeding max length', () => {
+  it("rejects memo exceeding max length", () => {
     const bridge = new X402Bridge(connection, payer);
-    const longMemo = 'x'.repeat(257);
+    const longMemo = "x".repeat(257);
     expect(() => {
       bridge.validatePaymentRequest({
         recipient,
@@ -106,20 +106,24 @@ describe('X402Bridge', () => {
 
   // ---- createPaymentRequest ----
 
-  it('creates a validated payment request', () => {
+  it("creates a validated payment request", () => {
     const bridge = new X402Bridge(connection, payer);
-    const request = bridge.createPaymentRequest(recipient, 50_000n, 'test memo');
+    const request = bridge.createPaymentRequest(
+      recipient,
+      50_000n,
+      "test memo",
+    );
 
     expect(request.recipient).toBe(recipient);
     expect(request.amountLamports).toBe(50_000n);
-    expect(request.memo).toBe('test memo');
+    expect(request.memo).toBe("test memo");
   });
 
   // ---- processPayment ----
 
-  it('processes a valid payment', async () => {
+  it("processes a valid payment", async () => {
     vi.mocked(connection.getBalance).mockResolvedValue(1_000_000_000);
-    mockSendAndConfirm.mockResolvedValue('mock-sig-123');
+    mockSendAndConfirm.mockResolvedValue("mock-sig-123");
 
     const bridge = new X402Bridge(connection, payer);
     const result = await bridge.processPayment({
@@ -127,12 +131,12 @@ describe('X402Bridge', () => {
       amountLamports: 100_000n,
     });
 
-    expect(result.signature).toBe('mock-sig-123');
+    expect(result.signature).toBe("mock-sig-123");
     expect(result.amountLamports).toBe(100_000n);
     expect(result.recipient).toBe(recipient);
   });
 
-  it('throws BridgePaymentError on insufficient balance', async () => {
+  it("throws BridgePaymentError on insufficient balance", async () => {
     vi.mocked(connection.getBalance).mockResolvedValue(50_000);
 
     const bridge = new X402Bridge(connection, payer);
@@ -144,9 +148,9 @@ describe('X402Bridge', () => {
     ).rejects.toThrow(BridgePaymentError);
   });
 
-  it('throws BridgePaymentError on transaction failure', async () => {
+  it("throws BridgePaymentError on transaction failure", async () => {
     vi.mocked(connection.getBalance).mockResolvedValue(1_000_000_000);
-    mockSendAndConfirm.mockRejectedValue(new Error('Network error'));
+    mockSendAndConfirm.mockRejectedValue(new Error("Network error"));
 
     const bridge = new X402Bridge(connection, payer);
     await expect(

@@ -11,13 +11,13 @@ import {
   Keypair,
   SystemProgram,
   ComputeBudgetProgram,
-} from '@solana/web3.js';
-import anchor, { type Program } from '@coral-xyz/anchor';
+} from "@solana/web3.js";
+import anchor, { type Program } from "@coral-xyz/anchor";
 import {
   getAssociatedTokenAddressSync,
   TOKEN_PROGRAM_ID,
   ASSOCIATED_TOKEN_PROGRAM_ID,
-} from '@solana/spl-token';
+} from "@solana/spl-token";
 import {
   PROGRAM_ID,
   SEEDS,
@@ -32,13 +32,18 @@ import {
   TRUSTED_RISC0_SELECTOR,
   RECOMMENDED_CU_COMPLETE_TASK_PRIVATE,
   RECOMMENDED_CU_COMPLETE_TASK_PRIVATE_TOKEN,
-} from './constants';
-import { getAccount } from './anchor-utils';
-import { getSdkLogger } from './logger';
-import { getDependentTaskCount } from './queries';
-import { runProofSubmissionPreflight, type ProofSubmissionPreflightResult, type ProofPreconditionResult } from './proof-validation';
-import { NullifierCache } from './nullifier-cache';
-import { validateRisc0PayloadShape } from './validation';
+} from "./constants";
+import { getAccount } from "./anchor-utils";
+import { getSdkLogger } from "./logger";
+import { deriveProtocolPda } from "./protocol";
+import { getDependentTaskCount } from "./queries";
+import {
+  runProofSubmissionPreflight,
+  type ProofSubmissionPreflightResult,
+  type ProofPreconditionResult,
+} from "./proof-validation";
+import { NullifierCache } from "./nullifier-cache";
+import { validateRisc0PayloadShape } from "./validation";
 
 export { TaskState };
 
@@ -154,16 +159,20 @@ export interface TaskLifecycleSummary {
   isExpired: boolean;
 }
 
-function formatPreflightFailureReasons(result: { failures: Array<{ message: string }> }): string {
-  return result.failures.map((failure) => failure.message).join('; ');
+function formatPreflightFailureReasons(result: {
+  failures: Array<{ message: string }>;
+}): string {
+  return result.failures.map((failure) => failure.message).join("; ");
 }
 
 export class ProofSubmissionPreflightError extends Error {
   readonly result: ProofSubmissionPreflightResult;
 
   constructor(result: ProofSubmissionPreflightResult) {
-    super(`Proof submission preflight failed: ${formatPreflightFailureReasons(result)}`);
-    this.name = 'ProofSubmissionPreflightError';
+    super(
+      `Proof submission preflight failed: ${formatPreflightFailureReasons(result)}`,
+    );
+    this.name = "ProofSubmissionPreflightError";
     this.result = result;
   }
 }
@@ -176,7 +185,7 @@ export class ProofPreconditionError extends ProofSubmissionPreflightError {
 
   constructor(result: ProofPreconditionResult) {
     super(result);
-    this.name = 'ProofPreconditionError';
+    this.name = "ProofPreconditionError";
     this.message = `Proof precondition check failed: ${formatPreflightFailureReasons(result)}`;
     this.result = result;
   }
@@ -238,16 +247,12 @@ export function deriveEscrowPda(
 // Internal Helpers
 // ============================================================================
 
-function deriveProtocolPda(programId: PublicKey): PublicKey {
-  const [pda] = PublicKey.findProgramAddressSync(
-    [SEEDS.PROTOCOL],
-    programId,
-  );
-  return pda;
-}
-
-function deriveAgentPda(agentId: Uint8Array | number[], programId: PublicKey): PublicKey {
-  const idBytes = agentId instanceof Uint8Array ? agentId : Buffer.from(agentId);
+function deriveAgentPda(
+  agentId: Uint8Array | number[],
+  programId: PublicKey,
+): PublicKey {
+  const idBytes =
+    agentId instanceof Uint8Array ? agentId : Buffer.from(agentId);
   const [pda] = PublicKey.findProgramAddressSync(
     [SEEDS.AGENT, idBytes],
     programId,
@@ -267,17 +272,27 @@ interface TaskCreationContext {
   tokenAccounts: TaskTokenAccounts;
 }
 
-const BINDING_SPEND_SEED = Buffer.from('binding_spend');
-const NULLIFIER_SPEND_SEED = Buffer.from('nullifier_spend');
-const ROUTER_SEED = Buffer.from('router');
-const VERIFIER_SEED = Buffer.from('verifier');
-const TRUSTED_RISC0_ROUTER_PROGRAM_ID = new PublicKey('6JvFfBrvCcWgANKh1Eae9xDq4RC6cfJuBcf71rp2k9Y7');
-const TRUSTED_RISC0_VERIFIER_PROGRAM_ID = new PublicKey('THq1qFYQoh7zgcjXoMXduDBqiZRCPeg3PvvMbrVQUge');
+const BINDING_SPEND_SEED = Buffer.from("binding_spend");
+const NULLIFIER_SPEND_SEED = Buffer.from("nullifier_spend");
+const ROUTER_SEED = Buffer.from("router");
+const VERIFIER_SEED = Buffer.from("verifier");
+const TRUSTED_RISC0_ROUTER_PROGRAM_ID = new PublicKey(
+  "6JvFfBrvCcWgANKh1Eae9xDq4RC6cfJuBcf71rp2k9Y7",
+);
+const TRUSTED_RISC0_VERIFIER_PROGRAM_ID = new PublicKey(
+  "THq1qFYQoh7zgcjXoMXduDBqiZRCPeg3PvvMbrVQUge",
+);
 
-function toFixedBytes(value: Uint8Array | Buffer, expectedLen: number, label: string): Buffer {
+function toFixedBytes(
+  value: Uint8Array | Buffer,
+  expectedLen: number,
+  label: string,
+): Buffer {
   const bytes = Buffer.from(value);
   if (bytes.length !== expectedLen) {
-    throw new Error(`${label} must be exactly ${expectedLen} bytes, got ${bytes.length}`);
+    throw new Error(
+      `${label} must be exactly ${expectedLen} bytes, got ${bytes.length}`,
+    );
   }
   return bytes;
 }
@@ -302,8 +317,8 @@ function buildTaskTokenAccounts(
     };
   }
 
-  const resolvedCreatorTokenAccount = creatorTokenAccount
-    ?? getAssociatedTokenAddressSync(mint, creator);
+  const resolvedCreatorTokenAccount =
+    creatorTokenAccount ?? getAssociatedTokenAddressSync(mint, creator);
   const tokenEscrowAta = getAssociatedTokenAddressSync(mint, escrowPda, true);
 
   return {
@@ -347,15 +362,15 @@ function buildTaskCreationContext(
 
 async function submitTaskCreationTransaction(
   connection: Connection,
-  operation: 'createTask' | 'createDependentTask',
+  operation: "createTask" | "createDependentTask",
   send: () => Promise<string>,
 ): Promise<string> {
   try {
     const tx = await send();
-    await connection.confirmTransaction(tx, 'confirmed');
+    await connection.confirmTransaction(tx, "confirmed");
     return tx;
   } catch (error) {
-    getSdkLogger().error(operation + ' failed', {
+    getSdkLogger().error(operation + " failed", {
       error: error instanceof Error ? error.message : String(error),
     });
     throw error;
@@ -387,35 +402,32 @@ export async function createTask(
     params,
   );
 
-  const tx = await submitTaskCreationTransaction(
-    connection,
-    'createTask',
-    () =>
-      program.methods
-        .createTask(
-          Array.from(context.idBytes),
-          new anchor.BN(params.requiredCapabilities.toString()),
-          Buffer.from(params.description),
-          new anchor.BN(params.rewardAmount.toString()),
-          params.maxWorkers,
-          new anchor.BN(params.deadline),
-          params.taskType,
-          params.constraintHash ?? null,
-          params.minReputation ?? 0,
-          context.mint,
-        )
-        .accountsPartial({
-          task: context.taskPda,
-          escrow: context.escrowPda,
-          protocolConfig: context.protocolPda,
-          creatorAgent: context.creatorAgentPda,
-          authority: creator.publicKey,
-          creator: creator.publicKey,
-          systemProgram: SystemProgram.programId,
-          ...context.tokenAccounts,
-        })
-        .signers([creator])
-        .rpc(),
+  const tx = await submitTaskCreationTransaction(connection, "createTask", () =>
+    program.methods
+      .createTask(
+        Array.from(context.idBytes),
+        new anchor.BN(params.requiredCapabilities.toString()),
+        Buffer.from(params.description),
+        new anchor.BN(params.rewardAmount.toString()),
+        params.maxWorkers,
+        new anchor.BN(params.deadline),
+        params.taskType,
+        params.constraintHash ?? null,
+        params.minReputation ?? 0,
+        context.mint,
+      )
+      .accountsPartial({
+        task: context.taskPda,
+        escrow: context.escrowPda,
+        protocolConfig: context.protocolPda,
+        creatorAgent: context.creatorAgentPda,
+        authority: creator.publicKey,
+        creator: creator.publicKey,
+        systemProgram: SystemProgram.programId,
+        ...context.tokenAccounts,
+      })
+      .signers([creator])
+      .rpc(),
   );
 
   return { taskPda: context.taskPda, txSignature: tx };
@@ -441,7 +453,7 @@ export async function createDependentTask(
 
   const tx = await submitTaskCreationTransaction(
     connection,
-    'createDependentTask',
+    "createDependentTask",
     () =>
       program.methods
         .createDependentTask(
@@ -503,7 +515,7 @@ export async function claimTask(
     .signers([worker])
     .rpc();
 
-  await connection.confirmTransaction(tx, 'confirmed');
+  await connection.confirmTransaction(tx, "confirmed");
 
   return { txSignature: tx };
 }
@@ -540,7 +552,7 @@ export async function expireClaim(
     .signers([caller])
     .rpc();
 
-  await connection.confirmTransaction(tx, 'confirmed');
+  await connection.confirmTransaction(tx, "confirmed");
 
   return { txSignature: tx };
 }
@@ -567,13 +579,15 @@ export async function completeTask(
   const protocolPda = deriveProtocolPda(programId);
 
   // Fetch task to get creator and reward_mint
-  const task = await getAccount(program, 'task').fetch(taskPda) as {
+  const task = (await getAccount(program, "task").fetch(taskPda)) as {
     creator: PublicKey;
     rewardMint: PublicKey | null;
   };
 
   // Fetch protocol config to get treasury
-  const protocolConfig = await getAccount(program, 'protocolConfig').fetch(protocolPda) as {
+  const protocolConfig = (await getAccount(program, "protocolConfig").fetch(
+    protocolPda,
+  )) as {
     treasury: PublicKey;
   };
 
@@ -585,7 +599,10 @@ export async function completeTask(
     tokenAccounts = {
       tokenEscrowAta: getAssociatedTokenAddressSync(mint, escrowPda, true),
       workerTokenAccount: getAssociatedTokenAddressSync(mint, worker.publicKey),
-      treasuryTokenAccount: getAssociatedTokenAddressSync(mint, protocolConfig.treasury),
+      treasuryTokenAccount: getAssociatedTokenAddressSync(
+        mint,
+        protocolConfig.treasury,
+      ),
       rewardMint: mint,
       tokenProgram: TOKEN_PROGRAM_ID,
     };
@@ -619,7 +636,7 @@ export async function completeTask(
     .signers([worker])
     .rpc();
 
-  await connection.confirmTransaction(tx, 'confirmed');
+  await connection.confirmTransaction(tx, "confirmed");
 
   return { txSignature: tx };
 }
@@ -643,14 +660,28 @@ export async function completeTaskPrivate(
   const claimPda = deriveClaimPda(taskPda, workerAgentPda, programId);
   const escrowPda = deriveEscrowPda(taskPda, programId);
   const protocolPda = deriveProtocolPda(programId);
-  const sealBytes = toFixedBytes(proof.sealBytes, RISC0_SEAL_BORSH_LEN, 'sealBytes');
-  const journal = toFixedBytes(proof.journal, RISC0_JOURNAL_LEN, 'journal');
-  const imageId = toFixedBytes(proof.imageId, RISC0_IMAGE_ID_LEN, 'imageId');
-  const bindingSeed = toFixedBytes(proof.bindingSeed, HASH_SIZE, 'bindingSeed');
-  const nullifierSeed = toFixedBytes(proof.nullifierSeed, HASH_SIZE, 'nullifierSeed');
+  const sealBytes = toFixedBytes(
+    proof.sealBytes,
+    RISC0_SEAL_BORSH_LEN,
+    "sealBytes",
+  );
+  const journal = toFixedBytes(proof.journal, RISC0_JOURNAL_LEN, "journal");
+  const imageId = toFixedBytes(proof.imageId, RISC0_IMAGE_ID_LEN, "imageId");
+  const bindingSeed = toFixedBytes(proof.bindingSeed, HASH_SIZE, "bindingSeed");
+  const nullifierSeed = toFixedBytes(
+    proof.nullifierSeed,
+    HASH_SIZE,
+    "nullifierSeed",
+  );
 
   // Defense-in-depth: validate payload shape (sizes + trusted selector)
-  validateRisc0PayloadShape({ sealBytes, journal, imageId, bindingSeed, nullifierSeed });
+  validateRisc0PayloadShape({
+    sealBytes,
+    journal,
+    imageId,
+    bindingSeed,
+    nullifierSeed,
+  });
 
   const [bindingSpend] = PublicKey.findProgramAddressSync(
     [BINDING_SPEND_SEED, bindingSeed],
@@ -670,7 +701,7 @@ export async function completeTaskPrivate(
   );
 
   // Fetch task to get creator, taskId, and reward_mint
-  const task = await getAccount(program, 'task').fetch(taskPda) as {
+  const task = (await getAccount(program, "task").fetch(taskPda)) as {
     creator: PublicKey;
     taskId: number[] | Uint8Array;
     rewardMint: PublicKey | null;
@@ -678,10 +709,12 @@ export async function completeTaskPrivate(
 
   // Extract task_id as u64 (first 8 bytes LE)
   const taskIdBuf = Buffer.from(task.taskId);
-  const taskIdU64 = new anchor.BN(taskIdBuf.subarray(0, 8), 'le');
+  const taskIdU64 = new anchor.BN(taskIdBuf.subarray(0, 8), "le");
 
   // Fetch protocol config to get treasury
-  const protocolConfig = await getAccount(program, 'protocolConfig').fetch(protocolPda) as {
+  const protocolConfig = (await getAccount(program, "protocolConfig").fetch(
+    protocolPda,
+  )) as {
     treasury: PublicKey;
   };
 
@@ -693,7 +726,10 @@ export async function completeTaskPrivate(
     tokenAccounts = {
       tokenEscrowAta: getAssociatedTokenAddressSync(mint, escrowPda, true),
       workerTokenAccount: getAssociatedTokenAddressSync(mint, worker.publicKey),
-      treasuryTokenAccount: getAssociatedTokenAddressSync(mint, protocolConfig.treasury),
+      treasuryTokenAccount: getAssociatedTokenAddressSync(
+        mint,
+        protocolConfig.treasury,
+      ),
       rewardMint: mint,
       tokenProgram: TOKEN_PROGRAM_ID,
     };
@@ -743,7 +779,7 @@ export async function completeTaskPrivate(
     .signers([worker])
     .rpc();
 
-  await connection.confirmTransaction(tx, 'confirmed');
+  await connection.confirmTransaction(tx, "confirmed");
 
   return { txSignature: tx };
 }
@@ -763,9 +799,12 @@ export async function completeTaskPrivateWithPreflight(
   taskPda: PublicKey,
   proof: PrivateCompletionPayload,
   options: CompleteTaskPrivateWithPreflightOptions = {},
-): Promise<{ txSignature: string; preflightResult?: ProofSubmissionPreflightResult }> {
+): Promise<{
+  txSignature: string;
+  preflightResult?: ProofSubmissionPreflightResult;
+}> {
   if (options.nullifierCache?.isUsed(proof.nullifierSeed)) {
-    throw new Error('Nullifier already submitted in this session');
+    throw new Error("Nullifier already submitted in this session");
   }
 
   // SECURITY FIX: Mark nullifier as used BEFORE submission to prevent concurrent
@@ -823,9 +862,12 @@ export async function completeTaskPrivateSafe(
   taskPda: PublicKey,
   proof: PrivateCompletionPayload,
   options: CompleteTaskPrivateSafeOptions = {},
-): Promise<{ txSignature: string; validationResult?: ProofPreconditionResult }> {
-  const runProofSubmissionPreflightOption = options.runProofSubmissionPreflight
-    ?? options.validatePreconditions;
+): Promise<{
+  txSignature: string;
+  validationResult?: ProofPreconditionResult;
+}> {
+  const runProofSubmissionPreflightOption =
+    options.runProofSubmissionPreflight ?? options.validatePreconditions;
 
   try {
     const result = await completeTaskPrivateWithPreflight(
@@ -873,7 +915,7 @@ export async function cancelTask(
   const protocolPda = deriveProtocolPda(programId);
 
   // Fetch task to get reward_mint
-  const task = await getAccount(program, 'task').fetch(taskPda) as {
+  const task = (await getAccount(program, "task").fetch(taskPda)) as {
     rewardMint: PublicKey | null;
   };
 
@@ -884,7 +926,10 @@ export async function cancelTask(
   if (mint) {
     tokenAccounts = {
       tokenEscrowAta: getAssociatedTokenAddressSync(mint, escrowPda, true),
-      creatorTokenAccount: getAssociatedTokenAddressSync(mint, creator.publicKey),
+      creatorTokenAccount: getAssociatedTokenAddressSync(
+        mint,
+        creator.publicKey,
+      ),
       rewardMint: mint,
       tokenProgram: TOKEN_PROGRAM_ID,
     };
@@ -921,7 +966,7 @@ export async function cancelTask(
 
   const tx = await builder.rpc();
 
-  await connection.confirmTransaction(tx, 'confirmed');
+  await connection.confirmTransaction(tx, "confirmed");
 
   return { txSignature: tx };
 }
@@ -938,7 +983,7 @@ export async function getTask(
   taskPda: PublicKey,
 ): Promise<TaskStatus | null> {
   try {
-    const task = await getAccount(program, 'task').fetch(taskPda);
+    const task = await getAccount(program, "task").fetch(taskPda);
 
     interface TaskAccountData {
       taskId?: number[] | Uint8Array;
@@ -956,7 +1001,7 @@ export async function getTask(
     const data = task as TaskAccountData;
 
     if (data.creator === undefined || data.status === undefined) {
-      getSdkLogger().warn('Task account data missing required fields');
+      getSdkLogger().warn("Task account data missing required fields");
       return null;
     }
 
@@ -976,7 +1021,7 @@ export async function getTask(
       taskId: data.taskId ? new Uint8Array(data.taskId) : new Uint8Array(32),
       state,
       creator: data.creator,
-      rewardAmount: BigInt(data.rewardAmount?.toString() ?? '0'),
+      rewardAmount: BigInt(data.rewardAmount?.toString() ?? "0"),
       deadline: data.deadline?.toNumber() ?? 0,
       constraintHash,
       currentWorkers: data.currentWorkers ?? 0,
@@ -986,11 +1031,15 @@ export async function getTask(
     };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    if (errorMessage.includes('Account does not exist') ||
-        errorMessage.includes('could not find account')) {
+    if (
+      errorMessage.includes("Account does not exist") ||
+      errorMessage.includes("could not find account")
+    ) {
       return null;
     }
-    getSdkLogger().warn(`getTask encountered unexpected error: ${errorMessage}`);
+    getSdkLogger().warn(
+      `getTask encountered unexpected error: ${errorMessage}`,
+    );
     return null;
   }
 }
@@ -1002,7 +1051,7 @@ export async function getTasksByCreator(
   program: Program,
   creator: PublicKey,
 ): Promise<TaskStatus[]> {
-  const tasks = await getAccount(program, 'task').all([
+  const tasks = await getAccount(program, "task").all([
     {
       memcmp: {
         offset: DISCRIMINATOR_SIZE + 32, // After discriminator + task_id
@@ -1031,7 +1080,9 @@ export async function getTasksByCreator(
     const data = t.account as TaskAccountData;
 
     if (data.creator === undefined || data.status === undefined) {
-      getSdkLogger().warn(`Task at index ${idx} missing required fields, skipping`);
+      getSdkLogger().warn(
+        `Task at index ${idx} missing required fields, skipping`,
+      );
       continue;
     }
 
@@ -1049,7 +1100,7 @@ export async function getTasksByCreator(
       taskId: data.taskId ? new Uint8Array(data.taskId) : new Uint8Array(32),
       state,
       creator: data.creator,
-      rewardAmount: BigInt(data.rewardAmount?.toString() ?? '0'),
+      rewardAmount: BigInt(data.rewardAmount?.toString() ?? "0"),
       deadline: data.deadline?.toNumber() ?? 0,
       constraintHash,
       currentWorkers: data.currentWorkers ?? 0,
@@ -1082,7 +1133,7 @@ export async function getTaskLifecycleSummary(
     return null;
   }
 
-  const rawTask = await getAccount(program, 'task').fetch(taskPda) as {
+  const rawTask = (await getAccount(program, "task").fetch(taskPda)) as {
     creator: PublicKey;
     createdAt?: { toNumber: () => number };
     created_at?: { toNumber: () => number };
@@ -1092,21 +1143,23 @@ export async function getTaskLifecycleSummary(
     completed_at?: { toNumber: () => number } | null;
   };
 
-  const createdAt = rawTask.createdAt?.toNumber() ?? rawTask.created_at?.toNumber() ?? 0;
+  const createdAt =
+    rawTask.createdAt?.toNumber() ?? rawTask.created_at?.toNumber() ?? 0;
   const dependsOn = rawTask.dependsOn ?? rawTask.depends_on ?? null;
-  const completedAt = rawTask.completedAt?.toNumber()
-    ?? rawTask.completed_at?.toNumber()
-    ?? task.completedAt;
+  const completedAt =
+    rawTask.completedAt?.toNumber() ??
+    rawTask.completed_at?.toNumber() ??
+    task.completedAt;
 
   const timeline: TaskLifecycleEvent[] = [
     {
-      eventName: 'taskCreated',
+      eventName: "taskCreated",
       timestamp: createdAt,
       actor: task.creator,
     },
   ];
 
-  const claims = await getAccount(program, 'taskClaim').all([
+  const claims = await getAccount(program, "taskClaim").all([
     {
       memcmp: {
         offset: DISCRIMINATOR_SIZE, // discriminator + task pubkey at offset 8
@@ -1124,20 +1177,26 @@ export async function getTaskLifecycleSummary(
       completed_at?: { toNumber: () => number };
     };
 
-    const claimedAt = claimAccount.claimedAt?.toNumber() ?? claimAccount.claimed_at?.toNumber() ?? 0;
+    const claimedAt =
+      claimAccount.claimedAt?.toNumber() ??
+      claimAccount.claimed_at?.toNumber() ??
+      0;
     if (claimedAt > 0) {
       timeline.push({
-        eventName: 'taskClaimed',
+        eventName: "taskClaimed",
         timestamp: claimedAt,
         actor: claimAccount.worker,
         data: { claimPda: claim.publicKey.toBase58() },
       });
     }
 
-    const claimCompletedAt = claimAccount.completedAt?.toNumber() ?? claimAccount.completed_at?.toNumber() ?? 0;
+    const claimCompletedAt =
+      claimAccount.completedAt?.toNumber() ??
+      claimAccount.completed_at?.toNumber() ??
+      0;
     if (claimCompletedAt > 0) {
       timeline.push({
-        eventName: 'taskClaimCompleted',
+        eventName: "taskClaimCompleted",
         timestamp: claimCompletedAt,
         actor: claimAccount.worker,
         data: { claimPda: claim.publicKey.toBase58() },
@@ -1147,20 +1206,20 @@ export async function getTaskLifecycleSummary(
 
   if (task.state === TaskState.Completed && completedAt && completedAt > 0) {
     timeline.push({
-      eventName: 'taskCompleted',
+      eventName: "taskCompleted",
       timestamp: completedAt,
     });
   }
 
   if (task.state === TaskState.Cancelled) {
     timeline.push({
-      eventName: 'taskCancelled',
+      eventName: "taskCancelled",
       timestamp: completedAt && completedAt > 0 ? completedAt : createdAt,
       actor: rawTask.creator,
     });
   }
 
-  const disputes = await getAccount(program, 'dispute').all([
+  const disputes = await getAccount(program, "dispute").all([
     {
       memcmp: {
         offset: DISCRIMINATOR_SIZE + 32, // discriminator + dispute_id
@@ -1170,8 +1229,8 @@ export async function getTaskLifecycleSummary(
   ]);
 
   const parseDisputeStatus = (status: unknown): number => {
-    if (typeof status === 'number') return status;
-    if (!status || typeof status !== 'object') return 0;
+    if (typeof status === "number") return status;
+    if (!status || typeof status !== "object") return 0;
     const key = Object.keys(status as Record<string, unknown>)[0];
     const map: Record<string, number> = {
       active: 0,
@@ -1203,7 +1262,7 @@ export async function getTaskLifecycleSummary(
 
     if (created > 0) {
       timeline.push({
-        eventName: 'disputeInitiated',
+        eventName: "disputeInitiated",
         timestamp: created,
         actor: d.initiator,
         data: { disputePda: dispute.publicKey.toBase58() },
@@ -1212,7 +1271,7 @@ export async function getTaskLifecycleSummary(
 
     if (resolved > 0 && status === 1) {
       timeline.push({
-        eventName: 'disputeResolved',
+        eventName: "disputeResolved",
         timestamp: resolved,
         data: { disputePda: dispute.publicKey.toBase58() },
       });
@@ -1221,9 +1280,10 @@ export async function getTaskLifecycleSummary(
 
   timeline.sort((a, b) => a.timestamp - b.timestamp);
 
-  const providerConnection = (program.provider as { connection?: Connection }).connection;
+  const providerConnection = (program.provider as { connection?: Connection })
+    .connection;
   if (!providerConnection) {
-    throw new Error('Program provider does not expose a connection');
+    throw new Error("Program provider does not expose a connection");
   }
 
   const dependentCount = await getDependentTaskCount(
@@ -1233,14 +1293,14 @@ export async function getTaskLifecycleSummary(
   );
 
   const now = Math.floor(Date.now() / 1000);
-  const isExpired = task.deadline > 0
-    && now > task.deadline
-    && task.state !== TaskState.Completed
-    && task.state !== TaskState.Cancelled;
+  const isExpired =
+    task.deadline > 0 &&
+    now > task.deadline &&
+    task.state !== TaskState.Completed &&
+    task.state !== TaskState.Cancelled;
 
-  const durationSeconds = completedAt && createdAt > 0
-    ? completedAt - createdAt
-    : null;
+  const durationSeconds =
+    completedAt && createdAt > 0 ? completedAt - createdAt : null;
 
   return {
     taskPda,
@@ -1270,8 +1330,10 @@ export async function getTaskLifecycleSummary(
  * Parse Anchor enum status to TaskState number.
  * Anchor returns enums as objects like { open: {} }, { inProgress: {} }, etc.
  */
-function parseTaskState(status: { [key: string]: Record<string, never> } | number): TaskState {
-  if (typeof status === 'number') return status as TaskState;
+function parseTaskState(
+  status: { [key: string]: Record<string, never> } | number,
+): TaskState {
+  if (typeof status === "number") return status as TaskState;
 
   const key = Object.keys(status)[0];
   const stateMap: Record<string, TaskState> = {
@@ -1290,14 +1352,14 @@ function parseTaskState(status: { [key: string]: Record<string, never> } | numbe
  */
 export function formatTaskState(state: TaskState): string {
   const states: Record<TaskState, string> = {
-    [TaskState.Open]: 'Open',
-    [TaskState.InProgress]: 'In Progress',
-    [TaskState.PendingValidation]: 'Pending Validation',
-    [TaskState.Completed]: 'Completed',
-    [TaskState.Cancelled]: 'Cancelled',
-    [TaskState.Disputed]: 'Disputed',
+    [TaskState.Open]: "Open",
+    [TaskState.InProgress]: "In Progress",
+    [TaskState.PendingValidation]: "Pending Validation",
+    [TaskState.Completed]: "Completed",
+    [TaskState.Cancelled]: "Cancelled",
+    [TaskState.Disputed]: "Disputed",
   };
-  return states[state] ?? 'Unknown';
+  return states[state] ?? "Unknown";
 }
 
 /**
@@ -1308,18 +1370,26 @@ export function formatTaskState(state: TaskState): string {
  */
 export function calculateEscrowFee(
   escrowLamports: number,
-  feePercentage: number = DEFAULT_FEE_PERCENT
+  feePercentage: number = DEFAULT_FEE_PERCENT,
 ): number {
   if (escrowLamports < 0 || !Number.isFinite(escrowLamports)) {
-    throw new Error('Invalid escrow amount: must be a non-negative finite number');
+    throw new Error(
+      "Invalid escrow amount: must be a non-negative finite number",
+    );
   }
-  if (feePercentage < 0 || feePercentage > PERCENT_BASE || !Number.isFinite(feePercentage)) {
-    throw new Error(`Invalid fee percentage: must be between 0 and ${PERCENT_BASE}`);
+  if (
+    feePercentage < 0 ||
+    feePercentage > PERCENT_BASE ||
+    !Number.isFinite(feePercentage)
+  ) {
+    throw new Error(
+      `Invalid fee percentage: must be between 0 and ${PERCENT_BASE}`,
+    );
   }
 
   const maxSafeMultiplier = Math.floor(Number.MAX_SAFE_INTEGER / PERCENT_BASE);
   if (escrowLamports > maxSafeMultiplier) {
-    throw new Error('Escrow amount too large: would cause arithmetic overflow');
+    throw new Error("Escrow amount too large: would cause arithmetic overflow");
   }
 
   return Math.floor((escrowLamports * feePercentage) / PERCENT_BASE);

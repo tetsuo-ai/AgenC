@@ -6,7 +6,7 @@
  * @module
  */
 
-import { RuntimeError, RuntimeErrorCodes } from '../types/errors.js';
+import { RuntimeError, RuntimeErrorCodes } from "../types/errors.js";
 
 /**
  * Error thrown when a dispute cannot be found by its PDA.
@@ -18,9 +18,9 @@ export class DisputeNotFoundError extends RuntimeError {
   constructor(disputePda: string) {
     super(
       `Dispute not found: ${disputePda}`,
-      RuntimeErrorCodes.DISPUTE_NOT_FOUND
+      RuntimeErrorCodes.DISPUTE_NOT_FOUND,
     );
-    this.name = 'DisputeNotFoundError';
+    this.name = "DisputeNotFoundError";
     this.disputePda = disputePda;
   }
 }
@@ -37,9 +37,9 @@ export class DisputeVoteError extends RuntimeError {
   constructor(disputePda: string, reason: string) {
     super(
       `Dispute vote failed for ${disputePda}: ${reason}`,
-      RuntimeErrorCodes.DISPUTE_VOTE_ERROR
+      RuntimeErrorCodes.DISPUTE_VOTE_ERROR,
     );
-    this.name = 'DisputeVoteError';
+    this.name = "DisputeVoteError";
     this.disputePda = disputePda;
     this.reason = reason;
   }
@@ -57,9 +57,9 @@ export class DisputeResolutionError extends RuntimeError {
   constructor(disputePda: string, reason: string) {
     super(
       `Dispute resolution failed for ${disputePda}: ${reason}`,
-      RuntimeErrorCodes.DISPUTE_RESOLUTION_ERROR
+      RuntimeErrorCodes.DISPUTE_RESOLUTION_ERROR,
     );
-    this.name = 'DisputeResolutionError';
+    this.name = "DisputeResolutionError";
     this.disputePda = disputePda;
     this.reason = reason;
   }
@@ -77,9 +77,9 @@ export class DisputeSlashError extends RuntimeError {
   constructor(disputePda: string, reason: string) {
     super(
       `Dispute slash failed for ${disputePda}: ${reason}`,
-      RuntimeErrorCodes.DISPUTE_SLASH_ERROR
+      RuntimeErrorCodes.DISPUTE_SLASH_ERROR,
     );
-    this.name = 'DisputeSlashError';
+    this.name = "DisputeSlashError";
     this.disputePda = disputePda;
     this.reason = reason;
   }

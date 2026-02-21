@@ -44,14 +44,23 @@ import {
   getDefaultDeadline,
   deriveProgramDataPda,
 } from "./test-utils";
-import { createLiteSVMContext, fundAccount, advanceClock } from "./litesvm-helpers";
+import {
+  createLiteSVMContext,
+  fundAccount,
+  advanceClock,
+} from "./litesvm-helpers";
 
 describe("spl-token-tasks (issue #860)", () => {
-  const { svm, provider, program, payer: payerKp } = createLiteSVMContext({ splTokens: true });
+  const {
+    svm,
+    provider,
+    program,
+    payer: payerKp,
+  } = createLiteSVMContext({ splTokens: true });
 
   const [protocolPda] = PublicKey.findProgramAddressSync(
     [Buffer.from("protocol")],
-    program.programId
+    program.programId,
   );
 
   const runId =
@@ -109,42 +118,42 @@ describe("spl-token-tasks (issue #860)", () => {
   const deriveAgentPda = (agentId: Buffer) =>
     PublicKey.findProgramAddressSync(
       [Buffer.from("agent"), agentId],
-      program.programId
+      program.programId,
     )[0];
 
   const deriveTaskPda = (creatorKey: PublicKey, taskId: Buffer) =>
     PublicKey.findProgramAddressSync(
       [Buffer.from("task"), creatorKey.toBuffer(), taskId],
-      program.programId
+      program.programId,
     )[0];
 
   const deriveEscrowPda = (taskPda: PublicKey) =>
     PublicKey.findProgramAddressSync(
       [Buffer.from("escrow"), taskPda.toBuffer()],
-      program.programId
+      program.programId,
     )[0];
 
   const deriveClaimPda = (taskPda: PublicKey, workerPda: PublicKey) =>
     PublicKey.findProgramAddressSync(
       [Buffer.from("claim"), taskPda.toBuffer(), workerPda.toBuffer()],
-      program.programId
+      program.programId,
     )[0];
 
   const deriveDisputePda = (disputeId: Buffer) =>
     PublicKey.findProgramAddressSync(
       [Buffer.from("dispute"), disputeId],
-      program.programId
+      program.programId,
     )[0];
 
   const deriveVotePda = (disputePda: PublicKey, arbiterPda: PublicKey) =>
     PublicKey.findProgramAddressSync(
       [Buffer.from("vote"), disputePda.toBuffer(), arbiterPda.toBuffer()],
-      program.programId
+      program.programId,
     )[0];
 
   const deriveAuthorityVotePda = (
     disputePda: PublicKey,
-    authorityPubkey: PublicKey
+    authorityPubkey: PublicKey,
   ) =>
     PublicKey.findProgramAddressSync(
       [
@@ -152,7 +161,7 @@ describe("spl-token-tasks (issue #860)", () => {
         disputePda.toBuffer(),
         authorityPubkey.toBuffer(),
       ],
-      program.programId
+      program.programId,
     )[0];
 
   /** Derive escrow's ATA for the given mint (allowOwnerOffCurve for PDA) */
@@ -167,7 +176,7 @@ describe("spl-token-tasks (issue #860)", () => {
 
   const airdrop = (
     wallets: Keypair[],
-    amount: number = 20 * LAMPORTS_PER_SOL
+    amount: number = 20 * LAMPORTS_PER_SOL,
   ) => {
     for (const wallet of wallets) {
       fundAccount(svm, wallet.publicKey, amount);
@@ -178,16 +187,15 @@ describe("spl-token-tasks (issue #860)", () => {
 
   const ensureProtocol = async () => {
     try {
-      const config =
-        await program.account.protocolConfig.fetch(protocolPda);
+      const config = await program.account.protocolConfig.fetch(protocolPda);
       treasuryPubkey = config.treasury;
       minAgentStake = Math.max(
         config.minAgentStake.toNumber(),
-        LAMPORTS_PER_SOL
+        LAMPORTS_PER_SOL,
       );
       minArbiterStake = Math.max(
         config.minArbiterStake.toNumber(),
-        minAgentStake
+        minAgentStake,
       );
     } catch {
       const minStake = new BN(LAMPORTS_PER_SOL);
@@ -199,7 +207,7 @@ describe("spl-token-tasks (issue #860)", () => {
           minStake,
           minStakeForDispute,
           1,
-          [provider.wallet.publicKey, secondSigner.publicKey]
+          [provider.wallet.publicKey, secondSigner.publicKey],
         )
         .accountsPartial({
           protocolConfig: protocolPda,
@@ -230,7 +238,7 @@ describe("spl-token-tasks (issue #860)", () => {
           0,
           new BN(0),
           0,
-          new BN(LAMPORTS_PER_SOL / 100)
+          new BN(LAMPORTS_PER_SOL / 100),
         )
         .accountsPartial({ protocolConfig: protocolPda })
         .remainingAccounts([
@@ -250,7 +258,7 @@ describe("spl-token-tasks (issue #860)", () => {
     agentId: Buffer,
     authority: Keypair,
     capabilities: number,
-    stake: number = 0
+    stake: number = 0,
   ) => {
     const agentPda = deriveAgentPda(agentId);
     try {
@@ -262,7 +270,7 @@ describe("spl-token-tasks (issue #860)", () => {
           new BN(capabilities),
           "https://example.com",
           null,
-          new BN(stake)
+          new BN(stake),
         )
         .accountsPartial({
           agent: agentPda,
@@ -302,7 +310,7 @@ describe("spl-token-tasks (issue #860)", () => {
         opts.taskType ?? TASK_TYPE_EXCLUSIVE,
         opts.constraintHash ?? null,
         0,
-        opts.tokenMint
+        opts.tokenMint,
       )
       .accountsPartial({
         task: taskPda,
@@ -328,7 +336,7 @@ describe("spl-token-tasks (issue #860)", () => {
   async function claimTask(
     taskPda: PublicKey,
     workerAgentPda: PublicKey,
-    workerKp: Keypair
+    workerKp: Keypair,
   ) {
     const claimPda = deriveClaimPda(taskPda, workerAgentPda);
     await program.methods
@@ -360,7 +368,7 @@ describe("spl-token-tasks (issue #860)", () => {
     await program.methods
       .completeTask(
         Array.from(Buffer.from("proof-hash".padEnd(32, "\0"))),
-        Buffer.from("result-data".padEnd(64, "\0"))
+        Buffer.from("result-data".padEnd(64, "\0")),
       )
       .accountsPartial({
         task: opts.taskPda,
@@ -418,12 +426,42 @@ describe("spl-token-tasks (issue #860)", () => {
     await ensureProtocol();
 
     // Register agents
-    await registerAgent(creatorAgentId, creator, CAPABILITY_COMPUTE, minAgentStake);
-    await registerAgent(workerAgentId, worker, CAPABILITY_COMPUTE, minAgentStake);
-    await registerAgent(worker2AgentId, worker2, CAPABILITY_COMPUTE, minAgentStake);
-    await registerAgent(arbiter1AgentId, arbiter1, CAPABILITY_ARBITER, minArbiterStake);
-    await registerAgent(arbiter2AgentId, arbiter2, CAPABILITY_ARBITER, minArbiterStake);
-    await registerAgent(arbiter3AgentId, arbiter3, CAPABILITY_ARBITER, minArbiterStake);
+    await registerAgent(
+      creatorAgentId,
+      creator,
+      CAPABILITY_COMPUTE,
+      minAgentStake,
+    );
+    await registerAgent(
+      workerAgentId,
+      worker,
+      CAPABILITY_COMPUTE,
+      minAgentStake,
+    );
+    await registerAgent(
+      worker2AgentId,
+      worker2,
+      CAPABILITY_COMPUTE,
+      minAgentStake,
+    );
+    await registerAgent(
+      arbiter1AgentId,
+      arbiter1,
+      CAPABILITY_ARBITER,
+      minArbiterStake,
+    );
+    await registerAgent(
+      arbiter2AgentId,
+      arbiter2,
+      CAPABILITY_ARBITER,
+      minArbiterStake,
+    );
+    await registerAgent(
+      arbiter3AgentId,
+      arbiter3,
+      CAPABILITY_ARBITER,
+      minArbiterStake,
+    );
 
     // Create 9-decimal test mint
     mint = await createMint(
@@ -431,7 +469,7 @@ describe("spl-token-tasks (issue #860)", () => {
       payer(),
       payer().publicKey,
       null,
-      9
+      9,
     );
 
     // Create ATAs
@@ -439,25 +477,25 @@ describe("spl-token-tasks (issue #860)", () => {
       provider.connection,
       payer(),
       mint,
-      creator.publicKey
+      creator.publicKey,
     );
     workerAta = await createAssociatedTokenAccount(
       provider.connection,
       payer(),
       mint,
-      worker.publicKey
+      worker.publicKey,
     );
     worker2Ata = await createAssociatedTokenAccount(
       provider.connection,
       payer(),
       mint,
-      worker2.publicKey
+      worker2.publicKey,
     );
     treasuryAta = await createAssociatedTokenAccount(
       provider.connection,
       payer(),
       mint,
-      treasuryPubkey
+      treasuryPubkey,
     );
 
     // Mint 100 tokens (100 * 10^9) to creator
@@ -467,7 +505,7 @@ describe("spl-token-tasks (issue #860)", () => {
       mint,
       creatorAta,
       payer(),
-      100_000_000_000n
+      100_000_000_000n,
     );
 
     // Create 0-decimal mint + ATAs for edge case
@@ -476,25 +514,25 @@ describe("spl-token-tasks (issue #860)", () => {
       payer(),
       payer().publicKey,
       null,
-      0
+      0,
     );
     zeroDecCreatorAta = await createAssociatedTokenAccount(
       provider.connection,
       payer(),
       zeroDecMint,
-      creator.publicKey
+      creator.publicKey,
     );
     zeroDecWorkerAta = await createAssociatedTokenAccount(
       provider.connection,
       payer(),
       zeroDecMint,
-      worker.publicKey
+      worker.publicKey,
     );
     zeroDecTreasuryAta = await createAssociatedTokenAccount(
       provider.connection,
       payer(),
       zeroDecMint,
-      treasuryPubkey
+      treasuryPubkey,
     );
 
     // Mint 1000 whole tokens to creator (0-decimal)
@@ -504,7 +542,7 @@ describe("spl-token-tasks (issue #860)", () => {
       zeroDecMint,
       zeroDecCreatorAta,
       payer(),
-      1000n
+      1000n,
     );
   });
 
@@ -598,14 +636,10 @@ describe("spl-token-tasks (issue #860)", () => {
       const treasuryAfter = await getTokenBalance(treasuryAta);
 
       // Fee: floor(10_000_000_000 * 100 / 10000) = 100_000_000 (0.1 token)
-      const expectedFee = Math.floor(
-        (rewardAmount * PROTOCOL_FEE_BPS) / 10000
-      );
+      const expectedFee = Math.floor((rewardAmount * PROTOCOL_FEE_BPS) / 10000);
       const expectedWorkerReward = rewardAmount - expectedFee;
 
-      expect(Number(workerAfter - workerBefore)).to.equal(
-        expectedWorkerReward
-      );
+      expect(Number(workerAfter - workerBefore)).to.equal(expectedWorkerReward);
       expect(Number(treasuryAfter - treasuryBefore)).to.equal(expectedFee);
     });
 
@@ -669,7 +703,7 @@ describe("spl-token-tasks (issue #860)", () => {
           TASK_TYPE_EXCLUSIVE,
           null,
           0,
-          null
+          null,
         )
         .accountsPartial({
           task: parentTaskPda,
@@ -706,7 +740,7 @@ describe("spl-token-tasks (issue #860)", () => {
           null,
           1, // DependencyType::Data
           0,
-          mint
+          mint,
         )
         .accountsPartial({
           task: childTaskPda,
@@ -759,7 +793,7 @@ describe("spl-token-tasks (issue #860)", () => {
           TASK_TYPE_EXCLUSIVE,
           null,
           0,
-          null // No reward_mint = SOL path
+          null, // No reward_mint = SOL path
         )
         .accountsPartial({
           task: taskPda,
@@ -803,7 +837,7 @@ describe("spl-token-tasks (issue #860)", () => {
             TASK_TYPE_EXCLUSIVE,
             null,
             0,
-            mint // reward_mint specified
+            mint, // reward_mint specified
           )
           .accountsPartial({
             task: taskPda,
@@ -833,13 +867,18 @@ describe("spl-token-tasks (issue #860)", () => {
       const poorCreator = Keypair.generate();
       const poorAgentId = makeId("poor");
       await airdrop([poorCreator]);
-      await registerAgent(poorAgentId, poorCreator, CAPABILITY_COMPUTE, minAgentStake);
+      await registerAgent(
+        poorAgentId,
+        poorCreator,
+        CAPABILITY_COMPUTE,
+        minAgentStake,
+      );
 
       const poorAta = await createAssociatedTokenAccount(
         provider.connection,
         payer(),
         mint,
-        poorCreator.publicKey
+        poorCreator.publicKey,
       );
       // Do NOT mint any tokens to poorAta
 
@@ -861,7 +900,7 @@ describe("spl-token-tasks (issue #860)", () => {
             TASK_TYPE_EXCLUSIVE,
             null,
             0,
-            mint
+            mint,
           )
           .accountsPartial({
             task: taskPda,
@@ -924,11 +963,9 @@ describe("spl-token-tasks (issue #860)", () => {
       });
 
       const workerAfter = await getTokenBalance(workerAta);
-      const expectedFee = Math.floor(
-        (rewardAmount * PROTOCOL_FEE_BPS) / 10000
-      );
+      const expectedFee = Math.floor((rewardAmount * PROTOCOL_FEE_BPS) / 10000);
       expect(Number(workerAfter - workerBefore)).to.equal(
-        rewardAmount - expectedFee
+        rewardAmount - expectedFee,
       );
 
       // Verify task is completed — second worker cannot complete
@@ -1013,17 +1050,11 @@ describe("spl-token-tasks (issue #860)", () => {
 
       // Each worker gets reward / maxWorkers, minus fee
       const perWorker = Math.floor(rewardAmount / 2);
-      const feePerWorker = Math.floor(
-        (perWorker * PROTOCOL_FEE_BPS) / 10000
-      );
+      const feePerWorker = Math.floor((perWorker * PROTOCOL_FEE_BPS) / 10000);
       const expectedPerWorker = perWorker - feePerWorker;
 
-      expect(Number(worker1After - worker1Before)).to.equal(
-        expectedPerWorker
-      );
-      expect(Number(worker2After - worker2Before)).to.equal(
-        expectedPerWorker
-      );
+      expect(Number(worker1After - worker1Before)).to.equal(expectedPerWorker);
+      expect(Number(worker2After - worker2Before)).to.equal(expectedPerWorker);
     });
 
     it("should handle minimum reward amount (1 unit, fee rounds to 0)", async () => {
@@ -1088,7 +1119,7 @@ describe("spl-token-tasks (issue #860)", () => {
           TASK_TYPE_EXCLUSIVE,
           null,
           0,
-          zeroDecMint
+          zeroDecMint,
         )
         .accountsPartial({
           task: taskPda,
@@ -1114,7 +1145,7 @@ describe("spl-token-tasks (issue #860)", () => {
       await program.methods
         .completeTask(
           Array.from(Buffer.from("proof-hash-0dec".padEnd(32, "\0"))),
-          Buffer.from("result-0dec".padEnd(64, "\0"))
+          Buffer.from("result-0dec".padEnd(64, "\0")),
         )
         .accountsPartial({
           task: taskPda,
@@ -1138,11 +1169,9 @@ describe("spl-token-tasks (issue #860)", () => {
       const workerAfter = await getTokenBalance(zeroDecWorkerAta);
 
       // fee = floor(100 * 100 / 10000) = 1 token
-      const expectedFee = Math.floor(
-        (rewardAmount * PROTOCOL_FEE_BPS) / 10000
-      );
+      const expectedFee = Math.floor((rewardAmount * PROTOCOL_FEE_BPS) / 10000);
       expect(Number(workerAfter - workerBefore)).to.equal(
-        rewardAmount - expectedFee
+        rewardAmount - expectedFee,
       );
     });
   });
@@ -1171,7 +1200,7 @@ describe("spl-token-tasks (issue #860)", () => {
 
       // Record SOL balances before completion
       const workerSolBefore = await provider.connection.getBalance(
-        worker.publicKey
+        worker.publicKey,
       );
       const treasurySolBefore =
         await provider.connection.getBalance(treasuryPubkey);
@@ -1196,11 +1225,9 @@ describe("spl-token-tasks (issue #860)", () => {
         await provider.connection.getBalance(treasuryPubkey);
 
       // Token fee should be collected
-      const expectedFee = Math.floor(
-        (rewardAmount * PROTOCOL_FEE_BPS) / 10000
-      );
+      const expectedFee = Math.floor((rewardAmount * PROTOCOL_FEE_BPS) / 10000);
       expect(Number(treasuryTokenAfter - treasuryTokenBefore)).to.equal(
-        expectedFee
+        expectedFee,
       );
 
       // Treasury SOL balance should be unchanged (no SOL fees)
@@ -1210,7 +1237,7 @@ describe("spl-token-tasks (issue #860)", () => {
       // Worker pays tx fee but may receive rent back from closed accounts
       // (claim PDA and escrow PDA), so net change could be slightly positive.
       const workerSolAfter = await provider.connection.getBalance(
-        worker.publicKey
+        worker.publicKey,
       );
       const solDiff = Math.abs(workerSolBefore - workerSolAfter);
       // The SOL change should be well under 1 SOL (just tx fees + rent refunds)
@@ -1252,11 +1279,7 @@ describe("spl-token-tasks (issue #860)", () => {
       disputeEscrowPda = result.escrowPda;
       disputeEscrowAta = result.escrowAta;
 
-      disputeClaimPda = await claimTask(
-        disputeTaskPda,
-        workerAgentPda,
-        worker
-      );
+      disputeClaimPda = await claimTask(disputeTaskPda, workerAgentPda, worker);
 
       sharedDisputeId = makeId("d-tok");
       sharedDisputePda = deriveDisputePda(sharedDisputeId);
@@ -1269,7 +1292,7 @@ describe("spl-token-tasks (issue #860)", () => {
           Array.from(disputeTaskId),
           Array.from(Buffer.from("evidence-hash".padEnd(32, "\0"))),
           RESOLUTION_TYPE_REFUND,
-          VALID_EVIDENCE
+          VALID_EVIDENCE,
         )
         .accountsPartial({
           dispute: sharedDisputePda,
@@ -1294,7 +1317,7 @@ describe("spl-token-tasks (issue #860)", () => {
       const votePda = deriveVotePda(sharedDisputePda, arbiter1Pda);
       const authorityVotePda = deriveAuthorityVotePda(
         sharedDisputePda,
-        arbiter1.publicKey
+        arbiter1.publicKey,
       );
 
       // Check if voting period has already ended
@@ -1322,9 +1345,8 @@ describe("spl-token-tasks (issue #860)", () => {
         .signers([arbiter1])
         .rpc();
 
-      const disputeAfter = await program.account.dispute.fetch(
-        sharedDisputePda
-      );
+      const disputeAfter =
+        await program.account.dispute.fetch(sharedDisputePda);
       expect(disputeAfter.votesFor.toNumber()).to.be.greaterThan(0);
     });
 
@@ -1397,7 +1419,7 @@ describe("spl-token-tasks (issue #860)", () => {
           Array.from(taskId),
           Array.from(Buffer.from("slash-evidence-hash".padEnd(32, "\0"))),
           RESOLUTION_TYPE_REFUND,
-          VALID_EVIDENCE
+          VALID_EVIDENCE,
         )
         .accountsPartial({
           dispute: disputePda,
@@ -1424,7 +1446,7 @@ describe("spl-token-tasks (issue #860)", () => {
         const view = new DataView(
           patchedData.buffer,
           patchedData.byteOffset,
-          patchedData.byteLength
+          patchedData.byteLength,
         );
         view.setBigInt64(203, BigInt(currentClock + 3600), true); // voting_deadline
         view.setBigInt64(211, BigInt(currentClock + 7200), true); // expires_at
@@ -1443,7 +1465,7 @@ describe("spl-token-tasks (issue #860)", () => {
         const votePda = deriveVotePda(disputePda, arbiter.pda);
         const authorityVotePda = deriveAuthorityVotePda(
           disputePda,
-          arbiter.kp.publicKey
+          arbiter.kp.publicKey,
         );
         await program.methods
           .voteDispute(true)
@@ -1471,25 +1493,29 @@ describe("spl-token-tasks (issue #860)", () => {
         1,
         (
           await program.account.dispute.fetch(disputePda)
-        ).votingDeadline.toNumber() - Number(svm.getClock().unixTimestamp) + 1
+        ).votingDeadline.toNumber() -
+          Number(svm.getClock().unixTimestamp) +
+          1,
       );
       advanceClock(svm, secondsUntilVotingEnds);
 
-      const disputeBeforeResolve = await program.account.dispute.fetch(disputePda);
+      const disputeBeforeResolve =
+        await program.account.dispute.fetch(disputePda);
       const config = await program.account.protocolConfig.fetch(protocolPda);
       const taskBeforeResolve = await program.account.task.fetch(taskPda);
-      const workerBeforeResolve = await program.account.agentRegistration.fetch(
-        workerAgentPda
-      );
+      const workerBeforeResolve =
+        await program.account.agentRegistration.fetch(workerAgentPda);
       const expectedSlash = Math.floor(
         (disputeBeforeResolve.workerStakeAtDispute.toNumber() *
           config.slashPercentage) /
-          100
+          100,
       );
       const expectedReserved = Math.min(expectedSlash, rewardAmount);
       expect(workerBeforeResolve.stake.toNumber()).to.be.greaterThan(0);
       expect(expectedSlash).to.be.greaterThan(0);
-      expect(taskBeforeResolve.rewardMint?.toBase58()).to.equal(mint.toBase58());
+      expect(taskBeforeResolve.rewardMint?.toBase58()).to.equal(
+        mint.toBase58(),
+      );
 
       const creatorBeforeResolve = await getTokenBalance(creatorAta);
       const treasuryBeforeResolve = await getTokenBalance(treasuryAta);
@@ -1536,20 +1562,18 @@ describe("spl-token-tasks (issue #860)", () => {
         ])
         .rpc();
 
-      const escrowPdaInfoAfterResolve = await provider.connection.getAccountInfo(
-        escrowPda
-      );
+      const escrowPdaInfoAfterResolve =
+        await provider.connection.getAccountInfo(escrowPda);
       expect(
         escrowPdaInfoAfterResolve,
-        "escrow PDA unexpectedly closed during resolve"
+        "escrow PDA unexpectedly closed during resolve",
       ).to.not.equal(null);
 
-      const escrowAtaInfoAfterResolve = await provider.connection.getAccountInfo(
-        escrowAta
-      );
+      const escrowAtaInfoAfterResolve =
+        await provider.connection.getAccountInfo(escrowAta);
       expect(
         escrowAtaInfoAfterResolve,
-        "escrow ATA unexpectedly closed during resolve"
+        "escrow ATA unexpectedly closed during resolve",
       ).to.not.equal(null);
 
       const creatorAfterResolve = await getTokenBalance(creatorAta);
@@ -1557,7 +1581,7 @@ describe("spl-token-tasks (issue #860)", () => {
       const escrowAfterResolve = await getTokenBalance(escrowAta);
 
       expect(Number(creatorAfterResolve - creatorBeforeResolve)).to.equal(
-        rewardAmount - expectedReserved
+        rewardAmount - expectedReserved,
       );
       expect(Number(treasuryAfterResolve - treasuryBeforeResolve)).to.equal(0);
       expect(Number(escrowAfterResolve)).to.equal(expectedReserved);
@@ -1565,13 +1589,12 @@ describe("spl-token-tasks (issue #860)", () => {
       const escrowState = await program.account.taskEscrow.fetch(escrowPda);
       expect(escrowState.isClosed).to.equal(false);
       expect(escrowState.distributed.toNumber()).to.equal(
-        rewardAmount - expectedReserved
+        rewardAmount - expectedReserved,
       );
 
       const treasuryBeforeSlash = await getTokenBalance(treasuryAta);
-      const workerBeforeSlash = await program.account.agentRegistration.fetch(
-        workerAgentPda
-      );
+      const workerBeforeSlash =
+        await program.account.agentRegistration.fetch(workerAgentPda);
 
       await program.methods
         .applyDisputeSlash()
@@ -1595,18 +1618,19 @@ describe("spl-token-tasks (issue #860)", () => {
 
       const treasuryAfterSlash = await getTokenBalance(treasuryAta);
       expect(Number(treasuryAfterSlash - treasuryBeforeSlash)).to.equal(
-        expectedReserved
+        expectedReserved,
       );
 
-      const workerAfterSlash = await program.account.agentRegistration.fetch(
-        workerAgentPda
-      );
+      const workerAfterSlash =
+        await program.account.agentRegistration.fetch(workerAgentPda);
       expect(
-        workerBeforeSlash.stake.sub(workerAfterSlash.stake).toNumber()
+        workerBeforeSlash.stake.sub(workerAfterSlash.stake).toNumber(),
       ).to.equal(expectedSlash);
 
-      const escrowPdaAccount = await provider.connection.getAccountInfo(escrowPda);
-      const escrowAtaAccount = await provider.connection.getAccountInfo(escrowAta);
+      const escrowPdaAccount =
+        await provider.connection.getAccountInfo(escrowPda);
+      const escrowAtaAccount =
+        await provider.connection.getAccountInfo(escrowAta);
       expect(escrowPdaAccount).to.equal(null);
       expect(escrowAtaAccount).to.equal(null);
     });

@@ -10,21 +10,24 @@
  * @module
  */
 
-import { BaseChannelPlugin } from '../../gateway/channel.js';
-import type { WebhookRouter } from '../../gateway/channel.js';
-import type { OutboundMessage, MessageAttachment } from '../../gateway/message.js';
-import { createGatewayMessage } from '../../gateway/message.js';
-import { GatewayConnectionError } from '../../gateway/errors.js';
-import { DEFAULT_MAX_ATTACHMENT_BYTES } from '../../gateway/media.js';
-import { ensureLazyModule } from '../../utils/lazy-import.js';
-import type { WhatsAppChannelConfig } from './types.js';
+import { BaseChannelPlugin } from "../../gateway/channel.js";
+import type { WebhookRouter } from "../../gateway/channel.js";
+import type {
+  OutboundMessage,
+  MessageAttachment,
+} from "../../gateway/message.js";
+import { createGatewayMessage } from "../../gateway/message.js";
+import { GatewayConnectionError } from "../../gateway/errors.js";
+import { DEFAULT_MAX_ATTACHMENT_BYTES } from "../../gateway/media.js";
+import { ensureLazyModule } from "../../utils/lazy-import.js";
+import type { WhatsAppChannelConfig } from "./types.js";
 
 // ============================================================================
 // Constants
 // ============================================================================
 
-const SESSION_PREFIX = 'whatsapp';
-const BUSINESS_API_BASE = 'https://graph.facebook.com/v21.0';
+const SESSION_PREFIX = "whatsapp";
+const BUSINESS_API_BASE = "https://graph.facebook.com/v21.0";
 
 // ============================================================================
 // @whiskeysockets/baileys type shims (loaded lazily)
@@ -49,10 +52,29 @@ interface BaileysMessage {
   message?: {
     conversation?: string;
     extendedTextMessage?: { text?: string };
-    imageMessage?: { url?: string; mimetype?: string; fileLength?: number | bigint; caption?: string };
-    documentMessage?: { url?: string; mimetype?: string; fileName?: string; fileLength?: number | bigint };
-    audioMessage?: { url?: string; mimetype?: string; fileLength?: number | bigint };
-    videoMessage?: { url?: string; mimetype?: string; fileLength?: number | bigint; caption?: string };
+    imageMessage?: {
+      url?: string;
+      mimetype?: string;
+      fileLength?: number | bigint;
+      caption?: string;
+    };
+    documentMessage?: {
+      url?: string;
+      mimetype?: string;
+      fileName?: string;
+      fileLength?: number | bigint;
+    };
+    audioMessage?: {
+      url?: string;
+      mimetype?: string;
+      fileLength?: number | bigint;
+    };
+    videoMessage?: {
+      url?: string;
+      mimetype?: string;
+      fileLength?: number | bigint;
+      caption?: string;
+    };
   };
   pushName?: string;
 }
@@ -92,7 +114,7 @@ export class WhatsAppChannel extends BaseChannelPlugin {
   // --------------------------------------------------------------------------
 
   async start(): Promise<void> {
-    if (this.config.mode === 'baileys') {
+    if (this.config.mode === "baileys") {
       await this.startBaileys();
     } else {
       this.startBusinessApi();
@@ -117,26 +139,28 @@ export class WhatsAppChannel extends BaseChannelPlugin {
   // --------------------------------------------------------------------------
 
   registerWebhooks(router: WebhookRouter): void {
-    if (this.config.mode !== 'business-api') return;
+    if (this.config.mode !== "business-api") return;
 
-    router.get('/verify', async (req) => {
-      const mode = req.query['hub.mode'];
-      const token = req.query['hub.verify_token'];
-      const challenge = req.query['hub.challenge'];
+    router.get("/verify", async (req) => {
+      const mode = req.query["hub.mode"];
+      const token = req.query["hub.verify_token"];
+      const challenge = req.query["hub.challenge"];
 
-      if (mode === 'subscribe' && token === this.config.webhookVerifyToken) {
+      if (mode === "subscribe" && token === this.config.webhookVerifyToken) {
         return { status: 200, body: challenge };
       }
-      return { status: 403, body: 'Forbidden' };
+      return { status: 403, body: "Forbidden" };
     });
 
-    router.post('/incoming', async (req) => {
+    router.post("/incoming", async (req) => {
       try {
         await this.handleBusinessApiWebhook(req.body);
       } catch (err) {
-        this.context.logger.error(`Error handling WhatsApp webhook: ${errorMessage(err)}`);
+        this.context.logger.error(
+          `Error handling WhatsApp webhook: ${errorMessage(err)}`,
+        );
       }
-      return { status: 200, body: 'OK' };
+      return { status: 200, body: "OK" };
     });
   }
 
@@ -147,18 +171,22 @@ export class WhatsAppChannel extends BaseChannelPlugin {
   async send(message: OutboundMessage): Promise<void> {
     const target = this.sessionMap.get(message.sessionId);
     if (!target) {
-      this.context.logger.warn(`Cannot resolve target for session: ${message.sessionId}`);
+      this.context.logger.warn(
+        `Cannot resolve target for session: ${message.sessionId}`,
+      );
       return;
     }
 
     try {
-      if (this.config.mode === 'baileys') {
+      if (this.config.mode === "baileys") {
         await this.sendBaileys(target, message.content);
       } else {
         await this.sendBusinessApi(target, message.content);
       }
     } catch (err) {
-      this.context.logger.error(`Failed to send message to ${message.sessionId}: ${errorMessage(err)}`);
+      this.context.logger.error(
+        `Failed to send message to ${message.sessionId}: ${errorMessage(err)}`,
+      );
     }
   }
 
@@ -168,12 +196,12 @@ export class WhatsAppChannel extends BaseChannelPlugin {
 
   private async startBaileys(): Promise<void> {
     const mod = await ensureLazyModule<BaileysModule>(
-      '@whiskeysockets/baileys',
+      "@whiskeysockets/baileys",
       (msg) => new GatewayConnectionError(msg),
       (m) => m as unknown as BaileysModule,
     );
 
-    const sessionPath = this.config.sessionPath ?? './whatsapp-session';
+    const sessionPath = this.config.sessionPath ?? "./whatsapp-session";
     const { state, saveCreds } = await mod.useMultiFileAuthState(sessionPath);
 
     const socket = mod.default({
@@ -182,28 +210,35 @@ export class WhatsAppChannel extends BaseChannelPlugin {
     });
     this.socket = socket;
 
-    socket.ev.on('creds.update', () => {
+    socket.ev.on("creds.update", () => {
       saveCreds().catch((err) => {
-        this.context.logger.error(`Failed to save credentials: ${errorMessage(err)}`);
+        this.context.logger.error(
+          `Failed to save credentials: ${errorMessage(err)}`,
+        );
       });
     });
 
-    socket.ev.on('connection.update', (update: unknown) => {
-      const u = update as { connection?: string; lastDisconnect?: { error?: Error } };
-      if (u.connection === 'open') {
+    socket.ev.on("connection.update", (update: unknown) => {
+      const u = update as {
+        connection?: string;
+        lastDisconnect?: { error?: Error };
+      };
+      if (u.connection === "open") {
         this.healthy = true;
-        this.context.logger.info('WhatsApp connected via Baileys');
-      } else if (u.connection === 'close') {
+        this.context.logger.info("WhatsApp connected via Baileys");
+      } else if (u.connection === "close") {
         this.healthy = false;
-        this.context.logger.warn('WhatsApp connection closed');
+        this.context.logger.warn("WhatsApp connection closed");
       }
     });
 
-    socket.ev.on('messages.upsert', (upsert: unknown) => {
+    socket.ev.on("messages.upsert", (upsert: unknown) => {
       const { messages } = upsert as { messages: BaileysMessage[] };
       for (const msg of messages) {
         this.handleBaileysMessage(msg).catch((err) => {
-          this.context.logger.error(`Error handling WhatsApp message: ${errorMessage(err)}`);
+          this.context.logger.error(
+            `Error handling WhatsApp message: ${errorMessage(err)}`,
+          );
         });
       }
     });
@@ -215,7 +250,7 @@ export class WhatsAppChannel extends BaseChannelPlugin {
     if (!msg.message) return;
 
     const jid = msg.key.remoteJid;
-    const phone = jid.split('@')[0];
+    const phone = jid.split("@")[0];
 
     if (this.config.allowedNumbers && this.config.allowedNumbers.length > 0) {
       if (!this.config.allowedNumbers.includes(phone)) return;
@@ -238,31 +273,44 @@ export class WhatsAppChannel extends BaseChannelPlugin {
         remoteJid: jid,
         messageId: msg.key.id,
       },
-      scope: 'dm',
+      scope: "dm",
     });
 
     await this.context.onMessage(gateway);
   }
 
   private extractBaileysText(msg: BaileysMessage): string {
-    if (!msg.message) return '';
-    return msg.message.conversation
-      ?? msg.message.extendedTextMessage?.text
-      ?? msg.message.imageMessage?.caption
-      ?? msg.message.videoMessage?.caption
-      ?? '';
+    if (!msg.message) return "";
+    return (
+      msg.message.conversation ??
+      msg.message.extendedTextMessage?.text ??
+      msg.message.imageMessage?.caption ??
+      msg.message.videoMessage?.caption ??
+      ""
+    );
   }
 
   private extractBaileysAttachments(msg: BaileysMessage): MessageAttachment[] {
     if (!msg.message) return [];
-    const maxBytes = this.config.maxAttachmentBytes ?? DEFAULT_MAX_ATTACHMENT_BYTES;
+    const maxBytes =
+      this.config.maxAttachmentBytes ?? DEFAULT_MAX_ATTACHMENT_BYTES;
     const result: MessageAttachment[] = [];
 
-    const checks: Array<{ data: { url?: string; mimetype?: string; fileLength?: number | bigint; fileName?: string } | undefined; type: string }> = [
-      { data: msg.message.imageMessage, type: 'image' },
-      { data: msg.message.audioMessage, type: 'audio' },
-      { data: msg.message.videoMessage, type: 'video' },
-      { data: msg.message.documentMessage, type: 'file' },
+    const checks: Array<{
+      data:
+        | {
+            url?: string;
+            mimetype?: string;
+            fileLength?: number | bigint;
+            fileName?: string;
+          }
+        | undefined;
+      type: string;
+    }> = [
+      { data: msg.message.imageMessage, type: "image" },
+      { data: msg.message.audioMessage, type: "audio" },
+      { data: msg.message.videoMessage, type: "video" },
+      { data: msg.message.documentMessage, type: "file" },
     ];
 
     for (const { data, type } of checks) {
@@ -273,7 +321,7 @@ export class WhatsAppChannel extends BaseChannelPlugin {
       result.push({
         type,
         url: data.url,
-        mimeType: data.mimetype ?? 'application/octet-stream',
+        mimeType: data.mimetype ?? "application/octet-stream",
         filename: (data as { fileName?: string }).fileName,
         sizeBytes: size || undefined,
       });
@@ -284,7 +332,9 @@ export class WhatsAppChannel extends BaseChannelPlugin {
 
   private async sendBaileys(jid: string, text: string): Promise<void> {
     if (!this.socket) {
-      this.context.logger.warn('Cannot send message: WhatsApp socket is not connected');
+      this.context.logger.warn(
+        "Cannot send message: WhatsApp socket is not connected",
+      );
       return;
     }
     await this.socket.sendMessage(jid, { text });
@@ -297,11 +347,13 @@ export class WhatsAppChannel extends BaseChannelPlugin {
   private startBusinessApi(): void {
     if (!this.config.phoneNumberId || !this.config.accessToken) {
       throw new GatewayConnectionError(
-        'WhatsApp Business API mode requires phoneNumberId and accessToken',
+        "WhatsApp Business API mode requires phoneNumberId and accessToken",
       );
     }
     this.healthy = true;
-    this.context.logger.info('WhatsApp Business API mode ready (webhook-based)');
+    this.context.logger.info(
+      "WhatsApp Business API mode ready (webhook-based)",
+    );
   }
 
   private async handleBusinessApiWebhook(body: unknown): Promise<void> {
@@ -332,7 +384,10 @@ export class WhatsAppChannel extends BaseChannelPlugin {
         for (const msg of messages) {
           const phone = msg.from;
 
-          if (this.config.allowedNumbers && this.config.allowedNumbers.length > 0) {
+          if (
+            this.config.allowedNumbers &&
+            this.config.allowedNumbers.length > 0
+          ) {
             if (!this.config.allowedNumbers.includes(phone)) continue;
           }
 
@@ -347,13 +402,13 @@ export class WhatsAppChannel extends BaseChannelPlugin {
             senderId: phone,
             senderName,
             sessionId,
-            content: msg.text?.body ?? '',
+            content: msg.text?.body ?? "",
             metadata: {
               messageId: msg.id,
               messageType: msg.type,
               phone,
             },
-            scope: 'dm',
+            scope: "dm",
           });
 
           await this.context.onMessage(gateway);
@@ -365,20 +420,22 @@ export class WhatsAppChannel extends BaseChannelPlugin {
   private async sendBusinessApi(phone: string, text: string): Promise<void> {
     const url = `${BUSINESS_API_BASE}/${this.config.phoneNumberId}/messages`;
     const response = await fetch(url, {
-      method: 'POST',
+      method: "POST",
       headers: {
-        'Authorization': `Bearer ${this.config.accessToken}`,
-        'Content-Type': 'application/json',
+        Authorization: `Bearer ${this.config.accessToken}`,
+        "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        messaging_product: 'whatsapp',
+        messaging_product: "whatsapp",
         to: phone,
         text: { body: text },
       }),
     });
 
     if (!response.ok) {
-      throw new Error(`WhatsApp Business API error: ${response.status} ${response.statusText}`);
+      throw new Error(
+        `WhatsApp Business API error: ${response.status} ${response.statusText}`,
+      );
     }
   }
 }

@@ -8,20 +8,17 @@
  * @module
  */
 
-import type { PublicKey } from '@solana/web3.js';
-import type { Logger } from '../utils/logger.js';
-import { silentLogger } from '../utils/logger.js';
+import type { PublicKey } from "@solana/web3.js";
+import type { Logger } from "../utils/logger.js";
+import { silentLogger } from "../utils/logger.js";
 import type {
   TaskExecutionResult,
   PrivateTaskExecutionResult,
   RetryPolicy,
-} from './types.js';
-import type { CommitmentLedger } from './commitment-ledger.js';
-import type { DependencyGraph } from './dependency-graph.js';
-import type {
-  ProofPipeline,
-  ProofGenerationJob,
-} from './proof-pipeline.js';
+} from "./types.js";
+import type { CommitmentLedger } from "./commitment-ledger.js";
+import type { DependencyGraph } from "./dependency-graph.js";
+import type { ProofPipeline, ProofGenerationJob } from "./proof-pipeline.js";
 
 // ============================================================================
 // Type Definitions
@@ -31,15 +28,15 @@ import type {
  * Status of a deferred proof in the lifecycle.
  */
 export type DeferredProofStatus =
-  | 'queued' // Queued for generation
-  | 'generating' // Proof generation in progress
-  | 'generated' // Proof ready, checking ancestors
-  | 'awaiting_ancestors' // Blocked waiting for ancestor confirmations
-  | 'submitting' // Proof submission in progress
-  | 'confirmed' // On-chain confirmation received
-  | 'failed' // Generation or submission failed
-  | 'timed_out' // Timed out waiting for ancestors
-  | 'cancelled'; // Cancelled due to ancestor failure
+  | "queued" // Queued for generation
+  | "generating" // Proof generation in progress
+  | "generated" // Proof ready, checking ancestors
+  | "awaiting_ancestors" // Blocked waiting for ancestor confirmations
+  | "submitting" // Proof submission in progress
+  | "confirmed" // On-chain confirmation received
+  | "failed" // Generation or submission failed
+  | "timed_out" // Timed out waiting for ancestors
+  | "cancelled"; // Cancelled due to ancestor failure
 
 /**
  * A deferred proof tracking the full lifecycle with ancestor awareness.
@@ -108,7 +105,10 @@ export interface ProofDeferralEvents {
   /** Called when proof is generated successfully */
   onProofGenerated?: (taskPda: PublicKey, proofSize: number) => void;
   /** Called when proof is awaiting ancestor confirmation */
-  onProofAwaitingAncestors?: (taskPda: PublicKey, ancestorCount: number) => void;
+  onProofAwaitingAncestors?: (
+    taskPda: PublicKey,
+    ancestorCount: number,
+  ) => void;
   /** Called when proof submission starts */
   onProofSubmitting?: (taskPda: PublicKey) => void;
   /** Called when proof is confirmed on-chain */
@@ -206,7 +206,7 @@ export class ProofDeferralManager {
     events: ProofDeferralEvents,
     commitmentLedger: CommitmentLedger,
     dependencyGraph: DependencyGraph,
-    proofPipeline: ProofPipeline
+    proofPipeline: ProofPipeline,
   ) {
     this.config = { ...DEFAULT_CONFIG, ...config };
     this.events = events;
@@ -229,10 +229,10 @@ export class ProofDeferralManager {
    */
   queueProof(
     taskPda: PublicKey,
-    result: TaskExecutionResult | PrivateTaskExecutionResult
+    result: TaskExecutionResult | PrivateTaskExecutionResult,
   ): void {
     if (this.isShuttingDown) {
-      throw new Error('Manager is shutting down, cannot queue new proofs');
+      throw new Error("Manager is shutting down, cannot queue new proofs");
     }
 
     const pdaKey = taskPda.toBase58();
@@ -251,7 +251,7 @@ export class ProofDeferralManager {
     const deferredProof: DeferredProof = {
       taskPda,
       taskId,
-      status: 'queued',
+      status: "queued",
       queuedAt: Date.now(),
       pendingAncestors,
       retryCount: 0,
@@ -260,7 +260,9 @@ export class ProofDeferralManager {
 
     this.deferredProofs.set(pdaKey, deferredProof);
 
-    this.logger.debug(`Proof queued for task ${pdaKey}, ${pendingAncestors.length} pending ancestors`);
+    this.logger.debug(
+      `Proof queued for task ${pdaKey}, ${pendingAncestors.length} pending ancestors`,
+    );
     this.events.onProofQueued?.(taskPda);
 
     // Start proof generation via the pipeline
@@ -285,15 +287,17 @@ export class ProofDeferralManager {
     }
 
     // Can only submit if proof is generated
-    if (proof.status !== 'generated' && proof.status !== 'awaiting_ancestors') {
-      this.logger.debug(`Proof ${pdaKey} not ready for submission (status: ${proof.status})`);
+    if (proof.status !== "generated" && proof.status !== "awaiting_ancestors") {
+      this.logger.debug(
+        `Proof ${pdaKey} not ready for submission (status: ${proof.status})`,
+      );
       return false;
     }
 
     // CRITICAL INVARIANT: Check that ALL ancestors are confirmed
     if (!this.enforceSubmissionOrdering(taskPda)) {
       // Move to awaiting_ancestors state
-      proof.status = 'awaiting_ancestors';
+      proof.status = "awaiting_ancestors";
       this.awaitingAncestors.add(pdaKey);
 
       // Register as waiter for each pending ancestor
@@ -306,9 +310,12 @@ export class ProofDeferralManager {
       }
 
       this.logger.debug(
-        `Proof ${pdaKey} blocked waiting for ${proof.pendingAncestors.length} ancestors`
+        `Proof ${pdaKey} blocked waiting for ${proof.pendingAncestors.length} ancestors`,
       );
-      this.events.onProofAwaitingAncestors?.(taskPda, proof.pendingAncestors.length);
+      this.events.onProofAwaitingAncestors?.(
+        taskPda,
+        proof.pendingAncestors.length,
+      );
 
       return false;
     }
@@ -333,25 +340,25 @@ export class ProofDeferralManager {
     }
 
     // Can only cancel if not already confirmed or failed
-    if (proof.status === 'confirmed' || proof.status === 'failed') {
+    if (proof.status === "confirmed" || proof.status === "failed") {
       return false;
     }
 
     // Cancel in pipeline if generating
-    if (proof.status === 'queued' || proof.status === 'generating') {
+    if (proof.status === "queued" || proof.status === "generating") {
       this.proofPipeline.cancel(taskPda);
     }
 
     // Remove from awaiting ancestors
-    if (proof.status === 'awaiting_ancestors') {
+    if (proof.status === "awaiting_ancestors") {
       this.awaitingAncestors.delete(pdaKey);
       this.removeFromAncestorWaiters(pdaKey, proof.pendingAncestors);
     }
 
     // Update status
-    proof.status = 'cancelled';
+    proof.status = "cancelled";
     proof.failedAt = Date.now();
-    proof.error = new Error('Cancelled');
+    proof.error = new Error("Cancelled");
 
     this.logger.debug(`Proof ${pdaKey} cancelled`);
     return true;
@@ -383,26 +390,28 @@ export class ProofDeferralManager {
     // Update each waiting proof
     for (const waiterKey of waitersList) {
       const proof = this.deferredProofs.get(waiterKey);
-      if (!proof || proof.status !== 'awaiting_ancestors') {
+      if (!proof || proof.status !== "awaiting_ancestors") {
         continue;
       }
 
       // Remove this ancestor from pending list
       proof.pendingAncestors = proof.pendingAncestors.filter(
-        (pda) => pda.toBase58() !== ancestorKey
+        (pda) => pda.toBase58() !== ancestorKey,
       );
 
       // Check if all ancestors are now confirmed
       if (proof.pendingAncestors.length === 0) {
-        this.logger.debug(`All ancestors confirmed for proof ${waiterKey}, submitting`);
+        this.logger.debug(
+          `All ancestors confirmed for proof ${waiterKey}, submitting`,
+        );
         this.awaitingAncestors.delete(waiterKey);
 
         // Move back to generated state and attempt submission
-        proof.status = 'generated';
+        proof.status = "generated";
         await this.trySubmit(proof.taskPda);
       } else {
         this.logger.debug(
-          `Proof ${waiterKey} still waiting for ${proof.pendingAncestors.length} ancestors`
+          `Proof ${waiterKey} still waiting for ${proof.pendingAncestors.length} ancestors`,
         );
       }
     }
@@ -435,22 +444,22 @@ export class ProofDeferralManager {
 
       // Skip if already terminal state
       if (
-        proof.status === 'confirmed' ||
-        proof.status === 'failed' ||
-        proof.status === 'cancelled'
+        proof.status === "confirmed" ||
+        proof.status === "failed" ||
+        proof.status === "cancelled"
       ) {
         continue;
       }
 
       // Clean up tracking before changing status
-      const wasAwaiting = proof.status === 'awaiting_ancestors';
+      const wasAwaiting = proof.status === "awaiting_ancestors";
       if (wasAwaiting) {
         this.awaitingAncestors.delete(descKey);
         this.removeFromAncestorWaiters(descKey, proof.pendingAncestors);
       }
 
       // Cancel the proof
-      proof.status = 'cancelled';
+      proof.status = "cancelled";
       proof.failedAt = Date.now();
       proof.error = new Error(`Ancestor ${ancestorKey} failed`);
 
@@ -463,13 +472,15 @@ export class ProofDeferralManager {
     if (waiters) {
       for (const waiterKey of waiters) {
         const proof = this.deferredProofs.get(waiterKey);
-        if (proof && proof.status === 'awaiting_ancestors') {
-          proof.status = 'cancelled';
+        if (proof && proof.status === "awaiting_ancestors") {
+          proof.status = "cancelled";
           proof.failedAt = Date.now();
           proof.error = new Error(`Ancestor ${ancestorKey} failed`);
 
           this.awaitingAncestors.delete(waiterKey);
-          this.logger.debug(`Cancelled proof ${waiterKey} due to ancestor failure`);
+          this.logger.debug(
+            `Cancelled proof ${waiterKey} due to ancestor failure`,
+          );
           this.events.onProofCancelled?.(proof.taskPda, ancestorPda);
         }
       }
@@ -497,7 +508,7 @@ export class ProofDeferralManager {
 
     for (const pdaKey of this.awaitingAncestors) {
       const proof = this.deferredProofs.get(pdaKey);
-      if (proof && proof.status === 'awaiting_ancestors') {
+      if (proof && proof.status === "awaiting_ancestors") {
         blocked.push(proof);
       }
     }
@@ -523,9 +534,9 @@ export class ProofDeferralManager {
       // Check if proof has been waiting too long
       const waitTime = now - proof.queuedAt;
       if (waitTime > this.config.ancestorTimeoutMs) {
-        proof.status = 'timed_out';
+        proof.status = "timed_out";
         proof.failedAt = now;
-        proof.error = new Error('Timeout waiting for ancestor confirmation');
+        proof.error = new Error("Timeout waiting for ancestor confirmation");
 
         this.awaitingAncestors.delete(pdaKey);
         this.removeFromAncestorWaiters(pdaKey, proof.pendingAncestors);
@@ -533,7 +544,7 @@ export class ProofDeferralManager {
         timedOut.push(proof);
 
         this.logger.warn(`Proof ${pdaKey} timed out waiting for ancestors`);
-        this.events.onProofTimedOut?.(proof.taskPda, 'awaiting_ancestors');
+        this.events.onProofTimedOut?.(proof.taskPda, "awaiting_ancestors");
       }
     }
 
@@ -547,12 +558,12 @@ export class ProofDeferralManager {
    */
   async shutdown(): Promise<void> {
     this.isShuttingDown = true;
-    this.logger.info('ProofDeferralManager shutting down...');
+    this.logger.info("ProofDeferralManager shutting down...");
 
     // Wait for the underlying pipeline to shut down
     await this.proofPipeline.shutdown();
 
-    this.logger.info('ProofDeferralManager shutdown complete');
+    this.logger.info("ProofDeferralManager shutdown complete");
   }
 
   /**
@@ -588,31 +599,31 @@ export class ProofDeferralManager {
     for (const proof of this.deferredProofs.values()) {
       stats.total++;
       switch (proof.status) {
-        case 'queued':
+        case "queued":
           stats.queued++;
           break;
-        case 'generating':
+        case "generating":
           stats.generating++;
           break;
-        case 'generated':
+        case "generated":
           stats.generated++;
           break;
-        case 'awaiting_ancestors':
+        case "awaiting_ancestors":
           stats.awaitingAncestors++;
           break;
-        case 'submitting':
+        case "submitting":
           stats.submitting++;
           break;
-        case 'confirmed':
+        case "confirmed":
           stats.confirmed++;
           break;
-        case 'failed':
+        case "failed":
           stats.failed++;
           break;
-        case 'timed_out':
+        case "timed_out":
           stats.timedOut++;
           break;
-        case 'cancelled':
+        case "cancelled":
           stats.cancelled++;
           break;
       }
@@ -648,13 +659,13 @@ export class ProofDeferralManager {
     for (const ancestor of ancestors) {
       const commitment = this.commitmentLedger.getByTask(ancestor.taskPda);
 
-      if (!commitment || commitment.status !== 'confirmed') {
+      if (!commitment || commitment.status !== "confirmed") {
         // NOT SAFE TO SUBMIT - ancestor not confirmed
 
         // Update pending ancestors list
         const ancestorKey = ancestor.taskPda.toBase58();
         const alreadyPending = proof.pendingAncestors.some(
-          (pda) => pda.toBase58() === ancestorKey
+          (pda) => pda.toBase58() === ancestorKey,
         );
 
         if (!alreadyPending) {
@@ -662,7 +673,7 @@ export class ProofDeferralManager {
         }
 
         this.logger.debug(
-          `Submission blocked: ancestor ${ancestorKey} not confirmed (status: ${commitment?.status ?? 'not found'})`
+          `Submission blocked: ancestor ${ancestorKey} not confirmed (status: ${commitment?.status ?? "not found"})`,
         );
         return false;
       }
@@ -685,7 +696,7 @@ export class ProofDeferralManager {
 
     for (const ancestor of ancestors) {
       const commitment = this.commitmentLedger.getByTask(ancestor.taskPda);
-      if (!commitment || commitment.status !== 'confirmed') {
+      if (!commitment || commitment.status !== "confirmed") {
         unconfirmed.push(ancestor.taskPda);
       }
     }
@@ -702,7 +713,7 @@ export class ProofDeferralManager {
     const pdaKey = deferredProof.taskPda.toBase58();
 
     // Update status
-    deferredProof.status = 'generating';
+    deferredProof.status = "generating";
     deferredProof.generationStartedAt = Date.now();
 
     this.logger.debug(`Starting proof generation for ${pdaKey}`);
@@ -713,7 +724,7 @@ export class ProofDeferralManager {
       const job = this.proofPipeline.enqueue(
         deferredProof.taskPda,
         deferredProof.taskId,
-        deferredProof.executionResult
+        deferredProof.executionResult,
       );
 
       // Wait for proof generation to complete
@@ -732,7 +743,7 @@ export class ProofDeferralManager {
    */
   private async handleProofJobCompletion(
     deferredProof: DeferredProof,
-    _job: ProofGenerationJob
+    _job: ProofGenerationJob,
   ): Promise<void> {
     const pdaKey = deferredProof.taskPda.toBase58();
 
@@ -740,23 +751,23 @@ export class ProofDeferralManager {
       // Wait for the job to complete
       const completedJob = await this.proofPipeline.waitForConfirmation(
         deferredProof.taskPda,
-        this.config.generationTimeoutMs
+        this.config.generationTimeoutMs,
       );
 
       // Job completed - check if it was confirmed via pipeline
-      if (completedJob.status === 'confirmed') {
+      if (completedJob.status === "confirmed") {
         // Pipeline handled submission - update our tracking
-        deferredProof.status = 'confirmed';
+        deferredProof.status = "confirmed";
         deferredProof.confirmedAt = Date.now();
         deferredProof.proofBytes = completedJob.proofBytes;
         deferredProof.transactionSignature = completedJob.transactionSignature;
 
         this.logger.info(
-          `Proof confirmed for ${pdaKey} (${deferredProof.transactionSignature})`
+          `Proof confirmed for ${pdaKey} (${deferredProof.transactionSignature})`,
         );
         this.events.onProofConfirmed?.(
           deferredProof.taskPda,
-          deferredProof.transactionSignature!
+          deferredProof.transactionSignature!,
         );
       }
     } catch (err) {
@@ -765,14 +776,14 @@ export class ProofDeferralManager {
 
       if (latestJob && latestJob.proofBytes) {
         // Proof was generated - we handle submission
-        deferredProof.status = 'generated';
+        deferredProof.status = "generated";
         deferredProof.generationCompletedAt = Date.now();
         deferredProof.proofBytes = latestJob.proofBytes;
 
         this.logger.debug(`Proof generated for ${pdaKey}, checking ancestors`);
         this.events.onProofGenerated?.(
           deferredProof.taskPda,
-          deferredProof.proofBytes.length
+          deferredProof.proofBytes.length,
         );
 
         // Attempt submission with ancestor checking
@@ -793,7 +804,7 @@ export class ProofDeferralManager {
    */
   private handleProofGenerationError(
     deferredProof: DeferredProof,
-    error: Error
+    error: Error,
   ): void {
     const pdaKey = deferredProof.taskPda.toBase58();
 
@@ -803,23 +814,25 @@ export class ProofDeferralManager {
       // Retry with backoff
       const delay = this.calculateRetryDelay(deferredProof.retryCount);
       this.logger.warn(
-        `Proof generation failed for ${pdaKey}, retrying in ${delay}ms (attempt ${deferredProof.retryCount}/${this.config.retryPolicy.maxAttempts})`
+        `Proof generation failed for ${pdaKey}, retrying in ${delay}ms (attempt ${deferredProof.retryCount}/${this.config.retryPolicy.maxAttempts})`,
       );
 
       setTimeout(() => {
         if (!this.isShuttingDown) {
-          deferredProof.status = 'queued';
+          deferredProof.status = "queued";
           this.startProofGeneration(deferredProof);
         }
       }, delay);
     } else {
       // Max retries exceeded
-      deferredProof.status = 'failed';
+      deferredProof.status = "failed";
       deferredProof.failedAt = Date.now();
       deferredProof.error = error;
 
-      this.logger.error(`Proof generation failed for ${pdaKey}: ${error.message}`);
-      this.events.onProofFailed?.(deferredProof.taskPda, error, 'generating');
+      this.logger.error(
+        `Proof generation failed for ${pdaKey}: ${error.message}`,
+      );
+      this.events.onProofFailed?.(deferredProof.taskPda, error, "generating");
     }
   }
 
@@ -833,12 +846,14 @@ export class ProofDeferralManager {
 
     // Check concurrent submission limit
     if (this.activeSubmissions >= this.config.maxConcurrentSubmissions) {
-      this.logger.debug(`Submission queued for ${pdaKey}, at concurrency limit`);
+      this.logger.debug(
+        `Submission queued for ${pdaKey}, at concurrency limit`,
+      );
       return;
     }
 
     this.activeSubmissions++;
-    proof.status = 'submitting';
+    proof.status = "submitting";
     proof.submissionAttemptedAt = Date.now();
 
     this.logger.debug(`Submitting proof for ${pdaKey}`);
@@ -849,18 +864,21 @@ export class ProofDeferralManager {
       // Wait for confirmation with timeout
       const job = await this.proofPipeline.waitForConfirmation(
         proof.taskPda,
-        this.config.submissionTimeoutMs
+        this.config.submissionTimeoutMs,
       );
 
-      if (job.status === 'confirmed') {
-        proof.status = 'confirmed';
+      if (job.status === "confirmed") {
+        proof.status = "confirmed";
         proof.confirmedAt = Date.now();
         proof.transactionSignature = job.transactionSignature;
 
         this.logger.info(
-          `Proof confirmed for ${pdaKey} (${proof.transactionSignature})`
+          `Proof confirmed for ${pdaKey} (${proof.transactionSignature})`,
         );
-        this.events.onProofConfirmed?.(proof.taskPda, proof.transactionSignature!);
+        this.events.onProofConfirmed?.(
+          proof.taskPda,
+          proof.transactionSignature!,
+        );
       } else {
         throw new Error(`Unexpected job status: ${job.status}`);
       }
@@ -887,23 +905,25 @@ export class ProofDeferralManager {
       // Retry with backoff
       const delay = this.calculateRetryDelay(proof.retryCount);
       this.logger.warn(
-        `Proof submission failed for ${pdaKey}, retrying in ${delay}ms (attempt ${proof.retryCount}/${this.config.retryPolicy.maxAttempts})`
+        `Proof submission failed for ${pdaKey}, retrying in ${delay}ms (attempt ${proof.retryCount}/${this.config.retryPolicy.maxAttempts})`,
       );
 
       setTimeout(() => {
-        if (!this.isShuttingDown && proof.status !== 'cancelled') {
-          proof.status = 'generated';
+        if (!this.isShuttingDown && proof.status !== "cancelled") {
+          proof.status = "generated";
           this.submitProof(proof);
         }
       }, delay);
     } else {
       // Max retries exceeded
-      proof.status = 'failed';
+      proof.status = "failed";
       proof.failedAt = Date.now();
       proof.error = error;
 
-      this.logger.error(`Proof submission failed for ${pdaKey}: ${error.message}`);
-      this.events.onProofFailed?.(proof.taskPda, error, 'submitting');
+      this.logger.error(
+        `Proof submission failed for ${pdaKey}: ${error.message}`,
+      );
+      this.events.onProofFailed?.(proof.taskPda, error, "submitting");
     }
   }
 
@@ -917,7 +937,7 @@ export class ProofDeferralManager {
     const { baseDelayMs, maxDelayMs, jitter } = this.config.retryPolicy;
     const exponentialDelay = Math.min(
       baseDelayMs * Math.pow(2, attempt - 1),
-      maxDelayMs
+      maxDelayMs,
     );
 
     if (jitter) {
@@ -936,7 +956,7 @@ export class ProofDeferralManager {
    */
   private removeFromAncestorWaiters(
     proofKey: string,
-    ancestors: PublicKey[]
+    ancestors: PublicKey[],
   ): void {
     for (const ancestorPda of ancestors) {
       const ancestorKey = ancestorPda.toBase58();

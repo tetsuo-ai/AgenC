@@ -26,14 +26,23 @@ const RISC0_SEAL_BORSH_LEN: usize = RISC0_SELECTOR_LEN + RISC0_GROTH16_SEAL_LEN;
 
 // Journal field offsets (each field is HASH_SIZE=32 bytes)
 const JOURNAL_TASK_PDA_OFFSET: usize = 0;
-const JOURNAL_AUTHORITY_OFFSET: usize = HASH_SIZE;       // 32
-const JOURNAL_CONSTRAINT_OFFSET: usize = 2 * HASH_SIZE;  // 64
-const JOURNAL_COMMITMENT_OFFSET: usize = 3 * HASH_SIZE;  // 96
-const JOURNAL_BINDING_OFFSET: usize = 4 * HASH_SIZE;     // 128
-const JOURNAL_NULLIFIER_OFFSET: usize = 5 * HASH_SIZE;   // 160
+const JOURNAL_AUTHORITY_OFFSET: usize = HASH_SIZE; // 32
+const JOURNAL_CONSTRAINT_OFFSET: usize = 2 * HASH_SIZE; // 64
+const JOURNAL_COMMITMENT_OFFSET: usize = 3 * HASH_SIZE; // 96
+const JOURNAL_BINDING_OFFSET: usize = 4 * HASH_SIZE; // 128
+const JOURNAL_NULLIFIER_OFFSET: usize = 5 * HASH_SIZE; // 160
 const ROUTER_VERIFY_IX_DISCRIMINATOR: [u8; 8] = [133, 161, 141, 48, 120, 198, 88, 150];
 const VERIFIER_ENTRY_DISCRIMINATOR: [u8; 8] = [102, 247, 148, 158, 33, 153, 100, 93];
 const VERIFIER_ENTRY_ACCOUNT_LEN: usize = 8 + RISC0_SELECTOR_LEN + 32 + 1;
+
+// Byte offsets within the VerifierEntry account data:
+// [0..8]   discriminator
+// [8..12]  selector (RISC0_SELECTOR_LEN)
+// [12..44] verifier pubkey (32 bytes)
+// [44]     estopped flag (1 byte)
+const VERIFIER_ENTRY_SELECTOR_OFFSET: usize = 8;
+const VERIFIER_ENTRY_VERIFIER_OFFSET: usize = VERIFIER_ENTRY_SELECTOR_OFFSET + RISC0_SELECTOR_LEN;
+const VERIFIER_ENTRY_ESTOPPED_OFFSET: usize = VERIFIER_ENTRY_VERIFIER_OFFSET + 32;
 
 const TRUSTED_RISC0_SELECTOR: [u8; RISC0_SELECTOR_LEN] = [0x52, 0x5a, 0x56, 0x4d];
 const TRUSTED_RISC0_ROUTER_PROGRAM_ID: Pubkey =
@@ -44,8 +53,8 @@ const TRUSTED_RISC0_VERIFIER_PROGRAM_ID: Pubkey =
 // Regenerate with: cargo run -p agenc-zkvm-host --features production-prover -- image-id
 // This value MUST match TRUSTED_RISC0_IMAGE_ID in sdk/src/constants.ts exactly.
 const TRUSTED_RISC0_IMAGE_ID: [u8; RISC0_IMAGE_ID_LEN] = [
-    202, 175, 194, 115, 244, 76, 8, 9, 197, 55, 54, 103, 21, 34, 178, 245,
-    211, 97, 58, 48, 7, 14, 121, 214, 109, 60, 64, 137, 170, 156, 79, 219,
+    202, 175, 194, 115, 244, 76, 8, 9, 197, 55, 54, 103, 21, 34, 178, 245, 211, 97, 58, 48, 7, 14,
+    121, 214, 109, 60, 64, 137, 170, 156, 79, 219,
 ];
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
@@ -495,7 +504,7 @@ fn validate_verifier_entry_data(data: &[u8], verifier_program_key: &Pubkey) -> R
     );
 
     let selector_slice = data
-        .get(8..12)
+        .get(VERIFIER_ENTRY_SELECTOR_OFFSET..VERIFIER_ENTRY_VERIFIER_OFFSET)
         .ok_or(error!(CoordinationError::RouterAccountMismatch))?;
     let mut selector = [0u8; RISC0_SELECTOR_LEN];
     selector.copy_from_slice(selector_slice);
@@ -505,7 +514,7 @@ fn validate_verifier_entry_data(data: &[u8], verifier_program_key: &Pubkey) -> R
     );
 
     let verifier_slice = data
-        .get(12..44)
+        .get(VERIFIER_ENTRY_VERIFIER_OFFSET..VERIFIER_ENTRY_ESTOPPED_OFFSET)
         .ok_or(error!(CoordinationError::RouterAccountMismatch))?;
     let verifier_pubkey = Pubkey::new_from_array(
         verifier_slice
@@ -522,7 +531,7 @@ fn validate_verifier_entry_data(data: &[u8], verifier_program_key: &Pubkey) -> R
     );
 
     let estopped = data
-        .get(44)
+        .get(VERIFIER_ENTRY_ESTOPPED_OFFSET)
         .ok_or(error!(CoordinationError::RouterAccountMismatch))?;
     require!(*estopped == 0, CoordinationError::RouterAccountMismatch);
 

@@ -4,5 +4,5 @@
  * @module
  */
 
-export { GrokProvider } from './adapter.js';
-export type { GrokProviderConfig } from './types.js';
+export { GrokProvider } from "./adapter.js";
+export type { GrokProviderConfig } from "./types.js";

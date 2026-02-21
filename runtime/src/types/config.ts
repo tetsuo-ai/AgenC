@@ -3,12 +3,12 @@
  * @module
  */
 
-import type { Connection, PublicKey, Keypair } from '@solana/web3.js';
-import type { Program } from '@coral-xyz/anchor';
-import type { Wallet } from './wallet.js';
-import type { LogLevel } from '../utils/logger.js';
+import type { Connection, PublicKey, Keypair } from "@solana/web3.js";
+import type { Program } from "@coral-xyz/anchor";
+import type { Wallet } from "./wallet.js";
+import type { LogLevel } from "../utils/logger.js";
 
-export type ReplayBridgeStoreType = 'memory' | 'sqlite';
+export type ReplayBridgeStoreType = "memory" | "sqlite";
 
 export interface ReplayBridgeStoreConfig {
   type: ReplayBridgeStoreType;
@@ -66,10 +66,14 @@ export interface RuntimeReplayConfig {
   alerting?: {
     enabled?: boolean;
     dedupeWindowMs?: number;
-    dedupeScope?: ReadonlyArray<'taskPda' | 'disputePda' | 'signature' | 'sourceEventName'>;
-    logger?: {
-      enabled?: boolean;
-    } | boolean;
+    dedupeScope?: ReadonlyArray<
+      "taskPda" | "disputePda" | "signature" | "sourceEventName"
+    >;
+    logger?:
+      | {
+          enabled?: boolean;
+        }
+      | boolean;
     webhook?: {
       url: string;
       timeoutMs?: number;
@@ -143,5 +147,5 @@ export interface AgentRuntimeConfig {
  * ```
  */
 export function isKeypair(wallet: Keypair | Wallet): wallet is Keypair {
-  return 'secretKey' in wallet;
+  return "secretKey" in wallet;
 }

@@ -7,22 +7,22 @@
  * @module
  */
 
-import { createHash } from 'node:crypto';
-import type { LLMMessage } from '../llm/types.js';
+import { createHash } from "node:crypto";
+import type { LLMMessage } from "../llm/types.js";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
 export type SessionScope =
-  | 'main'
-  | 'per-peer'
-  | 'per-channel-peer'
-  | 'per-account-channel-peer';
+  | "main"
+  | "per-peer"
+  | "per-channel-peer"
+  | "per-account-channel-peer";
 
-export type SessionResetMode = 'never' | 'daily' | 'idle' | 'weekday';
+export type SessionResetMode = "never" | "daily" | "idle" | "weekday";
 
-export type CompactionStrategy = 'summarize' | 'truncate' | 'sliding-window';
+export type CompactionStrategy = "summarize" | "truncate" | "sliding-window";
 
 export interface SessionResetConfig {
   readonly mode: SessionResetMode;
@@ -58,7 +58,7 @@ export interface Session {
 export interface SessionLookupParams {
   readonly channel: string;
   readonly senderId: string;
-  readonly scope: 'dm' | 'group' | 'thread';
+  readonly scope: "dm" | "group" | "thread";
   readonly workspaceId: string;
   readonly guildId?: string;
   readonly threadId?: string;
@@ -70,7 +70,7 @@ export interface CompactionResult {
   readonly summaryGenerated: boolean;
 }
 
-export type SessionCompactionPhase = 'before' | 'after' | 'error';
+export type SessionCompactionPhase = "before" | "after" | "error";
 
 export interface SessionCompactionHookPayload {
   readonly phase: SessionCompactionPhase;
@@ -103,7 +103,7 @@ export type Summarizer = (messages: LLMMessage[]) => Promise<string>;
 // ---------------------------------------------------------------------------
 
 function sha256hex(input: string): string {
-  return createHash('sha256').update(input).digest('hex');
+  return createHash("sha256").update(input).digest("hex");
 }
 
 /**
@@ -114,21 +114,21 @@ export function deriveSessionId(
   scope: SessionScope,
 ): string {
   switch (scope) {
-    case 'main':
-      return 'session:main';
-    case 'per-peer':
+    case "main":
+      return "session:main";
+    case "per-peer":
       return `session:${sha256hex(params.senderId)}`;
-    case 'per-channel-peer':
-      return `session:${sha256hex(params.channel + '\x00' + params.senderId)}`;
-    case 'per-account-channel-peer':
+    case "per-channel-peer":
+      return `session:${sha256hex(params.channel + "\x00" + params.senderId)}`;
+    case "per-account-channel-peer":
       return `session:${sha256hex(
         params.channel +
-          '\x00' +
+          "\x00" +
           params.senderId +
-          '\x00' +
-          (params.guildId ?? '') +
-          '\x00' +
-          (params.threadId ?? ''),
+          "\x00" +
+          (params.guildId ?? "") +
+          "\x00" +
+          (params.threadId ?? ""),
       )}`;
   }
 }
@@ -244,7 +244,7 @@ export class SessionManager {
     const historyLengthBefore = history.length;
 
     await this.emitCompactionHook({
-      phase: 'before',
+      phase: "before",
       sessionId,
       strategy,
       historyLengthBefore,
@@ -264,7 +264,7 @@ export class SessionManager {
         const dropCount = history.length - keepCount;
 
         switch (strategy) {
-          case 'truncate': {
+          case "truncate": {
             session.history = history.slice(dropCount);
             result = {
               messagesRemoved: dropCount,
@@ -274,7 +274,7 @@ export class SessionManager {
             break;
           }
 
-          case 'sliding-window': {
+          case "sliding-window": {
             const toSummarize = history.slice(0, dropCount);
             let summaryText: string;
 
@@ -284,7 +284,10 @@ export class SessionManager {
               summaryText = `[Compacted: ${dropCount} earlier messages removed]`;
             }
 
-            const summaryMsg: LLMMessage = { role: 'system', content: summaryText };
+            const summaryMsg: LLMMessage = {
+              role: "system",
+              content: summaryText,
+            };
             session.history = [summaryMsg, ...history.slice(dropCount)];
             result = {
               messagesRemoved: dropCount,
@@ -294,7 +297,7 @@ export class SessionManager {
             break;
           }
 
-          case 'summarize': {
+          case "summarize": {
             if (!this.summarizer) {
               // Fall back to truncate
               session.history = history.slice(dropCount);
@@ -308,7 +311,7 @@ export class SessionManager {
 
             const toSummarize = history.slice(0, dropCount);
             const summary = await this.summarizer(toSummarize);
-            const summaryMsg: LLMMessage = { role: 'system', content: summary };
+            const summaryMsg: LLMMessage = { role: "system", content: summary };
             session.history = [summaryMsg, ...history.slice(dropCount)];
             result = {
               messagesRemoved: dropCount,
@@ -321,7 +324,7 @@ export class SessionManager {
       }
 
       await this.emitCompactionHook({
-        phase: 'after',
+        phase: "after",
         sessionId,
         strategy,
         historyLengthBefore,
@@ -332,7 +335,7 @@ export class SessionManager {
       return result;
     } catch (error) {
       await this.emitCompactionHook({
-        phase: 'error',
+        phase: "error",
         sessionId,
         strategy,
         historyLengthBefore,
@@ -355,11 +358,12 @@ export class SessionManager {
       const resetCfg = effective.reset ?? this.config.reset;
 
       switch (resetCfg.mode) {
-        case 'never':
+        case "never":
           break;
 
-        case 'idle': {
-          const idleMs = (resetCfg.idleMinutes ?? DEFAULT_IDLE_MINUTES) * 60_000;
+        case "idle": {
+          const idleMs =
+            (resetCfg.idleMinutes ?? DEFAULT_IDLE_MINUTES) * 60_000;
           if (now - session.lastActiveAt >= idleMs) {
             session.history = [];
             session.lastActiveAt = now;
@@ -368,7 +372,7 @@ export class SessionManager {
           break;
         }
 
-        case 'daily': {
+        case "daily": {
           const hour = resetCfg.dailyHour ?? DEFAULT_DAILY_HOUR;
           const todayReset = new Date();
           todayReset.setHours(hour, 0, 0, 0);
@@ -384,7 +388,7 @@ export class SessionManager {
           break;
         }
 
-        case 'weekday': {
+        case "weekday": {
           const lastDate = new Date(session.lastActiveAt);
           const nowDate = new Date(now);
           // Different calendar day AND different weekday (Mon=1..Sun=0)
@@ -413,8 +417,8 @@ export class SessionManager {
       const params = this.lookups.get(id);
       result.push({
         id,
-        channel: params?.channel ?? '',
-        senderId: params?.senderId ?? '',
+        channel: params?.channel ?? "",
+        senderId: params?.senderId ?? "",
         messageCount: session.history.length,
         createdAt: session.createdAt,
         lastActiveAt: session.lastActiveAt,
@@ -436,7 +440,10 @@ export class SessionManager {
 
     // Channel overrides
     if (this.config.channelOverrides?.[params.channel]) {
-      merged = mergeConfig(merged, this.config.channelOverrides[params.channel]);
+      merged = mergeConfig(
+        merged,
+        this.config.channelOverrides[params.channel],
+      );
     }
 
     // Scope overrides (dm/group/thread)

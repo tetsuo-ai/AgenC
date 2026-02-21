@@ -2,16 +2,20 @@
  * Tests for SpeculativeTaskScheduler
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { PublicKey } from '@solana/web3.js';
+import { describe, it, expect, beforeEach, vi } from "vitest";
+import { PublicKey } from "@solana/web3.js";
 import {
   SpeculativeTaskScheduler,
   type SpeculativeSchedulerConfig,
   type SpeculativeSchedulerEvents,
-} from './speculative-scheduler.js';
-import { DependencyGraph, DependencyType } from './dependency-graph.js';
-import type { ProofPipeline } from './proof-pipeline.js';
-import { createMockProofPipeline, createSpeculationTask, randomPda } from './test-utils.js';
+} from "./speculative-scheduler.js";
+import { DependencyGraph, DependencyType } from "./dependency-graph.js";
+import type { ProofPipeline } from "./proof-pipeline.js";
+import {
+  createMockProofPipeline,
+  createSpeculationTask,
+  randomPda,
+} from "./test-utils.js";
 
 // ============================================================================
 // Test Helpers
@@ -22,7 +26,7 @@ const createMockTask = createSpeculationTask;
 function createScheduler(
   configOverrides: Partial<SpeculativeSchedulerConfig> = {},
   events: SpeculativeSchedulerEvents = {},
-  dependencyGraph?: DependencyGraph
+  dependencyGraph?: DependencyGraph,
 ): {
   scheduler: SpeculativeTaskScheduler;
   graph: DependencyGraph;
@@ -40,7 +44,7 @@ function createScheduler(
     },
     events,
     graph,
-    pipeline
+    pipeline,
   );
 
   return { scheduler, graph, pipeline };
@@ -50,9 +54,9 @@ function createScheduler(
 // Tests
 // ============================================================================
 
-describe('SpeculativeTaskScheduler', () => {
-  describe('constructor', () => {
-    it('should create scheduler with default config', () => {
+describe("SpeculativeTaskScheduler", () => {
+  describe("constructor", () => {
+    it("should create scheduler with default config", () => {
       const { scheduler } = createScheduler();
 
       const status = scheduler.getStatus();
@@ -61,14 +65,14 @@ describe('SpeculativeTaskScheduler', () => {
       expect(status.activeSpeculations).toBe(0);
     });
 
-    it('should respect enableSpeculation config', () => {
+    it("should respect enableSpeculation config", () => {
       const { scheduler } = createScheduler({ enableSpeculation: false });
 
       const status = scheduler.getStatus();
       expect(status.speculationEnabled).toBe(false);
     });
 
-    it('should wire up component accessors', () => {
+    it("should wire up component accessors", () => {
       const { scheduler, graph } = createScheduler();
 
       expect(scheduler.getDependencyGraph()).toBe(graph);
@@ -78,8 +82,8 @@ describe('SpeculativeTaskScheduler', () => {
     });
   });
 
-  describe('lifecycle', () => {
-    it('should start and stop correctly', () => {
+  describe("lifecycle", () => {
+    it("should start and stop correctly", () => {
       const { scheduler } = createScheduler();
 
       expect(scheduler.getStatus().running).toBe(false);
@@ -91,7 +95,7 @@ describe('SpeculativeTaskScheduler', () => {
       expect(scheduler.getStatus().running).toBe(false);
     });
 
-    it('should handle multiple start calls gracefully', () => {
+    it("should handle multiple start calls gracefully", () => {
       const { scheduler } = createScheduler();
 
       scheduler.start();
@@ -99,7 +103,7 @@ describe('SpeculativeTaskScheduler', () => {
       expect(scheduler.getStatus().running).toBe(true);
     });
 
-    it('should handle multiple stop calls gracefully', () => {
+    it("should handle multiple stop calls gracefully", () => {
       const { scheduler } = createScheduler();
 
       scheduler.start();
@@ -109,8 +113,8 @@ describe('SpeculativeTaskScheduler', () => {
     });
   });
 
-  describe('shouldSpeculate - global enable', () => {
-    it('should allow speculation when enabled', () => {
+  describe("shouldSpeculate - global enable", () => {
+    it("should allow speculation when enabled", () => {
       const { scheduler, graph } = createScheduler({ enableSpeculation: true });
 
       const taskPda = randomPda();
@@ -121,8 +125,10 @@ describe('SpeculativeTaskScheduler', () => {
       expect(decision.allowed).toBe(true);
     });
 
-    it('should deny speculation when disabled', () => {
-      const { scheduler, graph } = createScheduler({ enableSpeculation: false });
+    it("should deny speculation when disabled", () => {
+      const { scheduler, graph } = createScheduler({
+        enableSpeculation: false,
+      });
 
       const taskPda = randomPda();
       const task = createSpeculationTask();
@@ -130,22 +136,22 @@ describe('SpeculativeTaskScheduler', () => {
 
       const decision = scheduler.shouldSpeculate(taskPda);
       expect(decision.allowed).toBe(false);
-      expect(decision.reason).toBe('disabled');
+      expect(decision.reason).toBe("disabled");
     });
 
-    it('should deny when task not found in graph', () => {
+    it("should deny when task not found in graph", () => {
       const { scheduler } = createScheduler();
 
       const taskPda = randomPda();
       const decision = scheduler.shouldSpeculate(taskPda);
 
       expect(decision.allowed).toBe(false);
-      expect(decision.reason).toBe('task_not_found');
+      expect(decision.reason).toBe("task_not_found");
     });
   });
 
-  describe('shouldSpeculate - depth limiting', () => {
-    it('should allow speculation within depth limit', () => {
+  describe("shouldSpeculate - depth limiting", () => {
+    it("should allow speculation within depth limit", () => {
       const { scheduler, graph } = createScheduler({ maxSpeculationDepth: 3 });
 
       // Create chain: root -> child1 -> child2 (depth 2)
@@ -162,7 +168,7 @@ describe('SpeculativeTaskScheduler', () => {
       expect(decision.allowed).toBe(true);
     });
 
-    it('should deny speculation when at depth limit', () => {
+    it("should deny speculation when at depth limit", () => {
       const { scheduler, graph } = createScheduler({ maxSpeculationDepth: 2 });
 
       // Create chain: root -> child1 -> child2 (depth 2)
@@ -177,15 +183,15 @@ describe('SpeculativeTaskScheduler', () => {
       // Depth 2 == limit of 2, should be denied
       const decision = scheduler.shouldSpeculate(child2Pda);
       expect(decision.allowed).toBe(false);
-      expect(decision.reason).toBe('depth_limit');
+      expect(decision.reason).toBe("depth_limit");
     });
 
-    it('should fire onDepthLimitReached event with currentDepth and maxDepth', () => {
+    it("should fire onDepthLimitReached event with currentDepth and maxDepth", () => {
       const onDepthLimitReached = vi.fn();
 
       const { scheduler, graph } = createScheduler(
         { maxSpeculationDepth: 1 },
-        { onDepthLimitReached }
+        { onDepthLimitReached },
       );
 
       const rootPda = randomPda();
@@ -199,12 +205,12 @@ describe('SpeculativeTaskScheduler', () => {
       expect(onDepthLimitReached).toHaveBeenCalledWith(childPda, 1, 1);
     });
 
-    it('should pass correct maxDepth value in onDepthLimitReached event', () => {
+    it("should pass correct maxDepth value in onDepthLimitReached event", () => {
       const onDepthLimitReached = vi.fn();
 
       const { scheduler, graph } = createScheduler(
         { maxSpeculationDepth: 2 },
-        { onDepthLimitReached }
+        { onDepthLimitReached },
       );
 
       // Create chain: root -> child1 -> child2 (depth 2)
@@ -223,8 +229,8 @@ describe('SpeculativeTaskScheduler', () => {
     });
   });
 
-  describe('shouldSpeculate - stake limiting', () => {
-    it('should deny speculation when stake limit reached', () => {
+  describe("shouldSpeculate - stake limiting", () => {
+    it("should deny speculation when stake limit reached", () => {
       const { scheduler, graph } = createScheduler({
         maxSpeculativeStake: 1_000_000n, // 0.001 SOL
       });
@@ -240,20 +246,20 @@ describe('SpeculativeTaskScheduler', () => {
         new Uint8Array(32),
         new Uint8Array(32),
         randomPda(),
-        2_000_000n // Exceeds limit
+        2_000_000n, // Exceeds limit
       );
 
       const decision = scheduler.shouldSpeculate(taskPda);
       expect(decision.allowed).toBe(false);
-      expect(decision.reason).toBe('stake_limit');
+      expect(decision.reason).toBe("stake_limit");
     });
 
-    it('should fire onStakeLimitReached event', () => {
+    it("should fire onStakeLimitReached event", () => {
       const onStakeLimitReached = vi.fn();
 
       const { scheduler, graph } = createScheduler(
         { maxSpeculativeStake: 1_000_000n },
-        { onStakeLimitReached }
+        { onStakeLimitReached },
       );
 
       const taskPda = randomPda();
@@ -266,7 +272,7 @@ describe('SpeculativeTaskScheduler', () => {
         new Uint8Array(32),
         new Uint8Array(32),
         randomPda(),
-        2_000_000n
+        2_000_000n,
       );
 
       scheduler.shouldSpeculate(taskPda);
@@ -275,8 +281,8 @@ describe('SpeculativeTaskScheduler', () => {
     });
   });
 
-  describe('shouldSpeculate - dependency type filtering', () => {
-    it('should allow speculation for allowed dependency types', () => {
+  describe("shouldSpeculate - dependency type filtering", () => {
+    it("should allow speculation for allowed dependency types", () => {
       const { scheduler, graph } = createScheduler({
         speculatableDependencyTypes: [DependencyType.Data],
       });
@@ -285,13 +291,18 @@ describe('SpeculativeTaskScheduler', () => {
       const childPda = randomPda();
 
       graph.addTask(createMockTask(), rootPda);
-      graph.addTaskWithParent(createMockTask(), childPda, rootPda, DependencyType.Data);
+      graph.addTaskWithParent(
+        createMockTask(),
+        childPda,
+        rootPda,
+        DependencyType.Data,
+      );
 
       const decision = scheduler.shouldSpeculate(childPda);
       expect(decision.allowed).toBe(true);
     });
 
-    it('should deny speculation for disallowed dependency types', () => {
+    it("should deny speculation for disallowed dependency types", () => {
       const { scheduler, graph } = createScheduler({
         speculatableDependencyTypes: [DependencyType.Data], // Only Data
       });
@@ -300,16 +311,21 @@ describe('SpeculativeTaskScheduler', () => {
       const childPda = randomPda();
 
       graph.addTask(createMockTask(), rootPda);
-      graph.addTaskWithParent(createMockTask(), childPda, rootPda, DependencyType.Resource);
+      graph.addTaskWithParent(
+        createMockTask(),
+        childPda,
+        rootPda,
+        DependencyType.Resource,
+      );
 
       const decision = scheduler.shouldSpeculate(childPda);
       expect(decision.allowed).toBe(false);
-      expect(decision.reason).toBe('dependency_type_not_speculatable');
+      expect(decision.reason).toBe("dependency_type_not_speculatable");
     });
   });
 
-  describe('shouldSpeculate - private task policy', () => {
-    it('should deny private speculation when disabled', () => {
+  describe("shouldSpeculate - private task policy", () => {
+    it("should deny private speculation when disabled", () => {
       const { scheduler, graph } = createScheduler({
         allowPrivateSpeculation: false,
       });
@@ -319,10 +335,10 @@ describe('SpeculativeTaskScheduler', () => {
 
       const decision = scheduler.shouldSpeculate(taskPda, undefined, true);
       expect(decision.allowed).toBe(false);
-      expect(decision.reason).toBe('private_speculation_disabled');
+      expect(decision.reason).toBe("private_speculation_disabled");
     });
 
-    it('should allow private speculation when enabled', () => {
+    it("should allow private speculation when enabled", () => {
       const { scheduler, graph } = createScheduler({
         allowPrivateSpeculation: true,
       });
@@ -335,8 +351,8 @@ describe('SpeculativeTaskScheduler', () => {
     });
   });
 
-  describe('shouldSpeculate - reputation threshold', () => {
-    it('should deny speculation for low reputation agents', () => {
+  describe("shouldSpeculate - reputation threshold", () => {
+    it("should deny speculation for low reputation agents", () => {
       const { scheduler, graph } = createScheduler({
         minReputationForSpeculation: 500,
       });
@@ -344,12 +360,17 @@ describe('SpeculativeTaskScheduler', () => {
       const taskPda = randomPda();
       graph.addTask(createMockTask(), taskPda);
 
-      const decision = scheduler.shouldSpeculate(taskPda, undefined, false, 400);
+      const decision = scheduler.shouldSpeculate(
+        taskPda,
+        undefined,
+        false,
+        400,
+      );
       expect(decision.allowed).toBe(false);
-      expect(decision.reason).toBe('low_reputation');
+      expect(decision.reason).toBe("low_reputation");
     });
 
-    it('should allow speculation for high reputation agents', () => {
+    it("should allow speculation for high reputation agents", () => {
       const { scheduler, graph } = createScheduler({
         minReputationForSpeculation: 500,
       });
@@ -357,11 +378,16 @@ describe('SpeculativeTaskScheduler', () => {
       const taskPda = randomPda();
       graph.addTask(createMockTask(), taskPda);
 
-      const decision = scheduler.shouldSpeculate(taskPda, undefined, false, 600);
+      const decision = scheduler.shouldSpeculate(
+        taskPda,
+        undefined,
+        false,
+        600,
+      );
       expect(decision.allowed).toBe(true);
     });
 
-    it('should allow speculation at exact threshold', () => {
+    it("should allow speculation at exact threshold", () => {
       const { scheduler, graph } = createScheduler({
         minReputationForSpeculation: 500,
       });
@@ -369,13 +395,18 @@ describe('SpeculativeTaskScheduler', () => {
       const taskPda = randomPda();
       graph.addTask(createMockTask(), taskPda);
 
-      const decision = scheduler.shouldSpeculate(taskPda, undefined, false, 500);
+      const decision = scheduler.shouldSpeculate(
+        taskPda,
+        undefined,
+        false,
+        500,
+      );
       expect(decision.allowed).toBe(true);
     });
   });
 
-  describe('speculation enable/disable', () => {
-    it('should enable speculation via method', () => {
+  describe("speculation enable/disable", () => {
+    it("should enable speculation via method", () => {
       const { scheduler } = createScheduler({ enableSpeculation: false });
 
       expect(scheduler.isSpeculationEnabled()).toBe(false);
@@ -384,34 +415,34 @@ describe('SpeculativeTaskScheduler', () => {
       expect(scheduler.isSpeculationEnabled()).toBe(true);
     });
 
-    it('should disable speculation via method', () => {
+    it("should disable speculation via method", () => {
       const { scheduler } = createScheduler({ enableSpeculation: true });
 
       expect(scheduler.isSpeculationEnabled()).toBe(true);
 
-      scheduler.disableSpeculation('test_reason');
+      scheduler.disableSpeculation("test_reason");
       expect(scheduler.isSpeculationEnabled()).toBe(false);
     });
 
-    it('should fire onSpeculationDisabled event', () => {
+    it("should fire onSpeculationDisabled event", () => {
       const onSpeculationDisabled = vi.fn();
 
       const { scheduler } = createScheduler(
         { enableSpeculation: true },
-        { onSpeculationDisabled }
+        { onSpeculationDisabled },
       );
 
-      scheduler.disableSpeculation('manual_disable');
+      scheduler.disableSpeculation("manual_disable");
 
-      expect(onSpeculationDisabled).toHaveBeenCalledWith('manual_disable');
+      expect(onSpeculationDisabled).toHaveBeenCalledWith("manual_disable");
     });
 
-    it('should fire onSpeculationEnabled event', () => {
+    it("should fire onSpeculationEnabled event", () => {
       const onSpeculationEnabled = vi.fn();
 
       const { scheduler } = createScheduler(
         { enableSpeculation: false },
-        { onSpeculationEnabled }
+        { onSpeculationEnabled },
       );
 
       scheduler.enableSpeculation();
@@ -420,8 +451,8 @@ describe('SpeculativeTaskScheduler', () => {
     });
   });
 
-  describe('registerSpeculationStart', () => {
-    it('should track active speculations', () => {
+  describe("registerSpeculationStart", () => {
+    it("should track active speculations", () => {
       const { scheduler, graph } = createScheduler();
 
       const taskPda = randomPda();
@@ -433,7 +464,7 @@ describe('SpeculativeTaskScheduler', () => {
       expect(status.activeSpeculations).toBe(1);
     });
 
-    it('should increment speculativeExecutions metric', () => {
+    it("should increment speculativeExecutions metric", () => {
       const { scheduler, graph } = createScheduler();
 
       const taskPda = randomPda();
@@ -448,10 +479,13 @@ describe('SpeculativeTaskScheduler', () => {
       expect(metricsAfter.speculativeExecutions).toBe(1);
     });
 
-    it('should fire onSpeculationStarted event', () => {
+    it("should fire onSpeculationStarted event", () => {
       const onSpeculationStarted = vi.fn();
 
-      const { scheduler, graph } = createScheduler({}, { onSpeculationStarted });
+      const { scheduler, graph } = createScheduler(
+        {},
+        { onSpeculationStarted },
+      );
 
       const taskPda = randomPda();
       graph.addTask(createMockTask(), taskPda);
@@ -462,8 +496,8 @@ describe('SpeculativeTaskScheduler', () => {
     });
   });
 
-  describe('onProofConfirmed', () => {
-    it('should update metrics on confirmation', () => {
+  describe("onProofConfirmed", () => {
+    it("should update metrics on confirmation", () => {
       const { scheduler, graph } = createScheduler();
 
       const taskPda = randomPda();
@@ -480,10 +514,13 @@ describe('SpeculativeTaskScheduler', () => {
       expect(metrics.hitRate).toBe(100);
     });
 
-    it('should fire onSpeculationConfirmed event', () => {
+    it("should fire onSpeculationConfirmed event", () => {
       const onSpeculationConfirmed = vi.fn();
 
-      const { scheduler, graph } = createScheduler({}, { onSpeculationConfirmed });
+      const { scheduler, graph } = createScheduler(
+        {},
+        { onSpeculationConfirmed },
+      );
 
       const taskPda = randomPda();
       graph.addTask(createMockTask(), taskPda);
@@ -494,7 +531,7 @@ describe('SpeculativeTaskScheduler', () => {
       expect(onSpeculationConfirmed).toHaveBeenCalledWith(taskPda);
     });
 
-    it('should remove from active speculations', () => {
+    it("should remove from active speculations", () => {
       const { scheduler, graph } = createScheduler();
 
       const taskPda = randomPda();
@@ -508,8 +545,8 @@ describe('SpeculativeTaskScheduler', () => {
     });
   });
 
-  describe('onProofFailed', () => {
-    it('should update metrics on failure', () => {
+  describe("onProofFailed", () => {
+    it("should update metrics on failure", () => {
       const { scheduler, graph } = createScheduler();
 
       const taskPda = randomPda();
@@ -519,14 +556,14 @@ describe('SpeculativeTaskScheduler', () => {
       scheduler.registerSpeculationStart(taskPda, 1);
 
       // Fail proof
-      scheduler.onProofFailed(taskPda, 'test_failure');
+      scheduler.onProofFailed(taskPda, "test_failure");
 
       const metrics = scheduler.getMetrics();
       expect(metrics.speculativeMisses).toBe(1);
       expect(metrics.hitRate).toBe(0);
     });
 
-    it('should fire onSpeculationFailed event', () => {
+    it("should fire onSpeculationFailed event", () => {
       const onSpeculationFailed = vi.fn();
 
       const { scheduler, graph } = createScheduler({}, { onSpeculationFailed });
@@ -535,12 +572,15 @@ describe('SpeculativeTaskScheduler', () => {
       graph.addTask(createMockTask(), taskPda);
 
       scheduler.registerSpeculationStart(taskPda, 1);
-      scheduler.onProofFailed(taskPda, 'verification_failed');
+      scheduler.onProofFailed(taskPda, "verification_failed");
 
-      expect(onSpeculationFailed).toHaveBeenCalledWith(taskPda, 'verification_failed');
+      expect(onSpeculationFailed).toHaveBeenCalledWith(
+        taskPda,
+        "verification_failed",
+      );
     });
 
-    it('should calculate rollback rate correctly', () => {
+    it("should calculate rollback rate correctly", () => {
       const { scheduler, graph } = createScheduler();
 
       // Register multiple speculations
@@ -565,13 +605,13 @@ describe('SpeculativeTaskScheduler', () => {
     });
   });
 
-  describe('rollback rate auto-disable', () => {
-    it('should auto-disable speculation when rollback rate exceeds threshold', () => {
+  describe("rollback rate auto-disable", () => {
+    it("should auto-disable speculation when rollback rate exceeds threshold", () => {
       const onSpeculationDisabled = vi.fn();
 
       const { scheduler, graph } = createScheduler(
         { maxRollbackRatePercent: 30 }, // 30% threshold
-        { onSpeculationDisabled }
+        { onSpeculationDisabled },
       );
 
       // Create 10 speculations
@@ -601,28 +641,28 @@ describe('SpeculativeTaskScheduler', () => {
 
       const decision = scheduler.shouldSpeculate(newTaskPda);
       expect(decision.allowed).toBe(false);
-      expect(decision.reason).toBe('rollback_rate_exceeded');
+      expect(decision.reason).toBe("rollback_rate_exceeded");
       expect(onSpeculationDisabled).toHaveBeenCalled();
       expect(scheduler.isSpeculationEnabled()).toBe(false);
     });
   });
 
-  describe('metrics', () => {
-    it('should return correct metrics structure', () => {
+  describe("metrics", () => {
+    it("should return correct metrics structure", () => {
       const { scheduler } = createScheduler();
 
       const metrics = scheduler.getMetrics();
 
-      expect(typeof metrics.speculativeExecutions).toBe('number');
-      expect(typeof metrics.speculativeHits).toBe('number');
-      expect(typeof metrics.speculativeMisses).toBe('number');
-      expect(typeof metrics.hitRate).toBe('number');
-      expect(typeof metrics.estimatedTimeSaved).toBe('number');
-      expect(typeof metrics.timeWastedOnRollbacks).toBe('number');
-      expect(typeof metrics.rollbackRate).toBe('number');
+      expect(typeof metrics.speculativeExecutions).toBe("number");
+      expect(typeof metrics.speculativeHits).toBe("number");
+      expect(typeof metrics.speculativeMisses).toBe("number");
+      expect(typeof metrics.hitRate).toBe("number");
+      expect(typeof metrics.estimatedTimeSaved).toBe("number");
+      expect(typeof metrics.timeWastedOnRollbacks).toBe("number");
+      expect(typeof metrics.rollbackRate).toBe("number");
     });
 
-    it('should return defensive copy of metrics', () => {
+    it("should return defensive copy of metrics", () => {
       const { scheduler } = createScheduler();
 
       const metrics1 = scheduler.getMetrics();
@@ -633,40 +673,40 @@ describe('SpeculativeTaskScheduler', () => {
     });
   });
 
-  describe('status', () => {
-    it('should return correct status structure', () => {
+  describe("status", () => {
+    it("should return correct status structure", () => {
       const { scheduler } = createScheduler({ maxSpeculationDepth: 5 });
 
       const status = scheduler.getStatus();
 
-      expect(typeof status.running).toBe('boolean');
-      expect(typeof status.speculationEnabled).toBe('boolean');
-      expect(typeof status.activeSpeculations).toBe('number');
-      expect(typeof status.maxDepthReached).toBe('number');
+      expect(typeof status.running).toBe("boolean");
+      expect(typeof status.speculationEnabled).toBe("boolean");
+      expect(typeof status.activeSpeculations).toBe("number");
+      expect(typeof status.maxDepthReached).toBe("number");
       expect(status.currentMaxDepth).toBe(5);
-      expect(typeof status.totalStakeAtRisk).toBe('bigint');
-      expect(typeof status.pendingProofs).toBe('number');
-      expect(typeof status.awaitingAncestors).toBe('number');
+      expect(typeof status.totalStakeAtRisk).toBe("bigint");
+      expect(typeof status.pendingProofs).toBe("number");
+      expect(typeof status.awaitingAncestors).toBe("number");
     });
   });
 
-  describe('forceRollback', () => {
-    it('should trigger rollback via controller', async () => {
+  describe("forceRollback", () => {
+    it("should trigger rollback via controller", async () => {
       const { scheduler, graph } = createScheduler();
 
       const taskPda = randomPda();
       graph.addTask(createMockTask(), taskPda);
 
-      const result = await scheduler.forceRollback(taskPda, 'manual');
+      const result = await scheduler.forceRollback(taskPda, "manual");
 
       expect(result).toBeDefined();
-      expect(result.reason).toBe('manual');
+      expect(result.reason).toBe("manual");
       expect(result.rootTaskPda).toEqual(taskPda);
     });
   });
 
-  describe('component accessors', () => {
-    it('should return all components', () => {
+  describe("component accessors", () => {
+    it("should return all components", () => {
       const { scheduler, graph } = createScheduler();
 
       expect(scheduler.getDependencyGraph()).toBe(graph);
@@ -675,14 +715,14 @@ describe('SpeculativeTaskScheduler', () => {
       expect(scheduler.getRollbackController()).toBeDefined();
     });
 
-    it('should return active commitments from ledger', () => {
+    it("should return active commitments from ledger", () => {
       const { scheduler } = createScheduler();
 
       const commitments = scheduler.getActiveCommitments();
       expect(Array.isArray(commitments)).toBe(true);
     });
 
-    it('should return blocked proofs from deferral manager', () => {
+    it("should return blocked proofs from deferral manager", () => {
       const { scheduler } = createScheduler();
 
       const blocked = scheduler.getBlockedProofs();
@@ -690,14 +730,14 @@ describe('SpeculativeTaskScheduler', () => {
     });
   });
 
-  describe('integration scenarios', () => {
-    it('should handle complete speculation lifecycle', () => {
+  describe("integration scenarios", () => {
+    it("should handle complete speculation lifecycle", () => {
       const onSpeculationStarted = vi.fn();
       const onSpeculationConfirmed = vi.fn();
 
       const { scheduler, graph } = createScheduler(
         {},
-        { onSpeculationStarted, onSpeculationConfirmed }
+        { onSpeculationStarted, onSpeculationConfirmed },
       );
 
       scheduler.start();
@@ -725,7 +765,7 @@ describe('SpeculativeTaskScheduler', () => {
       scheduler.stop();
     });
 
-    it('should handle multi-level speculation chain', () => {
+    it("should handle multi-level speculation chain", () => {
       const { scheduler, graph } = createScheduler({ maxSpeculationDepth: 5 });
 
       // Create chain: root -> child1 -> child2 -> child3
@@ -746,7 +786,7 @@ describe('SpeculativeTaskScheduler', () => {
       expect(scheduler.shouldSpeculate(child3Pda).allowed).toBe(true);
     });
 
-    it('should handle mixed success/failure scenarios', () => {
+    it("should handle mixed success/failure scenarios", () => {
       const { scheduler, graph } = createScheduler();
 
       // Create multiple speculative executions
@@ -761,9 +801,9 @@ describe('SpeculativeTaskScheduler', () => {
       // 3 succeed, 2 fail
       scheduler.onProofConfirmed(taskPdas[0]);
       scheduler.onProofConfirmed(taskPdas[1]);
-      scheduler.onProofFailed(taskPdas[2], 'verification_failed');
+      scheduler.onProofFailed(taskPdas[2], "verification_failed");
       scheduler.onProofConfirmed(taskPdas[3]);
-      scheduler.onProofFailed(taskPdas[4], 'timeout');
+      scheduler.onProofFailed(taskPdas[4], "timeout");
 
       const metrics = scheduler.getMetrics();
       expect(metrics.speculativeExecutions).toBe(5);

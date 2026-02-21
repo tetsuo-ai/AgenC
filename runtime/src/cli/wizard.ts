@@ -7,23 +7,26 @@
  * @module
  */
 
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
-import { homedir } from 'node:os';
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import { homedir } from "node:os";
 import {
   getDefaultConfigPath,
   loadGatewayConfig,
   validateGatewayConfig,
-} from '../gateway/config-watcher.js';
-import { scaffoldWorkspace, getDefaultWorkspacePath } from '../gateway/workspace-files.js';
-import type { GatewayConfig } from '../gateway/types.js';
+} from "../gateway/config-watcher.js";
+import {
+  scaffoldWorkspace,
+  getDefaultWorkspacePath,
+} from "../gateway/workspace-files.js";
+import type { GatewayConfig } from "../gateway/types.js";
 import type {
   CliRuntimeContext,
   CliStatusCode,
   WizardOptions,
   ConfigValidateOptions,
   ConfigShowOptions,
-} from './types.js';
+} from "./types.js";
 
 // ============================================================================
 // Default config generation
@@ -31,7 +34,7 @@ import type {
 
 /** Detect the default Solana keypair path if it exists. */
 export function detectSolanaKeypair(): string | null {
-  const defaultPath = join(homedir(), '.config', 'solana', 'id.json');
+  const defaultPath = join(homedir(), ".config", "solana", "id.json");
   return existsSync(defaultPath) ? defaultPath : null;
 }
 
@@ -46,14 +49,14 @@ export function generateDefaultConfig(
       port: 3100,
     },
     agent: {
-      name: 'agenc-agent',
+      name: "agenc-agent",
     },
     connection: {
-      rpcUrl: 'https://api.devnet.solana.com',
+      rpcUrl: "https://api.devnet.solana.com",
       ...(keypairPath ? { keypairPath } : {}),
     },
     logging: {
-      level: 'info',
+      level: "info",
     },
   };
 
@@ -86,8 +89,8 @@ export async function runConfigInitCommand(
 
   if (configExists && !options.force) {
     context.output({
-      status: 'ok',
-      command: 'config.init',
+      status: "ok",
+      command: "config.init",
       skipped: true,
       message: `Config already exists at ${configPath}. Use --force to overwrite.`,
       configPath,
@@ -100,9 +103,9 @@ export async function runConfigInitCommand(
   const validation = validateGatewayConfig(config);
   if (!validation.valid) {
     context.error({
-      status: 'error',
-      command: 'config.init',
-      message: `Generated config is invalid: ${validation.errors.join('; ')}`,
+      status: "error",
+      command: "config.init",
+      message: `Generated config is invalid: ${validation.errors.join("; ")}`,
     });
     return 1;
   }
@@ -110,11 +113,11 @@ export async function runConfigInitCommand(
   // Write config
   try {
     mkdirSync(dirname(configPath), { recursive: true });
-    writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf-8');
+    writeFileSync(configPath, JSON.stringify(config, null, 2), "utf-8");
   } catch (err) {
     context.error({
-      status: 'error',
-      command: 'config.init',
+      status: "error",
+      command: "config.init",
       message: `Failed to write config: ${(err as Error).message}`,
     });
     return 1;
@@ -127,8 +130,8 @@ export async function runConfigInitCommand(
     scaffolded = await scaffoldWorkspace(workspacePath);
   } catch (err) {
     context.error({
-      status: 'error',
-      command: 'config.init',
+      status: "error",
+      command: "config.init",
       message: `Config written but workspace scaffold failed: ${(err as Error).message}`,
       configPath,
     });
@@ -136,8 +139,8 @@ export async function runConfigInitCommand(
   }
 
   context.output({
-    status: 'ok',
-    command: 'config.init',
+    status: "ok",
+    command: "config.init",
     configPath,
     workspacePath,
     configCreated: true,
@@ -163,8 +166,8 @@ export async function runConfigValidateCommand(
     config = await loadGatewayConfig(configPath);
   } catch (err) {
     context.error({
-      status: 'error',
-      command: 'config.validate',
+      status: "error",
+      command: "config.validate",
       message: `Failed to load config: ${(err as Error).message}`,
       configPath,
     });
@@ -174,8 +177,8 @@ export async function runConfigValidateCommand(
   const validation = validateGatewayConfig(config);
   if (!validation.valid) {
     context.error({
-      status: 'error',
-      command: 'config.validate',
+      status: "error",
+      command: "config.validate",
       errors: validation.errors,
       configPath,
     });
@@ -183,8 +186,8 @@ export async function runConfigValidateCommand(
   }
 
   context.output({
-    status: 'ok',
-    command: 'config.validate',
+    status: "ok",
+    command: "config.validate",
     valid: true,
     configPath,
   });
@@ -207,8 +210,8 @@ export async function runConfigShowCommand(
     config = await loadGatewayConfig(configPath);
   } catch (err) {
     context.error({
-      status: 'error',
-      command: 'config.show',
+      status: "error",
+      command: "config.show",
       message: `Failed to load config: ${(err as Error).message}`,
       configPath,
     });
@@ -216,8 +219,8 @@ export async function runConfigShowCommand(
   }
 
   context.output({
-    status: 'ok',
-    command: 'config.show',
+    status: "ok",
+    command: "config.show",
     configPath,
     config,
   });

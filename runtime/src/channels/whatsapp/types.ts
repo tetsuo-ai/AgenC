@@ -10,7 +10,7 @@
 
 export interface WhatsAppChannelConfig {
   /** Connection mode. */
-  readonly mode: 'baileys' | 'business-api';
+  readonly mode: "baileys" | "business-api";
 
   // --- Baileys mode ---
   /** Path to store authentication state (baileys mode). */

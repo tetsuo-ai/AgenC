@@ -1,13 +1,17 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { PublicKey, Keypair } from '@solana/web3.js';
-import { TaskDiscovery, type TaskDiscoveryOptions, type TaskDiscoveryResult } from './discovery.js';
-import { TaskOperations } from './operations.js';
-import { type TaskFilterConfig } from './types.js';
-import { silentLogger } from '../utils/logger.js';
-import { PROGRAM_ID } from '@agenc/sdk';
-import type { Program } from '@coral-xyz/anchor';
-import type { AgencCoordination } from '../types/agenc_coordination.js';
-import { createTask, createMockOperations } from './test-utils.js';
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { PublicKey, Keypair } from "@solana/web3.js";
+import {
+  TaskDiscovery,
+  type TaskDiscoveryOptions,
+  type TaskDiscoveryResult,
+} from "./discovery.js";
+import { TaskOperations } from "./operations.js";
+import { type TaskFilterConfig } from "./types.js";
+import { silentLogger } from "../utils/logger.js";
+import { PROGRAM_ID } from "@agenc/sdk";
+import type { Program } from "@coral-xyz/anchor";
+import type { AgencCoordination } from "../types/agenc_coordination.js";
+import { createTask, createMockOperations } from "./test-utils.js";
 
 // ============================================================================
 // Helpers
@@ -20,7 +24,10 @@ const INFERENCE = 1n << 1n;
  * Creates a mock Anchor program with event listener support for TaskCreated.
  */
 function createMockProgram() {
-  const eventCallbacks = new Map<number, { eventName: string; callback: Function }>();
+  const eventCallbacks = new Map<
+    number,
+    { eventName: string; callback: Function }
+  >();
   let nextListenerId = 1;
 
   const mockProgram = {
@@ -33,7 +40,12 @@ function createMockProgram() {
     removeEventListener: vi.fn(async (_id: number) => {
       eventCallbacks.delete(_id);
     }),
-    _emit: (eventName: string, rawEvent: unknown, slot: number, signature: string) => {
+    _emit: (
+      eventName: string,
+      rawEvent: unknown,
+      slot: number,
+      signature: string,
+    ) => {
       for (const { eventName: name, callback } of eventCallbacks.values()) {
         if (name === eventName) {
           callback(rawEvent, slot, signature);
@@ -49,7 +61,10 @@ function createMockProgram() {
   };
 }
 
-function mockBN(value: bigint | number): { toNumber: () => number; toString: () => string } {
+function mockBN(value: bigint | number): {
+  toNumber: () => number;
+  toString: () => string;
+} {
   const bigValue = BigInt(value);
   return {
     toNumber: () => Number(bigValue),
@@ -61,7 +76,7 @@ function mockBN(value: bigint | number): { toNumber: () => number; toString: () 
 // Tests
 // ============================================================================
 
-describe('TaskDiscovery', () => {
+describe("TaskDiscovery", () => {
   let mockProgram: ReturnType<typeof createMockProgram>;
   let mockOps: ReturnType<typeof createMockOperations>;
   let discovery: TaskDiscovery;
@@ -70,7 +85,7 @@ describe('TaskDiscovery', () => {
     program: mockProgram,
     operations: mockOps as unknown as TaskOperations,
     filter: {},
-    mode: 'poll',
+    mode: "poll",
     pollIntervalMs: 100,
     logger: silentLogger,
   });
@@ -92,13 +107,13 @@ describe('TaskDiscovery', () => {
   // Poll Mode Tests
   // ==========================================================================
 
-  describe('Poll Mode', () => {
-    it('discovers tasks on interval', async () => {
+  describe("Poll Mode", () => {
+    it("discovers tasks on interval", async () => {
       const taskPda = Keypair.generate().publicKey;
       const task = createTask();
-      (mockOps.fetchClaimableTasks as ReturnType<typeof vi.fn>).mockResolvedValue([
-        { task, taskPda },
-      ]);
+      (
+        mockOps.fetchClaimableTasks as ReturnType<typeof vi.fn>
+      ).mockResolvedValue([{ task, taskPda }]);
 
       const listener = vi.fn();
       discovery = new TaskDiscovery(defaultConfig());
@@ -110,15 +125,15 @@ describe('TaskDiscovery', () => {
 
       expect(listener).toHaveBeenCalledTimes(1);
       expect(listener.mock.calls[0][0].pda).toBe(taskPda);
-      expect(listener.mock.calls[0][0].source).toBe('poll');
+      expect(listener.mock.calls[0][0].source).toBe("poll");
     });
 
-    it('deduplicates: same task not discovered twice', async () => {
+    it("deduplicates: same task not discovered twice", async () => {
       const taskPda = Keypair.generate().publicKey;
       const task = createTask();
-      (mockOps.fetchClaimableTasks as ReturnType<typeof vi.fn>).mockResolvedValue([
-        { task, taskPda },
-      ]);
+      (
+        mockOps.fetchClaimableTasks as ReturnType<typeof vi.fn>
+      ).mockResolvedValue([{ task, taskPda }]);
 
       const listener = vi.fn();
       discovery = new TaskDiscovery(defaultConfig());
@@ -137,12 +152,12 @@ describe('TaskDiscovery', () => {
       expect(listener).toHaveBeenCalledTimes(1);
     });
 
-    it('filters tasks by agent capabilities', async () => {
+    it("filters tasks by agent capabilities", async () => {
       const taskPda = Keypair.generate().publicKey;
       const task = createTask({ requiredCapabilities: COMPUTE | INFERENCE });
-      (mockOps.fetchClaimableTasks as ReturnType<typeof vi.fn>).mockResolvedValue([
-        { task, taskPda },
-      ]);
+      (
+        mockOps.fetchClaimableTasks as ReturnType<typeof vi.fn>
+      ).mockResolvedValue([{ task, taskPda }]);
 
       const listener = vi.fn();
       discovery = new TaskDiscovery(defaultConfig());
@@ -155,11 +170,11 @@ describe('TaskDiscovery', () => {
       expect(listener).not.toHaveBeenCalled();
     });
 
-    it('continues polling after fetch error', async () => {
+    it("continues polling after fetch error", async () => {
       const taskPda = Keypair.generate().publicKey;
       const task = createTask();
       (mockOps.fetchClaimableTasks as ReturnType<typeof vi.fn>)
-        .mockRejectedValueOnce(new Error('Network error'))
+        .mockRejectedValueOnce(new Error("Network error"))
         .mockResolvedValue([{ task, taskPda }]);
 
       const listener = vi.fn();
@@ -178,12 +193,12 @@ describe('TaskDiscovery', () => {
       expect(listener).toHaveBeenCalledTimes(1);
     });
 
-    it('applies filter config', async () => {
+    it("applies filter config", async () => {
       const taskPda = Keypair.generate().publicKey;
       const task = createTask({ rewardAmount: 500_000n });
-      (mockOps.fetchClaimableTasks as ReturnType<typeof vi.fn>).mockResolvedValue([
-        { task, taskPda },
-      ]);
+      (
+        mockOps.fetchClaimableTasks as ReturnType<typeof vi.fn>
+      ).mockResolvedValue([{ task, taskPda }]);
 
       const listener = vi.fn();
       const config = defaultConfig();
@@ -202,22 +217,22 @@ describe('TaskDiscovery', () => {
   // Event Mode Tests
   // ==========================================================================
 
-  describe('Event Mode', () => {
-    it('discovers tasks via TaskCreated events', async () => {
+  describe("Event Mode", () => {
+    it("discovers tasks via TaskCreated events", async () => {
       const creator = Keypair.generate().publicKey;
       const taskId = new Uint8Array(32).fill(1);
       const task = createTask({ taskId, creator });
 
       // Derive the expected PDA
       const [expectedPda] = PublicKey.findProgramAddressSync(
-        [Buffer.from('task'), creator.toBuffer(), Buffer.from(taskId)],
+        [Buffer.from("task"), creator.toBuffer(), Buffer.from(taskId)],
         PROGRAM_ID,
       );
       (mockOps.fetchTask as ReturnType<typeof vi.fn>).mockResolvedValue(task);
 
       const listener = vi.fn();
       const config = defaultConfig();
-      config.mode = 'event';
+      config.mode = "event";
       discovery = new TaskDiscovery(config);
       discovery.onTaskDiscovered(listener);
 
@@ -225,7 +240,7 @@ describe('TaskDiscovery', () => {
 
       // Simulate TaskCreated event
       mockProgram._emit(
-        'taskCreated',
+        "taskCreated",
         {
           taskId: Array.from(taskId),
           creator,
@@ -236,18 +251,18 @@ describe('TaskDiscovery', () => {
           timestamp: mockBN(Date.now()),
         },
         100,
-        'sig-event-1',
+        "sig-event-1",
       );
 
       // Wait for async fetchTask
       await vi.advanceTimersByTimeAsync(0);
 
       expect(listener).toHaveBeenCalledTimes(1);
-      expect(listener.mock.calls[0][0].source).toBe('event');
+      expect(listener.mock.calls[0][0].source).toBe("event");
       expect(listener.mock.calls[0][0].pda.equals(expectedPda)).toBe(true);
     });
 
-    it('deduplicates: same task from event not discovered twice', async () => {
+    it("deduplicates: same task from event not discovered twice", async () => {
       const creator = Keypair.generate().publicKey;
       const taskId = new Uint8Array(32).fill(2);
       const task = createTask({ taskId, creator });
@@ -255,7 +270,7 @@ describe('TaskDiscovery', () => {
 
       const listener = vi.fn();
       const config = defaultConfig();
-      config.mode = 'event';
+      config.mode = "event";
       discovery = new TaskDiscovery(config);
       discovery.onTaskDiscovered(listener);
 
@@ -272,16 +287,16 @@ describe('TaskDiscovery', () => {
       };
 
       // Emit twice
-      mockProgram._emit('taskCreated', rawEvent, 100, 'sig1');
+      mockProgram._emit("taskCreated", rawEvent, 100, "sig1");
       await vi.advanceTimersByTimeAsync(0);
 
-      mockProgram._emit('taskCreated', rawEvent, 101, 'sig2');
+      mockProgram._emit("taskCreated", rawEvent, 101, "sig2");
       await vi.advanceTimersByTimeAsync(0);
 
       expect(listener).toHaveBeenCalledTimes(1);
     });
 
-    it('filters events by capabilities', async () => {
+    it("filters events by capabilities", async () => {
       const creator = Keypair.generate().publicKey;
       const taskId = new Uint8Array(32).fill(3);
       // Task requires INFERENCE but agent only has COMPUTE
@@ -294,14 +309,14 @@ describe('TaskDiscovery', () => {
 
       const listener = vi.fn();
       const config = defaultConfig();
-      config.mode = 'event';
+      config.mode = "event";
       discovery = new TaskDiscovery(config);
       discovery.onTaskDiscovered(listener);
 
       await discovery.start(COMPUTE);
 
       mockProgram._emit(
-        'taskCreated',
+        "taskCreated",
         {
           taskId: Array.from(taskId),
           creator,
@@ -312,7 +327,7 @@ describe('TaskDiscovery', () => {
           timestamp: mockBN(Date.now()),
         },
         100,
-        'sig-filter',
+        "sig-filter",
       );
 
       await vi.advanceTimersByTimeAsync(0);
@@ -320,21 +335,23 @@ describe('TaskDiscovery', () => {
       expect(listener).not.toHaveBeenCalled();
     });
 
-    it('handles fetch failure gracefully', async () => {
+    it("handles fetch failure gracefully", async () => {
       const creator = Keypair.generate().publicKey;
       const taskId = new Uint8Array(32).fill(4);
-      (mockOps.fetchTask as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('fetch error'));
+      (mockOps.fetchTask as ReturnType<typeof vi.fn>).mockRejectedValue(
+        new Error("fetch error"),
+      );
 
       const listener = vi.fn();
       const config = defaultConfig();
-      config.mode = 'event';
+      config.mode = "event";
       discovery = new TaskDiscovery(config);
       discovery.onTaskDiscovered(listener);
 
       await discovery.start(COMPUTE);
 
       mockProgram._emit(
-        'taskCreated',
+        "taskCreated",
         {
           taskId: Array.from(taskId),
           creator,
@@ -345,7 +362,7 @@ describe('TaskDiscovery', () => {
           timestamp: mockBN(Date.now()),
         },
         100,
-        'sig-fail',
+        "sig-fail",
       );
 
       await vi.advanceTimersByTimeAsync(0);
@@ -354,21 +371,21 @@ describe('TaskDiscovery', () => {
       expect(listener).not.toHaveBeenCalled();
     });
 
-    it('handles null task from fetchTask', async () => {
+    it("handles null task from fetchTask", async () => {
       const creator = Keypair.generate().publicKey;
       const taskId = new Uint8Array(32).fill(5);
       (mockOps.fetchTask as ReturnType<typeof vi.fn>).mockResolvedValue(null);
 
       const listener = vi.fn();
       const config = defaultConfig();
-      config.mode = 'event';
+      config.mode = "event";
       discovery = new TaskDiscovery(config);
       discovery.onTaskDiscovered(listener);
 
       await discovery.start(COMPUTE);
 
       mockProgram._emit(
-        'taskCreated',
+        "taskCreated",
         {
           taskId: Array.from(taskId),
           creator,
@@ -379,7 +396,7 @@ describe('TaskDiscovery', () => {
           timestamp: mockBN(Date.now()),
         },
         100,
-        'sig-null',
+        "sig-null",
       );
 
       await vi.advanceTimersByTimeAsync(0);
@@ -392,22 +409,27 @@ describe('TaskDiscovery', () => {
   // Hybrid Mode Tests
   // ==========================================================================
 
-  describe('Hybrid Mode', () => {
-    it('runs both poll and event sources', async () => {
+  describe("Hybrid Mode", () => {
+    it("runs both poll and event sources", async () => {
       const pollPda = Keypair.generate().publicKey;
       const pollTask = createTask();
-      (mockOps.fetchClaimableTasks as ReturnType<typeof vi.fn>).mockResolvedValue([
-        { task: pollTask, taskPda: pollPda },
-      ]);
+      (
+        mockOps.fetchClaimableTasks as ReturnType<typeof vi.fn>
+      ).mockResolvedValue([{ task: pollTask, taskPda: pollPda }]);
 
       const eventCreator = Keypair.generate().publicKey;
       const eventTaskId = new Uint8Array(32).fill(10);
-      const eventTask = createTask({ taskId: eventTaskId, creator: eventCreator });
-      (mockOps.fetchTask as ReturnType<typeof vi.fn>).mockResolvedValue(eventTask);
+      const eventTask = createTask({
+        taskId: eventTaskId,
+        creator: eventCreator,
+      });
+      (mockOps.fetchTask as ReturnType<typeof vi.fn>).mockResolvedValue(
+        eventTask,
+      );
 
       const listener = vi.fn();
       const config = defaultConfig();
-      config.mode = 'hybrid';
+      config.mode = "hybrid";
       discovery = new TaskDiscovery(config);
       discovery.onTaskDiscovered(listener);
 
@@ -416,11 +438,11 @@ describe('TaskDiscovery', () => {
 
       // Poll finds one
       expect(listener).toHaveBeenCalledTimes(1);
-      expect(listener.mock.calls[0][0].source).toBe('poll');
+      expect(listener.mock.calls[0][0].source).toBe("poll");
 
       // Event finds another
       mockProgram._emit(
-        'taskCreated',
+        "taskCreated",
         {
           taskId: Array.from(eventTaskId),
           creator: eventCreator,
@@ -431,34 +453,34 @@ describe('TaskDiscovery', () => {
           timestamp: mockBN(Date.now()),
         },
         100,
-        'sig-hybrid',
+        "sig-hybrid",
       );
 
       await vi.advanceTimersByTimeAsync(0);
 
       expect(listener).toHaveBeenCalledTimes(2);
-      expect(listener.mock.calls[1][0].source).toBe('event');
+      expect(listener.mock.calls[1][0].source).toBe("event");
     });
 
-    it('cross-source deduplication: poll-discovered task not rediscovered via event', async () => {
+    it("cross-source deduplication: poll-discovered task not rediscovered via event", async () => {
       const creator = Keypair.generate().publicKey;
       const taskId = new Uint8Array(32).fill(20);
       const task = createTask({ taskId, creator });
 
       // Derive expected PDA
       const [expectedPda] = PublicKey.findProgramAddressSync(
-        [Buffer.from('task'), creator.toBuffer(), Buffer.from(taskId)],
+        [Buffer.from("task"), creator.toBuffer(), Buffer.from(taskId)],
         PROGRAM_ID,
       );
 
-      (mockOps.fetchClaimableTasks as ReturnType<typeof vi.fn>).mockResolvedValue([
-        { task, taskPda: expectedPda },
-      ]);
+      (
+        mockOps.fetchClaimableTasks as ReturnType<typeof vi.fn>
+      ).mockResolvedValue([{ task, taskPda: expectedPda }]);
       (mockOps.fetchTask as ReturnType<typeof vi.fn>).mockResolvedValue(task);
 
       const listener = vi.fn();
       const config = defaultConfig();
-      config.mode = 'hybrid';
+      config.mode = "hybrid";
       discovery = new TaskDiscovery(config);
       discovery.onTaskDiscovered(listener);
 
@@ -470,7 +492,7 @@ describe('TaskDiscovery', () => {
 
       // Same task emitted as event — should be deduplicated
       mockProgram._emit(
-        'taskCreated',
+        "taskCreated",
         {
           taskId: Array.from(taskId),
           creator,
@@ -481,7 +503,7 @@ describe('TaskDiscovery', () => {
           timestamp: mockBN(Date.now()),
         },
         200,
-        'sig-dedup',
+        "sig-dedup",
       );
 
       await vi.advanceTimersByTimeAsync(0);
@@ -495,13 +517,13 @@ describe('TaskDiscovery', () => {
   // Listener Tests
   // ==========================================================================
 
-  describe('Listeners', () => {
-    it('multiple listeners all notified', async () => {
+  describe("Listeners", () => {
+    it("multiple listeners all notified", async () => {
       const taskPda = Keypair.generate().publicKey;
       const task = createTask();
-      (mockOps.fetchClaimableTasks as ReturnType<typeof vi.fn>).mockResolvedValue([
-        { task, taskPda },
-      ]);
+      (
+        mockOps.fetchClaimableTasks as ReturnType<typeof vi.fn>
+      ).mockResolvedValue([{ task, taskPda }]);
 
       const listener1 = vi.fn();
       const listener2 = vi.fn();
@@ -516,15 +538,15 @@ describe('TaskDiscovery', () => {
       expect(listener2).toHaveBeenCalledTimes(1);
     });
 
-    it('exception in one listener does not break others', async () => {
+    it("exception in one listener does not break others", async () => {
       const taskPda = Keypair.generate().publicKey;
       const task = createTask();
-      (mockOps.fetchClaimableTasks as ReturnType<typeof vi.fn>).mockResolvedValue([
-        { task, taskPda },
-      ]);
+      (
+        mockOps.fetchClaimableTasks as ReturnType<typeof vi.fn>
+      ).mockResolvedValue([{ task, taskPda }]);
 
       const throwingListener = vi.fn(() => {
-        throw new Error('Listener error');
+        throw new Error("Listener error");
       });
       const goodListener = vi.fn();
 
@@ -539,7 +561,7 @@ describe('TaskDiscovery', () => {
       expect(goodListener).toHaveBeenCalledTimes(1);
     });
 
-    it('unsubscribe removes listener', async () => {
+    it("unsubscribe removes listener", async () => {
       const taskPda1 = Keypair.generate().publicKey;
       const taskPda2 = Keypair.generate().publicKey;
       const task1 = createTask();
@@ -574,8 +596,8 @@ describe('TaskDiscovery', () => {
   // Lifecycle Tests
   // ==========================================================================
 
-  describe('Lifecycle', () => {
-    it('start() is idempotent', async () => {
+  describe("Lifecycle", () => {
+    it("start() is idempotent", async () => {
       discovery = new TaskDiscovery(defaultConfig());
 
       await discovery.start(COMPUTE);
@@ -584,7 +606,7 @@ describe('TaskDiscovery', () => {
       expect(discovery.isRunning()).toBe(true);
     });
 
-    it('stop() is idempotent', async () => {
+    it("stop() is idempotent", async () => {
       discovery = new TaskDiscovery(defaultConfig());
 
       await discovery.start(COMPUTE);
@@ -594,9 +616,9 @@ describe('TaskDiscovery', () => {
       expect(discovery.isRunning()).toBe(false);
     });
 
-    it('stop() cleans up timer and subscriptions', async () => {
+    it("stop() cleans up timer and subscriptions", async () => {
       const config = defaultConfig();
-      config.mode = 'hybrid';
+      config.mode = "hybrid";
       discovery = new TaskDiscovery(config);
 
       await discovery.start(COMPUTE);
@@ -608,7 +630,7 @@ describe('TaskDiscovery', () => {
       expect(mockProgram.removeEventListener).toHaveBeenCalled();
     });
 
-    it('isRunning() reflects state', async () => {
+    it("isRunning() reflects state", async () => {
       discovery = new TaskDiscovery(defaultConfig());
 
       expect(discovery.isRunning()).toBe(false);
@@ -620,12 +642,12 @@ describe('TaskDiscovery', () => {
       expect(discovery.isRunning()).toBe(false);
     });
 
-    it('can restart after stop', async () => {
+    it("can restart after stop", async () => {
       const taskPda = Keypair.generate().publicKey;
       const task = createTask();
-      (mockOps.fetchClaimableTasks as ReturnType<typeof vi.fn>).mockResolvedValue([
-        { task, taskPda },
-      ]);
+      (
+        mockOps.fetchClaimableTasks as ReturnType<typeof vi.fn>
+      ).mockResolvedValue([{ task, taskPda }]);
 
       const listener = vi.fn();
       discovery = new TaskDiscovery(defaultConfig());
@@ -651,11 +673,13 @@ describe('TaskDiscovery', () => {
   // Monitoring Tests
   // ==========================================================================
 
-  describe('Monitoring', () => {
-    it('getDiscoveredCount() is accurate', async () => {
+  describe("Monitoring", () => {
+    it("getDiscoveredCount() is accurate", async () => {
       const taskPda1 = Keypair.generate().publicKey;
       const taskPda2 = Keypair.generate().publicKey;
-      (mockOps.fetchClaimableTasks as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
+      (
+        mockOps.fetchClaimableTasks as ReturnType<typeof vi.fn>
+      ).mockResolvedValueOnce([
         { task: createTask(), taskPda: taskPda1 },
         { task: createTask(), taskPda: taskPda2 },
       ]);
@@ -670,12 +694,12 @@ describe('TaskDiscovery', () => {
       expect(discovery.getDiscoveredCount()).toBe(2);
     });
 
-    it('clearSeen() resets deduplication', async () => {
+    it("clearSeen() resets deduplication", async () => {
       const taskPda = Keypair.generate().publicKey;
       const task = createTask();
-      (mockOps.fetchClaimableTasks as ReturnType<typeof vi.fn>).mockResolvedValue([
-        { task, taskPda },
-      ]);
+      (
+        mockOps.fetchClaimableTasks as ReturnType<typeof vi.fn>
+      ).mockResolvedValue([{ task, taskPda }]);
 
       const listener = vi.fn();
       discovery = new TaskDiscovery(defaultConfig());
@@ -704,28 +728,28 @@ describe('TaskDiscovery', () => {
   // Manual Poll Tests
   // ==========================================================================
 
-  describe('Manual poll()', () => {
-    it('returns discovered tasks', async () => {
+  describe("Manual poll()", () => {
+    it("returns discovered tasks", async () => {
       const taskPda = Keypair.generate().publicKey;
       const task = createTask();
-      (mockOps.fetchClaimableTasks as ReturnType<typeof vi.fn>).mockResolvedValue([
-        { task, taskPda },
-      ]);
+      (
+        mockOps.fetchClaimableTasks as ReturnType<typeof vi.fn>
+      ).mockResolvedValue([{ task, taskPda }]);
 
       discovery = new TaskDiscovery(defaultConfig());
       const results = await discovery.poll(COMPUTE);
 
       expect(results.length).toBe(1);
       expect(results[0].pda).toBe(taskPda);
-      expect(results[0].source).toBe('poll');
+      expect(results[0].source).toBe("poll");
     });
 
-    it('deduplicates with previously seen tasks', async () => {
+    it("deduplicates with previously seen tasks", async () => {
       const taskPda = Keypair.generate().publicKey;
       const task = createTask();
-      (mockOps.fetchClaimableTasks as ReturnType<typeof vi.fn>).mockResolvedValue([
-        { task, taskPda },
-      ]);
+      (
+        mockOps.fetchClaimableTasks as ReturnType<typeof vi.fn>
+      ).mockResolvedValue([{ task, taskPda }]);
 
       discovery = new TaskDiscovery(defaultConfig());
 
@@ -736,12 +760,12 @@ describe('TaskDiscovery', () => {
       expect(second.length).toBe(0);
     });
 
-    it('applies filters', async () => {
+    it("applies filters", async () => {
       const taskPda = Keypair.generate().publicKey;
       const task = createTask({ rewardAmount: 500_000n });
-      (mockOps.fetchClaimableTasks as ReturnType<typeof vi.fn>).mockResolvedValue([
-        { task, taskPda },
-      ]);
+      (
+        mockOps.fetchClaimableTasks as ReturnType<typeof vi.fn>
+      ).mockResolvedValue([{ task, taskPda }]);
 
       const config = defaultConfig();
       config.filter = { minRewardLamports: 1_000_000n };
@@ -751,12 +775,12 @@ describe('TaskDiscovery', () => {
       expect(results.length).toBe(0);
     });
 
-    it('notifies listeners during manual poll', async () => {
+    it("notifies listeners during manual poll", async () => {
       const taskPda = Keypair.generate().publicKey;
       const task = createTask();
-      (mockOps.fetchClaimableTasks as ReturnType<typeof vi.fn>).mockResolvedValue([
-        { task, taskPda },
-      ]);
+      (
+        mockOps.fetchClaimableTasks as ReturnType<typeof vi.fn>
+      ).mockResolvedValue([{ task, taskPda }]);
 
       const listener = vi.fn();
       discovery = new TaskDiscovery(defaultConfig());
@@ -767,10 +791,10 @@ describe('TaskDiscovery', () => {
       expect(listener).toHaveBeenCalledTimes(1);
     });
 
-    it('returns empty on error', async () => {
-      (mockOps.fetchClaimableTasks as ReturnType<typeof vi.fn>).mockRejectedValue(
-        new Error('network'),
-      );
+    it("returns empty on error", async () => {
+      (
+        mockOps.fetchClaimableTasks as ReturnType<typeof vi.fn>
+      ).mockRejectedValue(new Error("network"));
 
       discovery = new TaskDiscovery(defaultConfig());
       const results = await discovery.poll(COMPUTE);
@@ -783,18 +807,18 @@ describe('TaskDiscovery', () => {
   // Pause / Resume (Backpressure) Tests
   // ==========================================================================
 
-  describe('Pause / Resume', () => {
-    it('isPaused() returns false by default', async () => {
+  describe("Pause / Resume", () => {
+    it("isPaused() returns false by default", async () => {
       discovery = new TaskDiscovery(defaultConfig());
       expect(discovery.isPaused()).toBe(false);
     });
 
-    it('pause() suppresses poll cycles', async () => {
+    it("pause() suppresses poll cycles", async () => {
       const taskPda = Keypair.generate().publicKey;
       const task = createTask();
-      (mockOps.fetchClaimableTasks as ReturnType<typeof vi.fn>).mockResolvedValue([
-        { task, taskPda },
-      ]);
+      (
+        mockOps.fetchClaimableTasks as ReturnType<typeof vi.fn>
+      ).mockResolvedValue([{ task, taskPda }]);
 
       const listener = vi.fn();
       discovery = new TaskDiscovery(defaultConfig());
@@ -818,7 +842,7 @@ describe('TaskDiscovery', () => {
       expect(listener).toHaveBeenCalledTimes(1);
     });
 
-    it('resume() re-enables poll cycles', async () => {
+    it("resume() re-enables poll cycles", async () => {
       const taskPda1 = Keypair.generate().publicKey;
       const taskPda2 = Keypair.generate().publicKey;
       const task1 = createTask();
@@ -851,7 +875,7 @@ describe('TaskDiscovery', () => {
       expect(listener).toHaveBeenCalledTimes(2);
     });
 
-    it('pause() suppresses event-mode discovery', async () => {
+    it("pause() suppresses event-mode discovery", async () => {
       const creator = Keypair.generate().publicKey;
       const taskId = new Uint8Array(32).fill(50);
       const task = createTask({ taskId, creator });
@@ -859,7 +883,7 @@ describe('TaskDiscovery', () => {
 
       const listener = vi.fn();
       const config = defaultConfig();
-      config.mode = 'event';
+      config.mode = "event";
       discovery = new TaskDiscovery(config);
       discovery.onTaskDiscovered(listener);
 
@@ -869,7 +893,7 @@ describe('TaskDiscovery', () => {
       discovery.pause();
 
       mockProgram._emit(
-        'taskCreated',
+        "taskCreated",
         {
           taskId: Array.from(taskId),
           creator,
@@ -880,7 +904,7 @@ describe('TaskDiscovery', () => {
           timestamp: mockBN(Date.now()),
         },
         100,
-        'sig-paused',
+        "sig-paused",
       );
 
       await vi.advanceTimersByTimeAsync(0);
@@ -889,7 +913,7 @@ describe('TaskDiscovery', () => {
       expect(listener).not.toHaveBeenCalled();
     });
 
-    it('pause() is idempotent', async () => {
+    it("pause() is idempotent", async () => {
       discovery = new TaskDiscovery(defaultConfig());
       await discovery.start(COMPUTE);
 
@@ -898,7 +922,7 @@ describe('TaskDiscovery', () => {
       expect(discovery.isPaused()).toBe(true);
     });
 
-    it('resume() is idempotent when not paused', async () => {
+    it("resume() is idempotent when not paused", async () => {
       discovery = new TaskDiscovery(defaultConfig());
       await discovery.start(COMPUTE);
 
@@ -907,14 +931,14 @@ describe('TaskDiscovery', () => {
       expect(discovery.isPaused()).toBe(false);
     });
 
-    it('pause() is a no-op when not running', () => {
+    it("pause() is a no-op when not running", () => {
       discovery = new TaskDiscovery(defaultConfig());
 
       discovery.pause();
       expect(discovery.isPaused()).toBe(false);
     });
 
-    it('stop() clears paused state', async () => {
+    it("stop() clears paused state", async () => {
       discovery = new TaskDiscovery(defaultConfig());
       await discovery.start(COMPUTE);
 

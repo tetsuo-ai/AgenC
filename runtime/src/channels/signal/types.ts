@@ -13,7 +13,7 @@ export interface SignalChannelConfig {
   /** The phone number registered with Signal (e.g. '+15551234567'). */
   readonly phoneNumber: string;
   /** Trust mode for incoming messages. @default 'on-first-use' */
-  readonly trustMode?: 'always' | 'on-first-use' | 'tofu';
+  readonly trustMode?: "always" | "on-first-use" | "tofu";
   /** Restrict to specific phone numbers. Empty = all numbers. */
   readonly allowedNumbers?: readonly string[];
   /** Poll interval for checking subprocess health in ms. @default 30000 */

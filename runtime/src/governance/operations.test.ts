@@ -1,6 +1,6 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { PublicKey, Keypair } from '@solana/web3.js';
-import { GovernanceOperations } from './operations.js';
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { PublicKey, Keypair } from "@solana/web3.js";
+import { GovernanceOperations } from "./operations.js";
 import {
   parseOnChainProposal,
   parseOnChainGovernanceVote,
@@ -9,11 +9,22 @@ import {
   ProposalStatus,
   ProposalType,
   PROPOSAL_STATUS_OFFSET,
-} from './types.js';
-import { deriveProposalPda, deriveGovernanceVotePda, deriveGovernanceConfigPda, findProposalPda, findGovernanceVotePda, findGovernanceConfigPda } from './pda.js';
-import { GovernanceProposalNotFoundError, GovernanceVoteError, GovernanceExecutionError } from './errors.js';
-import { AnchorErrorCodes } from '../types/errors.js';
-import { PROGRAM_ID } from '@agenc/sdk';
+} from "./types.js";
+import {
+  deriveProposalPda,
+  deriveGovernanceVotePda,
+  deriveGovernanceConfigPda,
+  findProposalPda,
+  findGovernanceVotePda,
+  findGovernanceConfigPda,
+} from "./pda.js";
+import {
+  GovernanceProposalNotFoundError,
+  GovernanceVoteError,
+  GovernanceExecutionError,
+} from "./errors.js";
+import { AnchorErrorCodes } from "../types/errors.js";
+import { PROGRAM_ID } from "@agenc/sdk";
 
 // ============================================================================
 // Test Helpers
@@ -24,14 +35,18 @@ function randomPubkey(): PublicKey {
 }
 
 function randomBytes(len: number): Uint8Array {
-  return new Uint8Array(Array.from({ length: len }, () => Math.floor(Math.random() * 256)));
+  return new Uint8Array(
+    Array.from({ length: len }, () => Math.floor(Math.random() * 256)),
+  );
 }
 
-function mockRawProposal(overrides: Record<string, any> = {}): Record<string, any> {
+function mockRawProposal(
+  overrides: Record<string, any> = {},
+): Record<string, any> {
   return {
     proposer: randomPubkey(),
     proposerAuthority: randomPubkey(),
-    nonce: { toString: () => '1' },
+    nonce: { toString: () => "1" },
     proposalType: { feeChange: {} },
     titleHash: Array.from(randomBytes(32)),
     descriptionHash: Array.from(randomBytes(32)),
@@ -41,29 +56,31 @@ function mockRawProposal(overrides: Record<string, any> = {}): Record<string, an
     votingDeadline: { toNumber: () => 1700259200 },
     executionAfter: { toNumber: () => 1700345600 },
     executedAt: { toNumber: () => 0 },
-    votesFor: { toString: () => '100' },
-    votesAgainst: { toString: () => '50' },
+    votesFor: { toString: () => "100" },
+    votesAgainst: { toString: () => "50" },
     totalVoters: 3,
-    quorum: { toString: () => '200' },
+    quorum: { toString: () => "200" },
     bump: 255,
     ...overrides,
   };
 }
 
-function mockRawGovernanceVote(overrides: Record<string, any> = {}): Record<string, any> {
+function mockRawGovernanceVote(
+  overrides: Record<string, any> = {},
+): Record<string, any> {
   return {
     proposal: randomPubkey(),
     voter: randomPubkey(),
     approved: true,
     votedAt: { toNumber: () => 1700001000 },
-    voteWeight: { toString: () => '500' },
+    voteWeight: { toString: () => "500" },
     bump: 254,
     ...overrides,
   };
 }
 
 function createMockProgram(overrides: Record<string, any> = {}) {
-  const rpcMock = vi.fn().mockResolvedValue('mock-signature');
+  const rpcMock = vi.fn().mockResolvedValue("mock-signature");
 
   const methodBuilder = {
     accountsPartial: vi.fn().mockReturnThis(),
@@ -103,8 +120,8 @@ function createMockProgram(overrides: Record<string, any> = {}) {
 // PDA Derivation Tests
 // ============================================================================
 
-describe('PDA derivation', () => {
-  it('derives deterministic proposal PDA', () => {
+describe("PDA derivation", () => {
+  it("derives deterministic proposal PDA", () => {
     const proposerPda = randomPubkey();
     const nonce = 1n;
     const pda1 = deriveProposalPda(proposerPda, nonce);
@@ -113,14 +130,14 @@ describe('PDA derivation', () => {
     expect(pda1.bump).toBe(pda2.bump);
   });
 
-  it('derives different PDAs for different nonces', () => {
+  it("derives different PDAs for different nonces", () => {
     const proposerPda = randomPubkey();
     const pda1 = findProposalPda(proposerPda, 0n);
     const pda2 = findProposalPda(proposerPda, 1n);
     expect(pda1.toBase58()).not.toBe(pda2.toBase58());
   });
 
-  it('derives deterministic governance vote PDA', () => {
+  it("derives deterministic governance vote PDA", () => {
     const proposalPda = randomPubkey();
     const voterPda = randomPubkey();
     const pda1 = deriveGovernanceVotePda(proposalPda, voterPda);
@@ -128,7 +145,7 @@ describe('PDA derivation', () => {
     expect(pda1.address.toBase58()).toBe(pda2.address.toBase58());
   });
 
-  it('findGovernanceVotePda returns address only', () => {
+  it("findGovernanceVotePda returns address only", () => {
     const proposalPda = randomPubkey();
     const voterPda = randomPubkey();
     const addr = findGovernanceVotePda(proposalPda, voterPda);
@@ -140,10 +157,13 @@ describe('PDA derivation', () => {
 // Parse Function Tests
 // ============================================================================
 
-describe('parseOnChainProposal', () => {
-  it('parses raw proposal data', () => {
+describe("parseOnChainProposal", () => {
+  it("parses raw proposal data", () => {
     const proposer = randomPubkey();
-    const raw = mockRawProposal({ proposer, proposalType: { treasurySpend: {} } });
+    const raw = mockRawProposal({
+      proposer,
+      proposalType: { treasurySpend: {} },
+    });
     const parsed = parseOnChainProposal(raw);
     expect(parsed.proposer).toBe(proposer);
     expect(parsed.proposalType).toBe(ProposalType.TreasurySpend);
@@ -158,28 +178,56 @@ describe('parseOnChainProposal', () => {
     expect(parsed.bump).toBe(255);
   });
 
-  it('parses all proposal types', () => {
-    expect(parseOnChainProposal(mockRawProposal({ proposalType: { protocolUpgrade: {} } })).proposalType).toBe(ProposalType.ProtocolUpgrade);
-    expect(parseOnChainProposal(mockRawProposal({ proposalType: { feeChange: {} } })).proposalType).toBe(ProposalType.FeeChange);
-    expect(parseOnChainProposal(mockRawProposal({ proposalType: { treasurySpend: {} } })).proposalType).toBe(ProposalType.TreasurySpend);
-    expect(parseOnChainProposal(mockRawProposal({ proposalType: { rateLimitChange: {} } })).proposalType).toBe(ProposalType.RateLimitChange);
+  it("parses all proposal types", () => {
+    expect(
+      parseOnChainProposal(
+        mockRawProposal({ proposalType: { protocolUpgrade: {} } }),
+      ).proposalType,
+    ).toBe(ProposalType.ProtocolUpgrade);
+    expect(
+      parseOnChainProposal(mockRawProposal({ proposalType: { feeChange: {} } }))
+        .proposalType,
+    ).toBe(ProposalType.FeeChange);
+    expect(
+      parseOnChainProposal(
+        mockRawProposal({ proposalType: { treasurySpend: {} } }),
+      ).proposalType,
+    ).toBe(ProposalType.TreasurySpend);
+    expect(
+      parseOnChainProposal(
+        mockRawProposal({ proposalType: { rateLimitChange: {} } }),
+      ).proposalType,
+    ).toBe(ProposalType.RateLimitChange);
   });
 
-  it('parses all proposal statuses', () => {
-    expect(parseOnChainProposal(mockRawProposal({ status: { active: {} } })).status).toBe(ProposalStatus.Active);
-    expect(parseOnChainProposal(mockRawProposal({ status: { executed: {} } })).status).toBe(ProposalStatus.Executed);
-    expect(parseOnChainProposal(mockRawProposal({ status: { defeated: {} } })).status).toBe(ProposalStatus.Defeated);
-    expect(parseOnChainProposal(mockRawProposal({ status: { cancelled: {} } })).status).toBe(ProposalStatus.Cancelled);
+  it("parses all proposal statuses", () => {
+    expect(
+      parseOnChainProposal(mockRawProposal({ status: { active: {} } })).status,
+    ).toBe(ProposalStatus.Active);
+    expect(
+      parseOnChainProposal(mockRawProposal({ status: { executed: {} } }))
+        .status,
+    ).toBe(ProposalStatus.Executed);
+    expect(
+      parseOnChainProposal(mockRawProposal({ status: { defeated: {} } }))
+        .status,
+    ).toBe(ProposalStatus.Defeated);
+    expect(
+      parseOnChainProposal(mockRawProposal({ status: { cancelled: {} } }))
+        .status,
+    ).toBe(ProposalStatus.Cancelled);
   });
 
-  it('handles BN-like nonce values', () => {
-    const parsed = parseOnChainProposal(mockRawProposal({ nonce: { toString: () => '42' } }));
+  it("handles BN-like nonce values", () => {
+    const parsed = parseOnChainProposal(
+      mockRawProposal({ nonce: { toString: () => "42" } }),
+    );
     expect(parsed.nonce).toBe(42n);
   });
 });
 
-describe('parseOnChainGovernanceVote', () => {
-  it('parses raw vote data', () => {
+describe("parseOnChainGovernanceVote", () => {
+  it("parses raw vote data", () => {
     const voter = randomPubkey();
     const raw = mockRawGovernanceVote({ voter, approved: false });
     const parsed = parseOnChainGovernanceVote(raw);
@@ -190,16 +238,16 @@ describe('parseOnChainGovernanceVote', () => {
   });
 });
 
-describe('proposalStatusToString', () => {
-  it('converts all statuses to strings', () => {
-    expect(proposalStatusToString(ProposalStatus.Active)).toBe('Active');
-    expect(proposalStatusToString(ProposalStatus.Executed)).toBe('Executed');
-    expect(proposalStatusToString(ProposalStatus.Defeated)).toBe('Defeated');
-    expect(proposalStatusToString(ProposalStatus.Cancelled)).toBe('Cancelled');
+describe("proposalStatusToString", () => {
+  it("converts all statuses to strings", () => {
+    expect(proposalStatusToString(ProposalStatus.Active)).toBe("Active");
+    expect(proposalStatusToString(ProposalStatus.Executed)).toBe("Executed");
+    expect(proposalStatusToString(ProposalStatus.Defeated)).toBe("Defeated");
+    expect(proposalStatusToString(ProposalStatus.Cancelled)).toBe("Cancelled");
   });
 
-  it('returns Unknown for invalid status', () => {
-    expect(proposalStatusToString(99 as ProposalStatus)).toBe('Unknown(99)');
+  it("returns Unknown for invalid status", () => {
+    expect(proposalStatusToString(99 as ProposalStatus)).toBe("Unknown(99)");
   });
 });
 
@@ -207,7 +255,7 @@ describe('proposalStatusToString', () => {
 // GovernanceOperations Tests
 // ============================================================================
 
-describe('GovernanceOperations', () => {
+describe("GovernanceOperations", () => {
   let ops: GovernanceOperations;
   let mockProgram: any;
 
@@ -219,8 +267,8 @@ describe('GovernanceOperations', () => {
     });
   });
 
-  describe('fetchProposal', () => {
-    it('returns parsed proposal', async () => {
+  describe("fetchProposal", () => {
+    it("returns parsed proposal", async () => {
       const raw = mockRawProposal();
       mockProgram.account.proposal.fetchNullable.mockResolvedValue(raw);
       const result = await ops.fetchProposal(randomPubkey());
@@ -228,18 +276,21 @@ describe('GovernanceOperations', () => {
       expect(result!.status).toBe(ProposalStatus.Active);
     });
 
-    it('returns null for missing proposal', async () => {
+    it("returns null for missing proposal", async () => {
       mockProgram.account.proposal.fetchNullable.mockResolvedValue(null);
       const result = await ops.fetchProposal(randomPubkey());
       expect(result).toBeNull();
     });
   });
 
-  describe('fetchAllProposals', () => {
-    it('returns all proposals', async () => {
+  describe("fetchAllProposals", () => {
+    it("returns all proposals", async () => {
       const accounts = [
         { publicKey: randomPubkey(), account: mockRawProposal() },
-        { publicKey: randomPubkey(), account: mockRawProposal({ status: { executed: {} } }) },
+        {
+          publicKey: randomPubkey(),
+          account: mockRawProposal({ status: { executed: {} } }),
+        },
       ];
       mockProgram.account.proposal.all.mockResolvedValue(accounts);
       const result = await ops.fetchAllProposals();
@@ -249,8 +300,8 @@ describe('GovernanceOperations', () => {
     });
   });
 
-  describe('fetchActiveProposals', () => {
-    it('filters by active status', async () => {
+  describe("fetchActiveProposals", () => {
+    it("filters by active status", async () => {
       const accounts = [
         { publicKey: randomPubkey(), account: mockRawProposal() },
       ];
@@ -261,8 +312,8 @@ describe('GovernanceOperations', () => {
     });
   });
 
-  describe('fetchGovernanceVote', () => {
-    it('returns parsed vote', async () => {
+  describe("fetchGovernanceVote", () => {
+    it("returns parsed vote", async () => {
       const raw = mockRawGovernanceVote();
       mockProgram.account.governanceVote.fetchNullable.mockResolvedValue(raw);
       const result = await ops.fetchGovernanceVote(randomPubkey());
@@ -270,15 +321,15 @@ describe('GovernanceOperations', () => {
       expect(result!.approved).toBe(true);
     });
 
-    it('returns null for missing vote', async () => {
+    it("returns null for missing vote", async () => {
       mockProgram.account.governanceVote.fetchNullable.mockResolvedValue(null);
       const result = await ops.fetchGovernanceVote(randomPubkey());
       expect(result).toBeNull();
     });
   });
 
-  describe('createProposal', () => {
-    it('calls program.methods.createProposal and returns result', async () => {
+  describe("createProposal", () => {
+    it("calls program.methods.createProposal and returns result", async () => {
       const result = await ops.createProposal({
         nonce: 0n,
         proposalType: ProposalType.FeeChange,
@@ -287,25 +338,27 @@ describe('GovernanceOperations', () => {
         payload: randomBytes(64),
         votingPeriod: 259200,
       });
-      expect(result.transactionSignature).toBe('mock-signature');
+      expect(result.transactionSignature).toBe("mock-signature");
       expect(result.proposalPda).toBeInstanceOf(PublicKey);
       expect(mockProgram.methods.createProposal).toHaveBeenCalled();
     });
   });
 
-  describe('vote', () => {
-    it('calls program.methods.voteProposal with approve=true', async () => {
+  describe("vote", () => {
+    it("calls program.methods.voteProposal with approve=true", async () => {
       const result = await ops.vote({
         proposalPda: randomPubkey(),
         approve: true,
       });
-      expect(result.transactionSignature).toBe('mock-signature');
+      expect(result.transactionSignature).toBe("mock-signature");
       expect(result.votePda).toBeInstanceOf(PublicKey);
       expect(mockProgram.methods.voteProposal).toHaveBeenCalledWith(true);
     });
 
-    it('throws GovernanceVoteError for ProposalNotActive', async () => {
-      const rpcMock = vi.fn().mockRejectedValue({ code: AnchorErrorCodes.ProposalNotActive });
+    it("throws GovernanceVoteError for ProposalNotActive", async () => {
+      const rpcMock = vi
+        .fn()
+        .mockRejectedValue({ code: AnchorErrorCodes.ProposalNotActive });
       mockProgram.methods.voteProposal.mockReturnValue({
         accountsPartial: vi.fn().mockReturnValue({ rpc: rpcMock }),
       });
@@ -315,8 +368,10 @@ describe('GovernanceOperations', () => {
       ).rejects.toThrow(GovernanceVoteError);
     });
 
-    it('throws GovernanceVoteError for ProposalVotingEnded', async () => {
-      const rpcMock = vi.fn().mockRejectedValue({ code: AnchorErrorCodes.ProposalVotingEnded });
+    it("throws GovernanceVoteError for ProposalVotingEnded", async () => {
+      const rpcMock = vi
+        .fn()
+        .mockRejectedValue({ code: AnchorErrorCodes.ProposalVotingEnded });
       mockProgram.methods.voteProposal.mockReturnValue({
         accountsPartial: vi.fn().mockReturnValue({ rpc: rpcMock }),
       });
@@ -327,18 +382,20 @@ describe('GovernanceOperations', () => {
     });
   });
 
-  describe('executeProposal', () => {
-    it('calls program.methods.executeProposal', async () => {
+  describe("executeProposal", () => {
+    it("calls program.methods.executeProposal", async () => {
       const proposalPda = randomPubkey();
       const result = await ops.executeProposal({ proposalPda });
-      expect(result.transactionSignature).toBe('mock-signature');
+      expect(result.transactionSignature).toBe("mock-signature");
       expect(result.proposalPda).toBe(proposalPda);
     });
 
-    it('throws GovernanceExecutionError for insufficient quorum', async () => {
+    it("throws GovernanceExecutionError for insufficient quorum", async () => {
       const rpcMock = vi
         .fn()
-        .mockRejectedValue({ code: AnchorErrorCodes.ProposalInsufficientQuorum });
+        .mockRejectedValue({
+          code: AnchorErrorCodes.ProposalInsufficientQuorum,
+        });
       mockProgram.methods.executeProposal.mockReturnValue({
         accountsPartial: vi.fn().mockReturnValue({ rpc: rpcMock }),
       });
@@ -348,8 +405,10 @@ describe('GovernanceOperations', () => {
       ).rejects.toThrow(GovernanceExecutionError);
     });
 
-    it('throws GovernanceExecutionError for not approved', async () => {
-      const rpcMock = vi.fn().mockRejectedValue({ code: AnchorErrorCodes.ProposalNotApproved });
+    it("throws GovernanceExecutionError for not approved", async () => {
+      const rpcMock = vi
+        .fn()
+        .mockRejectedValue({ code: AnchorErrorCodes.ProposalNotApproved });
       mockProgram.methods.executeProposal.mockReturnValue({
         accountsPartial: vi.fn().mockReturnValue({ rpc: rpcMock }),
       });
@@ -365,26 +424,26 @@ describe('GovernanceOperations', () => {
 // Error Class Tests
 // ============================================================================
 
-describe('Governance Errors', () => {
-  it('GovernanceProposalNotFoundError has correct name and code', () => {
-    const err = new GovernanceProposalNotFoundError('abc123');
-    expect(err.name).toBe('GovernanceProposalNotFoundError');
-    expect(err.proposalPda).toBe('abc123');
-    expect(err.message).toContain('abc123');
+describe("Governance Errors", () => {
+  it("GovernanceProposalNotFoundError has correct name and code", () => {
+    const err = new GovernanceProposalNotFoundError("abc123");
+    expect(err.name).toBe("GovernanceProposalNotFoundError");
+    expect(err.proposalPda).toBe("abc123");
+    expect(err.message).toContain("abc123");
   });
 
-  it('GovernanceVoteError has correct name and fields', () => {
-    const err = new GovernanceVoteError('pda1', 'not active');
-    expect(err.name).toBe('GovernanceVoteError');
-    expect(err.proposalPda).toBe('pda1');
-    expect(err.reason).toBe('not active');
+  it("GovernanceVoteError has correct name and fields", () => {
+    const err = new GovernanceVoteError("pda1", "not active");
+    expect(err.name).toBe("GovernanceVoteError");
+    expect(err.proposalPda).toBe("pda1");
+    expect(err.reason).toBe("not active");
   });
 
-  it('GovernanceExecutionError has correct name and fields', () => {
-    const err = new GovernanceExecutionError('pda2', 'no quorum');
-    expect(err.name).toBe('GovernanceExecutionError');
-    expect(err.proposalPda).toBe('pda2');
-    expect(err.reason).toBe('no quorum');
+  it("GovernanceExecutionError has correct name and fields", () => {
+    const err = new GovernanceExecutionError("pda2", "no quorum");
+    expect(err.name).toBe("GovernanceExecutionError");
+    expect(err.proposalPda).toBe("pda2");
+    expect(err.reason).toBe("no quorum");
   });
 });
 
@@ -392,14 +451,14 @@ describe('Governance Errors', () => {
 // GovernanceConfig PDA Tests
 // ============================================================================
 
-describe('GovernanceConfig PDA', () => {
-  it('derives deterministic governance config PDA', () => {
+describe("GovernanceConfig PDA", () => {
+  it("derives deterministic governance config PDA", () => {
     const pda1 = deriveGovernanceConfigPda();
     const pda2 = deriveGovernanceConfigPda();
     expect(pda1.address.toBase58()).toBe(pda2.address.toBase58());
   });
 
-  it('findGovernanceConfigPda returns address only', () => {
+  it("findGovernanceConfigPda returns address only", () => {
     const addr = findGovernanceConfigPda();
     expect(addr).toBeInstanceOf(PublicKey);
   });
@@ -409,17 +468,17 @@ describe('GovernanceConfig PDA', () => {
 // parseOnChainGovernanceConfig Tests
 // ============================================================================
 
-describe('parseOnChainGovernanceConfig', () => {
-  it('parses raw governance config data', () => {
+describe("parseOnChainGovernanceConfig", () => {
+  it("parses raw governance config data", () => {
     const authority = randomPubkey();
     const raw = {
       authority,
-      minProposalStake: { toString: () => '1000000000' },
+      minProposalStake: { toString: () => "1000000000" },
       votingPeriod: { toNumber: () => 259200 },
       executionDelay: { toNumber: () => 86400 },
       quorumBps: 1000,
       approvalThresholdBps: 5000,
-      totalProposals: { toString: () => '5' },
+      totalProposals: { toString: () => "5" },
       bump: 253,
     };
     const parsed = parseOnChainGovernanceConfig(raw);
@@ -438,7 +497,7 @@ describe('parseOnChainGovernanceConfig', () => {
 // GovernanceOperations: initializeGovernance, cancelProposal, fetchGovernanceConfig
 // ============================================================================
 
-describe('GovernanceOperations extended methods', () => {
+describe("GovernanceOperations extended methods", () => {
   let mockProgram: ReturnType<typeof createMockProgram>;
   let ops: GovernanceOperations;
   const agentId = randomBytes(32);
@@ -448,8 +507,8 @@ describe('GovernanceOperations extended methods', () => {
     ops = new GovernanceOperations({ program: mockProgram as any, agentId });
   });
 
-  describe('initializeGovernance', () => {
-    it('sends initializeGovernance transaction', async () => {
+  describe("initializeGovernance", () => {
+    it("sends initializeGovernance transaction", async () => {
       const result = await ops.initializeGovernance({
         votingPeriod: 259200,
         executionDelay: 86400,
@@ -457,29 +516,33 @@ describe('GovernanceOperations extended methods', () => {
         approvalThresholdBps: 5000,
         minProposalStake: 1_000_000_000n,
       });
-      expect(result.transactionSignature).toBe('mock-signature');
+      expect(result.transactionSignature).toBe("mock-signature");
       expect(result.governanceConfigPda).toBeInstanceOf(PublicKey);
       expect(mockProgram.methods.initializeGovernance).toHaveBeenCalledWith(
-        259200, 86400, 1000, 5000, 1_000_000_000n,
+        259200,
+        86400,
+        1000,
+        5000,
+        1_000_000_000n,
       );
     });
   });
 
-  describe('cancelProposal', () => {
-    it('cancels a proposal', async () => {
+  describe("cancelProposal", () => {
+    it("cancels a proposal", async () => {
       const proposalPda = randomPubkey();
       const result = await ops.cancelProposal({ proposalPda });
-      expect(result.transactionSignature).toBe('mock-signature');
+      expect(result.transactionSignature).toBe("mock-signature");
       expect(result.proposalPda).toBe(proposalPda);
       expect(mockProgram.methods.cancelProposal).toHaveBeenCalled();
     });
 
-    it('maps ProposalNotActive to GovernanceProposalNotFoundError', async () => {
+    it("maps ProposalNotActive to GovernanceProposalNotFoundError", async () => {
       const rpcMock = vi.fn().mockRejectedValue(
         Object.assign(new Error(), {
           error: {
             errorCode: {
-              code: 'ProposalNotActive',
+              code: "ProposalNotActive",
               number: AnchorErrorCodes.ProposalNotActive,
             },
           },
@@ -493,12 +556,12 @@ describe('GovernanceOperations extended methods', () => {
       ).rejects.toThrow(GovernanceProposalNotFoundError);
     });
 
-    it('maps ProposalUnauthorizedCancel to GovernanceExecutionError', async () => {
+    it("maps ProposalUnauthorizedCancel to GovernanceExecutionError", async () => {
       const rpcMock = vi.fn().mockRejectedValue(
         Object.assign(new Error(), {
           error: {
             errorCode: {
-              code: 'ProposalUnauthorizedCancel',
+              code: "ProposalUnauthorizedCancel",
               number: AnchorErrorCodes.ProposalUnauthorizedCancel,
             },
           },
@@ -513,17 +576,17 @@ describe('GovernanceOperations extended methods', () => {
     });
   });
 
-  describe('fetchGovernanceConfig', () => {
-    it('returns parsed governance config', async () => {
+  describe("fetchGovernanceConfig", () => {
+    it("returns parsed governance config", async () => {
       const authority = randomPubkey();
       mockProgram.account.governanceConfig.fetchNullable.mockResolvedValue({
         authority,
-        minProposalStake: { toString: () => '1000000000' },
+        minProposalStake: { toString: () => "1000000000" },
         votingPeriod: { toNumber: () => 259200 },
         executionDelay: { toNumber: () => 86400 },
         quorumBps: 1000,
         approvalThresholdBps: 5000,
-        totalProposals: { toString: () => '0' },
+        totalProposals: { toString: () => "0" },
         bump: 253,
       });
       const config = await ops.fetchGovernanceConfig();
@@ -532,8 +595,10 @@ describe('GovernanceOperations extended methods', () => {
       expect(config!.votingPeriod).toBe(259200);
     });
 
-    it('returns null when not initialized', async () => {
-      mockProgram.account.governanceConfig.fetchNullable.mockResolvedValue(null);
+    it("returns null when not initialized", async () => {
+      mockProgram.account.governanceConfig.fetchNullable.mockResolvedValue(
+        null,
+      );
       const config = await ops.fetchGovernanceConfig();
       expect(config).toBeNull();
     });
@@ -544,8 +609,8 @@ describe('GovernanceOperations extended methods', () => {
 // Constants Tests
 // ============================================================================
 
-describe('Constants', () => {
-  it('PROPOSAL_STATUS_OFFSET is correct', () => {
+describe("Constants", () => {
+  it("PROPOSAL_STATUS_OFFSET is correct", () => {
     // 8 (disc) + 32 (proposer) + 32 (proposer_authority) + 8 (nonce)
     // + 1 (proposal_type) + 32 (title_hash) + 32 (description_hash) + 64 (payload) = 209
     expect(PROPOSAL_STATUS_OFFSET).toBe(209);

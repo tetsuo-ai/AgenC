@@ -8,18 +8,18 @@
  * @module
  */
 
-import { timingSafeEqual } from 'node:crypto';
+import { timingSafeEqual } from "node:crypto";
 
-import { BaseChannelPlugin } from '../../gateway/channel.js';
-import type { ChannelContext, WebhookRouter } from '../../gateway/channel.js';
-import type { OutboundMessage } from '../../gateway/message.js';
-import { createGatewayMessage } from '../../gateway/message.js';
-import type { MessageScope, MessageAttachment } from '../../gateway/message.js';
-import { deriveSessionId } from '../../gateway/session.js';
-import { DEFAULT_WORKSPACE_ID } from '../../gateway/workspace.js';
-import { RuntimeError, RuntimeErrorCodes } from '../../types/errors.js';
-import { ensureLazyChannel } from './lazy-import.js';
-import type { TelegramChannelConfig, TokenBucket } from './types.js';
+import { BaseChannelPlugin } from "../../gateway/channel.js";
+import type { ChannelContext, WebhookRouter } from "../../gateway/channel.js";
+import type { OutboundMessage } from "../../gateway/message.js";
+import { createGatewayMessage } from "../../gateway/message.js";
+import type { MessageScope, MessageAttachment } from "../../gateway/message.js";
+import { deriveSessionId } from "../../gateway/session.js";
+import { DEFAULT_WORKSPACE_ID } from "../../gateway/workspace.js";
+import { RuntimeError, RuntimeErrorCodes } from "../../types/errors.js";
+import { ensureLazyChannel } from "./lazy-import.js";
+import type { TelegramChannelConfig, TokenBucket } from "./types.js";
 
 // ============================================================================
 // Defaults
@@ -30,8 +30,8 @@ const DEFAULT_MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024; // 20 MB (Telegram getFil
 const DEFAULT_RATE_LIMIT_PER_CHAT = 1; // 1 msg/sec per chat
 const GLOBAL_RATE_LIMIT = 30; // Telegram global limit: 30 msg/sec
 const LONG_POLL_TIMEOUT_SECONDS = 25; // Telegram recommended long-poll timeout
-const DEFAULT_WEBHOOK_PATH = '/update';
-const TELEGRAM_FILE_BASE_URL = 'https://api.telegram.org/file/bot';
+const DEFAULT_WEBHOOK_PATH = "/update";
+const TELEGRAM_FILE_BASE_URL = "https://api.telegram.org/file/bot";
 const MS_PER_SECOND = 1000;
 
 // ============================================================================
@@ -54,12 +54,19 @@ type BotApi = Record<string, (...args: unknown[]) => Promise<unknown>>;
  * plugin — partial messages are sent as-is and TTS is ignored.
  */
 export class TelegramChannel extends BaseChannelPlugin {
-  readonly name = 'telegram';
+  readonly name = "telegram";
 
   // -- Config (set during initialize) --
   private config!: Required<
-    Pick<TelegramChannelConfig, 'botToken' | 'pollingIntervalMs' | 'maxAttachmentBytes' | 'rateLimitPerChat'>
-  > & Pick<TelegramChannelConfig, 'allowedUsers' | 'webhook'>;
+    Pick<
+      TelegramChannelConfig,
+      | "botToken"
+      | "pollingIntervalMs"
+      | "maxAttachmentBytes"
+      | "rateLimitPerChat"
+    >
+  > &
+    Pick<TelegramChannelConfig, "allowedUsers" | "webhook">;
 
   // -- Bot instance (set during start) --
   private bot: unknown;
@@ -76,7 +83,10 @@ export class TelegramChannel extends BaseChannelPlugin {
 
   // -- Rate limiting --
   private readonly chatBuckets = new Map<number, TokenBucket>();
-  private readonly globalBucket: TokenBucket = { tokens: GLOBAL_RATE_LIMIT, lastRefill: Date.now() };
+  private readonly globalBucket: TokenBucket = {
+    tokens: GLOBAL_RATE_LIMIT,
+    lastRefill: Date.now(),
+  };
 
   // -- Session → Chat reverse mapping --
   private readonly sessionToChatId = new Map<string, number>();
@@ -97,7 +107,7 @@ export class TelegramChannel extends BaseChannelPlugin {
     await super.initialize(context);
 
     const raw = context.config as unknown as TelegramChannelConfig;
-    if (!raw.botToken || typeof raw.botToken !== 'string') {
+    if (!raw.botToken || typeof raw.botToken !== "string") {
       throw new RuntimeError(
         'Telegram channel requires a "botToken" in config',
         RuntimeErrorCodes.GATEWAY_VALIDATION_ERROR,
@@ -108,7 +118,8 @@ export class TelegramChannel extends BaseChannelPlugin {
       botToken: raw.botToken,
       allowedUsers: raw.allowedUsers,
       pollingIntervalMs: raw.pollingIntervalMs ?? DEFAULT_POLLING_INTERVAL_MS,
-      maxAttachmentBytes: raw.maxAttachmentBytes ?? DEFAULT_MAX_ATTACHMENT_BYTES,
+      maxAttachmentBytes:
+        raw.maxAttachmentBytes ?? DEFAULT_MAX_ATTACHMENT_BYTES,
       rateLimitPerChat: raw.rateLimitPerChat ?? DEFAULT_RATE_LIMIT_PER_CHAT,
       webhook: raw.webhook,
     };
@@ -116,8 +127,8 @@ export class TelegramChannel extends BaseChannelPlugin {
 
   override async start(): Promise<void> {
     const BotClass = await ensureLazyChannel<new (token: string) => unknown>(
-      'grammy',
-      'telegram',
+      "grammy",
+      "telegram",
       (mod) => mod.Bot as new (token: string) => unknown,
     );
 
@@ -126,12 +137,15 @@ export class TelegramChannel extends BaseChannelPlugin {
     if (this.config.webhook) {
       const { url, path: webhookPath, secretToken } = this.config.webhook;
       const fullUrl = url + (webhookPath ?? DEFAULT_WEBHOOK_PATH);
-      await this.api.setWebhook(fullUrl, ...(secretToken ? [{ secret_token: secretToken }] : []));
+      await this.api.setWebhook(
+        fullUrl,
+        ...(secretToken ? [{ secret_token: secretToken }] : []),
+      );
       this.context.logger.info(`Telegram webhook set: ${fullUrl}`);
     } else {
       this.pollingActive = true;
       this.pollingPromise = this.pollUpdates();
-      this.context.logger.info('Telegram long-polling started');
+      this.context.logger.info("Telegram long-polling started");
     }
   }
 
@@ -153,7 +167,10 @@ export class TelegramChannel extends BaseChannelPlugin {
       try {
         await this.api.deleteWebhook();
       } catch (err) {
-        this.context.logger.debug?.('Telegram: error deleting webhook during stop:', err);
+        this.context.logger.debug?.(
+          "Telegram: error deleting webhook during stop:",
+          err,
+        );
       }
     }
 
@@ -192,10 +209,10 @@ export class TelegramChannel extends BaseChannelPlugin {
         if (!source) continue;
 
         switch (att.type) {
-          case 'image':
+          case "image":
             calls.push(() => this.api.sendPhoto(chatId, source));
             break;
-          case 'audio':
+          case "audio":
             calls.push(() => this.api.sendVoice(chatId, source));
             break;
           default:
@@ -233,13 +250,13 @@ export class TelegramChannel extends BaseChannelPlugin {
   // --------------------------------------------------------------------------
 
   registerWebhooks(router: WebhookRouter): void {
-    router.post('/update', async (req) => {
+    router.post("/update", async (req) => {
       // Validate secret token if configured (timing-safe to prevent oracle attacks)
       if (this.config.webhook?.secretToken) {
         const expected = this.config.webhook.secretToken;
-        const header = req.headers['x-telegram-bot-api-secret-token'];
+        const header = req.headers["x-telegram-bot-api-secret-token"];
         if (
-          typeof header !== 'string' ||
+          typeof header !== "string" ||
           header.length !== expected.length ||
           !timingSafeEqual(Buffer.from(header), Buffer.from(expected))
         ) {
@@ -251,8 +268,8 @@ export class TelegramChannel extends BaseChannelPlugin {
       return { status: 200 };
     });
 
-    router.get('/verify', async () => {
-      return { status: 200, body: 'ok' };
+    router.get("/verify", async () => {
+      return { status: 200, body: "ok" };
     });
   }
 
@@ -277,7 +294,7 @@ export class TelegramChannel extends BaseChannelPlugin {
       this.healthy = true;
     } catch (err) {
       this.healthy = false;
-      this.context.logger.error('Telegram polling error:', err);
+      this.context.logger.error("Telegram polling error:", err);
     }
 
     if (this.pollingActive) {
@@ -311,32 +328,34 @@ export class TelegramChannel extends BaseChannelPlugin {
     // Allowed users filter
     if (this.config.allowedUsers && this.config.allowedUsers.length > 0) {
       if (!this.config.allowedUsers.includes(fromId)) {
-        this.context.logger.debug?.(`Telegram: ignoring message from unauthorized user ${fromId}`);
+        this.context.logger.debug?.(
+          `Telegram: ignoring message from unauthorized user ${fromId}`,
+        );
         return;
       }
     }
 
     const chat = message.chat as Record<string, unknown>;
     const chatType = chat.type as string;
-    const messageScope: MessageScope = chatType === 'private' ? 'dm' : 'group';
+    const messageScope: MessageScope = chatType === "private" ? "dm" : "group";
 
     const sessionId = deriveSessionId(
       {
-        channel: 'telegram',
+        channel: "telegram",
         senderId: String(fromId),
         scope: messageScope,
         workspaceId: DEFAULT_WORKSPACE_ID,
         guildId: String(chat.id as number),
       },
-      'per-channel-peer',
+      "per-channel-peer",
     );
 
     this.sessionToChatId.set(sessionId, chat.id as number);
 
     const senderName =
-      [from.first_name, from.last_name].filter(Boolean).join(' ') ||
+      [from.first_name, from.last_name].filter(Boolean).join(" ") ||
       (from.username as string) ||
-      'Unknown';
+      "Unknown";
 
     const metadata: Record<string, unknown> = {
       chatId: chat.id,
@@ -344,10 +363,13 @@ export class TelegramChannel extends BaseChannelPlugin {
       chatType,
     };
 
-    const { content, attachments } = await this.normalizeContent(message, metadata);
+    const { content, attachments } = await this.normalizeContent(
+      message,
+      metadata,
+    );
 
     const gatewayMsg = createGatewayMessage({
-      channel: 'telegram',
+      channel: "telegram",
       senderId: String(fromId),
       senderName,
       sessionId,
@@ -360,7 +382,10 @@ export class TelegramChannel extends BaseChannelPlugin {
     try {
       await this.context.onMessage(gatewayMsg);
     } catch (err) {
-      this.context.logger.warn?.('Telegram: error delivering message to gateway:', err);
+      this.context.logger.warn?.(
+        "Telegram: error delivering message to gateway:",
+        err,
+      );
     }
   }
 
@@ -374,7 +399,7 @@ export class TelegramChannel extends BaseChannelPlugin {
   ): Promise<{ content: string; attachments: MessageAttachment[] }> {
     const attachments: MessageAttachment[] = [];
 
-    if (typeof message.text === 'string') {
+    if (typeof message.text === "string") {
       return { content: message.text, attachments };
     }
 
@@ -382,19 +407,30 @@ export class TelegramChannel extends BaseChannelPlugin {
       const voice = message.voice as Record<string, unknown>;
       const fileUrl = await this.getFileUrl(voice.file_id as string, metadata);
       if (fileUrl) {
-        attachments.push({ type: 'audio', mimeType: 'audio/ogg', url: fileUrl });
+        attachments.push({
+          type: "audio",
+          mimeType: "audio/ogg",
+          url: fileUrl,
+        });
       }
-      return { content: '', attachments };
+      return { content: "", attachments };
     }
 
     if (message.photo) {
       const photos = message.photo as Array<Record<string, unknown>>;
       const largest = photos[photos.length - 1];
-      const fileUrl = await this.getFileUrl(largest.file_id as string, metadata);
+      const fileUrl = await this.getFileUrl(
+        largest.file_id as string,
+        metadata,
+      );
       if (fileUrl) {
-        attachments.push({ type: 'image', mimeType: 'image/jpeg', url: fileUrl });
+        attachments.push({
+          type: "image",
+          mimeType: "image/jpeg",
+          url: fileUrl,
+        });
       }
-      return { content: (message.caption as string) ?? '', attachments };
+      return { content: (message.caption as string) ?? "", attachments };
     }
 
     if (message.document) {
@@ -402,16 +438,16 @@ export class TelegramChannel extends BaseChannelPlugin {
       const fileUrl = await this.getFileUrl(doc.file_id as string, metadata);
       if (fileUrl) {
         attachments.push({
-          type: 'file',
-          mimeType: (doc.mime_type as string) ?? 'application/octet-stream',
+          type: "file",
+          mimeType: (doc.mime_type as string) ?? "application/octet-stream",
           url: fileUrl,
           filename: doc.file_name as string | undefined,
         });
       }
-      return { content: (message.caption as string) ?? '', attachments };
+      return { content: (message.caption as string) ?? "", attachments };
     }
 
-    return { content: '', attachments };
+    return { content: "", attachments };
   }
 
   // --------------------------------------------------------------------------
@@ -436,7 +472,9 @@ export class TelegramChannel extends BaseChannelPlugin {
       const fileSize = file.file_size as number | undefined;
 
       if (fileSize !== undefined && fileSize > this.config.maxAttachmentBytes) {
-        const limitMB = Math.round(this.config.maxAttachmentBytes / (1024 * 1024));
+        const limitMB = Math.round(
+          this.config.maxAttachmentBytes / (1024 * 1024),
+        );
         const sizeMB = (fileSize / (1024 * 1024)).toFixed(1);
         this.context.logger.warn?.(
           `Telegram: attachment ${fileId} exceeds size limit (${sizeMB} MB > ${limitMB} MB)`,
@@ -447,7 +485,7 @@ export class TelegramChannel extends BaseChannelPlugin {
 
       return `${TELEGRAM_FILE_BASE_URL}${this.config.botToken}/${filePath}`;
     } catch (err) {
-      this.context.logger.warn?.('Telegram: failed to get file URL:', err);
+      this.context.logger.warn?.("Telegram: failed to get file URL:", err);
       metadata.attachmentError = (err as Error).message;
       return undefined;
     }
@@ -458,7 +496,8 @@ export class TelegramChannel extends BaseChannelPlugin {
   // --------------------------------------------------------------------------
 
   private acquireToken(chatId: number): boolean {
-    if (!this.refillAndConsume(this.globalBucket, GLOBAL_RATE_LIMIT)) return false;
+    if (!this.refillAndConsume(this.globalBucket, GLOBAL_RATE_LIMIT))
+      return false;
 
     let bucket = this.chatBuckets.get(chatId);
     if (!bucket) {
@@ -469,10 +508,16 @@ export class TelegramChannel extends BaseChannelPlugin {
     return this.refillAndConsume(bucket, this.config.rateLimitPerChat);
   }
 
-  private refillAndConsume(bucket: TokenBucket, ratePerSecond: number): boolean {
+  private refillAndConsume(
+    bucket: TokenBucket,
+    ratePerSecond: number,
+  ): boolean {
     const now = Date.now();
     const elapsed = (now - bucket.lastRefill) / MS_PER_SECOND;
-    bucket.tokens = Math.min(ratePerSecond, bucket.tokens + elapsed * ratePerSecond);
+    bucket.tokens = Math.min(
+      ratePerSecond,
+      bucket.tokens + elapsed * ratePerSecond,
+    );
     bucket.lastRefill = now;
 
     if (bucket.tokens >= 1) {

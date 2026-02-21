@@ -614,6 +614,8 @@ pub enum CoordinationError {
     #[msg("Token account owner does not match expected authority")]
     InvalidTokenAccountOwner,
 
-    #[msg("Binding or nullifier seed has insufficient byte diversity (min 8 distinct bytes required)")]
+    #[msg(
+        "Binding or nullifier seed has insufficient byte diversity (min 8 distinct bytes required)"
+    )]
     InsufficientSeedEntropy,
 }

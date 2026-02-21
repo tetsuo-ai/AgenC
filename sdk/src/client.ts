@@ -5,13 +5,27 @@
  * Wraps the lower-level proof generation and task completion APIs.
  */
 
-import { Connection, PublicKey, Keypair, LAMPORTS_PER_SOL } from '@solana/web3.js';
-import { type Idl, Program, AnchorProvider, Wallet } from '@coral-xyz/anchor';
-import { DEVNET_RPC, MAINNET_RPC } from './constants';
-import { validateProverEndpoint } from './validation';
-import { createLogger, silentLogger, type Logger, type LogLevel } from './logger';
-import { generateProof, generateSalt, type ProofGenerationParams } from './proofs';
-import { completeTaskPrivate as submitCompleteTaskPrivate } from './tasks';
+import {
+  Connection,
+  PublicKey,
+  Keypair,
+  LAMPORTS_PER_SOL,
+} from "@solana/web3.js";
+import { type Idl, Program, AnchorProvider, Wallet } from "@coral-xyz/anchor";
+import { DEVNET_RPC, MAINNET_RPC } from "./constants";
+import { validateProverEndpoint } from "./validation";
+import {
+  createLogger,
+  silentLogger,
+  type Logger,
+  type LogLevel,
+} from "./logger";
+import {
+  generateProof,
+  generateSalt,
+  type ProofGenerationParams,
+} from "./proofs";
+import { completeTaskPrivate as submitCompleteTaskPrivate } from "./tasks";
 
 export interface PrivacyClientConfig {
   /** Solana RPC endpoint URL */
@@ -53,11 +67,11 @@ export class PrivacyClient {
     if (config.rpcUrl !== undefined) {
       try {
         const url = new URL(config.rpcUrl);
-        if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-          throw new Error('RPC URL must use http or https protocol');
+        if (url.protocol !== "http:" && url.protocol !== "https:") {
+          throw new Error("RPC URL must use http or https protocol");
         }
       } catch (e) {
-        if ((e as Error).message.includes('http or https')) {
+        if ((e as Error).message.includes("http or https")) {
           throw new Error(`Invalid RPC URL: ${(e as Error).message}`);
         }
         throw new Error(`Invalid RPC URL: ${config.rpcUrl}`);
@@ -74,13 +88,14 @@ export class PrivacyClient {
     if (config.logLevel) {
       this.logger = createLogger(config.logLevel);
     } else if (this.config.debug) {
-      this.logger = createLogger('debug');
+      this.logger = createLogger("debug");
     } else {
       this.logger = silentLogger;
     }
 
-    const rpcUrl = config.rpcUrl || (this.config.devnet ? DEVNET_RPC : MAINNET_RPC);
-    this.connection = new Connection(rpcUrl, 'confirmed');
+    const rpcUrl =
+      config.rpcUrl || (this.config.devnet ? DEVNET_RPC : MAINNET_RPC);
+    this.connection = new Connection(rpcUrl, "confirmed");
 
     if (config.wallet) {
       this.wallet = config.wallet;
@@ -90,8 +105,10 @@ export class PrivacyClient {
     }
 
     // Security: Only log non-sensitive info in debug mode
-    this.logger.debug('PrivacyClient initialized');
-    this.logger.debug(`  Network: ${this.config.devnet ? 'devnet' : 'mainnet'}`);
+    this.logger.debug("PrivacyClient initialized");
+    this.logger.debug(
+      `  Network: ${this.config.devnet ? "devnet" : "mainnet"}`,
+    );
     if (this.config.proverEndpoint) {
       this.logger.debug(`  Prover endpoint: ${this.config.proverEndpoint}`);
     }
@@ -107,24 +124,24 @@ export class PrivacyClient {
 
     // Create Anchor provider and program
     const anchorWallet = new Wallet(wallet);
-    const provider = new AnchorProvider(
-      this.connection,
-      anchorWallet,
-      { commitment: 'confirmed' }
-    );
+    const provider = new AnchorProvider(this.connection, anchorWallet, {
+      commitment: "confirmed",
+    });
 
     // Initialize program if IDL is provided
     const programIdl = idl || this.config.idl;
     if (programIdl) {
       this.program = new Program(programIdl, provider);
-      this.logger.debug('Program initialized with IDL');
+      this.logger.debug("Program initialized with IDL");
     } else {
-      this.logger.warn('No IDL provided - some features may not be available');
+      this.logger.warn("No IDL provided - some features may not be available");
     }
 
     // Security: Truncate public key to avoid full exposure in logs
     const pubkey = wallet.publicKey.toBase58();
-    this.logger.debug(`Wallet initialized: ${pubkey.substring(0, 8)}...${pubkey.substring(pubkey.length - 4)}`);
+    this.logger.debug(
+      `Wallet initialized: ${pubkey.substring(0, 8)}...${pubkey.substring(pubkey.length - 4)}`,
+    );
   }
 
   /**
@@ -156,21 +173,27 @@ export class PrivacyClient {
     agentSecret?: bigint;
   }): Promise<{ txSignature: string }> {
     if (!this.wallet) {
-      throw new Error('Client not initialized. Call init() first.');
+      throw new Error("Client not initialized. Call init() first.");
     }
     if (!this.program) {
-      throw new Error('Program not initialized. Provide an IDL via init() or config.');
+      throw new Error(
+        "Program not initialized. Provide an IDL via init() or config.",
+      );
     }
     if (!this.agentId) {
-      throw new Error('Agent ID not provided. Set agentId in PrivacyClientConfig.');
+      throw new Error(
+        "Agent ID not provided. Set agentId in PrivacyClientConfig.",
+      );
     }
 
     // Validate output array (must be exactly 4 field elements)
     if (!Array.isArray(params.output) || params.output.length !== 4) {
-      throw new Error('Invalid output: must be an array of exactly 4 bigint field elements');
+      throw new Error(
+        "Invalid output: must be an array of exactly 4 bigint field elements",
+      );
     }
     for (let i = 0; i < params.output.length; i++) {
-      if (typeof params.output[i] !== 'bigint' || params.output[i] < 0n) {
+      if (typeof params.output[i] !== "bigint" || params.output[i] < 0n) {
         throw new Error(`Invalid output[${i}]: must be a non-negative bigint`);
       }
     }
@@ -180,7 +203,9 @@ export class PrivacyClient {
 
     // Validate salt is non-zero (zero salt = deterministic commitment, defeats privacy)
     if (salt === 0n) {
-      throw new Error('Invalid salt: must be non-zero for privacy preservation');
+      throw new Error(
+        "Invalid salt: must be non-zero for privacy preservation",
+      );
     }
 
     // Generate the ZK proof
@@ -218,7 +243,7 @@ export class PrivacyClient {
    * Format lamports as SOL string
    */
   static formatSol(lamports: number): string {
-    return (lamports / LAMPORTS_PER_SOL).toFixed(9) + ' SOL';
+    return (lamports / LAMPORTS_PER_SOL).toFixed(9) + " SOL";
   }
 
   /**
@@ -233,11 +258,13 @@ export class PrivacyClient {
    * @throws Error if input is invalid or would cause precision loss
    */
   static parseSol(sol: string | number): number {
-    const value = typeof sol === 'string' ? parseFloat(sol) : sol;
+    const value = typeof sol === "string" ? parseFloat(sol) : sol;
 
     // Security: Validate input is a valid number
     if (!Number.isFinite(value) || value < 0) {
-      throw new Error('Invalid SOL amount: must be a non-negative finite number');
+      throw new Error(
+        "Invalid SOL amount: must be a non-negative finite number",
+      );
     }
 
     // Security: Check for potential precision loss
@@ -246,7 +273,7 @@ export class PrivacyClient {
     if (value > maxSafeSol) {
       throw new Error(
         `SOL amount ${value} exceeds safe precision limit (${maxSafeSol.toFixed(9)} SOL). ` +
-        'Use BigInt for larger amounts.'
+          "Use BigInt for larger amounts.",
       );
     }
 

@@ -4,7 +4,7 @@
  * @module
  */
 
-import type { MetricsProvider } from '../task/types.js';
+import type { MetricsProvider } from "../task/types.js";
 import type {
   RevisionInput,
   Task,
@@ -16,12 +16,12 @@ import type {
   VerifierTaskTypePolicy,
   VerifierVerdictPayload,
   VerifierEscalationMetadata,
-} from './types.js';
+} from "./types.js";
 import {
   scoreTaskRisk,
   type RiskTier,
   type TaskRiskScoreResult,
-} from './risk-scoring.js';
+} from "./risk-scoring.js";
 import {
   allocateVerificationBudget,
   BudgetAuditTrail,
@@ -34,9 +34,9 @@ import {
   type BudgetAuditEntry,
   type BudgetGuardrail,
   type VerificationBudgetDecision,
-} from './verification-budget.js';
-import { resolveEscalationTransition } from './escalation-graph.js';
-import { planVerifierSchedule } from './verifier-scheduler.js';
+} from "./verification-budget.js";
+import { resolveEscalationTransition } from "./escalation-graph.js";
+import { planVerifierSchedule } from "./verifier-scheduler.js";
 
 const DEFAULT_MIN_CONFIDENCE = 0.7;
 const DEFAULT_MAX_VERIFICATION_RETRIES = 1;
@@ -44,22 +44,22 @@ const DEFAULT_MAX_VERIFICATION_DURATION_MS = 30_000;
 const DEFAULT_REVISION_DELAY_MS = 0;
 
 export const VERIFIER_METRIC_NAMES = {
-  CHECKS_TOTAL: 'agenc.verifier.checks.total',
-  PASSES_TOTAL: 'agenc.verifier.passes.total',
-  FAILS_TOTAL: 'agenc.verifier.fails.total',
-  NEEDS_REVISION_TOTAL: 'agenc.verifier.needs_revision.total',
-  DISAGREEMENTS_TOTAL: 'agenc.verifier.disagreements.total',
-  REVISIONS_TOTAL: 'agenc.verifier.revisions.total',
-  ESCALATIONS_TOTAL: 'agenc.verifier.escalations.total',
-  ADDED_LATENCY_MS: 'agenc.verifier.added_latency_ms',
-  ADDED_LATENCY_BY_RISK_TIER_MS: 'agenc.verifier.added_latency_by_risk_tier_ms',
-  QUALITY_LIFT_BY_RISK_TIER: 'agenc.verifier.quality_lift_by_risk_tier',
-  ADAPTIVE_RISK_SCORE: 'agenc.verifier.adaptive.risk_score',
-  ADAPTIVE_RISK_TIER_TOTAL: 'agenc.verifier.adaptive.risk_tier.total',
-  ADAPTIVE_MAX_RETRIES: 'agenc.verifier.adaptive.max_retries',
-  ADAPTIVE_MAX_DURATION_MS: 'agenc.verifier.adaptive.max_duration_ms',
-  ADAPTIVE_MAX_COST_LAMPORTS: 'agenc.verifier.adaptive.max_cost_lamports',
-  ADAPTIVE_DISABLED_TOTAL: 'agenc.verifier.adaptive.disabled.total',
+  CHECKS_TOTAL: "agenc.verifier.checks.total",
+  PASSES_TOTAL: "agenc.verifier.passes.total",
+  FAILS_TOTAL: "agenc.verifier.fails.total",
+  NEEDS_REVISION_TOTAL: "agenc.verifier.needs_revision.total",
+  DISAGREEMENTS_TOTAL: "agenc.verifier.disagreements.total",
+  REVISIONS_TOTAL: "agenc.verifier.revisions.total",
+  ESCALATIONS_TOTAL: "agenc.verifier.escalations.total",
+  ADDED_LATENCY_MS: "agenc.verifier.added_latency_ms",
+  ADDED_LATENCY_BY_RISK_TIER_MS: "agenc.verifier.added_latency_by_risk_tier_ms",
+  QUALITY_LIFT_BY_RISK_TIER: "agenc.verifier.quality_lift_by_risk_tier",
+  ADAPTIVE_RISK_SCORE: "agenc.verifier.adaptive.risk_score",
+  ADAPTIVE_RISK_TIER_TOTAL: "agenc.verifier.adaptive.risk_tier.total",
+  ADAPTIVE_MAX_RETRIES: "agenc.verifier.adaptive.max_retries",
+  ADAPTIVE_MAX_DURATION_MS: "agenc.verifier.adaptive.max_duration_ms",
+  ADAPTIVE_MAX_COST_LAMPORTS: "agenc.verifier.adaptive.max_cost_lamports",
+  ADAPTIVE_DISABLED_TOTAL: "agenc.verifier.adaptive.disabled.total",
 } as const;
 
 export interface VerifierLaneMetrics {
@@ -88,7 +88,11 @@ export interface VerifierExecutorConfig {
   executeTask: (task: Task) => Promise<bigint[]>;
   reviseTask?: (input: RevisionInput) => Promise<bigint[]>;
   metrics?: MetricsProvider;
-  onVerdict?: (task: Task, verdict: VerifierVerdictPayload, attempt: number) => void;
+  onVerdict?: (
+    task: Task,
+    verdict: VerifierVerdictPayload,
+    attempt: number,
+  ) => void;
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
 }
@@ -104,7 +108,7 @@ export class VerifierLaneEscalationError extends Error {
     history: VerifierVerdictPayload[],
   ) {
     super(`Verifier lane escalated: ${metadata.reason}`);
-    this.name = 'VerifierLaneEscalationError';
+    this.name = "VerifierLaneEscalationError";
     this.task = task;
     this.metadata = metadata;
     this.history = history;
@@ -116,7 +120,11 @@ export class VerifierExecutor {
   private readonly executeTask: (task: Task) => Promise<bigint[]>;
   private readonly reviseTask?: (input: RevisionInput) => Promise<bigint[]>;
   private readonly metrics?: MetricsProvider;
-  private readonly onVerdict?: (task: Task, verdict: VerifierVerdictPayload, attempt: number) => void;
+  private readonly onVerdict?: (
+    task: Task,
+    verdict: VerifierVerdictPayload,
+    attempt: number,
+  ) => void;
   private readonly now: () => number;
   private readonly sleep: (ms: number) => Promise<void>;
   private readonly budgetAuditTrail?: BudgetAuditTrail;
@@ -143,8 +151,12 @@ export class VerifierExecutor {
     this.metrics = config.metrics;
     this.onVerdict = config.onVerdict;
     this.now = config.now ?? Date.now;
-    this.sleep = config.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
-    this.budgetAuditTrail = this.createBudgetAuditTrail(config.verifierConfig.policy?.adaptiveRisk);
+    this.sleep =
+      config.sleep ??
+      ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
+    this.budgetAuditTrail = this.createBudgetAuditTrail(
+      config.verifierConfig.policy?.adaptiveRisk,
+    );
     this.initializeBudgetState(config.verifierConfig.policy?.adaptiveRisk);
   }
 
@@ -169,7 +181,10 @@ export class VerifierExecutor {
    * Useful when an upstream component already performed bounded
    * candidate generation/arbitration.
    */
-  async executeWithOutput(task: Task, output: bigint[]): Promise<VerifierExecutionResult> {
+  async executeWithOutput(
+    task: Task,
+    output: bigint[],
+  ): Promise<VerifierExecutionResult> {
     return await this.executeWithPreparedOutput(task, output);
   }
 
@@ -204,7 +219,7 @@ export class VerifierExecutor {
 
     const schedule = planVerifierSchedule({
       adaptiveEnabled: policy.budgetDecision?.adaptive ?? false,
-      riskTier: policy.riskAssessment?.tier ?? 'medium',
+      riskTier: policy.riskAssessment?.tier ?? "medium",
       baseMaxAttempts: policy.maxVerificationRetries + 1,
       hasRevisionExecutor: this.reviseTask !== undefined,
       reexecuteOnNeedsRevision: this.config.reexecuteOnNeedsRevision === true,
@@ -223,7 +238,14 @@ export class VerifierExecutor {
         history,
         lastVerdict,
       );
-      this.ensureWithinBudget(task, deadline, startedAt, revisions, history, lastVerdict);
+      this.ensureWithinBudget(
+        task,
+        deadline,
+        startedAt,
+        revisions,
+        history,
+        lastVerdict,
+      );
 
       const verdictInput: VerifierInput = {
         task,
@@ -232,14 +254,26 @@ export class VerifierExecutor {
         history,
       };
 
-      const verdict = await this.getVerdict(task, verdictInput, deadline, startedAt, revisions, history, lastVerdict);
+      const verdict = await this.getVerdict(
+        task,
+        verdictInput,
+        deadline,
+        startedAt,
+        revisions,
+        history,
+        lastVerdict,
+      );
       const normalized = this.normalizeVerdict(verdict, policy.minConfidence);
       history.push(normalized);
       lastVerdict = normalized;
       this.recordVerdictMetrics(normalized, attempt);
       this.onVerdict?.(task, normalized, attempt);
-      this.recordBudgetOutcome(normalized.verdict === 'pass', schedule.riskTier, this.now());
-      if (attempt === 1 && normalized.verdict !== 'pass') {
+      this.recordBudgetOutcome(
+        normalized.verdict === "pass",
+        schedule.riskTier,
+        this.now(),
+      );
+      if (attempt === 1 && normalized.verdict !== "pass") {
         disagreements++;
       }
 
@@ -249,15 +283,20 @@ export class VerifierExecutor {
         maxAttempts,
         disagreements,
         maxDisagreements: schedule.maxDisagreements,
-        revisionAvailable: schedule.route === 'revision_first' && this.reviseTask !== undefined,
+        revisionAvailable:
+          schedule.route === "revision_first" && this.reviseTask !== undefined,
         reexecuteOnNeedsRevision:
-          schedule.route === 'retry_execute' || this.config.reexecuteOnNeedsRevision === true,
+          schedule.route === "retry_execute" ||
+          this.config.reexecuteOnNeedsRevision === true,
       });
 
-      if (transition.state === 'pass') {
+      if (transition.state === "pass") {
         const durationMs = this.now() - startedAt;
         this.laneMetrics.addedLatencyMs += durationMs;
-        this.metrics?.histogram(VERIFIER_METRIC_NAMES.ADDED_LATENCY_MS, durationMs);
+        this.metrics?.histogram(
+          VERIFIER_METRIC_NAMES.ADDED_LATENCY_MS,
+          durationMs,
+        );
         this.metrics?.histogram(
           VERIFIER_METRIC_NAMES.ADDED_LATENCY_BY_RISK_TIER_MS,
           durationMs,
@@ -282,7 +321,7 @@ export class VerifierExecutor {
         };
       }
 
-      if (transition.state === 'escalate') {
+      if (transition.state === "escalate") {
         this.escalate(
           task,
           this.mapTransitionReason(transition.reason),
@@ -297,14 +336,32 @@ export class VerifierExecutor {
       this.laneMetrics.revisions++;
       this.metrics?.counter(VERIFIER_METRIC_NAMES.REVISIONS_TOTAL);
 
-      const delayMs = Math.max(0, this.config.revisionDelayMs ?? DEFAULT_REVISION_DELAY_MS);
+      const delayMs = Math.max(
+        0,
+        this.config.revisionDelayMs ?? DEFAULT_REVISION_DELAY_MS,
+      );
       if (delayMs > 0) {
-        await this.sleepWithinBudget(task, delayMs, deadline, startedAt, revisions, history, lastVerdict);
+        await this.sleepWithinBudget(
+          task,
+          delayMs,
+          deadline,
+          startedAt,
+          revisions,
+          history,
+          lastVerdict,
+        );
       }
 
-      this.ensureWithinBudget(task, deadline, startedAt, revisions, history, lastVerdict);
+      this.ensureWithinBudget(
+        task,
+        deadline,
+        startedAt,
+        revisions,
+        history,
+        lastVerdict,
+      );
 
-      if (transition.state === 'revise' && this.reviseTask) {
+      if (transition.state === "revise" && this.reviseTask) {
         currentOutput = await this.runWithinBudget(
           () =>
             this.reviseTask!({
@@ -324,7 +381,14 @@ export class VerifierExecutor {
       }
     }
 
-    this.escalate(task, 'verifier_failed', startedAt, revisions, history, lastVerdict);
+    this.escalate(
+      task,
+      "verifier_failed",
+      startedAt,
+      revisions,
+      history,
+      lastVerdict,
+    );
   }
 
   getMetrics(): VerifierLaneMetrics {
@@ -344,11 +408,15 @@ export class VerifierExecutor {
     return new BudgetAuditTrail(adaptiveRisk.auditTrailMaxEntries);
   }
 
-  private resolveBudgetGuardrail(adaptiveRisk: VerifierAdaptiveRiskConfig | undefined): BudgetGuardrail {
+  private resolveBudgetGuardrail(
+    adaptiveRisk: VerifierAdaptiveRiskConfig | undefined,
+  ): BudgetGuardrail {
     return resolveBudgetGuardrail(adaptiveRisk?.budgetGuardrail);
   }
 
-  private initializeBudgetState(adaptiveRisk: VerifierAdaptiveRiskConfig | undefined): void {
+  private initializeBudgetState(
+    adaptiveRisk: VerifierAdaptiveRiskConfig | undefined,
+  ): void {
     this.budgetHistory = [];
     this.lastBudgetAdjustmentMs = 0;
     this.budgetAuditTrail?.clear();
@@ -366,18 +434,24 @@ export class VerifierExecutor {
     );
   }
 
-  private recordBudgetOutcome(success: boolean, riskTier: RiskTier, nowMs: number): void {
+  private recordBudgetOutcome(
+    success: boolean,
+    riskTier: RiskTier,
+    nowMs: number,
+  ): void {
     if (
-      this.budgetAuditTrail === undefined
-      || this.config.policy?.adaptiveRisk?.enabled !== true
+      this.budgetAuditTrail === undefined ||
+      this.config.policy?.adaptiveRisk?.enabled !== true
     ) {
       return;
     }
 
-    const nextHistory = this.budgetHistory.length >= 100
-      ? this.budgetHistory.slice(-99).concat(success)
-      : this.budgetHistory.concat(success);
-    const consecutiveStreak = countConsecutiveFromEnd(this.budgetHistory, success) + 1;
+    const nextHistory =
+      this.budgetHistory.length >= 100
+        ? this.budgetHistory.slice(-99).concat(success)
+        : this.budgetHistory.concat(success);
+    const consecutiveStreak =
+      countConsecutiveFromEnd(this.budgetHistory, success) + 1;
 
     const result = calculateNextBudget({
       currentBudgetLamports: this.currentBudgetLamports,
@@ -419,11 +493,18 @@ export class VerifierExecutor {
       return {
         enabled: false,
         minConfidence: this.normalizeMinConfidence(this.config.minConfidence),
-        maxVerificationRetries: this.normalizeRetries(this.config.maxVerificationRetries),
-        maxVerificationDurationMs: this.normalizeDuration(this.config.maxVerificationDurationMs),
+        maxVerificationRetries: this.normalizeRetries(
+          this.config.maxVerificationRetries,
+        ),
+        maxVerificationDurationMs: this.normalizeDuration(
+          this.config.maxVerificationDurationMs,
+        ),
         maxAllowedSpendLamports:
           taskTypePolicy?.maxVerificationCostLamports ??
-          task.reward * BigInt(this.normalizeRetries(this.config.maxVerificationRetries) + 1),
+          task.reward *
+            BigInt(
+              this.normalizeRetries(this.config.maxVerificationRetries) + 1,
+            ),
       };
     }
 
@@ -446,11 +527,13 @@ export class VerifierExecutor {
     );
 
     const maxVerificationRetries = this.normalizeRetries(
-      taskTypePolicy?.maxVerificationRetries ?? this.config.maxVerificationRetries,
+      taskTypePolicy?.maxVerificationRetries ??
+        this.config.maxVerificationRetries,
     );
 
     const maxVerificationDurationMs = this.normalizeDuration(
-      taskTypePolicy?.maxVerificationDurationMs ?? this.config.maxVerificationDurationMs,
+      taskTypePolicy?.maxVerificationDurationMs ??
+        this.config.maxVerificationDurationMs,
     );
 
     const staticPolicy: VerifierExecutionPolicy = {
@@ -482,14 +565,22 @@ export class VerifierExecutor {
       adaptiveRisk,
     );
 
-    const budgetDecision = allocateVerificationBudget(task, riskAssessment, this.config);
+    const budgetDecision = allocateVerificationBudget(
+      task,
+      riskAssessment,
+      this.config,
+    );
     this.recordAdaptiveDecisionMetrics(riskAssessment, budgetDecision);
 
     return {
       enabled: budgetDecision.enabled,
       minConfidence: this.normalizeMinConfidence(budgetDecision.minConfidence),
-      maxVerificationRetries: this.normalizeRetries(budgetDecision.maxVerificationRetries),
-      maxVerificationDurationMs: this.normalizeDuration(budgetDecision.maxVerificationDurationMs),
+      maxVerificationRetries: this.normalizeRetries(
+        budgetDecision.maxVerificationRetries,
+      ),
+      maxVerificationDurationMs: this.normalizeDuration(
+        budgetDecision.maxVerificationDurationMs,
+      ),
       maxAllowedSpendLamports: budgetDecision.maxAllowedSpendLamports,
       riskAssessment,
       budgetDecision,
@@ -515,21 +606,21 @@ export class VerifierExecutor {
 
     let normalizedVerdict = verdict.verdict;
     if (
-      normalizedVerdict !== 'pass'
-      && normalizedVerdict !== 'fail'
-      && normalizedVerdict !== 'needs_revision'
+      normalizedVerdict !== "pass" &&
+      normalizedVerdict !== "fail" &&
+      normalizedVerdict !== "needs_revision"
     ) {
-      normalizedVerdict = 'fail';
+      normalizedVerdict = "fail";
       reasons.push({
-        code: 'invalid_verdict',
+        code: "invalid_verdict",
         message: `Unsupported verifier verdict: ${String(verdict.verdict)}`,
       });
     }
 
-    if (normalizedVerdict === 'pass' && normalizedConfidence < minConfidence) {
-      normalizedVerdict = 'fail';
+    if (normalizedVerdict === "pass" && normalizedConfidence < minConfidence) {
+      normalizedVerdict = "fail";
       reasons.push({
-        code: 'confidence_below_threshold',
+        code: "confidence_below_threshold",
         message: `Verifier confidence ${normalizedConfidence.toFixed(3)} below threshold ${minConfidence.toFixed(3)}`,
       });
     }
@@ -542,18 +633,20 @@ export class VerifierExecutor {
     };
   }
 
-  private normalizeReasons(input: VerifierVerdictPayload['reasons']): VerifierVerdictPayload['reasons'] {
+  private normalizeReasons(
+    input: VerifierVerdictPayload["reasons"],
+  ): VerifierVerdictPayload["reasons"] {
     if (!Array.isArray(input) || input.length === 0) {
-      return [{ code: 'unspecified', message: 'Verifier returned no reasons' }];
+      return [{ code: "unspecified", message: "Verifier returned no reasons" }];
     }
 
-    const normalized: VerifierVerdictPayload['reasons'] = [];
+    const normalized: VerifierVerdictPayload["reasons"] = [];
 
     for (const reason of input.slice(0, 16)) {
       const code = this.normalizeReasonCode(reason.code);
-      const message = String(reason.message ?? '').trim();
+      const message = String(reason.message ?? "").trim();
       if (message.length === 0) {
-        normalized.push({ code, message: 'Verifier reason missing message' });
+        normalized.push({ code, message: "Verifier reason missing message" });
         continue;
       }
       normalized.push({
@@ -565,17 +658,22 @@ export class VerifierExecutor {
     }
 
     if (normalized.length === 0) {
-      normalized.push({ code: 'unspecified', message: 'Verifier returned no usable reasons' });
+      normalized.push({
+        code: "unspecified",
+        message: "Verifier returned no usable reasons",
+      });
     }
 
     return normalized;
   }
 
   private normalizeReasonCode(code: string): string {
-    const trimmed = String(code ?? '').trim().toLowerCase();
-    if (trimmed.length === 0) return 'unspecified';
+    const trimmed = String(code ?? "")
+      .trim()
+      .toLowerCase();
+    if (trimmed.length === 0) return "unspecified";
     if (/^[a-z0-9_.-]{1,64}$/.test(trimmed)) return trimmed;
-    return 'invalid_reason_code';
+    return "invalid_reason_code";
   }
 
   private normalizeConfidence(confidence: number): number {
@@ -591,13 +689,18 @@ export class VerifierExecutor {
 
   private normalizeRetries(maxVerificationRetries: number | undefined): number {
     const retries = maxVerificationRetries ?? DEFAULT_MAX_VERIFICATION_RETRIES;
-    if (!Number.isFinite(retries) || retries < 0) return DEFAULT_MAX_VERIFICATION_RETRIES;
+    if (!Number.isFinite(retries) || retries < 0)
+      return DEFAULT_MAX_VERIFICATION_RETRIES;
     return Math.floor(retries);
   }
 
-  private normalizeDuration(maxVerificationDurationMs: number | undefined): number {
-    const duration = maxVerificationDurationMs ?? DEFAULT_MAX_VERIFICATION_DURATION_MS;
-    if (!Number.isFinite(duration) || duration <= 0) return DEFAULT_MAX_VERIFICATION_DURATION_MS;
+  private normalizeDuration(
+    maxVerificationDurationMs: number | undefined,
+  ): number {
+    const duration =
+      maxVerificationDurationMs ?? DEFAULT_MAX_VERIFICATION_DURATION_MS;
+    if (!Number.isFinite(duration) || duration <= 0)
+      return DEFAULT_MAX_VERIFICATION_DURATION_MS;
     return Math.floor(duration);
   }
 
@@ -611,31 +714,51 @@ export class VerifierExecutor {
     lastVerdict: VerifierVerdictPayload | null,
   ): Promise<VerifierVerdictPayload> {
     try {
-      return await this.runWithinBudget(() => this.config.verifier.verify(input), deadline);
+      return await this.runWithinBudget(
+        () => this.config.verifier.verify(input),
+        deadline,
+      );
     } catch (error) {
       const err = error instanceof Error ? error : new Error(String(error));
-      if (err.message === 'verification timeout') {
-        this.escalate(task, 'verifier_timeout', startedAt, revisions, history, lastVerdict);
+      if (err.message === "verification timeout") {
+        this.escalate(
+          task,
+          "verifier_timeout",
+          startedAt,
+          revisions,
+          history,
+          lastVerdict,
+        );
       }
       if (this.config.failOnVerifierError) {
-        this.escalate(task, 'verifier_error', startedAt, revisions, history, lastVerdict);
+        this.escalate(
+          task,
+          "verifier_error",
+          startedAt,
+          revisions,
+          history,
+          lastVerdict,
+        );
       }
       return {
-        verdict: 'fail',
+        verdict: "fail",
         confidence: 0,
-        reasons: [{ code: 'verifier_error', message: err.message }],
+        reasons: [{ code: "verifier_error", message: err.message }],
       };
     }
   }
 
-  private recordVerdictMetrics(verdict: VerifierVerdictPayload, attempt: number): void {
+  private recordVerdictMetrics(
+    verdict: VerifierVerdictPayload,
+    attempt: number,
+  ): void {
     this.laneMetrics.checks++;
     this.metrics?.counter(VERIFIER_METRIC_NAMES.CHECKS_TOTAL);
 
-    if (verdict.verdict === 'pass') {
+    if (verdict.verdict === "pass") {
       this.laneMetrics.passes++;
       this.metrics?.counter(VERIFIER_METRIC_NAMES.PASSES_TOTAL);
-    } else if (verdict.verdict === 'fail') {
+    } else if (verdict.verdict === "fail") {
       this.laneMetrics.fails++;
       this.metrics?.counter(VERIFIER_METRIC_NAMES.FAILS_TOTAL);
     } else {
@@ -643,7 +766,7 @@ export class VerifierExecutor {
       this.metrics?.counter(VERIFIER_METRIC_NAMES.NEEDS_REVISION_TOTAL);
     }
 
-    if (attempt === 1 && verdict.verdict !== 'pass') {
+    if (attempt === 1 && verdict.verdict !== "pass") {
       this.laneMetrics.disagreements++;
       this.metrics?.counter(VERIFIER_METRIC_NAMES.DISAGREEMENTS_TOTAL);
     }
@@ -658,7 +781,14 @@ export class VerifierExecutor {
     lastVerdict: VerifierVerdictPayload | null,
   ): void {
     if (this.now() > deadline) {
-      this.escalate(task, 'verifier_timeout', startedAt, revisions, history, lastVerdict);
+      this.escalate(
+        task,
+        "verifier_timeout",
+        startedAt,
+        revisions,
+        history,
+        lastVerdict,
+      );
     }
   }
 
@@ -678,7 +808,14 @@ export class VerifierExecutor {
     const safeAttempt = Math.max(1, attempt);
     const projected = task.reward * BigInt(safeAttempt);
     if (projected > maxAllowedSpendLamports) {
-      this.escalate(task, 'verifier_budget_exhausted', startedAt, revisions, history, lastVerdict);
+      this.escalate(
+        task,
+        "verifier_budget_exhausted",
+        startedAt,
+        revisions,
+        history,
+        lastVerdict,
+      );
     }
   }
 
@@ -693,22 +830,35 @@ export class VerifierExecutor {
   ): Promise<void> {
     const remaining = deadline - this.now();
     if (remaining <= 0) {
-      this.escalate(task, 'verifier_timeout', startedAt, revisions, history, lastVerdict);
+      this.escalate(
+        task,
+        "verifier_timeout",
+        startedAt,
+        revisions,
+        history,
+        lastVerdict,
+      );
     }
     await this.sleep(Math.min(delayMs, remaining));
   }
 
-  private async runWithinBudget<T>(fn: () => Promise<T>, deadline: number): Promise<T> {
+  private async runWithinBudget<T>(
+    fn: () => Promise<T>,
+    deadline: number,
+  ): Promise<T> {
     const remaining = deadline - this.now();
     if (remaining <= 0) {
-      throw new Error('verification timeout');
+      throw new Error("verification timeout");
     }
     let timeout: ReturnType<typeof setTimeout> | undefined;
     try {
       return await Promise.race([
         fn(),
         new Promise<T>((_, reject) => {
-          timeout = setTimeout(() => reject(new Error('verification timeout')), remaining);
+          timeout = setTimeout(
+            () => reject(new Error("verification timeout")),
+            remaining,
+          );
         }),
       ]);
     } finally {
@@ -718,7 +868,7 @@ export class VerifierExecutor {
 
   private escalate(
     task: Task,
-    reason: VerifierEscalationMetadata['reason'],
+    reason: VerifierEscalationMetadata["reason"],
     startedAt: number,
     revisions: number,
     history: VerifierVerdictPayload[],
@@ -737,13 +887,15 @@ export class VerifierExecutor {
     throw new VerifierLaneEscalationError(task, metadata, [...history]);
   }
 
-  private mapTransitionReason(reason: string): VerifierEscalationMetadata['reason'] {
-    if (reason === 'timeout') return 'verifier_timeout';
-    if (reason === 'revision_unavailable') return 'revision_unavailable';
-    if (reason === 'disagreement_threshold') return 'verifier_disagreement';
-    if (reason === 'budget_exhausted') return 'verifier_budget_exhausted';
-    if (reason === 'policy_denied') return 'verifier_error';
-    return 'verifier_failed';
+  private mapTransitionReason(
+    reason: string,
+  ): VerifierEscalationMetadata["reason"] {
+    if (reason === "timeout") return "verifier_timeout";
+    if (reason === "revision_unavailable") return "revision_unavailable";
+    if (reason === "disagreement_threshold") return "verifier_disagreement";
+    if (reason === "budget_exhausted") return "verifier_budget_exhausted";
+    if (reason === "policy_denied") return "verifier_error";
+    return "verifier_failed";
   }
 
   private recordAdaptiveDecisionMetrics(
@@ -760,11 +912,9 @@ export class VerifierExecutor {
       riskAssessment.score,
       { tier: riskAssessment.tier },
     );
-    this.metrics?.counter(
-      VERIFIER_METRIC_NAMES.ADAPTIVE_RISK_TIER_TOTAL,
-      1,
-      { tier: riskAssessment.tier },
-    );
+    this.metrics?.counter(VERIFIER_METRIC_NAMES.ADAPTIVE_RISK_TIER_TOTAL, 1, {
+      tier: riskAssessment.tier,
+    });
     this.metrics?.histogram(
       VERIFIER_METRIC_NAMES.ADAPTIVE_MAX_RETRIES,
       budgetDecision.maxVerificationRetries,
@@ -784,12 +934,14 @@ export class VerifierExecutor {
     if (!budgetDecision.enabled) {
       this.metrics?.counter(VERIFIER_METRIC_NAMES.ADAPTIVE_DISABLED_TOTAL, 1, {
         tier: budgetDecision.riskTier,
-        reason: String(budgetDecision.metadata.reason ?? 'unknown'),
+        reason: String(budgetDecision.metadata.reason ?? "unknown"),
       });
     }
   }
 
-  private toAdaptiveRiskSummary(policy: VerifierExecutionPolicy): VerifierExecutionResult['adaptiveRisk'] {
+  private toAdaptiveRiskSummary(
+    policy: VerifierExecutionPolicy,
+  ): VerifierExecutionResult["adaptiveRisk"] {
     if (!policy.riskAssessment || !policy.budgetDecision) {
       return undefined;
     }
@@ -805,9 +957,11 @@ export class VerifierExecutor {
       })),
       budget: {
         maxVerificationRetries: policy.budgetDecision.maxVerificationRetries,
-        maxVerificationDurationMs: policy.budgetDecision.maxVerificationDurationMs,
+        maxVerificationDurationMs:
+          policy.budgetDecision.maxVerificationDurationMs,
         minConfidence: policy.budgetDecision.minConfidence,
-        maxAllowedSpendLamports: policy.budgetDecision.maxAllowedSpendLamports.toString(),
+        maxAllowedSpendLamports:
+          policy.budgetDecision.maxAllowedSpendLamports.toString(),
       },
     };
   }

@@ -3,8 +3,8 @@
  * @module
  */
 
-import { PublicKey } from '@solana/web3.js';
-import { PROGRAM_ID } from '@agenc/sdk';
+import { PublicKey } from "@solana/web3.js";
+import { PROGRAM_ID } from "@agenc/sdk";
 
 /**
  * PDA with its bump seed for account creation.
@@ -46,7 +46,7 @@ export function validateIdLength(
 ): void {
   if (id.length !== expectedLength) {
     throw new Error(
-      `Invalid ${name} length: ${id.length} (must be ${expectedLength})`
+      `Invalid ${name} length: ${id.length} (must be ${expectedLength})`,
     );
   }
 }

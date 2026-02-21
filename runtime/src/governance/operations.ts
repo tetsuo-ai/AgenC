@@ -7,11 +7,11 @@
  * @module
  */
 
-import { PublicKey, SystemProgram } from '@solana/web3.js';
-import type { Program } from '@coral-xyz/anchor';
-import type { AgencCoordination } from '../types/agenc_coordination.js';
-import type { Logger } from '../utils/logger.js';
-import { silentLogger } from '../utils/logger.js';
+import { PublicKey, SystemProgram } from "@solana/web3.js";
+import type { Program } from "@coral-xyz/anchor";
+import type { AgencCoordination } from "../types/agenc_coordination.js";
+import type { Logger } from "../utils/logger.js";
+import { silentLogger } from "../utils/logger.js";
 import type {
   OnChainProposal,
   OnChainGovernanceVote,
@@ -24,23 +24,27 @@ import type {
   ProposalResult,
   GovernanceVoteResult,
   ProposalWithVotes,
-} from './types.js';
+} from "./types.js";
 import {
   parseOnChainProposal,
   parseOnChainGovernanceVote,
   parseOnChainGovernanceConfig,
   ProposalStatus,
   PROPOSAL_STATUS_OFFSET,
-} from './types.js';
-import { deriveProposalPda, deriveGovernanceVotePda, findGovernanceConfigPda } from './pda.js';
-import { findAgentPda, findProtocolPda } from '../agent/pda.js';
-import { isAnchorError, AnchorErrorCodes } from '../types/errors.js';
+} from "./types.js";
+import {
+  deriveProposalPda,
+  deriveGovernanceVotePda,
+  findGovernanceConfigPda,
+} from "./pda.js";
+import { findAgentPda, findProtocolPda } from "../agent/pda.js";
+import { isAnchorError, AnchorErrorCodes } from "../types/errors.js";
 import {
   GovernanceVoteError,
   GovernanceExecutionError,
   GovernanceProposalNotFoundError,
-} from './errors.js';
-import { encodeStatusByte, queryWithFallback } from '../utils/query.js';
+} from "./errors.js";
+import { encodeStatusByte, queryWithFallback } from "../utils/query.js";
 
 // ============================================================================
 // Configuration
@@ -79,9 +83,9 @@ export class GovernanceOperations {
 
   async fetchGovernanceConfig(): Promise<OnChainGovernanceConfig | null> {
     try {
-      const raw = await (this.program.account as any).governanceConfig.fetchNullable(
-        this.governanceConfigPda,
-      );
+      const raw = await (
+        this.program.account as any
+      ).governanceConfig.fetchNullable(this.governanceConfigPda);
       if (!raw) return null;
       return parseOnChainGovernanceConfig(raw as Record<string, unknown>);
     } catch (err) {
@@ -92,16 +96,22 @@ export class GovernanceOperations {
 
   async fetchProposal(proposalPda: PublicKey): Promise<OnChainProposal | null> {
     try {
-      const raw = await (this.program.account as any).proposal.fetchNullable(proposalPda);
+      const raw = await (this.program.account as any).proposal.fetchNullable(
+        proposalPda,
+      );
       if (!raw) return null;
       return parseOnChainProposal(raw as Record<string, unknown>);
     } catch (err) {
-      this.logger.error(`Failed to fetch proposal ${proposalPda.toBase58()}: ${err}`);
+      this.logger.error(
+        `Failed to fetch proposal ${proposalPda.toBase58()}: ${err}`,
+      );
       throw err;
     }
   }
 
-  async fetchAllProposals(): Promise<Array<{ proposal: OnChainProposal; proposalPda: PublicKey }>> {
+  async fetchAllProposals(): Promise<
+    Array<{ proposal: OnChainProposal; proposalPda: PublicKey }>
+  > {
     const accounts = await (this.program.account as any).proposal.all();
     return accounts.map((acc: any) => ({
       proposal: parseOnChainProposal(acc.account as Record<string, unknown>),
@@ -123,26 +133,36 @@ export class GovernanceOperations {
           },
         ]);
         return accounts.map((acc: any) => ({
-          proposal: parseOnChainProposal(acc.account as Record<string, unknown>),
+          proposal: parseOnChainProposal(
+            acc.account as Record<string, unknown>,
+          ),
           proposalPda: acc.publicKey,
         }));
       },
       async () => {
         const all = await this.fetchAllProposals();
-        return all.filter(({ proposal }) => proposal.status === ProposalStatus.Active);
+        return all.filter(
+          ({ proposal }) => proposal.status === ProposalStatus.Active,
+        );
       },
       this.logger,
-      'fetchActiveProposals',
+      "fetchActiveProposals",
     );
   }
 
-  async fetchGovernanceVote(votePda: PublicKey): Promise<OnChainGovernanceVote | null> {
+  async fetchGovernanceVote(
+    votePda: PublicKey,
+  ): Promise<OnChainGovernanceVote | null> {
     try {
-      const raw = await (this.program.account as any).governanceVote.fetchNullable(votePda);
+      const raw = await (
+        this.program.account as any
+      ).governanceVote.fetchNullable(votePda);
       if (!raw) return null;
       return parseOnChainGovernanceVote(raw as Record<string, unknown>);
     } catch (err) {
-      this.logger.error(`Failed to fetch governance vote ${votePda.toBase58()}: ${err}`);
+      this.logger.error(
+        `Failed to fetch governance vote ${votePda.toBase58()}: ${err}`,
+      );
       throw err;
     }
   }
@@ -152,14 +172,16 @@ export class GovernanceOperations {
     if (!proposal) return null;
 
     // Fetch all governance vote accounts filtered by proposal
-    const voteAccounts = await (this.program.account as any).governanceVote.all([
-      {
-        memcmp: {
-          offset: 8, // discriminator, then proposal pubkey
-          bytes: proposalPda.toBase58(),
+    const voteAccounts = await (this.program.account as any).governanceVote.all(
+      [
+        {
+          memcmp: {
+            offset: 8, // discriminator, then proposal pubkey
+            bytes: proposalPda.toBase58(),
+          },
         },
-      },
-    ]);
+      ],
+    );
 
     const votes = voteAccounts.map((acc: any) =>
       parseOnChainGovernanceVote(acc.account as Record<string, unknown>),
@@ -175,7 +197,7 @@ export class GovernanceOperations {
   async initializeGovernance(
     params: InitializeGovernanceParams,
   ): Promise<{ governanceConfigPda: PublicKey; transactionSignature: string }> {
-    this.logger.info('Initializing governance configuration');
+    this.logger.info("Initializing governance configuration");
 
     const signature = await (this.program.methods as any)
       .initializeGovernance(
@@ -194,7 +216,10 @@ export class GovernanceOperations {
       .rpc();
 
     this.logger.info(`Governance initialized: ${signature}`);
-    return { governanceConfigPda: this.governanceConfigPda, transactionSignature: signature };
+    return {
+      governanceConfigPda: this.governanceConfigPda,
+      transactionSignature: signature,
+    };
   }
 
   async createProposal(params: CreateProposalParams): Promise<ProposalResult> {
@@ -235,7 +260,7 @@ export class GovernanceOperations {
   async vote(params: VoteProposalParams): Promise<GovernanceVoteResult> {
     const authority = this.program.provider.publicKey;
     if (!authority) {
-      throw new Error('Provider public key is required for governance voting');
+      throw new Error("Provider public key is required for governance voting");
     }
 
     const { address: votePda } = deriveGovernanceVotePda(
@@ -245,7 +270,7 @@ export class GovernanceOperations {
     );
 
     this.logger.info(
-      `Voting ${params.approve ? 'for' : 'against'} proposal ${params.proposalPda.toBase58()}`,
+      `Voting ${params.approve ? "for" : "against"} proposal ${params.proposalPda.toBase58()}`,
     );
 
     try {
@@ -266,17 +291,19 @@ export class GovernanceOperations {
     } catch (err) {
       const pda = params.proposalPda.toBase58();
       if (isAnchorError(err, AnchorErrorCodes.ProposalNotActive)) {
-        throw new GovernanceVoteError(pda, 'Proposal is not active');
+        throw new GovernanceVoteError(pda, "Proposal is not active");
       }
       if (isAnchorError(err, AnchorErrorCodes.ProposalVotingEnded)) {
-        throw new GovernanceVoteError(pda, 'Voting period has ended');
+        throw new GovernanceVoteError(pda, "Voting period has ended");
       }
       this.logger.error(`Failed to vote on proposal: ${err}`);
       throw err;
     }
   }
 
-  async executeProposal(params: ExecuteProposalParams): Promise<ProposalResult> {
+  async executeProposal(
+    params: ExecuteProposalParams,
+  ): Promise<ProposalResult> {
     this.logger.info(`Executing proposal ${params.proposalPda.toBase58()}`);
 
     try {
@@ -294,23 +321,35 @@ export class GovernanceOperations {
         .rpc();
 
       this.logger.info(`Proposal executed: ${signature}`);
-      return { proposalPda: params.proposalPda, transactionSignature: signature };
+      return {
+        proposalPda: params.proposalPda,
+        transactionSignature: signature,
+      };
     } catch (err) {
       const pda = params.proposalPda.toBase58();
       if (isAnchorError(err, AnchorErrorCodes.ProposalNotActive)) {
-        throw new GovernanceExecutionError(pda, 'Proposal is not active');
+        throw new GovernanceExecutionError(pda, "Proposal is not active");
       }
       if (isAnchorError(err, AnchorErrorCodes.ProposalVotingNotEnded)) {
-        throw new GovernanceExecutionError(pda, 'Voting period has not ended');
+        throw new GovernanceExecutionError(pda, "Voting period has not ended");
       }
       if (isAnchorError(err, AnchorErrorCodes.TimelockNotElapsed)) {
-        throw new GovernanceExecutionError(pda, 'Execution timelock has not elapsed');
+        throw new GovernanceExecutionError(
+          pda,
+          "Execution timelock has not elapsed",
+        );
       }
       if (isAnchorError(err, AnchorErrorCodes.ProposalInsufficientQuorum)) {
-        throw new GovernanceExecutionError(pda, 'Insufficient quorum for proposal execution');
+        throw new GovernanceExecutionError(
+          pda,
+          "Insufficient quorum for proposal execution",
+        );
       }
       if (isAnchorError(err, AnchorErrorCodes.ProposalNotApproved)) {
-        throw new GovernanceExecutionError(pda, 'Proposal did not achieve majority');
+        throw new GovernanceExecutionError(
+          pda,
+          "Proposal did not achieve majority",
+        );
       }
       this.logger.error(`Failed to execute proposal: ${err}`);
       throw err;
@@ -330,14 +369,17 @@ export class GovernanceOperations {
         .rpc();
 
       this.logger.info(`Proposal cancelled: ${signature}`);
-      return { proposalPda: params.proposalPda, transactionSignature: signature };
+      return {
+        proposalPda: params.proposalPda,
+        transactionSignature: signature,
+      };
     } catch (err) {
       const pda = params.proposalPda.toBase58();
       if (isAnchorError(err, AnchorErrorCodes.ProposalNotActive)) {
         throw new GovernanceProposalNotFoundError(pda);
       }
       if (isAnchorError(err, AnchorErrorCodes.ProposalUnauthorizedCancel)) {
-        throw new GovernanceExecutionError(pda, 'Only the proposer can cancel');
+        throw new GovernanceExecutionError(pda, "Only the proposer can cancel");
       }
       this.logger.error(`Failed to cancel proposal: ${err}`);
       throw err;

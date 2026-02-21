@@ -10,11 +10,11 @@ import {
   PublicKey,
   Transaction,
   VersionedTransaction,
-} from '@solana/web3.js';
-import * as fs from 'fs';
-import * as fsPromises from 'fs/promises';
-import * as path from 'path';
-import * as os from 'os';
+} from "@solana/web3.js";
+import * as fs from "fs";
+import * as fsPromises from "fs/promises";
+import * as path from "path";
+import * as os from "os";
 
 /**
  * Anchor-compatible wallet interface.
@@ -32,14 +32,18 @@ export interface Wallet {
    * @param tx - Transaction to sign (legacy or versioned)
    * @returns The signed transaction
    */
-  signTransaction<T extends Transaction | VersionedTransaction>(tx: T): Promise<T>;
+  signTransaction<T extends Transaction | VersionedTransaction>(
+    tx: T,
+  ): Promise<T>;
 
   /**
    * Sign multiple transactions.
    * @param txs - Array of transactions to sign
    * @returns Array of signed transactions
    */
-  signAllTransactions<T extends Transaction | VersionedTransaction>(txs: T[]): Promise<T[]>;
+  signAllTransactions<T extends Transaction | VersionedTransaction>(
+    txs: T[],
+  ): Promise<T[]>;
 }
 
 /**
@@ -68,7 +72,7 @@ export class KeypairFileError extends Error {
 
   constructor(message: string, filePath: string, cause?: Error) {
     super(message);
-    this.name = 'KeypairFileError';
+    this.name = "KeypairFileError";
     this.filePath = filePath;
     this.cause = cause;
     // Maintain proper stack trace in V8 environments
@@ -103,14 +107,16 @@ export class KeypairFileError extends Error {
  * If it is a Keypair, it is wrapped via keypairToWallet().
  */
 export function ensureWallet(wallet: Keypair | Wallet): Wallet {
-  return 'secretKey' in wallet ? keypairToWallet(wallet) : wallet;
+  return "secretKey" in wallet ? keypairToWallet(wallet) : wallet;
 }
 
 export function keypairToWallet(keypair: Keypair): Wallet {
   return {
     publicKey: keypair.publicKey,
 
-    async signTransaction<T extends Transaction | VersionedTransaction>(tx: T): Promise<T> {
+    async signTransaction<T extends Transaction | VersionedTransaction>(
+      tx: T,
+    ): Promise<T> {
       if (tx instanceof VersionedTransaction) {
         tx.sign([keypair]);
       } else {
@@ -119,7 +125,9 @@ export function keypairToWallet(keypair: Keypair): Wallet {
       return tx;
     },
 
-    async signAllTransactions<T extends Transaction | VersionedTransaction>(txs: T[]): Promise<T[]> {
+    async signAllTransactions<T extends Transaction | VersionedTransaction>(
+      txs: T[],
+    ): Promise<T[]> {
       for (const tx of txs) {
         if (tx instanceof VersionedTransaction) {
           tx.sign([keypair]);
@@ -138,7 +146,7 @@ export function keypairToWallet(keypair: Keypair): Wallet {
  * @returns Path to `~/.config/solana/id.json`
  */
 export function getDefaultKeypairPath(): string {
-  return path.join(os.homedir(), '.config', 'solana', 'id.json');
+  return path.join(os.homedir(), ".config", "solana", "id.json");
 }
 
 /**
@@ -157,31 +165,36 @@ function parseKeypairJson(content: string, filePath: string): Keypair {
     throw new KeypairFileError(
       `Invalid JSON in keypair file: ${filePath}`,
       filePath,
-      err instanceof Error ? err : undefined
+      err instanceof Error ? err : undefined,
     );
   }
 
   if (!Array.isArray(parsed)) {
     throw new KeypairFileError(
       `Keypair file must contain a JSON array, got ${typeof parsed}`,
-      filePath
+      filePath,
     );
   }
 
   if (parsed.length !== 64) {
     throw new KeypairFileError(
       `Keypair file must contain 64 bytes, got ${parsed.length}`,
-      filePath
+      filePath,
     );
   }
 
   // Validate each byte value
   for (let i = 0; i < parsed.length; i++) {
     const value = parsed[i];
-    if (typeof value !== 'number' || !Number.isInteger(value) || value < 0 || value > 255) {
+    if (
+      typeof value !== "number" ||
+      !Number.isInteger(value) ||
+      value < 0 ||
+      value > 255
+    ) {
       throw new KeypairFileError(
         `Invalid byte value at index ${i}: ${value}`,
-        filePath
+        filePath,
       );
     }
   }
@@ -208,19 +221,19 @@ function parseKeypairJson(content: string, filePath: string): Keypair {
 export async function loadKeypairFromFile(filePath: string): Promise<Keypair> {
   let content: string;
   try {
-    content = await fsPromises.readFile(filePath, 'utf-8');
+    content = await fsPromises.readFile(filePath, "utf-8");
   } catch (err) {
-    if (err instanceof Error && 'code' in err && err.code === 'ENOENT') {
+    if (err instanceof Error && "code" in err && err.code === "ENOENT") {
       throw new KeypairFileError(
         `Keypair file not found: ${filePath}`,
         filePath,
-        err
+        err,
       );
     }
     throw new KeypairFileError(
       `Failed to read keypair file: ${filePath}`,
       filePath,
-      err instanceof Error ? err : undefined
+      err instanceof Error ? err : undefined,
     );
   }
 
@@ -243,19 +256,19 @@ export async function loadKeypairFromFile(filePath: string): Promise<Keypair> {
 export function loadKeypairFromFileSync(filePath: string): Keypair {
   let content: string;
   try {
-    content = fs.readFileSync(filePath, 'utf-8');
+    content = fs.readFileSync(filePath, "utf-8");
   } catch (err) {
-    if (err instanceof Error && 'code' in err && err.code === 'ENOENT') {
+    if (err instanceof Error && "code" in err && err.code === "ENOENT") {
       throw new KeypairFileError(
         `Keypair file not found: ${filePath}`,
         filePath,
-        err
+        err,
       );
     }
     throw new KeypairFileError(
       `Failed to read keypair file: ${filePath}`,
       filePath,
-      err instanceof Error ? err : undefined
+      err instanceof Error ? err : undefined,
     );
   }
 

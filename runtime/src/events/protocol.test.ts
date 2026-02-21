@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   subscribeToStateUpdated,
   subscribeToProtocolInitialized,
@@ -15,8 +15,13 @@ import {
   subscribeToBondSlashed,
   subscribeToSpeculativeCommitmentCreated,
   subscribeToAllProtocolEvents,
-} from './protocol';
-import { createId, createMockProgram, mockBN, TEST_PUBKEY } from './test-utils/mock-program.js';
+} from "./protocol";
+import {
+  createId,
+  createMockProgram,
+  mockBN,
+  TEST_PUBKEY,
+} from "./test-utils/mock-program.js";
 
 function createRawStateUpdated() {
   return {
@@ -156,29 +161,29 @@ function createRawSpeculativeCommitmentCreated() {
   };
 }
 
-describe('Protocol Event Subscriptions', () => {
+describe("Protocol Event Subscriptions", () => {
   let mockProgram: ReturnType<typeof createMockProgram>;
 
   beforeEach(() => {
     mockProgram = createMockProgram();
   });
 
-  describe('subscribeToStateUpdated', () => {
-    it('registers with correct camelCase event name', () => {
+  describe("subscribeToStateUpdated", () => {
+    it("registers with correct camelCase event name", () => {
       const callback = vi.fn();
       subscribeToStateUpdated(mockProgram, callback);
 
       expect(mockProgram.addEventListener).toHaveBeenCalledWith(
-        'stateUpdated',
-        expect.any(Function)
+        "stateUpdated",
+        expect.any(Function),
       );
     });
 
-    it('parses raw events and forwards to callback', () => {
+    it("parses raw events and forwards to callback", () => {
       const callback = vi.fn();
       subscribeToStateUpdated(mockProgram, callback);
 
-      mockProgram._emit('stateUpdated', createRawStateUpdated(), 100, 'sig1');
+      mockProgram._emit("stateUpdated", createRawStateUpdated(), 100, "sig1");
 
       expect(callback).toHaveBeenCalledTimes(1);
       const [event, slot, sig] = callback.mock.calls[0];
@@ -187,10 +192,10 @@ describe('Protocol Event Subscriptions', () => {
       expect(event.version).toBe(5n);
       expect(event.timestamp).toBe(1234567890);
       expect(slot).toBe(100);
-      expect(sig).toBe('sig1');
+      expect(sig).toBe("sig1");
     });
 
-    it('unsubscribe removes listener', async () => {
+    it("unsubscribe removes listener", async () => {
       const callback = vi.fn();
       const subscription = subscribeToStateUpdated(mockProgram, callback);
 
@@ -200,22 +205,27 @@ describe('Protocol Event Subscriptions', () => {
     });
   });
 
-  describe('subscribeToProtocolInitialized', () => {
-    it('registers with correct camelCase event name', () => {
+  describe("subscribeToProtocolInitialized", () => {
+    it("registers with correct camelCase event name", () => {
       const callback = vi.fn();
       subscribeToProtocolInitialized(mockProgram, callback);
 
       expect(mockProgram.addEventListener).toHaveBeenCalledWith(
-        'protocolInitialized',
-        expect.any(Function)
+        "protocolInitialized",
+        expect.any(Function),
       );
     });
 
-    it('parses raw events and forwards to callback', () => {
+    it("parses raw events and forwards to callback", () => {
       const callback = vi.fn();
       subscribeToProtocolInitialized(mockProgram, callback);
 
-      mockProgram._emit('protocolInitialized', createRawProtocolInitialized(), 200, 'sig2');
+      mockProgram._emit(
+        "protocolInitialized",
+        createRawProtocolInitialized(),
+        200,
+        "sig2",
+      );
 
       expect(callback).toHaveBeenCalledTimes(1);
       const [event, slot, sig] = callback.mock.calls[0];
@@ -225,26 +235,31 @@ describe('Protocol Event Subscriptions', () => {
       expect(event.protocolFeeBps).toBe(250);
       expect(event.timestamp).toBe(1234567890);
       expect(slot).toBe(200);
-      expect(sig).toBe('sig2');
+      expect(sig).toBe("sig2");
     });
   });
 
-  describe('subscribeToRewardDistributed', () => {
-    it('registers with correct camelCase event name', () => {
+  describe("subscribeToRewardDistributed", () => {
+    it("registers with correct camelCase event name", () => {
       const callback = vi.fn();
       subscribeToRewardDistributed(mockProgram, callback);
 
       expect(mockProgram.addEventListener).toHaveBeenCalledWith(
-        'rewardDistributed',
-        expect.any(Function)
+        "rewardDistributed",
+        expect.any(Function),
       );
     });
 
-    it('parses raw events and forwards to callback', () => {
+    it("parses raw events and forwards to callback", () => {
       const callback = vi.fn();
       subscribeToRewardDistributed(mockProgram, callback);
 
-      mockProgram._emit('rewardDistributed', createRawRewardDistributed(), 300, 'sig3');
+      mockProgram._emit(
+        "rewardDistributed",
+        createRawRewardDistributed(),
+        300,
+        "sig3",
+      );
 
       expect(callback).toHaveBeenCalledTimes(1);
       const [event, slot, sig] = callback.mock.calls[0];
@@ -254,47 +269,69 @@ describe('Protocol Event Subscriptions', () => {
       expect(event.protocolFee).toBe(12_500_000n);
       expect(event.timestamp).toBe(1234567890);
       expect(slot).toBe(300);
-      expect(sig).toBe('sig3');
+      expect(sig).toBe("sig3");
     });
 
-    it('filters by taskId when provided', () => {
+    it("filters by taskId when provided", () => {
       const callback = vi.fn();
       const filterTaskId = createId(42);
-      subscribeToRewardDistributed(mockProgram, callback, { taskId: filterTaskId });
+      subscribeToRewardDistributed(mockProgram, callback, {
+        taskId: filterTaskId,
+      });
 
-      mockProgram._emit('rewardDistributed', createRawRewardDistributed(filterTaskId), 1, 'sig1');
-      mockProgram._emit('rewardDistributed', createRawRewardDistributed(createId(99)), 2, 'sig2');
+      mockProgram._emit(
+        "rewardDistributed",
+        createRawRewardDistributed(filterTaskId),
+        1,
+        "sig1",
+      );
+      mockProgram._emit(
+        "rewardDistributed",
+        createRawRewardDistributed(createId(99)),
+        2,
+        "sig2",
+      );
 
       expect(callback).toHaveBeenCalledTimes(1);
     });
 
-    it('passes all events when no filter', () => {
+    it("passes all events when no filter", () => {
       const callback = vi.fn();
       subscribeToRewardDistributed(mockProgram, callback);
 
-      mockProgram._emit('rewardDistributed', createRawRewardDistributed(createId(1)), 1, 'sig1');
-      mockProgram._emit('rewardDistributed', createRawRewardDistributed(createId(2)), 2, 'sig2');
+      mockProgram._emit(
+        "rewardDistributed",
+        createRawRewardDistributed(createId(1)),
+        1,
+        "sig1",
+      );
+      mockProgram._emit(
+        "rewardDistributed",
+        createRawRewardDistributed(createId(2)),
+        2,
+        "sig2",
+      );
 
       expect(callback).toHaveBeenCalledTimes(2);
     });
   });
 
-  describe('subscribeToRateLimitHit', () => {
-    it('registers with correct camelCase event name', () => {
+  describe("subscribeToRateLimitHit", () => {
+    it("registers with correct camelCase event name", () => {
       const callback = vi.fn();
       subscribeToRateLimitHit(mockProgram, callback);
 
       expect(mockProgram.addEventListener).toHaveBeenCalledWith(
-        'rateLimitHit',
-        expect.any(Function)
+        "rateLimitHit",
+        expect.any(Function),
       );
     });
 
-    it('parses raw events and forwards to callback', () => {
+    it("parses raw events and forwards to callback", () => {
       const callback = vi.fn();
       subscribeToRateLimitHit(mockProgram, callback);
 
-      mockProgram._emit('rateLimitHit', createRawRateLimitHit(), 400, 'sig4');
+      mockProgram._emit("rateLimitHit", createRawRateLimitHit(), 400, "sig4");
 
       expect(callback).toHaveBeenCalledTimes(1);
       const [event, slot, sig] = callback.mock.calls[0];
@@ -306,47 +343,74 @@ describe('Protocol Event Subscriptions', () => {
       expect(event.cooldownRemaining).toBe(3600);
       expect(event.timestamp).toBe(1234567890);
       expect(slot).toBe(400);
-      expect(sig).toBe('sig4');
+      expect(sig).toBe("sig4");
     });
 
-    it('filters by agentId when provided', () => {
+    it("filters by agentId when provided", () => {
       const callback = vi.fn();
       const filterAgentId = createId(42);
-      subscribeToRateLimitHit(mockProgram, callback, { agentId: filterAgentId });
+      subscribeToRateLimitHit(mockProgram, callback, {
+        agentId: filterAgentId,
+      });
 
-      mockProgram._emit('rateLimitHit', createRawRateLimitHit(filterAgentId), 1, 'sig1');
-      mockProgram._emit('rateLimitHit', createRawRateLimitHit(createId(99)), 2, 'sig2');
+      mockProgram._emit(
+        "rateLimitHit",
+        createRawRateLimitHit(filterAgentId),
+        1,
+        "sig1",
+      );
+      mockProgram._emit(
+        "rateLimitHit",
+        createRawRateLimitHit(createId(99)),
+        2,
+        "sig2",
+      );
 
       expect(callback).toHaveBeenCalledTimes(1);
     });
 
-    it('passes all events when no filter', () => {
+    it("passes all events when no filter", () => {
       const callback = vi.fn();
       subscribeToRateLimitHit(mockProgram, callback);
 
-      mockProgram._emit('rateLimitHit', createRawRateLimitHit(createId(1)), 1, 'sig1');
-      mockProgram._emit('rateLimitHit', createRawRateLimitHit(createId(2)), 2, 'sig2');
+      mockProgram._emit(
+        "rateLimitHit",
+        createRawRateLimitHit(createId(1)),
+        1,
+        "sig1",
+      );
+      mockProgram._emit(
+        "rateLimitHit",
+        createRawRateLimitHit(createId(2)),
+        2,
+        "sig2",
+      );
 
       expect(callback).toHaveBeenCalledTimes(2);
     });
   });
 
-  describe('subscribeToMigrationCompleted', () => {
-    it('registers with correct camelCase event name', () => {
+  describe("subscribeToMigrationCompleted", () => {
+    it("registers with correct camelCase event name", () => {
       const callback = vi.fn();
       subscribeToMigrationCompleted(mockProgram, callback);
 
       expect(mockProgram.addEventListener).toHaveBeenCalledWith(
-        'migrationCompleted',
-        expect.any(Function)
+        "migrationCompleted",
+        expect.any(Function),
       );
     });
 
-    it('parses raw events and forwards to callback', () => {
+    it("parses raw events and forwards to callback", () => {
       const callback = vi.fn();
       subscribeToMigrationCompleted(mockProgram, callback);
 
-      mockProgram._emit('migrationCompleted', createRawMigrationCompleted(), 500, 'sig5');
+      mockProgram._emit(
+        "migrationCompleted",
+        createRawMigrationCompleted(),
+        500,
+        "sig5",
+      );
 
       expect(callback).toHaveBeenCalledTimes(1);
       const [event, slot, sig] = callback.mock.calls[0];
@@ -355,26 +419,31 @@ describe('Protocol Event Subscriptions', () => {
       expect(event.authority).toBe(TEST_PUBKEY);
       expect(event.timestamp).toBe(1234567890);
       expect(slot).toBe(500);
-      expect(sig).toBe('sig5');
+      expect(sig).toBe("sig5");
     });
   });
 
-  describe('subscribeToProtocolVersionUpdated', () => {
-    it('registers with correct camelCase event name', () => {
+  describe("subscribeToProtocolVersionUpdated", () => {
+    it("registers with correct camelCase event name", () => {
       const callback = vi.fn();
       subscribeToProtocolVersionUpdated(mockProgram, callback);
 
       expect(mockProgram.addEventListener).toHaveBeenCalledWith(
-        'protocolVersionUpdated',
-        expect.any(Function)
+        "protocolVersionUpdated",
+        expect.any(Function),
       );
     });
 
-    it('parses raw events and forwards to callback', () => {
+    it("parses raw events and forwards to callback", () => {
       const callback = vi.fn();
       subscribeToProtocolVersionUpdated(mockProgram, callback);
 
-      mockProgram._emit('protocolVersionUpdated', createRawProtocolVersionUpdated(), 600, 'sig6');
+      mockProgram._emit(
+        "protocolVersionUpdated",
+        createRawProtocolVersionUpdated(),
+        600,
+        "sig6",
+      );
 
       expect(callback).toHaveBeenCalledTimes(1);
       const [event, slot, sig] = callback.mock.calls[0];
@@ -383,26 +452,31 @@ describe('Protocol Event Subscriptions', () => {
       expect(event.minSupportedVersion).toBe(1);
       expect(event.timestamp).toBe(1234567890);
       expect(slot).toBe(600);
-      expect(sig).toBe('sig6');
+      expect(sig).toBe("sig6");
     });
   });
 
-  describe('subscribeToRateLimitsUpdated', () => {
-    it('registers with correct camelCase event name', () => {
+  describe("subscribeToRateLimitsUpdated", () => {
+    it("registers with correct camelCase event name", () => {
       const callback = vi.fn();
       subscribeToRateLimitsUpdated(mockProgram, callback);
 
       expect(mockProgram.addEventListener).toHaveBeenCalledWith(
-        'rateLimitsUpdated',
-        expect.any(Function)
+        "rateLimitsUpdated",
+        expect.any(Function),
       );
     });
 
-    it('parses raw events and forwards to callback', () => {
+    it("parses raw events and forwards to callback", () => {
       const callback = vi.fn();
       subscribeToRateLimitsUpdated(mockProgram, callback);
 
-      mockProgram._emit('rateLimitsUpdated', createRawRateLimitsUpdated(), 700, 'sig7');
+      mockProgram._emit(
+        "rateLimitsUpdated",
+        createRawRateLimitsUpdated(),
+        700,
+        "sig7",
+      );
 
       expect(callback).toHaveBeenCalledTimes(1);
       const [event] = callback.mock.calls[0];
@@ -416,22 +490,27 @@ describe('Protocol Event Subscriptions', () => {
     });
   });
 
-  describe('subscribeToProtocolFeeUpdated', () => {
-    it('registers with correct camelCase event name', () => {
+  describe("subscribeToProtocolFeeUpdated", () => {
+    it("registers with correct camelCase event name", () => {
       const callback = vi.fn();
       subscribeToProtocolFeeUpdated(mockProgram, callback);
 
       expect(mockProgram.addEventListener).toHaveBeenCalledWith(
-        'protocolFeeUpdated',
-        expect.any(Function)
+        "protocolFeeUpdated",
+        expect.any(Function),
       );
     });
 
-    it('parses raw events and forwards to callback', () => {
+    it("parses raw events and forwards to callback", () => {
       const callback = vi.fn();
       subscribeToProtocolFeeUpdated(mockProgram, callback);
 
-      mockProgram._emit('protocolFeeUpdated', createRawProtocolFeeUpdated(), 701, 'sig8');
+      mockProgram._emit(
+        "protocolFeeUpdated",
+        createRawProtocolFeeUpdated(),
+        701,
+        "sig8",
+      );
 
       expect(callback).toHaveBeenCalledTimes(1);
       const [event] = callback.mock.calls[0];
@@ -442,22 +521,27 @@ describe('Protocol Event Subscriptions', () => {
     });
   });
 
-  describe('subscribeToReputationChanged', () => {
-    it('registers with correct camelCase event name', () => {
+  describe("subscribeToReputationChanged", () => {
+    it("registers with correct camelCase event name", () => {
       const callback = vi.fn();
       subscribeToReputationChanged(mockProgram, callback);
 
       expect(mockProgram.addEventListener).toHaveBeenCalledWith(
-        'reputationChanged',
-        expect.any(Function)
+        "reputationChanged",
+        expect.any(Function),
       );
     });
 
-    it('parses raw events and forwards to callback', () => {
+    it("parses raw events and forwards to callback", () => {
       const callback = vi.fn();
       subscribeToReputationChanged(mockProgram, callback);
 
-      mockProgram._emit('reputationChanged', createRawReputationChanged(), 702, 'sig9');
+      mockProgram._emit(
+        "reputationChanged",
+        createRawReputationChanged(),
+        702,
+        "sig9",
+      );
 
       expect(callback).toHaveBeenCalledTimes(1);
       const [event] = callback.mock.calls[0];
@@ -469,22 +553,27 @@ describe('Protocol Event Subscriptions', () => {
     });
   });
 
-  describe('subscribeToBondDeposited', () => {
-    it('registers with correct camelCase event name', () => {
+  describe("subscribeToBondDeposited", () => {
+    it("registers with correct camelCase event name", () => {
       const callback = vi.fn();
       subscribeToBondDeposited(mockProgram, callback);
 
       expect(mockProgram.addEventListener).toHaveBeenCalledWith(
-        'bondDeposited',
-        expect.any(Function)
+        "bondDeposited",
+        expect.any(Function),
       );
     });
 
-    it('parses raw events and forwards to callback', () => {
+    it("parses raw events and forwards to callback", () => {
       const callback = vi.fn();
       subscribeToBondDeposited(mockProgram, callback);
 
-      mockProgram._emit('bondDeposited', createRawBondDeposited(), 703, 'sig10');
+      mockProgram._emit(
+        "bondDeposited",
+        createRawBondDeposited(),
+        703,
+        "sig10",
+      );
 
       expect(callback).toHaveBeenCalledTimes(1);
       const [event] = callback.mock.calls[0];
@@ -495,22 +584,22 @@ describe('Protocol Event Subscriptions', () => {
     });
   });
 
-  describe('subscribeToBondLocked', () => {
-    it('registers with correct camelCase event name', () => {
+  describe("subscribeToBondLocked", () => {
+    it("registers with correct camelCase event name", () => {
       const callback = vi.fn();
       subscribeToBondLocked(mockProgram, callback);
 
       expect(mockProgram.addEventListener).toHaveBeenCalledWith(
-        'bondLocked',
-        expect.any(Function)
+        "bondLocked",
+        expect.any(Function),
       );
     });
 
-    it('parses raw events and forwards to callback', () => {
+    it("parses raw events and forwards to callback", () => {
       const callback = vi.fn();
       subscribeToBondLocked(mockProgram, callback);
 
-      mockProgram._emit('bondLocked', createRawBondLocked(), 704, 'sig11');
+      mockProgram._emit("bondLocked", createRawBondLocked(), 704, "sig11");
 
       expect(callback).toHaveBeenCalledTimes(1);
       const [event] = callback.mock.calls[0];
@@ -521,22 +610,22 @@ describe('Protocol Event Subscriptions', () => {
     });
   });
 
-  describe('subscribeToBondReleased', () => {
-    it('registers with correct camelCase event name', () => {
+  describe("subscribeToBondReleased", () => {
+    it("registers with correct camelCase event name", () => {
       const callback = vi.fn();
       subscribeToBondReleased(mockProgram, callback);
 
       expect(mockProgram.addEventListener).toHaveBeenCalledWith(
-        'bondReleased',
-        expect.any(Function)
+        "bondReleased",
+        expect.any(Function),
       );
     });
 
-    it('parses raw events and forwards to callback', () => {
+    it("parses raw events and forwards to callback", () => {
       const callback = vi.fn();
       subscribeToBondReleased(mockProgram, callback);
 
-      mockProgram._emit('bondReleased', createRawBondReleased(), 705, 'sig12');
+      mockProgram._emit("bondReleased", createRawBondReleased(), 705, "sig12");
 
       expect(callback).toHaveBeenCalledTimes(1);
       const [event] = callback.mock.calls[0];
@@ -547,22 +636,22 @@ describe('Protocol Event Subscriptions', () => {
     });
   });
 
-  describe('subscribeToBondSlashed', () => {
-    it('registers with correct camelCase event name', () => {
+  describe("subscribeToBondSlashed", () => {
+    it("registers with correct camelCase event name", () => {
       const callback = vi.fn();
       subscribeToBondSlashed(mockProgram, callback);
 
       expect(mockProgram.addEventListener).toHaveBeenCalledWith(
-        'bondSlashed',
-        expect.any(Function)
+        "bondSlashed",
+        expect.any(Function),
       );
     });
 
-    it('parses raw events and forwards to callback', () => {
+    it("parses raw events and forwards to callback", () => {
       const callback = vi.fn();
       subscribeToBondSlashed(mockProgram, callback);
 
-      mockProgram._emit('bondSlashed', createRawBondSlashed(), 706, 'sig13');
+      mockProgram._emit("bondSlashed", createRawBondSlashed(), 706, "sig13");
 
       expect(callback).toHaveBeenCalledTimes(1);
       const [event] = callback.mock.calls[0];
@@ -574,22 +663,27 @@ describe('Protocol Event Subscriptions', () => {
     });
   });
 
-  describe('subscribeToSpeculativeCommitmentCreated', () => {
-    it('registers with correct camelCase event name', () => {
+  describe("subscribeToSpeculativeCommitmentCreated", () => {
+    it("registers with correct camelCase event name", () => {
       const callback = vi.fn();
       subscribeToSpeculativeCommitmentCreated(mockProgram, callback);
 
       expect(mockProgram.addEventListener).toHaveBeenCalledWith(
-        'speculativeCommitmentCreated',
-        expect.any(Function)
+        "speculativeCommitmentCreated",
+        expect.any(Function),
       );
     });
 
-    it('parses raw events and forwards to callback', () => {
+    it("parses raw events and forwards to callback", () => {
       const callback = vi.fn();
       subscribeToSpeculativeCommitmentCreated(mockProgram, callback);
 
-      mockProgram._emit('speculativeCommitmentCreated', createRawSpeculativeCommitmentCreated(), 707, 'sig14');
+      mockProgram._emit(
+        "speculativeCommitmentCreated",
+        createRawSpeculativeCommitmentCreated(),
+        707,
+        "sig14",
+      );
 
       expect(callback).toHaveBeenCalledTimes(1);
       const [event] = callback.mock.calls[0];
@@ -602,8 +696,8 @@ describe('Protocol Event Subscriptions', () => {
     });
   });
 
-  describe('subscribeToAllProtocolEvents', () => {
-    it('routes events to correct callbacks', () => {
+  describe("subscribeToAllProtocolEvents", () => {
+    it("routes events to correct callbacks", () => {
       const callbacks = {
         onStateUpdated: vi.fn(),
         onProtocolInitialized: vi.fn(),
@@ -625,20 +719,60 @@ describe('Protocol Event Subscriptions', () => {
 
       expect(mockProgram.addEventListener).toHaveBeenCalledTimes(14);
 
-      mockProgram._emit('stateUpdated', createRawStateUpdated(), 1, 'sig1');
-      mockProgram._emit('protocolInitialized', createRawProtocolInitialized(), 2, 'sig2');
-      mockProgram._emit('rewardDistributed', createRawRewardDistributed(), 3, 'sig3');
-      mockProgram._emit('rateLimitHit', createRawRateLimitHit(), 4, 'sig4');
-      mockProgram._emit('migrationCompleted', createRawMigrationCompleted(), 5, 'sig5');
-      mockProgram._emit('protocolVersionUpdated', createRawProtocolVersionUpdated(), 6, 'sig6');
-      mockProgram._emit('rateLimitsUpdated', createRawRateLimitsUpdated(), 7, 'sig7');
-      mockProgram._emit('protocolFeeUpdated', createRawProtocolFeeUpdated(), 8, 'sig8');
-      mockProgram._emit('reputationChanged', createRawReputationChanged(), 9, 'sig9');
-      mockProgram._emit('bondDeposited', createRawBondDeposited(), 10, 'sig10');
-      mockProgram._emit('bondLocked', createRawBondLocked(), 11, 'sig11');
-      mockProgram._emit('bondReleased', createRawBondReleased(), 12, 'sig12');
-      mockProgram._emit('bondSlashed', createRawBondSlashed(), 13, 'sig13');
-      mockProgram._emit('speculativeCommitmentCreated', createRawSpeculativeCommitmentCreated(), 14, 'sig14');
+      mockProgram._emit("stateUpdated", createRawStateUpdated(), 1, "sig1");
+      mockProgram._emit(
+        "protocolInitialized",
+        createRawProtocolInitialized(),
+        2,
+        "sig2",
+      );
+      mockProgram._emit(
+        "rewardDistributed",
+        createRawRewardDistributed(),
+        3,
+        "sig3",
+      );
+      mockProgram._emit("rateLimitHit", createRawRateLimitHit(), 4, "sig4");
+      mockProgram._emit(
+        "migrationCompleted",
+        createRawMigrationCompleted(),
+        5,
+        "sig5",
+      );
+      mockProgram._emit(
+        "protocolVersionUpdated",
+        createRawProtocolVersionUpdated(),
+        6,
+        "sig6",
+      );
+      mockProgram._emit(
+        "rateLimitsUpdated",
+        createRawRateLimitsUpdated(),
+        7,
+        "sig7",
+      );
+      mockProgram._emit(
+        "protocolFeeUpdated",
+        createRawProtocolFeeUpdated(),
+        8,
+        "sig8",
+      );
+      mockProgram._emit(
+        "reputationChanged",
+        createRawReputationChanged(),
+        9,
+        "sig9",
+      );
+      mockProgram._emit("bondDeposited", createRawBondDeposited(), 10, "sig10");
+      mockProgram._emit("bondLocked", createRawBondLocked(), 11, "sig11");
+      mockProgram._emit("bondReleased", createRawBondReleased(), 12, "sig12");
+      mockProgram._emit("bondSlashed", createRawBondSlashed(), 13, "sig13");
+      mockProgram._emit(
+        "speculativeCommitmentCreated",
+        createRawSpeculativeCommitmentCreated(),
+        14,
+        "sig14",
+      );
 
       expect(callbacks.onStateUpdated).toHaveBeenCalledTimes(1);
       expect(callbacks.onProtocolInitialized).toHaveBeenCalledTimes(1);
@@ -656,7 +790,7 @@ describe('Protocol Event Subscriptions', () => {
       expect(callbacks.onSpeculativeCommitmentCreated).toHaveBeenCalledTimes(1);
     });
 
-    it('only subscribes to provided callbacks', () => {
+    it("only subscribes to provided callbacks", () => {
       const callbacks = {
         onRateLimitHit: vi.fn(),
         onRewardDistributed: vi.fn(),
@@ -667,7 +801,7 @@ describe('Protocol Event Subscriptions', () => {
       expect(mockProgram.addEventListener).toHaveBeenCalledTimes(2);
     });
 
-    it('unsubscribe removes all listeners', async () => {
+    it("unsubscribe removes all listeners", async () => {
       const callbacks = {
         onStateUpdated: vi.fn(),
         onProtocolInitialized: vi.fn(),
@@ -691,7 +825,7 @@ describe('Protocol Event Subscriptions', () => {
       expect(mockProgram.removeEventListener).toHaveBeenCalledTimes(14);
     });
 
-    it('applies filters to filterable events', () => {
+    it("applies filters to filterable events", () => {
       const callbacks = {
         onRewardDistributed: vi.fn(),
         onRateLimitHit: vi.fn(),
@@ -705,19 +839,39 @@ describe('Protocol Event Subscriptions', () => {
       });
 
       // Matching reward
-      mockProgram._emit('rewardDistributed', createRawRewardDistributed(filterTaskId), 1, 'sig1');
+      mockProgram._emit(
+        "rewardDistributed",
+        createRawRewardDistributed(filterTaskId),
+        1,
+        "sig1",
+      );
       // Non-matching reward
-      mockProgram._emit('rewardDistributed', createRawRewardDistributed(createId(99)), 2, 'sig2');
+      mockProgram._emit(
+        "rewardDistributed",
+        createRawRewardDistributed(createId(99)),
+        2,
+        "sig2",
+      );
       // Matching rate limit
-      mockProgram._emit('rateLimitHit', createRawRateLimitHit(filterAgentId), 3, 'sig3');
+      mockProgram._emit(
+        "rateLimitHit",
+        createRawRateLimitHit(filterAgentId),
+        3,
+        "sig3",
+      );
       // Non-matching rate limit
-      mockProgram._emit('rateLimitHit', createRawRateLimitHit(createId(99)), 4, 'sig4');
+      mockProgram._emit(
+        "rateLimitHit",
+        createRawRateLimitHit(createId(99)),
+        4,
+        "sig4",
+      );
 
       expect(callbacks.onRewardDistributed).toHaveBeenCalledTimes(1);
       expect(callbacks.onRateLimitHit).toHaveBeenCalledTimes(1);
     });
 
-    it('empty callbacks object creates no subscriptions', () => {
+    it("empty callbacks object creates no subscriptions", () => {
       const subscription = subscribeToAllProtocolEvents(mockProgram, {});
 
       expect(mockProgram.addEventListener).not.toHaveBeenCalled();

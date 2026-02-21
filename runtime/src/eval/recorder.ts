@@ -4,7 +4,7 @@
  * @module
  */
 
-import { randomUUID } from 'node:crypto';
+import { randomUUID } from "node:crypto";
 import {
   EVAL_TRACE_SCHEMA_VERSION,
   canonicalizeTrajectoryTrace,
@@ -13,7 +13,7 @@ import {
   type TrajectoryEvent,
   type TrajectoryRecordInput,
   type TrajectoryTrace,
-} from './types.js';
+} from "./types.js";
 
 const DEFAULT_MAX_EVENTS = 10_000;
 
@@ -30,16 +30,16 @@ function sanitizeValue(value: unknown): JsonValue {
   if (value === null) return null;
 
   switch (typeof value) {
-    case 'string':
-    case 'boolean':
+    case "string":
+    case "boolean":
       return value;
-    case 'number':
+    case "number":
       return Number.isFinite(value) ? value : String(value);
-    case 'bigint':
+    case "bigint":
       return value.toString();
-    case 'undefined':
-    case 'function':
-    case 'symbol':
+    case "undefined":
+    case "function":
+    case "symbol":
       return String(value);
   }
 
@@ -55,8 +55,11 @@ function sanitizeValue(value: unknown): JsonValue {
     return value.map((entry) => sanitizeValue(entry));
   }
 
-  if (typeof value === 'object' && value !== null) {
-    if ('toBase58' in value && typeof (value as { toBase58?: unknown }).toBase58 === 'function') {
+  if (typeof value === "object" && value !== null) {
+    if (
+      "toBase58" in value &&
+      typeof (value as { toBase58?: unknown }).toBase58 === "function"
+    ) {
       return (value as { toBase58: () => string }).toBase58();
     }
 
@@ -71,13 +74,19 @@ function sanitizeValue(value: unknown): JsonValue {
   return String(value);
 }
 
-function sanitizePayload(payload: Record<string, unknown> | undefined): JsonObject {
+function sanitizePayload(
+  payload: Record<string, unknown> | undefined,
+): JsonObject {
   if (!payload) {
     return {};
   }
 
   const sanitized = sanitizeValue(payload);
-  if (typeof sanitized === 'object' && sanitized !== null && !Array.isArray(sanitized)) {
+  if (
+    typeof sanitized === "object" &&
+    sanitized !== null &&
+    !Array.isArray(sanitized)
+  ) {
     return sanitized as JsonObject;
   }
 

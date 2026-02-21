@@ -4,15 +4,15 @@
  * @module
  */
 
-import type { Skill, SkillContext, SkillRegistryConfig } from './types.js';
-import { SkillState } from './types.js';
+import type { Skill, SkillContext, SkillRegistryConfig } from "./types.js";
+import { SkillState } from "./types.js";
 import {
   SkillNotFoundError,
   SkillAlreadyRegisteredError,
   SkillInitializationError,
-} from './errors.js';
-import type { Logger } from '../utils/logger.js';
-import { silentLogger } from '../utils/logger.js';
+} from "./errors.js";
+import type { Logger } from "../utils/logger.js";
+import { silentLogger } from "../utils/logger.js";
 
 /**
  * Registry for managing skill instances.
@@ -159,7 +159,7 @@ export class SkillRegistry {
 
     if (failures.length > 0) {
       throw new SkillInitializationError(
-        failures.join(', '),
+        failures.join(", "),
         `${failures.length} skill(s) failed to initialize`,
       );
     }
@@ -171,7 +171,10 @@ export class SkillRegistry {
    */
   async shutdownAll(): Promise<void> {
     for (const [name, skill] of this.skills) {
-      if (skill.state === SkillState.Ready || skill.state === SkillState.Error) {
+      if (
+        skill.state === SkillState.Ready ||
+        skill.state === SkillState.Error
+      ) {
         try {
           this.logger.info(`Shutting down skill: "${name}"`);
           await skill.shutdown();

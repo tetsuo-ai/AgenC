@@ -8,21 +8,24 @@
  * @module
  */
 
-import { BaseChannelPlugin } from '../../gateway/channel.js';
-import type { OutboundMessage, MessageAttachment } from '../../gateway/message.js';
-import { createGatewayMessage } from '../../gateway/message.js';
-import type { MessageScope } from '../../gateway/message.js';
-import { GatewayConnectionError } from '../../gateway/errors.js';
-import { DEFAULT_MAX_ATTACHMENT_BYTES } from '../../gateway/media.js';
-import { ensureLazyModule } from '../../utils/lazy-import.js';
-import type { SlackChannelConfig } from './types.js';
+import { BaseChannelPlugin } from "../../gateway/channel.js";
+import type {
+  OutboundMessage,
+  MessageAttachment,
+} from "../../gateway/message.js";
+import { createGatewayMessage } from "../../gateway/message.js";
+import type { MessageScope } from "../../gateway/message.js";
+import { GatewayConnectionError } from "../../gateway/errors.js";
+import { DEFAULT_MAX_ATTACHMENT_BYTES } from "../../gateway/media.js";
+import { ensureLazyModule } from "../../utils/lazy-import.js";
+import type { SlackChannelConfig } from "./types.js";
 
 // ============================================================================
 // Constants
 // ============================================================================
 
 const SLACK_MAX_MESSAGE_LENGTH = 4000;
-const SESSION_PREFIX = 'slack';
+const SESSION_PREFIX = "slack";
 
 // ============================================================================
 // @slack/bolt type shims (loaded lazily)
@@ -32,7 +35,10 @@ interface SlackBoltApp {
   start(): Promise<void>;
   stop(): Promise<void>;
   message(handler: (args: SlackMessageArgs) => Promise<void>): void;
-  command(command: string, handler: (args: SlackCommandArgs) => Promise<void>): void;
+  command(
+    command: string,
+    handler: (args: SlackCommandArgs) => Promise<void>,
+  ): void;
 }
 
 interface SlackMessageArgs {
@@ -86,7 +92,9 @@ interface SlackWebClient {
     }): Promise<unknown>;
   };
   users: {
-    info(opts: { user: string }): Promise<{ user?: { real_name?: string; name?: string } }>;
+    info(opts: {
+      user: string;
+    }): Promise<{ user?: { real_name?: string; name?: string } }>;
   };
 }
 
@@ -108,7 +116,10 @@ export class SlackChannel extends BaseChannelPlugin {
   private app: (SlackBoltApp & { client: SlackWebClient }) | null = null;
   private healthy = false;
   private readonly config: SlackChannelConfig;
-  private readonly sessionMap = new Map<string, { channel: string; threadTs?: string }>();
+  private readonly sessionMap = new Map<
+    string,
+    { channel: string; threadTs?: string }
+  >();
   private readonly userNameCache = new Map<string, string>();
 
   constructor(config: SlackChannelConfig) {
@@ -122,7 +133,7 @@ export class SlackChannel extends BaseChannelPlugin {
 
   async start(): Promise<void> {
     const mod = await ensureLazyModule<SlackBoltModule>(
-      '@slack/bolt',
+      "@slack/bolt",
       (msg) => new GatewayConnectionError(msg),
       (m) => m as unknown as SlackBoltModule,
     );
@@ -138,7 +149,7 @@ export class SlackChannel extends BaseChannelPlugin {
       this.wireEventHandlers(app);
       await app.start();
       this.healthy = true;
-      this.context.logger.info('Slack bot connected via Socket Mode');
+      this.context.logger.info("Slack bot connected via Socket Mode");
     } catch (err) {
       this.app = null;
       throw err;
@@ -169,13 +180,17 @@ export class SlackChannel extends BaseChannelPlugin {
 
   async send(message: OutboundMessage): Promise<void> {
     if (!this.app) {
-      this.context.logger.warn('Cannot send message: Slack client is not connected');
+      this.context.logger.warn(
+        "Cannot send message: Slack client is not connected",
+      );
       return;
     }
 
     const target = this.sessionMap.get(message.sessionId);
     if (!target) {
-      this.context.logger.warn(`Cannot resolve channel for session: ${message.sessionId}`);
+      this.context.logger.warn(
+        `Cannot resolve channel for session: ${message.sessionId}`,
+      );
       return;
     }
 
@@ -191,7 +206,9 @@ export class SlackChannel extends BaseChannelPlugin {
         }
         await this.app.client.chat.postMessage(opts);
       } catch (err) {
-        this.context.logger.error(`Failed to send message to ${message.sessionId}: ${errorMessage(err)}`);
+        this.context.logger.error(
+          `Failed to send message to ${message.sessionId}: ${errorMessage(err)}`,
+        );
         return;
       }
     }
@@ -201,12 +218,16 @@ export class SlackChannel extends BaseChannelPlugin {
   // Event wiring
   // --------------------------------------------------------------------------
 
-  private wireEventHandlers(app: SlackBoltApp & { client: SlackWebClient }): void {
+  private wireEventHandlers(
+    app: SlackBoltApp & { client: SlackWebClient },
+  ): void {
     app.message(async (args: SlackMessageArgs) => {
       try {
         await this.handleMessage(args.message, app.client);
       } catch (err) {
-        this.context.logger.error(`Error handling Slack message: ${errorMessage(err)}`);
+        this.context.logger.error(
+          `Error handling Slack message: ${errorMessage(err)}`,
+        );
       }
     });
   }
@@ -215,7 +236,10 @@ export class SlackChannel extends BaseChannelPlugin {
   // Inbound: messages
   // --------------------------------------------------------------------------
 
-  private async handleMessage(msg: SlackMessage, client: SlackWebClient): Promise<void> {
+  private async handleMessage(
+    msg: SlackMessage,
+    client: SlackWebClient,
+  ): Promise<void> {
     // Skip bot messages and subtypes (joins, edits, etc.)
     if (msg.bot_id || msg.subtype) return;
     if (!msg.user) return;
@@ -225,10 +249,10 @@ export class SlackChannel extends BaseChannelPlugin {
       if (!this.config.channelIds.includes(msg.channel)) return;
     }
 
-    const isDM = msg.channel_type === 'im';
+    const isDM = msg.channel_type === "im";
     const isThread = !!msg.thread_ts;
     const sessionId = buildSessionId(isDM, msg.user, msg.team, msg.channel);
-    const scope: MessageScope = isDM ? 'dm' : isThread ? 'thread' : 'group';
+    const scope: MessageScope = isDM ? "dm" : isThread ? "thread" : "group";
 
     // Store mapping for outbound send
     this.sessionMap.set(sessionId, {
@@ -244,7 +268,7 @@ export class SlackChannel extends BaseChannelPlugin {
       senderId: msg.user,
       senderName,
       sessionId,
-      content: msg.text ?? '',
+      content: msg.text ?? "",
       attachments: attachments.length > 0 ? attachments : undefined,
       metadata: {
         slackTs: msg.ts,
@@ -262,7 +286,10 @@ export class SlackChannel extends BaseChannelPlugin {
   // Helpers
   // --------------------------------------------------------------------------
 
-  private async resolveUserName(userId: string, client: SlackWebClient): Promise<string> {
+  private async resolveUserName(
+    userId: string,
+    client: SlackWebClient,
+  ): Promise<string> {
     const cached = this.userNameCache.get(userId);
     if (cached) return cached;
 
@@ -279,17 +306,18 @@ export class SlackChannel extends BaseChannelPlugin {
   private normalizeAttachments(files?: SlackFile[]): MessageAttachment[] {
     if (!files || files.length === 0) return [];
 
-    const maxBytes = this.config.maxAttachmentBytes ?? DEFAULT_MAX_ATTACHMENT_BYTES;
+    const maxBytes =
+      this.config.maxAttachmentBytes ?? DEFAULT_MAX_ATTACHMENT_BYTES;
     const result: MessageAttachment[] = [];
 
     for (const file of files) {
       if (file.size !== undefined && file.size > maxBytes) continue;
 
-      const mimeType = file.mimetype ?? 'application/octet-stream';
-      let type = 'file';
-      if (mimeType.startsWith('image/')) type = 'image';
-      else if (mimeType.startsWith('audio/')) type = 'audio';
-      else if (mimeType.startsWith('video/')) type = 'video';
+      const mimeType = file.mimetype ?? "application/octet-stream";
+      let type = "file";
+      if (mimeType.startsWith("image/")) type = "image";
+      else if (mimeType.startsWith("audio/")) type = "audio";
+      else if (mimeType.startsWith("video/")) type = "video";
 
       result.push({
         type,
@@ -321,7 +349,7 @@ function buildSessionId(
   if (isDM) {
     return `${SESSION_PREFIX}:dm:${userId}`;
   }
-  return `${SESSION_PREFIX}:${teamId ?? 'unknown'}:${channelId}:${userId}`;
+  return `${SESSION_PREFIX}:${teamId ?? "unknown"}:${channelId}:${userId}`;
 }
 
 /** Extract a safe error message string. */
@@ -348,7 +376,7 @@ function splitMessage(content: string): string[] {
     }
 
     const slice = remaining.slice(0, SLACK_MAX_MESSAGE_LENGTH);
-    const lastNewline = slice.lastIndexOf('\n');
+    const lastNewline = slice.lastIndexOf("\n");
 
     if (lastNewline > 0) {
       chunks.push(remaining.slice(0, lastNewline));

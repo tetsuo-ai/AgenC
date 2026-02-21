@@ -1,8 +1,8 @@
-import { describe, it, expect, vi } from 'vitest';
-import { Keypair } from '@solana/web3.js';
-import type { TaskExecutor, VerifierVerdictPayload } from './types.js';
-import { AutonomousAgent } from './agent.js';
-import { createTask } from './test-utils.js';
+import { describe, it, expect, vi } from "vitest";
+import { Keypair } from "@solana/web3.js";
+import type { TaskExecutor, VerifierVerdictPayload } from "./types.js";
+import { AutonomousAgent } from "./agent.js";
+import { createTask } from "./test-utils.js";
 
 function createBaseAgent(
   executor: TaskExecutor,
@@ -17,16 +17,18 @@ function createBaseAgent(
   });
 }
 
-describe('AutonomousAgent verifier lane integration', () => {
-  it('does not submit completion when verifier escalates', async () => {
+describe("AutonomousAgent verifier lane integration", () => {
+  it("does not submit completion when verifier escalates", async () => {
     const executor = {
       execute: vi.fn(async () => [1n, 2n]),
     };
-    const verify = vi.fn(async (): Promise<VerifierVerdictPayload> => ({
-      verdict: 'fail',
-      confidence: 0.1,
-      reasons: [{ code: 'bad_output', message: 'Output invalid' }],
-    }));
+    const verify = vi.fn(
+      async (): Promise<VerifierVerdictPayload> => ({
+        verdict: "fail",
+        confidence: 0.1,
+        reasons: [{ code: "bad_output", message: "Output invalid" }],
+      }),
+    );
 
     const agent = createBaseAgent(executor, {
       verifier: {
@@ -36,36 +38,41 @@ describe('AutonomousAgent verifier lane integration', () => {
     });
 
     const agentAny = agent as any;
-    agentAny.completeTaskWithRetry = vi.fn(async () => 'should-not-submit');
+    agentAny.completeTaskWithRetry = vi.fn(async () => "should-not-submit");
 
     const task = createTask();
     await expect(
-      agentAny.executeSequential(task, {
+      agentAny.executeSequential(
         task,
-        claimedAt: Date.now(),
-        claimTx: 'claim-tx',
-        retryCount: 0,
-      }, task.pda.toBase58()),
-    ).rejects.toThrow('Verifier lane escalated');
+        {
+          task,
+          claimedAt: Date.now(),
+          claimTx: "claim-tx",
+          retryCount: 0,
+        },
+        task.pda.toBase58(),
+      ),
+    ).rejects.toThrow("Verifier lane escalated");
 
     expect(agentAny.completeTaskWithRetry).not.toHaveBeenCalled();
   });
 
-  it('submits completion after revise then verifier pass', async () => {
+  it("submits completion after revise then verifier pass", async () => {
     const executor = {
       execute: vi.fn(async () => [10n]),
       revise: vi.fn(async () => [99n]),
     };
-    const verify = vi.fn()
+    const verify = vi
+      .fn()
       .mockResolvedValueOnce({
-        verdict: 'needs_revision',
+        verdict: "needs_revision",
         confidence: 0.45,
-        reasons: [{ code: 'format', message: 'Needs correction' }],
+        reasons: [{ code: "format", message: "Needs correction" }],
       } satisfies VerifierVerdictPayload)
       .mockResolvedValueOnce({
-        verdict: 'pass',
+        verdict: "pass",
         confidence: 0.92,
-        reasons: [{ code: 'ok', message: 'Approved' }],
+        reasons: [{ code: "ok", message: "Approved" }],
       } satisfies VerifierVerdictPayload);
     const onTaskExecuted = vi.fn();
 
@@ -78,33 +85,39 @@ describe('AutonomousAgent verifier lane integration', () => {
     });
 
     const agentAny = agent as any;
-    agentAny.completeTaskWithRetry = vi.fn(async () => 'complete-tx');
+    agentAny.completeTaskWithRetry = vi.fn(async () => "complete-tx");
 
     const task = createTask();
-    const result = await agentAny.executeSequential(task, {
+    const result = await agentAny.executeSequential(
       task,
-      claimedAt: Date.now(),
-      claimTx: 'claim-tx',
-      retryCount: 0,
-    }, task.pda.toBase58());
+      {
+        task,
+        claimedAt: Date.now(),
+        claimTx: "claim-tx",
+        retryCount: 0,
+      },
+      task.pda.toBase58(),
+    );
 
     expect(result.success).toBe(true);
-    expect(result.completionTx).toBe('complete-tx');
+    expect(result.completionTx).toBe("complete-tx");
     expect(executor.revise).toHaveBeenCalledTimes(1);
     expect(agentAny.completeTaskWithRetry).toHaveBeenCalledTimes(1);
     expect(agentAny.completeTaskWithRetry).toHaveBeenCalledWith(task, [99n]);
     expect(onTaskExecuted).toHaveBeenCalledWith(task, [99n]);
   });
 
-  it('bypasses speculative flow when verifier gate applies', async () => {
+  it("bypasses speculative flow when verifier gate applies", async () => {
     const executor = {
       execute: vi.fn(async () => [1n]),
     };
-    const verify = vi.fn(async (): Promise<VerifierVerdictPayload> => ({
-      verdict: 'pass',
-      confidence: 0.9,
-      reasons: [{ code: 'ok', message: 'Pass' }],
-    }));
+    const verify = vi.fn(
+      async (): Promise<VerifierVerdictPayload> => ({
+        verdict: "pass",
+        confidence: 0.9,
+        reasons: [{ code: "ok", message: "Pass" }],
+      }),
+    );
 
     const agent = createBaseAgent(executor, {
       verifier: { verifier: { verify } },
@@ -112,7 +125,7 @@ describe('AutonomousAgent verifier lane integration', () => {
     const agentAny = agent as any;
 
     agentAny.specExecutor = {};
-    agentAny.claimTaskWithRetry = vi.fn(async () => 'claim-tx');
+    agentAny.claimTaskWithRetry = vi.fn(async () => "claim-tx");
     agentAny.executeSpeculative = vi.fn(async () => ({
       success: true,
       task: createTask(),
@@ -121,7 +134,7 @@ describe('AutonomousAgent verifier lane integration', () => {
     agentAny.executeSequential = vi.fn(async () => ({
       success: true,
       task: createTask(),
-      completionTx: 'complete-tx',
+      completionTx: "complete-tx",
       durationMs: 1,
     }));
 
@@ -131,15 +144,17 @@ describe('AutonomousAgent verifier lane integration', () => {
     expect(agentAny.executeSequential).toHaveBeenCalledTimes(1);
   });
 
-  it('keeps speculative flow for tasks outside verifier policy', async () => {
+  it("keeps speculative flow for tasks outside verifier policy", async () => {
     const executor = {
       execute: vi.fn(async () => [1n]),
     };
-    const verify = vi.fn(async (): Promise<VerifierVerdictPayload> => ({
-      verdict: 'pass',
-      confidence: 0.95,
-      reasons: [{ code: 'ok', message: 'Pass' }],
-    }));
+    const verify = vi.fn(
+      async (): Promise<VerifierVerdictPayload> => ({
+        verdict: "pass",
+        confidence: 0.95,
+        reasons: [{ code: "ok", message: "Pass" }],
+      }),
+    );
 
     const agent = createBaseAgent(executor, {
       verifier: {
@@ -154,7 +169,7 @@ describe('AutonomousAgent verifier lane integration', () => {
 
     const lowRewardTask = createTask({ reward: 100n });
     agentAny.specExecutor = {};
-    agentAny.claimTaskWithRetry = vi.fn(async () => 'claim-tx');
+    agentAny.claimTaskWithRetry = vi.fn(async () => "claim-tx");
     agentAny.executeSpeculative = vi.fn(async () => ({
       success: true,
       task: lowRewardTask,
@@ -163,7 +178,7 @@ describe('AutonomousAgent verifier lane integration', () => {
     agentAny.executeSequential = vi.fn(async () => ({
       success: true,
       task: lowRewardTask,
-      completionTx: 'complete-tx',
+      completionTx: "complete-tx",
       durationMs: 1,
     }));
 

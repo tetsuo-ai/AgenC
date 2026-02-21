@@ -3,26 +3,30 @@
  * @module
  */
 
-import { Program } from '@coral-xyz/anchor';
-import { PublicKey } from '@solana/web3.js';
-import type { AgencCoordination } from '../types/agenc_coordination.js';
+import { Program } from "@coral-xyz/anchor";
+import { PublicKey } from "@solana/web3.js";
+import type { AgencCoordination } from "../types/agenc_coordination.js";
 import type {
   AgentRegisteredEvent,
   AgentUpdatedEvent,
   AgentDeregisteredEvent,
   AgentSuspendedEvent,
   AgentUnsuspendedEvent,
-} from './types.js';
-import type { EventSubscription } from '../events/types.js';
-import { toUint8Array } from '../utils/encoding.js';
+} from "./types.js";
+import type { EventSubscription } from "../events/types.js";
+import { toUint8Array } from "../utils/encoding.js";
 export type { EventSubscription };
-import { createEventSubscription } from '../events/factory.js';
+import { createEventSubscription } from "../events/factory.js";
 
 /**
  * Callback type for event handlers.
  * @typeParam T - The event type
  */
-export type AgentEventCallback<T> = (event: T, slot: number, signature: string) => void;
+export type AgentEventCallback<T> = (
+  event: T,
+  slot: number,
+  signature: string,
+) => void;
 
 /**
  * Callbacks for all agent events (used with subscribeToAllAgentEvents)
@@ -84,7 +88,9 @@ interface RawAgentUnsuspendedEvent {
   timestamp: { toNumber: () => number };
 }
 
-function parseAgentRegisteredEvent(raw: RawAgentRegisteredEvent): AgentRegisteredEvent {
+function parseAgentRegisteredEvent(
+  raw: RawAgentRegisteredEvent,
+): AgentRegisteredEvent {
   return {
     agentId: toUint8Array(raw.agentId),
     authority: raw.authority,
@@ -103,7 +109,9 @@ function parseAgentUpdatedEvent(raw: RawAgentUpdatedEvent): AgentUpdatedEvent {
   };
 }
 
-function parseAgentDeregisteredEvent(raw: RawAgentDeregisteredEvent): AgentDeregisteredEvent {
+function parseAgentDeregisteredEvent(
+  raw: RawAgentDeregisteredEvent,
+): AgentDeregisteredEvent {
   return {
     agentId: toUint8Array(raw.agentId),
     authority: raw.authority,
@@ -111,7 +119,9 @@ function parseAgentDeregisteredEvent(raw: RawAgentDeregisteredEvent): AgentDereg
   };
 }
 
-function parseAgentSuspendedEvent(raw: RawAgentSuspendedEvent): AgentSuspendedEvent {
+function parseAgentSuspendedEvent(
+  raw: RawAgentSuspendedEvent,
+): AgentSuspendedEvent {
   return {
     agentId: toUint8Array(raw.agentId),
     authority: raw.authority,
@@ -119,7 +129,9 @@ function parseAgentSuspendedEvent(raw: RawAgentSuspendedEvent): AgentSuspendedEv
   };
 }
 
-function parseAgentUnsuspendedEvent(raw: RawAgentUnsuspendedEvent): AgentUnsuspendedEvent {
+function parseAgentUnsuspendedEvent(
+  raw: RawAgentUnsuspendedEvent,
+): AgentUnsuspendedEvent {
   return {
     agentId: toUint8Array(raw.agentId),
     authority: raw.authority,
@@ -148,12 +160,16 @@ function parseAgentUnsuspendedEvent(raw: RawAgentUnsuspendedEvent): AgentUnsuspe
 export function subscribeToAgentRegistered(
   program: Program<AgencCoordination>,
   callback: AgentEventCallback<AgentRegisteredEvent>,
-  options?: EventSubscriptionOptions
+  options?: EventSubscriptionOptions,
 ): EventSubscription {
-  return createEventSubscription<RawAgentRegisteredEvent, AgentRegisteredEvent, EventSubscriptionOptions>(
+  return createEventSubscription<
+    RawAgentRegisteredEvent,
+    AgentRegisteredEvent,
+    EventSubscriptionOptions
+  >(
     program,
     {
-      eventName: 'agentRegistered',
+      eventName: "agentRegistered",
       parse: parseAgentRegisteredEvent,
       getFilterId: (event) => event.agentId,
       getFilterValue: (opts) => opts.agentId,
@@ -181,12 +197,16 @@ export function subscribeToAgentRegistered(
 export function subscribeToAgentUpdated(
   program: Program<AgencCoordination>,
   callback: AgentEventCallback<AgentUpdatedEvent>,
-  options?: EventSubscriptionOptions
+  options?: EventSubscriptionOptions,
 ): EventSubscription {
-  return createEventSubscription<RawAgentUpdatedEvent, AgentUpdatedEvent, EventSubscriptionOptions>(
+  return createEventSubscription<
+    RawAgentUpdatedEvent,
+    AgentUpdatedEvent,
+    EventSubscriptionOptions
+  >(
     program,
     {
-      eventName: 'agentUpdated',
+      eventName: "agentUpdated",
       parse: parseAgentUpdatedEvent,
       getFilterId: (event) => event.agentId,
       getFilterValue: (opts) => opts.agentId,
@@ -214,12 +234,16 @@ export function subscribeToAgentUpdated(
 export function subscribeToAgentDeregistered(
   program: Program<AgencCoordination>,
   callback: AgentEventCallback<AgentDeregisteredEvent>,
-  options?: EventSubscriptionOptions
+  options?: EventSubscriptionOptions,
 ): EventSubscription {
-  return createEventSubscription<RawAgentDeregisteredEvent, AgentDeregisteredEvent, EventSubscriptionOptions>(
+  return createEventSubscription<
+    RawAgentDeregisteredEvent,
+    AgentDeregisteredEvent,
+    EventSubscriptionOptions
+  >(
     program,
     {
-      eventName: 'agentDeregistered',
+      eventName: "agentDeregistered",
       parse: parseAgentDeregisteredEvent,
       getFilterId: (event) => event.agentId,
       getFilterValue: (opts) => opts.agentId,
@@ -240,12 +264,16 @@ export function subscribeToAgentDeregistered(
 export function subscribeToAgentSuspended(
   program: Program<AgencCoordination>,
   callback: AgentEventCallback<AgentSuspendedEvent>,
-  options?: EventSubscriptionOptions
+  options?: EventSubscriptionOptions,
 ): EventSubscription {
-  return createEventSubscription<RawAgentSuspendedEvent, AgentSuspendedEvent, EventSubscriptionOptions>(
+  return createEventSubscription<
+    RawAgentSuspendedEvent,
+    AgentSuspendedEvent,
+    EventSubscriptionOptions
+  >(
     program,
     {
-      eventName: 'agentSuspended',
+      eventName: "agentSuspended",
       parse: parseAgentSuspendedEvent,
       getFilterId: (event) => event.agentId,
       getFilterValue: (opts) => opts.agentId,
@@ -266,12 +294,16 @@ export function subscribeToAgentSuspended(
 export function subscribeToAgentUnsuspended(
   program: Program<AgencCoordination>,
   callback: AgentEventCallback<AgentUnsuspendedEvent>,
-  options?: EventSubscriptionOptions
+  options?: EventSubscriptionOptions,
 ): EventSubscription {
-  return createEventSubscription<RawAgentUnsuspendedEvent, AgentUnsuspendedEvent, EventSubscriptionOptions>(
+  return createEventSubscription<
+    RawAgentUnsuspendedEvent,
+    AgentUnsuspendedEvent,
+    EventSubscriptionOptions
+  >(
     program,
     {
-      eventName: 'agentUnsuspended',
+      eventName: "agentUnsuspended",
       parse: parseAgentUnsuspendedEvent,
       getFilterId: (event) => event.agentId,
       getFilterValue: (opts) => opts.agentId,
@@ -304,36 +336,36 @@ export function subscribeToAgentUnsuspended(
 export function subscribeToAllAgentEvents(
   program: Program<AgencCoordination>,
   callbacks: AgentEventCallbacks,
-  options?: EventSubscriptionOptions
+  options?: EventSubscriptionOptions,
 ): EventSubscription {
   const subscriptions: EventSubscription[] = [];
 
   // Subscribe to each event type if callback is provided
   if (callbacks.onRegistered) {
     subscriptions.push(
-      subscribeToAgentRegistered(program, callbacks.onRegistered, options)
+      subscribeToAgentRegistered(program, callbacks.onRegistered, options),
     );
   }
 
   if (callbacks.onUpdated) {
     subscriptions.push(
-      subscribeToAgentUpdated(program, callbacks.onUpdated, options)
+      subscribeToAgentUpdated(program, callbacks.onUpdated, options),
     );
   }
 
   if (callbacks.onDeregistered) {
     subscriptions.push(
-      subscribeToAgentDeregistered(program, callbacks.onDeregistered, options)
+      subscribeToAgentDeregistered(program, callbacks.onDeregistered, options),
     );
   }
   if (callbacks.onSuspended) {
     subscriptions.push(
-      subscribeToAgentSuspended(program, callbacks.onSuspended, options)
+      subscribeToAgentSuspended(program, callbacks.onSuspended, options),
     );
   }
   if (callbacks.onUnsuspended) {
     subscriptions.push(
-      subscribeToAgentUnsuspended(program, callbacks.onUnsuspended, options)
+      subscribeToAgentUnsuspended(program, callbacks.onUnsuspended, options),
     );
   }
 

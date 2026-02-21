@@ -7,24 +7,37 @@
  * @module
  */
 
-import { Connection, PublicKey } from '@solana/web3.js';
-import type { Program } from '@coral-xyz/anchor';
-import { PROGRAM_ID } from '@agenc/sdk';
-import type { AgencCoordination } from './types/agenc_coordination.js';
-import { AgentManager } from './agent/manager.js';
-import { AgentState, AgentStatus, AgentRegistrationParams, AGENT_ID_LENGTH } from './agent/types.js';
-import { findAgentPda } from './agent/pda.js';
-import { EventMonitor } from './events/index.js';
-import { ReplayEventBridge, type ReplayBridgeConfig, type ReplayBridgeHandle } from './replay/bridge.js';
-import type { BackfillResult } from './replay/types.js';
-import { TaskExecutor } from './task/index.js';
-import type { TaskExecutorConfig } from './task/types.js';
-import type { AgentRuntimeConfig, RuntimeReplayConfig, ReplayBackfillConfig } from './types/config.js';
-import type { Wallet } from './types/wallet.js';
-import { ensureWallet } from './types/wallet.js';
-import { Logger, createLogger, silentLogger } from './utils/logger.js';
-import { generateAgentId, agentIdToShortString } from './utils/encoding.js';
-import { ValidationError } from './types/errors.js';
+import { Connection, PublicKey } from "@solana/web3.js";
+import type { Program } from "@coral-xyz/anchor";
+import { PROGRAM_ID } from "@agenc/sdk";
+import type { AgencCoordination } from "./types/agenc_coordination.js";
+import { AgentManager } from "./agent/manager.js";
+import {
+  AgentState,
+  AgentStatus,
+  AgentRegistrationParams,
+  AGENT_ID_LENGTH,
+} from "./agent/types.js";
+import { findAgentPda } from "./agent/pda.js";
+import { EventMonitor } from "./events/index.js";
+import {
+  ReplayEventBridge,
+  type ReplayBridgeConfig,
+  type ReplayBridgeHandle,
+} from "./replay/bridge.js";
+import type { BackfillResult } from "./replay/types.js";
+import { TaskExecutor } from "./task/index.js";
+import type { TaskExecutorConfig } from "./task/types.js";
+import type {
+  AgentRuntimeConfig,
+  RuntimeReplayConfig,
+  ReplayBackfillConfig,
+} from "./types/config.js";
+import type { Wallet } from "./types/wallet.js";
+import { ensureWallet } from "./types/wallet.js";
+import { Logger, createLogger, silentLogger } from "./utils/logger.js";
+import { generateAgentId, agentIdToShortString } from "./utils/encoding.js";
+import { ValidationError } from "./types/errors.js";
 
 /**
  * High-level agent runtime with automatic lifecycle management.
@@ -92,10 +105,10 @@ export class AgentRuntime {
   constructor(config: AgentRuntimeConfig) {
     // Validate required fields
     if (!config.connection) {
-      throw new ValidationError('connection is required');
+      throw new ValidationError("connection is required");
     }
     if (!config.wallet) {
-      throw new ValidationError('wallet is required');
+      throw new ValidationError("wallet is required");
     }
 
     this.connection = config.connection;
@@ -106,15 +119,18 @@ export class AgentRuntime {
 
     // Setup logger
     if (config.logLevel !== undefined) {
-      this.logger = createLogger(config.logLevel, '[AgentRuntime]');
+      this.logger = createLogger(config.logLevel, "[AgentRuntime]");
     } else {
       this.logger = silentLogger;
     }
 
     // Validate and store agent ID
-    if (config.agentId !== undefined && config.agentId.length !== AGENT_ID_LENGTH) {
+    if (
+      config.agentId !== undefined &&
+      config.agentId.length !== AGENT_ID_LENGTH
+    ) {
       throw new ValidationError(
-        `Invalid agentId length: ${config.agentId.length} (must be ${AGENT_ID_LENGTH})`
+        `Invalid agentId length: ${config.agentId.length} (must be ${AGENT_ID_LENGTH})`,
       );
     }
     this.agentId = config.agentId ?? generateAgentId();
@@ -136,13 +152,17 @@ export class AgentRuntime {
     const tracing = replayConfig?.tracing;
     this.replayBackfillDefaults = replayConfig?.backfill;
     this.replayTraceId = tracing?.traceId ?? replayConfig?.traceId;
-    this.replayBridge = this.createReplayBridge(replayConfig ? {
-      ...replayConfig,
-      tracing,
-      traceId: replayConfig?.traceId,
-    } : undefined);
+    this.replayBridge = this.createReplayBridge(
+      replayConfig
+        ? {
+            ...replayConfig,
+            tracing,
+            traceId: replayConfig?.traceId,
+          }
+        : undefined,
+    );
 
-    this.logger.debug('AgentRuntime created');
+    this.logger.debug("AgentRuntime created");
   }
 
   /**
@@ -165,7 +185,7 @@ export class AgentRuntime {
    */
   async start(): Promise<AgentState> {
     if (this.started) {
-      this.logger.warn('AgentRuntime already started');
+      this.logger.warn("AgentRuntime already started");
       return this.agentManager.getState();
     }
 
@@ -176,7 +196,7 @@ export class AgentRuntime {
     const exists = await AgentManager.agentExists(
       this.connection,
       this.agentId,
-      this.programId
+      this.programId,
     );
 
     let state: AgentState;
@@ -189,7 +209,7 @@ export class AgentRuntime {
       // Register new agent
       if (this.capabilities === undefined) {
         throw new ValidationError(
-          'capabilities are required for new agent registration'
+          "capabilities are required for new agent registration",
         );
       }
 
@@ -211,7 +231,7 @@ export class AgentRuntime {
 
     // Set status to Active if not already
     if (state.status !== AgentStatus.Active) {
-      this.logger.debug('Setting agent status to Active');
+      this.logger.debug("Setting agent status to Active");
       state = await this.agentManager.updateStatus(AgentStatus.Active);
     }
 
@@ -240,7 +260,7 @@ export class AgentRuntime {
    */
   async stop(): Promise<void> {
     if (!this.started) {
-      this.logger.debug('AgentRuntime not started, nothing to stop');
+      this.logger.debug("AgentRuntime not started, nothing to stop");
       return;
     }
 
@@ -253,14 +273,14 @@ export class AgentRuntime {
         const state = this.agentManager.getCachedState();
         if (state && state.status !== AgentStatus.Inactive) {
           await this.agentManager.updateStatus(AgentStatus.Inactive);
-          this.logger.debug('Agent status set to Inactive');
+          this.logger.debug("Agent status set to Inactive");
         }
       }
     } catch (err) {
       // Log warning but don't throw - we want cleanup to continue
       this.logger.warn(
-        'Failed to set agent status to Inactive:',
-        err instanceof Error ? err.message : String(err)
+        "Failed to set agent status to Inactive:",
+        err instanceof Error ? err.message : String(err),
       );
     }
 
@@ -289,9 +309,9 @@ export class AgentRuntime {
    * ```
    */
   async gracefulShutdown(): Promise<never> {
-    this.logger.info('Graceful shutdown initiated');
+    this.logger.info("Graceful shutdown initiated");
     await this.stop();
-    this.logger.info('Exiting process');
+    this.logger.info("Exiting process");
     process.exit(0);
   }
 
@@ -310,7 +330,7 @@ export class AgentRuntime {
    */
   registerShutdownHandlers(): void {
     if (this.shutdownHandlersRegistered) {
-      this.logger.debug('Shutdown handlers already registered');
+      this.logger.debug("Shutdown handlers already registered");
       return;
     }
 
@@ -318,11 +338,11 @@ export class AgentRuntime {
       void this.gracefulShutdown();
     };
 
-    process.on('SIGINT', handler);
-    process.on('SIGTERM', handler);
+    process.on("SIGINT", handler);
+    process.on("SIGTERM", handler);
 
     this.shutdownHandlersRegistered = true;
-    this.logger.debug('Shutdown handlers registered for SIGINT and SIGTERM');
+    this.logger.debug("Shutdown handlers registered for SIGINT and SIGTERM");
   }
 
   // ==========================================================================
@@ -407,20 +427,18 @@ export class AgentRuntime {
   /**
    * Run a manual replay backfill using configured defaults and provided overrides.
    */
-  async runReplayBackfill(
-    options: {
-      fetcher: Parameters<ReplayBridgeHandle['runBackfill']>[0]['fetcher'];
-      toSlot?: number;
-      pageSize?: number;
-    },
-  ): Promise<BackfillResult> {
+  async runReplayBackfill(options: {
+    fetcher: Parameters<ReplayBridgeHandle["runBackfill"]>[0]["fetcher"];
+    toSlot?: number;
+    pageSize?: number;
+  }): Promise<BackfillResult> {
     if (!this.replayBridge) {
-      throw new Error('Replay bridge is not enabled');
+      throw new Error("Replay bridge is not enabled");
     }
 
     const toSlot = options.toSlot ?? this.replayBackfillDefaults?.toSlot;
-    if (typeof toSlot !== 'number' || !Number.isInteger(toSlot) || toSlot < 0) {
-      throw new Error('runReplayBackfill requires a valid toSlot');
+    if (typeof toSlot !== "number" || !Number.isInteger(toSlot) || toSlot < 0) {
+      throw new Error("runReplayBackfill requires a valid toSlot");
     }
 
     return this.replayBridge.runBackfill({
@@ -439,7 +457,7 @@ export class AgentRuntime {
     }
 
     const logger = replayConfig.traceLevel
-      ? createLogger(replayConfig.traceLevel, '[ReplayBridge]')
+      ? createLogger(replayConfig.traceLevel, "[ReplayBridge]")
       : this.logger;
 
     const options: ReplayBridgeConfig = {
@@ -452,10 +470,7 @@ export class AgentRuntime {
       alerting: replayConfig.alerting,
     };
 
-    return ReplayEventBridge.create(
-      this.agentManager.getProgram(),
-      options,
-    );
+    return ReplayEventBridge.create(this.agentManager.getProgram(), options);
   }
 
   /**
@@ -515,7 +530,9 @@ export class AgentRuntime {
    * ```
    */
   createTaskExecutor(
-    config: Omit<TaskExecutorConfig, 'agentId' | 'agentPda' | 'logger'> & { logger?: Logger }
+    config: Omit<TaskExecutorConfig, "agentId" | "agentPda" | "logger"> & {
+      logger?: Logger;
+    },
   ): TaskExecutor {
     const agentPda = findAgentPda(this.agentId, this.programId);
     return new TaskExecutor({

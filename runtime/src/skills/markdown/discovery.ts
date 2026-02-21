@@ -8,12 +8,12 @@
  * @module
  */
 
-import { readdir, readFile } from 'node:fs/promises';
-import { join } from 'node:path';
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
-import { isSkillMarkdown, parseSkillContent } from './parser.js';
-import type { MarkdownSkill } from './types.js';
+import { readdir, readFile } from "node:fs/promises";
+import { join } from "node:path";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import { isSkillMarkdown, parseSkillContent } from "./parser.js";
+import type { MarkdownSkill } from "./types.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -34,7 +34,7 @@ export interface DiscoveryPaths {
 }
 
 /** Discovery tier determines shadowing precedence (agent > user > project > builtin). */
-export type DiscoveryTier = 'agent' | 'user' | 'project' | 'builtin';
+export type DiscoveryTier = "agent" | "user" | "project" | "builtin";
 
 /** A skill found during discovery, annotated with availability status. */
 export interface DiscoveredSkill {
@@ -47,7 +47,7 @@ export interface DiscoveredSkill {
 
 /** A single unmet runtime requirement. */
 export interface MissingRequirement {
-  readonly type: 'binary' | 'env' | 'os' | 'channel';
+  readonly type: "binary" | "env" | "os" | "channel";
   readonly name: string;
   readonly message: string;
 }
@@ -56,13 +56,18 @@ export interface MissingRequirement {
 // Tier ordering (highest precedence first)
 // ---------------------------------------------------------------------------
 
-const TIER_ORDER: readonly DiscoveryTier[] = ['agent', 'user', 'project', 'builtin'];
+const TIER_ORDER: readonly DiscoveryTier[] = [
+  "agent",
+  "user",
+  "project",
+  "builtin",
+];
 
 const TIER_PATH_KEY: Record<DiscoveryTier, keyof DiscoveryPaths> = {
-  agent: 'agentSkills',
-  user: 'userSkills',
-  project: 'projectSkills',
-  builtin: 'builtinSkills',
+  agent: "agentSkills",
+  user: "userSkills",
+  project: "projectSkills",
+  builtin: "builtinSkills",
 };
 
 // ---------------------------------------------------------------------------
@@ -111,7 +116,7 @@ export class SkillDiscovery {
     const entries = await readSafe(dirPath);
     if (entries.length === 0) return [];
 
-    const mdFiles = entries.filter((name) => name.endsWith('.md'));
+    const mdFiles = entries.filter((name) => name.endsWith(".md"));
     const results: DiscoveredSkill[] = [];
 
     for (const fileName of mdFiles) {
@@ -131,9 +136,7 @@ export class SkillDiscovery {
         ...(available
           ? {}
           : {
-              unavailableReason: missing
-                .map((m) => m.message)
-                .join('; '),
+              unavailableReason: missing.map((m) => m.message).join("; "),
               missingRequirements: missing,
             }),
       });
@@ -146,7 +149,9 @@ export class SkillDiscovery {
    * Validate a skill's runtime requirements.
    * Returns an empty array when all requirements are met.
    */
-  async validateRequirements(skill: MarkdownSkill): Promise<MissingRequirement[]> {
+  async validateRequirements(
+    skill: MarkdownSkill,
+  ): Promise<MissingRequirement[]> {
     const missing: MissingRequirement[] = [];
     const { requires } = skill.metadata;
 
@@ -155,7 +160,7 @@ export class SkillDiscovery {
       const found = await this.checkBinary(bin);
       if (!found) {
         missing.push({
-          type: 'binary',
+          type: "binary",
           name: bin,
           message: `Required binary "${bin}" not found in PATH`,
         });
@@ -166,7 +171,7 @@ export class SkillDiscovery {
     for (const envVar of requires.env) {
       if (!this.checkEnv(envVar)) {
         missing.push({
-          type: 'env',
+          type: "env",
           name: envVar,
           message: `Required environment variable "${envVar}" is not set`,
         });
@@ -176,16 +181,16 @@ export class SkillDiscovery {
     // OS checks
     if (requires.os.length > 0 && !this.checkOs(requires.os)) {
       missing.push({
-        type: 'os',
+        type: "os",
         name: process.platform,
-        message: `Current OS "${process.platform}" not in allowed list: ${requires.os.join(', ')}`,
+        message: `Current OS "${process.platform}" not in allowed list: ${requires.os.join(", ")}`,
       });
     }
 
     // Channel requirements — informational (deferred to future implementation)
     for (const channel of requires.channels) {
       missing.push({
-        type: 'channel',
+        type: "channel",
         name: channel,
         message: `Channel "${channel}" availability cannot be verified yet`,
       });
@@ -197,7 +202,7 @@ export class SkillDiscovery {
   /** Check if a binary is available via `which`. */
   async checkBinary(name: string): Promise<boolean> {
     try {
-      await execFileAsync('which', [name]);
+      await execFileAsync("which", [name]);
       return true;
     } catch {
       return false;
@@ -214,7 +219,7 @@ export class SkillDiscovery {
     if (allowed.length === 0) return true;
     const platform = process.platform;
     return allowed.some((os) => {
-      const normalized = os === 'macos' ? 'darwin' : os;
+      const normalized = os === "macos" ? "darwin" : os;
       return normalized === platform;
     });
   }
@@ -242,7 +247,7 @@ async function readSafe(dirPath: string): Promise<string[]> {
 /** Read file content, returning `null` on any error. */
 async function readFileSafe(filePath: string): Promise<string | null> {
   try {
-    return await readFile(filePath, 'utf-8');
+    return await readFile(filePath, "utf-8");
   } catch {
     return null;
   }

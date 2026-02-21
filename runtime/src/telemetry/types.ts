@@ -8,9 +8,13 @@
  * @module
  */
 
-export type { MetricsProvider, TracingProvider, Span } from '../task/types.js';
+export type { MetricsProvider, TracingProvider, Span } from "../task/types.js";
 
-import type { MetricsSnapshot, HistogramEntry, MetricsCollector } from '../task/metrics.js';
+import type {
+  MetricsSnapshot,
+  HistogramEntry,
+  MetricsCollector,
+} from "../task/metrics.js";
 
 // Re-export for convenience
 export type { MetricsSnapshot, HistogramEntry, MetricsCollector };
@@ -37,7 +41,11 @@ export interface TelemetrySnapshot {
  */
 export interface TelemetryCollector extends MetricsCollector {
   /** Set a bigint gauge (e.g. earnings in lamports) */
-  bigintGauge(name: string, value: bigint, labels?: Record<string, string>): void;
+  bigintGauge(
+    name: string,
+    value: bigint,
+    labels?: Record<string, string>,
+  ): void;
   /** Get snapshot compatible with MetricsCollector / TaskExecutor */
   getSnapshot(): MetricsSnapshot;
   /** Get full snapshot including bigint gauges */

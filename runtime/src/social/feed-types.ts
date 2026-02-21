@@ -9,11 +9,11 @@
  * @module
  */
 
-import type { PublicKey, Keypair } from '@solana/web3.js';
-import type { Program } from '@coral-xyz/anchor';
-import type { AgencCoordination } from '../idl.js';
-import type { Logger } from '../utils/logger.js';
-import type { ReputationSignalCallback } from './reputation-types.js';
+import type { PublicKey, Keypair } from "@solana/web3.js";
+import type { Program } from "@coral-xyz/anchor";
+import type { AgencCoordination } from "../idl.js";
+import type { Logger } from "../utils/logger.js";
+import type { ReputationSignalCallback } from "./reputation-types.js";
 
 // ============================================================================
 // Account Layout Constants (for memcmp filters)
@@ -90,9 +90,9 @@ export interface FeedFilters {
   /** Filter by topic (32 bytes) */
   topic?: Uint8Array | number[];
   /** Sort by field */
-  sortBy?: 'createdAt' | 'upvoteCount';
+  sortBy?: "createdAt" | "upvoteCount";
   /** Sort order */
-  sortOrder?: 'asc' | 'desc';
+  sortOrder?: "asc" | "desc";
   /** Maximum results */
   limit?: number;
 }

@@ -4,14 +4,14 @@
  * @module
  */
 
-import type { Logger } from '../utils/logger.js';
-import type { TelemetrySink, TelemetrySnapshot } from './types.js';
+import type { Logger } from "../utils/logger.js";
+import type { TelemetrySink, TelemetrySnapshot } from "./types.js";
 
 /**
  * Logs a formatted telemetry snapshot via a Logger instance.
  */
 export class ConsoleSink implements TelemetrySink {
-  readonly name = 'console';
+  readonly name = "console";
   private readonly logger: Logger;
 
   constructor(logger: Logger) {
@@ -52,10 +52,12 @@ export class ConsoleSink implements TelemetrySink {
       const avg = values.reduce((a, b) => a + b, 0) / values.length;
       const min = Math.min(...values);
       const max = Math.max(...values);
-      lines.push(`    ${key}: count=${entries.length} avg=${avg.toFixed(1)} min=${min} max=${max}`);
+      lines.push(
+        `    ${key}: count=${entries.length} avg=${avg.toFixed(1)} min=${min} max=${max}`,
+      );
     }
 
-    this.logger.info(lines.join('\n'));
+    this.logger.info(lines.join("\n"));
   }
 }
 
@@ -66,7 +68,10 @@ export class CallbackSink implements TelemetrySink {
   readonly name: string;
   private readonly callback: (snapshot: TelemetrySnapshot) => void;
 
-  constructor(callback: (snapshot: TelemetrySnapshot) => void, name = 'callback') {
+  constructor(
+    callback: (snapshot: TelemetrySnapshot) => void,
+    name = "callback",
+  ) {
     this.callback = callback;
     this.name = name;
   }

@@ -58,10 +58,15 @@ describe("E2E Real RISC Zero Groth16 Proof Verification", function () {
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
 
-  const program = anchor.workspace.AgencCoordination as Program<AgencCoordination>;
+  const program = anchor.workspace
+    .AgencCoordination as Program<AgencCoordination>;
 
-  const TRUSTED_ROUTER_PROGRAM_ID = new PublicKey("6JvFfBrvCcWgANKh1Eae9xDq4RC6cfJuBcf71rp2k9Y7");
-  const TRUSTED_VERIFIER_PROGRAM_ID = new PublicKey("THq1qFYQoh7zgcjXoMXduDBqiZRCPeg3PvvMbrVQUge");
+  const TRUSTED_ROUTER_PROGRAM_ID = new PublicKey(
+    "6JvFfBrvCcWgANKh1Eae9xDq4RC6cfJuBcf71rp2k9Y7",
+  );
+  const TRUSTED_VERIFIER_PROGRAM_ID = new PublicKey(
+    "THq1qFYQoh7zgcjXoMXduDBqiZRCPeg3PvvMbrVQUge",
+  );
   const TRUSTED_SELECTOR = Buffer.from([0x52, 0x5a, 0x56, 0x4d]);
 
   const [protocolPda] = PublicKey.findProgramAddressSync(
@@ -88,12 +93,18 @@ describe("E2E Real RISC Zero Groth16 Proof Verification", function () {
   let escrowPda: PublicKey;
   let claimPda: PublicKey;
 
-  const creatorAgentId = Buffer.from("e2e-creator-agent\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0");
+  const creatorAgentId = Buffer.from(
+    "e2e-creator-agent\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0",
+  );
   let workerAgentId: Buffer;
 
   before(async function () {
     // Load fixture
-    const fixturePath = path.resolve(__dirname, "fixtures", "real-groth16-proof.json");
+    const fixturePath = path.resolve(
+      __dirname,
+      "fixtures",
+      "real-groth16-proof.json",
+    );
     if (!fs.existsSync(fixturePath)) {
       console.log(`Skipping: fixture not found at ${fixturePath}`);
       console.log("Run: npx tsx scripts/generate-real-proof.ts");
@@ -104,14 +115,18 @@ describe("E2E Real RISC Zero Groth16 Proof Verification", function () {
 
     // Check validator is running with verifier programs
     try {
-      const routerAccountInfo = await provider.connection.getAccountInfo(TRUSTED_ROUTER_PROGRAM_ID);
+      const routerAccountInfo = await provider.connection.getAccountInfo(
+        TRUSTED_ROUTER_PROGRAM_ID,
+      );
       if (!routerAccountInfo || !routerAccountInfo.executable) {
         console.log("Skipping: Verifier Router program not deployed.");
         console.log("Run: bash scripts/setup-verifier-localnet.sh");
         this.skip();
         return;
       }
-      const verifierAccountInfo = await provider.connection.getAccountInfo(TRUSTED_VERIFIER_PROGRAM_ID);
+      const verifierAccountInfo = await provider.connection.getAccountInfo(
+        TRUSTED_VERIFIER_PROGRAM_ID,
+      );
       if (!verifierAccountInfo || !verifierAccountInfo.executable) {
         console.log("Skipping: Groth16 Verifier program not deployed.");
         this.skip();
@@ -154,11 +169,11 @@ describe("E2E Real RISC Zero Groth16 Proof Verification", function () {
     try {
       await program.methods
         .initializeProtocol(
-          51,                                      // dispute_threshold
-          100,                                     // protocol_fee_bps
-          new BN(LAMPORTS_PER_SOL),                // min_agent_stake
-          new BN(LAMPORTS_PER_SOL / 100),          // min_task_stake
-          1,                                       // multisig_threshold
+          51, // dispute_threshold
+          100, // protocol_fee_bps
+          new BN(LAMPORTS_PER_SOL), // min_agent_stake
+          new BN(LAMPORTS_PER_SOL / 100), // min_task_stake
+          1, // multisig_threshold
           [provider.wallet.publicKey, treasury.publicKey],
         )
         .accountsPartial({
@@ -215,12 +230,18 @@ describe("E2E Real RISC Zero Groth16 Proof Verification", function () {
           .signers([signer])
           .rpc();
       } catch (e) {
-        const existing = await (program.account.agentRegistration as {
-          fetchNullable: (pubkey: PublicKey) => Promise<{ authority: PublicKey } | null>;
-        }).fetchNullable(agentPda);
+        const existing = await (
+          program.account.agentRegistration as {
+            fetchNullable: (
+              pubkey: PublicKey,
+            ) => Promise<{ authority: PublicKey } | null>;
+          }
+        ).fetchNullable(agentPda);
         if (!existing) throw e;
         if (!existing.authority.equals(signer.publicKey)) {
-          throw new Error(`Agent authority mismatch for ${agentPda.toBase58()}`);
+          throw new Error(
+            `Agent authority mismatch for ${agentPda.toBase58()}`,
+          );
         }
       }
     }
@@ -245,14 +266,18 @@ describe("E2E Real RISC Zero Groth16 Proof Verification", function () {
     )[0];
 
     // Verify task PDA matches journal
-    const journalTaskPda = new PublicKey(Buffer.from(fixture.journal.slice(0, 32)));
+    const journalTaskPda = new PublicKey(
+      Buffer.from(fixture.journal.slice(0, 32)),
+    );
     expect(taskPda.equals(journalTaskPda)).to.equal(
       true,
       `Task PDA mismatch: expected ${journalTaskPda.toBase58()}, got ${taskPda.toBase58()}`,
     );
 
     // Verify agent authority matches journal
-    const journalAuthority = new PublicKey(Buffer.from(fixture.journal.slice(32, 64)));
+    const journalAuthority = new PublicKey(
+      Buffer.from(fixture.journal.slice(32, 64)),
+    );
     expect(worker.publicKey.equals(journalAuthority)).to.equal(
       true,
       `Agent authority mismatch: expected ${journalAuthority.toBase58()}, got ${worker.publicKey.toBase58()}`,
@@ -268,12 +293,12 @@ describe("E2E Real RISC Zero Groth16 Proof Verification", function () {
         new BN(CAPABILITY_COMPUTE),
         Array.from(description),
         new BN(0.5 * LAMPORTS_PER_SOL),
-        1,                                         // max_workers
+        1, // max_workers
         deadline,
         TASK_TYPE_EXCLUSIVE,
         Array.from(constraintHash),
-        0,                                         // min_reputation
-        null,                                      // reward_mint
+        0, // min_reputation
+        null, // reward_mint
       )
       .accountsPartial({
         task: taskPda,
@@ -331,11 +356,12 @@ describe("E2E Real RISC Zero Groth16 Proof Verification", function () {
 
     // 1. Create Address Lookup Table
     const recentSlot = await provider.connection.getSlot("finalized");
-    const [createAltIx, altAddress] = AddressLookupTableProgram.createLookupTable({
-      authority: provider.wallet.publicKey,
-      payer: provider.wallet.publicKey,
-      recentSlot,
-    });
+    const [createAltIx, altAddress] =
+      AddressLookupTableProgram.createLookupTable({
+        authority: provider.wallet.publicKey,
+        payer: provider.wallet.publicKey,
+        recentSlot,
+      });
 
     // Addresses to put into the ALT (all non-signer accounts used by completeTaskPrivate)
     const altAddresses = [
@@ -370,25 +396,23 @@ describe("E2E Real RISC Zero Groth16 Proof Verification", function () {
 
     // Wait for ALT to become active (needs 1 slot after the deactivation slot)
     // In practice, we need to wait for a few slots for the lookup table to be usable
-    await new Promise(resolve => setTimeout(resolve, 2000));
+    await new Promise((resolve) => setTimeout(resolve, 2000));
 
     // 2. Fetch the ALT for use in V0 transactions
-    const altAccountInfo = await provider.connection.getAddressLookupTable(altAddress);
+    const altAccountInfo =
+      await provider.connection.getAddressLookupTable(altAddress);
     if (!altAccountInfo.value) throw new Error("ALT not found after creation");
     const lookupTable = altAccountInfo.value;
 
     // 3. Build the completeTaskPrivate instruction via Anchor
     const completeIx = await program.methods
-      .completeTaskPrivate(
-        new BN(taskIdBytes.subarray(0, 8), "le"),
-        {
-          sealBytes: Buffer.from(fixture.sealBytes),
-          journal: Buffer.from(fixture.journal),
-          imageId: Array.from(fixture.imageId),
-          bindingSeed: Array.from(fixture.bindingSeed),
-          nullifierSeed: Array.from(fixture.nullifierSeed),
-        },
-      )
+      .completeTaskPrivate(new BN(taskIdBytes.subarray(0, 8), "le"), {
+        sealBytes: Buffer.from(fixture.sealBytes),
+        journal: Buffer.from(fixture.journal),
+        imageId: Array.from(fixture.imageId),
+        bindingSeed: Array.from(fixture.bindingSeed),
+        nullifierSeed: Array.from(fixture.nullifierSeed),
+      })
       .accountsPartial({
         task: taskPda,
         claim: claimPda,
@@ -433,15 +457,19 @@ describe("E2E Real RISC Zero Groth16 Proof Verification", function () {
     // Verify task is completed
     const task = await program.account.task.fetch(taskPda);
     // TaskStatus.Completed = 3
-    const taskStatus = (task as unknown as { status: { completed?: Record<string, never> } }).status;
+    const taskStatus = (
+      task as unknown as { status: { completed?: Record<string, never> } }
+    ).status;
     expect(taskStatus).to.have.property("completed");
 
     // Verify BindingSpend PDA was created (replay protection)
-    const bindingSpendAccount = await provider.connection.getAccountInfo(bindingSpendPda);
+    const bindingSpendAccount =
+      await provider.connection.getAccountInfo(bindingSpendPda);
     expect(bindingSpendAccount).to.not.be.null;
 
     // Verify NullifierSpend PDA was created (replay protection)
-    const nullifierSpendAccount = await provider.connection.getAccountInfo(nullifierSpendPda);
+    const nullifierSpendAccount =
+      await provider.connection.getAccountInfo(nullifierSpendPda);
     expect(nullifierSpendAccount).to.not.be.null;
 
     console.log("Real Groth16 proof verified on-chain successfully!");
@@ -469,9 +497,11 @@ describe("E2E Real RISC Zero Groth16 Proof Verification", function () {
     // We need a fresh task to replay against (the original is completed),
     // but the nullifier PDA already exists so it should fail regardless.
     // Instead, just verify that the spend PDAs exist (sufficient proof of replay protection).
-    const bindingSpendAccount = await provider.connection.getAccountInfo(bindingSpendPda);
+    const bindingSpendAccount =
+      await provider.connection.getAccountInfo(bindingSpendPda);
     expect(bindingSpendAccount).to.not.be.null;
-    const nullifierSpendAccount = await provider.connection.getAccountInfo(nullifierSpendPda);
+    const nullifierSpendAccount =
+      await provider.connection.getAccountInfo(nullifierSpendPda);
     expect(nullifierSpendAccount).to.not.be.null;
 
     console.log("Replay protection verified: spend PDAs exist.");

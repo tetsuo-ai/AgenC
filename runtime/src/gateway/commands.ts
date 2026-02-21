@@ -9,8 +9,8 @@
  * @module
  */
 
-import type { Logger } from '../utils/logger.js';
-import { silentLogger } from '../utils/logger.js';
+import type { Logger } from "../utils/logger.js";
+import { silentLogger } from "../utils/logger.js";
 
 // ============================================================================
 // Types
@@ -89,7 +89,7 @@ export function parseCommand(message: string): ParsedCommand {
     return { isCommand: false };
   }
 
-  const args = match[2]?.trim() ?? '';
+  const args = match[2]?.trim() ?? "";
   const argv = args ? args.split(/\s+/) : [];
 
   return { isCommand: true, name, args, argv };
@@ -172,7 +172,7 @@ export class SlashCommandRegistry {
    */
   async execute(
     parsed: ParsedCommand,
-    context: Omit<SlashCommandContext, 'args' | 'argv'>,
+    context: Omit<SlashCommandContext, "args" | "argv">,
   ): Promise<boolean> {
     if (!parsed.isCommand || !parsed.name) {
       return false;
@@ -185,7 +185,7 @@ export class SlashCommandRegistry {
     }
 
     const ctx: SlashCommandContext = {
-      args: parsed.args ?? '',
+      args: parsed.args ?? "",
       argv: parsed.argv ?? [],
       sessionId: context.sessionId,
       senderId: context.senderId,
@@ -198,7 +198,9 @@ export class SlashCommandRegistry {
       this.logger.debug(`Command executed: /${parsed.name}`);
     } catch (err) {
       this.logger.error(`Command /${parsed.name} failed:`, err);
-      await context.reply(`Error: /${parsed.name} failed — ${(err as Error).message}`);
+      await context.reply(
+        `Error: /${parsed.name} failed — ${(err as Error).message}`,
+      );
     }
 
     return true;
@@ -237,18 +239,18 @@ export class SlashCommandRegistry {
 export function createDefaultCommands(): SlashCommandDef[] {
   return [
     {
-      name: 'help',
-      description: 'Show available commands',
+      name: "help",
+      description: "Show available commands",
       global: true,
       handler: async (ctx) => {
         // Help needs access to a registry, so this is a placeholder.
         // The gateway wires up the real help handler with registry access.
-        await ctx.reply('Use /help to see available commands.');
+        await ctx.reply("Use /help to see available commands.");
       },
     },
     {
-      name: 'status',
-      description: 'Show agent status',
+      name: "status",
+      description: "Show agent status",
       global: true,
       handler: async (ctx) => {
         await ctx.reply(
@@ -257,104 +259,108 @@ export function createDefaultCommands(): SlashCommandDef[] {
       },
     },
     {
-      name: 'new',
-      description: 'Start a new session (reset conversation)',
+      name: "new",
+      description: "Start a new session (reset conversation)",
       global: true,
       handler: async (ctx) => {
-        await ctx.reply('Session reset. Starting fresh conversation.');
+        await ctx.reply("Session reset. Starting fresh conversation.");
       },
     },
     {
-      name: 'reset',
-      description: 'Reset session and clear context',
+      name: "reset",
+      description: "Reset session and clear context",
       global: true,
       handler: async (ctx) => {
-        await ctx.reply('Session and context cleared.');
+        await ctx.reply("Session and context cleared.");
       },
     },
     {
-      name: 'stop',
-      description: 'Pause the agent (stop responding)',
+      name: "stop",
+      description: "Pause the agent (stop responding)",
       global: true,
       handler: async (ctx) => {
-        await ctx.reply('Agent paused. Use /start to resume.');
+        await ctx.reply("Agent paused. Use /start to resume.");
       },
     },
     {
-      name: 'start',
-      description: 'Resume the agent',
+      name: "start",
+      description: "Resume the agent",
       global: true,
       handler: async (ctx) => {
-        await ctx.reply('Agent resumed.');
+        await ctx.reply("Agent resumed.");
       },
     },
     {
-      name: 'context',
-      description: 'Show current context window usage',
+      name: "context",
+      description: "Show current context window usage",
       global: true,
       handler: async (ctx) => {
-        await ctx.reply(`Session: ${ctx.sessionId}\nContext info not yet available.`);
+        await ctx.reply(
+          `Session: ${ctx.sessionId}\nContext info not yet available.`,
+        );
       },
     },
     {
-      name: 'compact',
-      description: 'Force conversation compaction',
+      name: "compact",
+      description: "Force conversation compaction",
       global: true,
       handler: async (ctx) => {
-        await ctx.reply('Compaction triggered.');
+        await ctx.reply("Compaction triggered.");
       },
     },
     {
-      name: 'model',
-      description: 'Show or switch the current LLM model',
-      args: '[name]',
+      name: "model",
+      description: "Show or switch the current LLM model",
+      args: "[name]",
       global: true,
       handler: async (ctx) => {
         if (ctx.args) {
-          await ctx.reply(`Model switching not yet implemented. Requested: ${ctx.args}`);
+          await ctx.reply(
+            `Model switching not yet implemented. Requested: ${ctx.args}`,
+          );
         } else {
-          await ctx.reply('Current model info not yet available.');
+          await ctx.reply("Current model info not yet available.");
         }
       },
     },
     {
-      name: 'skills',
-      description: 'List available skills',
+      name: "skills",
+      description: "List available skills",
       global: true,
       handler: async (ctx) => {
-        await ctx.reply('Skill listing not yet available.');
+        await ctx.reply("Skill listing not yet available.");
       },
     },
     {
-      name: 'task',
-      description: 'Show current task status',
+      name: "task",
+      description: "Show current task status",
       global: true,
       handler: async (ctx) => {
-        await ctx.reply('Task status not yet available.');
+        await ctx.reply("Task status not yet available.");
       },
     },
     {
-      name: 'tasks',
-      description: 'List all tasks',
+      name: "tasks",
+      description: "List all tasks",
       global: true,
       handler: async (ctx) => {
-        await ctx.reply('Task listing not yet available.');
+        await ctx.reply("Task listing not yet available.");
       },
     },
     {
-      name: 'balance',
-      description: 'Show token balance',
+      name: "balance",
+      description: "Show token balance",
       global: true,
       handler: async (ctx) => {
-        await ctx.reply('Balance info not yet available.');
+        await ctx.reply("Balance info not yet available.");
       },
     },
     {
-      name: 'reputation',
-      description: 'Show agent reputation score',
+      name: "reputation",
+      description: "Show agent reputation score",
       global: true,
       handler: async (ctx) => {
-        await ctx.reply('Reputation info not yet available.');
+        await ctx.reply("Reputation info not yet available.");
       },
     },
   ];

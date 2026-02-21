@@ -4,5 +4,5 @@
  * @module
  */
 
-export { AnthropicProvider } from './adapter.js';
-export type { AnthropicProviderConfig } from './types.js';
+export { AnthropicProvider } from "./adapter.js";
+export type { AnthropicProviderConfig } from "./types.js";

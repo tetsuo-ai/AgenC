@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { Keypair, PublicKey } from '@solana/web3.js';
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { Keypair, PublicKey } from "@solana/web3.js";
 import {
   ProofPipeline,
   DefaultProofGenerator,
@@ -8,15 +8,15 @@ import {
   type ProofGenerationJob,
   type DependencyGraphLike,
   type ProofGenerator,
-} from './proof-pipeline.js';
-import type { TaskOperations } from './operations.js';
+} from "./proof-pipeline.js";
+import type { TaskOperations } from "./operations.js";
 import type {
   TaskExecutionResult,
   PrivateTaskExecutionResult,
   ClaimResult,
   CompleteResult,
-} from './types.js';
-import { createTask, createMockOperations } from './test-utils.js';
+} from "./types.js";
+import { createTask, createMockOperations } from "./test-utils.js";
 
 // ============================================================================
 // Helpers
@@ -51,9 +51,9 @@ function createMockDependencyGraph(
   unconfirmedAncestors: Uint8Array[] = [],
 ): DependencyGraphLike {
   return {
-    getUnconfirmedAncestors: vi.fn().mockReturnValue(
-      unconfirmedAncestors.map((taskId) => ({ taskId })),
-    ),
+    getUnconfirmedAncestors: vi
+      .fn()
+      .mockReturnValue(unconfirmedAncestors.map((taskId) => ({ taskId }))),
     isConfirmed: vi.fn().mockReturnValue(unconfirmedAncestors.length === 0),
   };
 }
@@ -93,7 +93,7 @@ function createMockEvents(): ProofPipelineEvents & {
 // Tests
 // ============================================================================
 
-describe('ProofPipeline', () => {
+describe("ProofPipeline", () => {
   let operations: ReturnType<typeof createPipelineMockOperations>;
   let events: ReturnType<typeof createMockEvents>;
   let config: Partial<ProofPipelineConfig>;
@@ -106,8 +106,8 @@ describe('ProofPipeline', () => {
     pipeline = new ProofPipeline(config, events, operations);
   });
 
-  describe('enqueue()', () => {
-    it('should create a job for public task', async () => {
+  describe("enqueue()", () => {
+    it("should create a job for public task", async () => {
       const taskPda = Keypair.generate().publicKey;
       const taskId = new Uint8Array(32).fill(1);
       const result = createPublicResult();
@@ -124,10 +124,10 @@ describe('ProofPipeline', () => {
 
       // Wait for the job to complete (auto-submission)
       await pipeline.waitForConfirmation(taskPda, 5000);
-      expect(job.status).toBe('confirmed');
+      expect(job.status).toBe("confirmed");
     });
 
-    it('should create a job for private task', async () => {
+    it("should create a job for private task", async () => {
       const taskPda = Keypair.generate().publicKey;
       const taskId = new Uint8Array(32).fill(1);
       const result = createPrivateResult();
@@ -137,10 +137,10 @@ describe('ProofPipeline', () => {
       expect(job.isPrivate).toBe(true);
 
       await pipeline.waitForConfirmation(taskPda, 5000);
-      expect(job.status).toBe('confirmed');
+      expect(job.status).toBe("confirmed");
     });
 
-    it('should emit onProofQueued event', () => {
+    it("should emit onProofQueued event", () => {
       const taskPda = Keypair.generate().publicKey;
       const taskId = new Uint8Array(32).fill(1);
       const result = createPublicResult();
@@ -150,7 +150,7 @@ describe('ProofPipeline', () => {
       expect(events.onProofQueued).toHaveBeenCalledWith(job);
     });
 
-    it('should throw if job already exists for task', () => {
+    it("should throw if job already exists for task", () => {
       const taskPda = Keypair.generate().publicKey;
       const taskId = new Uint8Array(32).fill(1);
       const result = createPublicResult();
@@ -162,7 +162,7 @@ describe('ProofPipeline', () => {
       );
     });
 
-    it('should throw if pipeline is shutting down', async () => {
+    it("should throw if pipeline is shutting down", async () => {
       // Trigger shutdown
       const shutdownPromise = pipeline.shutdown();
 
@@ -178,8 +178,8 @@ describe('ProofPipeline', () => {
     });
   });
 
-  describe('getJob()', () => {
-    it('should return job by task PDA', () => {
+  describe("getJob()", () => {
+    it("should return job by task PDA", () => {
       const taskPda = Keypair.generate().publicKey;
       const taskId = new Uint8Array(32).fill(1);
       const result = createPublicResult();
@@ -190,7 +190,7 @@ describe('ProofPipeline', () => {
       expect(foundJob).toBe(enqueuedJob);
     });
 
-    it('should return undefined for unknown task PDA', () => {
+    it("should return undefined for unknown task PDA", () => {
       const taskPda = Keypair.generate().publicKey;
 
       const foundJob = pipeline.getJob(taskPda);
@@ -199,8 +199,8 @@ describe('ProofPipeline', () => {
     });
   });
 
-  describe('getStats()', () => {
-    it('should return correct initial stats', () => {
+  describe("getStats()", () => {
+    it("should return correct initial stats", () => {
       const stats = pipeline.getStats();
 
       expect(stats).toEqual({
@@ -212,7 +212,7 @@ describe('ProofPipeline', () => {
       });
     });
 
-    it('should track confirmed jobs after completion', async () => {
+    it("should track confirmed jobs after completion", async () => {
       const taskPda = Keypair.generate().publicKey;
       const taskId = new Uint8Array(32).fill(1);
       pipeline.enqueue(taskPda, taskId, createPublicResult());
@@ -226,8 +226,8 @@ describe('ProofPipeline', () => {
     });
   });
 
-  describe('cancel()', () => {
-    it('should return false for already confirmed job', async () => {
+  describe("cancel()", () => {
+    it("should return false for already confirmed job", async () => {
       const taskPda = Keypair.generate().publicKey;
       const job = pipeline.enqueue(
         taskPda,
@@ -238,13 +238,13 @@ describe('ProofPipeline', () => {
       // Wait for job to complete
       await pipeline.waitForConfirmation(taskPda, 5000);
 
-      expect(job.status).toBe('confirmed');
+      expect(job.status).toBe("confirmed");
 
       const cancelled = pipeline.cancel(taskPda);
       expect(cancelled).toBe(false);
     });
 
-    it('should return false for unknown task', () => {
+    it("should return false for unknown task", () => {
       const taskPda = Keypair.generate().publicKey;
 
       const cancelled = pipeline.cancel(taskPda);
@@ -253,8 +253,8 @@ describe('ProofPipeline', () => {
     });
   });
 
-  describe('proof generation lifecycle', () => {
-    it('should emit all lifecycle events', async () => {
+  describe("proof generation lifecycle", () => {
+    it("should emit all lifecycle events", async () => {
       const taskPda = Keypair.generate().publicKey;
       const job = pipeline.enqueue(
         taskPda,
@@ -271,7 +271,7 @@ describe('ProofPipeline', () => {
       expect(events.onProofConfirmed).toHaveBeenCalled();
     });
 
-    it('should process multiple jobs', async () => {
+    it("should process multiple jobs", async () => {
       // Enqueue multiple jobs and verify they all complete
       pipeline = new ProofPipeline(
         { ...config, maxConcurrentProofs: 2 },
@@ -283,11 +283,17 @@ describe('ProofPipeline', () => {
       for (let i = 0; i < 4; i++) {
         const taskPda = Keypair.generate().publicKey;
         taskPdas.push(taskPda);
-        pipeline.enqueue(taskPda, new Uint8Array(32).fill(i), createPublicResult());
+        pipeline.enqueue(
+          taskPda,
+          new Uint8Array(32).fill(i),
+          createPublicResult(),
+        );
       }
 
       // Wait for all jobs to complete
-      await Promise.all(taskPdas.map((pda) => pipeline.waitForConfirmation(pda, 5000)));
+      await Promise.all(
+        taskPdas.map((pda) => pipeline.waitForConfirmation(pda, 5000)),
+      );
 
       // All should be confirmed
       const stats = pipeline.getStats();
@@ -295,20 +301,24 @@ describe('ProofPipeline', () => {
     });
   });
 
-  describe('waitForConfirmation()', () => {
-    it('should resolve when job is confirmed', async () => {
+  describe("waitForConfirmation()", () => {
+    it("should resolve when job is confirmed", async () => {
       const taskPda = Keypair.generate().publicKey;
-      pipeline.enqueue(taskPda, new Uint8Array(32).fill(1), createPublicResult());
+      pipeline.enqueue(
+        taskPda,
+        new Uint8Array(32).fill(1),
+        createPublicResult(),
+      );
 
       const confirmedJob = await pipeline.waitForConfirmation(taskPda, 5000);
 
-      expect(confirmedJob.status).toBe('confirmed');
-      expect(confirmedJob.transactionSignature).toBe('complete-sig');
+      expect(confirmedJob.status).toBe("confirmed");
+      expect(confirmedJob.transactionSignature).toBe("complete-sig");
     });
 
-    it('should reject when job fails', async () => {
+    it("should reject when job fails", async () => {
       // Make completeTask fail
-      operations.completeTask.mockRejectedValue(new Error('Submission failed'));
+      operations.completeTask.mockRejectedValue(new Error("Submission failed"));
 
       // Override retry policy to fail fast
       pipeline = new ProofPipeline(
@@ -326,14 +336,18 @@ describe('ProofPipeline', () => {
       );
 
       const taskPda = Keypair.generate().publicKey;
-      pipeline.enqueue(taskPda, new Uint8Array(32).fill(1), createPublicResult());
+      pipeline.enqueue(
+        taskPda,
+        new Uint8Array(32).fill(1),
+        createPublicResult(),
+      );
 
       await expect(pipeline.waitForConfirmation(taskPda, 5000)).rejects.toThrow(
         /Submission failed/,
       );
     });
 
-    it('should reject for unknown task', async () => {
+    it("should reject for unknown task", async () => {
       const taskPda = Keypair.generate().publicKey;
 
       await expect(pipeline.waitForConfirmation(taskPda)).rejects.toThrow(
@@ -341,26 +355,34 @@ describe('ProofPipeline', () => {
       );
     });
 
-    it('should resolve immediately for already confirmed job', async () => {
+    it("should resolve immediately for already confirmed job", async () => {
       const taskPda = Keypair.generate().publicKey;
-      pipeline.enqueue(taskPda, new Uint8Array(32).fill(1), createPublicResult());
+      pipeline.enqueue(
+        taskPda,
+        new Uint8Array(32).fill(1),
+        createPublicResult(),
+      );
 
       // Wait for first confirmation
       await pipeline.waitForConfirmation(taskPda, 5000);
 
       // Second wait should resolve immediately
       const confirmedJob = await pipeline.waitForConfirmation(taskPda);
-      expect(confirmedJob.status).toBe('confirmed');
+      expect(confirmedJob.status).toBe("confirmed");
     });
 
-    it('should timeout if job takes too long', async () => {
+    it("should timeout if job takes too long", async () => {
       // Make completeTask hang
       operations.completeTask.mockImplementation(
         () => new Promise(() => {}), // Never resolves
       );
 
       const taskPda = Keypair.generate().publicKey;
-      pipeline.enqueue(taskPda, new Uint8Array(32).fill(1), createPublicResult());
+      pipeline.enqueue(
+        taskPda,
+        new Uint8Array(32).fill(1),
+        createPublicResult(),
+      );
 
       await expect(pipeline.waitForConfirmation(taskPda, 100)).rejects.toThrow(
         /Timeout/,
@@ -368,8 +390,8 @@ describe('ProofPipeline', () => {
     });
   });
 
-  describe('areAncestorsConfirmed()', () => {
-    it('should return true when no unconfirmed ancestors', () => {
+  describe("areAncestorsConfirmed()", () => {
+    it("should return true when no unconfirmed ancestors", () => {
       const taskPda = Keypair.generate().publicKey;
       const taskId = new Uint8Array(32).fill(1);
       pipeline.enqueue(taskPda, taskId, createPublicResult());
@@ -379,7 +401,7 @@ describe('ProofPipeline', () => {
       expect(pipeline.areAncestorsConfirmed(taskPda, graph)).toBe(true);
     });
 
-    it('should return false when there are unconfirmed ancestors', () => {
+    it("should return false when there are unconfirmed ancestors", () => {
       const taskPda = Keypair.generate().publicKey;
       const taskId = new Uint8Array(32).fill(1);
       pipeline.enqueue(taskPda, taskId, createPublicResult());
@@ -390,7 +412,7 @@ describe('ProofPipeline', () => {
       expect(pipeline.areAncestorsConfirmed(taskPda, graph)).toBe(false);
     });
 
-    it('should return false for unknown task', () => {
+    it("should return false for unknown task", () => {
       const taskPda = Keypair.generate().publicKey;
       const graph = createMockDependencyGraph([]);
 
@@ -398,8 +420,8 @@ describe('ProofPipeline', () => {
     });
   });
 
-  describe('submitWhenReady()', () => {
-    it('should complete successfully when ancestors are confirmed', async () => {
+  describe("submitWhenReady()", () => {
+    it("should complete successfully when ancestors are confirmed", async () => {
       const taskPda = Keypair.generate().publicKey;
       const job = pipeline.enqueue(
         taskPda,
@@ -409,7 +431,7 @@ describe('ProofPipeline', () => {
 
       // Wait for job to be confirmed (auto-submit path)
       await pipeline.waitForConfirmation(taskPda, 5000);
-      expect(job.status).toBe('confirmed');
+      expect(job.status).toBe("confirmed");
 
       // Verify the graph ancestor check works
       const graph = createMockDependencyGraph([]);
@@ -417,8 +439,8 @@ describe('ProofPipeline', () => {
     });
   });
 
-  describe('private task handling', () => {
-    it('should use completeTaskPrivate for private tasks', async () => {
+  describe("private task handling", () => {
+    it("should use completeTaskPrivate for private tasks", async () => {
       const taskPda = Keypair.generate().publicKey;
       const privateResult = createPrivateResult();
 
@@ -431,20 +453,20 @@ describe('ProofPipeline', () => {
     });
   });
 
-  describe('retry logic', () => {
-    it('should retry on transient failure', async () => {
+  describe("retry logic", () => {
+    it("should retry on transient failure", async () => {
       // Fail twice, succeed on third attempt
       let attemptCount = 0;
       operations.completeTask.mockImplementation(async () => {
         attemptCount++;
         if (attemptCount < 3) {
-          throw new Error('Transient error');
+          throw new Error("Transient error");
         }
         return {
           success: true,
           taskId: new Uint8Array(32),
           isPrivate: false,
-          transactionSignature: 'complete-sig',
+          transactionSignature: "complete-sig",
         };
       });
 
@@ -463,16 +485,20 @@ describe('ProofPipeline', () => {
       );
 
       const taskPda = Keypair.generate().publicKey;
-      pipeline.enqueue(taskPda, new Uint8Array(32).fill(1), createPublicResult());
+      pipeline.enqueue(
+        taskPda,
+        new Uint8Array(32).fill(1),
+        createPublicResult(),
+      );
 
       const confirmedJob = await pipeline.waitForConfirmation(taskPda, 5000);
 
-      expect(confirmedJob.status).toBe('confirmed');
+      expect(confirmedJob.status).toBe("confirmed");
       expect(attemptCount).toBe(3);
     });
 
-    it('should fail after max retries exceeded', async () => {
-      operations.completeTask.mockRejectedValue(new Error('Permanent error'));
+    it("should fail after max retries exceeded", async () => {
+      operations.completeTask.mockRejectedValue(new Error("Permanent error"));
 
       pipeline = new ProofPipeline(
         {
@@ -499,14 +525,14 @@ describe('ProofPipeline', () => {
         /Permanent error/,
       );
 
-      expect(job.status).toBe('failed');
+      expect(job.status).toBe("failed");
       expect(job.retryCount).toBeGreaterThanOrEqual(2);
       expect(events.onProofFailed).toHaveBeenCalled();
     });
   });
 
-  describe('shutdown()', () => {
-    it('should complete in-flight generations before shutdown', async () => {
+  describe("shutdown()", () => {
+    it("should complete in-flight generations before shutdown", async () => {
       const taskPda = Keypair.generate().publicKey;
       const job = pipeline.enqueue(
         taskPda,
@@ -521,37 +547,47 @@ describe('ProofPipeline', () => {
       await shutdownPromise;
 
       // Job should have completed (confirmed or failed, not stuck in generating)
-      expect(['confirmed', 'failed']).toContain(job.status);
+      expect(["confirmed", "failed"]).toContain(job.status);
     });
 
-    it('should reject new enqueues after shutdown starts', async () => {
+    it("should reject new enqueues after shutdown starts", async () => {
       const shutdownPromise = pipeline.shutdown();
 
       const taskPda = Keypair.generate().publicKey;
 
       expect(() =>
-        pipeline.enqueue(taskPda, new Uint8Array(32).fill(1), createPublicResult()),
+        pipeline.enqueue(
+          taskPda,
+          new Uint8Array(32).fill(1),
+          createPublicResult(),
+        ),
       ).toThrow(/shutting down/);
 
       await shutdownPromise;
     });
 
-    it('should reject pending waiters on shutdown', async () => {
+    it("should reject pending waiters on shutdown", async () => {
       // Make completeTask hang but resolve on demand
       let resolveSubmit: () => void;
       operations.completeTask.mockImplementation(
-        () => new Promise((resolve) => {
-          resolveSubmit = () => resolve({
-            success: true,
-            taskId: new Uint8Array(32),
-            isPrivate: false,
-            transactionSignature: 'sig',
-          });
-        }),
+        () =>
+          new Promise((resolve) => {
+            resolveSubmit = () =>
+              resolve({
+                success: true,
+                taskId: new Uint8Array(32),
+                isPrivate: false,
+                transactionSignature: "sig",
+              });
+          }),
       );
 
       const taskPda = Keypair.generate().publicKey;
-      pipeline.enqueue(taskPda, new Uint8Array(32).fill(1), createPublicResult());
+      pipeline.enqueue(
+        taskPda,
+        new Uint8Array(32).fill(1),
+        createPublicResult(),
+      );
 
       // Give it time to start processing
       await new Promise((r) => setTimeout(r, 50));
@@ -561,26 +597,34 @@ describe('ProofPipeline', () => {
 
       // The wait should timeout
       await expect(waitPromise).rejects.toThrow(/Timeout/);
-      
+
       // Now resolve the pending submit so shutdown can complete
       resolveSubmit!();
-      
+
       // Start shutdown - should complete now
       await pipeline.shutdown();
     }, 5000);
   });
 
-  describe('custom ProofGenerator', () => {
-    it('should use custom proof generator when provided', async () => {
+  describe("custom ProofGenerator", () => {
+    it("should use custom proof generator when provided", async () => {
       const customGenerator: ProofGenerator = {
-        generatePublicProof: vi.fn().mockResolvedValue(new Uint8Array(32).fill(99)),
-        generatePrivateProof: vi.fn().mockResolvedValue(new Uint8Array(260).fill(99)),
+        generatePublicProof: vi
+          .fn()
+          .mockResolvedValue(new Uint8Array(32).fill(99)),
+        generatePrivateProof: vi
+          .fn()
+          .mockResolvedValue(new Uint8Array(260).fill(99)),
       };
 
       pipeline = new ProofPipeline(config, events, operations, customGenerator);
 
       const taskPda = Keypair.generate().publicKey;
-      pipeline.enqueue(taskPda, new Uint8Array(32).fill(1), createPublicResult());
+      pipeline.enqueue(
+        taskPda,
+        new Uint8Array(32).fill(1),
+        createPublicResult(),
+      );
 
       await pipeline.waitForConfirmation(taskPda, 5000);
 
@@ -589,10 +633,10 @@ describe('ProofPipeline', () => {
   });
 });
 
-describe('DefaultProofGenerator', () => {
+describe("DefaultProofGenerator", () => {
   const generator = new DefaultProofGenerator();
 
-  it('should return proofHash for public tasks', async () => {
+  it("should return proofHash for public tasks", async () => {
     const task = createTask();
     const result = createPublicResult();
 
@@ -601,7 +645,7 @@ describe('DefaultProofGenerator', () => {
     expect(proof).toEqual(result.proofHash);
   });
 
-  it('should return seal bytes for private tasks', async () => {
+  it("should return seal bytes for private tasks", async () => {
     const task = createTask({
       constraintHash: new Uint8Array(32).fill(1), // Non-zero = private
     });

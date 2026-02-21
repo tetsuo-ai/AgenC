@@ -1,4 +1,4 @@
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import {
   InMemoryAuditTrail,
   computeInputHash,
@@ -7,17 +7,17 @@ import {
   IncidentRoleViolationError,
   type IncidentCommandCategory,
   type OperatorRole,
-} from '@agenc/runtime';
-import { registerAgentTools } from './tools/agents.js';
-import { registerTaskTools } from './tools/tasks.js';
-import { registerProtocolTools } from './tools/protocol.js';
-import { registerDisputeTools } from './tools/disputes.js';
-import { registerConnectionTools } from './tools/connection.js';
-import { registerTestingTools } from './tools/testing.js';
-import { registerInspectorTools } from './tools/inspector.js';
-import { registerReplayTools } from './tools/replay.js';
-import { registerHumanFacingTools } from './tools/human-facing.js';
-import { registerPrompts } from './prompts/register.js';
+} from "@agenc/runtime";
+import { registerAgentTools } from "./tools/agents.js";
+import { registerTaskTools } from "./tools/tasks.js";
+import { registerProtocolTools } from "./tools/protocol.js";
+import { registerDisputeTools } from "./tools/disputes.js";
+import { registerConnectionTools } from "./tools/connection.js";
+import { registerTestingTools } from "./tools/testing.js";
+import { registerInspectorTools } from "./tools/inspector.js";
+import { registerReplayTools } from "./tools/replay.js";
+import { registerHumanFacingTools } from "./tools/human-facing.js";
+import { registerPrompts } from "./prompts/register.js";
 
 function parseOperatorRole(value: string | undefined): OperatorRole | null {
   if (!value) {
@@ -25,50 +25,64 @@ function parseOperatorRole(value: string | undefined): OperatorRole | null {
   }
 
   const normalized = value.trim().toLowerCase();
-  if (normalized === 'read' || normalized === 'investigate' || normalized === 'execute' || normalized === 'admin') {
+  if (
+    normalized === "read" ||
+    normalized === "investigate" ||
+    normalized === "execute" ||
+    normalized === "admin"
+  ) {
     return normalized;
   }
 
-  throw new Error(`MCP_OPERATOR_ROLE must be one of: read, investigate, execute, admin (got: ${value})`);
+  throw new Error(
+    `MCP_OPERATOR_ROLE must be one of: read, investigate, execute, admin (got: ${value})`,
+  );
 }
 
 function commandCategoryForTool(name: string): IncidentCommandCategory | null {
-  if (name === 'agenc_replay_backfill') return 'replay.backfill';
-  if (name === 'agenc_replay_compare') return 'replay.compare';
-  if (name === 'agenc_replay_incident') return 'replay.incident';
+  if (name === "agenc_replay_backfill") return "replay.backfill";
+  if (name === "agenc_replay_compare") return "replay.compare";
+  if (name === "agenc_replay_incident") return "replay.incident";
   return null;
 }
 
 function actorIdFromExtra(extra: unknown): string {
-  const record = extra as { authInfo?: { clientId?: string }; sessionId?: string } | null;
+  const record = extra as {
+    authInfo?: { clientId?: string };
+    sessionId?: string;
+  } | null;
   const clientId = record?.authInfo?.clientId;
-  if (typeof clientId === 'string' && clientId.length > 0) {
+  if (typeof clientId === "string" && clientId.length > 0) {
     return clientId;
   }
   const sessionId = record?.sessionId;
-  if (typeof sessionId === 'string' && sessionId.length > 0) {
+  if (typeof sessionId === "string" && sessionId.length > 0) {
     return `session:${sessionId}`;
   }
-  return 'anonymous';
+  return "anonymous";
 }
 
 export function createServer(): McpServer {
   const server = new McpServer({
-    name: 'AgenC Protocol Tools',
-    version: '0.1.0',
+    name: "AgenC Protocol Tools",
+    version: "0.1.0",
   });
 
   const operatorRole = parseOperatorRole(process.env.MCP_OPERATOR_ROLE);
   if (operatorRole) {
     const auditTrail = new InMemoryAuditTrail();
-    const originalTool = server.tool.bind(server) as (...args: unknown[]) => unknown;
+    const originalTool = server.tool.bind(server) as (
+      ...args: unknown[]
+    ) => unknown;
 
     // Wrap tool handlers for role enforcement + audit trail recording.
     // Opt-in: only enabled when MCP_OPERATOR_ROLE is set.
-    (server as unknown as { tool: (...args: unknown[]) => unknown }).tool = (...args: unknown[]) => {
+    (server as unknown as { tool: (...args: unknown[]) => unknown }).tool = (
+      ...args: unknown[]
+    ) => {
       const name = args[0];
       const handler = args[args.length - 1];
-      if (typeof name !== 'string' || typeof handler !== 'function') {
+      if (typeof name !== "string" || typeof handler !== "function") {
         return originalTool(...args);
       }
 
@@ -89,7 +103,9 @@ export function createServer(): McpServer {
         } catch (error) {
           if (error instanceof IncidentRoleViolationError) {
             const denied = {
-              content: [{ type: 'text' as const, text: `Error: ${error.message}` }],
+              content: [
+                { type: "text" as const, text: `Error: ${error.message}` },
+              ],
             };
             auditTrail.append({
               timestamp,
@@ -104,7 +120,9 @@ export function createServer(): McpServer {
           throw error;
         }
 
-        const result = await (handler as (...innerArgs: unknown[]) => unknown)(...handlerArgs);
+        const result = await (handler as (...innerArgs: unknown[]) => unknown)(
+          ...handlerArgs,
+        );
         auditTrail.append({
           timestamp,
           actor,
@@ -144,50 +162,58 @@ export function createServer(): McpServer {
 
 function registerResources(server: McpServer): void {
   server.resource(
-    'errorCodes',
-    'agenc://error-codes',
-    { description: 'Full AgenC error code reference (6000-6077)' },
+    "errorCodes",
+    "agenc://error-codes",
+    { description: "Full AgenC error code reference (6000-6077)" },
     async (uri) => ({
-      contents: [{
-        uri: uri.href,
-        text: ERROR_CODES_REFERENCE,
-      }],
+      contents: [
+        {
+          uri: uri.href,
+          text: ERROR_CODES_REFERENCE,
+        },
+      ],
     }),
   );
 
   server.resource(
-    'capabilities',
-    'agenc://capabilities',
-    { description: 'Agent capability bitmask reference' },
+    "capabilities",
+    "agenc://capabilities",
+    { description: "Agent capability bitmask reference" },
     async (uri) => ({
-      contents: [{
-        uri: uri.href,
-        text: CAPABILITIES_REFERENCE,
-      }],
+      contents: [
+        {
+          uri: uri.href,
+          text: CAPABILITIES_REFERENCE,
+        },
+      ],
     }),
   );
 
   server.resource(
-    'pdaSeeds',
-    'agenc://pda-seeds',
-    { description: 'PDA seed format reference for all account types' },
+    "pdaSeeds",
+    "agenc://pda-seeds",
+    { description: "PDA seed format reference for all account types" },
     async (uri) => ({
-      contents: [{
-        uri: uri.href,
-        text: PDA_SEEDS_REFERENCE,
-      }],
+      contents: [
+        {
+          uri: uri.href,
+          text: PDA_SEEDS_REFERENCE,
+        },
+      ],
     }),
   );
 
   server.resource(
-    'taskStates',
-    'agenc://task-states',
-    { description: 'Task state machine documentation' },
+    "taskStates",
+    "agenc://task-states",
+    { description: "Task state machine documentation" },
     async (uri) => ({
-      contents: [{
-        uri: uri.href,
-        text: TASK_STATES_REFERENCE,
-      }],
+      contents: [
+        {
+          uri: uri.href,
+          text: TASK_STATES_REFERENCE,
+        },
+      ],
     }),
   );
 }

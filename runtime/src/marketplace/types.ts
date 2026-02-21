@@ -14,9 +14,9 @@ import type {
   TaskBidSelection,
   TaskBidUpdateInput,
   WeightedScoringBreakdown,
-} from '@agenc/sdk';
+} from "@agenc/sdk";
 
-import type { TaskBidMarketplace } from './engine.js';
+import type { TaskBidMarketplace } from "./engine.js";
 
 export type {
   BidStatus,
@@ -31,7 +31,7 @@ export type {
   TaskBidBookState,
   WeightedScoringBreakdown,
   TaskBidSelection,
-} from '@agenc/sdk';
+} from "@agenc/sdk";
 
 export interface MarketplaceMutationInput {
   actorId: string;
@@ -86,7 +86,11 @@ export interface TaskBidMarketplaceConfig {
   antiSpam?: BidAntiSpamConfig;
   defaultPolicy?: MatchingPolicyConfig;
   now?: () => number;
-  bidIdGenerator?: (taskId: string, bidderId: string, sequence: number) => string;
+  bidIdGenerator?: (
+    taskId: string,
+    bidderId: string,
+    sequence: number,
+  ) => string;
   authorizedSelectorIds?: string[];
 }
 
@@ -110,14 +114,14 @@ export interface RankedTaskBid extends TaskBidSelection {
 // ---------------------------------------------------------------------------
 
 export type ServiceRequestStatus =
-  | 'open'
-  | 'bidding'
-  | 'awarded'
-  | 'active'
-  | 'completed'
-  | 'cancelled'
-  | 'disputed'
-  | 'resolved';
+  | "open"
+  | "bidding"
+  | "awarded"
+  | "active"
+  | "completed"
+  | "cancelled"
+  | "disputed"
+  | "resolved";
 
 export interface ServiceRequest {
   title: string;
@@ -145,7 +149,7 @@ export interface ServiceRequestRecord {
   awardedAgentId: string | null;
   completionProof: string | null;
   disputeReason: string | null;
-  disputeOutcome: 'refund' | 'pay_agent' | 'split' | null;
+  disputeOutcome: "refund" | "pay_agent" | "split" | null;
   createdAtMs: number;
   updatedAtMs: number;
   version: number;
@@ -160,7 +164,7 @@ export interface ServiceRequestSnapshot {
   awardedAgentId: string | null;
   completionProof: string | null;
   disputeReason: string | null;
-  disputeOutcome: 'refund' | 'pay_agent' | 'split' | null;
+  disputeOutcome: "refund" | "pay_agent" | "split" | null;
   activeBids: number;
   totalBids: number;
   version: number;
@@ -212,7 +216,7 @@ export interface DisputeServiceInput {
 export interface ResolveServiceDisputeInput {
   actorId: string;
   serviceId: string;
-  outcome: 'refund' | 'pay_agent' | 'split';
+  outcome: "refund" | "pay_agent" | "split";
 }
 
 export interface ListServiceRequestsInput {

@@ -12,28 +12,28 @@
  * @module
  */
 
-import type { MetricsProvider, TracingProvider, Span } from './types.js';
+import type { MetricsProvider, TracingProvider, Span } from "./types.js";
 
 // ============================================================================
 // Metric name constants (OpenTelemetry-compatible, agenc.task.* prefix)
 // ============================================================================
 
 export const METRIC_NAMES = {
-  CLAIM_DURATION: 'agenc.task.claim.duration_ms',
-  EXECUTE_DURATION: 'agenc.task.execute.duration_ms',
-  SUBMIT_DURATION: 'agenc.task.submit.duration_ms',
-  PIPELINE_DURATION: 'agenc.task.pipeline.duration_ms',
-  QUEUE_SIZE: 'agenc.task.queue.size',
-  ACTIVE_COUNT: 'agenc.task.active.count',
-  TASKS_DISCOVERED: 'agenc.task.discovered.count',
-  TASKS_CLAIMED: 'agenc.task.claimed.count',
-  TASKS_COMPLETED: 'agenc.task.completed.count',
-  TASKS_FAILED: 'agenc.task.failed.count',
-  CLAIMS_FAILED: 'agenc.task.claims_failed.count',
-  SUBMITS_FAILED: 'agenc.task.submits_failed.count',
-  CLAIMS_EXPIRED: 'agenc.task.claims_expired.count',
-  CLAIM_RETRIES: 'agenc.task.claim_retries.count',
-  SUBMIT_RETRIES: 'agenc.task.submit_retries.count',
+  CLAIM_DURATION: "agenc.task.claim.duration_ms",
+  EXECUTE_DURATION: "agenc.task.execute.duration_ms",
+  SUBMIT_DURATION: "agenc.task.submit.duration_ms",
+  PIPELINE_DURATION: "agenc.task.pipeline.duration_ms",
+  QUEUE_SIZE: "agenc.task.queue.size",
+  ACTIVE_COUNT: "agenc.task.active.count",
+  TASKS_DISCOVERED: "agenc.task.discovered.count",
+  TASKS_CLAIMED: "agenc.task.claimed.count",
+  TASKS_COMPLETED: "agenc.task.completed.count",
+  TASKS_FAILED: "agenc.task.failed.count",
+  CLAIMS_FAILED: "agenc.task.claims_failed.count",
+  SUBMITS_FAILED: "agenc.task.submits_failed.count",
+  CLAIMS_EXPIRED: "agenc.task.claims_expired.count",
+  CLAIM_RETRIES: "agenc.task.claim_retries.count",
+  SUBMIT_RETRIES: "agenc.task.submit_retries.count",
 } as const;
 
 // ============================================================================
@@ -77,11 +77,23 @@ export interface MetricsSnapshot {
  */
 export interface MetricsCollector extends MetricsProvider {
   /** Record a task duration for a specific pipeline stage. */
-  recordTaskDuration(stage: string, durationMs: number, labels?: Record<string, string>): void;
+  recordTaskDuration(
+    stage: string,
+    durationMs: number,
+    labels?: Record<string, string>,
+  ): void;
   /** Increment a named counter by an optional amount (default 1). */
-  incrementCounter(name: string, value?: number, labels?: Record<string, string>): void;
+  incrementCounter(
+    name: string,
+    value?: number,
+    labels?: Record<string, string>,
+  ): void;
   /** Record a histogram value for distribution tracking. */
-  recordHistogram(name: string, value: number, labels?: Record<string, string>): void;
+  recordHistogram(
+    name: string,
+    value: number,
+    labels?: Record<string, string>,
+  ): void;
   /** Get a point-in-time snapshot of all collected metrics. */
   getSnapshot(): MetricsSnapshot;
 }
@@ -119,7 +131,11 @@ export class DefaultMetricsCollector implements MetricsCollector {
     this.counters.set(name, current + value);
   }
 
-  histogram(name: string, value: number, labels?: Record<string, string>): void {
+  histogram(
+    name: string,
+    value: number,
+    labels?: Record<string, string>,
+  ): void {
     let entries = this.histograms.get(name);
     if (!entries) {
       entries = [];
@@ -132,15 +148,27 @@ export class DefaultMetricsCollector implements MetricsCollector {
     this.gauges.set(name, value);
   }
 
-  recordTaskDuration(stage: string, durationMs: number, labels?: Record<string, string>): void {
+  recordTaskDuration(
+    stage: string,
+    durationMs: number,
+    labels?: Record<string, string>,
+  ): void {
     this.histogram(`agenc.task.${stage}.duration_ms`, durationMs, labels);
   }
 
-  incrementCounter(name: string, value = 1, labels?: Record<string, string>): void {
+  incrementCounter(
+    name: string,
+    value = 1,
+    labels?: Record<string, string>,
+  ): void {
     this.counter(name, value, labels);
   }
 
-  recordHistogram(name: string, value: number, labels?: Record<string, string>): void {
+  recordHistogram(
+    name: string,
+    value: number,
+    labels?: Record<string, string>,
+  ): void {
     this.histogram(name, value, labels);
   }
 
@@ -178,10 +206,18 @@ export class DefaultMetricsCollector implements MetricsCollector {
  * Used as the default when no metrics provider is configured.
  */
 export class NoopMetrics implements MetricsProvider {
-  counter(_name: string, _value?: number, _labels?: Record<string, string>): void {
+  counter(
+    _name: string,
+    _value?: number,
+    _labels?: Record<string, string>,
+  ): void {
     // noop
   }
-  histogram(_name: string, _value: number, _labels?: Record<string, string>): void {
+  histogram(
+    _name: string,
+    _value: number,
+    _labels?: Record<string, string>,
+  ): void {
     // noop
   }
   gauge(_name: string, _value: number, _labels?: Record<string, string>): void {
@@ -200,7 +236,7 @@ export class NoopSpan implements Span {
   setAttribute(_key: string, _value: string | number): void {
     // noop
   }
-  setStatus(_status: 'ok' | 'error', _message?: string): void {
+  setStatus(_status: "ok" | "error", _message?: string): void {
     // noop
   }
   end(): void {

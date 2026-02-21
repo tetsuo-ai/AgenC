@@ -4,14 +4,14 @@
  * @module
  */
 
-import type { PublicKey } from '@solana/web3.js';
-import type { Logger } from '../utils/logger.js';
-import type { MetricsProvider } from '../task/types.js';
+import type { PublicKey } from "@solana/web3.js";
+import type { Logger } from "../utils/logger.js";
+import type { MetricsProvider } from "../task/types.js";
 
 // Re-export HashResult from SDK for convenience
-export type { HashResult } from '@agenc/sdk';
+export type { HashResult } from "@agenc/sdk";
 
-export type ProverBackend = 'deterministic-local' | 'local-binary' | 'remote';
+export type ProverBackend = "deterministic-local" | "local-binary" | "remote";
 
 export interface RouterConfig {
   /** Trusted verifier-router program id */

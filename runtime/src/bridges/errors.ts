@@ -6,7 +6,7 @@
  * @module
  */
 
-import { RuntimeError, RuntimeErrorCodes } from '../types/errors.js';
+import { RuntimeError, RuntimeErrorCodes } from "../types/errors.js";
 
 /**
  * Error thrown when a cross-protocol bridge operation fails.
@@ -22,7 +22,7 @@ export class BridgeError extends RuntimeError {
       `Bridge "${bridge}" error: ${reason}`,
       RuntimeErrorCodes.BRIDGE_ERROR,
     );
-    this.name = 'BridgeError';
+    this.name = "BridgeError";
     this.bridge = bridge;
     this.reason = reason;
   }
@@ -44,7 +44,7 @@ export class BridgePaymentError extends RuntimeError {
       `Payment to ${recipient} failed: ${reason}`,
       RuntimeErrorCodes.BRIDGE_PAYMENT_ERROR,
     );
-    this.name = 'BridgePaymentError';
+    this.name = "BridgePaymentError";
     this.recipient = recipient;
     this.amountLamports = amountLamports;
     this.reason = reason;

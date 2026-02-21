@@ -7,13 +7,16 @@
  * @module
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { Keypair, PublicKey } from '@solana/web3.js';
-import { randomBytes } from 'crypto';
-import { DependencyGraph } from './dependency-graph.js';
-import { CommitmentLedger } from './commitment-ledger.js';
-import { RollbackController, type RollbackEvents } from './rollback-controller.js';
-import type { OnChainTask } from './types.js';
+import { describe, it, expect, beforeEach, vi } from "vitest";
+import { Keypair, PublicKey } from "@solana/web3.js";
+import { randomBytes } from "crypto";
+import { DependencyGraph } from "./dependency-graph.js";
+import { CommitmentLedger } from "./commitment-ledger.js";
+import {
+  RollbackController,
+  type RollbackEvents,
+} from "./rollback-controller.js";
+import type { OnChainTask } from "./types.js";
 
 // ============================================================================
 // Test Utilities
@@ -84,7 +87,7 @@ class SeededRandom {
 // Test Suite
 // ============================================================================
 
-describe('Speculation Chaos Tests', () => {
+describe("Speculation Chaos Tests", () => {
   let dependencyGraph: DependencyGraph;
   let commitmentLedger: CommitmentLedger;
   let controller: RollbackController;
@@ -102,12 +105,12 @@ describe('Speculation Chaos Tests', () => {
       { enableEvents: true },
       dependencyGraph,
       commitmentLedger,
-      events
+      events,
     );
   });
 
-  describe('Random Failures', () => {
-    it('should handle random proof failures gracefully', async () => {
+  describe("Random Failures", () => {
+    it("should handle random proof failures gracefully", async () => {
       const rng = new SeededRandom(12345);
       const producerAgent = createTaskPda();
 
@@ -129,19 +132,27 @@ describe('Speculation Chaos Tests', () => {
 
         // Create commitment with random stake
         const stake = BigInt(rng.nextInt(100, 10000));
-        commitmentLedger.createCommitment(pda, task.taskId, randomBytes(32), producerAgent, stake);
+        commitmentLedger.createCommitment(
+          pda,
+          task.taskId,
+          randomBytes(32),
+          producerAgent,
+          stake,
+        );
       }
 
       // Randomly fail 3 proofs
       const failureIndices = rng.shuffle([...Array(10).keys()]).slice(0, 3);
 
       for (const idx of failureIndices) {
-        const result = await controller.rollback(pdas[idx], 'proof_failed');
+        const result = await controller.rollback(pdas[idx], "proof_failed");
 
         // Verify all descendants were rolled back
         const expectedDescendants = 10 - idx - 1;
         // May be fewer if some were already rolled back
-        expect(result.rolledBackTasks.length).toBeLessThanOrEqual(expectedDescendants);
+        expect(result.rolledBackTasks.length).toBeLessThanOrEqual(
+          expectedDescendants,
+        );
 
         // Verify the root is marked rolled back
         expect(controller.isRolledBack(pdas[idx])).toBe(true);
@@ -152,7 +163,7 @@ describe('Speculation Chaos Tests', () => {
       expect(stats.totalRollbacks).toBe(3);
     });
 
-    it('should maintain consistency under concurrent-like failures', async () => {
+    it("should maintain consistency under concurrent-like failures", async () => {
       const rng = new SeededRandom(54321);
       const producerAgent = createTaskPda();
 
@@ -173,7 +184,13 @@ describe('Speculation Chaos Tests', () => {
           }
 
           const stake = BigInt(rng.nextInt(100, 1000));
-          commitmentLedger.createCommitment(pda, task.taskId, randomBytes(32), producerAgent, stake);
+          commitmentLedger.createCommitment(
+            pda,
+            task.taskId,
+            randomBytes(32),
+            producerAgent,
+            stake,
+          );
         }
         chains.push(chain);
       }
@@ -189,7 +206,7 @@ describe('Speculation Chaos Tests', () => {
 
       for (const failure of failures) {
         const pda = chains[failure.chainIdx][failure.taskIdx];
-        await controller.rollback(pda, 'proof_failed');
+        await controller.rollback(pda, "proof_failed");
       }
 
       // Verify each chain's rollback state is consistent
@@ -208,7 +225,7 @@ describe('Speculation Chaos Tests', () => {
       }
     });
 
-    it('should handle rapid sequential rollbacks without corruption', async () => {
+    it("should handle rapid sequential rollbacks without corruption", async () => {
       const rng = new SeededRandom(98765);
       const producerAgent = createTaskPda();
 
@@ -216,7 +233,13 @@ describe('Speculation Chaos Tests', () => {
       const rootPda = createTaskPda();
       const rootTask = createMockTask();
       dependencyGraph.addTask(rootTask, rootPda);
-      commitmentLedger.createCommitment(rootPda, rootTask.taskId, randomBytes(32), producerAgent, 1000n);
+      commitmentLedger.createCommitment(
+        rootPda,
+        rootTask.taskId,
+        randomBytes(32),
+        producerAgent,
+        1000n,
+      );
 
       const childPdas: PublicKey[] = [];
       for (let i = 0; i < 50; i++) {
@@ -224,17 +247,23 @@ describe('Speculation Chaos Tests', () => {
         const task = createMockTask();
         childPdas.push(pda);
         dependencyGraph.addTaskWithParent(task, pda, rootPda);
-        commitmentLedger.createCommitment(pda, task.taskId, randomBytes(32), producerAgent, BigInt(rng.nextInt(100, 500)));
+        commitmentLedger.createCommitment(
+          pda,
+          task.taskId,
+          randomBytes(32),
+          producerAgent,
+          BigInt(rng.nextInt(100, 500)),
+        );
       }
 
       // Rapidly roll back random children
       const shuffledChildren = rng.shuffle(childPdas).slice(0, 25);
       for (const childPda of shuffledChildren) {
-        await controller.rollback(childPda, 'proof_failed');
+        await controller.rollback(childPda, "proof_failed");
       }
 
       // Now roll back root - should cascade to remaining children
-      const result = await controller.rollback(rootPda, 'proof_failed');
+      const result = await controller.rollback(rootPda, "proof_failed");
 
       // All children should be rolled back now
       for (const childPda of childPdas) {
@@ -247,8 +276,8 @@ describe('Speculation Chaos Tests', () => {
     });
   });
 
-  describe('Cascade Stress', () => {
-    it('should handle deep cascade rollback (depth 50)', async () => {
+  describe("Cascade Stress", () => {
+    it("should handle deep cascade rollback (depth 50)", async () => {
       const producerAgent = createTaskPda();
 
       // Create deep chain of 50 tasks
@@ -265,7 +294,13 @@ describe('Speculation Chaos Tests', () => {
           dependencyGraph.addTaskWithParent(task, pda, pdas[i - 1]);
         }
 
-        commitmentLedger.createCommitment(pda, task.taskId, randomBytes(32), producerAgent, 100n);
+        commitmentLedger.createCommitment(
+          pda,
+          task.taskId,
+          randomBytes(32),
+          producerAgent,
+          100n,
+        );
       }
 
       // Register some tasks as actively executing
@@ -277,7 +312,7 @@ describe('Speculation Chaos Tests', () => {
       }
 
       // Fail root - verify all cascade
-      const result = await controller.rollback(pdas[0], 'proof_failed');
+      const result = await controller.rollback(pdas[0], "proof_failed");
 
       // Should rollback all 49 descendants
       expect(result.rolledBackTasks.length).toBe(49);
@@ -295,18 +330,24 @@ describe('Speculation Chaos Tests', () => {
       // Graph should show all tasks as failed
       for (const pda of pdas) {
         const node = dependencyGraph.getNode(pda);
-        expect(node?.status).toBe('failed');
+        expect(node?.status).toBe("failed");
       }
     });
 
-    it('should handle wide cascade rollback (1 parent, 100 children)', async () => {
+    it("should handle wide cascade rollback (1 parent, 100 children)", async () => {
       const producerAgent = createTaskPda();
 
       // Create root
       const rootPda = createTaskPda();
       const rootTask = createMockTask();
       dependencyGraph.addTask(rootTask, rootPda);
-      commitmentLedger.createCommitment(rootPda, rootTask.taskId, randomBytes(32), producerAgent, 10000n);
+      commitmentLedger.createCommitment(
+        rootPda,
+        rootTask.taskId,
+        randomBytes(32),
+        producerAgent,
+        10000n,
+      );
 
       // Create 100 children
       const childPdas: PublicKey[] = [];
@@ -315,11 +356,17 @@ describe('Speculation Chaos Tests', () => {
         const task = createMockTask();
         childPdas.push(pda);
         dependencyGraph.addTaskWithParent(task, pda, rootPda);
-        commitmentLedger.createCommitment(pda, task.taskId, randomBytes(32), producerAgent, BigInt(i + 1));
+        commitmentLedger.createCommitment(
+          pda,
+          task.taskId,
+          randomBytes(32),
+          producerAgent,
+          BigInt(i + 1),
+        );
       }
 
       // Fail parent - verify all children rolled back
-      const result = await controller.rollback(rootPda, 'proof_failed');
+      const result = await controller.rollback(rootPda, "proof_failed");
 
       expect(result.rolledBackTasks.length).toBe(100);
 
@@ -331,11 +378,11 @@ describe('Speculation Chaos Tests', () => {
       for (const childPda of childPdas) {
         expect(controller.isRolledBack(childPda)).toBe(true);
         const commitment = commitmentLedger.getByTask(childPda);
-        expect(commitment?.status).toBe('rolled_back');
+        expect(commitment?.status).toBe("rolled_back");
       }
     });
 
-    it('should handle diamond dependency pattern', async () => {
+    it("should handle diamond dependency pattern", async () => {
       const producerAgent = createTaskPda();
 
       // Create diamond: A -> B, A -> C, B -> D, C depends on B implicitly via shared ancestor
@@ -365,11 +412,17 @@ describe('Speculation Chaos Tests', () => {
         [pdaC, taskC, 500n],
         [pdaD, taskD, 250n],
       ] as const) {
-        commitmentLedger.createCommitment(pda, task.taskId, randomBytes(32), producerAgent, stake);
+        commitmentLedger.createCommitment(
+          pda,
+          task.taskId,
+          randomBytes(32),
+          producerAgent,
+          stake,
+        );
       }
 
       // Fail A - should cascade to B, C, D
-      const result = await controller.rollback(pdaA, 'proof_failed');
+      const result = await controller.rollback(pdaA, "proof_failed");
 
       expect(result.rolledBackTasks.length).toBe(3);
       expect(controller.isRolledBack(pdaA)).toBe(true);
@@ -381,7 +434,7 @@ describe('Speculation Chaos Tests', () => {
       expect(result.stakeAtRisk).toBe(1250n);
     });
 
-    it('should handle mixed depth tree with varying branch factors', async () => {
+    it("should handle mixed depth tree with varying branch factors", async () => {
       const rng = new SeededRandom(11111);
       const producerAgent = createTaskPda();
 
@@ -390,7 +443,13 @@ describe('Speculation Chaos Tests', () => {
       const rootPda = createTaskPda();
       const rootTask = createMockTask();
       dependencyGraph.addTask(rootTask, rootPda);
-      commitmentLedger.createCommitment(rootPda, rootTask.taskId, randomBytes(32), producerAgent, 1000n);
+      commitmentLedger.createCommitment(
+        rootPda,
+        rootTask.taskId,
+        randomBytes(32),
+        producerAgent,
+        1000n,
+      );
       allPdas.push(rootPda);
 
       // BFS to build tree with random branch factors
@@ -406,7 +465,13 @@ describe('Speculation Chaos Tests', () => {
           const childPda = createTaskPda();
           const childTask = createMockTask();
           dependencyGraph.addTaskWithParent(childTask, childPda, parentPda);
-          commitmentLedger.createCommitment(childPda, childTask.taskId, randomBytes(32), producerAgent, BigInt(rng.nextInt(10, 100)));
+          commitmentLedger.createCommitment(
+            childPda,
+            childTask.taskId,
+            randomBytes(32),
+            producerAgent,
+            BigInt(rng.nextInt(10, 100)),
+          );
           allPdas.push(childPda);
           queue.push(childPda);
           totalTasks++;
@@ -414,7 +479,7 @@ describe('Speculation Chaos Tests', () => {
       }
 
       // Fail the root
-      const result = await controller.rollback(rootPda, 'proof_failed');
+      const result = await controller.rollback(rootPda, "proof_failed");
 
       // All descendants should be rolled back
       expect(result.rolledBackTasks.length).toBe(allPdas.length - 1);
@@ -425,8 +490,8 @@ describe('Speculation Chaos Tests', () => {
     });
   });
 
-  describe('Invariants', () => {
-    it('should never have orphaned commitments after rollback', async () => {
+  describe("Invariants", () => {
+    it("should never have orphaned commitments after rollback", async () => {
       const rng = new SeededRandom(22222);
       const producerAgent = createTaskPda();
 
@@ -444,11 +509,17 @@ describe('Speculation Chaos Tests', () => {
           dependencyGraph.addTaskWithParent(task, pda, pdas[i - 1]);
         }
 
-        commitmentLedger.createCommitment(pda, task.taskId, randomBytes(32), producerAgent, BigInt(rng.nextInt(100, 1000)));
+        commitmentLedger.createCommitment(
+          pda,
+          task.taskId,
+          randomBytes(32),
+          producerAgent,
+          BigInt(rng.nextInt(100, 1000)),
+        );
       }
 
       // Fail at middle
-      await controller.rollback(pdas[10], 'proof_failed');
+      await controller.rollback(pdas[10], "proof_failed");
 
       // Check for orphaned commitments - all rolled back commitments should have matching graph status
       for (let i = 10; i < 20; i++) {
@@ -457,8 +528,8 @@ describe('Speculation Chaos Tests', () => {
 
         if (commitment) {
           // If commitment is rolled_back, node should be failed
-          if (commitment.status === 'rolled_back') {
-            expect(node?.status).toBe('failed');
+          if (commitment.status === "rolled_back") {
+            expect(node?.status).toBe("failed");
           }
         }
       }
@@ -466,19 +537,25 @@ describe('Speculation Chaos Tests', () => {
       // Upstream tasks should not be affected
       for (let i = 0; i < 10; i++) {
         const commitment = commitmentLedger.getByTask(pdas[i]);
-        expect(commitment?.status).not.toBe('rolled_back');
+        expect(commitment?.status).not.toBe("rolled_back");
         expect(controller.isRolledBack(pdas[i])).toBe(false);
       }
     });
 
-    it('should maintain consistent stake accounting', async () => {
+    it("should maintain consistent stake accounting", async () => {
       const producerAgent = createTaskPda();
 
       // Create tree with known stake values
       const rootPda = createTaskPda();
       const rootTask = createMockTask();
       dependencyGraph.addTask(rootTask, rootPda);
-      commitmentLedger.createCommitment(rootPda, rootTask.taskId, randomBytes(32), producerAgent, 1000n);
+      commitmentLedger.createCommitment(
+        rootPda,
+        rootTask.taskId,
+        randomBytes(32),
+        producerAgent,
+        1000n,
+      );
 
       let totalChildStake = 0n;
       const childPdas: PublicKey[] = [];
@@ -491,10 +568,16 @@ describe('Speculation Chaos Tests', () => {
 
         childPdas.push(childPda);
         dependencyGraph.addTaskWithParent(childTask, childPda, rootPda);
-        commitmentLedger.createCommitment(childPda, childTask.taskId, randomBytes(32), producerAgent, stake);
+        commitmentLedger.createCommitment(
+          childPda,
+          childTask.taskId,
+          randomBytes(32),
+          producerAgent,
+          stake,
+        );
       }
 
-      const result = await controller.rollback(rootPda, 'proof_failed');
+      const result = await controller.rollback(rootPda, "proof_failed");
 
       // Total stake at risk should match sum of child stakes
       expect(result.stakeAtRisk).toBe(totalChildStake);
@@ -504,7 +587,7 @@ describe('Speculation Chaos Tests', () => {
       expect(stats.totalStakeLost).toBe(totalChildStake);
     });
 
-    it('should maintain idempotency under repeated rollback attempts', async () => {
+    it("should maintain idempotency under repeated rollback attempts", async () => {
       const producerAgent = createTaskPda();
 
       // Create a simple chain
@@ -520,13 +603,19 @@ describe('Speculation Chaos Tests', () => {
           dependencyGraph.addTaskWithParent(task, pda, pdas[i - 1]);
         }
 
-        commitmentLedger.createCommitment(pda, task.taskId, randomBytes(32), producerAgent, 100n);
+        commitmentLedger.createCommitment(
+          pda,
+          task.taskId,
+          randomBytes(32),
+          producerAgent,
+          100n,
+        );
       }
 
       // Roll back the same task multiple times
-      const result1 = await controller.rollback(pdas[0], 'proof_failed');
-      const result2 = await controller.rollback(pdas[0], 'proof_failed');
-      const result3 = await controller.rollback(pdas[0], 'proof_timeout');
+      const result1 = await controller.rollback(pdas[0], "proof_failed");
+      const result2 = await controller.rollback(pdas[0], "proof_failed");
+      const result3 = await controller.rollback(pdas[0], "proof_timeout");
 
       // All results should be the same object (cached)
       expect(result1).toBe(result2);
@@ -537,7 +626,7 @@ describe('Speculation Chaos Tests', () => {
       expect(stats.totalRollbacks).toBe(1);
     });
 
-    it('should preserve graph structure after rollback', async () => {
+    it("should preserve graph structure after rollback", async () => {
       const producerAgent = createTaskPda();
 
       // Create a chain
@@ -553,38 +642,48 @@ describe('Speculation Chaos Tests', () => {
           dependencyGraph.addTaskWithParent(task, pda, pdas[i - 1]);
         }
 
-        commitmentLedger.createCommitment(pda, task.taskId, randomBytes(32), producerAgent, 100n);
+        commitmentLedger.createCommitment(
+          pda,
+          task.taskId,
+          randomBytes(32),
+          producerAgent,
+          100n,
+        );
       }
 
       // Capture structure before rollback
       const depthsBefore = pdas.map((pda) => dependencyGraph.getDepth(pda));
-      const parentsBefore = pdas.map((pda) => dependencyGraph.getParent(pda)?.taskPda.toBase58() ?? null);
+      const parentsBefore = pdas.map(
+        (pda) => dependencyGraph.getParent(pda)?.taskPda.toBase58() ?? null,
+      );
 
       // Roll back from middle
-      await controller.rollback(pdas[5], 'proof_failed');
+      await controller.rollback(pdas[5], "proof_failed");
 
       // Verify structure is preserved (only status changes)
       const depthsAfter = pdas.map((pda) => dependencyGraph.getDepth(pda));
-      const parentsAfter = pdas.map((pda) => dependencyGraph.getParent(pda)?.taskPda.toBase58() ?? null);
+      const parentsAfter = pdas.map(
+        (pda) => dependencyGraph.getParent(pda)?.taskPda.toBase58() ?? null,
+      );
 
       expect(depthsAfter).toEqual(depthsBefore);
       expect(parentsAfter).toEqual(parentsBefore);
     });
 
-    it('should handle empty graph gracefully', async () => {
+    it("should handle empty graph gracefully", async () => {
       // Try to rollback a non-existent task
       const fakePda = createTaskPda();
 
       // Should not throw, but result won't have descendants
-      const result = await controller.rollback(fakePda, 'proof_failed');
+      const result = await controller.rollback(fakePda, "proof_failed");
 
       expect(result.rolledBackTasks).toHaveLength(0);
       expect(controller.isRolledBack(fakePda)).toBe(true);
     });
   });
 
-  describe('Fuzz Testing', () => {
-    it('should survive 1000 random operations without crashing', async () => {
+  describe("Fuzz Testing", () => {
+    it("should survive 1000 random operations without crashing", async () => {
       const rng = new SeededRandom(99999);
       const producerAgent = createTaskPda();
       const allPdas: PublicKey[] = [];
@@ -606,7 +705,11 @@ describe('Speculation Chaos Tests', () => {
               // Add with random parent
               const parentIdx = rng.nextInt(0, allPdas.length - 1);
               try {
-                dependencyGraph.addTaskWithParent(task, pda, allPdas[parentIdx]);
+                dependencyGraph.addTaskWithParent(
+                  task,
+                  pda,
+                  allPdas[parentIdx],
+                );
               } catch {
                 // Parent might not exist anymore, ignore
                 continue;
@@ -618,7 +721,7 @@ describe('Speculation Chaos Tests', () => {
               task.taskId,
               randomBytes(32),
               producerAgent,
-              BigInt(rng.nextInt(1, 1000))
+              BigInt(rng.nextInt(1, 1000)),
             );
             allPdas.push(pda);
             break;
@@ -638,7 +741,12 @@ describe('Speculation Chaos Tests', () => {
             // Trigger rollback
             if (allPdas.length > 0) {
               const idx = rng.nextInt(0, allPdas.length - 1);
-              const reasons = ['proof_failed', 'proof_timeout', 'ancestor_failed', 'manual'] as const;
+              const reasons = [
+                "proof_failed",
+                "proof_timeout",
+                "ancestor_failed",
+                "manual",
+              ] as const;
               const reason = reasons[rng.nextInt(0, 3)];
               await controller.rollback(allPdas[idx], reason);
             }
@@ -673,20 +781,26 @@ describe('Speculation Chaos Tests', () => {
           const node = dependencyGraph.getNode(pda);
           // Node might not exist if graph was modified, but if it exists, status should be failed
           if (node) {
-            expect(node.status).toBe('failed');
+            expect(node.status).toBe("failed");
           }
         }
       }
     });
 
-    it('should handle pathological case: all tasks depend on one root', async () => {
+    it("should handle pathological case: all tasks depend on one root", async () => {
       const producerAgent = createTaskPda();
 
       // Create star topology: 1 root, 500 children
       const rootPda = createTaskPda();
       const rootTask = createMockTask();
       dependencyGraph.addTask(rootTask, rootPda);
-      commitmentLedger.createCommitment(rootPda, rootTask.taskId, randomBytes(32), producerAgent, 10000n);
+      commitmentLedger.createCommitment(
+        rootPda,
+        rootTask.taskId,
+        randomBytes(32),
+        producerAgent,
+        10000n,
+      );
 
       const childPdas: PublicKey[] = [];
       for (let i = 0; i < 500; i++) {
@@ -694,12 +808,18 @@ describe('Speculation Chaos Tests', () => {
         const childTask = createMockTask();
         childPdas.push(childPda);
         dependencyGraph.addTaskWithParent(childTask, childPda, rootPda);
-        commitmentLedger.createCommitment(childPda, childTask.taskId, randomBytes(32), producerAgent, 10n);
+        commitmentLedger.createCommitment(
+          childPda,
+          childTask.taskId,
+          randomBytes(32),
+          producerAgent,
+          10n,
+        );
       }
 
       // Time the rollback
       const start = performance.now();
-      const result = await controller.rollback(rootPda, 'proof_failed');
+      const result = await controller.rollback(rootPda, "proof_failed");
       const elapsed = performance.now() - start;
 
       // Should complete in reasonable time (< 1 second)
@@ -710,7 +830,7 @@ describe('Speculation Chaos Tests', () => {
       expect(result.stakeAtRisk).toBe(5000n);
     });
 
-    it('should handle pathological case: linear chain of 100 tasks', async () => {
+    it("should handle pathological case: linear chain of 100 tasks", async () => {
       const producerAgent = createTaskPda();
 
       // Create linear chain: T0 -> T1 -> T2 -> ... -> T99
@@ -727,12 +847,18 @@ describe('Speculation Chaos Tests', () => {
           dependencyGraph.addTaskWithParent(task, pda, pdas[i - 1]);
         }
 
-        commitmentLedger.createCommitment(pda, task.taskId, randomBytes(32), producerAgent, 100n);
+        commitmentLedger.createCommitment(
+          pda,
+          task.taskId,
+          randomBytes(32),
+          producerAgent,
+          100n,
+        );
       }
 
       // Time the rollback from root
       const start = performance.now();
-      const result = await controller.rollback(pdas[0], 'proof_failed');
+      const result = await controller.rollback(pdas[0], "proof_failed");
       const elapsed = performance.now() - start;
 
       // Should complete quickly
@@ -746,8 +872,8 @@ describe('Speculation Chaos Tests', () => {
     });
   });
 
-  describe('Edge Cases', () => {
-    it('should handle rollback when commitment status is already terminal', async () => {
+  describe("Edge Cases", () => {
+    it("should handle rollback when commitment status is already terminal", async () => {
       const producerAgent = createTaskPda();
 
       const rootPda = createTaskPda();
@@ -759,20 +885,32 @@ describe('Speculation Chaos Tests', () => {
       dependencyGraph.addTask(rootTask, rootPda);
       dependencyGraph.addTaskWithParent(childTask, childPda, rootPda);
 
-      commitmentLedger.createCommitment(rootPda, rootTask.taskId, randomBytes(32), producerAgent, 1000n);
-      commitmentLedger.createCommitment(childPda, childTask.taskId, randomBytes(32), producerAgent, 500n);
+      commitmentLedger.createCommitment(
+        rootPda,
+        rootTask.taskId,
+        randomBytes(32),
+        producerAgent,
+        1000n,
+      );
+      commitmentLedger.createCommitment(
+        childPda,
+        childTask.taskId,
+        randomBytes(32),
+        producerAgent,
+        500n,
+      );
 
       // Set child to confirmed status
-      commitmentLedger.updateStatus(childPda, 'confirmed');
+      commitmentLedger.updateStatus(childPda, "confirmed");
 
       // Rolling back root should still work
-      const result = await controller.rollback(rootPda, 'proof_failed');
+      const result = await controller.rollback(rootPda, "proof_failed");
 
       // Child should still be tracked as rolled back by controller
       expect(result.rolledBackTasks.length).toBe(1);
     });
 
-    it('should handle abort controller that is already aborted', async () => {
+    it("should handle abort controller that is already aborted", async () => {
       const producerAgent = createTaskPda();
 
       const rootPda = createTaskPda();
@@ -784,7 +922,13 @@ describe('Speculation Chaos Tests', () => {
       dependencyGraph.addTask(rootTask, rootPda);
       dependencyGraph.addTaskWithParent(childTask, childPda, rootPda);
 
-      commitmentLedger.createCommitment(childPda, childTask.taskId, randomBytes(32), producerAgent, 500n);
+      commitmentLedger.createCommitment(
+        childPda,
+        childTask.taskId,
+        randomBytes(32),
+        producerAgent,
+        500n,
+      );
 
       // Pre-abort the controller
       const ac = new AbortController();
@@ -792,13 +936,13 @@ describe('Speculation Chaos Tests', () => {
       controller.registerActiveTask(childPda, ac);
 
       // Rollback should still work
-      const result = await controller.rollback(rootPda, 'proof_failed');
+      const result = await controller.rollback(rootPda, "proof_failed");
 
       expect(result.rolledBackTasks.length).toBe(1);
       expect(ac.signal.aborted).toBe(true);
     });
 
-    it('should handle multiple roots with overlapping descendants', async () => {
+    it("should handle multiple roots with overlapping descendants", async () => {
       const producerAgent = createTaskPda();
 
       // Create two separate roots
@@ -828,12 +972,24 @@ describe('Speculation Chaos Tests', () => {
         dependencyGraph.addTaskWithParent(child1Task, child1Pda, root1Pda);
         dependencyGraph.addTaskWithParent(child2Task, child2Pda, root2Pda);
 
-        commitmentLedger.createCommitment(child1Pda, child1Task.taskId, randomBytes(32), producerAgent, 100n);
-        commitmentLedger.createCommitment(child2Pda, child2Task.taskId, randomBytes(32), producerAgent, 100n);
+        commitmentLedger.createCommitment(
+          child1Pda,
+          child1Task.taskId,
+          randomBytes(32),
+          producerAgent,
+          100n,
+        );
+        commitmentLedger.createCommitment(
+          child2Pda,
+          child2Task.taskId,
+          randomBytes(32),
+          producerAgent,
+          100n,
+        );
       }
 
       // Rollback root1
-      const result1 = await controller.rollback(root1Pda, 'proof_failed');
+      const result1 = await controller.rollback(root1Pda, "proof_failed");
 
       // Only root1's children should be rolled back
       expect(result1.rolledBackTasks.length).toBe(5);

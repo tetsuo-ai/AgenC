@@ -4,7 +4,7 @@
  * @module
  */
 
-import { TELEMETRY_METRIC_NAMES } from '../telemetry/metric-names.js';
+import { TELEMETRY_METRIC_NAMES } from "../telemetry/metric-names.js";
 import type {
   CircuitBreakerMode,
   PolicyAction,
@@ -13,9 +13,9 @@ import type {
   PolicyEngineState,
   PolicyViolation,
   RuntimePolicyConfig,
-} from './types.js';
-import { PolicyViolationError } from './types.js';
-import { silentLogger } from '../utils/logger.js';
+} from "./types.js";
+import { PolicyViolationError } from "./types.js";
+import { silentLogger } from "../utils/logger.js";
 
 const DEFAULT_POLICY: RuntimePolicyConfig = {
   enabled: false,
@@ -23,7 +23,7 @@ const DEFAULT_POLICY: RuntimePolicyConfig = {
 
 export class PolicyEngine {
   private policy: RuntimePolicyConfig;
-  private mode: CircuitBreakerMode = 'normal';
+  private mode: CircuitBreakerMode = "normal";
   private circuitBreakerReason?: string;
   private trippedAtMs?: number;
 
@@ -52,14 +52,17 @@ export class PolicyEngine {
     this.policy = { ...DEFAULT_POLICY, ...policy };
   }
 
-  setMode(mode: Exclude<CircuitBreakerMode, 'normal'>, reason = 'manual'): void {
+  setMode(
+    mode: Exclude<CircuitBreakerMode, "normal">,
+    reason = "manual",
+  ): void {
     this.mode = mode;
     this.circuitBreakerReason = reason;
     this.trippedAtMs = this.now();
   }
 
   clearMode(): void {
-    this.mode = 'normal';
+    this.mode = "normal";
     this.circuitBreakerReason = undefined;
     this.trippedAtMs = undefined;
   }
@@ -106,7 +109,7 @@ export class PolicyEngine {
       this.maybeAutoTripCircuitBreaker();
     } else {
       this.metrics?.counter(TELEMETRY_METRIC_NAMES.POLICY_DECISIONS_TOTAL, 1, {
-        outcome: 'allow',
+        outcome: "allow",
         action_type: action.type,
       });
     }
@@ -126,31 +129,31 @@ export class PolicyEngine {
   }
 
   private checkCircuitMode(action: PolicyAction): PolicyViolation | null {
-    if (this.mode === 'normal') {
+    if (this.mode === "normal") {
       return null;
     }
 
-    if (this.mode === 'pause_discovery' && action.type === 'task_discovery') {
+    if (this.mode === "pause_discovery" && action.type === "task_discovery") {
       return this.buildViolation(
-        'circuit_breaker_active',
+        "circuit_breaker_active",
         action,
-        'Discovery is paused by circuit breaker',
+        "Discovery is paused by circuit breaker",
       );
     }
 
-    if (this.mode === 'halt_submissions' && action.type === 'tx_submission') {
+    if (this.mode === "halt_submissions" && action.type === "tx_submission") {
       return this.buildViolation(
-        'circuit_breaker_active',
+        "circuit_breaker_active",
         action,
-        'Submissions are halted by circuit breaker',
+        "Submissions are halted by circuit breaker",
       );
     }
 
-    if (this.mode === 'safe_mode' && action.access === 'write') {
+    if (this.mode === "safe_mode" && action.access === "write") {
       return this.buildViolation(
-        'circuit_breaker_active',
+        "circuit_breaker_active",
         action,
-        'Safe mode blocks write actions',
+        "Safe mode blocks write actions",
       );
     }
 
@@ -158,13 +161,13 @@ export class PolicyEngine {
   }
 
   private checkToolRules(action: PolicyAction): PolicyViolation | null {
-    if (action.type !== 'tool_call') {
+    if (action.type !== "tool_call") {
       return null;
     }
 
     if (this.policy.toolDenyList?.includes(action.name)) {
       return this.buildViolation(
-        'tool_denied',
+        "tool_denied",
         action,
         `Tool "${action.name}" is denied by policy`,
       );
@@ -173,7 +176,7 @@ export class PolicyEngine {
     const allowList = this.policy.toolAllowList;
     if (allowList && allowList.length > 0 && !allowList.includes(action.name)) {
       return this.buildViolation(
-        'tool_denied',
+        "tool_denied",
         action,
         `Tool "${action.name}" is not in allow-list`,
       );
@@ -185,16 +188,20 @@ export class PolicyEngine {
   private checkActionRules(action: PolicyAction): PolicyViolation | null {
     if (this.policy.denyActions?.includes(action.name)) {
       return this.buildViolation(
-        'action_denied',
+        "action_denied",
         action,
         `Action "${action.name}" is denied by policy`,
       );
     }
 
     const allowActions = this.policy.allowActions;
-    if (allowActions && allowActions.length > 0 && !allowActions.includes(action.name)) {
+    if (
+      allowActions &&
+      allowActions.length > 0 &&
+      !allowActions.includes(action.name)
+    ) {
       return this.buildViolation(
-        'action_denied',
+        "action_denied",
         action,
         `Action "${action.name}" is not in allow-list`,
       );
@@ -212,7 +219,7 @@ export class PolicyEngine {
       return null;
     }
     return this.buildViolation(
-      'risk_threshold_exceeded',
+      "risk_threshold_exceeded",
       action,
       `Risk score ${action.riskScore.toFixed(3)} exceeds max ${maxRisk.toFixed(3)}`,
       {
@@ -222,7 +229,9 @@ export class PolicyEngine {
     );
   }
 
-  private checkAndConsumeActionBudget(action: PolicyAction): PolicyViolation | null {
+  private checkAndConsumeActionBudget(
+    action: PolicyAction,
+  ): PolicyViolation | null {
     const budgets = this.policy.actionBudgets;
     if (!budgets) return null;
 
@@ -240,7 +249,7 @@ export class PolicyEngine {
     if (recent.length >= budget.limit) {
       this.actionEvents.set(bucketKey, recent);
       return this.buildViolation(
-        'action_budget_exceeded',
+        "action_budget_exceeded",
         action,
         `Action budget exceeded for "${action.name}"`,
         {
@@ -255,7 +264,9 @@ export class PolicyEngine {
     return null;
   }
 
-  private checkAndConsumeSpendBudget(action: PolicyAction): PolicyViolation | null {
+  private checkAndConsumeSpendBudget(
+    action: PolicyAction,
+  ): PolicyViolation | null {
     if (!this.policy.spendBudget || action.spendLamports === undefined) {
       return null;
     }
@@ -264,13 +275,16 @@ export class PolicyEngine {
     const cutoff = now - this.policy.spendBudget.windowMs;
     this.spendEvents = this.spendEvents.filter((event) => event.atMs >= cutoff);
 
-    const currentSpend = this.spendEvents.reduce((sum, event) => sum + event.amount, 0n);
+    const currentSpend = this.spendEvents.reduce(
+      (sum, event) => sum + event.amount,
+      0n,
+    );
     const projected = currentSpend + action.spendLamports;
     if (projected > this.policy.spendBudget.limitLamports) {
       return this.buildViolation(
-        'spend_budget_exceeded',
+        "spend_budget_exceeded",
         action,
-        'Spend budget exceeded',
+        "Spend budget exceeded",
         {
           limitLamports: this.policy.spendBudget.limitLamports.toString(),
           currentLamports: currentSpend.toString(),
@@ -286,13 +300,13 @@ export class PolicyEngine {
   private maybeAutoTripCircuitBreaker(): void {
     const cfg = this.policy.circuitBreaker;
     if (!cfg?.enabled) return;
-    if (this.mode !== 'normal') return;
+    if (this.mode !== "normal") return;
 
     this.pruneViolations();
     if (this.violationEvents.length < cfg.threshold) return;
 
     this.mode = cfg.mode;
-    this.circuitBreakerReason = 'auto_threshold';
+    this.circuitBreakerReason = "auto_threshold";
     this.trippedAtMs = this.now();
 
     this.logger.warn(`Policy circuit breaker tripped: mode=${cfg.mode}`);
@@ -306,7 +320,7 @@ export class PolicyEngine {
       action_type: violation.actionType,
     });
     this.metrics?.counter(TELEMETRY_METRIC_NAMES.POLICY_DECISIONS_TOTAL, 1, {
-      outcome: 'deny',
+      outcome: "deny",
       action_type: violation.actionType,
     });
   }
@@ -318,11 +332,13 @@ export class PolicyEngine {
       return;
     }
     const cutoff = this.now() - cfg.windowMs;
-    this.violationEvents = this.violationEvents.filter((timestamp) => timestamp >= cutoff);
+    this.violationEvents = this.violationEvents.filter(
+      (timestamp) => timestamp >= cutoff,
+    );
   }
 
   private buildViolation(
-    code: PolicyViolation['code'],
+    code: PolicyViolation["code"],
     action: PolicyAction,
     message: string,
     details?: Record<string, unknown>,

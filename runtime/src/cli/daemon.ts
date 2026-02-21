@@ -4,8 +4,8 @@
  * @module
  */
 
-import { fork } from 'node:child_process';
-import { resolve, dirname } from 'node:path';
+import { fork } from "node:child_process";
+import { resolve, dirname } from "node:path";
 import {
   checkStalePid,
   readPidFile,
@@ -15,16 +15,19 @@ import {
   DaemonManager,
   generateSystemdUnit,
   generateLaunchdPlist,
-} from '../gateway/daemon.js';
-import { loadGatewayConfig, getDefaultConfigPath } from '../gateway/config-watcher.js';
-import { sleep, toErrorMessage } from '../utils/async.js';
-import type { CliRuntimeContext, CliStatusCode } from './types.js';
+} from "../gateway/daemon.js";
+import {
+  loadGatewayConfig,
+  getDefaultConfigPath,
+} from "../gateway/config-watcher.js";
+import { sleep, toErrorMessage } from "../utils/async.js";
+import type { CliRuntimeContext, CliStatusCode } from "./types.js";
 import type {
   DaemonStartOptions,
   DaemonStopOptions,
   DaemonStatusOptions,
   ServiceInstallOptions,
-} from './types.js';
+} from "./types.js";
 
 const STARTUP_POLL_INTERVAL_MS = 200;
 const STARTUP_POLL_TIMEOUT_MS = 3_000;
@@ -35,7 +38,7 @@ const CONTROL_PLANE_TIMEOUT_MS = 3_000;
 function getDaemonEntryPath(): string {
   // Requires tsup's __filename shim when built as ESM (see tsup.config).
   // Running source directly with tsx/ts-node also provides __filename.
-  return resolve(dirname(__filename), '..', 'bin', 'daemon.js');
+  return resolve(dirname(__filename), "..", "bin", "daemon.js");
 }
 
 // ============================================================================
@@ -50,16 +53,18 @@ export async function runStartCommand(
 
   // Check for existing daemon
   const stale = await checkStalePid(options.pidPath);
-  if (stale.status === 'alive') {
+  if (stale.status === "alive") {
     context.error({
-      status: 'error',
-      command: 'start',
+      status: "error",
+      command: "start",
       message: `Daemon already running (pid ${stale.pid})`,
     });
     return 1;
   }
-  if (stale.status === 'stale') {
-    context.logger.warn(`Cleaning stale PID file (pid ${stale.pid} not running)`);
+  if (stale.status === "stale") {
+    context.logger.warn(
+      `Cleaning stale PID file (pid ${stale.pid} not running)`,
+    );
     await removePidFile(options.pidPath);
   }
 
@@ -68,8 +73,8 @@ export async function runStartCommand(
     await loadGatewayConfig(configPath);
   } catch (error) {
     context.error({
-      status: 'error',
-      command: 'start',
+      status: "error",
+      command: "start",
       message: `Invalid config: ${toErrorMessage(error)}`,
     });
     return 1;
@@ -95,9 +100,9 @@ async function runForeground(
   try {
     await dm.start();
     context.output({
-      status: 'ok',
-      command: 'start',
-      mode: 'foreground',
+      status: "ok",
+      command: "start",
+      mode: "foreground",
       pid: process.pid,
     });
 
@@ -108,8 +113,8 @@ async function runForeground(
     return 0; // Unreachable — process.exit() is called by signal handlers above
   } catch (error) {
     context.error({
-      status: 'error',
-      command: 'start',
+      status: "error",
+      command: "start",
       message: toErrorMessage(error),
     });
     return 1;
@@ -122,26 +127,26 @@ async function runDaemonized(
   options: DaemonStartOptions,
 ): Promise<CliStatusCode> {
   const daemonEntry = getDaemonEntryPath();
-  const args = ['--config', configPath];
+  const args = ["--config", configPath];
   if (options.pidPath) {
-    args.push('--pid-path', options.pidPath);
+    args.push("--pid-path", options.pidPath);
   }
   if (options.logLevel) {
-    args.push('--log-level', options.logLevel);
+    args.push("--log-level", options.logLevel);
   }
 
   const child = fork(daemonEntry, args, {
     detached: true,
-    stdio: 'ignore',
+    stdio: "ignore",
   });
   child.unref();
 
   const childPid = child.pid;
   if (childPid === undefined) {
     context.error({
-      status: 'error',
-      command: 'start',
-      message: 'Failed to fork daemon process',
+      status: "error",
+      command: "start",
+      message: "Failed to fork daemon process",
     });
     return 1;
   }
@@ -149,7 +154,7 @@ async function runDaemonized(
   // Track early child exit so we can report crashes instead of waiting for timeout
   let childExited = false;
   let childExitCode: number | null = null;
-  child.on('exit', (code) => {
+  child.on("exit", (code) => {
     childExited = true;
     childExitCode = code;
   });
@@ -161,8 +166,8 @@ async function runDaemonized(
 
     if (childExited) {
       context.error({
-        status: 'error',
-        command: 'start',
+        status: "error",
+        command: "start",
         message: `Daemon exited during startup (code ${childExitCode})`,
       });
       return 1;
@@ -172,9 +177,9 @@ async function runDaemonized(
       const info = await readPidFile(options.pidPath);
       if (info !== null) {
         context.output({
-          status: 'ok',
-          command: 'start',
-          mode: 'daemon',
+          status: "ok",
+          command: "start",
+          mode: "daemon",
           pid: info.pid,
           port: info.port,
         });
@@ -184,8 +189,8 @@ async function runDaemonized(
   }
 
   context.error({
-    status: 'error',
-    command: 'start',
+    status: "error",
+    command: "start",
     message: `Daemon forked (pid ${childPid}) but PID file not found within ${STARTUP_POLL_TIMEOUT_MS}ms`,
   });
   return 1;
@@ -205,9 +210,9 @@ export async function runStopCommand(
       await removePidFile(options.pidPath);
     }
     context.output({
-      status: 'ok',
-      command: 'stop',
-      message: 'Daemon is not running',
+      status: "ok",
+      command: "stop",
+      message: "Daemon is not running",
       wasRunning: false,
     });
     return 0;
@@ -217,14 +222,14 @@ export async function runStopCommand(
   const timeout = options.timeout ?? DEFAULT_STOP_TIMEOUT_MS;
 
   try {
-    process.kill(pid, 'SIGTERM');
+    process.kill(pid, "SIGTERM");
   } catch {
     await removePidFile(options.pidPath);
     context.output({
-      status: 'ok',
-      command: 'stop',
+      status: "ok",
+      command: "stop",
       pid,
-      message: 'Process already exited',
+      message: "Process already exited",
       wasRunning: false,
     });
     return 0;
@@ -236,8 +241,8 @@ export async function runStopCommand(
     if (!isProcessAlive(pid)) {
       await removePidFile(options.pidPath);
       context.output({
-        status: 'ok',
-        command: 'stop',
+        status: "ok",
+        command: "stop",
         pid,
         wasRunning: true,
       });
@@ -248,17 +253,17 @@ export async function runStopCommand(
 
   // Timeout: force kill
   try {
-    process.kill(pid, 'SIGKILL');
+    process.kill(pid, "SIGKILL");
   } catch {
     // ESRCH — already dead
   }
   await removePidFile(options.pidPath);
 
   context.output({
-    status: 'ok',
-    command: 'stop',
+    status: "ok",
+    command: "stop",
     pid,
-    message: 'Process did not exit gracefully; sent SIGKILL',
+    message: "Process did not exit gracefully; sent SIGKILL",
     wasRunning: true,
     forced: true,
   });
@@ -292,8 +297,8 @@ export async function runStatusCommand(
 
   if (info === null) {
     context.output({
-      status: 'ok',
-      command: 'status',
+      status: "ok",
+      command: "status",
       running: false,
     });
     return 0;
@@ -302,10 +307,10 @@ export async function runStatusCommand(
   if (!isProcessAlive(info.pid)) {
     await removePidFile(options.pidPath);
     context.output({
-      status: 'ok',
-      command: 'status',
+      status: "ok",
+      command: "status",
       running: false,
-      message: 'Stale PID file cleaned up',
+      message: "Stale PID file cleaned up",
       stalePid: info.pid,
     });
     return 0;
@@ -322,8 +327,8 @@ export async function runStatusCommand(
   }
 
   context.output({
-    status: 'ok',
-    command: 'status',
+    status: "ok",
+    command: "status",
     running: true,
     pid: info.pid,
     port: info.port,
@@ -335,10 +340,16 @@ export async function runStatusCommand(
 
 async function queryControlPlane(port: number): Promise<unknown> {
   // Dynamic import to handle missing ws dependency
-  type WsLike = { on(e: string, h: (...a: unknown[]) => void): void; send(d: string): void; close(): void };
+  type WsLike = {
+    on(e: string, h: (...a: unknown[]) => void): void;
+    send(d: string): void;
+    close(): void;
+  };
   let WsConstructor: new (url: string) => WsLike;
   try {
-    const wsModule = await import('ws') as { default: new (url: string) => WsLike };
+    const wsModule = (await import("ws")) as {
+      default: new (url: string) => WsLike;
+    };
     WsConstructor = wsModule.default;
   } catch {
     return null;
@@ -357,14 +368,14 @@ async function queryControlPlane(port: number): Promise<unknown> {
 
     const timer = setTimeout(() => {
       ws.close();
-      settle(rejectPromise, new Error('Control plane connection timeout'));
+      settle(rejectPromise, new Error("Control plane connection timeout"));
     }, CONTROL_PLANE_TIMEOUT_MS);
 
-    ws.on('open', () => {
-      ws.send(JSON.stringify({ type: 'status' }));
+    ws.on("open", () => {
+      ws.send(JSON.stringify({ type: "status" }));
     });
 
-    ws.on('message', (data: unknown) => {
+    ws.on("message", (data: unknown) => {
       try {
         const parsed = JSON.parse(String(data));
         ws.close();
@@ -375,12 +386,12 @@ async function queryControlPlane(port: number): Promise<unknown> {
       }
     });
 
-    ws.on('close', () => {
+    ws.on("close", () => {
       settle(resolvePromise, null);
     });
 
-    ws.on('error', () => {
-      settle(rejectPromise, new Error('Control plane connection failed'));
+    ws.on("error", () => {
+      settle(rejectPromise, new Error("Control plane connection failed"));
     });
   });
 }
@@ -399,20 +410,26 @@ export async function runServiceInstallCommand(
 
   if (options.macos) {
     const plist = generateLaunchdPlist({
-      programArguments: ['node', daemonEntry, '--config', configPath, '--foreground'],
+      programArguments: [
+        "node",
+        daemonEntry,
+        "--config",
+        configPath,
+        "--foreground",
+      ],
     });
     context.output({
-      status: 'ok',
-      command: 'service.install',
-      platform: 'launchd',
+      status: "ok",
+      command: "service.install",
+      platform: "launchd",
       template: plist,
     });
   } else {
     const unit = generateSystemdUnit({ execStart });
     context.output({
-      status: 'ok',
-      command: 'service.install',
-      platform: 'systemd',
+      status: "ok",
+      command: "service.install",
+      platform: "systemd",
       template: unit,
     });
   }

@@ -4,11 +4,11 @@
  * @module
  */
 
-import { createHash } from 'node:crypto';
-import { PublicKey } from '@solana/web3.js';
-import { stableStringifyJson, type JsonValue } from './types.js';
-import type { ProjectedTimelineEvent } from './projector.js';
-import type { ReplayAnomaly, ReplayAnomalyCode } from './replay-comparison.js';
+import { createHash } from "node:crypto";
+import { PublicKey } from "@solana/web3.js";
+import { stableStringifyJson, type JsonValue } from "./types.js";
+import type { ProjectedTimelineEvent } from "./projector.js";
+import type { ReplayAnomaly, ReplayAnomalyCode } from "./replay-comparison.js";
 
 /** Structured query for incident investigation slicing. */
 export interface QueryDSL {
@@ -16,7 +16,7 @@ export interface QueryDSL {
   disputePda?: string;
   actorPubkey?: string;
   eventType?: string; // e.g. 'discovered', 'dispute:initiated'
-  severity?: 'error' | 'warning';
+  severity?: "error" | "warning";
   slotRange?: {
     from?: number;
     to?: number;
@@ -54,22 +54,24 @@ export interface QueryDSLValidationError {
 export class QueryDSLParseError extends Error {
   readonly errors: QueryDSLValidationError[];
   constructor(errors: QueryDSLValidationError[]) {
-    super(`Query DSL validation failed: ${errors.map((error) => error.message).join('; ')}`);
-    this.name = 'QueryDSLParseError';
+    super(
+      `Query DSL validation failed: ${errors.map((error) => error.message).join("; ")}`,
+    );
+    this.name = "QueryDSLParseError";
     this.errors = errors;
   }
 }
 
 const ACTOR_FIELDS = [
-  'creator',
-  'worker',
-  'authority',
-  'voter',
-  'initiator',
-  'defendant',
-  'recipient',
-  'updater',
-  'agent',
+  "creator",
+  "worker",
+  "authority",
+  "voter",
+  "initiator",
+  "defendant",
+  "recipient",
+  "updater",
+  "agent",
 ] as const;
 
 function isValidBase58PublicKey(value: string): boolean {
@@ -89,7 +91,7 @@ function isValidBase58PublicKey(value: string): boolean {
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
     return null;
   }
   return value as Record<string, unknown>;
@@ -108,7 +110,7 @@ function parseNonNegativeInt(value: string): number | null {
 
 function parseCsv(value: string): string[] {
   return value
-    .split(',')
+    .split(",")
     .map((entry) => entry.trim())
     .filter((entry) => entry.length > 0);
 }
@@ -129,7 +131,7 @@ export function parseQueryDSL(input: string): QueryDSL {
   const tokens = trimmed.split(/[\s&]+/).filter((token) => token.length > 0);
 
   for (const token of tokens) {
-    const eqIndex = token.indexOf('=');
+    const eqIndex = token.indexOf("=");
     if (eqIndex === -1) {
       errors.push({
         field: token,
@@ -142,68 +144,111 @@ export function parseQueryDSL(input: string): QueryDSL {
     const value = token.slice(eqIndex + 1);
 
     switch (key) {
-      case 'taskPda': {
+      case "taskPda": {
         if (!isValidBase58PublicKey(value)) {
-          errors.push({ field: 'taskPda', message: 'Invalid base58 public key', value });
+          errors.push({
+            field: "taskPda",
+            message: "Invalid base58 public key",
+            value,
+          });
         } else {
           dsl.taskPda = value;
         }
         break;
       }
-      case 'disputePda': {
+      case "disputePda": {
         if (!isValidBase58PublicKey(value)) {
-          errors.push({ field: 'disputePda', message: 'Invalid base58 public key', value });
+          errors.push({
+            field: "disputePda",
+            message: "Invalid base58 public key",
+            value,
+          });
         } else {
           dsl.disputePda = value;
         }
         break;
       }
-      case 'actorPubkey': {
+      case "actorPubkey": {
         if (!isValidBase58PublicKey(value)) {
-          errors.push({ field: 'actorPubkey', message: 'Invalid base58 public key', value });
+          errors.push({
+            field: "actorPubkey",
+            message: "Invalid base58 public key",
+            value,
+          });
         } else {
           dsl.actorPubkey = value;
         }
         break;
       }
-      case 'eventType': {
+      case "eventType": {
         if (value.length === 0) {
-          errors.push({ field: 'eventType', message: 'Must be a non-empty string', value });
+          errors.push({
+            field: "eventType",
+            message: "Must be a non-empty string",
+            value,
+          });
         } else {
           dsl.eventType = value;
         }
         break;
       }
-      case 'severity': {
-        if (value !== 'error' && value !== 'warning') {
-          errors.push({ field: 'severity', message: 'Must be "error" or "warning"', value });
+      case "severity": {
+        if (value !== "error" && value !== "warning") {
+          errors.push({
+            field: "severity",
+            message: 'Must be "error" or "warning"',
+            value,
+          });
         } else {
           dsl.severity = value;
         }
         break;
       }
-      case 'slotRange': {
-        const parts = value.split('-');
+      case "slotRange": {
+        const parts = value.split("-");
         if (parts.length !== 2) {
-          errors.push({ field: 'slotRange', message: 'slotRange must be in form "from-to"', value });
+          errors.push({
+            field: "slotRange",
+            message: 'slotRange must be in form "from-to"',
+            value,
+          });
           break;
         }
 
-        const fromRaw = parts[0] ?? '';
-        const toRaw = parts[1] ?? '';
+        const fromRaw = parts[0] ?? "";
+        const toRaw = parts[1] ?? "";
 
-        const from = fromRaw.length === 0 ? undefined : parseNonNegativeInt(fromRaw);
+        const from =
+          fromRaw.length === 0 ? undefined : parseNonNegativeInt(fromRaw);
         const to = toRaw.length === 0 ? undefined : parseNonNegativeInt(toRaw);
 
         if (fromRaw.length > 0 && from === null) {
-          errors.push({ field: 'slotRange.from', message: 'Must be non-negative integer', value: fromRaw });
+          errors.push({
+            field: "slotRange.from",
+            message: "Must be non-negative integer",
+            value: fromRaw,
+          });
         }
         if (toRaw.length > 0 && to === null) {
-          errors.push({ field: 'slotRange.to', message: 'Must be non-negative integer', value: toRaw });
+          errors.push({
+            field: "slotRange.to",
+            message: "Must be non-negative integer",
+            value: toRaw,
+          });
         }
 
-        if (from !== null && to !== null && from !== undefined && to !== undefined && to < from) {
-          errors.push({ field: 'slotRange', message: 'to must be >= from', value });
+        if (
+          from !== null &&
+          to !== null &&
+          from !== undefined &&
+          to !== undefined &&
+          to < from
+        ) {
+          errors.push({
+            field: "slotRange",
+            message: "to must be >= from",
+            value,
+          });
         }
 
         if (from !== null && to !== null) {
@@ -214,12 +259,14 @@ export function parseQueryDSL(input: string): QueryDSL {
         }
         break;
       }
-      case 'walletSet': {
+      case "walletSet": {
         const wallets = parseCsv(value);
-        const invalid = wallets.filter((wallet) => !isValidBase58PublicKey(wallet));
+        const invalid = wallets.filter(
+          (wallet) => !isValidBase58PublicKey(wallet),
+        );
         for (const wallet of invalid) {
           errors.push({
-            field: 'walletSet',
+            field: "walletSet",
             message: `Invalid base58 in walletSet: "${wallet}"`,
             value: wallet,
           });
@@ -232,7 +279,7 @@ export function parseQueryDSL(input: string): QueryDSL {
         }
         break;
       }
-      case 'anomalyCodes': {
+      case "anomalyCodes": {
         dsl.anomalyCodes = parseCsv(value) as ReplayAnomalyCode[];
         break;
       }
@@ -265,7 +312,7 @@ export function normalizeQuery(dsl: QueryDSL): CanonicalQuery {
   };
 
   const canonical = stableStringifyJson(normalized as unknown as JsonValue);
-  const hash = createHash('sha256').update(canonical).digest('hex');
+  const hash = createHash("sha256").update(canonical).digest("hex");
 
   return {
     canonical,
@@ -274,36 +321,48 @@ export function normalizeQuery(dsl: QueryDSL): CanonicalQuery {
   };
 }
 
-function payloadHasActor(payload: Record<string, unknown>, actor: string): boolean {
+function payloadHasActor(
+  payload: Record<string, unknown>,
+  actor: string,
+): boolean {
   return ACTOR_FIELDS.some((field) => payload[field] === actor);
 }
 
-function payloadHasWallet(payload: Record<string, unknown>, wallets: ReadonlySet<string>): boolean {
+function payloadHasWallet(
+  payload: Record<string, unknown>,
+  wallets: ReadonlySet<string>,
+): boolean {
   return ACTOR_FIELDS.some((field) => {
     const value = payload[field];
-    return typeof value === 'string' && wallets.has(value);
+    return typeof value === "string" && wallets.has(value);
   });
 }
 
 /** Apply a QueryDSL to filter projected timeline events. */
-export function applyQueryFilter<TEvent extends Pick<ProjectedTimelineEvent, 'slot' | 'type' | 'taskPda' | 'payload'>>(
-  events: readonly TEvent[],
-  dsl: QueryDSL,
-): TEvent[] {
-  const walletSet = dsl.walletSet && dsl.walletSet.length > 0 ? new Set(dsl.walletSet) : null;
+export function applyQueryFilter<
+  TEvent extends Pick<
+    ProjectedTimelineEvent,
+    "slot" | "type" | "taskPda" | "payload"
+  >,
+>(events: readonly TEvent[], dsl: QueryDSL): TEvent[] {
+  const walletSet =
+    dsl.walletSet && dsl.walletSet.length > 0 ? new Set(dsl.walletSet) : null;
 
   return events.filter((event) => {
     if (dsl.taskPda && event.taskPda !== dsl.taskPda) return false;
     if (dsl.eventType && event.type !== dsl.eventType) return false;
-    if (dsl.slotRange?.from !== undefined && event.slot < dsl.slotRange.from) return false;
-    if (dsl.slotRange?.to !== undefined && event.slot > dsl.slotRange.to) return false;
+    if (dsl.slotRange?.from !== undefined && event.slot < dsl.slotRange.from)
+      return false;
+    if (dsl.slotRange?.to !== undefined && event.slot > dsl.slotRange.to)
+      return false;
 
     const payload = asRecord(event.payload);
     if (!payload) {
       return dsl.actorPubkey === undefined && walletSet === null;
     }
 
-    if (dsl.actorPubkey && !payloadHasActor(payload, dsl.actorPubkey)) return false;
+    if (dsl.actorPubkey && !payloadHasActor(payload, dsl.actorPubkey))
+      return false;
     if (walletSet && !payloadHasWallet(payload, walletSet)) return false;
 
     return true;
@@ -317,11 +376,16 @@ export function applyAnomalyFilter(
 ): ReplayAnomaly[] {
   return anomalies.filter((anomaly) => {
     if (dsl.severity && anomaly.severity !== dsl.severity) return false;
-    if (dsl.anomalyCodes && dsl.anomalyCodes.length > 0 && !dsl.anomalyCodes.includes(anomaly.code)) return false;
+    if (
+      dsl.anomalyCodes &&
+      dsl.anomalyCodes.length > 0 &&
+      !dsl.anomalyCodes.includes(anomaly.code)
+    )
+      return false;
     if (dsl.taskPda && anomaly.context.taskPda !== dsl.taskPda) return false;
-    if (dsl.disputePda && anomaly.context.disputePda !== dsl.disputePda) return false;
+    if (dsl.disputePda && anomaly.context.disputePda !== dsl.disputePda)
+      return false;
 
     return true;
   });
 }
-

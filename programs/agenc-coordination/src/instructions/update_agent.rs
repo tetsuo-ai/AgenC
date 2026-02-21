@@ -58,7 +58,10 @@ pub fn handler(
     }
 
     if let Some(uri) = metadata_uri {
-        require!(uri.len() <= MAX_METADATA_URI_LEN, CoordinationError::StringTooLong);
+        require!(
+            uri.len() <= MAX_METADATA_URI_LEN,
+            CoordinationError::StringTooLong
+        );
         require!(validate_string_input(&uri), CoordinationError::InvalidInput);
         agent.metadata_uri = uri;
     }

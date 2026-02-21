@@ -4,10 +4,13 @@
  * @module
  */
 
-import type { VerifierAdaptiveRiskConfig } from './types.js';
-import type { RiskTier } from './risk-scoring.js';
+import type { VerifierAdaptiveRiskConfig } from "./types.js";
+import type { RiskTier } from "./risk-scoring.js";
 
-export type VerifierRouteStrategy = 'single_pass' | 'retry_execute' | 'revision_first';
+export type VerifierRouteStrategy =
+  | "single_pass"
+  | "retry_execute"
+  | "revision_first";
 
 export interface VerifierScheduleInput {
   adaptiveEnabled: boolean;
@@ -40,9 +43,9 @@ function resolveRoute(
     return routeByRisk[tier]!;
   }
 
-  if (tier === 'low') return 'single_pass';
-  if (tier === 'medium') return 'retry_execute';
-  return 'revision_first';
+  if (tier === "low") return "single_pass";
+  if (tier === "medium") return "retry_execute";
+  return "revision_first";
 }
 
 function resolveMaxDisagreements(
@@ -54,23 +57,25 @@ function resolveMaxDisagreements(
     return Math.max(1, Math.floor(configured));
   }
 
-  if (tier === 'low') return 1;
-  if (tier === 'medium') return 2;
+  if (tier === "low") return 1;
+  if (tier === "medium") return 2;
   return 3;
 }
 
 /**
  * Plan verifier route and attempt budget deterministically.
  */
-export function planVerifierSchedule(input: VerifierScheduleInput): VerifierSchedulePlan {
+export function planVerifierSchedule(
+  input: VerifierScheduleInput,
+): VerifierSchedulePlan {
   if (!input.adaptiveEnabled) {
     return {
       riskTier: input.riskTier,
-      route: 'revision_first',
+      route: "revision_first",
       maxAttempts: normalizeAttempts(input.baseMaxAttempts),
       maxDisagreements: Number.MAX_SAFE_INTEGER,
       metadata: {
-        source: 'legacy',
+        source: "legacy",
       },
     };
   }
@@ -78,9 +83,9 @@ export function planVerifierSchedule(input: VerifierScheduleInput): VerifierSche
   const route = resolveRoute(input.riskTier, input.adaptiveRiskConfig);
 
   let maxAttempts = normalizeAttempts(input.baseMaxAttempts);
-  if (route === 'single_pass') {
+  if (route === "single_pass") {
     maxAttempts = 1;
-  } else if (route === 'retry_execute') {
+  } else if (route === "retry_execute") {
     maxAttempts = Math.max(2, maxAttempts);
   }
 
@@ -88,9 +93,12 @@ export function planVerifierSchedule(input: VerifierScheduleInput): VerifierSche
     riskTier: input.riskTier,
     route,
     maxAttempts,
-    maxDisagreements: resolveMaxDisagreements(input.riskTier, input.adaptiveRiskConfig),
+    maxDisagreements: resolveMaxDisagreements(
+      input.riskTier,
+      input.adaptiveRiskConfig,
+    ),
     metadata: {
-      source: 'adaptive',
+      source: "adaptive",
     },
   };
 }

@@ -3,8 +3,8 @@
  * @module
  */
 
-import { Program } from '@coral-xyz/anchor';
-import type { AgencCoordination } from '../types/agenc_coordination.js';
+import { Program } from "@coral-xyz/anchor";
+import type { AgencCoordination } from "../types/agenc_coordination.js";
 import type {
   EventCallback,
   EventSubscription,
@@ -38,7 +38,7 @@ import type {
   RawBondReleasedEvent,
   RawBondSlashedEvent,
   RawSpeculativeCommitmentCreatedEvent,
-} from './types.js';
+} from "./types.js";
 import {
   parseStateUpdatedEvent,
   parseProtocolInitializedEvent,
@@ -54,8 +54,8 @@ import {
   parseBondReleasedEvent,
   parseBondSlashedEvent,
   parseSpeculativeCommitmentCreatedEvent,
-} from './parse.js';
-import { createEventSubscription } from './factory.js';
+} from "./parse.js";
+import { createEventSubscription } from "./factory.js";
 
 /**
  * Subscribes to StateUpdated events.
@@ -68,9 +68,13 @@ export function subscribeToStateUpdated(
   program: Program<AgencCoordination>,
   callback: EventCallback<StateUpdatedEvent>,
 ): EventSubscription {
-  return createEventSubscription<RawStateUpdatedEvent, StateUpdatedEvent, never>(
+  return createEventSubscription<
+    RawStateUpdatedEvent,
+    StateUpdatedEvent,
+    never
+  >(
     program,
-    { eventName: 'stateUpdated', parse: parseStateUpdatedEvent },
+    { eventName: "stateUpdated", parse: parseStateUpdatedEvent },
     callback,
   );
 }
@@ -86,9 +90,13 @@ export function subscribeToProtocolInitialized(
   program: Program<AgencCoordination>,
   callback: EventCallback<ProtocolInitializedEvent>,
 ): EventSubscription {
-  return createEventSubscription<RawProtocolInitializedEvent, ProtocolInitializedEvent, never>(
+  return createEventSubscription<
+    RawProtocolInitializedEvent,
+    ProtocolInitializedEvent,
+    never
+  >(
     program,
-    { eventName: 'protocolInitialized', parse: parseProtocolInitializedEvent },
+    { eventName: "protocolInitialized", parse: parseProtocolInitializedEvent },
     callback,
   );
 }
@@ -106,10 +114,14 @@ export function subscribeToRewardDistributed(
   callback: EventCallback<RewardDistributedEvent>,
   options?: ProtocolEventFilterOptions,
 ): EventSubscription {
-  return createEventSubscription<RawRewardDistributedEvent, RewardDistributedEvent, ProtocolEventFilterOptions>(
+  return createEventSubscription<
+    RawRewardDistributedEvent,
+    RewardDistributedEvent,
+    ProtocolEventFilterOptions
+  >(
     program,
     {
-      eventName: 'rewardDistributed',
+      eventName: "rewardDistributed",
       parse: parseRewardDistributedEvent,
       getFilterId: (event) => event.taskId,
       getFilterValue: (opts) => opts.taskId,
@@ -132,10 +144,14 @@ export function subscribeToRateLimitHit(
   callback: EventCallback<RateLimitHitEvent>,
   options?: ProtocolEventFilterOptions,
 ): EventSubscription {
-  return createEventSubscription<RawRateLimitHitEvent, RateLimitHitEvent, ProtocolEventFilterOptions>(
+  return createEventSubscription<
+    RawRateLimitHitEvent,
+    RateLimitHitEvent,
+    ProtocolEventFilterOptions
+  >(
     program,
     {
-      eventName: 'rateLimitHit',
+      eventName: "rateLimitHit",
       parse: parseRateLimitHitEvent,
       getFilterId: (event) => event.agentId,
       getFilterValue: (opts) => opts.agentId,
@@ -156,9 +172,13 @@ export function subscribeToMigrationCompleted(
   program: Program<AgencCoordination>,
   callback: EventCallback<MigrationCompletedEvent>,
 ): EventSubscription {
-  return createEventSubscription<RawMigrationCompletedEvent, MigrationCompletedEvent, never>(
+  return createEventSubscription<
+    RawMigrationCompletedEvent,
+    MigrationCompletedEvent,
+    never
+  >(
     program,
-    { eventName: 'migrationCompleted', parse: parseMigrationCompletedEvent },
+    { eventName: "migrationCompleted", parse: parseMigrationCompletedEvent },
     callback,
   );
 }
@@ -174,9 +194,16 @@ export function subscribeToProtocolVersionUpdated(
   program: Program<AgencCoordination>,
   callback: EventCallback<ProtocolVersionUpdatedEvent>,
 ): EventSubscription {
-  return createEventSubscription<RawProtocolVersionUpdatedEvent, ProtocolVersionUpdatedEvent, never>(
+  return createEventSubscription<
+    RawProtocolVersionUpdatedEvent,
+    ProtocolVersionUpdatedEvent,
+    never
+  >(
     program,
-    { eventName: 'protocolVersionUpdated', parse: parseProtocolVersionUpdatedEvent },
+    {
+      eventName: "protocolVersionUpdated",
+      parse: parseProtocolVersionUpdatedEvent,
+    },
     callback,
   );
 }
@@ -192,10 +219,14 @@ export function subscribeToRateLimitsUpdated(
   program: Program<AgencCoordination>,
   callback: EventCallback<RateLimitsUpdatedEvent>,
 ): EventSubscription {
-  return createEventSubscription<RawRateLimitsUpdatedEvent, RateLimitsUpdatedEvent, never>(
+  return createEventSubscription<
+    RawRateLimitsUpdatedEvent,
+    RateLimitsUpdatedEvent,
+    never
+  >(
     program,
     {
-      eventName: 'rateLimitsUpdated',
+      eventName: "rateLimitsUpdated",
       parse: parseRateLimitsUpdatedEvent,
     },
     callback,
@@ -213,10 +244,14 @@ export function subscribeToProtocolFeeUpdated(
   program: Program<AgencCoordination>,
   callback: EventCallback<ProtocolFeeUpdatedEvent>,
 ): EventSubscription {
-  return createEventSubscription<RawProtocolFeeUpdatedEvent, ProtocolFeeUpdatedEvent, never>(
+  return createEventSubscription<
+    RawProtocolFeeUpdatedEvent,
+    ProtocolFeeUpdatedEvent,
+    never
+  >(
     program,
     {
-      eventName: 'protocolFeeUpdated',
+      eventName: "protocolFeeUpdated",
       parse: parseProtocolFeeUpdatedEvent,
     },
     callback,
@@ -234,10 +269,14 @@ export function subscribeToReputationChanged(
   program: Program<AgencCoordination>,
   callback: EventCallback<ReputationChangedEvent>,
 ): EventSubscription {
-  return createEventSubscription<RawReputationChangedEvent, ReputationChangedEvent, never>(
+  return createEventSubscription<
+    RawReputationChangedEvent,
+    ReputationChangedEvent,
+    never
+  >(
     program,
     {
-      eventName: 'reputationChanged',
+      eventName: "reputationChanged",
       parse: parseReputationChangedEvent,
     },
     callback,
@@ -255,10 +294,14 @@ export function subscribeToBondDeposited(
   program: Program<AgencCoordination>,
   callback: EventCallback<BondDepositedEvent>,
 ): EventSubscription {
-  return createEventSubscription<RawBondDepositedEvent, BondDepositedEvent, never>(
+  return createEventSubscription<
+    RawBondDepositedEvent,
+    BondDepositedEvent,
+    never
+  >(
     program,
     {
-      eventName: 'bondDeposited',
+      eventName: "bondDeposited",
       parse: parseBondDepositedEvent,
     },
     callback,
@@ -279,7 +322,7 @@ export function subscribeToBondLocked(
   return createEventSubscription<RawBondLockedEvent, BondLockedEvent, never>(
     program,
     {
-      eventName: 'bondLocked',
+      eventName: "bondLocked",
       parse: parseBondLockedEvent,
     },
     callback,
@@ -297,10 +340,14 @@ export function subscribeToBondReleased(
   program: Program<AgencCoordination>,
   callback: EventCallback<BondReleasedEvent>,
 ): EventSubscription {
-  return createEventSubscription<RawBondReleasedEvent, BondReleasedEvent, never>(
+  return createEventSubscription<
+    RawBondReleasedEvent,
+    BondReleasedEvent,
+    never
+  >(
     program,
     {
-      eventName: 'bondReleased',
+      eventName: "bondReleased",
       parse: parseBondReleasedEvent,
     },
     callback,
@@ -321,7 +368,7 @@ export function subscribeToBondSlashed(
   return createEventSubscription<RawBondSlashedEvent, BondSlashedEvent, never>(
     program,
     {
-      eventName: 'bondSlashed',
+      eventName: "bondSlashed",
       parse: parseBondSlashedEvent,
     },
     callback,
@@ -339,10 +386,14 @@ export function subscribeToSpeculativeCommitmentCreated(
   program: Program<AgencCoordination>,
   callback: EventCallback<SpeculativeCommitmentCreatedEvent>,
 ): EventSubscription {
-  return createEventSubscription<RawSpeculativeCommitmentCreatedEvent, SpeculativeCommitmentCreatedEvent, never>(
+  return createEventSubscription<
+    RawSpeculativeCommitmentCreatedEvent,
+    SpeculativeCommitmentCreatedEvent,
+    never
+  >(
     program,
     {
-      eventName: 'speculativeCommitmentCreated',
+      eventName: "speculativeCommitmentCreated",
       parse: parseSpeculativeCommitmentCreatedEvent,
     },
     callback,
@@ -365,54 +416,87 @@ export function subscribeToAllProtocolEvents(
   const subscriptions: EventSubscription[] = [];
 
   if (callbacks.onStateUpdated) {
-    subscriptions.push(subscribeToStateUpdated(program, callbacks.onStateUpdated));
+    subscriptions.push(
+      subscribeToStateUpdated(program, callbacks.onStateUpdated),
+    );
   }
   if (callbacks.onProtocolInitialized) {
-    subscriptions.push(subscribeToProtocolInitialized(program, callbacks.onProtocolInitialized));
+    subscriptions.push(
+      subscribeToProtocolInitialized(program, callbacks.onProtocolInitialized),
+    );
   }
   if (callbacks.onRewardDistributed) {
-    subscriptions.push(subscribeToRewardDistributed(program, callbacks.onRewardDistributed, options));
+    subscriptions.push(
+      subscribeToRewardDistributed(
+        program,
+        callbacks.onRewardDistributed,
+        options,
+      ),
+    );
   }
   if (callbacks.onRateLimitHit) {
-    subscriptions.push(subscribeToRateLimitHit(program, callbacks.onRateLimitHit, options));
+    subscriptions.push(
+      subscribeToRateLimitHit(program, callbacks.onRateLimitHit, options),
+    );
   }
   if (callbacks.onMigrationCompleted) {
-    subscriptions.push(subscribeToMigrationCompleted(program, callbacks.onMigrationCompleted));
+    subscriptions.push(
+      subscribeToMigrationCompleted(program, callbacks.onMigrationCompleted),
+    );
   }
   if (callbacks.onProtocolVersionUpdated) {
-    subscriptions.push(subscribeToProtocolVersionUpdated(program, callbacks.onProtocolVersionUpdated));
+    subscriptions.push(
+      subscribeToProtocolVersionUpdated(
+        program,
+        callbacks.onProtocolVersionUpdated,
+      ),
+    );
   }
   if (callbacks.onRateLimitsUpdated) {
-    subscriptions.push(subscribeToRateLimitsUpdated(program, callbacks.onRateLimitsUpdated));
+    subscriptions.push(
+      subscribeToRateLimitsUpdated(program, callbacks.onRateLimitsUpdated),
+    );
   }
   if (callbacks.onProtocolFeeUpdated) {
-    subscriptions.push(subscribeToProtocolFeeUpdated(program, callbacks.onProtocolFeeUpdated));
+    subscriptions.push(
+      subscribeToProtocolFeeUpdated(program, callbacks.onProtocolFeeUpdated),
+    );
   }
   if (callbacks.onReputationChanged) {
-    subscriptions.push(subscribeToReputationChanged(program, callbacks.onReputationChanged));
+    subscriptions.push(
+      subscribeToReputationChanged(program, callbacks.onReputationChanged),
+    );
   }
   if (callbacks.onBondDeposited) {
-    subscriptions.push(subscribeToBondDeposited(program, callbacks.onBondDeposited));
+    subscriptions.push(
+      subscribeToBondDeposited(program, callbacks.onBondDeposited),
+    );
   }
   if (callbacks.onBondLocked) {
     subscriptions.push(subscribeToBondLocked(program, callbacks.onBondLocked));
   }
   if (callbacks.onBondReleased) {
-    subscriptions.push(subscribeToBondReleased(program, callbacks.onBondReleased));
+    subscriptions.push(
+      subscribeToBondReleased(program, callbacks.onBondReleased),
+    );
   }
   if (callbacks.onBondSlashed) {
-    subscriptions.push(subscribeToBondSlashed(program, callbacks.onBondSlashed));
+    subscriptions.push(
+      subscribeToBondSlashed(program, callbacks.onBondSlashed),
+    );
   }
   if (callbacks.onSpeculativeCommitmentCreated) {
-    subscriptions.push(subscribeToSpeculativeCommitmentCreated(
-      program,
-      callbacks.onSpeculativeCommitmentCreated
-    ));
+    subscriptions.push(
+      subscribeToSpeculativeCommitmentCreated(
+        program,
+        callbacks.onSpeculativeCommitmentCreated,
+      ),
+    );
   }
 
   return {
     unsubscribe: async () => {
-      await Promise.all(subscriptions.map(s => s.unsubscribe()));
+      await Promise.all(subscriptions.map((s) => s.unsubscribe()));
     },
   };
 }

@@ -15,7 +15,12 @@
 import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
 import BN from "bn.js";
-import { Keypair, PublicKey, SystemProgram, LAMPORTS_PER_SOL } from "@solana/web3.js";
+import {
+  Keypair,
+  PublicKey,
+  SystemProgram,
+  LAMPORTS_PER_SOL,
+} from "@solana/web3.js";
 import { AgencCoordination } from "../target/types/agenc_coordination";
 import { expect } from "chai";
 import {
@@ -53,7 +58,7 @@ function extractComputeUnits(logs: string[]): number | null {
  */
 async function getTxLogs(
   connection: anchor.web3.Connection,
-  signature: string
+  signature: string,
 ): Promise<string[]> {
   const tx = await connection.getTransaction(signature, {
     commitment: "confirmed",
@@ -65,7 +70,8 @@ async function getTxLogs(
 describe("CU Benchmarks", () => {
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
-  const program = anchor.workspace.AgencCoordination as Program<AgencCoordination>;
+  const program = anchor.workspace
+    .AgencCoordination as Program<AgencCoordination>;
   const protocolPda = deriveProtocolPda(program.programId);
   const runId = generateRunId();
 
@@ -107,25 +113,21 @@ describe("CU Benchmarks", () => {
     const wallets = [treasury, secondSigner, creator, worker];
     const sigs = await Promise.all(
       wallets.map((w) =>
-        provider.connection.requestAirdrop(w.publicKey, airdropAmount)
-      )
+        provider.connection.requestAirdrop(w.publicKey, airdropAmount),
+      ),
     );
     await Promise.all(
-      sigs.map((s) => provider.connection.confirmTransaction(s, "confirmed"))
+      sigs.map((s) => provider.connection.confirmTransaction(s, "confirmed")),
     );
 
     // Initialize protocol
     try {
       const minStake = new BN(LAMPORTS_PER_SOL / 100);
       await program.methods
-        .initializeProtocol(
-          51,
-          100,
-          minStake,
-          minStake,
-          1,
-          [provider.wallet.publicKey, secondSigner.publicKey]
-        )
+        .initializeProtocol(51, 100, minStake, minStake, 1, [
+          provider.wallet.publicKey,
+          secondSigner.publicKey,
+        ])
         .accountsPartial({
           protocolConfig: protocolPda,
           treasury: secondSigner.publicKey,
@@ -133,7 +135,13 @@ describe("CU Benchmarks", () => {
           secondSigner: secondSigner.publicKey,
           systemProgram: SystemProgram.programId,
         })
-        .remainingAccounts([{ pubkey: deriveProgramDataPda(program.programId), isSigner: false, isWritable: false }])
+        .remainingAccounts([
+          {
+            pubkey: deriveProgramDataPda(program.programId),
+            isSigner: false,
+            isWritable: false,
+          },
+        ])
         .signers([secondSigner])
         .rpc();
     } catch {
@@ -156,7 +164,7 @@ describe("CU Benchmarks", () => {
         new BN(CAPABILITY_COMPUTE),
         "https://bench-creator.example.com",
         null,
-        new BN(LAMPORTS_PER_SOL)
+        new BN(LAMPORTS_PER_SOL),
       )
       .accountsPartial({
         agent: agentPda,
@@ -177,7 +185,7 @@ describe("CU Benchmarks", () => {
         withinBudget: cu <= RECOMMENDED_CU.register_agent,
       });
       console.log(
-        `    register_agent: ${cu} CU (budget: ${RECOMMENDED_CU.register_agent})`
+        `    register_agent: ${cu} CU (budget: ${RECOMMENDED_CU.register_agent})`,
       );
     }
   });
@@ -190,7 +198,7 @@ describe("CU Benchmarks", () => {
         new BN(CAPABILITY_COMPUTE | CAPABILITY_INFERENCE),
         "https://bench-worker.example.com",
         null,
-        new BN(LAMPORTS_PER_SOL)
+        new BN(LAMPORTS_PER_SOL),
       )
       .accountsPartial({
         agent: agentPda,
@@ -258,7 +266,7 @@ describe("CU Benchmarks", () => {
         withinBudget: cu <= RECOMMENDED_CU.create_task,
       });
       console.log(
-        `    create_task: ${cu} CU (budget: ${RECOMMENDED_CU.create_task})`
+        `    create_task: ${cu} CU (budget: ${RECOMMENDED_CU.create_task})`,
       );
     }
   });
@@ -269,11 +277,7 @@ describe("CU Benchmarks", () => {
 
     const taskPda = deriveTaskPda(creator.publicKey, taskId, program.programId);
     const workerAgentPda = deriveAgentPda(workerAgentId, program.programId);
-    const claimPda = deriveClaimPda(
-      taskPda,
-      workerAgentPda,
-      program.programId
-    );
+    const claimPda = deriveClaimPda(taskPda, workerAgentPda, program.programId);
 
     const sig = await program.methods
       .claimTask()
@@ -299,7 +303,7 @@ describe("CU Benchmarks", () => {
         withinBudget: cu <= RECOMMENDED_CU.claim_task,
       });
       console.log(
-        `    claim_task: ${cu} CU (budget: ${RECOMMENDED_CU.claim_task})`
+        `    claim_task: ${cu} CU (budget: ${RECOMMENDED_CU.claim_task})`,
       );
     }
   });
@@ -311,15 +315,10 @@ describe("CU Benchmarks", () => {
     const taskPda = deriveTaskPda(creator.publicKey, taskId, program.programId);
     const escrowPda = deriveEscrowPda(taskPda, program.programId);
     const workerAgentPda = deriveAgentPda(workerAgentId, program.programId);
-    const claimPda = deriveClaimPda(
-      taskPda,
-      workerAgentPda,
-      program.programId
-    );
+    const claimPda = deriveClaimPda(taskPda, workerAgentPda, program.programId);
 
-    const protocolConfig = await program.account.protocolConfig.fetch(
-      protocolPda
-    );
+    const protocolConfig =
+      await program.account.protocolConfig.fetch(protocolPda);
 
     const proofHash = Buffer.alloc(32, 0xab);
     const resultData = Buffer.alloc(64, 0xcd);
@@ -356,7 +355,7 @@ describe("CU Benchmarks", () => {
         withinBudget: cu <= RECOMMENDED_CU.complete_task,
       });
       console.log(
-        `    complete_task: ${cu} CU (budget: ${RECOMMENDED_CU.complete_task})`
+        `    complete_task: ${cu} CU (budget: ${RECOMMENDED_CU.complete_task})`,
       );
     }
   });
@@ -370,7 +369,7 @@ describe("CU Benchmarks", () => {
         "Instruction".padEnd(25) +
         "Consumed".padStart(10) +
         "Budget".padStart(10) +
-        "  Status"
+        "  Status",
     );
     console.log("    " + "-".repeat(60));
 
@@ -383,7 +382,7 @@ describe("CU Benchmarks", () => {
           r.instruction.padEnd(25) +
           r.consumedCU.toString().padStart(10) +
           r.recommendedCU.toString().padStart(10) +
-          `  ${status}`
+          `  ${status}`,
       );
     }
     console.log("    " + "-".repeat(60));
@@ -393,7 +392,7 @@ describe("CU Benchmarks", () => {
     console.log(`    Max CU consumed: ${maxCU} (mainnet limit: 1,400,000)`);
     expect(maxCU).to.be.lessThan(
       1_400_000,
-      "Instruction exceeds mainnet CU limit"
+      "Instruction exceeds mainnet CU limit",
     );
   });
 });

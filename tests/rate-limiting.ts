@@ -2,7 +2,12 @@ import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
 import BN from "bn.js";
 import { expect } from "chai";
-import { Keypair, PublicKey, SystemProgram, LAMPORTS_PER_SOL } from "@solana/web3.js";
+import {
+  Keypair,
+  PublicKey,
+  SystemProgram,
+  LAMPORTS_PER_SOL,
+} from "@solana/web3.js";
 import { AgencCoordination } from "../target/types/agenc_coordination";
 import {
   CAPABILITY_COMPUTE,
@@ -15,28 +20,38 @@ describe("rate-limiting", () => {
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
 
-  const program = anchor.workspace.AgencCoordination as Program<AgencCoordination>;
+  const program = anchor.workspace
+    .AgencCoordination as Program<AgencCoordination>;
 
   const [protocolPda] = PublicKey.findProgramAddressSync(
     [Buffer.from("protocol")],
-    program.programId
+    program.programId,
   );
-  const runId = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  const runId =
+    Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 
   let treasury: Keypair;
   let creator: Keypair;
   let worker: Keypair;
   let creatorAgentPda: PublicKey;
-  const creatorAgentId = Buffer.from(`agent-ratelimit-${runId}`.slice(0, 32).padEnd(32, "\0"));
+  const creatorAgentId = Buffer.from(
+    `agent-ratelimit-${runId}`.slice(0, 32).padEnd(32, "\0"),
+  );
 
   const toNum = (value: unknown): number => {
-    if (value && typeof (value as { toNumber?: () => number }).toNumber === "function") {
+    if (
+      value &&
+      typeof (value as { toNumber?: () => number }).toNumber === "function"
+    ) {
       return (value as { toNumber: () => number }).toNumber();
     }
     return Number(value ?? 0);
   };
 
-  const readField = <T = unknown>(obj: Record<string, unknown>, keys: string[]): T | undefined => {
+  const readField = <T = unknown>(
+    obj: Record<string, unknown>,
+    keys: string[],
+  ): T | undefined => {
     for (const key of keys) {
       if (key in obj) return obj[key] as T;
     }
@@ -53,8 +68,11 @@ describe("rate-limiting", () => {
 
     for (const wallet of wallets) {
       await provider.connection.confirmTransaction(
-        await provider.connection.requestAirdrop(wallet.publicKey, airdropAmount),
-        "confirmed"
+        await provider.connection.requestAirdrop(
+          wallet.publicKey,
+          airdropAmount,
+        ),
+        "confirmed",
       );
     }
 
@@ -68,7 +86,7 @@ describe("rate-limiting", () => {
           new BN(LAMPORTS_PER_SOL), // min_arbiter_stake
           new BN(LAMPORTS_PER_SOL / 100), // min_stake_for_dispute
           1, // multisig_threshold
-          [provider.wallet.publicKey, treasury.publicKey] // multisig_owners
+          [provider.wallet.publicKey, treasury.publicKey], // multisig_owners
         )
         .accountsPartial({
           protocolConfig: protocolPda,
@@ -77,7 +95,13 @@ describe("rate-limiting", () => {
           secondSigner: treasury.publicKey,
           systemProgram: SystemProgram.programId,
         })
-        .remainingAccounts([{ pubkey: deriveProgramDataPda(program.programId), isSigner: false, isWritable: false }])
+        .remainingAccounts([
+          {
+            pubkey: deriveProgramDataPda(program.programId),
+            isSigner: false,
+            isWritable: false,
+          },
+        ])
         .signers([treasury])
         .rpc();
     } catch (e) {
@@ -91,13 +115,17 @@ describe("rate-limiting", () => {
         100,
         new BN(300),
         20,
-        new BN(0.5 * LAMPORTS_PER_SOL)
+        new BN(0.5 * LAMPORTS_PER_SOL),
       )
       .accountsPartial({
         protocolConfig: protocolPda,
       })
       .remainingAccounts([
-        { pubkey: provider.wallet.publicKey, isSigner: true, isWritable: false },
+        {
+          pubkey: provider.wallet.publicKey,
+          isSigner: true,
+          isWritable: false,
+        },
       ])
       .rpc();
   });
@@ -107,7 +135,7 @@ describe("rate-limiting", () => {
     escrowPda: PublicKey,
     creatorAgent: PublicKey,
     authority: PublicKey,
-    creatorAccount: PublicKey
+    creatorAccount: PublicKey,
   ) => ({
     task: taskPda,
     escrow: escrowPda,
@@ -132,7 +160,7 @@ describe("rate-limiting", () => {
       agentId = creatorAgentId;
       [creatorAgentPda] = PublicKey.findProgramAddressSync(
         [Buffer.from("agent"), agentId],
-        program.programId
+        program.programId,
       );
       agentPda = creatorAgentPda;
 
@@ -144,7 +172,7 @@ describe("rate-limiting", () => {
             new BN(CAPABILITY_COMPUTE),
             "https://ratelimit-agent.example.com",
             null,
-            new BN(LAMPORTS_PER_SOL)  // stake_amount
+            new BN(LAMPORTS_PER_SOL), // stake_amount
           )
           .accountsPartial({
             agent: agentPda,
@@ -162,11 +190,11 @@ describe("rate-limiting", () => {
       const taskId = Buffer.from(`task-rl-${taskIdSuffix}`.padEnd(32, "\0"));
       const [taskPda] = PublicKey.findProgramAddressSync(
         [Buffer.from("task"), creator.publicKey.toBuffer(), taskId],
-        program.programId
+        program.programId,
       );
       const [escrowPda] = PublicKey.findProgramAddressSync(
         [Buffer.from("escrow"), taskPda.toBuffer()],
-        program.programId
+        program.programId,
       );
 
       await program.methods
@@ -178,11 +206,19 @@ describe("rate-limiting", () => {
           1,
           new BN(Math.floor(Date.now() / 1000) + 3600),
           TASK_TYPE_EXCLUSIVE,
-          null,  // constraint_hash
+          null, // constraint_hash
           0, // min_reputation
           null, // reward_mint
         )
-        .accountsPartial(solCreateTaskAccounts(taskPda, escrowPda, agentPda, creator.publicKey, creator.publicKey))
+        .accountsPartial(
+          solCreateTaskAccounts(
+            taskPda,
+            escrowPda,
+            agentPda,
+            creator.publicKey,
+            creator.publicKey,
+          ),
+        )
         .signers([creator])
         .rpc();
 
@@ -196,7 +232,13 @@ describe("rate-limiting", () => {
       const agent = await program.account.agentRegistration.fetch(agentPda);
       expect(agent.lastTaskCreated.toNumber()).to.be.greaterThan(0);
       expect(
-        toNum(readField(agent as unknown as Record<string, unknown>, ["taskCount24h", "taskCount24H", "task_count_24h"]))
+        toNum(
+          readField(agent as unknown as Record<string, unknown>, [
+            "taskCount24h",
+            "taskCount24H",
+            "task_count_24h",
+          ]),
+        ),
       ).to.be.at.least(0);
     });
 
@@ -211,11 +253,11 @@ describe("rate-limiting", () => {
       }
     });
 
-    it("Successfully creates task after cooldown period", async function() {
+    it("Successfully creates task after cooldown period", async function () {
       this.timeout(70000); // 70 second timeout
 
       // Wait for cooldown (default 60 seconds)
-      await new Promise(resolve => setTimeout(resolve, 61000));
+      await new Promise((resolve) => setTimeout(resolve, 61000));
 
       taskCounter++;
       await createTaskWithAgent(`after-cooldown-${taskCounter}`);
@@ -227,14 +269,19 @@ describe("rate-limiting", () => {
     it("Creates task with agent registration", async () => {
       const isolatedCreator = Keypair.generate();
       await provider.connection.confirmTransaction(
-        await provider.connection.requestAirdrop(isolatedCreator.publicKey, 20 * LAMPORTS_PER_SOL),
-        "confirmed"
+        await provider.connection.requestAirdrop(
+          isolatedCreator.publicKey,
+          20 * LAMPORTS_PER_SOL,
+        ),
+        "confirmed",
       );
 
-      const isolatedAgentId = Buffer.from(`agent-isolated-${runId}`.slice(0, 32).padEnd(32, "\0"));
+      const isolatedAgentId = Buffer.from(
+        `agent-isolated-${runId}`.slice(0, 32).padEnd(32, "\0"),
+      );
       const [isolatedAgentPda] = PublicKey.findProgramAddressSync(
         [Buffer.from("agent"), isolatedAgentId],
-        program.programId
+        program.programId,
       );
       await program.methods
         .registerAgent(
@@ -242,7 +289,7 @@ describe("rate-limiting", () => {
           new BN(CAPABILITY_COMPUTE),
           "https://isolated-agent.example.com",
           null,
-          new BN(LAMPORTS_PER_SOL)
+          new BN(LAMPORTS_PER_SOL),
         )
         .accountsPartial({
           agent: isolatedAgentPda,
@@ -252,14 +299,16 @@ describe("rate-limiting", () => {
         .signers([isolatedCreator])
         .rpc();
 
-      const taskId = Buffer.from(`task-no-agent-${runId}`.slice(0, 32).padEnd(32, "\0"));
+      const taskId = Buffer.from(
+        `task-no-agent-${runId}`.slice(0, 32).padEnd(32, "\0"),
+      );
       const [taskPda] = PublicKey.findProgramAddressSync(
         [Buffer.from("task"), isolatedCreator.publicKey.toBuffer(), taskId],
-        program.programId
+        program.programId,
       );
       const [escrowPda] = PublicKey.findProgramAddressSync(
         [Buffer.from("escrow"), taskPda.toBuffer()],
-        program.programId
+        program.programId,
       );
 
       await program.methods
@@ -271,7 +320,7 @@ describe("rate-limiting", () => {
           1,
           new BN(Math.floor(Date.now() / 1000) + 3600),
           TASK_TYPE_EXCLUSIVE,
-          null,  // constraint_hash
+          null, // constraint_hash
           0, // min_reputation
           null, // reward_mint
         )
@@ -281,8 +330,8 @@ describe("rate-limiting", () => {
             escrowPda,
             isolatedAgentPda,
             isolatedCreator.publicKey,
-            isolatedCreator.publicKey
-          )
+            isolatedCreator.publicKey,
+          ),
         )
         .signers([isolatedCreator])
         .rpc();
@@ -295,10 +344,12 @@ describe("rate-limiting", () => {
     let disputeCounter = 0;
 
     before(async () => {
-      disputeAgentId = Buffer.from(`agent-dispute-${runId}`.slice(0, 32).padEnd(32, "\0"));
+      disputeAgentId = Buffer.from(
+        `agent-dispute-${runId}`.slice(0, 32).padEnd(32, "\0"),
+      );
       [disputeAgentPda] = PublicKey.findProgramAddressSync(
         [Buffer.from("agent"), disputeAgentId],
-        program.programId
+        program.programId,
       );
 
       // Register agent for dispute tests
@@ -309,7 +360,7 @@ describe("rate-limiting", () => {
             new BN(CAPABILITY_COMPUTE),
             "https://dispute-agent.example.com",
             null,
-            new BN(LAMPORTS_PER_SOL)  // stake_amount
+            new BN(LAMPORTS_PER_SOL), // stake_amount
           )
           .accountsPartial({
             agent: disputeAgentPda,
@@ -326,13 +377,18 @@ describe("rate-limiting", () => {
     const createTaskForDispute = async (taskIdSuffix: string) => {
       const disputeCreator = Keypair.generate();
       await provider.connection.confirmTransaction(
-        await provider.connection.requestAirdrop(disputeCreator.publicKey, 10 * LAMPORTS_PER_SOL),
-        "confirmed"
+        await provider.connection.requestAirdrop(
+          disputeCreator.publicKey,
+          10 * LAMPORTS_PER_SOL,
+        ),
+        "confirmed",
       );
-      const creatorAgentId = Buffer.from(`disp-creator-${taskIdSuffix}-${runId}`.slice(0, 32).padEnd(32, "\0"));
+      const creatorAgentId = Buffer.from(
+        `disp-creator-${taskIdSuffix}-${runId}`.slice(0, 32).padEnd(32, "\0"),
+      );
       const [localCreatorAgentPda] = PublicKey.findProgramAddressSync(
         [Buffer.from("agent"), creatorAgentId],
-        program.programId
+        program.programId,
       );
       await program.methods
         .registerAgent(
@@ -340,7 +396,7 @@ describe("rate-limiting", () => {
           new BN(CAPABILITY_COMPUTE),
           "https://dispute-creator.example.com",
           null,
-          new BN(LAMPORTS_PER_SOL)
+          new BN(LAMPORTS_PER_SOL),
         )
         .accountsPartial({
           agent: localCreatorAgentPda,
@@ -353,15 +409,15 @@ describe("rate-limiting", () => {
       const taskId = Buffer.from(`task-disp-${taskIdSuffix}`.padEnd(32, "\0"));
       const [taskPda] = PublicKey.findProgramAddressSync(
         [Buffer.from("task"), disputeCreator.publicKey.toBuffer(), taskId],
-        program.programId
+        program.programId,
       );
       const [escrowPda] = PublicKey.findProgramAddressSync(
         [Buffer.from("escrow"), taskPda.toBuffer()],
-        program.programId
+        program.programId,
       );
       const [claimPda] = PublicKey.findProgramAddressSync(
         [Buffer.from("claim"), taskPda.toBuffer(), disputeAgentPda.toBuffer()],
-        program.programId
+        program.programId,
       );
 
       // Create task
@@ -374,7 +430,7 @@ describe("rate-limiting", () => {
           1,
           new BN(Math.floor(Date.now() / 1000) + 3600),
           TASK_TYPE_EXCLUSIVE,
-          null,  // constraint_hash
+          null, // constraint_hash
           0, // min_reputation
           null, // reward_mint
         )
@@ -384,8 +440,8 @@ describe("rate-limiting", () => {
             escrowPda,
             localCreatorAgentPda,
             disputeCreator.publicKey,
-            disputeCreator.publicKey
-          )
+            disputeCreator.publicKey,
+          ),
         )
         .signers([disputeCreator])
         .rpc();
@@ -409,12 +465,16 @@ describe("rate-limiting", () => {
 
     it("Successfully initiates first dispute", async () => {
       disputeCounter++;
-      const { taskPda, taskId, claimPda } = await createTaskForDispute(`first-${disputeCounter}`);
+      const { taskPda, taskId, claimPda } = await createTaskForDispute(
+        `first-${disputeCounter}`,
+      );
 
-      const disputeId = Buffer.from(`disp-first-${disputeCounter}-${runId}`.slice(0, 32).padEnd(32, "\0"));
+      const disputeId = Buffer.from(
+        `disp-first-${disputeCounter}-${runId}`.slice(0, 32).padEnd(32, "\0"),
+      );
       const [disputePda] = PublicKey.findProgramAddressSync(
         [Buffer.from("dispute"), disputeId],
-        program.programId
+        program.programId,
       );
 
       await program.methods
@@ -423,7 +483,7 @@ describe("rate-limiting", () => {
           Array.from(taskId),
           Array.from(Buffer.from("evidence".padEnd(32, "\0"))),
           0, // REFUND
-          VALID_EVIDENCE
+          VALID_EVIDENCE,
         )
         .accountsPartial({
           dispute: disputePda,
@@ -445,12 +505,16 @@ describe("rate-limiting", () => {
 
     it("Fails when initiating dispute within cooldown period", async () => {
       disputeCounter++;
-      const { taskPda, taskId, claimPda } = await createTaskForDispute(`cooldown-${disputeCounter}`);
+      const { taskPda, taskId, claimPda } = await createTaskForDispute(
+        `cooldown-${disputeCounter}`,
+      );
 
-      const disputeId = Buffer.from(`disp-cool-${disputeCounter}-${runId}`.slice(0, 32).padEnd(32, "\0"));
+      const disputeId = Buffer.from(
+        `disp-cool-${disputeCounter}-${runId}`.slice(0, 32).padEnd(32, "\0"),
+      );
       const [disputePda] = PublicKey.findProgramAddressSync(
         [Buffer.from("dispute"), disputeId],
-        program.programId
+        program.programId,
       );
 
       // Immediately try to initiate another dispute (within 5 min cooldown)
@@ -461,7 +525,7 @@ describe("rate-limiting", () => {
             Array.from(taskId),
             Array.from(Buffer.from("evidence".padEnd(32, "\0"))),
             0,
-            VALID_EVIDENCE
+            VALID_EVIDENCE,
           )
           .accountsPartial({
             dispute: disputePda,
@@ -491,26 +555,44 @@ describe("rate-limiting", () => {
           100, // max_tasks_per_24h: 100
           new BN(60), // dispute_initiation_cooldown: 60 seconds
           20, // max_disputes_per_24h: 20
-          new BN(0.5 * LAMPORTS_PER_SOL) // min_stake_for_dispute
+          new BN(0.5 * LAMPORTS_PER_SOL), // min_stake_for_dispute
         )
         .accountsPartial({
           protocolConfig: protocolPda,
         })
         .remainingAccounts([
-          { pubkey: provider.wallet.publicKey, isSigner: true, isWritable: false }
+          {
+            pubkey: provider.wallet.publicKey,
+            isSigner: true,
+            isWritable: false,
+          },
         ])
         .rpc();
 
       const config = await program.account.protocolConfig.fetch(protocolPda);
       expect(config.taskCreationCooldown.toNumber()).to.equal(30);
       expect(
-        toNum(readField(config as unknown as Record<string, unknown>, ["maxTasksPer24h", "maxTasksPer24H", "max_tasks_per_24h"]))
+        toNum(
+          readField(config as unknown as Record<string, unknown>, [
+            "maxTasksPer24h",
+            "maxTasksPer24H",
+            "max_tasks_per_24h",
+          ]),
+        ),
       ).to.equal(100);
       expect(config.disputeInitiationCooldown.toNumber()).to.equal(60);
       expect(
-        toNum(readField(config as unknown as Record<string, unknown>, ["maxDisputesPer24h", "maxDisputesPer24H", "max_disputes_per_24h"]))
+        toNum(
+          readField(config as unknown as Record<string, unknown>, [
+            "maxDisputesPer24h",
+            "maxDisputesPer24H",
+            "max_disputes_per_24h",
+          ]),
+        ),
       ).to.equal(20);
-      expect(config.minStakeForDispute.toNumber()).to.equal(0.5 * LAMPORTS_PER_SOL);
+      expect(config.minStakeForDispute.toNumber()).to.equal(
+        0.5 * LAMPORTS_PER_SOL,
+      );
     });
   });
 
@@ -520,16 +602,21 @@ describe("rate-limiting", () => {
     let lowStakeAuthority: Keypair;
 
     before(async () => {
-      lowStakeAgentId = Buffer.from(`agent-lowstake-${runId}`.slice(0, 32).padEnd(32, "\0"));
+      lowStakeAgentId = Buffer.from(
+        `agent-lowstake-${runId}`.slice(0, 32).padEnd(32, "\0"),
+      );
       [lowStakeAgentPda] = PublicKey.findProgramAddressSync(
         [Buffer.from("agent"), lowStakeAgentId],
-        program.programId
+        program.programId,
       );
 
       lowStakeAuthority = Keypair.generate();
       await provider.connection.confirmTransaction(
-        await provider.connection.requestAirdrop(lowStakeAuthority.publicKey, 10 * LAMPORTS_PER_SOL),
-        "confirmed"
+        await provider.connection.requestAirdrop(
+          lowStakeAuthority.publicKey,
+          10 * LAMPORTS_PER_SOL,
+        ),
+        "confirmed",
       );
 
       // Register agent with no stake
@@ -540,7 +627,7 @@ describe("rate-limiting", () => {
             new BN(CAPABILITY_COMPUTE),
             "https://lowstake-agent.example.com",
             null,
-            new BN(0)  // stake_amount = 0 for low stake test
+            new BN(0), // stake_amount = 0 for low stake test
           )
           .accountsPartial({
             agent: lowStakeAgentPda,
@@ -557,13 +644,18 @@ describe("rate-limiting", () => {
     it("Fails to initiate dispute with insufficient stake", async () => {
       const stakeCreator = Keypair.generate();
       await provider.connection.confirmTransaction(
-        await provider.connection.requestAirdrop(stakeCreator.publicKey, 20 * LAMPORTS_PER_SOL),
-        "confirmed"
+        await provider.connection.requestAirdrop(
+          stakeCreator.publicKey,
+          20 * LAMPORTS_PER_SOL,
+        ),
+        "confirmed",
       );
-      const stakeCreatorAgentId = Buffer.from(`stake-creator-${runId}`.slice(0, 32).padEnd(32, "\0"));
+      const stakeCreatorAgentId = Buffer.from(
+        `stake-creator-${runId}`.slice(0, 32).padEnd(32, "\0"),
+      );
       const [stakeCreatorAgentPda] = PublicKey.findProgramAddressSync(
         [Buffer.from("agent"), stakeCreatorAgentId],
-        program.programId
+        program.programId,
       );
       await program.methods
         .registerAgent(
@@ -571,7 +663,7 @@ describe("rate-limiting", () => {
           new BN(CAPABILITY_COMPUTE),
           "https://stake-creator.example.com",
           null,
-          new BN(LAMPORTS_PER_SOL)
+          new BN(LAMPORTS_PER_SOL),
         )
         .accountsPartial({
           agent: stakeCreatorAgentPda,
@@ -584,11 +676,11 @@ describe("rate-limiting", () => {
       const taskId = Buffer.from("task-stake-test-001".padEnd(32, "\0"));
       const [taskPda] = PublicKey.findProgramAddressSync(
         [Buffer.from("task"), stakeCreator.publicKey.toBuffer(), taskId],
-        program.programId
+        program.programId,
       );
       const [escrowPda] = PublicKey.findProgramAddressSync(
         [Buffer.from("escrow"), taskPda.toBuffer()],
-        program.programId
+        program.programId,
       );
 
       // Create task
@@ -601,26 +693,34 @@ describe("rate-limiting", () => {
           1,
           new BN(Math.floor(Date.now() / 1000) + 3600),
           TASK_TYPE_EXCLUSIVE,
-          null,  // constraint_hash
+          null, // constraint_hash
           0, // min_reputation
           null, // reward_mint
         )
         .accountsPartial(
-          solCreateTaskAccounts(taskPda, escrowPda, stakeCreatorAgentPda, stakeCreator.publicKey, stakeCreator.publicKey)
+          solCreateTaskAccounts(
+            taskPda,
+            escrowPda,
+            stakeCreatorAgentPda,
+            stakeCreator.publicKey,
+            stakeCreator.publicKey,
+          ),
         )
         .signers([stakeCreator])
         .rpc();
 
-      const disputeId = Buffer.from(`disp-stake-${runId}`.slice(0, 32).padEnd(32, "\0"));
+      const disputeId = Buffer.from(
+        `disp-stake-${runId}`.slice(0, 32).padEnd(32, "\0"),
+      );
       const [disputePda] = PublicKey.findProgramAddressSync(
         [Buffer.from("dispute"), disputeId],
-        program.programId
+        program.programId,
       );
 
       // Agent has 0 stake, but protocol requires 0.5 SOL minimum
       const [lowStakeClaimPda] = PublicKey.findProgramAddressSync(
         [Buffer.from("claim"), taskPda.toBuffer(), lowStakeAgentPda.toBuffer()],
-        program.programId
+        program.programId,
       );
       try {
         await program.methods
@@ -642,7 +742,7 @@ describe("rate-limiting", () => {
             Array.from(taskId),
             Array.from(Buffer.from("evidence".padEnd(32, "\0"))),
             0,
-            VALID_EVIDENCE
+            VALID_EVIDENCE,
           )
           .accountsPartial({
             dispute: disputePda,
@@ -659,7 +759,7 @@ describe("rate-limiting", () => {
           .rpc();
       } catch (e: any) {
         expect(e.message).to.match(
-          /InsufficientStakeForDispute|CooldownNotElapsed|RateLimitExceeded|AccountNotInitialized/
+          /InsufficientStakeForDispute|CooldownNotElapsed|RateLimitExceeded|AccountNotInitialized/,
         );
       }
     });
@@ -667,16 +767,21 @@ describe("rate-limiting", () => {
 
   describe("24-Hour Window Limits", () => {
     it("Tracks task count across 24h window", async () => {
-      const agentId = Buffer.from(`agent-24h-${runId}`.slice(0, 32).padEnd(32, "\0"));
+      const agentId = Buffer.from(
+        `agent-24h-${runId}`.slice(0, 32).padEnd(32, "\0"),
+      );
       const [agentPda] = PublicKey.findProgramAddressSync(
         [Buffer.from("agent"), agentId],
-        program.programId
+        program.programId,
       );
 
       const testCreator = Keypair.generate();
       await provider.connection.confirmTransaction(
-        await provider.connection.requestAirdrop(testCreator.publicKey, 50 * LAMPORTS_PER_SOL),
-        "confirmed"
+        await provider.connection.requestAirdrop(
+          testCreator.publicKey,
+          50 * LAMPORTS_PER_SOL,
+        ),
+        "confirmed",
       );
 
       try {
@@ -686,7 +791,7 @@ describe("rate-limiting", () => {
             new BN(CAPABILITY_COMPUTE),
             "https://24h-agent.example.com",
             null,
-            new BN(LAMPORTS_PER_SOL)  // stake_amount
+            new BN(LAMPORTS_PER_SOL), // stake_amount
           )
           .accountsPartial({
             agent: agentPda,
@@ -700,9 +805,23 @@ describe("rate-limiting", () => {
       }
 
       const agent = await program.account.agentRegistration.fetch(agentPda);
-      expect(toNum(readField(agent as unknown as Record<string, unknown>, ["taskCount24h", "taskCount24H", "task_count_24h"]))).to.equal(0);
       expect(
-        toNum(readField(agent as unknown as Record<string, unknown>, ["disputeCount24h", "disputeCount24H", "dispute_count_24h"]))
+        toNum(
+          readField(agent as unknown as Record<string, unknown>, [
+            "taskCount24h",
+            "taskCount24H",
+            "task_count_24h",
+          ]),
+        ),
+      ).to.equal(0);
+      expect(
+        toNum(
+          readField(agent as unknown as Record<string, unknown>, [
+            "disputeCount24h",
+            "disputeCount24H",
+            "dispute_count_24h",
+          ]),
+        ),
       ).to.equal(0);
       expect(agent.rateLimitWindowStart.toNumber()).to.be.greaterThan(0);
     });
@@ -710,16 +829,21 @@ describe("rate-limiting", () => {
 
   describe("RateLimitHit Event", () => {
     it("Emits RateLimitHit event when cooldown not elapsed", async () => {
-      const agentId = Buffer.from(`agent-event-${runId}`.slice(0, 32).padEnd(32, "\0"));
+      const agentId = Buffer.from(
+        `agent-event-${runId}`.slice(0, 32).padEnd(32, "\0"),
+      );
       const [agentPda] = PublicKey.findProgramAddressSync(
         [Buffer.from("agent"), agentId],
-        program.programId
+        program.programId,
       );
 
       const eventCreator = Keypair.generate();
       await provider.connection.confirmTransaction(
-        await provider.connection.requestAirdrop(eventCreator.publicKey, 20 * LAMPORTS_PER_SOL),
-        "confirmed"
+        await provider.connection.requestAirdrop(
+          eventCreator.publicKey,
+          20 * LAMPORTS_PER_SOL,
+        ),
+        "confirmed",
       );
 
       try {
@@ -729,7 +853,7 @@ describe("rate-limiting", () => {
             new BN(CAPABILITY_COMPUTE),
             "https://event-agent.example.com",
             null,
-            new BN(LAMPORTS_PER_SOL)  // stake_amount
+            new BN(LAMPORTS_PER_SOL), // stake_amount
           )
           .accountsPartial({
             agent: agentPda,
@@ -743,14 +867,16 @@ describe("rate-limiting", () => {
       }
 
       // First task
-      const taskId1 = Buffer.from(`task-event-1-${runId}`.slice(0, 32).padEnd(32, "\0"));
+      const taskId1 = Buffer.from(
+        `task-event-1-${runId}`.slice(0, 32).padEnd(32, "\0"),
+      );
       const [taskPda1] = PublicKey.findProgramAddressSync(
         [Buffer.from("task"), eventCreator.publicKey.toBuffer(), taskId1],
-        program.programId
+        program.programId,
       );
       const [escrowPda1] = PublicKey.findProgramAddressSync(
         [Buffer.from("escrow"), taskPda1.toBuffer()],
-        program.programId
+        program.programId,
       );
 
       await program.methods
@@ -762,12 +888,18 @@ describe("rate-limiting", () => {
           1,
           new BN(Math.floor(Date.now() / 1000) + 3600),
           TASK_TYPE_EXCLUSIVE,
-          null,  // constraint_hash
+          null, // constraint_hash
           0, // min_reputation
           null, // reward_mint
         )
         .accountsPartial(
-          solCreateTaskAccounts(taskPda1, escrowPda1, agentPda, eventCreator.publicKey, eventCreator.publicKey)
+          solCreateTaskAccounts(
+            taskPda1,
+            escrowPda1,
+            agentPda,
+            eventCreator.publicKey,
+            eventCreator.publicKey,
+          ),
         )
         .signers([eventCreator])
         .rpc();
@@ -782,14 +914,16 @@ describe("rate-limiting", () => {
       });
 
       // Second task (should fail with event)
-      const taskId2 = Buffer.from(`task-event-2-${runId}`.slice(0, 32).padEnd(32, "\0"));
+      const taskId2 = Buffer.from(
+        `task-event-2-${runId}`.slice(0, 32).padEnd(32, "\0"),
+      );
       const [taskPda2] = PublicKey.findProgramAddressSync(
         [Buffer.from("task"), eventCreator.publicKey.toBuffer(), taskId2],
-        program.programId
+        program.programId,
       );
       const [escrowPda2] = PublicKey.findProgramAddressSync(
         [Buffer.from("escrow"), taskPda2.toBuffer()],
-        program.programId
+        program.programId,
       );
 
       try {
@@ -802,12 +936,18 @@ describe("rate-limiting", () => {
             1,
             new BN(Math.floor(Date.now() / 1000) + 3600),
             TASK_TYPE_EXCLUSIVE,
-            null,  // constraint_hash
+            null, // constraint_hash
             0, // min_reputation
             null, // reward_mint
           )
           .accountsPartial(
-            solCreateTaskAccounts(taskPda2, escrowPda2, agentPda, eventCreator.publicKey, eventCreator.publicKey)
+            solCreateTaskAccounts(
+              taskPda2,
+              escrowPda2,
+              agentPda,
+              eventCreator.publicKey,
+              eventCreator.publicKey,
+            ),
           )
           .signers([eventCreator])
           .rpc();
@@ -815,7 +955,7 @@ describe("rate-limiting", () => {
         // Expected to fail
       }
 
-      await new Promise(resolve => setTimeout(resolve, 500));
+      await new Promise((resolve) => setTimeout(resolve, 500));
       program.removeEventListener(listener);
 
       // Event may or may not be received depending on when instruction fails
@@ -835,7 +975,13 @@ describe("rate-limiting", () => {
       // max_tasks_per_24h of 0 means unlimited
       // Current config should have a reasonable limit
       expect(
-        toNum(readField(config as unknown as Record<string, unknown>, ["maxTasksPer24h", "maxTasksPer24H", "max_tasks_per_24h"]))
+        toNum(
+          readField(config as unknown as Record<string, unknown>, [
+            "maxTasksPer24h",
+            "maxTasksPer24H",
+            "max_tasks_per_24h",
+          ]),
+        ),
       ).to.be.at.least(0);
     });
   });

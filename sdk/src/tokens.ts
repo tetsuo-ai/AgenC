@@ -4,15 +4,15 @@
  * Utilities for working with SPL token-denominated tasks.
  */
 
-import { Connection, PublicKey } from '@solana/web3.js';
+import { Connection, PublicKey } from "@solana/web3.js";
 import {
   getAssociatedTokenAddressSync,
   getAccount as getTokenAccount,
   getMint,
   TOKEN_PROGRAM_ID,
   ASSOCIATED_TOKEN_PROGRAM_ID,
-} from '@solana/spl-token';
-import { SEEDS, PROGRAM_ID } from './constants';
+} from "@solana/spl-token";
+import { SEEDS, PROGRAM_ID } from "./constants";
 
 export { TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID };
 
@@ -82,7 +82,9 @@ export async function formatTokenAmount(
   let dec = decimals;
   if (dec === undefined) {
     if (!connection || !mint) {
-      throw new Error('connection and mint are required when decimals is not provided');
+      throw new Error(
+        "connection and mint are required when decimals is not provided",
+      );
     }
     dec = await getMintDecimals(connection, mint);
   }
@@ -94,7 +96,7 @@ export async function formatTokenAmount(
   const divisor = 10n ** BigInt(dec);
   const whole = amount / divisor;
   const fractional = amount % divisor;
-  const fracStr = fractional.toString().padStart(dec, '0');
+  const fracStr = fractional.toString().padStart(dec, "0");
   return `${whole}.${fracStr}`;
 }
 

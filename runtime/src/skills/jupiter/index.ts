@@ -4,9 +4,9 @@
  * @module
  */
 
-export { JupiterSkill } from './jupiter-skill.js';
-export { JupiterClient, JupiterApiError } from './jupiter-client.js';
-export type { JupiterClientConfig } from './jupiter-client.js';
+export { JupiterSkill } from "./jupiter-skill.js";
+export { JupiterClient, JupiterApiError } from "./jupiter-client.js";
+export type { JupiterClientConfig } from "./jupiter-client.js";
 
 export type {
   JupiterSkillConfig,
@@ -19,7 +19,7 @@ export type {
   TransferResult,
   TokenPrice,
   TokenMint,
-} from './types.js';
+} from "./types.js";
 
 export {
   JUPITER_API_BASE_URL,
@@ -28,4 +28,4 @@ export {
   USDC_MINT,
   USDT_MINT,
   WELL_KNOWN_TOKENS,
-} from './constants.js';
+} from "./constants.js";

@@ -8,10 +8,10 @@
  * @module
  */
 
-import { PublicKey } from '@solana/web3.js';
-import { randomBytes } from 'crypto';
-import { promises as fs } from 'fs';
-import { bytesToHex, hexToBytes } from '../utils/encoding.js';
+import { PublicKey } from "@solana/web3.js";
+import { randomBytes } from "crypto";
+import { promises as fs } from "fs";
+import { bytesToHex, hexToBytes } from "../utils/encoding.js";
 
 // ============================================================================
 // Type Definitions
@@ -21,14 +21,14 @@ import { bytesToHex, hexToBytes } from '../utils/encoding.js';
  * Status of a speculative commitment's proof lifecycle.
  */
 export type CommitmentStatus =
-  | 'pending' // Task executing, no proof yet
-  | 'executing' // Task is currently executing
-  | 'executed' // Execution complete, proof not started
-  | 'proof_generating' // Proof generation in progress
-  | 'proof_generated' // Proof ready, not submitted
-  | 'confirmed' // On-chain, finalized
-  | 'failed' // Generation or submission failed
-  | 'rolled_back'; // Rolled back due to ancestor failure
+  | "pending" // Task executing, no proof yet
+  | "executing" // Task is currently executing
+  | "executed" // Execution complete, proof not started
+  | "proof_generating" // Proof generation in progress
+  | "proof_generated" // Proof ready, not submitted
+  | "confirmed" // On-chain, finalized
+  | "failed" // Generation or submission failed
+  | "rolled_back"; // Rolled back due to ancestor failure
 
 /**
  * A speculative commitment representing a task result that downstream
@@ -110,18 +110,18 @@ export interface ChainIntegrityResult {
   /** Node where validation failed. */
   brokenAt?: PublicKey;
   /** Reason the chain is invalid. */
-  reason?: 'missing_ancestor' | 'failed_ancestor' | 'rolled_back_ancestor';
+  reason?: "missing_ancestor" | "failed_ancestor" | "rolled_back_ancestor";
 }
 
 /**
  * Mutation command for single-writer pattern.
  */
 export type MutationCommand =
-  | { type: 'create'; commitment: SpeculativeCommitment }
-  | { type: 'updateStatus'; taskPda: PublicKey; status: CommitmentStatus }
-  | { type: 'addDependent'; commitmentId: string; dependentTaskPda: PublicKey }
-  | { type: 'markConfirmed'; taskPda: PublicKey }
-  | { type: 'markFailed'; taskPda: PublicKey };
+  | { type: "create"; commitment: SpeculativeCommitment }
+  | { type: "updateStatus"; taskPda: PublicKey; status: CommitmentStatus }
+  | { type: "addDependent"; commitmentId: string; dependentTaskPda: PublicKey }
+  | { type: "markConfirmed"; taskPda: PublicKey }
+  | { type: "markFailed"; taskPda: PublicKey };
 
 /**
  * Serialized commitment for persistence.
@@ -214,7 +214,7 @@ export class CommitmentLedger {
     taskId: Uint8Array,
     resultHash: Uint8Array,
     producerAgent: PublicKey,
-    stakeAtRisk: bigint
+    stakeAtRisk: bigint,
   ): SpeculativeCommitment {
     const taskKey = taskPda.toBase58();
 
@@ -226,7 +226,7 @@ export class CommitmentLedger {
     // Check max commitments limit
     if (this.commitments.size >= this.config.maxCommitments) {
       throw new Error(
-        `Maximum commitments limit (${this.config.maxCommitments}) reached`
+        `Maximum commitments limit (${this.config.maxCommitments}) reached`,
       );
     }
 
@@ -241,7 +241,7 @@ export class CommitmentLedger {
       sourceTaskPda: taskPda,
       sourceTaskId: taskId,
       resultHash,
-      status: 'pending',
+      status: "pending",
       dependentTaskPdas: [],
       createdAt: Date.now(),
       confirmedAt: null,
@@ -318,7 +318,7 @@ export class CommitmentLedger {
     // Avoid duplicate dependents
     const dependentKey = dependentTaskPda.toBase58();
     const exists = commitment.dependentTaskPdas.some(
-      (pda) => pda.toBase58() === dependentKey
+      (pda) => pda.toBase58() === dependentKey,
     );
 
     if (!exists) {
@@ -342,7 +342,7 @@ export class CommitmentLedger {
       throw new Error(`Commitment not found for task ${taskPda.toBase58()}`);
     }
 
-    (commitment as { status: CommitmentStatus }).status = 'confirmed';
+    (commitment as { status: CommitmentStatus }).status = "confirmed";
     (commitment as { confirmedAt: number | null }).confirmedAt = Date.now();
   }
 
@@ -366,13 +366,13 @@ export class CommitmentLedger {
     const affected = this.getAffectedByFailure(taskPda);
 
     // Mark the source as failed
-    (commitment as { status: CommitmentStatus }).status = 'failed';
+    (commitment as { status: CommitmentStatus }).status = "failed";
 
     // Mark all dependents as rolled back
     for (const affectedCommitment of affected) {
       if (affectedCommitment.id !== commitment.id) {
         (affectedCommitment as { status: CommitmentStatus }).status =
-          'rolled_back';
+          "rolled_back";
       }
     }
 
@@ -425,9 +425,9 @@ export class CommitmentLedger {
 
     for (const commitment of this.commitments.values()) {
       if (
-        commitment.status === 'confirmed' ||
-        commitment.status === 'failed' ||
-        commitment.status === 'rolled_back'
+        commitment.status === "confirmed" ||
+        commitment.status === "failed" ||
+        commitment.status === "rolled_back"
       ) {
         continue;
       }
@@ -444,7 +444,9 @@ export class CommitmentLedger {
       }
 
       const parentId = this.byTask.get(parentKey);
-      const parentCommitment = parentId ? this.commitments.get(parentId) : undefined;
+      const parentCommitment = parentId
+        ? this.commitments.get(parentId)
+        : undefined;
       if (!parentCommitment) {
         orphans.push(commitment);
       }
@@ -464,7 +466,7 @@ export class CommitmentLedger {
     if (!commitment) {
       return {
         valid: false,
-        reason: 'missing_ancestor',
+        reason: "missing_ancestor",
         brokenAt: taskPda,
       };
     }
@@ -477,7 +479,7 @@ export class CommitmentLedger {
       if (visited.has(currentKey)) {
         return {
           valid: false,
-          reason: 'missing_ancestor',
+          reason: "missing_ancestor",
           brokenAt: current.sourceTaskPda,
         };
       }
@@ -487,7 +489,7 @@ export class CommitmentLedger {
       if (!parentKey) {
         return {
           valid: false,
-          reason: 'missing_ancestor',
+          reason: "missing_ancestor",
           brokenAt: current.sourceTaskPda,
         };
       }
@@ -496,7 +498,7 @@ export class CommitmentLedger {
       if (!parentId) {
         return {
           valid: false,
-          reason: 'missing_ancestor',
+          reason: "missing_ancestor",
           brokenAt: current.sourceTaskPda,
         };
       }
@@ -505,23 +507,23 @@ export class CommitmentLedger {
       if (!parent) {
         return {
           valid: false,
-          reason: 'missing_ancestor',
+          reason: "missing_ancestor",
           brokenAt: current.sourceTaskPda,
         };
       }
 
-      if (parent.status === 'failed') {
+      if (parent.status === "failed") {
         return {
           valid: false,
-          reason: 'failed_ancestor',
+          reason: "failed_ancestor",
           brokenAt: parent.sourceTaskPda,
         };
       }
 
-      if (parent.status === 'rolled_back') {
+      if (parent.status === "rolled_back") {
         return {
           valid: false,
-          reason: 'rolled_back_ancestor',
+          reason: "rolled_back_ancestor",
           brokenAt: parent.sourceTaskPda,
         };
       }
@@ -543,9 +545,9 @@ export class CommitmentLedger {
     for (const commitment of this.commitments.values()) {
       // Only count non-confirmed, non-failed commitments
       if (
-        commitment.status !== 'confirmed' &&
-        commitment.status !== 'failed' &&
-        commitment.status !== 'rolled_back'
+        commitment.status !== "confirmed" &&
+        commitment.status !== "failed" &&
+        commitment.status !== "rolled_back"
       ) {
         total += commitment.stakeAtRisk;
       }
@@ -564,9 +566,9 @@ export class CommitmentLedger {
 
     for (const commitment of this.commitments.values()) {
       if (
-        commitment.status !== 'confirmed' &&
-        commitment.status !== 'failed' &&
-        commitment.status !== 'rolled_back'
+        commitment.status !== "confirmed" &&
+        commitment.status !== "failed" &&
+        commitment.status !== "rolled_back"
       ) {
         maxDepth = Math.max(maxDepth, commitment.depth);
       }
@@ -609,7 +611,7 @@ export class CommitmentLedger {
 
     for (const [id, commitment] of this.commitments) {
       if (
-        commitment.status === 'confirmed' &&
+        commitment.status === "confirmed" &&
         commitment.confirmedAt !== null &&
         now - commitment.confirmedAt > this.config.confirmedRetentionMs
       ) {
@@ -663,26 +665,26 @@ export class CommitmentLedger {
       const command = this.mutationQueue.shift()!;
 
       switch (command.type) {
-        case 'create':
+        case "create":
           // Already created, just store
           this.commitments.set(command.commitment.id, command.commitment);
           break;
-        case 'updateStatus':
+        case "updateStatus":
           this.updateStatus(command.taskPda, command.status);
           break;
-        case 'addDependent':
+        case "addDependent":
           const commitment = this.commitments.get(command.commitmentId);
           if (commitment) {
             this.addDependent(
               commitment.sourceTaskPda,
-              command.dependentTaskPda
+              command.dependentTaskPda,
             );
           }
           break;
-        case 'markConfirmed':
+        case "markConfirmed":
           this.markConfirmed(command.taskPda);
           break;
-        case 'markFailed':
+        case "markFailed":
           this.markFailed(command.taskPda);
           break;
       }
@@ -696,11 +698,11 @@ export class CommitmentLedger {
    */
   async persist(): Promise<void> {
     if (!this.config.persistToDisk) {
-      throw new Error('Disk persistence is not enabled');
+      throw new Error("Disk persistence is not enabled");
     }
 
     if (!this.config.persistPath) {
-      throw new Error('Persist path is not configured');
+      throw new Error("Persist path is not configured");
     }
 
     const serialized: SerializedCommitment[] = [];
@@ -713,7 +715,7 @@ export class CommitmentLedger {
         resultHash: bytesToHex(commitment.resultHash),
         status: commitment.status,
         dependentTaskPdas: commitment.dependentTaskPdas.map((pda) =>
-          pda.toBase58()
+          pda.toBase58(),
         ),
         createdAt: commitment.createdAt,
         confirmedAt: commitment.confirmedAt,
@@ -723,7 +725,10 @@ export class CommitmentLedger {
       });
     }
 
-    await fs.writeFile(this.config.persistPath, JSON.stringify(serialized, null, 2));
+    await fs.writeFile(
+      this.config.persistPath,
+      JSON.stringify(serialized, null, 2),
+    );
   }
 
   /**
@@ -733,19 +738,19 @@ export class CommitmentLedger {
    */
   async load(): Promise<void> {
     if (!this.config.persistToDisk) {
-      throw new Error('Disk persistence is not enabled');
+      throw new Error("Disk persistence is not enabled");
     }
 
     if (!this.config.persistPath) {
-      throw new Error('Persist path is not configured');
+      throw new Error("Persist path is not configured");
     }
 
     let data: string;
     try {
-      data = await fs.readFile(this.config.persistPath, 'utf-8');
+      data = await fs.readFile(this.config.persistPath, "utf-8");
     } catch (err) {
       // File doesn't exist - start fresh
-      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") {
         return;
       }
       throw err;
@@ -768,7 +773,7 @@ export class CommitmentLedger {
         resultHash: hexToBytes(item.resultHash),
         status: item.status,
         dependentTaskPdas: item.dependentTaskPdas.map(
-          (pda) => new PublicKey(pda)
+          (pda) => new PublicKey(pda),
         ),
         createdAt: item.createdAt,
         confirmedAt: item.confirmedAt,
@@ -788,7 +793,10 @@ export class CommitmentLedger {
       for (const dependentPda of commitment.dependentTaskPdas) {
         const dependentKey = dependentPda.toBase58();
         if (!this.byParentTask.has(dependentKey)) {
-          this.byParentTask.set(dependentKey, commitment.sourceTaskPda.toBase58());
+          this.byParentTask.set(
+            dependentKey,
+            commitment.sourceTaskPda.toBase58(),
+          );
         }
       }
     }
@@ -818,37 +826,37 @@ export class CommitmentLedger {
       stats.total++;
 
       switch (commitment.status) {
-        case 'pending':
+        case "pending":
           stats.pending++;
           break;
-        case 'executing':
+        case "executing":
           stats.executing++;
           break;
-        case 'executed':
+        case "executed":
           stats.executed++;
           break;
-        case 'proof_generating':
+        case "proof_generating":
           stats.proofGenerating++;
           break;
-        case 'proof_generated':
+        case "proof_generated":
           stats.proofGenerated++;
           break;
-        case 'confirmed':
+        case "confirmed":
           stats.confirmed++;
           break;
-        case 'failed':
+        case "failed":
           stats.failed++;
           break;
-        case 'rolled_back':
+        case "rolled_back":
           stats.rolledBack++;
           break;
       }
 
       // Track stake and depth for active commitments
       if (
-        commitment.status !== 'confirmed' &&
-        commitment.status !== 'failed' &&
-        commitment.status !== 'rolled_back'
+        commitment.status !== "confirmed" &&
+        commitment.status !== "failed" &&
+        commitment.status !== "rolled_back"
       ) {
         stats.totalStakeAtRisk += commitment.stakeAtRisk;
         stats.maxDepth = Math.max(stats.maxDepth, commitment.depth);

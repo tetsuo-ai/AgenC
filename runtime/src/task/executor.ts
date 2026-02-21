@@ -15,12 +15,12 @@
  * @module
  */
 
-import type { PublicKey } from '@solana/web3.js';
-import type { Logger } from '../utils/logger.js';
-import { silentLogger } from '../utils/logger.js';
-import { sleep } from '../utils/async.js';
-import type { TaskOperations } from './operations.js';
-import type { TaskDiscovery, TaskDiscoveryResult } from './discovery.js';
+import type { PublicKey } from "@solana/web3.js";
+import type { Logger } from "../utils/logger.js";
+import { silentLogger } from "../utils/logger.js";
+import { sleep } from "../utils/async.js";
+import type { TaskOperations } from "./operations.js";
+import type { TaskDiscovery, TaskDiscoveryResult } from "./discovery.js";
 import type {
   TaskExecutionContext,
   TaskExecutionResult,
@@ -43,15 +43,19 @@ import type {
   TracingProvider,
   TaskScorer,
   DiscoveredTask,
-} from './types.js';
-import { isPrivateExecutionResult } from './types.js';
-import { DeadLetterQueue } from './dlq.js';
-import { NoopMetrics, NoopTracing, METRIC_NAMES } from './metrics.js';
-import type { MetricsSnapshot } from './metrics.js';
-import { deriveTaskPda } from './pda.js';
-import { PriorityQueue } from './priority-queue.js';
-import { defaultTaskScorer } from './filters.js';
-import { TaskTimeoutError, ClaimExpiredError, RetryExhaustedError } from '../types/errors.js';
+} from "./types.js";
+import { isPrivateExecutionResult } from "./types.js";
+import { DeadLetterQueue } from "./dlq.js";
+import { NoopMetrics, NoopTracing, METRIC_NAMES } from "./metrics.js";
+import type { MetricsSnapshot } from "./metrics.js";
+import { deriveTaskPda } from "./pda.js";
+import { PriorityQueue } from "./priority-queue.js";
+import { defaultTaskScorer } from "./filters.js";
+import {
+  TaskTimeoutError,
+  ClaimExpiredError,
+  RetryExhaustedError,
+} from "../types/errors.js";
 
 // ============================================================================
 // Retry Defaults
@@ -155,7 +159,7 @@ export class TaskExecutor {
   constructor(config: TaskExecutorConfig) {
     this.operations = config.operations;
     this.handler = config.handler;
-    this.mode = config.mode ?? 'autonomous';
+    this.mode = config.mode ?? "autonomous";
     this.maxConcurrentTasks = config.maxConcurrentTasks ?? 1;
     this.logger = config.logger ?? silentLogger;
     this.discovery = config.discovery ?? null;
@@ -165,7 +169,10 @@ export class TaskExecutor {
     this.taskTimeoutMs = config.taskTimeoutMs ?? 300_000;
     this.claimExpiryBufferMs = config.claimExpiryBufferMs ?? 30_000;
     this.retryPolicy = { ...DEFAULT_RETRY_POLICY, ...config.retryPolicy };
-    this.backpressureConfig = { ...DEFAULT_BACKPRESSURE_CONFIG, ...config.backpressure };
+    this.backpressureConfig = {
+      ...DEFAULT_BACKPRESSURE_CONFIG,
+      ...config.backpressure,
+    };
     this.dlq = new DeadLetterQueue(config.deadLetterQueue);
     this.checkpointStore = config.checkpointStore ?? null;
     this.metricsProvider = config.metrics ?? new NoopMetrics();
@@ -205,7 +212,7 @@ export class TaskExecutor {
    */
   async start(): Promise<void> {
     if (this.running) {
-      throw new Error('TaskExecutor is already running');
+      throw new Error("TaskExecutor is already running");
     }
 
     this.running = true;
@@ -215,7 +222,7 @@ export class TaskExecutor {
     // Recover pending checkpoints from a previous run
     await this.recoverCheckpoints();
 
-    if (this.mode === 'autonomous') {
+    if (this.mode === "autonomous") {
       await this.autonomousLoop();
     } else {
       await this.batchLoop();
@@ -234,7 +241,7 @@ export class TaskExecutor {
     }
 
     this.running = false;
-    this.logger.info('TaskExecutor stopping');
+    this.logger.info("TaskExecutor stopping");
 
     // Stop discovery listener first (synchronous)
     if (this.discoveryUnsubscribe) {
@@ -266,7 +273,7 @@ export class TaskExecutor {
     this.backpressureActive = false;
     this.startedAt = null;
 
-    this.logger.info('TaskExecutor stopped');
+    this.logger.info("TaskExecutor stopped");
   }
 
   /**
@@ -343,8 +350,14 @@ export class TaskExecutor {
    * (i.e., it is not a {@link MetricsCollector}).
    */
   getMetricsSnapshot(): MetricsSnapshot | null {
-    if ('getSnapshot' in this.metricsProvider && typeof (this.metricsProvider as Record<string, unknown>).getSnapshot === 'function') {
-      return (this.metricsProvider as { getSnapshot(): MetricsSnapshot }).getSnapshot();
+    if (
+      "getSnapshot" in this.metricsProvider &&
+      typeof (this.metricsProvider as Record<string, unknown>).getSnapshot ===
+        "function"
+    ) {
+      return (
+        this.metricsProvider as { getSnapshot(): MetricsSnapshot }
+      ).getSnapshot();
     }
     return null;
   }
@@ -383,43 +396,53 @@ export class TaskExecutor {
 
       try {
         // Verify claim is still valid on-chain before resuming
-        const claim = await this.operations.fetchClaim(
-          { toBase58: () => checkpoint.taskPda } as unknown as PublicKey,
-        );
+        const claim = await this.operations.fetchClaim({
+          toBase58: () => checkpoint.taskPda,
+        } as unknown as PublicKey);
 
         if (claim && claim.expiresAt > 0) {
           const nowSec = Math.floor(Date.now() / 1000);
           if (nowSec >= claim.expiresAt) {
             // Claim has expired — clean up and skip
-            this.logger.warn(`Checkpoint for ${checkpoint.taskPda} is stale (claim expired), removing`);
+            this.logger.warn(
+              `Checkpoint for ${checkpoint.taskPda} is stale (claim expired), removing`,
+            );
             await this.checkpointStore.remove(checkpoint.taskPda);
             continue;
           }
         }
 
         // Re-fetch task to get current on-chain state
-        const task = await this.operations.fetchTask(
-          { toBase58: () => checkpoint.taskPda } as unknown as PublicKey,
-        );
+        const task = await this.operations.fetchTask({
+          toBase58: () => checkpoint.taskPda,
+        } as unknown as PublicKey);
 
         if (!task) {
-          this.logger.warn(`Checkpoint task ${checkpoint.taskPda} not found on-chain, removing`);
+          this.logger.warn(
+            `Checkpoint task ${checkpoint.taskPda} not found on-chain, removing`,
+          );
           await this.checkpointStore.remove(checkpoint.taskPda);
           continue;
         }
 
-        const pda = { toBase58: () => checkpoint.taskPda } as unknown as PublicKey;
+        const pda = {
+          toBase58: () => checkpoint.taskPda,
+        } as unknown as PublicKey;
         const discoveryResult: TaskDiscoveryResult = {
           pda,
           task,
           discoveredAt: checkpoint.createdAt,
-          source: 'poll',
+          source: "poll",
         };
 
-        this.logger.info(`Resuming task ${checkpoint.taskPda} from stage '${checkpoint.stage}'`);
+        this.logger.info(
+          `Resuming task ${checkpoint.taskPda} from stage '${checkpoint.stage}'`,
+        );
         this.launchRecoveredTask(discoveryResult, checkpoint);
       } catch (err) {
-        this.logger.warn(`Failed to recover checkpoint ${checkpoint.taskPda}: ${err}`);
+        this.logger.warn(
+          `Failed to recover checkpoint ${checkpoint.taskPda}: ${err}`,
+        );
         await this.checkpointStore.remove(checkpoint.taskPda);
       }
     }
@@ -428,7 +451,10 @@ export class TaskExecutor {
   /**
    * Launch a recovered task that resumes from its checkpointed stage.
    */
-  private launchRecoveredTask(task: TaskDiscoveryResult, checkpoint: TaskCheckpoint): void {
+  private launchRecoveredTask(
+    task: TaskDiscoveryResult,
+    checkpoint: TaskCheckpoint,
+  ): void {
     const pda = task.pda.toBase58();
     const controller = new AbortController();
     this.activeTasks.set(pda, controller);
@@ -454,14 +480,18 @@ export class TaskExecutor {
       let claimResult: ClaimResult;
       let executionResult: TaskExecutionResult | PrivateTaskExecutionResult;
 
-      if (checkpoint.stage === 'claimed' && checkpoint.claimResult) {
+      if (checkpoint.stage === "claimed" && checkpoint.claimResult) {
         // Already claimed — skip claim, run execute + submit
         claimResult = checkpoint.claimResult;
         this.logger.info(`Task ${pda}: skipping claim (recovered)`);
 
         // Set up deadline timer
         ({ deadlineTimerId, claimExpired } = await this.setupDeadlineTimer(
-          task, controller, deadlineTimerId, claimExpired, pda,
+          task,
+          controller,
+          deadlineTimerId,
+          claimExpired,
+          pda,
         ));
         if (claimExpired) return;
 
@@ -473,29 +503,50 @@ export class TaskExecutor {
           }, this.taskTimeoutMs);
         }
 
-        executionResult = await this.executeTaskStep(task, claimResult, controller.signal);
+        executionResult = await this.executeTaskStep(
+          task,
+          claimResult,
+          controller.signal,
+        );
 
-        if (timeoutId !== null) { clearTimeout(timeoutId); timeoutId = null; }
-        if (deadlineTimerId !== null) { clearTimeout(deadlineTimerId); deadlineTimerId = null; }
+        if (timeoutId !== null) {
+          clearTimeout(timeoutId);
+          timeoutId = null;
+        }
+        if (deadlineTimerId !== null) {
+          clearTimeout(deadlineTimerId);
+          deadlineTimerId = null;
+        }
 
         // Checkpoint after execution
-        await this.saveCheckpoint(pda, 'executed', claimResult, executionResult, checkpoint.createdAt);
-
-      } else if (checkpoint.stage === 'executed' && checkpoint.claimResult && checkpoint.executionResult) {
+        await this.saveCheckpoint(
+          pda,
+          "executed",
+          claimResult,
+          executionResult,
+          checkpoint.createdAt,
+        );
+      } else if (
+        checkpoint.stage === "executed" &&
+        checkpoint.claimResult &&
+        checkpoint.executionResult
+      ) {
         // Already claimed + executed — skip to submit
         claimResult = checkpoint.claimResult;
         executionResult = checkpoint.executionResult;
         this.logger.info(`Task ${pda}: skipping claim+execute (recovered)`);
       } else {
         // Unexpected state — clean up
-        this.logger.warn(`Checkpoint for ${pda} in unexpected state '${checkpoint.stage}', removing`);
+        this.logger.warn(
+          `Checkpoint for ${pda} in unexpected state '${checkpoint.stage}', removing`,
+        );
         await this.checkpointStore!.remove(pda);
         return;
       }
 
       // Submit
       await this.retryStage(
-        'submit',
+        "submit",
         () => this.submitTaskStep(task, executionResult),
         controller.signal,
       );
@@ -507,32 +558,38 @@ export class TaskExecutor {
       if (deadlineTimerId !== null) clearTimeout(deadlineTimerId);
 
       if (claimExpired) {
-        const claim = await this.operations.fetchClaim(task.pda).catch(() => null);
+        const claim = await this.operations
+          .fetchClaim(task.pda)
+          .catch(() => null);
         const expiresAt = claim?.expiresAt ?? 0;
-        const expiredError = new ClaimExpiredError(expiresAt, this.claimExpiryBufferMs);
+        const expiredError = new ClaimExpiredError(
+          expiresAt,
+          this.claimExpiryBufferMs,
+        );
         this.metrics.tasksFailed++;
         this.metrics.claimsExpired++;
         this.events.onClaimExpiring?.(expiredError, task.pda);
         this.events.onTaskFailed?.(expiredError, task.pda);
-        this.sendToDeadLetterQueue(task, expiredError, 'execute', 1);
+        this.sendToDeadLetterQueue(task, expiredError, "execute", 1);
       } else if (timedOut) {
         const timeoutError = new TaskTimeoutError(this.taskTimeoutMs);
         this.metrics.tasksFailed++;
         this.events.onTaskTimeout?.(timeoutError, task.pda);
         this.events.onTaskFailed?.(timeoutError, task.pda);
-        this.sendToDeadLetterQueue(task, timeoutError, 'execute', 1);
+        this.sendToDeadLetterQueue(task, timeoutError, "execute", 1);
       } else if (controller.signal.aborted) {
         this.logger.debug(`Recovered task ${pda} aborted`);
       } else {
         const error = err instanceof Error ? err : new Error(String(err));
         const stage = this.inferFailureStage(error);
-        const attempts = error instanceof RetryExhaustedError ? error.attempts : 1;
+        const attempts =
+          error instanceof RetryExhaustedError ? error.attempts : 1;
         this.sendToDeadLetterQueue(task, error, stage, attempts);
       }
 
       // Clean up checkpoint on failure (the DLQ captures the failure context)
       await this.checkpointStore!.remove(pda).catch((err: unknown) => {
-        this.logger.warn('Failed to remove checkpoint', err);
+        this.logger.warn("Failed to remove checkpoint", err);
       });
     } finally {
       this.activeTasks.delete(pda);
@@ -549,7 +606,10 @@ export class TaskExecutor {
     _deadlineTimerId: ReturnType<typeof setTimeout> | null,
     _claimExpired: boolean,
     pda: string,
-  ): Promise<{ deadlineTimerId: ReturnType<typeof setTimeout> | null; claimExpired: boolean }> {
+  ): Promise<{
+    deadlineTimerId: ReturnType<typeof setTimeout> | null;
+    claimExpired: boolean;
+  }> {
     let deadlineTimerId: ReturnType<typeof setTimeout> | null = null;
     let claimExpired = false;
 
@@ -564,13 +624,18 @@ export class TaskExecutor {
         if (effectiveMs <= 0) {
           claimExpired = true;
           controller.abort();
-          const expiredError = new ClaimExpiredError(claim.expiresAt, this.claimExpiryBufferMs);
+          const expiredError = new ClaimExpiredError(
+            claim.expiresAt,
+            this.claimExpiryBufferMs,
+          );
           this.metrics.tasksFailed++;
           this.metrics.claimsExpired++;
           this.events.onClaimExpiring?.(expiredError, task.pda);
           this.events.onTaskFailed?.(expiredError, task.pda);
-          this.sendToDeadLetterQueue(task, expiredError, 'claim', 1);
-          this.logger.warn(`Task ${pda} claim deadline too close: remaining=${remainingMs}ms, buffer=${this.claimExpiryBufferMs}ms`);
+          this.sendToDeadLetterQueue(task, expiredError, "claim", 1);
+          this.logger.warn(
+            `Task ${pda} claim deadline too close: remaining=${remainingMs}ms, buffer=${this.claimExpiryBufferMs}ms`,
+          );
           return { deadlineTimerId, claimExpired };
         }
 
@@ -590,16 +655,18 @@ export class TaskExecutor {
 
   private async autonomousLoop(): Promise<void> {
     if (!this.discovery) {
-      throw new Error('TaskDiscovery is required for autonomous mode');
+      throw new Error("TaskDiscovery is required for autonomous mode");
     }
 
     // Register discovery callback
-    this.discoveryUnsubscribe = this.discovery.onTaskDiscovered((task: TaskDiscoveryResult) => {
-      this.metrics.tasksDiscovered++;
-      this.metricsProvider.counter(METRIC_NAMES.TASKS_DISCOVERED);
-      this.events.onTaskDiscovered?.(task);
-      this.handleDiscoveredTask(task);
-    });
+    this.discoveryUnsubscribe = this.discovery.onTaskDiscovered(
+      (task: TaskDiscoveryResult) => {
+        this.metrics.tasksDiscovered++;
+        this.metricsProvider.counter(METRIC_NAMES.TASKS_DISCOVERED);
+        this.events.onTaskDiscovered?.(task);
+        this.handleDiscoveredTask(task);
+      },
+    );
 
     // Start periodic re-scoring if configured
     if (this.rescoreIntervalMs > 0) {
@@ -662,7 +729,9 @@ export class TaskExecutor {
     }
   }
 
-  private async resolveBatchItem(item: BatchTaskItem): Promise<TaskDiscoveryResult | null> {
+  private async resolveBatchItem(
+    item: BatchTaskItem,
+  ): Promise<TaskDiscoveryResult | null> {
     let taskPda: PublicKey | undefined = item.taskPda;
 
     // Derive PDA from creator + taskId if not directly provided
@@ -672,7 +741,7 @@ export class TaskExecutor {
     }
 
     if (!taskPda) {
-      this.logger.warn('Batch item missing taskPda or creator+taskId');
+      this.logger.warn("Batch item missing taskPda or creator+taskId");
       return null;
     }
 
@@ -686,7 +755,7 @@ export class TaskExecutor {
       pda: taskPda,
       task,
       discoveredAt: Date.now(),
-      source: 'poll',
+      source: "poll",
     };
   }
 
@@ -695,7 +764,10 @@ export class TaskExecutor {
   // ==========================================================================
 
   private handleDiscoveredTask(task: TaskDiscoveryResult): void {
-    if (this.activeTasks.size < this.maxConcurrentTasks && this.taskQueue.size === 0) {
+    if (
+      this.activeTasks.size < this.maxConcurrentTasks &&
+      this.taskQueue.size === 0
+    ) {
       this.launchTask(task);
     } else {
       this.taskQueue.push(task, this.scoreTask(task));
@@ -782,10 +854,15 @@ export class TaskExecutor {
     };
 
     const pipelineStart = Date.now();
-    const span = this.tracingProvider.startSpan('agenc.task.pipeline', { taskPda: pda });
+    const span = this.tracingProvider.startSpan("agenc.task.pipeline", {
+      taskPda: pda,
+    });
 
     // Update gauges at pipeline entry
-    this.metricsProvider.gauge(METRIC_NAMES.ACTIVE_COUNT, this.activeTasks.size);
+    this.metricsProvider.gauge(
+      METRIC_NAMES.ACTIVE_COUNT,
+      this.activeTasks.size,
+    );
     this.metricsProvider.gauge(METRIC_NAMES.QUEUE_SIZE, this.taskQueue.size);
 
     try {
@@ -803,16 +880,24 @@ export class TaskExecutor {
       // Step 5: Submit result on-chain (with retry)
       const submitStart = Date.now();
       await this.retryStage(
-        'submit',
+        "submit",
         () => this.submitTaskStep(task, pipeline.result),
         controller.signal,
       );
-      this.metricsProvider.histogram(METRIC_NAMES.SUBMIT_DURATION, Date.now() - submitStart, { taskPda: pda });
-      span.setAttribute('submit.duration_ms', Date.now() - submitStart);
+      this.metricsProvider.histogram(
+        METRIC_NAMES.SUBMIT_DURATION,
+        Date.now() - submitStart,
+        { taskPda: pda },
+      );
+      span.setAttribute("submit.duration_ms", Date.now() - submitStart);
 
       // Full pipeline duration
-      this.metricsProvider.histogram(METRIC_NAMES.PIPELINE_DURATION, Date.now() - pipelineStart, { taskPda: pda });
-      span.setStatus('ok');
+      this.metricsProvider.histogram(
+        METRIC_NAMES.PIPELINE_DURATION,
+        Date.now() - pipelineStart,
+        { taskPda: pda },
+      );
+      span.setStatus("ok");
 
       // Submission succeeded — remove checkpoint
       await this.removeCheckpoint(pda);
@@ -823,7 +908,10 @@ export class TaskExecutor {
       span.end();
       this.activeTasks.delete(pda);
       // Update gauges at pipeline exit
-      this.metricsProvider.gauge(METRIC_NAMES.ACTIVE_COUNT, this.activeTasks.size);
+      this.metricsProvider.gauge(
+        METRIC_NAMES.ACTIVE_COUNT,
+        this.activeTasks.size,
+      );
       this.metricsProvider.gauge(METRIC_NAMES.QUEUE_SIZE, this.taskQueue.size);
       this.drainQueue();
     }
@@ -834,19 +922,31 @@ export class TaskExecutor {
     pda: string,
     controller: AbortController,
     state: PipelineRuntimeState,
-    span: ReturnType<TracingProvider['startSpan']>,
-  ): Promise<{ result: TaskExecutionResult | PrivateTaskExecutionResult } | null> {
+    span: ReturnType<TracingProvider["startSpan"]>,
+  ): Promise<{
+    result: TaskExecutionResult | PrivateTaskExecutionResult;
+  } | null> {
     const claimStart = Date.now();
     const claimResult = await this.retryStage(
-      'claim',
+      "claim",
       () => this.claimTaskStep(task),
       controller.signal,
     );
-    this.metricsProvider.histogram(METRIC_NAMES.CLAIM_DURATION, Date.now() - claimStart, { taskPda: pda });
-    span.setAttribute('claim.duration_ms', Date.now() - claimStart);
+    this.metricsProvider.histogram(
+      METRIC_NAMES.CLAIM_DURATION,
+      Date.now() - claimStart,
+      { taskPda: pda },
+    );
+    span.setAttribute("claim.duration_ms", Date.now() - claimStart);
 
     const checkpointCreatedAt = Date.now();
-    await this.saveCheckpoint(pda, 'claimed', claimResult, undefined, checkpointCreatedAt);
+    await this.saveCheckpoint(
+      pda,
+      "claimed",
+      claimResult,
+      undefined,
+      checkpointCreatedAt,
+    );
 
     const canExecute = await this.setupClaimDeadlineGuard(
       task,
@@ -862,14 +962,28 @@ export class TaskExecutor {
     this.startExecutionTimeout(controller, state);
 
     const executeStart = Date.now();
-    const result = await this.executeTaskStep(task, claimResult, controller.signal);
-    this.metricsProvider.histogram(METRIC_NAMES.EXECUTE_DURATION, Date.now() - executeStart, { taskPda: pda });
-    span.setAttribute('execute.duration_ms', Date.now() - executeStart);
+    const result = await this.executeTaskStep(
+      task,
+      claimResult,
+      controller.signal,
+    );
+    this.metricsProvider.histogram(
+      METRIC_NAMES.EXECUTE_DURATION,
+      Date.now() - executeStart,
+      { taskPda: pda },
+    );
+    span.setAttribute("execute.duration_ms", Date.now() - executeStart);
 
     // Execute completed — stop timeout/deadline guards before submit stage.
     this.clearPipelineTimers(state);
 
-    await this.saveCheckpoint(pda, 'executed', claimResult, result, checkpointCreatedAt);
+    await this.saveCheckpoint(
+      pda,
+      "executed",
+      claimResult,
+      result,
+      checkpointCreatedAt,
+    );
     return { result };
   }
 
@@ -902,7 +1016,7 @@ export class TaskExecutor {
     pda: string,
     controller: AbortController,
     state: PipelineRuntimeState,
-    span: ReturnType<TracingProvider['startSpan']>,
+    span: ReturnType<TracingProvider["startSpan"]>,
   ): Promise<boolean> {
     if (this.claimExpiryBufferMs <= 0) {
       return true;
@@ -921,16 +1035,21 @@ export class TaskExecutor {
     if (effectiveMs <= 0) {
       state.claimExpired = true;
       controller.abort();
-      const expiredError = new ClaimExpiredError(claim.expiresAt, this.claimExpiryBufferMs);
+      const expiredError = new ClaimExpiredError(
+        claim.expiresAt,
+        this.claimExpiryBufferMs,
+      );
       this.metrics.tasksFailed++;
       this.metrics.claimsExpired++;
       this.metricsProvider.counter(METRIC_NAMES.TASKS_FAILED);
       this.metricsProvider.counter(METRIC_NAMES.CLAIMS_EXPIRED);
       this.events.onClaimExpiring?.(expiredError, task.pda);
       this.events.onTaskFailed?.(expiredError, task.pda);
-      this.sendToDeadLetterQueue(task, expiredError, 'claim', 1);
-      this.logger.warn(`Task ${pda} claim deadline too close: remaining=${remainingMs}ms, buffer=${this.claimExpiryBufferMs}ms`);
-      span.setStatus('error', 'claim deadline too close');
+      this.sendToDeadLetterQueue(task, expiredError, "claim", 1);
+      this.logger.warn(
+        `Task ${pda} claim deadline too close: remaining=${remainingMs}ms, buffer=${this.claimExpiryBufferMs}ms`,
+      );
+      span.setStatus("error", "claim deadline too close");
       return false;
     }
 
@@ -947,22 +1066,27 @@ export class TaskExecutor {
     controller: AbortController,
     state: PipelineRuntimeState,
     error: unknown,
-    span: ReturnType<TracingProvider['startSpan']>,
+    span: ReturnType<TracingProvider["startSpan"]>,
   ): Promise<void> {
     if (state.claimExpired) {
       // Claim deadline expired during execution
-      const claim = await this.operations.fetchClaim(task.pda).catch(() => null);
+      const claim = await this.operations
+        .fetchClaim(task.pda)
+        .catch(() => null);
       const expiresAt = claim?.expiresAt ?? 0;
-      const expiredError = new ClaimExpiredError(expiresAt, this.claimExpiryBufferMs);
+      const expiredError = new ClaimExpiredError(
+        expiresAt,
+        this.claimExpiryBufferMs,
+      );
       this.metrics.tasksFailed++;
       this.metrics.claimsExpired++;
       this.metricsProvider.counter(METRIC_NAMES.TASKS_FAILED);
       this.metricsProvider.counter(METRIC_NAMES.CLAIMS_EXPIRED);
       this.events.onClaimExpiring?.(expiredError, task.pda);
       this.events.onTaskFailed?.(expiredError, task.pda);
-      this.sendToDeadLetterQueue(task, expiredError, 'execute', 1);
+      this.sendToDeadLetterQueue(task, expiredError, "execute", 1);
       this.logger.warn(`Task ${pda} aborted: claim deadline expiring`);
-      span.setStatus('error', 'claim deadline expired');
+      span.setStatus("error", "claim deadline expired");
       return;
     }
 
@@ -973,25 +1097,29 @@ export class TaskExecutor {
       this.metricsProvider.counter(METRIC_NAMES.TASKS_FAILED);
       this.events.onTaskTimeout?.(timeoutError, task.pda);
       this.events.onTaskFailed?.(timeoutError, task.pda);
-      this.sendToDeadLetterQueue(task, timeoutError, 'execute', 1);
+      this.sendToDeadLetterQueue(task, timeoutError, "execute", 1);
       this.logger.warn(`Task ${pda} timed out after ${this.taskTimeoutMs}ms`);
-      span.setStatus('error', 'timeout');
+      span.setStatus("error", "timeout");
       return;
     }
 
     if (controller.signal.aborted) {
       // Graceful shutdown — do not send to DLQ
       this.logger.debug(`Task ${pda} aborted`);
-      span.setStatus('error', 'aborted');
+      span.setStatus("error", "aborted");
       return;
     }
 
     // Non-abort failure (handler crash, retry exhaustion, etc.)
-    const normalizedError = error instanceof Error ? error : new Error(String(error));
+    const normalizedError =
+      error instanceof Error ? error : new Error(String(error));
     const stage = this.inferFailureStage(normalizedError);
-    const attempts = normalizedError instanceof RetryExhaustedError ? normalizedError.attempts : 1;
+    const attempts =
+      normalizedError instanceof RetryExhaustedError
+        ? normalizedError.attempts
+        : 1;
     this.sendToDeadLetterQueue(task, normalizedError, stage, attempts);
-    span.setStatus('error', normalizedError.message);
+    span.setStatus("error", normalizedError.message);
   }
 
   /**
@@ -999,7 +1127,7 @@ export class TaskExecutor {
    * Respects the abort signal during backoff waits.
    */
   private async retryStage<T>(
-    stage: 'claim' | 'submit',
+    stage: "claim" | "submit",
     fn: () => Promise<T>,
     signal: AbortSignal,
   ): Promise<T> {
@@ -1022,10 +1150,12 @@ export class TaskExecutor {
           throw lastError;
         }
 
-        const metricsKey = stage === 'claim' ? 'claimRetries' : 'submitRetries';
+        const metricsKey = stage === "claim" ? "claimRetries" : "submitRetries";
         this.metrics[metricsKey]++;
         this.metricsProvider.counter(
-          stage === 'claim' ? METRIC_NAMES.CLAIM_RETRIES : METRIC_NAMES.SUBMIT_RETRIES,
+          stage === "claim"
+            ? METRIC_NAMES.CLAIM_RETRIES
+            : METRIC_NAMES.SUBMIT_RETRIES,
         );
 
         const delay = computeBackoffDelay(attempt, policy);
@@ -1055,7 +1185,10 @@ export class TaskExecutor {
     } catch (err) {
       this.metrics.claimsFailed++;
       this.metricsProvider.counter(METRIC_NAMES.CLAIMS_FAILED);
-      this.events.onClaimFailed?.(err instanceof Error ? err : new Error(String(err)), task.pda);
+      this.events.onClaimFailed?.(
+        err instanceof Error ? err : new Error(String(err)),
+        task.pda,
+      );
       throw err;
     }
   }
@@ -1086,7 +1219,10 @@ export class TaskExecutor {
       }
       this.metrics.tasksFailed++;
       this.metricsProvider.counter(METRIC_NAMES.TASKS_FAILED);
-      this.events.onTaskFailed?.(err instanceof Error ? err : new Error(String(err)), task.pda);
+      this.events.onTaskFailed?.(
+        err instanceof Error ? err : new Error(String(err)),
+        task.pda,
+      );
       throw err;
     }
   }
@@ -1108,17 +1244,21 @@ export class TaskExecutor {
       taskPda: task.pda.toBase58(),
       task: task.task,
       error: error.message,
-      errorCode: 'code' in error && typeof (error as Record<string, unknown>).code === 'string'
-        ? (error as Record<string, unknown>).code as string
-        : undefined,
+      errorCode:
+        "code" in error &&
+        typeof (error as Record<string, unknown>).code === "string"
+          ? ((error as Record<string, unknown>).code as string)
+          : undefined,
       failedAt: Date.now(),
       stage,
       attempts,
-      retryable: stage !== 'execute',
+      retryable: stage !== "execute",
     };
     this.dlq.add(entry);
     this.events.onDeadLettered?.(entry);
-    this.logger.debug(`Task ${entry.taskPda} sent to dead letter queue (stage=${stage}, attempts=${attempts})`);
+    this.logger.debug(
+      `Task ${entry.taskPda} sent to dead letter queue (stage=${stage}, attempts=${attempts})`,
+    );
   }
 
   /**
@@ -1129,13 +1269,13 @@ export class TaskExecutor {
       return error.stage as DeadLetterStage;
     }
     if (error instanceof TaskTimeoutError) {
-      return 'execute';
+      return "execute";
     }
     if (error instanceof ClaimExpiredError) {
-      return 'execute';
+      return "execute";
     }
     // Handler failures and unknown errors default to 'execute'
-    return 'execute';
+    return "execute";
   }
 
   // ==========================================================================
@@ -1147,7 +1287,7 @@ export class TaskExecutor {
    */
   private async saveCheckpoint(
     taskPda: string,
-    stage: TaskCheckpoint['stage'],
+    stage: TaskCheckpoint["stage"],
     claimResult?: ClaimResult,
     executionResult?: TaskExecutionResult | PrivateTaskExecutionResult,
     createdAt?: number,
@@ -1209,7 +1349,10 @@ export class TaskExecutor {
     } catch (err) {
       this.metrics.submitsFailed++;
       this.metricsProvider.counter(METRIC_NAMES.SUBMITS_FAILED);
-      this.events.onSubmitFailed?.(err instanceof Error ? err : new Error(String(err)), task.pda);
+      this.events.onSubmitFailed?.(
+        err instanceof Error ? err : new Error(String(err)),
+        task.pda,
+      );
       throw err;
     }
   }
@@ -1246,13 +1389,13 @@ function sleepWithAbort(ms: number, signal?: AbortSignal): Promise<boolean> {
   if (signal?.aborted) return Promise.resolve(false);
   return new Promise((resolve) => {
     const timer = setTimeout(() => {
-      signal?.removeEventListener('abort', onAbort);
+      signal?.removeEventListener("abort", onAbort);
       resolve(true);
     }, ms);
     function onAbort() {
       clearTimeout(timer);
       resolve(false);
     }
-    signal?.addEventListener('abort', onAbort, { once: true });
+    signal?.addEventListener("abort", onAbort, { once: true });
   });
 }

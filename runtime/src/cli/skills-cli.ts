@@ -1,29 +1,48 @@
-import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
-import { basename, join } from 'node:path';
-import { homedir } from 'node:os';
-import { SkillDiscovery, type DiscoveredSkill, type DiscoveryPaths } from '../skills/markdown/discovery.js';
-import { isSkillMarkdown, parseSkillContent, validateSkillMetadata } from '../skills/markdown/parser.js';
-import type { CliRuntimeContext, CliStatusCode, SkillCommandOptions } from './types.js';
+import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { basename, join } from "node:path";
+import { homedir } from "node:os";
+import {
+  SkillDiscovery,
+  type DiscoveredSkill,
+  type DiscoveryPaths,
+} from "../skills/markdown/discovery.js";
+import {
+  isSkillMarkdown,
+  parseSkillContent,
+  validateSkillMetadata,
+} from "../skills/markdown/parser.js";
+import type {
+  CliRuntimeContext,
+  CliStatusCode,
+  SkillCommandOptions,
+} from "./types.js";
 
 const MAX_INSTALL_SIZE = 1_048_576; // 1 MB
 const BODY_PREVIEW_LENGTH = 500;
 
 export function getDefaultDiscoveryPaths(): DiscoveryPaths {
   return {
-    userSkills: join(homedir(), '.agenc', 'skills'),
-    projectSkills: join(process.cwd(), 'skills'),
+    userSkills: join(homedir(), ".agenc", "skills"),
+    projectSkills: join(process.cwd(), "skills"),
   };
 }
 
 export function getUserSkillsDir(): string {
-  return join(homedir(), '.agenc', 'skills');
+  return join(homedir(), ".agenc", "skills");
 }
 
-function suggestSimilarNames(input: string, skills: DiscoveredSkill[]): string[] {
+function suggestSimilarNames(
+  input: string,
+  skills: DiscoveredSkill[],
+): string[] {
   const lower = input.toLowerCase();
   return skills
-    .filter((s) => s.skill.name.toLowerCase().includes(lower) || lower.includes(s.skill.name.toLowerCase()))
+    .filter(
+      (s) =>
+        s.skill.name.toLowerCase().includes(lower) ||
+        lower.includes(s.skill.name.toLowerCase()),
+    )
     .map((s) => s.skill.name);
 }
 
@@ -99,17 +118,17 @@ export async function runSkillListCommand(
     });
 
     context.output({
-      status: 'ok',
-      command: 'skill.list',
-      schema: 'skill.list.output.v1',
+      status: "ok",
+      command: "skill.list",
+      schema: "skill.list.output.v1",
       count: items.length,
       skills: items,
     });
     return 0;
   } catch (error) {
     context.error({
-      status: 'error',
-      code: 'IO_ERROR',
+      status: "error",
+      code: "IO_ERROR",
       message: `Failed to discover skills: ${error instanceof Error ? error.message : String(error)}`,
     });
     return 1;
@@ -131,8 +150,8 @@ export async function runSkillInfoCommand(
       const all = await discovery.discoverAll();
       const suggestions = suggestSimilarNames(opts.skillName, all);
       context.error({
-        status: 'error',
-        code: 'SKILL_NOT_FOUND',
+        status: "error",
+        code: "SKILL_NOT_FOUND",
         message: `Skill "${opts.skillName}" not found`,
         ...(suggestions.length > 0 ? { suggestions } : {}),
       });
@@ -140,14 +159,15 @@ export async function runSkillInfoCommand(
     }
 
     const { skill: discovered, disabled } = result;
-    const bodyPreview = discovered.skill.body.length > BODY_PREVIEW_LENGTH
-      ? `${discovered.skill.body.slice(0, BODY_PREVIEW_LENGTH)}...`
-      : discovered.skill.body;
+    const bodyPreview =
+      discovered.skill.body.length > BODY_PREVIEW_LENGTH
+        ? `${discovered.skill.body.slice(0, BODY_PREVIEW_LENGTH)}...`
+        : discovered.skill.body;
 
     context.output({
-      status: 'ok',
-      command: 'skill.info',
-      schema: 'skill.info.output.v1',
+      status: "ok",
+      command: "skill.info",
+      schema: "skill.info.output.v1",
       skill: {
         name: discovered.skill.name,
         description: discovered.skill.description,
@@ -159,15 +179,19 @@ export async function runSkillInfoCommand(
         metadata: discovered.skill.metadata,
         bodyPreview,
         sourcePath: discovered.skill.sourcePath,
-        ...(discovered.unavailableReason ? { unavailableReason: discovered.unavailableReason } : {}),
-        ...(discovered.missingRequirements ? { missingRequirements: discovered.missingRequirements } : {}),
+        ...(discovered.unavailableReason
+          ? { unavailableReason: discovered.unavailableReason }
+          : {}),
+        ...(discovered.missingRequirements
+          ? { missingRequirements: discovered.missingRequirements }
+          : {}),
       },
     });
     return 0;
   } catch (error) {
     context.error({
-      status: 'error',
-      code: 'IO_ERROR',
+      status: "error",
+      code: "IO_ERROR",
       message: `Failed to get skill info: ${error instanceof Error ? error.message : String(error)}`,
     });
     return 1;
@@ -197,9 +221,9 @@ export async function runSkillValidateCommand(
     });
 
     context.output({
-      status: 'ok',
-      command: 'skill.validate',
-      schema: 'skill.validate.output.v1',
+      status: "ok",
+      command: "skill.validate",
+      schema: "skill.validate.output.v1",
       count: results.length,
       valid: !hasErrors,
       results,
@@ -207,8 +231,8 @@ export async function runSkillValidateCommand(
     return hasErrors ? 1 : 0;
   } catch (error) {
     context.error({
-      status: 'error',
-      code: 'IO_ERROR',
+      status: "error",
+      code: "IO_ERROR",
       message: `Failed to validate skills: ${error instanceof Error ? error.message : String(error)}`,
     });
     return 1;
@@ -226,8 +250,8 @@ export async function runSkillCreateCommand(
 
   if (existsSync(filePath)) {
     context.error({
-      status: 'error',
-      code: 'SKILL_ALREADY_EXISTS',
+      status: "error",
+      code: "SKILL_ALREADY_EXISTS",
       message: `Skill file already exists: ${filePath}`,
     });
     return 1;
@@ -235,20 +259,20 @@ export async function runSkillCreateCommand(
 
   try {
     await mkdir(dir, { recursive: true });
-    await writeFile(filePath, buildSkillTemplate(opts.skillName), 'utf-8');
+    await writeFile(filePath, buildSkillTemplate(opts.skillName), "utf-8");
   } catch (error) {
     context.error({
-      status: 'error',
-      code: 'IO_ERROR',
+      status: "error",
+      code: "IO_ERROR",
       message: `Failed to create skill: ${error instanceof Error ? error.message : String(error)}`,
     });
     return 1;
   }
 
   context.output({
-    status: 'ok',
-    command: 'skill.create',
-    schema: 'skill.create.output.v1',
+    status: "ok",
+    command: "skill.create",
+    schema: "skill.create.output.v1",
     skillName: opts.skillName,
     filePath,
   });
@@ -264,24 +288,25 @@ export async function runSkillInstallCommand(
   const dir = overrides?.userSkillsDir ?? getUserSkillsDir();
 
   let content: string;
-  const isUrl = opts.source.startsWith('http://') || opts.source.startsWith('https://');
+  const isUrl =
+    opts.source.startsWith("http://") || opts.source.startsWith("https://");
 
   if (isUrl) {
     try {
       const response = await fetch(opts.source);
       if (!response.ok) {
         context.error({
-          status: 'error',
-          code: 'DOWNLOAD_FAILED',
+          status: "error",
+          code: "DOWNLOAD_FAILED",
           message: `Failed to download skill: HTTP ${response.status}`,
         });
         return 1;
       }
-      const contentLength = response.headers.get('content-length');
+      const contentLength = response.headers.get("content-length");
       if (contentLength && Number(contentLength) > MAX_INSTALL_SIZE) {
         context.error({
-          status: 'error',
-          code: 'INVALID_SKILL_FILE',
+          status: "error",
+          code: "INVALID_SKILL_FILE",
           message: `Skill file exceeds 1MB size limit`,
         });
         return 1;
@@ -289,8 +314,8 @@ export async function runSkillInstallCommand(
       content = await response.text();
     } catch (error) {
       context.error({
-        status: 'error',
-        code: 'DOWNLOAD_FAILED',
+        status: "error",
+        code: "DOWNLOAD_FAILED",
         message: `Failed to download skill: ${error instanceof Error ? error.message : String(error)}`,
       });
       return 1;
@@ -298,28 +323,28 @@ export async function runSkillInstallCommand(
   } else {
     if (!existsSync(opts.source)) {
       context.error({
-        status: 'error',
-        code: 'SOURCE_NOT_FOUND',
+        status: "error",
+        code: "SOURCE_NOT_FOUND",
         message: `Source file not found: ${opts.source}`,
       });
       return 1;
     }
     try {
-      content = await readFile(opts.source, 'utf-8');
+      content = await readFile(opts.source, "utf-8");
     } catch (error) {
       context.error({
-        status: 'error',
-        code: 'IO_ERROR',
+        status: "error",
+        code: "IO_ERROR",
         message: `Failed to read source file: ${error instanceof Error ? error.message : String(error)}`,
       });
       return 1;
     }
   }
 
-  if (Buffer.byteLength(content, 'utf-8') > MAX_INSTALL_SIZE) {
+  if (Buffer.byteLength(content, "utf-8") > MAX_INSTALL_SIZE) {
     context.error({
-      status: 'error',
-      code: 'INVALID_SKILL_FILE',
+      status: "error",
+      code: "INVALID_SKILL_FILE",
       message: `Skill file exceeds 1MB size limit`,
     });
     return 1;
@@ -327,8 +352,8 @@ export async function runSkillInstallCommand(
 
   if (!isSkillMarkdown(content)) {
     context.error({
-      status: 'error',
-      code: 'INVALID_SKILL_FILE',
+      status: "error",
+      code: "INVALID_SKILL_FILE",
       message: `Source is not a valid SKILL.md file (missing YAML frontmatter)`,
     });
     return 1;
@@ -338,20 +363,20 @@ export async function runSkillInstallCommand(
   const validationErrors = validateSkillMetadata(parsed);
   if (validationErrors.length > 0) {
     context.error({
-      status: 'error',
-      code: 'INVALID_SKILL_FILE',
-      message: `Skill validation failed: ${validationErrors.map((e) => e.message).join('; ')}`,
+      status: "error",
+      code: "INVALID_SKILL_FILE",
+      message: `Skill validation failed: ${validationErrors.map((e) => e.message).join("; ")}`,
     });
     return 1;
   }
 
-  const skillName = parsed.name || basename(opts.source, '.md');
+  const skillName = parsed.name || basename(opts.source, ".md");
   const destPath = join(dir, `${skillName}.md`);
 
   if (existsSync(destPath)) {
     context.error({
-      status: 'error',
-      code: 'SKILL_ALREADY_EXISTS',
+      status: "error",
+      code: "SKILL_ALREADY_EXISTS",
       message: `Skill file already exists: ${destPath}`,
     });
     return 1;
@@ -359,20 +384,20 @@ export async function runSkillInstallCommand(
 
   try {
     await mkdir(dir, { recursive: true });
-    await writeFile(destPath, content, 'utf-8');
+    await writeFile(destPath, content, "utf-8");
   } catch (error) {
     context.error({
-      status: 'error',
-      code: 'IO_ERROR',
+      status: "error",
+      code: "IO_ERROR",
       message: `Failed to install skill: ${error instanceof Error ? error.message : String(error)}`,
     });
     return 1;
   }
 
   context.output({
-    status: 'ok',
-    command: 'skill.install',
-    schema: 'skill.install.output.v1',
+    status: "ok",
+    command: "skill.install",
+    schema: "skill.install.output.v1",
     skillName: parsed.name,
     filePath: destPath,
     source: opts.source,
@@ -391,8 +416,8 @@ export async function runSkillUninstallCommand(
   const filePath = join(dir, `${opts.skillName}.md`);
   if (!existsSync(filePath)) {
     context.error({
-      status: 'error',
-      code: 'SKILL_NOT_FOUND',
+      status: "error",
+      code: "SKILL_NOT_FOUND",
       message: `Skill "${opts.skillName}" not found in user skills directory`,
     });
     return 1;
@@ -406,17 +431,17 @@ export async function runSkillUninstallCommand(
     }
   } catch (error) {
     context.error({
-      status: 'error',
-      code: 'IO_ERROR',
+      status: "error",
+      code: "IO_ERROR",
       message: `Failed to uninstall skill: ${error instanceof Error ? error.message : String(error)}`,
     });
     return 1;
   }
 
   context.output({
-    status: 'ok',
-    command: 'skill.uninstall',
-    schema: 'skill.uninstall.output.v1',
+    status: "ok",
+    command: "skill.uninstall",
+    schema: "skill.uninstall.output.v1",
     skillName: opts.skillName,
   });
   return 0;
@@ -435,8 +460,8 @@ export async function runSkillEnableCommand(
     const result = await resolveSkillByName(opts.skillName, discovery);
     if (!result) {
       context.error({
-        status: 'error',
-        code: 'SKILL_NOT_FOUND',
+        status: "error",
+        code: "SKILL_NOT_FOUND",
         message: `Skill "${opts.skillName}" not found`,
       });
       return 1;
@@ -444,8 +469,8 @@ export async function runSkillEnableCommand(
 
     if (!result.skill.skill.sourcePath) {
       context.error({
-        status: 'error',
-        code: 'IO_ERROR',
+        status: "error",
+        code: "IO_ERROR",
         message: `Skill "${opts.skillName}" has no source path and cannot be toggled`,
       });
       return 1;
@@ -457,16 +482,16 @@ export async function runSkillEnableCommand(
     }
 
     context.output({
-      status: 'ok',
-      command: 'skill.enable',
-      schema: 'skill.enable.output.v1',
+      status: "ok",
+      command: "skill.enable",
+      schema: "skill.enable.output.v1",
       skillName: opts.skillName,
     });
     return 0;
   } catch (error) {
     context.error({
-      status: 'error',
-      code: 'IO_ERROR',
+      status: "error",
+      code: "IO_ERROR",
       message: `Failed to enable skill: ${error instanceof Error ? error.message : String(error)}`,
     });
     return 1;
@@ -486,8 +511,8 @@ export async function runSkillDisableCommand(
     const result = await resolveSkillByName(opts.skillName, discovery);
     if (!result) {
       context.error({
-        status: 'error',
-        code: 'SKILL_NOT_FOUND',
+        status: "error",
+        code: "SKILL_NOT_FOUND",
         message: `Skill "${opts.skillName}" not found`,
       });
       return 1;
@@ -495,8 +520,8 @@ export async function runSkillDisableCommand(
 
     if (!result.skill.skill.sourcePath) {
       context.error({
-        status: 'error',
-        code: 'IO_ERROR',
+        status: "error",
+        code: "IO_ERROR",
         message: `Skill "${opts.skillName}" has no source path and cannot be toggled`,
       });
       return 1;
@@ -504,20 +529,20 @@ export async function runSkillDisableCommand(
 
     const markerPath = `${result.skill.skill.sourcePath}.disabled`;
     if (!existsSync(markerPath)) {
-      await writeFile(markerPath, '', 'utf-8');
+      await writeFile(markerPath, "", "utf-8");
     }
 
     context.output({
-      status: 'ok',
-      command: 'skill.disable',
-      schema: 'skill.disable.output.v1',
+      status: "ok",
+      command: "skill.disable",
+      schema: "skill.disable.output.v1",
       skillName: opts.skillName,
     });
     return 0;
   } catch (error) {
     context.error({
-      status: 'error',
-      code: 'IO_ERROR',
+      status: "error",
+      code: "IO_ERROR",
       message: `Failed to disable skill: ${error instanceof Error ? error.message : String(error)}`,
     });
     return 1;

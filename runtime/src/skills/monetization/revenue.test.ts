@@ -1,20 +1,20 @@
-import { describe, it, expect } from 'vitest';
-import { computeRevenueShare } from './revenue.js';
-import { SkillRevenueError } from './errors.js';
+import { describe, it, expect } from "vitest";
+import { computeRevenueShare } from "./revenue.js";
+import { SkillRevenueError } from "./errors.js";
 import {
   DEVELOPER_REVENUE_BPS,
   PROTOCOL_REVENUE_BPS,
   REVENUE_BPS_DENOMINATOR,
-} from './types.js';
+} from "./types.js";
 
-describe('computeRevenueShare', () => {
+describe("computeRevenueShare", () => {
   const baseInput = {
     taskRewardLamports: 1_000_000n,
-    skillAuthor: 'author-pubkey',
-    protocolTreasury: 'treasury-pubkey',
+    skillAuthor: "author-pubkey",
+    protocolTreasury: "treasury-pubkey",
   };
 
-  it('uses default 80/20 split', () => {
+  it("uses default 80/20 split", () => {
     const result = computeRevenueShare(baseInput);
 
     expect(result.developerBps).toBe(DEVELOPER_REVENUE_BPS);
@@ -23,10 +23,12 @@ describe('computeRevenueShare', () => {
     expect(result.protocolShare).toBe(200_000n);
     // developer gets remainder
     expect(result.developerShare).toBe(800_000n);
-    expect(result.developerShare + result.protocolShare).toBe(baseInput.taskRewardLamports);
+    expect(result.developerShare + result.protocolShare).toBe(
+      baseInput.taskRewardLamports,
+    );
   });
 
-  it('accepts custom BPS split', () => {
+  it("accepts custom BPS split", () => {
     const result = computeRevenueShare({
       ...baseInput,
       developerBps: 9000,
@@ -39,7 +41,7 @@ describe('computeRevenueShare', () => {
     expect(result.developerShare).toBe(900_000n);
   });
 
-  it('returns zero shares for zero reward', () => {
+  it("returns zero shares for zero reward", () => {
     const result = computeRevenueShare({
       ...baseInput,
       taskRewardLamports: 0n,
@@ -50,7 +52,7 @@ describe('computeRevenueShare', () => {
     expect(result.taskRewardLamports).toBe(0n);
   });
 
-  it('throws on negative reward', () => {
+  it("throws on negative reward", () => {
     expect(() =>
       computeRevenueShare({
         ...baseInput,
@@ -59,7 +61,7 @@ describe('computeRevenueShare', () => {
     ).toThrow(SkillRevenueError);
   });
 
-  it('throws when BPS do not sum to denominator', () => {
+  it("throws when BPS do not sum to denominator", () => {
     expect(() =>
       computeRevenueShare({
         ...baseInput,
@@ -69,7 +71,7 @@ describe('computeRevenueShare', () => {
     ).toThrow(SkillRevenueError);
   });
 
-  it('throws on negative developerBps', () => {
+  it("throws on negative developerBps", () => {
     expect(() =>
       computeRevenueShare({
         ...baseInput,
@@ -79,7 +81,7 @@ describe('computeRevenueShare', () => {
     ).toThrow(SkillRevenueError);
   });
 
-  it('throws on non-integer protocolBps', () => {
+  it("throws on non-integer protocolBps", () => {
     expect(() =>
       computeRevenueShare({
         ...baseInput,
@@ -89,7 +91,7 @@ describe('computeRevenueShare', () => {
     ).toThrow(SkillRevenueError);
   });
 
-  it('remainder goes to developer (favor creator)', () => {
+  it("remainder goes to developer (favor creator)", () => {
     // 3 lamports, 80/20 → protocol = 3 * 2000 / 10000 = 0 (integer div)
     // developer gets the full 3
     const result = computeRevenueShare({
@@ -102,7 +104,7 @@ describe('computeRevenueShare', () => {
     expect(result.developerShare + result.protocolShare).toBe(3n);
   });
 
-  it('handles remainder for non-trivial amounts', () => {
+  it("handles remainder for non-trivial amounts", () => {
     // 7 lamports, 80/20 → protocol = 7 * 2000 / 10000 = 1 (integer div)
     // developer gets 6
     const result = computeRevenueShare({
@@ -114,7 +116,7 @@ describe('computeRevenueShare', () => {
     expect(result.developerShare).toBe(6n);
   });
 
-  it('handles large amounts correctly', () => {
+  it("handles large amounts correctly", () => {
     const largeReward = 1_000_000_000_000n; // 1000 SOL
     const result = computeRevenueShare({
       ...baseInput,
@@ -126,14 +128,14 @@ describe('computeRevenueShare', () => {
     expect(result.developerShare + result.protocolShare).toBe(largeReward);
   });
 
-  it('preserves author and treasury fields', () => {
+  it("preserves author and treasury fields", () => {
     const result = computeRevenueShare(baseInput);
 
-    expect(result.skillAuthor).toBe('author-pubkey');
-    expect(result.protocolTreasury).toBe('treasury-pubkey');
+    expect(result.skillAuthor).toBe("author-pubkey");
+    expect(result.protocolTreasury).toBe("treasury-pubkey");
   });
 
-  it('100% developer / 0% protocol', () => {
+  it("100% developer / 0% protocol", () => {
     const result = computeRevenueShare({
       ...baseInput,
       developerBps: 10_000,
@@ -144,7 +146,7 @@ describe('computeRevenueShare', () => {
     expect(result.protocolShare).toBe(0n);
   });
 
-  it('0% developer / 100% protocol', () => {
+  it("0% developer / 100% protocol", () => {
     const result = computeRevenueShare({
       ...baseInput,
       developerBps: 0,

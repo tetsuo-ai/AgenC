@@ -1,14 +1,14 @@
-import type { PluginPrecedence, PluginSlot } from '../skills/catalog.js';
-import type { OperatorRole } from '../policy/incident-roles.js';
+import type { PluginPrecedence, PluginSlot } from "../skills/catalog.js";
+import type { OperatorRole } from "../policy/incident-roles.js";
 
-export type CliOutputFormat = 'json' | 'jsonl' | 'table';
+export type CliOutputFormat = "json" | "jsonl" | "table";
 
 export interface CliReplayOutput<TPayload = unknown> {
   format: CliOutputFormat;
   payload: TPayload;
 }
 
-export type CliLogLevel = 'silent' | 'error' | 'warn' | 'info' | 'debug';
+export type CliLogLevel = "silent" | "error" | "warn" | "info" | "debug";
 
 export interface CliLogger {
   error: (message: string, fields?: Record<string, unknown>) => void;
@@ -31,7 +31,7 @@ export interface BaseCliOptions {
   role?: OperatorRole;
   rpcUrl?: string;
   programId?: string;
-  storeType: 'memory' | 'sqlite';
+  storeType: "memory" | "sqlite";
   sqlitePath?: string;
   traceId?: string;
   idempotencyWindow: number;
@@ -77,19 +77,48 @@ export interface PluginReloadOptions extends BaseCliOptions {
 }
 
 export interface SkillListOptions extends BaseCliOptions {}
-export interface SkillInfoOptions extends BaseCliOptions { skillName: string; }
+export interface SkillInfoOptions extends BaseCliOptions {
+  skillName: string;
+}
 export interface SkillValidateOptions extends BaseCliOptions {}
-export interface SkillCreateOptions extends BaseCliOptions { skillName: string; }
-export interface SkillInstallOptions extends BaseCliOptions { source: string; }
-export interface SkillUninstallOptions extends BaseCliOptions { skillName: string; }
-export interface SkillToggleOptions extends BaseCliOptions { skillName: string; }
+export interface SkillCreateOptions extends BaseCliOptions {
+  skillName: string;
+}
+export interface SkillInstallOptions extends BaseCliOptions {
+  source: string;
+}
+export interface SkillUninstallOptions extends BaseCliOptions {
+  skillName: string;
+}
+export interface SkillToggleOptions extends BaseCliOptions {
+  skillName: string;
+}
 
-export interface RegistrySearchOptions extends BaseCliOptions { query: string; tags?: string[]; limit?: number; }
-export interface RegistryInstallOptions extends BaseCliOptions { skillId: string; }
-export interface RegistryPublishOptions extends BaseCliOptions { skillPath: string; tags?: string[]; priceLamports?: string; }
-export interface RegistryRateOptions extends BaseCliOptions { skillId: string; rating: number; review?: string; }
-export interface RegistryVerifyOptions extends BaseCliOptions { skillId: string; localPath?: string; }
-export interface RegistryImportOpenclawOptions extends BaseCliOptions { source: string; }
+export interface RegistrySearchOptions extends BaseCliOptions {
+  query: string;
+  tags?: string[];
+  limit?: number;
+}
+export interface RegistryInstallOptions extends BaseCliOptions {
+  skillId: string;
+}
+export interface RegistryPublishOptions extends BaseCliOptions {
+  skillPath: string;
+  tags?: string[];
+  priceLamports?: string;
+}
+export interface RegistryRateOptions extends BaseCliOptions {
+  skillId: string;
+  rating: number;
+  review?: string;
+}
+export interface RegistryVerifyOptions extends BaseCliOptions {
+  skillId: string;
+  localPath?: string;
+}
+export interface RegistryImportOpenclawOptions extends BaseCliOptions {
+  source: string;
+}
 
 export type SkillCommandOptions =
   | SkillListOptions
@@ -112,16 +141,16 @@ export interface CliUsage {
 }
 
 export interface ParsedCliArguments {
-  command: 'replay' | null;
-  replayCommand: 'backfill' | 'compare' | 'incident' | null;
+  command: "replay" | null;
+  replayCommand: "backfill" | "compare" | "incident" | null;
   positional: string[];
   options: Record<string, string | number | boolean>;
   outputFormat: CliOutputFormat;
 }
 
 export interface CliParseReport {
-  command: 'replay';
-  replayCommand: 'backfill' | 'compare' | 'incident';
+  command: "replay";
+  replayCommand: "backfill" | "compare" | "incident";
   global: BaseCliOptions;
   options: ReplayBackfillOptions | ReplayCompareOptions | ReplayIncidentOptions;
   outputFormat: CliOutputFormat;
@@ -136,7 +165,7 @@ export interface CliFileConfig {
   configVersion?: string;
   rpcUrl?: string;
   programId?: string;
-  storeType?: 'memory' | 'sqlite';
+  storeType?: "memory" | "sqlite";
   sqlitePath?: string;
   traceId?: string;
   strictMode?: boolean;

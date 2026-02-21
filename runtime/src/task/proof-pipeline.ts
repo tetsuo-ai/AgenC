@@ -8,17 +8,17 @@
  * @module
  */
 
-import type { PublicKey } from '@solana/web3.js';
-import type { Logger } from '../utils/logger.js';
-import { silentLogger } from '../utils/logger.js';
+import type { PublicKey } from "@solana/web3.js";
+import type { Logger } from "../utils/logger.js";
+import { silentLogger } from "../utils/logger.js";
 import type {
   TaskExecutionResult,
   PrivateTaskExecutionResult,
   RetryPolicy,
   OnChainTask,
-} from './types.js';
-import { isPrivateExecutionResult } from './types.js';
-import type { TaskOperations } from './operations.js';
+} from "./types.js";
+import { isPrivateExecutionResult } from "./types.js";
+import type { TaskOperations } from "./operations.js";
 
 // ============================================================================
 // Type Definitions
@@ -28,12 +28,12 @@ import type { TaskOperations } from './operations.js';
  * Status of a proof generation job in the pipeline.
  */
 export type ProofJobStatus =
-  | 'queued'
-  | 'generating'
-  | 'generated'
-  | 'submitting'
-  | 'confirmed'
-  | 'failed';
+  | "queued"
+  | "generating"
+  | "generated"
+  | "submitting"
+  | "confirmed"
+  | "failed";
 
 /**
  * A proof generation job tracking the full lifecycle from queue to confirmation.
@@ -195,7 +195,8 @@ export class ProofPipeline {
   /** Jobs currently generating proofs */
   private readonly generating: Map<string, ProofGenerationJob> = new Map();
   /** Jobs with generated proofs awaiting submission */
-  private readonly awaitingSubmission: Map<string, ProofGenerationJob> = new Map();
+  private readonly awaitingSubmission: Map<string, ProofGenerationJob> =
+    new Map();
   /** Completed (confirmed) jobs */
   private readonly confirmed: Map<string, ProofGenerationJob> = new Map();
   /** Failed jobs */
@@ -205,11 +206,14 @@ export class ProofPipeline {
   private readonly jobIndex: Map<string, ProofGenerationJob> = new Map();
 
   /** Promise resolvers for waitForConfirmation */
-  private readonly waiters: Map<string, Array<{
-    resolve: (job: ProofGenerationJob) => void;
-    reject: (error: Error) => void;
-    timeoutId?: ReturnType<typeof setTimeout>;
-  }>> = new Map();
+  private readonly waiters: Map<
+    string,
+    Array<{
+      resolve: (job: ProofGenerationJob) => void;
+      reject: (error: Error) => void;
+      timeoutId?: ReturnType<typeof setTimeout>;
+    }>
+  > = new Map();
 
   /** Counter for generating unique job IDs */
   private jobCounter = 0;
@@ -251,7 +255,7 @@ export class ProofPipeline {
     result: TaskExecutionResult | PrivateTaskExecutionResult,
   ): ProofGenerationJob {
     if (this.isShuttingDown) {
-      throw new Error('Pipeline is shutting down, cannot enqueue new jobs');
+      throw new Error("Pipeline is shutting down, cannot enqueue new jobs");
     }
 
     const pdaKey = taskPda.toBase58();
@@ -266,7 +270,7 @@ export class ProofPipeline {
       taskPda,
       taskId: new Uint8Array(taskId),
       executionResult: result,
-      status: 'queued',
+      status: "queued",
       createdAt: Date.now(),
       retryCount: 0,
       isPrivate: isPrivateExecutionResult(result),
@@ -314,13 +318,13 @@ export class ProofPipeline {
     }
 
     // Already confirmed
-    if (job.status === 'confirmed') {
+    if (job.status === "confirmed") {
       return Promise.resolve(job);
     }
 
     // Already failed
-    if (job.status === 'failed') {
-      return Promise.reject(job.error ?? new Error('Job failed'));
+    if (job.status === "failed") {
+      return Promise.reject(job.error ?? new Error("Job failed"));
     }
 
     // Create a waiter
@@ -335,7 +339,9 @@ export class ProofPipeline {
       if (timeoutMs !== undefined && timeoutMs > 0) {
         waiter.timeoutId = setTimeout(() => {
           this.removeWaiter(pdaKey, waiter);
-          reject(new Error(`Timeout waiting for proof confirmation of ${pdaKey}`));
+          reject(
+            new Error(`Timeout waiting for proof confirmation of ${pdaKey}`),
+          );
         }, timeoutMs);
       }
 
@@ -354,7 +360,10 @@ export class ProofPipeline {
    * @param graph - Dependency graph to check ancestors
    * @returns True if all ancestors are confirmed
    */
-  areAncestorsConfirmed(taskPda: PublicKey, graph: DependencyGraphLike): boolean {
+  areAncestorsConfirmed(
+    taskPda: PublicKey,
+    graph: DependencyGraphLike,
+  ): boolean {
     const job = this.jobIndex.get(taskPda.toBase58());
     if (!job) {
       return false;
@@ -378,12 +387,12 @@ export class ProofPipeline {
     job: ProofGenerationJob,
     graph: DependencyGraphLike,
   ): Promise<void> {
-    if (job.status !== 'generated') {
+    if (job.status !== "generated") {
       throw new Error(`Cannot submit job in status: ${job.status}`);
     }
 
     if (!job.proofBytes) {
-      throw new Error('Job has no proof bytes');
+      throw new Error("Job has no proof bytes");
     }
 
     // Check if ancestors are confirmed
@@ -413,20 +422,20 @@ export class ProofPipeline {
     }
 
     // Can only cancel queued or generating jobs
-    if (job.status !== 'queued' && job.status !== 'generating') {
+    if (job.status !== "queued" && job.status !== "generating") {
       return false;
     }
 
     // Remove from appropriate map
-    if (job.status === 'queued') {
+    if (job.status === "queued") {
       this.queue.delete(job.id);
     } else {
       this.generating.delete(job.id);
     }
 
     // Mark as failed
-    job.status = 'failed';
-    job.error = new Error('Job cancelled');
+    job.status = "failed";
+    job.error = new Error("Job cancelled");
     job.completedAt = Date.now();
 
     this.failed.set(job.id, job);
@@ -460,7 +469,7 @@ export class ProofPipeline {
    */
   async shutdown(): Promise<void> {
     this.isShuttingDown = true;
-    this.logger.info('Proof pipeline shutting down...');
+    this.logger.info("Proof pipeline shutting down...");
 
     // Wait for all pending generations to complete
     if (this.pendingGenerations.size > 0) {
@@ -476,12 +485,12 @@ export class ProofPipeline {
         if (waiter.timeoutId) {
           clearTimeout(waiter.timeoutId);
         }
-        waiter.reject(new Error('Pipeline shutdown'));
+        waiter.reject(new Error("Pipeline shutdown"));
       }
     }
     this.waiters.clear();
 
-    this.logger.info('Proof pipeline shutdown complete');
+    this.logger.info("Proof pipeline shutdown complete");
   }
 
   // ==========================================================================
@@ -498,7 +507,10 @@ export class ProofPipeline {
       !this.isShuttingDown
     ) {
       // Get next job from queue (FIFO)
-      const [jobId, job] = this.queue.entries().next().value as [string, ProofGenerationJob];
+      const [jobId, job] = this.queue.entries().next().value as [
+        string,
+        ProofGenerationJob,
+      ];
       this.queue.delete(jobId);
 
       // Start generation
@@ -510,7 +522,7 @@ export class ProofPipeline {
    * Start proof generation for a job.
    */
   private startGeneration(job: ProofGenerationJob): void {
-    job.status = 'generating';
+    job.status = "generating";
     job.startedAt = Date.now();
     this.generating.set(job.id, job);
 
@@ -561,7 +573,8 @@ export class ProofPipeline {
         // Default: use the proof from the execution result (for private tasks)
         // or a placeholder for public tasks (real proof generation would happen here)
         if (job.isPrivate) {
-          const privateResult = job.executionResult as PrivateTaskExecutionResult;
+          const privateResult =
+            job.executionResult as PrivateTaskExecutionResult;
           proofBytes = privateResult.sealBytes;
         } else {
           // For public tasks, the "proof" is just the proof hash
@@ -572,7 +585,7 @@ export class ProofPipeline {
 
       // Update job state
       this.generating.delete(job.id);
-      job.status = 'generated';
+      job.status = "generated";
       job.proofBytes = proofBytes;
       this.awaitingSubmission.set(job.id, job);
 
@@ -604,7 +617,7 @@ export class ProofPipeline {
       setTimeout(() => {
         if (!this.isShuttingDown) {
           this.generating.delete(job.id);
-          job.status = 'queued';
+          job.status = "queued";
           this.queue.set(job.id, job);
           this.processQueue();
         }
@@ -612,7 +625,7 @@ export class ProofPipeline {
     } else {
       // Max retries exceeded, mark as failed
       this.generating.delete(job.id);
-      job.status = 'failed';
+      job.status = "failed";
       job.error = error;
       job.completedAt = Date.now();
       this.failed.set(job.id, job);
@@ -620,7 +633,9 @@ export class ProofPipeline {
       const pdaKey = job.taskPda.toBase58();
       this.notifyWaiters(pdaKey, job);
 
-      this.logger.error(`Proof generation failed for ${job.id}: ${error.message}`);
+      this.logger.error(
+        `Proof generation failed for ${job.id}: ${error.message}`,
+      );
       this.events.onProofFailed?.(job, error);
     }
   }
@@ -629,7 +644,7 @@ export class ProofPipeline {
    * Submit a proof to the chain.
    */
   private async submitProof(job: ProofGenerationJob): Promise<void> {
-    job.status = 'submitting';
+    job.status = "submitting";
     this.logger.debug(`Submitting proof: ${job.id}`);
     this.events.onProofSubmitting?.(job);
 
@@ -665,7 +680,7 @@ export class ProofPipeline {
 
       // Mark as confirmed
       this.awaitingSubmission.delete(job.id);
-      job.status = 'confirmed';
+      job.status = "confirmed";
       job.transactionSignature = result.transactionSignature;
       job.completedAt = Date.now();
       this.confirmed.set(job.id, job);
@@ -673,7 +688,9 @@ export class ProofPipeline {
       const pdaKey = job.taskPda.toBase58();
       this.notifyWaiters(pdaKey, job);
 
-      this.logger.info(`Proof confirmed: ${job.id} (${result.transactionSignature})`);
+      this.logger.info(
+        `Proof confirmed: ${job.id} (${result.transactionSignature})`,
+      );
       this.events.onProofConfirmed?.(job);
     } catch (err) {
       this.handleSubmissionError(job, err);
@@ -697,14 +714,14 @@ export class ProofPipeline {
 
       setTimeout(() => {
         if (!this.isShuttingDown) {
-          job.status = 'generated';
+          job.status = "generated";
           this.submitProof(job);
         }
       }, delay);
     } else {
       // Max retries exceeded, mark as failed
       this.awaitingSubmission.delete(job.id);
-      job.status = 'failed';
+      job.status = "failed";
       job.error = error;
       job.completedAt = Date.now();
       this.failed.set(job.id, job);
@@ -712,7 +729,9 @@ export class ProofPipeline {
       const pdaKey = job.taskPda.toBase58();
       this.notifyWaiters(pdaKey, job);
 
-      this.logger.error(`Proof submission failed for ${job.id}: ${error.message}`);
+      this.logger.error(
+        `Proof submission failed for ${job.id}: ${error.message}`,
+      );
       this.events.onProofFailed?.(job, error);
     }
   }
@@ -722,7 +741,10 @@ export class ProofPipeline {
    */
   private calculateRetryDelay(attempt: number): number {
     const { baseDelayMs, maxDelayMs, jitter } = this.config.retryPolicy;
-    const exponentialDelay = Math.min(baseDelayMs * Math.pow(2, attempt - 1), maxDelayMs);
+    const exponentialDelay = Math.min(
+      baseDelayMs * Math.pow(2, attempt - 1),
+      maxDelayMs,
+    );
 
     if (jitter) {
       // Full jitter: random value between 0 and exponentialDelay
@@ -744,10 +766,10 @@ export class ProofPipeline {
         clearTimeout(waiter.timeoutId);
       }
 
-      if (job.status === 'confirmed') {
+      if (job.status === "confirmed") {
         waiter.resolve(job);
-      } else if (job.status === 'failed') {
-        waiter.reject(job.error ?? new Error('Job failed'));
+      } else if (job.status === "failed") {
+        waiter.reject(job.error ?? new Error("Job failed"));
       }
     }
 
@@ -759,12 +781,15 @@ export class ProofPipeline {
    */
   private removeWaiter(
     pdaKey: string,
-    waiter: { resolve: (job: ProofGenerationJob) => void; reject: (error: Error) => void },
+    waiter: {
+      resolve: (job: ProofGenerationJob) => void;
+      reject: (error: Error) => void;
+    },
   ): void {
     const waiters = this.waiters.get(pdaKey);
     if (!waiters) return;
 
-    const index = waiters.indexOf(waiter as typeof waiters[0]);
+    const index = waiters.indexOf(waiter as (typeof waiters)[0]);
     if (index >= 0) {
       waiters.splice(index, 1);
     }

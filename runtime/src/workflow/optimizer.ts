@@ -4,10 +4,10 @@
  * @module
  */
 
-import type { Logger } from '../utils/logger.js';
-import { silentLogger } from '../utils/logger.js';
-import type { WorkflowDefinition } from './types.js';
-import { validateWorkflow } from './validation.js';
+import type { Logger } from "../utils/logger.js";
+import { silentLogger } from "../utils/logger.js";
+import type { WorkflowDefinition } from "./types.js";
+import { validateWorkflow } from "./validation.js";
 import {
   createDefaultWorkflowObjectiveSpec,
   scoreWorkflowObjective,
@@ -15,13 +15,13 @@ import {
   type WorkflowFeatureVector,
   type WorkflowObjectiveOutcome,
   type WorkflowObjectiveSpec,
-} from './optimizer-types.js';
+} from "./optimizer-types.js";
 import {
   generateWorkflowMutationCandidates,
   type WorkflowMutationCandidate,
   type WorkflowMutationConfig,
   type WorkflowMutationOperator,
-} from './mutations.js';
+} from "./mutations.js";
 
 export interface WorkflowOptimizerRuntimeConfig {
   enabled?: boolean;
@@ -88,7 +88,12 @@ const DEFAULT_OUTCOME: WorkflowObjectiveOutcome = {
   verifierDisagreementRate: 0.05,
 };
 
-const DEFAULT_CONFIG: Required<Pick<WorkflowOptimizerRuntimeConfig, 'enabled' | 'seed' | 'maxCandidates' | 'explorationWeight'>> = {
+const DEFAULT_CONFIG: Required<
+  Pick<
+    WorkflowOptimizerRuntimeConfig,
+    "enabled" | "seed" | "maxCandidates" | "explorationWeight"
+  >
+> = {
   enabled: true,
   seed: 17,
   maxCandidates: 8,
@@ -116,13 +121,19 @@ function hashString(input: string): number {
   return hash >>> 0;
 }
 
-function jitterFromSeed(seed: number, candidateId: string, explorationWeight: number): number {
+function jitterFromSeed(
+  seed: number,
+  candidateId: string,
+  explorationWeight: number,
+): number {
   const unit = hashString(`${seed}:${candidateId}`) / 0xffff_ffff;
   const normalized = (unit - 0.5) * 2;
   return normalized * 0.02 * Math.max(0, explorationWeight);
 }
 
-function deriveBaselineOutcome(history: WorkflowFeatureVector[] | undefined): WorkflowObjectiveOutcome {
+function deriveBaselineOutcome(
+  history: WorkflowFeatureVector[] | undefined,
+): WorkflowObjectiveOutcome {
   if (!history || history.length === 0) {
     return { ...DEFAULT_OUTCOME };
   }
@@ -165,47 +176,58 @@ function applyMutationHeuristic(
 ): { next: WorkflowObjectiveOutcome; rationale: string } {
   const next: WorkflowObjectiveOutcome = { ...outcome };
 
-  if (operator === 'edge_rewire') {
+  if (operator === "edge_rewire") {
     next.successRate = clamp01(next.successRate + 0.03);
     next.conformanceScore = clamp01(next.conformanceScore + 0.01);
     next.latencyMs = nonNegative(next.latencyMs + 500);
     return {
       next,
-      rationale: 'edge_rewire: explores alternate parent routing for potential reliability lift',
+      rationale:
+        "edge_rewire: explores alternate parent routing for potential reliability lift",
     };
   }
 
-  if (operator === 'task_type') {
+  if (operator === "task_type") {
     next.successRate = clamp01(next.successRate + 0.01);
     next.conformanceScore = clamp01(next.conformanceScore + 0.03);
     return {
       next,
-      rationale: 'task_type: retunes execution mode for quality/conformance gains',
+      rationale:
+        "task_type: retunes execution mode for quality/conformance gains",
     };
   }
 
-  if (operator === 'reward_policy') {
-    const scaleBps = typeof metadata.scaleBps === 'number' ? metadata.scaleBps : 100;
+  if (operator === "reward_policy") {
+    const scaleBps =
+      typeof metadata.scaleBps === "number" ? metadata.scaleBps : 100;
     const delta = Math.abs(scaleBps - 100) / 100;
 
     if (scaleBps >= 100) {
-      next.successRate = clamp01(next.successRate + Math.min(0.03, 0.03 * delta));
+      next.successRate = clamp01(
+        next.successRate + Math.min(0.03, 0.03 * delta),
+      );
       next.costUnits = nonNegative(next.costUnits + 0.25 * delta);
     } else {
-      next.successRate = clamp01(next.successRate - Math.min(0.02, 0.02 * delta));
+      next.successRate = clamp01(
+        next.successRate - Math.min(0.02, 0.02 * delta),
+      );
       next.costUnits = nonNegative(next.costUnits - 0.15 * delta);
     }
 
     return {
       next,
-      rationale: 'reward_policy: balances incentive pressure against cost efficiency',
+      rationale:
+        "reward_policy: balances incentive pressure against cost efficiency",
     };
   }
 
-  const offsetSeconds = typeof metadata.offsetSeconds === 'number' ? metadata.offsetSeconds : 0;
+  const offsetSeconds =
+    typeof metadata.offsetSeconds === "number" ? metadata.offsetSeconds : 0;
   if (offsetSeconds > 0) {
     next.successRate = clamp01(next.successRate + 0.015);
-    next.latencyMs = nonNegative(next.latencyMs + Math.min(5_000, offsetSeconds * 0.5));
+    next.latencyMs = nonNegative(
+      next.latencyMs + Math.min(5_000, offsetSeconds * 0.5),
+    );
   } else {
     next.successRate = clamp01(next.successRate - 0.01);
     next.latencyMs = nonNegative(next.latencyMs + offsetSeconds * 0.5);
@@ -213,7 +235,8 @@ function applyMutationHeuristic(
 
   return {
     next,
-    rationale: 'deadline_policy: shifts schedule slack to trade speed vs completion robustness',
+    rationale:
+      "deadline_policy: shifts schedule slack to trade speed vs completion robustness",
   };
 }
 
@@ -228,7 +251,11 @@ function toScoredCandidate(
   const rationale: string[] = [];
 
   for (const mutation of candidate.mutations) {
-    const result = applyMutationHeuristic(predicted, mutation.operator, mutation.metadata);
+    const result = applyMutationHeuristic(
+      predicted,
+      mutation.operator,
+      mutation.metadata,
+    );
     predicted = result.next;
     rationale.push(result.rationale);
   }
@@ -236,12 +263,16 @@ function toScoredCandidate(
   predicted.successRate = clamp01(predicted.successRate);
   predicted.conformanceScore = clamp01(predicted.conformanceScore);
   predicted.rollbackRate = clamp01(predicted.rollbackRate);
-  predicted.verifierDisagreementRate = clamp01(predicted.verifierDisagreementRate);
+  predicted.verifierDisagreementRate = clamp01(
+    predicted.verifierDisagreementRate,
+  );
   predicted.latencyMs = nonNegative(predicted.latencyMs);
   predicted.costUnits = nonNegative(predicted.costUnits);
 
   const baseScore = scoreWorkflowObjective(predicted, objective);
-  const score = clamp01(baseScore + jitterFromSeed(seed, candidate.id, explorationWeight));
+  const score = clamp01(
+    baseScore + jitterFromSeed(seed, candidate.id, explorationWeight),
+  );
 
   return {
     candidateId: candidate.id,
@@ -252,12 +283,14 @@ function toScoredCandidate(
   };
 }
 
-function summarizeOperators(scored: WorkflowCandidateScore[]): Record<string, number> {
+function summarizeOperators(
+  scored: WorkflowCandidateScore[],
+): Record<string, number> {
   const counts = new Map<string, number>();
 
   for (const entry of scored) {
     if (entry.mutationOperators.length === 0) {
-      counts.set('baseline', (counts.get('baseline') ?? 0) + 1);
+      counts.set("baseline", (counts.get("baseline") ?? 0) + 1);
       continue;
     }
 
@@ -289,17 +322,21 @@ export class WorkflowOptimizer {
 
     const enabled = this.config.enabled ?? DEFAULT_CONFIG.enabled;
     const seed = input.seed ?? this.config.seed ?? DEFAULT_CONFIG.seed;
-    const maxCandidates = this.config.maxCandidates ?? DEFAULT_CONFIG.maxCandidates;
+    const maxCandidates =
+      this.config.maxCandidates ?? DEFAULT_CONFIG.maxCandidates;
     const explorationWeight =
       this.config.explorationWeight ?? DEFAULT_CONFIG.explorationWeight;
 
-    const objective = input.objective ?? this.config.objective ?? createDefaultWorkflowObjectiveSpec();
+    const objective =
+      input.objective ??
+      this.config.objective ??
+      createDefaultWorkflowObjectiveSpec();
     validateWorkflowObjectiveSpec(objective);
 
     const baselineOutcome = deriveBaselineOutcome(input.history);
 
     const baselineCandidate: WorkflowMutationCandidate = {
-      id: 'baseline',
+      id: "baseline",
       definition: input.baseline,
       mutations: [],
     };
@@ -320,7 +357,13 @@ export class WorkflowOptimizer {
     }
 
     const scored = candidates.map((candidate) =>
-      toScoredCandidate(candidate, baselineOutcome, objective, seed, explorationWeight),
+      toScoredCandidate(
+        candidate,
+        baselineOutcome,
+        objective,
+        seed,
+        explorationWeight,
+      ),
     );
 
     scored.sort((a, b) => {
@@ -332,9 +375,13 @@ export class WorkflowOptimizer {
 
     const selectedScore = scored[0];
     const selected =
-      candidates.find((candidate) => candidate.id === selectedScore.candidateId) ?? baselineCandidate;
+      candidates.find(
+        (candidate) => candidate.id === selectedScore.candidateId,
+      ) ?? baselineCandidate;
 
-    const baselineScore = scored.find((entry) => entry.candidateId === 'baseline')?.objectiveScore ?? 0;
+    const baselineScore =
+      scored.find((entry) => entry.candidateId === "baseline")
+        ?.objectiveScore ?? 0;
 
     const audit: WorkflowOptimizationAuditEntry = {
       timestampMs: this.now(),

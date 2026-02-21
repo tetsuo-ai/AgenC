@@ -4,15 +4,19 @@
  * @module
  */
 
-import type { TaskTemplate, WorkflowDefinition, WorkflowEdge } from './types.js';
-import { OnChainDependencyType } from './types.js';
-import { validateWorkflow } from './validation.js';
+import type {
+  TaskTemplate,
+  WorkflowDefinition,
+  WorkflowEdge,
+} from "./types.js";
+import { OnChainDependencyType } from "./types.js";
+import { validateWorkflow } from "./validation.js";
 
 export type WorkflowMutationOperator =
-  | 'edge_rewire'
-  | 'task_type'
-  | 'reward_policy'
-  | 'deadline_policy';
+  | "edge_rewire"
+  | "task_type"
+  | "reward_policy"
+  | "deadline_policy";
 
 export interface WorkflowMutationRecord {
   operator: WorkflowMutationOperator;
@@ -93,7 +97,7 @@ function resolveConfig(config: WorkflowMutationConfig): ResolvedMutationConfig {
 }
 
 function createSeededRandom(seed: number): () => number {
-  let state = (seed >>> 0) || 1;
+  let state = seed >>> 0 || 1;
   return () => {
     state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
     return state / 0x1_0000_0000;
@@ -109,7 +113,9 @@ function cloneTask(task: TaskTemplate): TaskTemplate {
   return {
     ...task,
     description: new Uint8Array(task.description),
-    constraintHash: task.constraintHash ? new Uint8Array(task.constraintHash) : undefined,
+    constraintHash: task.constraintHash
+      ? new Uint8Array(task.constraintHash)
+      : undefined,
   };
 }
 
@@ -161,7 +167,10 @@ function signature(definition: WorkflowDefinition): string {
   return JSON.stringify({ taskPart, edgePart });
 }
 
-function collectDescendants(edges: ReadonlyArray<WorkflowEdge>, root: string): Set<string> {
+function collectDescendants(
+  edges: ReadonlyArray<WorkflowEdge>,
+  root: string,
+): Set<string> {
   const children = new Map<string, string[]>();
   for (const edge of edges) {
     const current = children.get(edge.from) ?? [];
@@ -202,7 +211,9 @@ function mutateEdgeRewire(
     const child = names[(start + i) % names.length];
     const descendants = collectDescendants(baseline.edges, child);
 
-    const validParents = names.filter((candidate) => candidate !== child && !descendants.has(candidate));
+    const validParents = names.filter(
+      (candidate) => candidate !== child && !descendants.has(candidate),
+    );
     if (validParents.length === 0) continue;
 
     const parent = validParents[chooseIndex(rng, validParents.length)];
@@ -213,9 +224,15 @@ function mutateEdgeRewire(
       .map(cloneEdge);
 
     const dependencyChoices = dependencyTypes.filter(
-      (value) => !(existing && existing.from === parent && existing.dependencyType === value),
+      (value) =>
+        !(
+          existing &&
+          existing.from === parent &&
+          existing.dependencyType === value
+        ),
     );
-    const dependencyType = dependencyChoices[chooseIndex(rng, dependencyChoices.length)];
+    const dependencyType =
+      dependencyChoices[chooseIndex(rng, dependencyChoices.length)];
 
     nextEdges.push({
       from: parent,
@@ -233,7 +250,7 @@ function mutateEdgeRewire(
     return {
       definition,
       mutation: {
-        operator: 'edge_rewire',
+        operator: "edge_rewire",
         description: `Rewired parent of "${child}" to "${parent}"`,
         metadata: {
           child,
@@ -252,14 +269,18 @@ function mutateTaskType(
   config: ResolvedMutationConfig,
   rng: () => number,
 ): MutationAttemptResult | null {
-  const tasks = [...baseline.tasks].sort((a, b) => a.name.localeCompare(b.name));
+  const tasks = [...baseline.tasks].sort((a, b) =>
+    a.name.localeCompare(b.name),
+  );
   if (tasks.length === 0) return null;
 
   const start = chooseIndex(rng, tasks.length);
 
   for (let i = 0; i < tasks.length; i++) {
     const task = tasks[(start + i) % tasks.length];
-    const alternatives = config.allowedTaskTypes.filter((candidate) => candidate !== task.taskType);
+    const alternatives = config.allowedTaskTypes.filter(
+      (candidate) => candidate !== task.taskType,
+    );
     if (alternatives.length === 0) continue;
 
     const nextType = alternatives[chooseIndex(rng, alternatives.length)];
@@ -282,7 +303,7 @@ function mutateTaskType(
     return {
       definition,
       mutation: {
-        operator: 'task_type',
+        operator: "task_type",
         description: `Changed task type for "${task.name}" to ${nextType}`,
         metadata: {
           task: task.name,
@@ -300,7 +321,9 @@ function mutateRewardPolicy(
   config: ResolvedMutationConfig,
   rng: () => number,
 ): MutationAttemptResult | null {
-  const scales = config.rewardScaleBps.filter((value) => value > 0 && value !== 100);
+  const scales = config.rewardScaleBps.filter(
+    (value) => value > 0 && value !== 100,
+  );
   if (scales.length === 0) return null;
 
   const scaleBps = scales[chooseIndex(rng, scales.length)];
@@ -331,7 +354,7 @@ function mutateRewardPolicy(
   return {
     definition,
     mutation: {
-      operator: 'reward_policy',
+      operator: "reward_policy",
       description: `Scaled task rewards by ${scaleBps}%`,
       metadata: {
         scaleBps,
@@ -379,7 +402,7 @@ function mutateDeadlinePolicy(
   return {
     definition,
     mutation: {
-      operator: 'deadline_policy',
+      operator: "deadline_policy",
       description: `Shifted task deadlines by ${offsetSeconds}s`,
       metadata: {
         offsetSeconds,
@@ -401,10 +424,10 @@ export function generateWorkflowMutationCandidates(
   const rng = createSeededRandom(resolved.seed);
 
   const operators: WorkflowMutationOperator[] = [];
-  if (resolved.includeEdgeRewire) operators.push('edge_rewire');
-  if (resolved.includeTaskTypeMutations) operators.push('task_type');
-  if (resolved.includeRewardMutations) operators.push('reward_policy');
-  if (resolved.includeDeadlineMutations) operators.push('deadline_policy');
+  if (resolved.includeEdgeRewire) operators.push("edge_rewire");
+  if (resolved.includeTaskTypeMutations) operators.push("task_type");
+  if (resolved.includeRewardMutations) operators.push("reward_policy");
+  if (resolved.includeDeadlineMutations) operators.push("deadline_policy");
 
   if (operators.length === 0 || resolved.maxCandidates <= 0) {
     return [];
@@ -413,20 +436,23 @@ export function generateWorkflowMutationCandidates(
   const candidates: WorkflowMutationCandidate[] = [];
   const seen = new Set<string>([signature(baseline)]);
 
-  const maxAttempts = Math.max(operators.length * resolved.maxCandidates * 3, 8);
+  const maxAttempts = Math.max(
+    operators.length * resolved.maxCandidates * 3,
+    8,
+  );
   let attempt = 0;
 
   while (candidates.length < resolved.maxCandidates && attempt < maxAttempts) {
     const operator = operators[attempt % operators.length];
 
     let result: MutationAttemptResult | null = null;
-    if (operator === 'edge_rewire') {
+    if (operator === "edge_rewire") {
       result = mutateEdgeRewire(baseline, rng);
-    } else if (operator === 'task_type') {
+    } else if (operator === "task_type") {
       result = mutateTaskType(baseline, resolved, rng);
-    } else if (operator === 'reward_policy') {
+    } else if (operator === "reward_policy") {
       result = mutateRewardPolicy(baseline, resolved, rng);
-    } else if (operator === 'deadline_policy') {
+    } else if (operator === "deadline_policy") {
       result = mutateDeadlinePolicy(baseline, resolved, rng);
     }
 

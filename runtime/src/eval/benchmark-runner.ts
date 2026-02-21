@@ -4,27 +4,31 @@
  * @module
  */
 
-import path from 'node:path';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import type { EvalRunRecord, EvaluationScorecard, ScorecardSerializeResult } from './metrics.js';
+import path from "node:path";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import type {
+  EvalRunRecord,
+  EvaluationScorecard,
+  ScorecardSerializeResult,
+} from "./metrics.js";
 import {
   computeEvaluationScorecard,
   evalRunFromReplayResult,
   serializeEvaluationScorecard,
-} from './metrics.js';
-import { TrajectoryReplayEngine } from './replay.js';
+} from "./metrics.js";
+import { TrajectoryReplayEngine } from "./replay.js";
 import {
   parseTrajectoryTrace,
   stableStringifyJson,
   type JsonValue,
-} from './types.js';
+} from "./types.js";
 import {
   hashBenchmarkManifest,
   loadBenchmarkManifest,
   parseBenchmarkManifest,
   type BenchmarkManifest,
   type BenchmarkScenarioManifest,
-} from './benchmark-manifest.js';
+} from "./benchmark-manifest.js";
 
 export const BENCHMARK_ARTIFACT_SCHEMA_VERSION = 1 as const;
 
@@ -54,7 +58,7 @@ export interface BenchmarkScenarioReportArtifact {
   scenarioId: string;
   title: string;
   taskClass: string;
-  riskTier: BenchmarkScenarioManifest['riskTier'];
+  riskTier: BenchmarkScenarioManifest["riskTier"];
   expectedConstraints: string[];
   runs: BenchmarkScenarioRunArtifact[];
   scorecard: EvaluationScorecard;
@@ -90,7 +94,9 @@ export interface BenchmarkScenarioExecutionOutput {
 
 export type BenchmarkScenarioRunner = (
   context: BenchmarkScenarioExecutionContext,
-) => Promise<BenchmarkScenarioExecutionOutput> | BenchmarkScenarioExecutionOutput;
+) =>
+  | Promise<BenchmarkScenarioExecutionOutput>
+  | BenchmarkScenarioExecutionOutput;
 
 export interface BenchmarkRunnerConfig {
   now?: () => number;
@@ -104,29 +110,33 @@ export interface BenchmarkRunOptions {
   k?: number;
 }
 
-function riskTierToScore(tier: BenchmarkScenarioManifest['riskTier']): number {
-  if (tier === 'low') return 0.2;
-  if (tier === 'medium') return 0.5;
+function riskTierToScore(tier: BenchmarkScenarioManifest["riskTier"]): number {
+  if (tier === "low") return 0.2;
+  if (tier === "medium") return 0.5;
   return 0.85;
 }
 
-function toRewardString(value: EvalRunRecord['rewardLamports']): string | undefined {
+function toRewardString(
+  value: EvalRunRecord["rewardLamports"],
+): string | undefined {
   if (value === undefined) return undefined;
-  if (typeof value === 'bigint') return value.toString();
+  if (typeof value === "bigint") return value.toString();
   return String(value);
 }
 
 function computeDeltas(
-  aggregate: EvaluationScorecard['aggregate'],
-  baseline: EvaluationScorecard['aggregate'],
+  aggregate: EvaluationScorecard["aggregate"],
+  baseline: EvaluationScorecard["aggregate"],
 ): BenchmarkMetricDelta {
   return {
     passRate: aggregate.passRate - baseline.passRate,
     passAtK: aggregate.passAtK - baseline.passAtK,
     passCaretK: aggregate.passCaretK - baseline.passCaretK,
-    riskWeightedSuccess: aggregate.riskWeightedSuccess - baseline.riskWeightedSuccess,
+    riskWeightedSuccess:
+      aggregate.riskWeightedSuccess - baseline.riskWeightedSuccess,
     conformanceScore: aggregate.conformanceScore - baseline.conformanceScore,
-    costNormalizedUtility: aggregate.costNormalizedUtility - baseline.costNormalizedUtility,
+    costNormalizedUtility:
+      aggregate.costNormalizedUtility - baseline.costNormalizedUtility,
   };
 }
 
@@ -136,12 +146,14 @@ async function readFixtureTrace(
   manifestDir: string | undefined,
 ): Promise<unknown> {
   if (!scenario.fixtureTrace) {
-    throw new Error(`scenario "${scenario.id}" has no runner and no fixtureTrace`);
+    throw new Error(
+      `scenario "${scenario.id}" has no runner and no fixtureTrace`,
+    );
   }
   const fixturePath = path.isAbsolute(scenario.fixtureTrace)
     ? scenario.fixtureTrace
     : path.resolve(manifestDir ?? process.cwd(), scenario.fixtureTrace);
-  const raw = await readFile(fixturePath, 'utf8');
+  const raw = await readFile(fixturePath, "utf8");
   const parsed = JSON.parse(raw) as unknown;
   const trace = parseTrajectoryTrace(parsed);
   return {
@@ -165,7 +177,10 @@ export class BenchmarkRunner {
     this.strictReplay = config.strictReplay ?? true;
   }
 
-  async runFromFile(manifestPath: string, options: Omit<BenchmarkRunOptions, 'manifestDir'> = {}): Promise<BenchmarkArtifact> {
+  async runFromFile(
+    manifestPath: string,
+    options: Omit<BenchmarkRunOptions, "manifestDir"> = {},
+  ): Promise<BenchmarkArtifact> {
     const manifest = await loadBenchmarkManifest(manifestPath);
     return await this.run(manifest, {
       ...options,
@@ -173,7 +188,10 @@ export class BenchmarkRunner {
     });
   }
 
-  async run(input: BenchmarkManifest, options: BenchmarkRunOptions = {}): Promise<BenchmarkArtifact> {
+  async run(
+    input: BenchmarkManifest,
+    options: BenchmarkRunOptions = {},
+  ): Promise<BenchmarkArtifact> {
     const manifest = parseBenchmarkManifest(input);
     const runId = this.runId ?? `benchmark-${this.now()}`;
     const manifestHash = hashBenchmarkManifest(manifest);
@@ -182,7 +200,7 @@ export class BenchmarkRunner {
     const scenarioRunners = options.scenarioRunners ?? {};
     const scenarioReports: BenchmarkScenarioReportArtifact[] = [];
     const allRunRecords: EvalRunRecord[] = [];
-    let baselineAggregate: EvaluationScorecard['aggregate'] | null = null;
+    let baselineAggregate: EvaluationScorecard["aggregate"] | null = null;
 
     for (const scenario of manifest.scenarios) {
       const scenarioRuns: BenchmarkScenarioRunArtifact[] = [];
@@ -192,7 +210,13 @@ export class BenchmarkRunner {
         const scenarioRunner = scenarioRunners[scenario.id];
         const execution = scenarioRunner
           ? await scenarioRunner({ manifest, scenario, seed })
-          : { trace: await readFixtureTrace(scenario, seed, options.manifestDir) };
+          : {
+              trace: await readFixtureTrace(
+                scenario,
+                seed,
+                options.manifestDir,
+              ),
+            };
 
         const replay = new TrajectoryReplayEngine({
           strictMode: this.strictReplay,
@@ -227,7 +251,10 @@ export class BenchmarkRunner {
       }
 
       const scorecard = computeEvaluationScorecard(scenarioRunRecords, { k });
-      if (manifest.baselineScenarioId && scenario.id === manifest.baselineScenarioId) {
+      if (
+        manifest.baselineScenarioId &&
+        scenario.id === manifest.baselineScenarioId
+      ) {
         baselineAggregate = scorecard.aggregate;
       }
 
@@ -281,7 +308,9 @@ export class BenchmarkRunner {
 /**
  * Stable JSON serialization for benchmark artifacts.
  */
-export function serializeBenchmarkArtifact(artifact: BenchmarkArtifact): string {
+export function serializeBenchmarkArtifact(
+  artifact: BenchmarkArtifact,
+): string {
   return stableStringifyJson(artifact as unknown as JsonValue);
 }
 
@@ -293,5 +322,9 @@ export async function writeBenchmarkArtifact(
   artifact: BenchmarkArtifact,
 ): Promise<void> {
   await mkdir(path.dirname(outputPath), { recursive: true });
-  await writeFile(outputPath, `${serializeBenchmarkArtifact(artifact)}\n`, 'utf8');
+  await writeFile(
+    outputPath,
+    `${serializeBenchmarkArtifact(artifact)}\n`,
+    "utf8",
+  );
 }

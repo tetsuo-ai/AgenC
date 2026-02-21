@@ -3,13 +3,13 @@
  * @module
  */
 
-import { PublicKey } from '@solana/web3.js';
-import { PROGRAM_ID, SEEDS } from '@agenc/sdk';
-import { derivePda, validateIdLength } from '../utils/pda.js';
+import { PublicKey } from "@solana/web3.js";
+import { PROGRAM_ID, SEEDS } from "@agenc/sdk";
+import { derivePda, validateIdLength } from "../utils/pda.js";
 
 // Re-export PdaWithBump from utils — existing consumers import from here
-export type { PdaWithBump } from '../utils/pda.js';
-import type { PdaWithBump } from '../utils/pda.js';
+export type { PdaWithBump } from "../utils/pda.js";
+import type { PdaWithBump } from "../utils/pda.js";
 
 /** Length of dispute_id field (bytes) */
 export const DISPUTE_ID_LENGTH = 32;
@@ -25,9 +25,9 @@ export const DISPUTE_ID_LENGTH = 32;
  */
 export function deriveDisputePda(
   disputeId: Uint8Array,
-  programId: PublicKey = PROGRAM_ID
+  programId: PublicKey = PROGRAM_ID,
 ): PdaWithBump {
-  validateIdLength(disputeId, DISPUTE_ID_LENGTH, 'disputeId');
+  validateIdLength(disputeId, DISPUTE_ID_LENGTH, "disputeId");
   return derivePda([SEEDS.DISPUTE, Buffer.from(disputeId)], programId);
 }
 
@@ -42,7 +42,7 @@ export function deriveDisputePda(
  */
 export function findDisputePda(
   disputeId: Uint8Array,
-  programId: PublicKey = PROGRAM_ID
+  programId: PublicKey = PROGRAM_ID,
 ): PublicKey {
   return deriveDisputePda(disputeId, programId).address;
 }
@@ -61,9 +61,12 @@ export function findDisputePda(
 export function deriveVotePda(
   disputePda: PublicKey,
   arbiterAgentPda: PublicKey,
-  programId: PublicKey = PROGRAM_ID
+  programId: PublicKey = PROGRAM_ID,
 ): PdaWithBump {
-  return derivePda([SEEDS.VOTE, disputePda.toBuffer(), arbiterAgentPda.toBuffer()], programId);
+  return derivePda(
+    [SEEDS.VOTE, disputePda.toBuffer(), arbiterAgentPda.toBuffer()],
+    programId,
+  );
 }
 
 /**
@@ -78,7 +81,7 @@ export function deriveVotePda(
 export function findVotePda(
   disputePda: PublicKey,
   arbiterAgentPda: PublicKey,
-  programId: PublicKey = PROGRAM_ID
+  programId: PublicKey = PROGRAM_ID,
 ): PublicKey {
   return deriveVotePda(disputePda, arbiterAgentPda, programId).address;
 }

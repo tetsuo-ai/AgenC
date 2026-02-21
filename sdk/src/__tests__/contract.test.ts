@@ -1,5 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { Connection, Keypair, PublicKey } from '@solana/web3.js';
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { Connection, Keypair, PublicKey } from "@solana/web3.js";
 import {
   createTask,
   claimTask,
@@ -8,12 +8,12 @@ import {
   getTask,
   generateProof,
   deriveTokenEscrowAddress,
-} from '../index.js';
-import { getAssociatedTokenAddressSync } from '@solana/spl-token';
-import { TaskState, PROGRAM_ID } from '../constants.js';
-import { getAccount } from '../anchor-utils.js';
+} from "../index.js";
+import { getAssociatedTokenAddressSync } from "@solana/spl-token";
+import { TaskState, PROGRAM_ID } from "../constants.js";
+import { getAccount } from "../anchor-utils.js";
 
-vi.mock('../anchor-utils.js', () => ({
+vi.mock("../anchor-utils.js", () => ({
   getAccount: vi.fn(),
 }));
 
@@ -54,14 +54,14 @@ const createPublicKeySeeded = (seed: number): PublicKey => {
   return new PublicKey(bytes);
 };
 
-describe('SDK contract tests', () => {
+describe("SDK contract tests", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it('returns stable contract for createTask', async () => {
+  it("returns stable contract for createTask", async () => {
     const connection = { confirmTransaction: vi.fn() } as unknown as Connection;
-    const program = makeProgram(['createTask'], 'tx-create-task') as never;
+    const program = makeProgram(["createTask"], "tx-create-task") as never;
     const creator = makeKeypair(1);
     const creatorId = new Uint8Array(32);
     creatorId.fill(1);
@@ -84,16 +84,16 @@ describe('SDK contract tests', () => {
       },
     );
 
-    expect(result).toHaveProperty('taskPda');
+    expect(result).toHaveProperty("taskPda");
     expect(result.taskPda).toBeInstanceOf(PublicKey);
-    expect(result).toHaveProperty('txSignature', 'tx-create-task');
-    expect(typeof result.txSignature).toBe('string');
-    expect(result.txSignature).toBe('tx-create-task');
+    expect(result).toHaveProperty("txSignature", "tx-create-task");
+    expect(typeof result.txSignature).toBe("string");
+    expect(result.txSignature).toBe("tx-create-task");
   });
 
-  it('returns stable contract for claimTask', async () => {
+  it("returns stable contract for claimTask", async () => {
     const connection = { confirmTransaction: vi.fn() } as unknown as Connection;
-    const program = makeProgram(['claimTask'], 'tx-claim-task') as never;
+    const program = makeProgram(["claimTask"], "tx-claim-task") as never;
     const worker = makeKeypair(2);
     const taskPda = createPublicKeySeeded(3);
     const workerId = new Uint8Array(32);
@@ -107,13 +107,13 @@ describe('SDK contract tests', () => {
       taskPda,
     );
 
-    expect(result).toEqual({ txSignature: 'tx-claim-task' });
+    expect(result).toEqual({ txSignature: "tx-claim-task" });
     expect(result.txSignature).toMatch(/\S+/);
   });
 
-  it('returns stable contract for completeTask', async () => {
+  it("returns stable contract for completeTask", async () => {
     const connection = { confirmTransaction: vi.fn() } as unknown as Connection;
-    const program = makeProgram(['completeTask'], 'tx-complete-task') as never;
+    const program = makeProgram(["completeTask"], "tx-complete-task") as never;
     const worker = makeKeypair(3);
     const taskPda = createPublicKeySeeded(4);
     const workerId = new Uint8Array(32);
@@ -136,13 +136,16 @@ describe('SDK contract tests', () => {
       new Uint8Array(32),
     );
 
-    expect(result).toEqual({ txSignature: 'tx-complete-task' });
+    expect(result).toEqual({ txSignature: "tx-complete-task" });
     expect(result.txSignature).toMatch(/\S+/);
   });
 
-  it('returns stable contract for completeTaskPrivate with router accounts', async () => {
+  it("returns stable contract for completeTaskPrivate with router accounts", async () => {
     const connection = { confirmTransaction: vi.fn() } as unknown as Connection;
-    const program = makeProgram(['completeTaskPrivate'], 'tx-complete-task-private') as never;
+    const program = makeProgram(
+      ["completeTaskPrivate"],
+      "tx-complete-task-private",
+    ) as never;
     const worker = makeKeypair(13);
     const taskPda = createPublicKeySeeded(14);
     const workerId = new Uint8Array(32);
@@ -181,9 +184,10 @@ describe('SDK contract tests', () => {
       },
     );
 
-    expect(result).toEqual({ txSignature: 'tx-complete-task-private' });
+    expect(result).toEqual({ txSignature: "tx-complete-task-private" });
 
-    const completeTaskPrivateMock = (program as any).methods.completeTaskPrivate as ReturnType<typeof vi.fn>;
+    const completeTaskPrivateMock = (program as any).methods
+      .completeTaskPrivate as ReturnType<typeof vi.fn>;
     expect(completeTaskPrivateMock).toHaveBeenCalledTimes(1);
     const proofArg = completeTaskPrivateMock.mock.calls[0][1];
     expect(proofArg).toMatchObject({
@@ -200,17 +204,19 @@ describe('SDK contract tests', () => {
     expect(proofArg.nullifierSeed).toHaveLength(32);
 
     const builder = completeTaskPrivateMock.mock.results[0].value;
-    expect(builder.accountsPartial).toHaveBeenCalledWith(expect.objectContaining({
-      bindingSpend: expect.any(PublicKey),
-      nullifierSpend: expect.any(PublicKey),
-      routerProgram: expect.any(PublicKey),
-      router: expect.any(PublicKey),
-      verifierEntry: expect.any(PublicKey),
-      verifierProgram: expect.any(PublicKey),
-    }));
+    expect(builder.accountsPartial).toHaveBeenCalledWith(
+      expect.objectContaining({
+        bindingSpend: expect.any(PublicKey),
+        nullifierSpend: expect.any(PublicKey),
+        routerProgram: expect.any(PublicKey),
+        router: expect.any(PublicKey),
+        verifierEntry: expect.any(PublicKey),
+        verifierProgram: expect.any(PublicKey),
+      }),
+    );
   });
 
-  it('returns stable TaskStatus contract for getTask', async () => {
+  it("returns stable TaskStatus contract for getTask", async () => {
     const taskPda = createPublicKeySeeded(7);
     const creator = createPublicKeySeeded(8);
     const constraintHash = new Uint8Array([9, 8, 7, 6]);
@@ -219,7 +225,7 @@ describe('SDK contract tests', () => {
       taskId: new Uint8Array(32),
       status: { open: {} },
       creator,
-      rewardAmount: { toString: () => '42' },
+      rewardAmount: { toString: () => "42" },
       deadline: { toNumber: () => 1_234_567 },
       constraintHash,
       currentWorkers: 1,
@@ -229,7 +235,7 @@ describe('SDK contract tests', () => {
     } as never);
 
     const status = await getTask(
-      { rpc: () => Promise.resolve('ok') } as never,
+      { rpc: () => Promise.resolve("ok") } as never,
       taskPda,
     );
 
@@ -248,7 +254,7 @@ describe('SDK contract tests', () => {
     });
   });
 
-  it('returns stable ProofResult contract for generateProof', async () => {
+  it("returns stable ProofResult contract for generateProof", async () => {
     const result = await generateProof({
       taskPda: createPublicKeySeeded(9),
       agentPubkey: createPublicKeySeeded(10),
@@ -272,7 +278,7 @@ describe('SDK contract tests', () => {
     expect(result.generationTime).toBeGreaterThanOrEqual(0);
   });
 
-  it('returns stable contract for deriveTokenEscrowAddress', () => {
+  it("returns stable contract for deriveTokenEscrowAddress", () => {
     const mint = createPublicKeySeeded(11);
     const escrow = createPublicKeySeeded(12);
     const expected = getAssociatedTokenAddressSync(mint, escrow, true);

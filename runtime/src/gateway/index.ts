@@ -20,7 +20,7 @@ export type {
   ChannelHandle,
   ConfigDiff,
   WebChatHandler,
-} from './types.js';
+} from "./types.js";
 
 export {
   GatewayValidationError,
@@ -32,7 +32,7 @@ export {
   SubAgentTimeoutError,
   SubAgentNotFoundError,
   GatewayAuthError,
-} from './errors.js';
+} from "./errors.js";
 
 export {
   getDefaultConfigPath,
@@ -43,13 +43,13 @@ export {
   ConfigWatcher,
   type ConfigReloadCallback,
   type ConfigErrorCallback,
-} from './config-watcher.js';
+} from "./config-watcher.js";
 
-export { Gateway, type GatewayOptions } from './gateway.js';
+export { Gateway, type GatewayOptions } from "./gateway.js";
 
 // Remote access (Phase 11 — Issue #1102)
-export { createToken, verifyToken } from './jwt.js';
-export { RemoteGatewayClient } from './remote.js';
+export { createToken, verifyToken } from "./jwt.js";
+export { RemoteGatewayClient } from "./remote.js";
 export type {
   GatewayAuthConfig,
   JWTPayload,
@@ -59,7 +59,7 @@ export type {
   RemoteChatMessage,
   OfflineQueueEntry,
   PushNotification,
-} from './remote-types.js';
+} from "./remote-types.js";
 
 export type {
   GatewayMessage,
@@ -67,7 +67,7 @@ export type {
   MessageAttachment,
   MessageScope,
   CreateGatewayMessageParams,
-} from './message.js';
+} from "./message.js";
 
 export {
   createGatewayMessage,
@@ -75,10 +75,15 @@ export {
   validateGatewayMessage,
   validateOutboundMessage,
   validateAttachment,
-} from './message.js';
+} from "./message.js";
 
 // Workspace files (Phase 3.5)
-export type { WorkspaceFiles, WorkspaceValidation, WorkspaceFileName, AssembleSystemPromptOptions } from './workspace-files.js';
+export type {
+  WorkspaceFiles,
+  WorkspaceValidation,
+  WorkspaceFileName,
+  AssembleSystemPromptOptions,
+} from "./workspace-files.js";
 export {
   WORKSPACE_FILES,
   WorkspaceLoader,
@@ -86,15 +91,15 @@ export {
   assembleSystemPrompt,
   generateTemplate,
   scaffoldWorkspace,
-} from './workspace-files.js';
+} from "./workspace-files.js";
 
 // Personality templates (Phase 5.6)
-export type { PersonalityTemplate } from './personality.js';
+export type { PersonalityTemplate } from "./personality.js";
 export {
   loadPersonalityTemplate,
   listPersonalityTemplates,
   mergePersonality,
-} from './personality.js';
+} from "./personality.js";
 
 // Session management (Phase 1.6)
 export type {
@@ -108,27 +113,36 @@ export type {
   CompactionResult,
   SessionInfo,
   Summarizer,
-} from './session.js';
+} from "./session.js";
 
-export { SessionManager, deriveSessionId } from './session.js';
+export { SessionManager, deriveSessionId } from "./session.js";
 
 // Agent workspace model (Phase 7.1)
-export type { AgentWorkspace, ToolPolicy, WorkspaceTemplate, WorkspaceConfigJson } from './workspace.js';
+export type {
+  AgentWorkspace,
+  ToolPolicy,
+  WorkspaceTemplate,
+  WorkspaceConfigJson,
+} from "./workspace.js";
 export {
   WorkspaceManager,
   WORKSPACE_CONFIG_FILE,
   DEFAULT_WORKSPACE_ID,
   WORKSPACE_ID_PATTERN,
   MEMORY_NAMESPACE_PREFIX,
-} from './workspace.js';
+} from "./workspace.js";
 
 // Routing rules (Phase 7.2)
-export type { RoutingMatch, RoutingRule } from './routing.js';
-export { MessageRouter, RoutingValidationError } from './routing.js';
+export type { RoutingMatch, RoutingRule } from "./routing.js";
+export { MessageRouter, RoutingValidationError } from "./routing.js";
 
 // Session isolation (Phase 7.3)
-export type { IsolatedSessionContext, SessionIsolationManagerConfig, AuthState } from './session-isolation.js';
-export { SessionIsolationManager } from './session-isolation.js';
+export type {
+  IsolatedSessionContext,
+  SessionIsolationManagerConfig,
+  AuthState,
+} from "./session-isolation.js";
+export { SessionIsolationManager } from "./session-isolation.js";
 
 // Slash commands (Phase 1.5)
 export {
@@ -139,7 +153,7 @@ export {
   type SlashCommandHandler,
   type ParsedCommand,
   type SlashCommandRegistryConfig,
-} from './commands.js';
+} from "./commands.js";
 
 // Daemon lifecycle (Phase 2.4)
 export {
@@ -157,13 +171,19 @@ export {
   type DaemonStatus,
   type PidFileInfo,
   type StalePidResult,
-} from './daemon.js';
+} from "./daemon.js";
 
 // Voice Bridge (xAI Realtime)
-export { VoiceBridge, type VoiceBridgeConfig } from './voice-bridge.js';
+export { VoiceBridge, type VoiceBridgeConfig } from "./voice-bridge.js";
 
 // Media pipeline (Phase 1.12)
-export type { MediaPipelineConfig, MediaProcessingResult, TranscriptionProvider, ImageDescriptionProvider, MediaLogger } from './media.js';
+export type {
+  MediaPipelineConfig,
+  MediaProcessingResult,
+  TranscriptionProvider,
+  ImageDescriptionProvider,
+  MediaLogger,
+} from "./media.js";
 export {
   MediaPipeline,
   NoopTranscriptionProvider,
@@ -175,7 +195,7 @@ export {
   DEFAULT_TEMP_DIR,
   DEFAULT_TEMP_FILE_TTL_MS,
   DEFAULT_PROCESSING_TIMEOUT_MS,
-} from './media.js';
+} from "./media.js";
 
 // Lifecycle hooks (Phase 1.7)
 export {
@@ -188,7 +208,7 @@ export {
   type HookContext,
   type HookResult,
   type DispatchResult,
-} from './hooks.js';
+} from "./hooks.js";
 
 // Cron scheduling (Phase 2.3)
 export {
@@ -201,7 +221,7 @@ export {
   type ScheduledJob,
   type HeartbeatActionDef,
   type HeartbeatContext,
-} from './scheduler.js';
+} from "./scheduler.js";
 
 // Approval policies (Phase 5)
 export type {
@@ -214,7 +234,7 @@ export type {
   ApprovalDisposition,
   ApprovalEngineConfig,
   ApprovalResponseHandler,
-} from './approvals.js';
+} from "./approvals.js";
 
 export {
   ApprovalEngine,
@@ -222,7 +242,7 @@ export {
   createApprovalGateHook,
   globMatch,
   extractAmount,
-} from './approvals.js';
+} from "./approvals.js";
 
 // Channel plugin (Phase 1.5)
 export {
@@ -241,7 +261,7 @@ export {
   type WebhookResponse,
   type WebhookHandler,
   type ReactionEvent,
-} from './channel.js';
+} from "./channel.js";
 
 // Cross-channel identity linking (Phase 1.9)
 export type {
@@ -250,7 +270,7 @@ export type {
   PendingLink,
   IdentityResolverConfig,
   IdentityStore,
-} from './identity.js';
+} from "./identity.js";
 
 export {
   IdentityResolver,
@@ -260,7 +280,7 @@ export {
   IdentitySelfLinkError,
   IdentitySignatureError,
   IdentityValidationError,
-} from './identity.js';
+} from "./identity.js";
 
 // Heartbeat scheduler (Phase 2.1)
 export type {
@@ -269,7 +289,7 @@ export type {
   HeartbeatResult,
   HeartbeatRunSummary,
   HeartbeatSchedulerOptions,
-} from './heartbeat.js';
+} from "./heartbeat.js";
 
 export {
   HeartbeatScheduler,
@@ -277,7 +297,7 @@ export {
   HeartbeatActionError,
   HeartbeatTimeoutError,
   defaultHeartbeatConfig,
-} from './heartbeat.js';
+} from "./heartbeat.js";
 
 // Heartbeat actions (Phase 2.2)
 export {
@@ -291,7 +311,7 @@ export {
   type PortfolioActionConfig,
   type PollingActionConfig,
   type DefaultHeartbeatActionsConfig,
-} from './heartbeat-actions.js';
+} from "./heartbeat-actions.js";
 
 // Execution sandboxing (Phase 4.5)
 export type {
@@ -301,7 +321,7 @@ export type {
   SandboxMode,
   SandboxScope,
   WorkspaceAccessMode,
-} from './sandbox.js';
+} from "./sandbox.js";
 
 export {
   SandboxManager,
@@ -309,7 +329,7 @@ export {
   SandboxUnavailableError,
   defaultSandboxConfig,
   checkDockerAvailable,
-} from './sandbox.js';
+} from "./sandbox.js";
 
 // Sub-agent spawning (Phase 7.4)
 export type {
@@ -318,11 +338,11 @@ export type {
   SubAgentManagerConfig,
   SubAgentStatus,
   SubAgentInfo,
-} from './sub-agent.js';
+} from "./sub-agent.js";
 
 export {
   SubAgentManager,
   DEFAULT_SUB_AGENT_TIMEOUT_MS,
   MAX_CONCURRENT_SUB_AGENTS,
   SUB_AGENT_SESSION_PREFIX,
-} from './sub-agent.js';
+} from "./sub-agent.js";

@@ -9,14 +9,14 @@
  * @module
  */
 
-import { ensureLazyModule } from '../utils/lazy-import.js';
-import { GatewayAuthError } from './errors.js';
+import { ensureLazyModule } from "../utils/lazy-import.js";
+import { GatewayAuthError } from "./errors.js";
 import type {
   RemoteGatewayConfig,
   RemoteGatewayState,
   RemoteGatewayEvents,
   OfflineQueueEntry,
-} from './remote-types.js';
+} from "./remote-types.js";
 
 // ============================================================================
 // WebSocket type shim (matches ws package interface)
@@ -51,9 +51,12 @@ type EventKey = keyof RemoteGatewayEvents;
 
 export class RemoteGatewayClient {
   private ws: WsInstance | null = null;
-  private _state: RemoteGatewayState = 'disconnected';
+  private _state: RemoteGatewayState = "disconnected";
   private config: RemoteGatewayConfig;
-  private readonly listeners = new Map<EventKey, Set<(...args: unknown[]) => void>>();
+  private readonly listeners = new Map<
+    EventKey,
+    Set<(...args: unknown[]) => void>
+  >();
   private readonly offlineQueue: OfflineQueueEntry[] = [];
   private pingTimer: ReturnType<typeof setInterval> | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -63,7 +66,8 @@ export class RemoteGatewayClient {
 
   constructor(config: RemoteGatewayConfig) {
     this.config = config;
-    this.maxQueueSize = config.maxOfflineQueueSize ?? DEFAULT_MAX_OFFLINE_QUEUE_SIZE;
+    this.maxQueueSize =
+      config.maxOfflineQueueSize ?? DEFAULT_MAX_OFFLINE_QUEUE_SIZE;
   }
 
   get state(): RemoteGatewayState {
@@ -74,7 +78,10 @@ export class RemoteGatewayClient {
   // Event emitter
   // --------------------------------------------------------------------------
 
-  on<K extends EventKey>(event: K, handler: RemoteGatewayEvents[K]): () => void {
+  on<K extends EventKey>(
+    event: K,
+    handler: RemoteGatewayEvents[K],
+  ): () => void {
     let handlers = this.listeners.get(event);
     if (!handlers) {
       handlers = new Set();
@@ -86,7 +93,10 @@ export class RemoteGatewayClient {
     };
   }
 
-  private emit<K extends EventKey>(event: K, ...args: Parameters<RemoteGatewayEvents[K]>): void {
+  private emit<K extends EventKey>(
+    event: K,
+    ...args: Parameters<RemoteGatewayEvents[K]>
+  ): void {
     const handlers = this.listeners.get(event);
     if (!handlers) return;
     for (const handler of handlers) {
@@ -105,7 +115,7 @@ export class RemoteGatewayClient {
   private setState(state: RemoteGatewayState): void {
     if (this._state === state) return;
     this._state = state;
-    this.emit('stateChanged', state);
+    this.emit("stateChanged", state);
   }
 
   // --------------------------------------------------------------------------
@@ -113,15 +123,19 @@ export class RemoteGatewayClient {
   // --------------------------------------------------------------------------
 
   async connect(): Promise<void> {
-    if (this._state === 'connected' || this._state === 'connecting' || this._state === 'authenticating') {
+    if (
+      this._state === "connected" ||
+      this._state === "connecting" ||
+      this._state === "authenticating"
+    ) {
       return;
     }
 
     this.intentionalClose = false;
-    this.setState('connecting');
+    this.setState("connecting");
 
     const wsMod = await ensureLazyModule<WsModule>(
-      'ws',
+      "ws",
       (msg) => new GatewayAuthError(msg),
       (mod) => mod as unknown as WsModule,
     );
@@ -129,72 +143,77 @@ export class RemoteGatewayClient {
     const WsConstructor = wsMod.default;
     this.ws = new WsConstructor(this.config.url);
 
-    this.ws.on('open', () => {
-      this.setState('authenticating');
-      this.ws!.send(JSON.stringify({
-        type: 'auth',
-        payload: { token: this.config.token },
-      }));
+    this.ws.on("open", () => {
+      this.setState("authenticating");
+      this.ws!.send(
+        JSON.stringify({
+          type: "auth",
+          payload: { token: this.config.token },
+        }),
+      );
     });
 
-    this.ws.on('message', (data: unknown) => {
-      const text = typeof data === 'string' ? data : String(data);
+    this.ws.on("message", (data: unknown) => {
+      const text = typeof data === "string" ? data : String(data);
       let parsed: unknown;
       try {
         parsed = JSON.parse(text);
       } catch {
-        this.emit('message', text);
+        this.emit("message", text);
         return;
       }
 
-      if (parsed && typeof parsed === 'object') {
+      if (parsed && typeof parsed === "object") {
         const msg = parsed as Record<string, unknown>;
 
         // Handle auth response
-        if (msg.type === 'auth') {
+        if (msg.type === "auth") {
           if (msg.error) {
             this.offlineQueue.length = 0;
-            this.setState('disconnected');
-            this.emit('authFailed', String(msg.error));
+            this.setState("disconnected");
+            this.emit("authFailed", String(msg.error));
             this.ws?.close();
             return;
           }
           this.reconnectAttempt = 0;
-          this.setState('connected');
-          this.emit('connected');
+          this.setState("connected");
+          this.emit("connected");
           this.startPing();
           this.flushOfflineQueue();
           return;
         }
       }
 
-      this.emit('message', parsed);
+      this.emit("message", parsed);
     });
 
-    this.ws.on('close', () => {
+    this.ws.on("close", () => {
       this.stopPing();
-      const wasConnected = this._state === 'connected';
+      const wasConnected = this._state === "connected";
       this.ws = null;
 
       if (this.intentionalClose) {
-        this.setState('disconnected');
-        this.emit('disconnected', 'intentional');
+        this.setState("disconnected");
+        this.emit("disconnected", "intentional");
         return;
       }
 
       const shouldReconnect = this.config.reconnect !== false;
       if (shouldReconnect) {
-        this.setState('reconnecting');
-        this.emit('disconnected', wasConnected ? 'connection lost' : 'failed to connect');
+        this.setState("reconnecting");
+        this.emit(
+          "disconnected",
+          wasConnected ? "connection lost" : "failed to connect",
+        );
         this.scheduleReconnect();
       } else {
-        this.setState('disconnected');
-        this.emit('disconnected', 'connection closed');
+        this.setState("disconnected");
+        this.emit("disconnected", "connection closed");
       }
     });
 
-    this.ws.on('error', (err: unknown) => {
-      this.emit('error', err instanceof Error ? err : new Error(String(err)));
+    this.ws.on("error", (err: unknown) => {
+      this.emit("error", err instanceof Error ? err : new Error(String(err)));
     });
   }
 
@@ -206,7 +225,7 @@ export class RemoteGatewayClient {
       this.ws.close();
       this.ws = null;
     }
-    this.setState('disconnected');
+    this.setState("disconnected");
   }
 
   async switchGateway(url: string, token: string): Promise<void> {
@@ -221,7 +240,7 @@ export class RemoteGatewayClient {
 
   send(msg: Record<string, unknown>): void {
     const serialized = JSON.stringify(msg);
-    if (this._state === 'connected' && this.ws) {
+    if (this._state === "connected" && this.ws) {
       this.ws.send(serialized);
     } else {
       this.enqueue(serialized);
@@ -229,7 +248,7 @@ export class RemoteGatewayClient {
   }
 
   sendMessage(content: string): void {
-    this.send({ type: 'chat.message', payload: { content } });
+    this.send({ type: "chat.message", payload: { content } });
   }
 
   // --------------------------------------------------------------------------
@@ -246,7 +265,7 @@ export class RemoteGatewayClient {
   private flushOfflineQueue(): void {
     while (this.offlineQueue.length > 0) {
       const entry = this.offlineQueue.shift()!;
-      if (this.ws && this._state === 'connected') {
+      if (this.ws && this._state === "connected") {
         this.ws.send(entry.message);
       }
     }
@@ -268,8 +287,8 @@ export class RemoteGatewayClient {
     this.stopPing();
     const interval = this.config.pingIntervalMs ?? DEFAULT_PING_INTERVAL_MS;
     this.pingTimer = setInterval(() => {
-      if (this.ws && this._state === 'connected') {
-        this.ws.send(JSON.stringify({ type: 'ping' }));
+      if (this.ws && this._state === "connected") {
+        this.ws.send(JSON.stringify({ type: "ping" }));
       }
     }, interval);
   }
@@ -288,9 +307,14 @@ export class RemoteGatewayClient {
   private scheduleReconnect(): void {
     this.clearReconnectTimer();
 
-    const baseDelay = this.config.reconnectBaseDelayMs ?? DEFAULT_RECONNECT_BASE_DELAY_MS;
-    const maxDelay = this.config.reconnectMaxDelayMs ?? DEFAULT_RECONNECT_MAX_DELAY_MS;
-    const base = Math.min(baseDelay * Math.pow(2, this.reconnectAttempt), maxDelay);
+    const baseDelay =
+      this.config.reconnectBaseDelayMs ?? DEFAULT_RECONNECT_BASE_DELAY_MS;
+    const maxDelay =
+      this.config.reconnectMaxDelayMs ?? DEFAULT_RECONNECT_MAX_DELAY_MS;
+    const base = Math.min(
+      baseDelay * Math.pow(2, this.reconnectAttempt),
+      maxDelay,
+    );
     const jitter = 1 + Math.random() * JITTER_FACTOR;
     const delay = Math.round(base * jitter);
     this.reconnectAttempt++;

@@ -10,10 +10,10 @@
  * @module
  */
 
-import { Program } from '@coral-xyz/anchor';
-import type { AgencCoordination } from '../types/agenc_coordination.js';
-import type { Logger } from '../utils/logger.js';
-import { silentLogger } from '../utils/logger.js';
+import { Program } from "@coral-xyz/anchor";
+import type { AgencCoordination } from "../types/agenc_coordination.js";
+import type { Logger } from "../utils/logger.js";
+import { silentLogger } from "../utils/logger.js";
 import type {
   EventCallback,
   EventSubscription,
@@ -23,15 +23,15 @@ import type {
   DisputeEventFilterOptions,
   ProtocolEventCallbacks,
   ProtocolEventFilterOptions,
-} from './types.js';
+} from "./types.js";
 import type {
   AgentEventCallbacks,
   EventSubscriptionOptions,
-} from '../agent/events.js';
-import { subscribeToAllTaskEvents } from './task.js';
-import { subscribeToAllDisputeEvents } from './dispute.js';
-import { subscribeToAllProtocolEvents } from './protocol.js';
-import { subscribeToAllAgentEvents } from '../agent/events.js';
+} from "../agent/events.js";
+import { subscribeToAllTaskEvents } from "./task.js";
+import { subscribeToAllDisputeEvents } from "./dispute.js";
+import { subscribeToAllProtocolEvents } from "./protocol.js";
+import { subscribeToAllAgentEvents } from "../agent/events.js";
 
 export interface EventMonitorConfig {
   /** Anchor program instance */
@@ -62,7 +62,7 @@ export class EventMonitor {
 
   constructor(config: EventMonitorConfig) {
     if (!config.program) {
-      throw new Error('EventMonitorConfig.program is required');
+      throw new Error("EventMonitorConfig.program is required");
     }
     this.program = config.program;
     this.logger = config.logger ?? silentLogger;
@@ -74,12 +74,12 @@ export class EventMonitor {
    */
   subscribeToTaskEvents(
     callbacks: TaskEventCallbacks,
-    options?: TaskEventFilterOptions
+    options?: TaskEventFilterOptions,
   ): void {
     const wrapped = this.wrapTaskCallbacks(callbacks);
     const sub = subscribeToAllTaskEvents(this.program, wrapped, options);
     this.subscriptions.push(sub);
-    this.logger.debug('Subscribed to task events');
+    this.logger.debug("Subscribed to task events");
   }
 
   /**
@@ -88,12 +88,12 @@ export class EventMonitor {
    */
   subscribeToDisputeEvents(
     callbacks: DisputeEventCallbacks,
-    options?: DisputeEventFilterOptions
+    options?: DisputeEventFilterOptions,
   ): void {
     const wrapped = this.wrapDisputeCallbacks(callbacks);
     const sub = subscribeToAllDisputeEvents(this.program, wrapped, options);
     this.subscriptions.push(sub);
-    this.logger.debug('Subscribed to dispute events');
+    this.logger.debug("Subscribed to dispute events");
   }
 
   /**
@@ -102,12 +102,12 @@ export class EventMonitor {
    */
   subscribeToProtocolEvents(
     callbacks: ProtocolEventCallbacks,
-    options?: ProtocolEventFilterOptions
+    options?: ProtocolEventFilterOptions,
   ): void {
     const wrapped = this.wrapProtocolCallbacks(callbacks);
     const sub = subscribeToAllProtocolEvents(this.program, wrapped, options);
     this.subscriptions.push(sub);
-    this.logger.debug('Subscribed to protocol events');
+    this.logger.debug("Subscribed to protocol events");
   }
 
   /**
@@ -116,12 +116,12 @@ export class EventMonitor {
    */
   subscribeToAgentEvents(
     callbacks: AgentEventCallbacks,
-    options?: EventSubscriptionOptions
+    options?: EventSubscriptionOptions,
   ): void {
     const wrapped = this.wrapAgentCallbacks(callbacks);
     const sub = subscribeToAllAgentEvents(this.program, wrapped, options);
     this.subscriptions.push(sub);
-    this.logger.debug('Subscribed to agent events');
+    this.logger.debug("Subscribed to agent events");
   }
 
   /**
@@ -133,7 +133,7 @@ export class EventMonitor {
     if (this.started) return;
     this.started = true;
     this.startedAt = Date.now();
-    this.logger.info('EventMonitor started');
+    this.logger.info("EventMonitor started");
   }
 
   /**
@@ -144,7 +144,7 @@ export class EventMonitor {
     if (!this.started) return;
     this.started = false;
     const count = this.subscriptions.length;
-    await Promise.all(this.subscriptions.map(s => s.unsubscribe()));
+    await Promise.all(this.subscriptions.map((s) => s.unsubscribe()));
     this.subscriptions = [];
     this.startedAt = null;
     this.logger.info(`EventMonitor stopped, ${count} subscriptions cleaned up`);
@@ -179,7 +179,7 @@ export class EventMonitor {
 
   private wrapCallback<T>(
     eventName: string,
-    callback: EventCallback<T>
+    callback: EventCallback<T>,
   ): EventCallback<T> {
     return (event: T, slot: number, signature: string) => {
       this.recordEvent(eventName);
@@ -190,84 +190,137 @@ export class EventMonitor {
   private wrapTaskCallbacks(callbacks: TaskEventCallbacks): TaskEventCallbacks {
     return {
       onTaskCreated: callbacks.onTaskCreated
-        ? this.wrapCallback('taskCreated', callbacks.onTaskCreated) : undefined,
+        ? this.wrapCallback("taskCreated", callbacks.onTaskCreated)
+        : undefined,
       onTaskClaimed: callbacks.onTaskClaimed
-        ? this.wrapCallback('taskClaimed', callbacks.onTaskClaimed) : undefined,
+        ? this.wrapCallback("taskClaimed", callbacks.onTaskClaimed)
+        : undefined,
       onTaskCompleted: callbacks.onTaskCompleted
-        ? this.wrapCallback('taskCompleted', callbacks.onTaskCompleted) : undefined,
+        ? this.wrapCallback("taskCompleted", callbacks.onTaskCompleted)
+        : undefined,
       onTaskCancelled: callbacks.onTaskCancelled
-        ? this.wrapCallback('taskCancelled', callbacks.onTaskCancelled) : undefined,
+        ? this.wrapCallback("taskCancelled", callbacks.onTaskCancelled)
+        : undefined,
       onDependentTaskCreated: callbacks.onDependentTaskCreated
-        ? this.wrapCallback('dependentTaskCreated', callbacks.onDependentTaskCreated) : undefined,
-    };
-  }
-
-  private wrapDisputeCallbacks(callbacks: DisputeEventCallbacks): DisputeEventCallbacks {
-    return {
-      onDisputeInitiated: callbacks.onDisputeInitiated
-        ? this.wrapCallback('disputeInitiated', callbacks.onDisputeInitiated) : undefined,
-      onDisputeVoteCast: callbacks.onDisputeVoteCast
-        ? this.wrapCallback('disputeVoteCast', callbacks.onDisputeVoteCast) : undefined,
-      onDisputeResolved: callbacks.onDisputeResolved
-        ? this.wrapCallback('disputeResolved', callbacks.onDisputeResolved) : undefined,
-      onDisputeExpired: callbacks.onDisputeExpired
-        ? this.wrapCallback('disputeExpired', callbacks.onDisputeExpired) : undefined,
-      onDisputeCancelled: callbacks.onDisputeCancelled
-        ? this.wrapCallback('disputeCancelled', callbacks.onDisputeCancelled) : undefined,
-      onArbiterVotesCleanedUp: callbacks.onArbiterVotesCleanedUp
         ? this.wrapCallback(
-          'arbiterVotesCleanedUp',
-          callbacks.onArbiterVotesCleanedUp
-        ) : undefined,
-    };
-  }
-
-  private wrapProtocolCallbacks(callbacks: ProtocolEventCallbacks): ProtocolEventCallbacks {
-    return {
-      onStateUpdated: callbacks.onStateUpdated
-        ? this.wrapCallback('stateUpdated', callbacks.onStateUpdated) : undefined,
-      onProtocolInitialized: callbacks.onProtocolInitialized
-        ? this.wrapCallback('protocolInitialized', callbacks.onProtocolInitialized) : undefined,
-      onRewardDistributed: callbacks.onRewardDistributed
-        ? this.wrapCallback('rewardDistributed', callbacks.onRewardDistributed) : undefined,
-      onRateLimitHit: callbacks.onRateLimitHit
-        ? this.wrapCallback('rateLimitHit', callbacks.onRateLimitHit) : undefined,
-      onMigrationCompleted: callbacks.onMigrationCompleted
-        ? this.wrapCallback('migrationCompleted', callbacks.onMigrationCompleted) : undefined,
-      onProtocolVersionUpdated: callbacks.onProtocolVersionUpdated
-        ? this.wrapCallback('protocolVersionUpdated', callbacks.onProtocolVersionUpdated) : undefined,
-      onRateLimitsUpdated: callbacks.onRateLimitsUpdated
-        ? this.wrapCallback('rateLimitsUpdated', callbacks.onRateLimitsUpdated) : undefined,
-      onProtocolFeeUpdated: callbacks.onProtocolFeeUpdated
-        ? this.wrapCallback('protocolFeeUpdated', callbacks.onProtocolFeeUpdated) : undefined,
-      onReputationChanged: callbacks.onReputationChanged
-        ? this.wrapCallback('reputationChanged', callbacks.onReputationChanged) : undefined,
-      onBondDeposited: callbacks.onBondDeposited
-        ? this.wrapCallback('bondDeposited', callbacks.onBondDeposited) : undefined,
-      onBondLocked: callbacks.onBondLocked
-        ? this.wrapCallback('bondLocked', callbacks.onBondLocked) : undefined,
-      onBondReleased: callbacks.onBondReleased
-        ? this.wrapCallback('bondReleased', callbacks.onBondReleased) : undefined,
-      onBondSlashed: callbacks.onBondSlashed
-        ? this.wrapCallback('bondSlashed', callbacks.onBondSlashed) : undefined,
-      onSpeculativeCommitmentCreated: callbacks.onSpeculativeCommitmentCreated
-        ? this.wrapCallback('speculativeCommitmentCreated', callbacks.onSpeculativeCommitmentCreated)
+            "dependentTaskCreated",
+            callbacks.onDependentTaskCreated,
+          )
         : undefined,
     };
   }
 
-  private wrapAgentCallbacks(callbacks: AgentEventCallbacks): AgentEventCallbacks {
+  private wrapDisputeCallbacks(
+    callbacks: DisputeEventCallbacks,
+  ): DisputeEventCallbacks {
+    return {
+      onDisputeInitiated: callbacks.onDisputeInitiated
+        ? this.wrapCallback("disputeInitiated", callbacks.onDisputeInitiated)
+        : undefined,
+      onDisputeVoteCast: callbacks.onDisputeVoteCast
+        ? this.wrapCallback("disputeVoteCast", callbacks.onDisputeVoteCast)
+        : undefined,
+      onDisputeResolved: callbacks.onDisputeResolved
+        ? this.wrapCallback("disputeResolved", callbacks.onDisputeResolved)
+        : undefined,
+      onDisputeExpired: callbacks.onDisputeExpired
+        ? this.wrapCallback("disputeExpired", callbacks.onDisputeExpired)
+        : undefined,
+      onDisputeCancelled: callbacks.onDisputeCancelled
+        ? this.wrapCallback("disputeCancelled", callbacks.onDisputeCancelled)
+        : undefined,
+      onArbiterVotesCleanedUp: callbacks.onArbiterVotesCleanedUp
+        ? this.wrapCallback(
+            "arbiterVotesCleanedUp",
+            callbacks.onArbiterVotesCleanedUp,
+          )
+        : undefined,
+    };
+  }
+
+  private wrapProtocolCallbacks(
+    callbacks: ProtocolEventCallbacks,
+  ): ProtocolEventCallbacks {
+    return {
+      onStateUpdated: callbacks.onStateUpdated
+        ? this.wrapCallback("stateUpdated", callbacks.onStateUpdated)
+        : undefined,
+      onProtocolInitialized: callbacks.onProtocolInitialized
+        ? this.wrapCallback(
+            "protocolInitialized",
+            callbacks.onProtocolInitialized,
+          )
+        : undefined,
+      onRewardDistributed: callbacks.onRewardDistributed
+        ? this.wrapCallback("rewardDistributed", callbacks.onRewardDistributed)
+        : undefined,
+      onRateLimitHit: callbacks.onRateLimitHit
+        ? this.wrapCallback("rateLimitHit", callbacks.onRateLimitHit)
+        : undefined,
+      onMigrationCompleted: callbacks.onMigrationCompleted
+        ? this.wrapCallback(
+            "migrationCompleted",
+            callbacks.onMigrationCompleted,
+          )
+        : undefined,
+      onProtocolVersionUpdated: callbacks.onProtocolVersionUpdated
+        ? this.wrapCallback(
+            "protocolVersionUpdated",
+            callbacks.onProtocolVersionUpdated,
+          )
+        : undefined,
+      onRateLimitsUpdated: callbacks.onRateLimitsUpdated
+        ? this.wrapCallback("rateLimitsUpdated", callbacks.onRateLimitsUpdated)
+        : undefined,
+      onProtocolFeeUpdated: callbacks.onProtocolFeeUpdated
+        ? this.wrapCallback(
+            "protocolFeeUpdated",
+            callbacks.onProtocolFeeUpdated,
+          )
+        : undefined,
+      onReputationChanged: callbacks.onReputationChanged
+        ? this.wrapCallback("reputationChanged", callbacks.onReputationChanged)
+        : undefined,
+      onBondDeposited: callbacks.onBondDeposited
+        ? this.wrapCallback("bondDeposited", callbacks.onBondDeposited)
+        : undefined,
+      onBondLocked: callbacks.onBondLocked
+        ? this.wrapCallback("bondLocked", callbacks.onBondLocked)
+        : undefined,
+      onBondReleased: callbacks.onBondReleased
+        ? this.wrapCallback("bondReleased", callbacks.onBondReleased)
+        : undefined,
+      onBondSlashed: callbacks.onBondSlashed
+        ? this.wrapCallback("bondSlashed", callbacks.onBondSlashed)
+        : undefined,
+      onSpeculativeCommitmentCreated: callbacks.onSpeculativeCommitmentCreated
+        ? this.wrapCallback(
+            "speculativeCommitmentCreated",
+            callbacks.onSpeculativeCommitmentCreated,
+          )
+        : undefined,
+    };
+  }
+
+  private wrapAgentCallbacks(
+    callbacks: AgentEventCallbacks,
+  ): AgentEventCallbacks {
     return {
       onRegistered: callbacks.onRegistered
-        ? this.wrapCallback('agentRegistered', callbacks.onRegistered) : undefined,
+        ? this.wrapCallback("agentRegistered", callbacks.onRegistered)
+        : undefined,
       onUpdated: callbacks.onUpdated
-        ? this.wrapCallback('agentUpdated', callbacks.onUpdated) : undefined,
+        ? this.wrapCallback("agentUpdated", callbacks.onUpdated)
+        : undefined,
       onDeregistered: callbacks.onDeregistered
-        ? this.wrapCallback('agentDeregistered', callbacks.onDeregistered) : undefined,
+        ? this.wrapCallback("agentDeregistered", callbacks.onDeregistered)
+        : undefined,
       onSuspended: callbacks.onSuspended
-        ? this.wrapCallback('agentSuspended', callbacks.onSuspended) : undefined,
+        ? this.wrapCallback("agentSuspended", callbacks.onSuspended)
+        : undefined,
       onUnsuspended: callbacks.onUnsuspended
-        ? this.wrapCallback('agentUnsuspended', callbacks.onUnsuspended) : undefined,
+        ? this.wrapCallback("agentUnsuspended", callbacks.onUnsuspended)
+        : undefined,
     };
   }
 }

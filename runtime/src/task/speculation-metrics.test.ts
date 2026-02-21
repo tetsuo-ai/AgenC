@@ -1,19 +1,19 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach } from "vitest";
 import {
   SpeculationMetricsCollector,
   SPECULATION_METRIC_NAMES,
   type SpeculationObservabilityMetrics,
-} from './speculation-metrics.js';
+} from "./speculation-metrics.js";
 
-describe('SpeculationMetricsCollector', () => {
+describe("SpeculationMetricsCollector", () => {
   let collector: SpeculationMetricsCollector;
 
   beforeEach(() => {
     collector = new SpeculationMetricsCollector();
   });
 
-  describe('initial state', () => {
-    it('should initialize with zero values', () => {
+  describe("initial state", () => {
+    it("should initialize with zero values", () => {
       const metrics = collector.getMetrics();
 
       expect(metrics.speculationExecutionsTotal).toBe(0);
@@ -25,13 +25,13 @@ describe('SpeculationMetricsCollector', () => {
       expect(metrics.stakeAtRiskLamports).toBe(0n);
     });
 
-    it('should return 0 hit rate when no speculations have resolved', () => {
+    it("should return 0 hit rate when no speculations have resolved", () => {
       expect(collector.getHitRate()).toBe(0);
     });
   });
 
-  describe('recordSpeculationStarted', () => {
-    it('should increment executions total and active count', () => {
+  describe("recordSpeculationStarted", () => {
+    it("should increment executions total and active count", () => {
       collector.recordSpeculationStarted();
 
       const metrics = collector.getMetrics();
@@ -39,7 +39,7 @@ describe('SpeculationMetricsCollector', () => {
       expect(metrics.activeSpeculations).toBe(1);
     });
 
-    it('should track multiple started speculations', () => {
+    it("should track multiple started speculations", () => {
       collector.recordSpeculationStarted();
       collector.recordSpeculationStarted();
       collector.recordSpeculationStarted();
@@ -50,8 +50,8 @@ describe('SpeculationMetricsCollector', () => {
     });
   });
 
-  describe('recordSpeculationHit', () => {
-    it('should increment hits and decrement active count', () => {
+  describe("recordSpeculationHit", () => {
+    it("should increment hits and decrement active count", () => {
       collector.recordSpeculationStarted();
       collector.recordSpeculationHit();
 
@@ -61,8 +61,8 @@ describe('SpeculationMetricsCollector', () => {
     });
   });
 
-  describe('recordSpeculationMiss', () => {
-    it('should increment misses and decrement active count', () => {
+  describe("recordSpeculationMiss", () => {
+    it("should increment misses and decrement active count", () => {
       collector.recordSpeculationStarted();
       collector.recordSpeculationMiss();
 
@@ -72,8 +72,8 @@ describe('SpeculationMetricsCollector', () => {
     });
   });
 
-  describe('recordRollback', () => {
-    it('should increment rollback counter', () => {
+  describe("recordRollback", () => {
+    it("should increment rollback counter", () => {
       collector.recordRollback();
       collector.recordRollback();
 
@@ -82,8 +82,8 @@ describe('SpeculationMetricsCollector', () => {
     });
   });
 
-  describe('updateDepth', () => {
-    it('should track maximum depth', () => {
+  describe("updateDepth", () => {
+    it("should track maximum depth", () => {
       collector.updateDepth(1);
       expect(collector.getMetrics().currentMaxDepth).toBe(1);
 
@@ -95,8 +95,8 @@ describe('SpeculationMetricsCollector', () => {
     });
   });
 
-  describe('updateStake', () => {
-    it('should update stake at risk', () => {
+  describe("updateStake", () => {
+    it("should update stake at risk", () => {
       collector.updateStake(1_000_000n);
       expect(collector.getMetrics().stakeAtRiskLamports).toBe(1_000_000n);
 
@@ -104,15 +104,15 @@ describe('SpeculationMetricsCollector', () => {
       expect(collector.getMetrics().stakeAtRiskLamports).toBe(500_000n);
     });
 
-    it('should handle large stake values', () => {
+    it("should handle large stake values", () => {
       const largeStake = 1_000_000_000_000_000n; // 1 quadrillion lamports
       collector.updateStake(largeStake);
       expect(collector.getMetrics().stakeAtRiskLamports).toBe(largeStake);
     });
   });
 
-  describe('getHitRate', () => {
-    it('should calculate hit rate correctly', () => {
+  describe("getHitRate", () => {
+    it("should calculate hit rate correctly", () => {
       // 3 hits, 1 miss = 75% hit rate
       collector.recordSpeculationStarted();
       collector.recordSpeculationHit();
@@ -126,7 +126,7 @@ describe('SpeculationMetricsCollector', () => {
       expect(collector.getHitRate()).toBe(0.75);
     });
 
-    it('should return 1.0 when all speculations hit', () => {
+    it("should return 1.0 when all speculations hit", () => {
       collector.recordSpeculationStarted();
       collector.recordSpeculationHit();
       collector.recordSpeculationStarted();
@@ -135,7 +135,7 @@ describe('SpeculationMetricsCollector', () => {
       expect(collector.getHitRate()).toBe(1);
     });
 
-    it('should return 0 when all speculations miss', () => {
+    it("should return 0 when all speculations miss", () => {
       collector.recordSpeculationStarted();
       collector.recordSpeculationMiss();
       collector.recordSpeculationStarted();
@@ -145,8 +145,8 @@ describe('SpeculationMetricsCollector', () => {
     });
   });
 
-  describe('getMetrics', () => {
-    it('should return a copy of metrics', () => {
+  describe("getMetrics", () => {
+    it("should return a copy of metrics", () => {
       collector.recordSpeculationStarted();
       const metrics1 = collector.getMetrics();
       const metrics2 = collector.getMetrics();
@@ -156,8 +156,8 @@ describe('SpeculationMetricsCollector', () => {
     });
   });
 
-  describe('reset', () => {
-    it('should reset all metrics to initial values', () => {
+  describe("reset", () => {
+    it("should reset all metrics to initial values", () => {
       // Populate some metrics
       collector.recordSpeculationStarted();
       collector.recordSpeculationHit();
@@ -180,8 +180,8 @@ describe('SpeculationMetricsCollector', () => {
     });
   });
 
-  describe('full lifecycle', () => {
-    it('should track a realistic speculation workflow', () => {
+  describe("full lifecycle", () => {
+    it("should track a realistic speculation workflow", () => {
       // Start 5 speculations
       for (let i = 0; i < 5; i++) {
         collector.recordSpeculationStarted();
@@ -216,15 +216,31 @@ describe('SpeculationMetricsCollector', () => {
   });
 });
 
-describe('SPECULATION_METRIC_NAMES', () => {
-  it('should have OpenTelemetry-compatible metric names', () => {
-    expect(SPECULATION_METRIC_NAMES.EXECUTIONS_TOTAL).toBe('agenc.speculation.executions.total');
-    expect(SPECULATION_METRIC_NAMES.HITS_TOTAL).toBe('agenc.speculation.hits.total');
-    expect(SPECULATION_METRIC_NAMES.MISSES_TOTAL).toBe('agenc.speculation.misses.total');
-    expect(SPECULATION_METRIC_NAMES.ROLLBACKS_TOTAL).toBe('agenc.speculation.rollbacks.total');
-    expect(SPECULATION_METRIC_NAMES.ACTIVE_COUNT).toBe('agenc.speculation.active.count');
-    expect(SPECULATION_METRIC_NAMES.MAX_DEPTH).toBe('agenc.speculation.max_depth');
-    expect(SPECULATION_METRIC_NAMES.STAKE_AT_RISK).toBe('agenc.speculation.stake_at_risk_lamports');
-    expect(SPECULATION_METRIC_NAMES.HIT_RATE).toBe('agenc.speculation.hit_rate');
+describe("SPECULATION_METRIC_NAMES", () => {
+  it("should have OpenTelemetry-compatible metric names", () => {
+    expect(SPECULATION_METRIC_NAMES.EXECUTIONS_TOTAL).toBe(
+      "agenc.speculation.executions.total",
+    );
+    expect(SPECULATION_METRIC_NAMES.HITS_TOTAL).toBe(
+      "agenc.speculation.hits.total",
+    );
+    expect(SPECULATION_METRIC_NAMES.MISSES_TOTAL).toBe(
+      "agenc.speculation.misses.total",
+    );
+    expect(SPECULATION_METRIC_NAMES.ROLLBACKS_TOTAL).toBe(
+      "agenc.speculation.rollbacks.total",
+    );
+    expect(SPECULATION_METRIC_NAMES.ACTIVE_COUNT).toBe(
+      "agenc.speculation.active.count",
+    );
+    expect(SPECULATION_METRIC_NAMES.MAX_DEPTH).toBe(
+      "agenc.speculation.max_depth",
+    );
+    expect(SPECULATION_METRIC_NAMES.STAKE_AT_RISK).toBe(
+      "agenc.speculation.stake_at_risk_lamports",
+    );
+    expect(SPECULATION_METRIC_NAMES.HIT_RATE).toBe(
+      "agenc.speculation.hit_rate",
+    );
   });
 });

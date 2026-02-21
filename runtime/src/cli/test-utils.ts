@@ -1,9 +1,11 @@
-import { vi } from 'vitest';
-import type { CliOutputFormat, CliRuntimeContext } from './types.js';
+import { vi } from "vitest";
+import type { CliOutputFormat, CliRuntimeContext } from "./types.js";
 
-export function createContextCapture(
-  outputFormat: CliOutputFormat = 'json',
-): { context: CliRuntimeContext; outputs: unknown[]; errors: unknown[] } {
+export function createContextCapture(outputFormat: CliOutputFormat = "json"): {
+  context: CliRuntimeContext;
+  outputs: unknown[];
+  errors: unknown[];
+} {
   const outputs: unknown[] = [];
   const errors: unknown[] = [];
   return {

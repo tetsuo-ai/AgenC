@@ -2,20 +2,24 @@
  * Safety-net integration tests for speculative execution.
  */
 
-import { describe, it, expect, beforeEach } from 'vitest';
-import { Keypair, PublicKey } from '@solana/web3.js';
-import { DependencyGraph, DependencyType, type TaskNode } from './dependency-graph.js';
-import { CommitmentLedger } from './commitment-ledger.js';
-import { RollbackController } from './rollback-controller.js';
+import { describe, it, expect, beforeEach } from "vitest";
+import { Keypair, PublicKey } from "@solana/web3.js";
+import {
+  DependencyGraph,
+  DependencyType,
+  type TaskNode,
+} from "./dependency-graph.js";
+import { CommitmentLedger } from "./commitment-ledger.js";
+import { RollbackController } from "./rollback-controller.js";
 import {
   SpeculativeTaskScheduler,
   type SpeculativeSchedulerConfig,
   type SpeculativeSchedulerEvents,
-} from './speculative-scheduler.js';
-import type { OnChainTask } from './types.js';
-import { OnChainTaskStatus, TaskType } from './types.js';
-import type { ProofPipeline } from './proof-pipeline.js';
-import { randomBytes } from 'crypto';
+} from "./speculative-scheduler.js";
+import type { OnChainTask } from "./types.js";
+import { OnChainTaskStatus, TaskType } from "./types.js";
+import type { ProofPipeline } from "./proof-pipeline.js";
+import { randomBytes } from "crypto";
 
 function randomPda(): PublicKey {
   return Keypair.generate().publicKey;
@@ -48,14 +52,16 @@ function createMockTask(overrides?: Partial<OnChainTask>): OnChainTask {
   };
 }
 
-function createRollbackCompatibleTask(overrides?: Partial<OnChainTask>): OnChainTask {
+function createRollbackCompatibleTask(
+  overrides?: Partial<OnChainTask>,
+): OnChainTask {
   return createMockTask(overrides);
 }
 
 function createMockProofPipeline(): ProofPipeline {
   return {
     queueProofGeneration: () => undefined,
-    submitProof: async () => 'mock-signature',
+    submitProof: async () => "mock-signature",
     getQueuedJobs: () => [],
     getActiveJobs: () => [],
     getCompletedJobs: () => [],
@@ -75,33 +81,33 @@ function createMockProofPipeline(): ProofPipeline {
     start: () => undefined,
     isShuttingDown: () => false,
     cancel: () => undefined,
-    enqueue: () => ({ id: randomBytes(16).toString('hex') }),
+    enqueue: () => ({ id: randomBytes(16).toString("hex") }),
     waitForConfirmation: async () => ({
-      status: 'queued',
+      status: "queued",
       proofBytes: new Uint8Array(),
       taskPda: randomPda(),
-      transactionSignature: 'mock-signature',
+      transactionSignature: "mock-signature",
     }),
     shutdown: async () => undefined,
     enqueueRetry: () => undefined,
   } as unknown as ProofPipeline;
 }
 
-describe('speculation-safety: dependency graph validation', () => {
+describe("speculation-safety: dependency graph validation", () => {
   let graph: DependencyGraph;
 
   beforeEach(() => {
     graph = new DependencyGraph();
   });
 
-  it('wouldCreateCycle rejects self-loop', () => {
+  it("wouldCreateCycle rejects self-loop", () => {
     const task = randomPda();
     graph.addTask(createMockTask(), task);
 
     expect(graph.wouldCreateCycle(task, task)).toBe(true);
   });
 
-  it('wouldCreateCycle rejects A -> B -> A cycle', () => {
+  it("wouldCreateCycle rejects A -> B -> A cycle", () => {
     const a = randomPda();
     const b = randomPda();
 
@@ -111,7 +117,7 @@ describe('speculation-safety: dependency graph validation', () => {
     expect(graph.wouldCreateCycle(b, a)).toBe(true);
   });
 
-  it('detectCycles finds cycles introduced into the graph', () => {
+  it("detectCycles finds cycles introduced into the graph", () => {
     const root = randomPda();
     const child = randomPda();
     const grandChild = randomPda();
@@ -121,7 +127,10 @@ describe('speculation-safety: dependency graph validation', () => {
     graph.addTaskWithParent(createMockTask(), grandChild, child);
 
     const internal = graph as unknown as {
-      edges: Map<string, { to: PublicKey; type: DependencyType; from: PublicKey }[]>;
+      edges: Map<
+        string,
+        { to: PublicKey; type: DependencyType; from: PublicKey }[]
+      >;
     };
     const grandChildKey = grandChild.toBase58();
     const existing = internal.edges.get(grandChildKey) ?? [];
@@ -135,7 +144,7 @@ describe('speculation-safety: dependency graph validation', () => {
     expect(cycles[0]!.map((n) => n.toBase58())).toContain(root.toBase58());
   });
 
-  it('validateConsistency reports dangling edges and depth mismatches', () => {
+  it("validateConsistency reports dangling edges and depth mismatches", () => {
     const root = randomPda();
     const child = randomPda();
     const missing = randomPda();
@@ -144,12 +153,15 @@ describe('speculation-safety: dependency graph validation', () => {
     graph.addTaskWithParent(createMockTask(), child, root);
 
     const internal = graph as unknown as {
-      edges: Map<string, { to: PublicKey; type: DependencyType; from: PublicKey }[]>;
+      edges: Map<
+        string,
+        { to: PublicKey; type: DependencyType; from: PublicKey }[]
+      >;
       nodes: Map<string, TaskNode>;
     };
     const internalChild = internal.nodes.get(child.toBase58());
     if (!internalChild) {
-      throw new Error('child node should exist');
+      throw new Error("child node should exist");
     }
     internalChild.depth = 3;
 
@@ -165,7 +177,7 @@ describe('speculation-safety: dependency graph validation', () => {
   });
 });
 
-describe('speculation-safety: rollback chain validation', () => {
+describe("speculation-safety: rollback chain validation", () => {
   let dependencyGraph: DependencyGraph;
   let commitmentLedger: CommitmentLedger;
   let controller: RollbackController;
@@ -179,32 +191,40 @@ describe('speculation-safety: rollback chain validation', () => {
     } as never);
   });
 
-  it('validateRollbackChain reports no orphans for complete rollback', async () => {
+  it("validateRollbackChain reports no orphans for complete rollback", async () => {
     const root = randomPda();
     const child = randomPda();
     const grandChild = randomPda();
     const producer = randomPda();
 
     dependencyGraph.addTask(createRollbackCompatibleTask(), root);
-    dependencyGraph.addTaskWithParent(createRollbackCompatibleTask(), child, root);
-    dependencyGraph.addTaskWithParent(createRollbackCompatibleTask(), grandChild, child);
+    dependencyGraph.addTaskWithParent(
+      createRollbackCompatibleTask(),
+      child,
+      root,
+    );
+    dependencyGraph.addTaskWithParent(
+      createRollbackCompatibleTask(),
+      grandChild,
+      child,
+    );
 
     commitmentLedger.createCommitment(
       child,
       randomBytes(32),
       randomBytes(32),
       producer,
-      1000n
+      1000n,
     );
     commitmentLedger.createCommitment(
       grandChild,
       randomBytes(32),
       randomBytes(32),
       producer,
-      2000n
+      2000n,
     );
 
-    const result = await controller.rollback(root, 'proof_failed');
+    const result = await controller.rollback(root, "proof_failed");
     const validation = controller.validateRollbackChain(root);
 
     expect(result.wastedComputeMs).toBeGreaterThanOrEqual(0);
@@ -212,19 +232,23 @@ describe('speculation-safety: rollback chain validation', () => {
     expect(validation.orphans).toHaveLength(0);
     expect(validation.maxChainDepth).toBe(2);
     expect(result.rolledBackTasks.map((t) => t.taskPda.toBase58())).toContain(
-      child.toBase58()
+      child.toBase58(),
     );
     expect(result.rolledBackTasks.map((t) => t.taskPda.toBase58())).toContain(
-      grandChild.toBase58()
+      grandChild.toBase58(),
     );
   });
 
-  it('cleanupOrphans rolls back explicitly provided nodes', async () => {
+  it("cleanupOrphans rolls back explicitly provided nodes", async () => {
     const root = randomPda();
     const child = randomPda();
 
     dependencyGraph.addTask(createRollbackCompatibleTask(), root);
-    dependencyGraph.addTaskWithParent(createRollbackCompatibleTask(), child, root);
+    dependencyGraph.addTaskWithParent(
+      createRollbackCompatibleTask(),
+      child,
+      root,
+    );
 
     const cleaned = await controller.cleanupOrphans([child]);
     expect(cleaned).toHaveLength(1);
@@ -232,20 +256,32 @@ describe('speculation-safety: rollback chain validation', () => {
     expect(controller.isRolledBack(child)).toBe(true);
   });
 
-  it('handles overlapping rollback calls without deadlock', async () => {
+  it("handles overlapping rollback calls without deadlock", async () => {
     const root = randomPda();
     const child1 = randomPda();
     const child2 = randomPda();
     const shared = randomPda();
 
     dependencyGraph.addTask(createRollbackCompatibleTask(), root);
-    dependencyGraph.addTaskWithParent(createRollbackCompatibleTask(), child1, root);
-    dependencyGraph.addTaskWithParent(createRollbackCompatibleTask(), child2, root);
-    dependencyGraph.addTaskWithParent(createRollbackCompatibleTask(), shared, child1);
+    dependencyGraph.addTaskWithParent(
+      createRollbackCompatibleTask(),
+      child1,
+      root,
+    );
+    dependencyGraph.addTaskWithParent(
+      createRollbackCompatibleTask(),
+      child2,
+      root,
+    );
+    dependencyGraph.addTaskWithParent(
+      createRollbackCompatibleTask(),
+      shared,
+      child1,
+    );
 
     const [r1, r2] = await Promise.all([
-      controller.rollback(child1, 'proof_failed'),
-      controller.rollback(root, 'proof_failed'),
+      controller.rollback(child1, "proof_failed"),
+      controller.rollback(root, "proof_failed"),
     ]);
 
     expect(r1.rolledBackTasks.length).toBeGreaterThan(0);
@@ -254,21 +290,25 @@ describe('speculation-safety: rollback chain validation', () => {
     expect(controller.isRolledBack(child1)).toBe(true);
   });
 
-  it('idempotent re-rollback does not double count stats', async () => {
+  it("idempotent re-rollback does not double count stats", async () => {
     const root = randomPda();
     const child = randomPda();
 
     dependencyGraph.addTask(createRollbackCompatibleTask(), root);
-    dependencyGraph.addTaskWithParent(createRollbackCompatibleTask(), child, root);
+    dependencyGraph.addTaskWithParent(
+      createRollbackCompatibleTask(),
+      child,
+      root,
+    );
 
-    await controller.rollback(root, 'proof_failed');
-    const cached = await controller.rollback(root, 'proof_failed');
+    await controller.rollback(root, "proof_failed");
+    const cached = await controller.rollback(root, "proof_failed");
 
     expect(cached.rolledBackTasks.length).toBeGreaterThanOrEqual(0);
     expect(controller.getStats().totalRollbacks).toBe(1);
   });
 
-  it('deep rollback chain completes without overflow', async () => {
+  it("deep rollback chain completes without overflow", async () => {
     const tasks = Array.from({ length: 6 }, () => randomPda());
 
     dependencyGraph.addTask(createRollbackCompatibleTask(), tasks[0]!);
@@ -276,11 +316,11 @@ describe('speculation-safety: rollback chain validation', () => {
       dependencyGraph.addTaskWithParent(
         createRollbackCompatibleTask(),
         tasks[i]!,
-        tasks[i - 1]!
+        tasks[i - 1]!,
       );
     }
 
-    const result = await controller.rollback(tasks[0]!, 'proof_failed');
+    const result = await controller.rollback(tasks[0]!, "proof_failed");
     const validation = controller.validateRollbackChain(tasks[0]!);
 
     expect(result.rolledBackTasks).toHaveLength(5);
@@ -289,14 +329,14 @@ describe('speculation-safety: rollback chain validation', () => {
   });
 });
 
-describe('speculation-safety: commitment ledger integrity', () => {
+describe("speculation-safety: commitment ledger integrity", () => {
   let ledger: CommitmentLedger;
 
   beforeEach(() => {
     ledger = new CommitmentLedger();
   });
 
-  it('findOrphanedCommitments detects missing parent commitments', () => {
+  it("findOrphanedCommitments detects missing parent commitments", () => {
     const orphanTask = randomPda();
     const parentReference = randomPda();
 
@@ -305,13 +345,16 @@ describe('speculation-safety: commitment ledger integrity', () => {
       randomBytes(32),
       randomBytes(32),
       randomPda(),
-      1000n
+      1000n,
     );
 
     const internal = ledger as unknown as {
       byParentTask: Map<string, string>;
     };
-    internal.byParentTask.set(orphanTask.toBase58(), parentReference.toBase58());
+    internal.byParentTask.set(
+      orphanTask.toBase58(),
+      parentReference.toBase58(),
+    );
     (orphan as { depth: number }).depth = 1;
 
     const result = ledger.findOrphanedCommitments();
@@ -319,7 +362,7 @@ describe('speculation-safety: commitment ledger integrity', () => {
     expect(result[0].sourceTaskPda.toBase58()).toBe(orphanTask.toBase58());
   });
 
-  it('validateChainIntegrity flags failed ancestor', () => {
+  it("validateChainIntegrity flags failed ancestor", () => {
     const parent = randomPda();
     const child = randomPda();
 
@@ -328,7 +371,7 @@ describe('speculation-safety: commitment ledger integrity', () => {
       randomBytes(32),
       randomBytes(32),
       randomPda(),
-      1000n
+      1000n,
     );
     ledger.addDependent(parent, child);
     const childCommitment = ledger.createCommitment(
@@ -336,7 +379,7 @@ describe('speculation-safety: commitment ledger integrity', () => {
       randomBytes(32),
       randomBytes(32),
       randomPda(),
-      2000n
+      2000n,
     );
 
     expect(parentCommitment.depth).toBe(0);
@@ -346,11 +389,11 @@ describe('speculation-safety: commitment ledger integrity', () => {
 
     const result = ledger.validateChainIntegrity(child);
     expect(result.valid).toBe(false);
-    expect(result.reason).toBe('failed_ancestor');
+    expect(result.reason).toBe("failed_ancestor");
   });
 });
 
-describe('speculation-safety: scheduler cancellation', () => {
+describe("speculation-safety: scheduler cancellation", () => {
   let scheduler: SpeculativeTaskScheduler;
   let graph: DependencyGraph;
 
@@ -364,11 +407,11 @@ describe('speculation-safety: scheduler cancellation', () => {
       } as SpeculativeSchedulerConfig,
       {} as SpeculativeSchedulerEvents,
       graph,
-      pipeline
+      pipeline,
     );
   });
 
-  it('cancels subtree without affecting rollback metrics', () => {
+  it("cancels subtree without affecting rollback metrics", () => {
     const root = randomPda();
     const child = randomPda();
     const producer = randomPda();
@@ -382,21 +425,21 @@ describe('speculation-safety: scheduler cancellation', () => {
       randomBytes(32),
       randomBytes(32),
       producer,
-      1000n
+      1000n,
     );
     ledger.createCommitment(
       child,
       randomBytes(32),
       randomBytes(32),
       producer,
-      2000n
+      2000n,
     );
     ledger.addDependent(root, child);
 
     scheduler.registerSpeculationStart(root, 0);
     scheduler.registerSpeculationStart(child, 1);
 
-    const result = scheduler.cancelSpeculation(root, 'manual');
+    const result = scheduler.cancelSpeculation(root, "manual");
 
     expect(result.cancelledTaskPda.toBase58()).toBe(root.toBase58());
     expect(result.abortedDescendants).toHaveLength(1);
@@ -408,7 +451,7 @@ describe('speculation-safety: scheduler cancellation', () => {
     expect(metrics.speculativeMisses).toBe(0);
     expect(metrics.rollbackRate).toBe(0);
 
-    expect(ledger.getByTask(root)?.status).toBe('rolled_back');
-    expect(ledger.getByTask(child)?.status).toBe('rolled_back');
+    expect(ledger.getByTask(root)?.status).toBe("rolled_back");
+    expect(ledger.getByTask(child)?.status).toBe("rolled_back");
   });
 });

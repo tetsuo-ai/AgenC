@@ -7,8 +7,8 @@
  * @module
  */
 
-import { PublicKey } from '@solana/web3.js';
-import { bytesToHex, hexToBytes } from '../utils/encoding.js';
+import { PublicKey } from "@solana/web3.js";
+import { bytesToHex, hexToBytes } from "../utils/encoding.js";
 
 /**
  * Try to convert a byte array to a base58 public key string.
@@ -41,11 +41,15 @@ export function normalizePdaValue(value: unknown): string | undefined {
     return bytesToPdaString(value);
   }
 
-  if (Array.isArray(value) && value.length > 0 && value.every((v) => typeof v === 'number' && v >= 0 && v <= 255)) {
+  if (
+    Array.isArray(value) &&
+    value.length > 0 &&
+    value.every((v) => typeof v === "number" && v >= 0 && v <= 255)
+  ) {
     return bytesToPdaString(new Uint8Array(value));
   }
 
-  if (typeof value !== 'string' || value.length === 0) {
+  if (typeof value !== "string" || value.length === 0) {
     return undefined;
   }
 
@@ -77,15 +81,19 @@ export const normalizePdaString = normalizePdaValue;
  * Checks `payload.disputeId` first, then falls back to
  * `payload.onchain.disputeId` for nested event data.
  */
-export function extractDisputePdaFromPayload(payload: Readonly<Record<string, unknown>>): string | undefined {
+export function extractDisputePdaFromPayload(
+  payload: Readonly<Record<string, unknown>>,
+): string | undefined {
   const direct = normalizePdaValue(payload.disputeId);
   if (direct) {
     return direct;
   }
 
   const onchain = payload.onchain;
-  if (typeof onchain === 'object' && onchain !== null) {
-    const nested = normalizePdaValue((onchain as Record<string, unknown>).disputeId);
+  if (typeof onchain === "object" && onchain !== null) {
+    const nested = normalizePdaValue(
+      (onchain as Record<string, unknown>).disputeId,
+    );
     if (nested) {
       return nested;
     }

@@ -9,8 +9,8 @@
  * @module
  */
 
-import type { Logger } from '../utils/logger.js';
-import { silentLogger } from '../utils/logger.js';
+import type { Logger } from "../utils/logger.js";
+import { silentLogger } from "../utils/logger.js";
 
 // ============================================================================
 // Hook Events
@@ -18,22 +18,22 @@ import { silentLogger } from '../utils/logger.js';
 
 /** All hook event types the gateway can dispatch. */
 export type HookEvent =
-  | 'gateway:startup'
-  | 'gateway:shutdown'
-  | 'agent:bootstrap'
-  | 'session:start'
-  | 'session:end'
-  | 'session:compact'
-  | 'message:inbound'
-  | 'message:outbound'
-  | 'tool:before'
-  | 'tool:after'
-  | 'heartbeat:before'
-  | 'heartbeat:after'
-  | 'command:new'
-  | 'command:reset'
-  | 'command:stop'
-  | 'config:reload';
+  | "gateway:startup"
+  | "gateway:shutdown"
+  | "agent:bootstrap"
+  | "session:start"
+  | "session:end"
+  | "session:compact"
+  | "message:inbound"
+  | "message:outbound"
+  | "tool:before"
+  | "tool:after"
+  | "heartbeat:before"
+  | "heartbeat:after"
+  | "command:new"
+  | "command:reset"
+  | "command:stop"
+  | "config:reload";
 
 // ============================================================================
 // Hook Types
@@ -78,7 +78,7 @@ export interface HookConfig {
     readonly event: HookEvent;
     readonly name: string;
     /** Whether this is a built-in handler or a user script. */
-    readonly type: 'builtin' | 'script';
+    readonly type: "builtin" | "script";
     /** Built-in handler name or path to user script. */
     readonly handler: string;
     readonly priority?: number;
@@ -155,7 +155,8 @@ export class HookDispatcher {
     list.push(handler);
     // Re-sort by priority after insertion
     list.sort(
-      (a, b) => (a.priority ?? DEFAULT_PRIORITY) - (b.priority ?? DEFAULT_PRIORITY),
+      (a, b) =>
+        (a.priority ?? DEFAULT_PRIORITY) - (b.priority ?? DEFAULT_PRIORITY),
     );
 
     this.logger.debug(
@@ -188,7 +189,7 @@ export class HookDispatcher {
       this.logger.debug(`All hooks cleared for ${event}`);
     } else {
       this.handlers.clear();
-      this.logger.debug('All hooks cleared');
+      this.logger.debug("All hooks cleared");
     }
   }
 
@@ -235,7 +236,9 @@ export class HookDispatcher {
         }
 
         if (!result.continue) {
-          this.logger.debug(`Hook chain aborted by "${handler.name}" for ${event}`);
+          this.logger.debug(
+            `Hook chain aborted by "${handler.name}" for ${event}`,
+          );
           return {
             completed: false,
             payload: currentPayload,
@@ -280,12 +283,21 @@ export class HookDispatcher {
   }
 
   /** List all registered handler names, grouped by event. */
-  listHandlers(): ReadonlyMap<HookEvent, ReadonlyArray<{ name: string; priority: number }>> {
-    const result = new Map<HookEvent, ReadonlyArray<{ name: string; priority: number }>>();
+  listHandlers(): ReadonlyMap<
+    HookEvent,
+    ReadonlyArray<{ name: string; priority: number }>
+  > {
+    const result = new Map<
+      HookEvent,
+      ReadonlyArray<{ name: string; priority: number }>
+    >();
     for (const [event, list] of this.handlers) {
       result.set(
         event,
-        list.map((h) => ({ name: h.name, priority: h.priority ?? DEFAULT_PRIORITY })),
+        list.map((h) => ({
+          name: h.name,
+          priority: h.priority ?? DEFAULT_PRIORITY,
+        })),
       );
     }
     return result;
@@ -306,26 +318,26 @@ export class HookDispatcher {
 export function createBuiltinHooks(): HookHandler[] {
   return [
     {
-      event: 'message:inbound',
-      name: 'session-memory-recorder',
+      event: "message:inbound",
+      name: "session-memory-recorder",
       priority: 50,
       handler: async () => ({ continue: true }),
     },
     {
-      event: 'tool:after',
-      name: 'tool-audit-logger',
+      event: "tool:after",
+      name: "tool-audit-logger",
       priority: 90,
       handler: async () => ({ continue: true }),
     },
     {
-      event: 'gateway:startup',
-      name: 'boot-executor',
+      event: "gateway:startup",
+      name: "boot-executor",
       priority: 10,
       handler: async () => ({ continue: true }),
     },
     {
-      event: 'tool:before',
-      name: 'approval-gate',
+      event: "tool:before",
+      name: "approval-gate",
       priority: 5,
       handler: async () => ({ continue: true }),
     },

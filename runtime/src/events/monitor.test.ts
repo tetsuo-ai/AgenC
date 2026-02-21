@@ -1,10 +1,13 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { PublicKey } from '@solana/web3.js';
-import { EventMonitor } from './monitor.js';
-import type { Program } from '@coral-xyz/anchor';
-import type { AgencCoordination } from '../types/agenc_coordination.js';
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { PublicKey } from "@solana/web3.js";
+import { EventMonitor } from "./monitor.js";
+import type { Program } from "@coral-xyz/anchor";
+import type { AgencCoordination } from "../types/agenc_coordination.js";
 
-function mockBN(value: bigint | number): { toNumber: () => number; toString: () => string } {
+function mockBN(value: bigint | number): {
+  toNumber: () => number;
+  toString: () => string;
+} {
   const bigValue = BigInt(value);
   return {
     toNumber: () => Number(bigValue),
@@ -12,10 +15,13 @@ function mockBN(value: bigint | number): { toNumber: () => number; toString: () 
   };
 }
 
-const TEST_PUBKEY = new PublicKey('11111111111111111111111111111111');
+const TEST_PUBKEY = new PublicKey("11111111111111111111111111111111");
 
 function createMockProgram() {
-  const eventCallbacks = new Map<number, { eventName: string; callback: Function }>();
+  const eventCallbacks = new Map<
+    number,
+    { eventName: string; callback: Function }
+  >();
   let nextListenerId = 1;
 
   return {
@@ -27,14 +33,24 @@ function createMockProgram() {
     removeEventListener: vi.fn(async (id: number) => {
       eventCallbacks.delete(id);
     }),
-    _emit: (eventName: string, rawEvent: unknown, slot: number, signature: string) => {
+    _emit: (
+      eventName: string,
+      rawEvent: unknown,
+      slot: number,
+      signature: string,
+    ) => {
       for (const { eventName: name, callback } of eventCallbacks.values()) {
         if (name === eventName) callback(rawEvent, slot, signature);
       }
     },
     _getCallbackCount: () => eventCallbacks.size,
   } as unknown as Program<AgencCoordination> & {
-    _emit: (eventName: string, rawEvent: unknown, slot: number, signature: string) => void;
+    _emit: (
+      eventName: string,
+      rawEvent: unknown,
+      slot: number,
+      signature: string,
+    ) => void;
     _getCallbackCount: () => number;
   };
 }
@@ -149,7 +165,7 @@ function createRawAgentUnsuspended() {
   };
 }
 
-describe('EventMonitor', () => {
+describe("EventMonitor", () => {
   let mockProgram: ReturnType<typeof createMockProgram>;
 
   beforeEach(() => {
@@ -161,25 +177,25 @@ describe('EventMonitor', () => {
     vi.useRealTimers();
   });
 
-  describe('constructor', () => {
-    it('should throw when program is missing', () => {
+  describe("constructor", () => {
+    it("should throw when program is missing", () => {
       expect(() => new EventMonitor({ program: null as any })).toThrow(
-        'EventMonitorConfig.program is required'
+        "EventMonitorConfig.program is required",
       );
     });
 
-    it('should throw when program is undefined', () => {
+    it("should throw when program is undefined", () => {
       expect(() => new EventMonitor({ program: undefined as any })).toThrow(
-        'EventMonitorConfig.program is required'
+        "EventMonitorConfig.program is required",
       );
     });
 
-    it('should create instance with valid config', () => {
+    it("should create instance with valid config", () => {
       const monitor = new EventMonitor({ program: mockProgram });
       expect(monitor).toBeInstanceOf(EventMonitor);
     });
 
-    it('should accept optional logger', () => {
+    it("should accept optional logger", () => {
       const logger = {
         debug: vi.fn(),
         info: vi.fn(),
@@ -189,17 +205,17 @@ describe('EventMonitor', () => {
       };
       const monitor = new EventMonitor({ program: mockProgram, logger });
       monitor.start();
-      expect(logger.info).toHaveBeenCalledWith('EventMonitor started');
+      expect(logger.info).toHaveBeenCalledWith("EventMonitor started");
     });
   });
 
-  describe('initial state', () => {
-    it('should not be running before start()', () => {
+  describe("initial state", () => {
+    it("should not be running before start()", () => {
       const monitor = new EventMonitor({ program: mockProgram });
       expect(monitor.isRunning()).toBe(false);
     });
 
-    it('should have zero metrics', () => {
+    it("should have zero metrics", () => {
       const monitor = new EventMonitor({ program: mockProgram });
       const metrics = monitor.getMetrics();
       expect(metrics.totalEventsReceived).toBe(0);
@@ -208,115 +224,130 @@ describe('EventMonitor', () => {
       expect(metrics.startedAt).toBeNull();
     });
 
-    it('should have zero subscriptions', () => {
+    it("should have zero subscriptions", () => {
       const monitor = new EventMonitor({ program: mockProgram });
       expect(monitor.getSubscriptionCount()).toBe(0);
     });
   });
 
-  describe('subscriptions', () => {
-    it('should register task event listeners immediately', () => {
+  describe("subscriptions", () => {
+    it("should register task event listeners immediately", () => {
       const monitor = new EventMonitor({ program: mockProgram });
       monitor.subscribeToTaskEvents({
         onTaskCreated: vi.fn(),
         onTaskClaimed: vi.fn(),
       });
-      expect(mockProgram.addEventListener).toHaveBeenCalledWith('taskCreated', expect.any(Function));
-      expect(mockProgram.addEventListener).toHaveBeenCalledWith('taskClaimed', expect.any(Function));
+      expect(mockProgram.addEventListener).toHaveBeenCalledWith(
+        "taskCreated",
+        expect.any(Function),
+      );
+      expect(mockProgram.addEventListener).toHaveBeenCalledWith(
+        "taskClaimed",
+        expect.any(Function),
+      );
       expect(monitor.getSubscriptionCount()).toBe(1);
     });
 
-    it('should register dependentTaskCreated task callback listener', () => {
+    it("should register dependentTaskCreated task callback listener", () => {
       const monitor = new EventMonitor({ program: mockProgram });
       monitor.subscribeToTaskEvents({
         onDependentTaskCreated: vi.fn(),
       });
       expect(mockProgram.addEventListener).toHaveBeenCalledWith(
-        'dependentTaskCreated',
-        expect.any(Function)
+        "dependentTaskCreated",
+        expect.any(Function),
       );
       expect(monitor.getSubscriptionCount()).toBe(1);
     });
 
-    it('should register dispute event listeners immediately', () => {
+    it("should register dispute event listeners immediately", () => {
       const monitor = new EventMonitor({ program: mockProgram });
       monitor.subscribeToDisputeEvents({
         onDisputeInitiated: vi.fn(),
       });
-      expect(mockProgram.addEventListener).toHaveBeenCalledWith('disputeInitiated', expect.any(Function));
+      expect(mockProgram.addEventListener).toHaveBeenCalledWith(
+        "disputeInitiated",
+        expect.any(Function),
+      );
       expect(monitor.getSubscriptionCount()).toBe(1);
     });
 
-    it('should register additional dispute callback listeners', () => {
+    it("should register additional dispute callback listeners", () => {
       const monitor = new EventMonitor({ program: mockProgram });
       monitor.subscribeToDisputeEvents({
         onDisputeCancelled: vi.fn(),
         onArbiterVotesCleanedUp: vi.fn(),
       });
       expect(mockProgram.addEventListener).toHaveBeenCalledWith(
-        'disputeCancelled',
-        expect.any(Function)
+        "disputeCancelled",
+        expect.any(Function),
       );
       expect(mockProgram.addEventListener).toHaveBeenCalledWith(
-        'arbiterVotesCleanedUp',
-        expect.any(Function)
+        "arbiterVotesCleanedUp",
+        expect.any(Function),
       );
       expect(monitor.getSubscriptionCount()).toBe(1);
     });
 
-    it('should register protocol event listeners immediately', () => {
+    it("should register protocol event listeners immediately", () => {
       const monitor = new EventMonitor({ program: mockProgram });
       monitor.subscribeToProtocolEvents({
         onProtocolInitialized: vi.fn(),
       });
-      expect(mockProgram.addEventListener).toHaveBeenCalledWith('protocolInitialized', expect.any(Function));
+      expect(mockProgram.addEventListener).toHaveBeenCalledWith(
+        "protocolInitialized",
+        expect.any(Function),
+      );
       expect(monitor.getSubscriptionCount()).toBe(1);
     });
 
-    it('should register additional protocol callback listeners', () => {
+    it("should register additional protocol callback listeners", () => {
       const monitor = new EventMonitor({ program: mockProgram });
       monitor.subscribeToProtocolEvents({
         onRateLimitsUpdated: vi.fn(),
         onProtocolFeeUpdated: vi.fn(),
       });
       expect(mockProgram.addEventListener).toHaveBeenCalledWith(
-        'rateLimitsUpdated',
-        expect.any(Function)
+        "rateLimitsUpdated",
+        expect.any(Function),
       );
       expect(mockProgram.addEventListener).toHaveBeenCalledWith(
-        'protocolFeeUpdated',
-        expect.any(Function)
+        "protocolFeeUpdated",
+        expect.any(Function),
       );
       expect(monitor.getSubscriptionCount()).toBe(1);
     });
 
-    it('should register agent event listeners immediately', () => {
+    it("should register agent event listeners immediately", () => {
       const monitor = new EventMonitor({ program: mockProgram });
       monitor.subscribeToAgentEvents({
         onRegistered: vi.fn(),
       });
-      expect(mockProgram.addEventListener).toHaveBeenCalledWith('agentRegistered', expect.any(Function));
+      expect(mockProgram.addEventListener).toHaveBeenCalledWith(
+        "agentRegistered",
+        expect.any(Function),
+      );
       expect(monitor.getSubscriptionCount()).toBe(1);
     });
 
-    it('should register missing-agent callback listeners', () => {
+    it("should register missing-agent callback listeners", () => {
       const monitor = new EventMonitor({ program: mockProgram });
       monitor.subscribeToAgentEvents({
         onSuspended: vi.fn(),
         onUnsuspended: vi.fn(),
       });
       expect(mockProgram.addEventListener).toHaveBeenCalledWith(
-        'agentSuspended',
-        expect.any(Function)
+        "agentSuspended",
+        expect.any(Function),
       );
       expect(mockProgram.addEventListener).toHaveBeenCalledWith(
-        'agentUnsuspended',
-        expect.any(Function)
+        "agentUnsuspended",
+        expect.any(Function),
       );
       expect(monitor.getSubscriptionCount()).toBe(1);
     });
 
-    it('should accumulate subscriptions from multiple subscribe calls', () => {
+    it("should accumulate subscriptions from multiple subscribe calls", () => {
       const monitor = new EventMonitor({ program: mockProgram });
       monitor.subscribeToTaskEvents({ onTaskCreated: vi.fn() });
       monitor.subscribeToDisputeEvents({ onDisputeInitiated: vi.fn() });
@@ -324,19 +355,19 @@ describe('EventMonitor', () => {
       expect(monitor.getSubscriptionCount()).toBe(3);
     });
 
-    it('should not require start() for subscriptions to work', () => {
+    it("should not require start() for subscriptions to work", () => {
       const userCallback = vi.fn();
       const monitor = new EventMonitor({ program: mockProgram });
       monitor.subscribeToTaskEvents({ onTaskCreated: userCallback });
 
       // Do NOT call start() — subscriptions should still fire
-      mockProgram._emit('taskCreated', createRawTaskCreated(), 100, 'sig1');
+      mockProgram._emit("taskCreated", createRawTaskCreated(), 100, "sig1");
       expect(userCallback).toHaveBeenCalledOnce();
     });
   });
 
-  describe('lifecycle', () => {
-    it('start() sets isRunning and records startedAt', () => {
+  describe("lifecycle", () => {
+    it("start() sets isRunning and records startedAt", () => {
       const monitor = new EventMonitor({ program: mockProgram });
       vi.setSystemTime(1000);
       monitor.start();
@@ -344,7 +375,7 @@ describe('EventMonitor', () => {
       expect(monitor.getMetrics().startedAt).toBe(1000);
     });
 
-    it('start() is idempotent', () => {
+    it("start() is idempotent", () => {
       const monitor = new EventMonitor({ program: mockProgram });
       vi.setSystemTime(1000);
       monitor.start();
@@ -353,7 +384,7 @@ describe('EventMonitor', () => {
       expect(monitor.getMetrics().startedAt).toBe(1000); // unchanged
     });
 
-    it('stop() unsubscribes all and resets state', async () => {
+    it("stop() unsubscribes all and resets state", async () => {
       const monitor = new EventMonitor({ program: mockProgram });
       monitor.subscribeToTaskEvents({ onTaskCreated: vi.fn() });
       monitor.start();
@@ -365,7 +396,7 @@ describe('EventMonitor', () => {
       expect(monitor.getMetrics().startedAt).toBeNull();
     });
 
-    it('stop() calls removeEventListener on all handles', async () => {
+    it("stop() calls removeEventListener on all handles", async () => {
       const monitor = new EventMonitor({ program: mockProgram });
       monitor.subscribeToTaskEvents({
         onTaskCreated: vi.fn(),
@@ -377,7 +408,7 @@ describe('EventMonitor', () => {
       expect(mockProgram.removeEventListener).toHaveBeenCalled();
     });
 
-    it('stop() is idempotent', async () => {
+    it("stop() is idempotent", async () => {
       const monitor = new EventMonitor({ program: mockProgram });
       monitor.start();
       await monitor.stop();
@@ -385,7 +416,7 @@ describe('EventMonitor', () => {
       expect(monitor.isRunning()).toBe(false);
     });
 
-    it('stop() when never started is a no-op', async () => {
+    it("stop() when never started is a no-op", async () => {
       const monitor = new EventMonitor({ program: mockProgram });
       monitor.subscribeToTaskEvents({ onTaskCreated: vi.fn() });
       await monitor.stop(); // should not throw, should not unsubscribe
@@ -393,73 +424,103 @@ describe('EventMonitor', () => {
     });
   });
 
-  describe('metrics', () => {
-    it('should count events after they fire', () => {
+  describe("metrics", () => {
+    it("should count events after they fire", () => {
       const monitor = new EventMonitor({ program: mockProgram });
       monitor.subscribeToTaskEvents({ onTaskCreated: vi.fn() });
 
-      mockProgram._emit('taskCreated', createRawTaskCreated(), 100, 'sig1');
-      mockProgram._emit('taskCreated', createRawTaskCreated(), 101, 'sig2');
+      mockProgram._emit("taskCreated", createRawTaskCreated(), 100, "sig1");
+      mockProgram._emit("taskCreated", createRawTaskCreated(), 101, "sig2");
 
       const metrics = monitor.getMetrics();
       expect(metrics.totalEventsReceived).toBe(2);
-      expect(metrics.eventCounts['taskCreated']).toBe(2);
+      expect(metrics.eventCounts["taskCreated"]).toBe(2);
     });
 
-    it('should track per-event-name counts separately', () => {
+    it("should track per-event-name counts separately", () => {
       const monitor = new EventMonitor({ program: mockProgram });
       monitor.subscribeToTaskEvents({
         onTaskCreated: vi.fn(),
         onTaskClaimed: vi.fn(),
       });
 
-      mockProgram._emit('taskCreated', createRawTaskCreated(), 100, 'sig1');
-      mockProgram._emit('taskClaimed', createRawTaskClaimed(), 101, 'sig2');
+      mockProgram._emit("taskCreated", createRawTaskCreated(), 100, "sig1");
+      mockProgram._emit("taskClaimed", createRawTaskClaimed(), 101, "sig2");
 
       const metrics = monitor.getMetrics();
-      expect(metrics.eventCounts['taskCreated']).toBe(1);
-      expect(metrics.eventCounts['taskClaimed']).toBe(1);
+      expect(metrics.eventCounts["taskCreated"]).toBe(1);
+      expect(metrics.eventCounts["taskClaimed"]).toBe(1);
       expect(metrics.totalEventsReceived).toBe(2);
     });
 
-    it('should track events across different subscription types', () => {
+    it("should track events across different subscription types", () => {
       const monitor = new EventMonitor({ program: mockProgram });
       monitor.subscribeToTaskEvents({ onTaskCreated: vi.fn() });
       monitor.subscribeToDisputeEvents({ onDisputeInitiated: vi.fn() });
       monitor.subscribeToProtocolEvents({ onProtocolInitialized: vi.fn() });
 
-      mockProgram._emit('taskCreated', createRawTaskCreated(), 100, 'sig1');
-      mockProgram._emit('disputeInitiated', createRawDisputeInitiated(), 101, 'sig2');
-      mockProgram._emit('protocolInitialized', createRawProtocolInitialized(), 102, 'sig3');
+      mockProgram._emit("taskCreated", createRawTaskCreated(), 100, "sig1");
+      mockProgram._emit(
+        "disputeInitiated",
+        createRawDisputeInitiated(),
+        101,
+        "sig2",
+      );
+      mockProgram._emit(
+        "protocolInitialized",
+        createRawProtocolInitialized(),
+        102,
+        "sig3",
+      );
 
       const metrics = monitor.getMetrics();
       expect(metrics.totalEventsReceived).toBe(3);
-      expect(metrics.eventCounts['taskCreated']).toBe(1);
-      expect(metrics.eventCounts['disputeInitiated']).toBe(1);
-      expect(metrics.eventCounts['protocolInitialized']).toBe(1);
+      expect(metrics.eventCounts["taskCreated"]).toBe(1);
+      expect(metrics.eventCounts["disputeInitiated"]).toBe(1);
+      expect(metrics.eventCounts["protocolInitialized"]).toBe(1);
     });
 
-    it('should track new callback event counts', () => {
+    it("should track new callback event counts", () => {
       const monitor = new EventMonitor({ program: mockProgram });
       monitor.subscribeToTaskEvents({ onDependentTaskCreated: vi.fn() });
       monitor.subscribeToDisputeEvents({ onDisputeCancelled: vi.fn() });
       monitor.subscribeToProtocolEvents({ onRateLimitsUpdated: vi.fn() });
       monitor.subscribeToAgentEvents({ onSuspended: vi.fn() });
 
-      mockProgram._emit('dependentTaskCreated', createRawDependentTaskCreated(), 100, 'sig1');
-      mockProgram._emit('disputeCancelled', createRawDisputeCancelled(), 101, 'sig2');
-      mockProgram._emit('rateLimitsUpdated', createRawRateLimitsUpdated(), 102, 'sig3');
-      mockProgram._emit('agentSuspended', createRawAgentSuspended(), 103, 'sig4');
+      mockProgram._emit(
+        "dependentTaskCreated",
+        createRawDependentTaskCreated(),
+        100,
+        "sig1",
+      );
+      mockProgram._emit(
+        "disputeCancelled",
+        createRawDisputeCancelled(),
+        101,
+        "sig2",
+      );
+      mockProgram._emit(
+        "rateLimitsUpdated",
+        createRawRateLimitsUpdated(),
+        102,
+        "sig3",
+      );
+      mockProgram._emit(
+        "agentSuspended",
+        createRawAgentSuspended(),
+        103,
+        "sig4",
+      );
 
       const metrics = monitor.getMetrics();
       expect(metrics.totalEventsReceived).toBe(4);
-      expect(metrics.eventCounts['dependentTaskCreated']).toBe(1);
-      expect(metrics.eventCounts['disputeCancelled']).toBe(1);
-      expect(metrics.eventCounts['rateLimitsUpdated']).toBe(1);
-      expect(metrics.eventCounts['agentSuspended']).toBe(1);
+      expect(metrics.eventCounts["dependentTaskCreated"]).toBe(1);
+      expect(metrics.eventCounts["disputeCancelled"]).toBe(1);
+      expect(metrics.eventCounts["rateLimitsUpdated"]).toBe(1);
+      expect(metrics.eventCounts["agentSuspended"]).toBe(1);
     });
 
-    it('should compute uptimeMs correctly', () => {
+    it("should compute uptimeMs correctly", () => {
       const monitor = new EventMonitor({ program: mockProgram });
       expect(monitor.getMetrics().uptimeMs).toBe(0);
 
@@ -469,39 +530,39 @@ describe('EventMonitor', () => {
       expect(monitor.getMetrics().uptimeMs).toBe(5000);
     });
 
-    it('should return 0 uptimeMs when not started', () => {
+    it("should return 0 uptimeMs when not started", () => {
       const monitor = new EventMonitor({ program: mockProgram });
       vi.setSystemTime(5000);
       expect(monitor.getMetrics().uptimeMs).toBe(0);
     });
 
-    it('should return a copy of eventCounts, not the internal object', () => {
+    it("should return a copy of eventCounts, not the internal object", () => {
       const monitor = new EventMonitor({ program: mockProgram });
       const metrics1 = monitor.getMetrics();
-      metrics1.eventCounts['injected'] = 999;
+      metrics1.eventCounts["injected"] = 999;
       const metrics2 = monitor.getMetrics();
-      expect(metrics2.eventCounts['injected']).toBeUndefined();
+      expect(metrics2.eventCounts["injected"]).toBeUndefined();
     });
   });
 
-  describe('callback wrapping', () => {
-    it('should forward parsed events to user callback after counting', () => {
+  describe("callback wrapping", () => {
+    it("should forward parsed events to user callback after counting", () => {
       const userCallback = vi.fn();
       const monitor = new EventMonitor({ program: mockProgram });
       monitor.subscribeToTaskEvents({ onTaskCreated: userCallback });
 
-      mockProgram._emit('taskCreated', createRawTaskCreated(), 100, 'sig1');
+      mockProgram._emit("taskCreated", createRawTaskCreated(), 100, "sig1");
 
       expect(userCallback).toHaveBeenCalledOnce();
       expect(userCallback).toHaveBeenCalledWith(
         expect.objectContaining({ taskId: expect.any(Uint8Array) }),
         100,
-        'sig1'
+        "sig1",
       );
       expect(monitor.getMetrics().totalEventsReceived).toBe(1);
     });
 
-    it('should increment metrics before forwarding to user callback', () => {
+    it("should increment metrics before forwarding to user callback", () => {
       const monitor = new EventMonitor({ program: mockProgram });
       let metricsAtCallbackTime = 0;
       const userCallback = vi.fn(() => {
@@ -509,91 +570,130 @@ describe('EventMonitor', () => {
       });
       monitor.subscribeToTaskEvents({ onTaskCreated: userCallback });
 
-      mockProgram._emit('taskCreated', createRawTaskCreated(), 100, 'sig1');
+      mockProgram._emit("taskCreated", createRawTaskCreated(), 100, "sig1");
       expect(metricsAtCallbackTime).toBe(1);
     });
 
-    it('should wrap dispute event callbacks for metrics', () => {
+    it("should wrap dispute event callbacks for metrics", () => {
       const userCallback = vi.fn();
       const monitor = new EventMonitor({ program: mockProgram });
       monitor.subscribeToDisputeEvents({ onDisputeInitiated: userCallback });
 
-      mockProgram._emit('disputeInitiated', createRawDisputeInitiated(), 100, 'sig1');
+      mockProgram._emit(
+        "disputeInitiated",
+        createRawDisputeInitiated(),
+        100,
+        "sig1",
+      );
 
       expect(userCallback).toHaveBeenCalledOnce();
-      expect(monitor.getMetrics().eventCounts['disputeInitiated']).toBe(1);
+      expect(monitor.getMetrics().eventCounts["disputeInitiated"]).toBe(1);
     });
 
-    it('should wrap protocol event callbacks for metrics', () => {
+    it("should wrap protocol event callbacks for metrics", () => {
       const userCallback = vi.fn();
       const monitor = new EventMonitor({ program: mockProgram });
-      monitor.subscribeToProtocolEvents({ onProtocolInitialized: userCallback });
+      monitor.subscribeToProtocolEvents({
+        onProtocolInitialized: userCallback,
+      });
 
-      mockProgram._emit('protocolInitialized', createRawProtocolInitialized(), 100, 'sig1');
+      mockProgram._emit(
+        "protocolInitialized",
+        createRawProtocolInitialized(),
+        100,
+        "sig1",
+      );
 
       expect(userCallback).toHaveBeenCalledOnce();
-      expect(monitor.getMetrics().eventCounts['protocolInitialized']).toBe(1);
+      expect(monitor.getMetrics().eventCounts["protocolInitialized"]).toBe(1);
     });
 
-    it('should wrap protocol event callbacks for newly added protocol events', () => {
+    it("should wrap protocol event callbacks for newly added protocol events", () => {
       const userCallback = vi.fn();
       const monitor = new EventMonitor({ program: mockProgram });
       monitor.subscribeToProtocolEvents({ onProtocolFeeUpdated: userCallback });
 
-      mockProgram._emit('protocolFeeUpdated', createRawProtocolFeeUpdated(), 100, 'sig1');
+      mockProgram._emit(
+        "protocolFeeUpdated",
+        createRawProtocolFeeUpdated(),
+        100,
+        "sig1",
+      );
 
       expect(userCallback).toHaveBeenCalledOnce();
-      expect(monitor.getMetrics().eventCounts['protocolFeeUpdated']).toBe(1);
+      expect(monitor.getMetrics().eventCounts["protocolFeeUpdated"]).toBe(1);
     });
 
-    it('should wrap agent event callbacks for metrics', () => {
+    it("should wrap agent event callbacks for metrics", () => {
       const userCallback = vi.fn();
       const monitor = new EventMonitor({ program: mockProgram });
       monitor.subscribeToAgentEvents({ onRegistered: userCallback });
 
-      mockProgram._emit('agentRegistered', {
-        agentId: new Uint8Array(32).fill(5),
-        authority: TEST_PUBKEY,
-        capabilities: mockBN(3n),
-        endpoint: 'https://example.com',
-        timestamp: mockBN(1234567890),
-      }, 100, 'sig1');
+      mockProgram._emit(
+        "agentRegistered",
+        {
+          agentId: new Uint8Array(32).fill(5),
+          authority: TEST_PUBKEY,
+          capabilities: mockBN(3n),
+          endpoint: "https://example.com",
+          timestamp: mockBN(1234567890),
+        },
+        100,
+        "sig1",
+      );
 
       expect(userCallback).toHaveBeenCalledOnce();
-      expect(monitor.getMetrics().eventCounts['agentRegistered']).toBe(1);
+      expect(monitor.getMetrics().eventCounts["agentRegistered"]).toBe(1);
     });
 
-    it('should wrap new agent lifecycle callbacks for metrics', () => {
+    it("should wrap new agent lifecycle callbacks for metrics", () => {
       const userCallback = vi.fn();
       const monitor = new EventMonitor({ program: mockProgram });
       monitor.subscribeToAgentEvents({ onUnsuspended: userCallback });
 
-      mockProgram._emit('agentUnsuspended', createRawAgentUnsuspended(), 100, 'sig1');
+      mockProgram._emit(
+        "agentUnsuspended",
+        createRawAgentUnsuspended(),
+        100,
+        "sig1",
+      );
 
       expect(userCallback).toHaveBeenCalledOnce();
-      expect(monitor.getMetrics().eventCounts['agentUnsuspended']).toBe(1);
+      expect(monitor.getMetrics().eventCounts["agentUnsuspended"]).toBe(1);
     });
 
-    it('should wrap new dispute callbacks for metrics', () => {
+    it("should wrap new dispute callbacks for metrics", () => {
       const userCallback = vi.fn();
       const monitor = new EventMonitor({ program: mockProgram });
-      monitor.subscribeToDisputeEvents({ onArbiterVotesCleanedUp: userCallback });
+      monitor.subscribeToDisputeEvents({
+        onArbiterVotesCleanedUp: userCallback,
+      });
 
-      mockProgram._emit('arbiterVotesCleanedUp', createRawArbiterVotesCleanedUp(), 100, 'sig1');
+      mockProgram._emit(
+        "arbiterVotesCleanedUp",
+        createRawArbiterVotesCleanedUp(),
+        100,
+        "sig1",
+      );
 
       expect(userCallback).toHaveBeenCalledOnce();
-      expect(monitor.getMetrics().eventCounts['arbiterVotesCleanedUp']).toBe(1);
+      expect(monitor.getMetrics().eventCounts["arbiterVotesCleanedUp"]).toBe(1);
     });
 
-    it('should wrap dependentTaskCreated for metrics', () => {
+    it("should wrap dependentTaskCreated for metrics", () => {
       const userCallback = vi.fn();
       const monitor = new EventMonitor({ program: mockProgram });
       monitor.subscribeToTaskEvents({ onDependentTaskCreated: userCallback });
 
-      mockProgram._emit('dependentTaskCreated', createRawDependentTaskCreated(), 100, 'sig1');
+      mockProgram._emit(
+        "dependentTaskCreated",
+        createRawDependentTaskCreated(),
+        100,
+        "sig1",
+      );
 
       expect(userCallback).toHaveBeenCalledOnce();
-      expect(monitor.getMetrics().eventCounts['dependentTaskCreated']).toBe(1);
+      expect(monitor.getMetrics().eventCounts["dependentTaskCreated"]).toBe(1);
     });
   });
 });

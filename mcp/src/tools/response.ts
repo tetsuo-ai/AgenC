@@ -1,8 +1,8 @@
-export type ToolTextResponse = { content: [{ type: 'text'; text: string }] };
+export type ToolTextResponse = { content: [{ type: "text"; text: string }] };
 
 export function toolTextResponse(text: string): ToolTextResponse {
   return {
-    content: [{ type: 'text', text }],
+    content: [{ type: "text", text }],
   };
 }
 

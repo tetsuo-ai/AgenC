@@ -4,7 +4,7 @@
  * @module
  */
 
-import { RuntimeError, RuntimeErrorCodes } from '../types/errors.js';
+import { RuntimeError, RuntimeErrorCodes } from "../types/errors.js";
 
 /**
  * Error thrown when an agent discovery query fails.
@@ -16,9 +16,9 @@ export class AgentDiscoveryError extends RuntimeError {
   constructor(reason: string) {
     super(
       `Agent discovery failed: ${reason}`,
-      RuntimeErrorCodes.DISCOVERY_ERROR
+      RuntimeErrorCodes.DISCOVERY_ERROR,
     );
-    this.name = 'AgentDiscoveryError';
+    this.name = "AgentDiscoveryError";
     this.reason = reason;
   }
 }

@@ -1,15 +1,19 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { PublicKey, Keypair } from '@solana/web3.js';
-import { PROGRAM_ID } from '@agenc/sdk';
-import { generateAgentId } from '../utils/encoding.js';
-import { RuntimeErrorCodes, AnchorErrorCodes } from '../types/errors.js';
-import { FeedPostError, FeedUpvoteError, FeedQueryError } from './feed-errors.js';
-import { deriveFeedPostPda, deriveFeedVotePda, AgentFeed } from './feed.js';
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { PublicKey, Keypair } from "@solana/web3.js";
+import { PROGRAM_ID } from "@agenc/sdk";
+import { generateAgentId } from "../utils/encoding.js";
+import { RuntimeErrorCodes, AnchorErrorCodes } from "../types/errors.js";
+import {
+  FeedPostError,
+  FeedUpvoteError,
+  FeedQueryError,
+} from "./feed-errors.js";
+import { deriveFeedPostPda, deriveFeedVotePda, AgentFeed } from "./feed.js";
 import {
   FEED_POST_AUTHOR_OFFSET,
   FEED_POST_TOPIC_OFFSET,
   type FeedPost,
-} from './feed-types.js';
+} from "./feed-types.js";
 
 // ============================================================================
 // Test Helpers
@@ -30,7 +34,7 @@ function anchorError(code: number) {
 }
 
 function createMockProgram(overrides: Record<string, unknown> = {}) {
-  const rpcMock = vi.fn().mockResolvedValue('mock-signature');
+  const rpcMock = vi.fn().mockResolvedValue("mock-signature");
 
   const methodBuilder = {
     accountsPartial: vi.fn().mockReturnThis(),
@@ -74,7 +78,9 @@ function createTestFeed(overrides: Record<string, unknown> = {}) {
   return { feed, program, wallet, agentId };
 }
 
-function createMockPostAccount(overrides: Partial<Record<string, unknown>> = {}) {
+function createMockPostAccount(
+  overrides: Partial<Record<string, unknown>> = {},
+) {
   return {
     author: randomPubkey(),
     contentHash: Array.from(randomBytes32()),
@@ -93,8 +99,8 @@ function createMockPostAccount(overrides: Partial<Record<string, unknown>> = {})
 // PDA Derivation Tests
 // ============================================================================
 
-describe('deriveFeedPostPda', () => {
-  it('returns deterministic PDA for same inputs', () => {
+describe("deriveFeedPostPda", () => {
+  it("returns deterministic PDA for same inputs", () => {
     const author = randomPubkey();
     const nonce = randomBytes32();
     const pda1 = deriveFeedPostPda(author, nonce, PROGRAM_ID);
@@ -102,21 +108,21 @@ describe('deriveFeedPostPda', () => {
     expect(pda1.equals(pda2)).toBe(true);
   });
 
-  it('returns different PDA for different authors', () => {
+  it("returns different PDA for different authors", () => {
     const nonce = randomBytes32();
     const pda1 = deriveFeedPostPda(randomPubkey(), nonce, PROGRAM_ID);
     const pda2 = deriveFeedPostPda(randomPubkey(), nonce, PROGRAM_ID);
     expect(pda1.equals(pda2)).toBe(false);
   });
 
-  it('returns different PDA for different nonces', () => {
+  it("returns different PDA for different nonces", () => {
     const author = randomPubkey();
     const pda1 = deriveFeedPostPda(author, randomBytes32(), PROGRAM_ID);
     const pda2 = deriveFeedPostPda(author, randomBytes32(), PROGRAM_ID);
     expect(pda1.equals(pda2)).toBe(false);
   });
 
-  it('accepts number[] as nonce', () => {
+  it("accepts number[] as nonce", () => {
     const author = randomPubkey();
     const nonce = Array.from(randomBytes32());
     const pda = deriveFeedPostPda(author, nonce, PROGRAM_ID);
@@ -124,8 +130,8 @@ describe('deriveFeedPostPda', () => {
   });
 });
 
-describe('deriveFeedVotePda', () => {
-  it('returns deterministic PDA for same inputs', () => {
+describe("deriveFeedVotePda", () => {
+  it("returns deterministic PDA for same inputs", () => {
     const post = randomPubkey();
     const voter = randomPubkey();
     const pda1 = deriveFeedVotePda(post, voter, PROGRAM_ID);
@@ -133,14 +139,14 @@ describe('deriveFeedVotePda', () => {
     expect(pda1.equals(pda2)).toBe(true);
   });
 
-  it('returns different PDA for different posts', () => {
+  it("returns different PDA for different posts", () => {
     const voter = randomPubkey();
     const pda1 = deriveFeedVotePda(randomPubkey(), voter, PROGRAM_ID);
     const pda2 = deriveFeedVotePda(randomPubkey(), voter, PROGRAM_ID);
     expect(pda1.equals(pda2)).toBe(false);
   });
 
-  it('returns different PDA for different voters', () => {
+  it("returns different PDA for different voters", () => {
     const post = randomPubkey();
     const pda1 = deriveFeedVotePda(post, randomPubkey(), PROGRAM_ID);
     const pda2 = deriveFeedVotePda(post, randomPubkey(), PROGRAM_ID);
@@ -152,8 +158,8 @@ describe('deriveFeedVotePda', () => {
 // AgentFeed.post() Tests
 // ============================================================================
 
-describe('AgentFeed.post()', () => {
-  it('calls postToFeed with correct parameters', async () => {
+describe("AgentFeed.post()", () => {
+  it("calls postToFeed with correct parameters", async () => {
     const { feed, program } = createTestFeed();
     const contentHash = randomBytes32();
     const nonce = randomBytes32();
@@ -161,7 +167,7 @@ describe('AgentFeed.post()', () => {
 
     const sig = await feed.post({ contentHash, nonce, topic });
 
-    expect(sig).toBe('mock-signature');
+    expect(sig).toBe("mock-signature");
     expect(program.methods.postToFeed).toHaveBeenCalledOnce();
     const args = program.methods.postToFeed.mock.calls[0];
     expect(new Uint8Array(args[0])).toEqual(contentHash);
@@ -170,7 +176,7 @@ describe('AgentFeed.post()', () => {
     expect(args[3]).toBeNull(); // no parent_post
   });
 
-  it('passes parentPost when provided', async () => {
+  it("passes parentPost when provided", async () => {
     const { feed, program } = createTestFeed();
     const parentPost = randomPubkey();
 
@@ -185,9 +191,11 @@ describe('AgentFeed.post()', () => {
     expect(args[3]).toEqual(parentPost);
   });
 
-  it('maps FeedInvalidContentHash to FeedPostError', async () => {
+  it("maps FeedInvalidContentHash to FeedPostError", async () => {
     const { feed, program } = createTestFeed();
-    program._rpcMock.mockRejectedValueOnce(anchorError(AnchorErrorCodes.FeedInvalidContentHash));
+    program._rpcMock.mockRejectedValueOnce(
+      anchorError(AnchorErrorCodes.FeedInvalidContentHash),
+    );
 
     await expect(
       feed.post({
@@ -198,9 +206,11 @@ describe('AgentFeed.post()', () => {
     ).rejects.toThrow(FeedPostError);
   });
 
-  it('maps FeedInvalidTopic to FeedPostError', async () => {
+  it("maps FeedInvalidTopic to FeedPostError", async () => {
     const { feed, program } = createTestFeed();
-    program._rpcMock.mockRejectedValueOnce(anchorError(AnchorErrorCodes.FeedInvalidTopic));
+    program._rpcMock.mockRejectedValueOnce(
+      anchorError(AnchorErrorCodes.FeedInvalidTopic),
+    );
 
     await expect(
       feed.post({
@@ -211,9 +221,11 @@ describe('AgentFeed.post()', () => {
     ).rejects.toThrow(FeedPostError);
   });
 
-  it('maps AgentNotActive to FeedPostError', async () => {
+  it("maps AgentNotActive to FeedPostError", async () => {
     const { feed, program } = createTestFeed();
-    program._rpcMock.mockRejectedValueOnce(anchorError(AnchorErrorCodes.AgentNotActive));
+    program._rpcMock.mockRejectedValueOnce(
+      anchorError(AnchorErrorCodes.AgentNotActive),
+    );
 
     await expect(
       feed.post({
@@ -224,14 +236,14 @@ describe('AgentFeed.post()', () => {
     ).rejects.toThrow(FeedPostError);
   });
 
-  it('accepts number[] inputs', async () => {
+  it("accepts number[] inputs", async () => {
     const { feed } = createTestFeed();
     const sig = await feed.post({
       contentHash: Array.from(randomBytes32()),
       nonce: Array.from(randomBytes32()),
       topic: Array.from(randomBytes32()),
     });
-    expect(sig).toBe('mock-signature');
+    expect(sig).toBe("mock-signature");
   });
 });
 
@@ -239,14 +251,14 @@ describe('AgentFeed.post()', () => {
 // AgentFeed.upvote() Tests
 // ============================================================================
 
-describe('AgentFeed.upvote()', () => {
-  it('calls upvotePost with correct accounts', async () => {
+describe("AgentFeed.upvote()", () => {
+  it("calls upvotePost with correct accounts", async () => {
     const { feed, program, wallet } = createTestFeed();
     const postPda = randomPubkey();
 
     const sig = await feed.upvote({ postPda });
 
-    expect(sig).toBe('mock-signature');
+    expect(sig).toBe("mock-signature");
     expect(program.methods.upvotePost).toHaveBeenCalledOnce();
 
     // Verify accountsPartial was called with expected keys
@@ -258,31 +270,39 @@ describe('AgentFeed.upvote()', () => {
     expect(accountsArg.voter).toBeInstanceOf(PublicKey);
   });
 
-  it('maps FeedSelfUpvote to FeedUpvoteError', async () => {
+  it("maps FeedSelfUpvote to FeedUpvoteError", async () => {
     const { feed, program } = createTestFeed();
-    program._rpcMock.mockRejectedValueOnce(anchorError(AnchorErrorCodes.FeedSelfUpvote));
+    program._rpcMock.mockRejectedValueOnce(
+      anchorError(AnchorErrorCodes.FeedSelfUpvote),
+    );
 
-    await expect(
-      feed.upvote({ postPda: randomPubkey() }),
-    ).rejects.toThrow(FeedUpvoteError);
+    await expect(feed.upvote({ postPda: randomPubkey() })).rejects.toThrow(
+      FeedUpvoteError,
+    );
   });
 
-  it('maps AgentNotActive to FeedUpvoteError', async () => {
+  it("maps AgentNotActive to FeedUpvoteError", async () => {
     const { feed, program } = createTestFeed();
-    program._rpcMock.mockRejectedValueOnce(anchorError(AnchorErrorCodes.AgentNotActive));
+    program._rpcMock.mockRejectedValueOnce(
+      anchorError(AnchorErrorCodes.AgentNotActive),
+    );
 
-    await expect(
-      feed.upvote({ postPda: randomPubkey() }),
-    ).rejects.toThrow(FeedUpvoteError);
+    await expect(feed.upvote({ postPda: randomPubkey() })).rejects.toThrow(
+      FeedUpvoteError,
+    );
   });
 
-  it('maps duplicate vote (already in use) to FeedUpvoteError', async () => {
+  it("maps duplicate vote (already in use) to FeedUpvoteError", async () => {
     const { feed, program } = createTestFeed();
-    program._rpcMock.mockRejectedValueOnce(new Error('Transaction simulation failed: account already in use'));
+    program._rpcMock.mockRejectedValueOnce(
+      new Error("Transaction simulation failed: account already in use"),
+    );
 
-    const err = await feed.upvote({ postPda: randomPubkey() }).catch((e: unknown) => e);
+    const err = await feed
+      .upvote({ postPda: randomPubkey() })
+      .catch((e: unknown) => e);
     expect(err).toBeInstanceOf(FeedUpvoteError);
-    expect((err as FeedUpvoteError).reason).toContain('Already upvoted');
+    expect((err as FeedUpvoteError).reason).toContain("Already upvoted");
   });
 });
 
@@ -290,8 +310,8 @@ describe('AgentFeed.upvote()', () => {
 // AgentFeed.getPost() Tests
 // ============================================================================
 
-describe('AgentFeed.getPost()', () => {
-  it('returns parsed post when found', async () => {
+describe("AgentFeed.getPost()", () => {
+  it("returns parsed post when found", async () => {
     const postPda = randomPubkey();
     const authorPda = randomPubkey();
     const mockAccount = createMockPostAccount({ author: authorPda });
@@ -312,20 +332,22 @@ describe('AgentFeed.getPost()', () => {
     expect(post!.parentPost).toBeNull();
   });
 
-  it('returns null for non-existent post', async () => {
+  it("returns null for non-existent post", async () => {
     const { feed } = createTestFeed();
     const post = await feed.getPost(randomPubkey());
     expect(post).toBeNull();
   });
 
-  it('throws FeedQueryError on fetch failure', async () => {
+  it("throws FeedQueryError on fetch failure", async () => {
     const { feed, program } = createTestFeed();
-    program.account.feedPost.fetchNullable.mockRejectedValueOnce(new Error('Network error'));
+    program.account.feedPost.fetchNullable.mockRejectedValueOnce(
+      new Error("Network error"),
+    );
 
     await expect(feed.getPost(randomPubkey())).rejects.toThrow(FeedQueryError);
   });
 
-  it('parses parentPost when present', async () => {
+  it("parses parentPost when present", async () => {
     const parentPda = randomPubkey();
     const mockAccount = createMockPostAccount({ parentPost: parentPda });
 
@@ -337,7 +359,7 @@ describe('AgentFeed.getPost()', () => {
     expect(post!.parentPost!.equals(parentPda)).toBe(true);
   });
 
-  it('handles numeric createdAt (non-BN)', async () => {
+  it("handles numeric createdAt (non-BN)", async () => {
     const mockAccount = createMockPostAccount({ createdAt: 1700000000 });
 
     const { feed, program } = createTestFeed();
@@ -352,19 +374,28 @@ describe('AgentFeed.getPost()', () => {
 // AgentFeed.getFeed() Tests
 // ============================================================================
 
-describe('AgentFeed.getFeed()', () => {
-  it('returns empty array when no posts exist', async () => {
+describe("AgentFeed.getFeed()", () => {
+  it("returns empty array when no posts exist", async () => {
     const { feed } = createTestFeed();
     const posts = await feed.getFeed();
     expect(posts).toEqual([]);
   });
 
-  it('returns all posts sorted by createdAt desc by default', async () => {
+  it("returns all posts sorted by createdAt desc by default", async () => {
     const { feed, program } = createTestFeed();
     program.account.feedPost.all.mockResolvedValueOnce([
-      { publicKey: randomPubkey(), account: createMockPostAccount({ createdAt: { toNumber: () => 100 } }) },
-      { publicKey: randomPubkey(), account: createMockPostAccount({ createdAt: { toNumber: () => 300 } }) },
-      { publicKey: randomPubkey(), account: createMockPostAccount({ createdAt: { toNumber: () => 200 } }) },
+      {
+        publicKey: randomPubkey(),
+        account: createMockPostAccount({ createdAt: { toNumber: () => 100 } }),
+      },
+      {
+        publicKey: randomPubkey(),
+        account: createMockPostAccount({ createdAt: { toNumber: () => 300 } }),
+      },
+      {
+        publicKey: randomPubkey(),
+        account: createMockPostAccount({ createdAt: { toNumber: () => 200 } }),
+      },
     ]);
 
     const posts = await feed.getFeed();
@@ -374,21 +405,33 @@ describe('AgentFeed.getFeed()', () => {
     expect(posts[2].createdAt).toBe(100);
   });
 
-  it('sorts by upvoteCount when requested', async () => {
+  it("sorts by upvoteCount when requested", async () => {
     const { feed, program } = createTestFeed();
     program.account.feedPost.all.mockResolvedValueOnce([
-      { publicKey: randomPubkey(), account: createMockPostAccount({ upvoteCount: 5 }) },
-      { publicKey: randomPubkey(), account: createMockPostAccount({ upvoteCount: 10 }) },
-      { publicKey: randomPubkey(), account: createMockPostAccount({ upvoteCount: 1 }) },
+      {
+        publicKey: randomPubkey(),
+        account: createMockPostAccount({ upvoteCount: 5 }),
+      },
+      {
+        publicKey: randomPubkey(),
+        account: createMockPostAccount({ upvoteCount: 10 }),
+      },
+      {
+        publicKey: randomPubkey(),
+        account: createMockPostAccount({ upvoteCount: 1 }),
+      },
     ]);
 
-    const posts = await feed.getFeed({ sortBy: 'upvoteCount', sortOrder: 'desc' });
+    const posts = await feed.getFeed({
+      sortBy: "upvoteCount",
+      sortOrder: "desc",
+    });
     expect(posts[0].upvoteCount).toBe(10);
     expect(posts[1].upvoteCount).toBe(5);
     expect(posts[2].upvoteCount).toBe(1);
   });
 
-  it('respects limit parameter', async () => {
+  it("respects limit parameter", async () => {
     const { feed, program } = createTestFeed();
     program.account.feedPost.all.mockResolvedValueOnce([
       { publicKey: randomPubkey(), account: createMockPostAccount() },
@@ -400,7 +443,7 @@ describe('AgentFeed.getFeed()', () => {
     expect(posts.length).toBe(2);
   });
 
-  it('applies author memcmp filter', async () => {
+  it("applies author memcmp filter", async () => {
     const authorPda = randomPubkey();
     const { feed, program } = createTestFeed();
     program.account.feedPost.all.mockResolvedValueOnce([]);
@@ -413,7 +456,7 @@ describe('AgentFeed.getFeed()', () => {
     expect(filters[0].memcmp.bytes).toBe(authorPda.toBase58());
   });
 
-  it('applies topic memcmp filter with correct bytes', async () => {
+  it("applies topic memcmp filter with correct bytes", async () => {
     const topic = randomBytes32();
     const { feed, program } = createTestFeed();
     program.account.feedPost.all.mockResolvedValueOnce([]);
@@ -424,11 +467,11 @@ describe('AgentFeed.getFeed()', () => {
     expect(filters).toHaveLength(1);
     expect(filters[0].memcmp.offset).toBe(FEED_POST_TOPIC_OFFSET);
     // Verify the bytes value is the bs58-encoded topic
-    expect(typeof filters[0].memcmp.bytes).toBe('string');
+    expect(typeof filters[0].memcmp.bytes).toBe("string");
     expect(filters[0].memcmp.bytes.length).toBeGreaterThan(0);
   });
 
-  it('applies both author and topic filters', async () => {
+  it("applies both author and topic filters", async () => {
     const { feed, program } = createTestFeed();
     program.account.feedPost.all.mockResolvedValueOnce([]);
 
@@ -438,9 +481,9 @@ describe('AgentFeed.getFeed()', () => {
     expect(filters).toHaveLength(2);
   });
 
-  it('throws FeedQueryError on failure', async () => {
+  it("throws FeedQueryError on failure", async () => {
     const { feed, program } = createTestFeed();
-    program.account.feedPost.all.mockRejectedValueOnce(new Error('RPC error'));
+    program.account.feedPost.all.mockRejectedValueOnce(new Error("RPC error"));
 
     await expect(feed.getFeed()).rejects.toThrow(FeedQueryError);
   });
@@ -450,8 +493,8 @@ describe('AgentFeed.getFeed()', () => {
 // AgentFeed.getPostsByAuthor() / getPostsByTopic() Tests
 // ============================================================================
 
-describe('AgentFeed.getPostsByAuthor()', () => {
-  it('passes author memcmp at correct offset', async () => {
+describe("AgentFeed.getPostsByAuthor()", () => {
+  it("passes author memcmp at correct offset", async () => {
     const authorPda = randomPubkey();
     const { feed, program } = createTestFeed();
     program.account.feedPost.all.mockResolvedValueOnce([]);
@@ -464,8 +507,8 @@ describe('AgentFeed.getPostsByAuthor()', () => {
   });
 });
 
-describe('AgentFeed.getPostsByTopic()', () => {
-  it('passes topic memcmp at correct offset', async () => {
+describe("AgentFeed.getPostsByTopic()", () => {
+  it("passes topic memcmp at correct offset", async () => {
     const topic = randomBytes32();
     const { feed, program } = createTestFeed();
     program.account.feedPost.all.mockResolvedValueOnce([]);
@@ -476,7 +519,7 @@ describe('AgentFeed.getPostsByTopic()', () => {
     expect(filters[0].memcmp.offset).toBe(FEED_POST_TOPIC_OFFSET);
   });
 
-  it('accepts number[] topic', async () => {
+  it("accepts number[] topic", async () => {
     const topic = Array.from(randomBytes32());
     const { feed, program } = createTestFeed();
     program.account.feedPost.all.mockResolvedValueOnce([]);
@@ -492,33 +535,33 @@ describe('AgentFeed.getPostsByTopic()', () => {
 // Error Class Tests
 // ============================================================================
 
-describe('FeedPostError', () => {
-  it('has correct code and name', () => {
-    const err = new FeedPostError('test reason');
+describe("FeedPostError", () => {
+  it("has correct code and name", () => {
+    const err = new FeedPostError("test reason");
     expect(err.code).toBe(RuntimeErrorCodes.FEED_POST_ERROR);
-    expect(err.name).toBe('FeedPostError');
-    expect(err.reason).toBe('test reason');
-    expect(err.message).toContain('test reason');
+    expect(err.name).toBe("FeedPostError");
+    expect(err.reason).toBe("test reason");
+    expect(err.message).toContain("test reason");
   });
 });
 
-describe('FeedUpvoteError', () => {
-  it('has correct code and name', () => {
+describe("FeedUpvoteError", () => {
+  it("has correct code and name", () => {
     const pda = randomPubkey().toBase58();
-    const err = new FeedUpvoteError(pda, 'test reason');
+    const err = new FeedUpvoteError(pda, "test reason");
     expect(err.code).toBe(RuntimeErrorCodes.FEED_UPVOTE_ERROR);
-    expect(err.name).toBe('FeedUpvoteError');
+    expect(err.name).toBe("FeedUpvoteError");
     expect(err.postPda).toBe(pda);
-    expect(err.reason).toBe('test reason');
+    expect(err.reason).toBe("test reason");
   });
 });
 
-describe('FeedQueryError', () => {
-  it('has correct code and name', () => {
-    const err = new FeedQueryError('test reason');
+describe("FeedQueryError", () => {
+  it("has correct code and name", () => {
+    const err = new FeedQueryError("test reason");
     expect(err.code).toBe(RuntimeErrorCodes.FEED_QUERY_ERROR);
-    expect(err.name).toBe('FeedQueryError');
-    expect(err.reason).toBe('test reason');
+    expect(err.name).toBe("FeedQueryError");
+    expect(err.reason).toBe("test reason");
   });
 });
 
@@ -526,12 +569,12 @@ describe('FeedQueryError', () => {
 // Constants Tests
 // ============================================================================
 
-describe('Feed constants', () => {
-  it('FEED_POST_AUTHOR_OFFSET is 8 (after discriminator)', () => {
+describe("Feed constants", () => {
+  it("FEED_POST_AUTHOR_OFFSET is 8 (after discriminator)", () => {
     expect(FEED_POST_AUTHOR_OFFSET).toBe(8);
   });
 
-  it('FEED_POST_TOPIC_OFFSET is 72 (8 + 32 author + 32 content_hash)', () => {
+  it("FEED_POST_TOPIC_OFFSET is 72 (8 + 32 author + 32 content_hash)", () => {
     expect(FEED_POST_TOPIC_OFFSET).toBe(72);
   });
 });

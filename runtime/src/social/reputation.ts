@@ -10,14 +10,18 @@
  * @module
  */
 
-import type { Program } from '@coral-xyz/anchor';
-import type { AgencCoordination } from '../idl.js';
-import type { Logger } from '../utils/logger.js';
-import type { EventSubscription, ReputationChangedEvent, EventCallback } from '../events/types.js';
-import { subscribeToReputationChanged } from '../events/protocol.js';
-import type { AgentProfile } from './types.js';
-import type { FeedPost } from './feed-types.js';
-import type { AgentMessage } from './messaging-types.js';
+import type { Program } from "@coral-xyz/anchor";
+import type { AgencCoordination } from "../idl.js";
+import type { Logger } from "../utils/logger.js";
+import type {
+  EventSubscription,
+  ReputationChangedEvent,
+  EventCallback,
+} from "../events/types.js";
+import { subscribeToReputationChanged } from "../events/protocol.js";
+import type { AgentProfile } from "./types.js";
+import type { FeedPost } from "./feed-types.js";
+import type { AgentMessage } from "./messaging-types.js";
 import type {
   ReputationWeights,
   SocialSignals,
@@ -26,7 +30,7 @@ import type {
   ReputationChangeRecord,
   ReputationScorerConfig,
   ReputationReasonValue,
-} from './reputation-types.js';
+} from "./reputation-types.js";
 import {
   REPUTATION_MAX,
   REPUTATION_MIN,
@@ -36,8 +40,11 @@ import {
   DEFAULT_MESSAGE_WEIGHT,
   DEFAULT_SPAM_PENALTY,
   DEFAULT_ON_CHAIN_WEIGHT,
-} from './reputation-types.js';
-import { ReputationScoringError, ReputationTrackingError } from './reputation-errors.js';
+} from "./reputation-types.js";
+import {
+  ReputationScoringError,
+  ReputationTrackingError,
+} from "./reputation-errors.js";
 
 /** Resolved weights with all defaults applied. */
 interface ResolvedWeights {
@@ -84,7 +91,7 @@ export class ReputationScorer {
    */
   scorePost(postId: string, upvotes: number): number {
     if (upvotes < 0) {
-      throw new ReputationScoringError('upvote count cannot be negative');
+      throw new ReputationScoringError("upvote count cannot be negative");
     }
     void postId; // retained for logging / downstream tracking
     return upvotes * this.weights.upvoteWeight + this.weights.postWeight;
@@ -105,7 +112,7 @@ export class ReputationScorer {
     participants: Uint8Array[],
   ): Map<string, number> {
     if (participants.length < 1) {
-      throw new ReputationScoringError('participants array must not be empty');
+      throw new ReputationScoringError("participants array must not be empty");
     }
     void taskId; // retained for logging / downstream tracking
     const perParticipant = Math.max(
@@ -116,8 +123,8 @@ export class ReputationScorer {
     for (const p of participants) {
       // Use hex encoding for Uint8Array keys (deterministic, no import needed)
       const key = Array.from(p)
-        .map((b) => b.toString(16).padStart(2, '0'))
-        .join('');
+        .map((b) => b.toString(16).padStart(2, "0"))
+        .join("");
       result.set(key, perParticipant);
     }
     return result;
@@ -143,7 +150,7 @@ export class ReputationScorer {
    */
   penalizeSpam(agentId: Uint8Array, severity: number): number {
     if (severity < 0) {
-      throw new ReputationScoringError('severity cannot be negative');
+      throw new ReputationScoringError("severity cannot be negative");
     }
     void agentId; // retained for logging / downstream tracking
     return -(this.weights.spamPenaltyBase * severity);
@@ -175,12 +182,20 @@ export class ReputationScorer {
    *
    * Social score is normalized to [0, REPUTATION_MAX] via `min(social, REPUTATION_MAX)`.
    */
-  computeCompositeScore(onChainReputation: number, socialScore: number): number {
-    const clampedOnChain = Math.max(REPUTATION_MIN, Math.min(REPUTATION_MAX, onChainReputation));
+  computeCompositeScore(
+    onChainReputation: number,
+    socialScore: number,
+  ): number {
+    const clampedOnChain = Math.max(
+      REPUTATION_MIN,
+      Math.min(REPUTATION_MAX, onChainReputation),
+    );
     const normalizedSocial = Math.min(socialScore, REPUTATION_MAX);
     const w = this.weights.onChainWeight;
     const composite = w * clampedOnChain + (1 - w) * normalizedSocial;
-    return Math.round(Math.max(REPUTATION_MIN, Math.min(REPUTATION_MAX, composite)));
+    return Math.round(
+      Math.max(REPUTATION_MIN, Math.min(REPUTATION_MAX, composite)),
+    );
   }
 
   // ==========================================================================
@@ -210,7 +225,9 @@ export class ReputationScorer {
         const repMultiplier = 1 + authorReputation / REPUTATION_MAX;
         const weightedUpvotes = post.upvoteCount * repMultiplier;
         // Base score includes a small boost for having any reputation
-        const score = weightedUpvotes + (authorReputation / REPUTATION_MAX) * this.weights.postWeight;
+        const score =
+          weightedUpvotes +
+          (authorReputation / REPUTATION_MAX) * this.weights.postWeight;
         return { post, authorReputation, weightedUpvotes, score };
       })
       .sort((a, b) => b.score - a.score);
@@ -233,7 +250,10 @@ export class ReputationScorer {
         const key = profile.pda.toBase58();
         const signals = signalsMap?.get(key);
         const socialScore = signals ? this.computeSocialScore(signals) : 0;
-        const compositeScore = this.computeCompositeScore(profile.reputation, socialScore);
+        const compositeScore = this.computeCompositeScore(
+          profile.reputation,
+          socialScore,
+        );
         return {
           profile,
           onChainReputation: profile.reputation,
@@ -257,7 +277,7 @@ export class ReputationScorer {
    */
   startTracking(): EventSubscription {
     if (this.subscription) {
-      throw new ReputationTrackingError('already tracking reputation events');
+      throw new ReputationTrackingError("already tracking reputation events");
     }
 
     const callback: EventCallback<ReputationChangedEvent> = (event) => {
@@ -269,7 +289,10 @@ export class ReputationScorer {
         timestamp: event.timestamp,
       });
       // Evict oldest entries when capacity is exceeded
-      if (this.maxHistoryEntries > 0 && this.history.length > this.maxHistoryEntries) {
+      if (
+        this.maxHistoryEntries > 0 &&
+        this.history.length > this.maxHistoryEntries
+      ) {
         this.history.splice(0, this.history.length - this.maxHistoryEntries);
       }
       this.logger?.debug?.(
@@ -278,7 +301,7 @@ export class ReputationScorer {
     };
 
     this.subscription = subscribeToReputationChanged(this.program, callback);
-    this.logger?.info?.('Reputation event tracking started');
+    this.logger?.info?.("Reputation event tracking started");
     return this.subscription;
   }
 
@@ -289,7 +312,7 @@ export class ReputationScorer {
     if (this.subscription) {
       await this.subscription.unsubscribe();
       this.subscription = null;
-      this.logger?.info?.('Reputation event tracking stopped');
+      this.logger?.info?.("Reputation event tracking stopped");
     }
   }
 
@@ -343,10 +366,14 @@ export class ReputationScorer {
     return {
       upvoteWeight: weights?.upvoteWeight ?? DEFAULT_UPVOTE_WEIGHT,
       postWeight: weights?.postWeight ?? DEFAULT_POST_WEIGHT,
-      collaborationWeight: weights?.collaborationWeight ?? DEFAULT_COLLABORATION_WEIGHT,
+      collaborationWeight:
+        weights?.collaborationWeight ?? DEFAULT_COLLABORATION_WEIGHT,
       messageWeight: weights?.messageWeight ?? DEFAULT_MESSAGE_WEIGHT,
       spamPenaltyBase: weights?.spamPenaltyBase ?? DEFAULT_SPAM_PENALTY,
-      onChainWeight: Math.max(0, Math.min(1, weights?.onChainWeight ?? DEFAULT_ON_CHAIN_WEIGHT)),
+      onChainWeight: Math.max(
+        0,
+        Math.min(1, weights?.onChainWeight ?? DEFAULT_ON_CHAIN_WEIGHT),
+      ),
     };
   }
 }

@@ -4,72 +4,86 @@
  * @module
  */
 
-import {
-  canonicalizeTeamId,
-  validateTeamId,
-} from './types.js';
+import { canonicalizeTeamId, validateTeamId } from "./types.js";
 import type {
   TeamCheckpointTemplate,
   TeamPayoutConfig,
   TeamRoleTemplate,
   TeamTemplate,
-} from './types.js';
+} from "./types.js";
 
 export interface TeamTemplateValidationOptions {
   requireSingleParent?: boolean;
 }
 
 export function normalizeTeamTemplate(input: TeamTemplate): TeamTemplate {
-  const id = normalizeIdOrThrow(input.id, 'template id');
+  const id = normalizeIdOrThrow(input.id, "template id");
   const name = input.name.trim();
 
   if (name.length === 0) {
-    throw new Error('template name must not be empty');
+    throw new Error("template name must not be empty");
   }
 
   const roleIds = new Set<string>();
-  const roles: TeamRoleTemplate[] = input.roles.map((role) => {
-    const normalizedId = normalizeIdOrThrow(role.id, 'role id');
-    if (roleIds.has(normalizedId)) {
-      throw new Error(`duplicate role id after normalization: "${normalizedId}"`);
-    }
-    roleIds.add(normalizedId);
+  const roles: TeamRoleTemplate[] = input.roles
+    .map((role) => {
+      const normalizedId = normalizeIdOrThrow(role.id, "role id");
+      if (roleIds.has(normalizedId)) {
+        throw new Error(
+          `duplicate role id after normalization: "${normalizedId}"`,
+        );
+      }
+      roleIds.add(normalizedId);
 
-    return {
-      ...role,
-      id: normalizedId,
-      minMembers: role.minMembers ?? 1,
-      maxMembers: role.maxMembers ?? 1,
-    };
-  }).sort((a, b) => a.id.localeCompare(b.id));
+      return {
+        ...role,
+        id: normalizedId,
+        minMembers: role.minMembers ?? 1,
+        maxMembers: role.maxMembers ?? 1,
+      };
+    })
+    .sort((a, b) => a.id.localeCompare(b.id));
 
   const checkpointIds = new Set<string>();
-  const checkpoints: TeamCheckpointTemplate[] = input.checkpoints.map((checkpoint) => {
-    const normalizedId = normalizeIdOrThrow(checkpoint.id, 'checkpoint id');
-    if (checkpointIds.has(normalizedId)) {
-      throw new Error(`duplicate checkpoint id after normalization: "${normalizedId}"`);
-    }
-    checkpointIds.add(normalizedId);
-
-    const normalizedDependsOn = (checkpoint.dependsOn ?? [])
-      .map((dep) => normalizeIdOrThrow(dep, `dependency id for checkpoint "${normalizedId}"`));
-    const dedupe = new Set<string>();
-    for (const dependency of normalizedDependsOn) {
-      if (dedupe.has(dependency)) {
-        throw new Error(`duplicate dependency "${dependency}" on checkpoint "${normalizedId}"`);
+  const checkpoints: TeamCheckpointTemplate[] = input.checkpoints
+    .map((checkpoint) => {
+      const normalizedId = normalizeIdOrThrow(checkpoint.id, "checkpoint id");
+      if (checkpointIds.has(normalizedId)) {
+        throw new Error(
+          `duplicate checkpoint id after normalization: "${normalizedId}"`,
+        );
       }
-      dedupe.add(dependency);
-    }
+      checkpointIds.add(normalizedId);
 
-    return {
-      ...checkpoint,
-      id: normalizedId,
-      roleId: normalizeIdOrThrow(checkpoint.roleId, `role id for checkpoint "${normalizedId}"`),
-      label: checkpoint.label.trim(),
-      dependsOn: normalizedDependsOn.sort((a, b) => a.localeCompare(b)),
-      required: checkpoint.required ?? true,
-    };
-  }).sort((a, b) => a.id.localeCompare(b.id));
+      const normalizedDependsOn = (checkpoint.dependsOn ?? []).map((dep) =>
+        normalizeIdOrThrow(
+          dep,
+          `dependency id for checkpoint "${normalizedId}"`,
+        ),
+      );
+      const dedupe = new Set<string>();
+      for (const dependency of normalizedDependsOn) {
+        if (dedupe.has(dependency)) {
+          throw new Error(
+            `duplicate dependency "${dependency}" on checkpoint "${normalizedId}"`,
+          );
+        }
+        dedupe.add(dependency);
+      }
+
+      return {
+        ...checkpoint,
+        id: normalizedId,
+        roleId: normalizeIdOrThrow(
+          checkpoint.roleId,
+          `role id for checkpoint "${normalizedId}"`,
+        ),
+        label: checkpoint.label.trim(),
+        dependsOn: normalizedDependsOn.sort((a, b) => a.localeCompare(b)),
+        required: checkpoint.required ?? true,
+      };
+    })
+    .sort((a, b) => a.id.localeCompare(b.id));
 
   const payout = normalizePayoutConfig(input.payout);
 
@@ -90,10 +104,10 @@ export function validateTeamTemplate(
   const requireSingleParent = options.requireSingleParent ?? true;
 
   if (template.roles.length === 0) {
-    throw new Error('template must define at least one role');
+    throw new Error("template must define at least one role");
   }
   if (template.checkpoints.length === 0) {
-    throw new Error('template must define at least one checkpoint');
+    throw new Error("template must define at least one checkpoint");
   }
 
   const roleIds = new Set<string>();
@@ -110,7 +124,9 @@ export function validateTeamTemplate(
       throw new Error(`invalid maxMembers for role "${role.id}"`);
     }
     if ((role.minMembers ?? 0) > (role.maxMembers ?? 0)) {
-      throw new Error(`minMembers cannot exceed maxMembers for role "${role.id}"`);
+      throw new Error(
+        `minMembers cannot exceed maxMembers for role "${role.id}"`,
+      );
     }
   }
 
@@ -124,24 +140,40 @@ export function validateTeamTemplate(
     checkpointIds.add(checkpoint.id);
 
     if (!roleIds.has(checkpoint.roleId)) {
-      throw new Error(`checkpoint "${checkpoint.id}" references unknown role "${checkpoint.roleId}"`);
+      throw new Error(
+        `checkpoint "${checkpoint.id}" references unknown role "${checkpoint.roleId}"`,
+      );
     }
 
     const deps = checkpoint.dependsOn ?? [];
     if (requireSingleParent && deps.length > 1) {
-      throw new Error(`checkpoint "${checkpoint.id}" has multiple parents; single-parent topology required`);
+      throw new Error(
+        `checkpoint "${checkpoint.id}" has multiple parents; single-parent topology required`,
+      );
     }
     for (const dependency of deps) {
       if (dependency === checkpoint.id) {
-        throw new Error(`checkpoint "${checkpoint.id}" cannot depend on itself`);
+        throw new Error(
+          `checkpoint "${checkpoint.id}" cannot depend on itself`,
+        );
       }
-      if (!checkpointIds.has(dependency) && !template.checkpoints.some((c) => c.id === dependency)) {
-        throw new Error(`checkpoint "${checkpoint.id}" depends on unknown checkpoint "${dependency}"`);
+      if (
+        !checkpointIds.has(dependency) &&
+        !template.checkpoints.some((c) => c.id === dependency)
+      ) {
+        throw new Error(
+          `checkpoint "${checkpoint.id}" depends on unknown checkpoint "${dependency}"`,
+        );
       }
 
-      incomingCount.set(checkpoint.id, (incomingCount.get(checkpoint.id) ?? 0) + 1);
+      incomingCount.set(
+        checkpoint.id,
+        (incomingCount.get(checkpoint.id) ?? 0) + 1,
+      );
       if (requireSingleParent && (incomingCount.get(checkpoint.id) ?? 0) > 1) {
-        throw new Error(`checkpoint "${checkpoint.id}" has multiple incoming dependencies`);
+        throw new Error(
+          `checkpoint "${checkpoint.id}" has multiple incoming dependencies`,
+        );
       }
     }
 
@@ -154,7 +186,9 @@ export function validateTeamTemplate(
   validatePayoutReferences(template);
 }
 
-function validateNoCycles(checkpoints: readonly TeamCheckpointTemplate[]): void {
+function validateNoCycles(
+  checkpoints: readonly TeamCheckpointTemplate[],
+): void {
   const adjacency = new Map<string, string[]>();
   for (const checkpoint of checkpoints) {
     adjacency.set(checkpoint.id, []);
@@ -187,7 +221,7 @@ function validateNoCycles(checkpoints: readonly TeamCheckpointTemplate[]): void 
   for (const checkpoint of checkpoints) {
     if ((color.get(checkpoint.id) ?? WHITE) === WHITE) {
       if (dfs(checkpoint.id)) {
-        throw new Error('checkpoint dependency graph contains a cycle');
+        throw new Error("checkpoint dependency graph contains a cycle");
       }
     }
   }
@@ -195,16 +229,20 @@ function validateNoCycles(checkpoints: readonly TeamCheckpointTemplate[]): void 
 
 function validatePayoutReferences(template: TeamTemplate): void {
   const roleIds = new Set(template.roles.map((role) => role.id));
-  const checkpointIds = new Set(template.checkpoints.map((checkpoint) => checkpoint.id));
+  const checkpointIds = new Set(
+    template.checkpoints.map((checkpoint) => checkpoint.id),
+  );
 
-  for (const roleId of Object.keys(template.payout.roleFailurePenaltyBps ?? {})) {
+  for (const roleId of Object.keys(
+    template.payout.roleFailurePenaltyBps ?? {},
+  )) {
     if (!roleIds.has(roleId)) {
       throw new Error(`failure penalty references unknown role "${roleId}"`);
     }
   }
 
   switch (template.payout.mode) {
-    case 'fixed': {
+    case "fixed": {
       for (const roleId of Object.keys(template.payout.rolePayoutBps)) {
         if (!roleIds.has(roleId)) {
           throw new Error(`fixed payout references unknown role "${roleId}"`);
@@ -212,18 +250,24 @@ function validatePayoutReferences(template: TeamTemplate): void {
       }
       break;
     }
-    case 'weighted': {
+    case "weighted": {
       for (const roleId of Object.keys(template.payout.roleWeights)) {
         if (!roleIds.has(roleId)) {
-          throw new Error(`weighted payout references unknown role "${roleId}"`);
+          throw new Error(
+            `weighted payout references unknown role "${roleId}"`,
+          );
         }
       }
       break;
     }
-    case 'milestone': {
-      for (const checkpointId of Object.keys(template.payout.milestonePayoutBps)) {
+    case "milestone": {
+      for (const checkpointId of Object.keys(
+        template.payout.milestonePayoutBps,
+      )) {
         if (!checkpointIds.has(checkpointId)) {
-          throw new Error(`milestone payout references unknown checkpoint "${checkpointId}"`);
+          throw new Error(
+            `milestone payout references unknown checkpoint "${checkpointId}"`,
+          );
         }
       }
       break;
@@ -234,27 +278,36 @@ function validatePayoutReferences(template: TeamTemplate): void {
 function normalizePayoutConfig(config: TeamPayoutConfig): TeamPayoutConfig {
   const roleFailurePenaltyBps = normalizeNumericRecord(
     config.roleFailurePenaltyBps,
-    'role failure penalty',
+    "role failure penalty",
   );
 
   switch (config.mode) {
-    case 'fixed':
+    case "fixed":
       return {
         ...config,
         roleFailurePenaltyBps,
-        rolePayoutBps: normalizeRequiredNumericRecord(config.rolePayoutBps, 'fixed payout role bps'),
+        rolePayoutBps: normalizeRequiredNumericRecord(
+          config.rolePayoutBps,
+          "fixed payout role bps",
+        ),
       };
-    case 'weighted':
+    case "weighted":
       return {
         ...config,
         roleFailurePenaltyBps,
-        roleWeights: normalizeRequiredNumericRecord(config.roleWeights, 'role weight'),
+        roleWeights: normalizeRequiredNumericRecord(
+          config.roleWeights,
+          "role weight",
+        ),
       };
-    case 'milestone':
+    case "milestone":
       return {
         ...config,
         roleFailurePenaltyBps,
-        milestonePayoutBps: normalizeRequiredNumericRecord(config.milestonePayoutBps, 'milestone payout bps'),
+        milestonePayoutBps: normalizeRequiredNumericRecord(
+          config.milestonePayoutBps,
+          "milestone payout bps",
+        ),
       };
   }
 }
@@ -265,7 +318,6 @@ function normalizeRequiredNumericRecord(
 ): Record<string, number> {
   return normalizeNumericRecord(source, label) ?? {};
 }
-
 
 function normalizeNumericRecord(
   source: Record<string, number> | undefined,
@@ -283,8 +335,14 @@ function normalizeNumericRecord(
     }
     seen.add(key);
 
-    if (!Number.isFinite(rawValue) || !Number.isInteger(rawValue) || rawValue < 0) {
-      throw new Error(`${label} value for "${key}" must be a non-negative integer`);
+    if (
+      !Number.isFinite(rawValue) ||
+      !Number.isInteger(rawValue) ||
+      rawValue < 0
+    ) {
+      throw new Error(
+        `${label} value for "${key}" must be a non-negative integer`,
+      );
     }
 
     entries.push([key, rawValue]);

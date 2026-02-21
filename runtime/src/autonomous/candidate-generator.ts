@@ -4,7 +4,7 @@
  * @module
  */
 
-import type { MultiCandidateConfig, Task } from './types.js';
+import type { MultiCandidateConfig, Task } from "./types.js";
 
 export interface GeneratedExecutionCandidate {
   id: string;
@@ -34,10 +34,10 @@ export interface CandidateGenerationResult {
     consumedCostLamports: bigint;
     consumedTokenUnits: number;
     stoppedReason:
-      | 'target_reached'
-      | 'attempt_budget_reached'
-      | 'cost_budget_reached'
-      | 'token_budget_reached';
+      | "target_reached"
+      | "attempt_budget_reached"
+      | "cost_budget_reached"
+      | "token_budget_reached";
   };
 }
 
@@ -46,7 +46,9 @@ export interface CandidateGenerationInput {
   config?: MultiCandidateConfig;
   executeCandidate: (task: Task) => Promise<bigint[]>;
   estimateTokenUnits?: (output: bigint[]) => number;
-  onBeforeAttempt?: (context: CandidateGenerationAttemptContext) => Promise<void> | void;
+  onBeforeAttempt?: (
+    context: CandidateGenerationAttemptContext,
+  ) => Promise<void> | void;
 }
 
 interface ResolvedGenerationPolicy {
@@ -59,7 +61,11 @@ interface ResolvedGenerationPolicy {
 
 const DEFAULT_MAX_CANDIDATES = 3;
 
-function clampInteger(value: number | undefined, fallback: number, min = 1): number {
+function clampInteger(
+  value: number | undefined,
+  fallback: number,
+  min = 1,
+): number {
   if (value === undefined || !Number.isFinite(value)) return fallback;
   return Math.max(min, Math.floor(value));
 }
@@ -77,11 +83,11 @@ function hashString(input: string): string {
     hash ^= input.charCodeAt(i);
     hash = Math.imul(hash, 16777619);
   }
-  return (hash >>> 0).toString(16).padStart(8, '0');
+  return (hash >>> 0).toString(16).padStart(8, "0");
 }
 
 function fingerprintOutput(output: readonly bigint[]): string {
-  return hashString(output.map((value) => value.toString(16)).join('|'));
+  return hashString(output.map((value) => value.toString(16)).join("|"));
 }
 
 function outputDistance(a: readonly bigint[], b: readonly bigint[]): number {
@@ -110,16 +116,29 @@ function computeNovelty(
   return minDistance;
 }
 
-function resolvePolicy(task: Task, config: MultiCandidateConfig | undefined): ResolvedGenerationPolicy {
-  const requestedCandidates = clampInteger(config?.maxCandidates, DEFAULT_MAX_CANDIDATES);
-  const policyCandidates = clampInteger(config?.policyBudget?.maxCandidates, requestedCandidates);
+function resolvePolicy(
+  task: Task,
+  config: MultiCandidateConfig | undefined,
+): ResolvedGenerationPolicy {
+  const requestedCandidates = clampInteger(
+    config?.maxCandidates,
+    DEFAULT_MAX_CANDIDATES,
+  );
+  const policyCandidates = clampInteger(
+    config?.policyBudget?.maxCandidates,
+    requestedCandidates,
+  );
   const maxCandidates = Math.min(requestedCandidates, policyCandidates);
 
-  const requestedAttempts = clampInteger(config?.maxGenerationAttempts, maxCandidates);
+  const requestedAttempts = clampInteger(
+    config?.maxGenerationAttempts,
+    maxCandidates,
+  );
   const maxGenerationAttempts = Math.max(maxCandidates, requestedAttempts);
 
   const defaultCostBudget = task.reward * BigInt(maxGenerationAttempts);
-  const policyCostBudget = config?.policyBudget?.maxExecutionCostLamports ?? defaultCostBudget;
+  const policyCostBudget =
+    config?.policyBudget?.maxExecutionCostLamports ?? defaultCostBudget;
   const maxExecutionCostLamports =
     policyCostBudget < defaultCostBudget ? policyCostBudget : defaultCostBudget;
 
@@ -132,7 +151,8 @@ function resolvePolicy(task: Task, config: MultiCandidateConfig | undefined): Re
     maxCandidates,
     maxGenerationAttempts,
     minDiversityScore: clampRatio(config?.minDiversityScore, 0),
-    maxExecutionCostLamports: maxExecutionCostLamports < 0n ? 0n : maxExecutionCostLamports,
+    maxExecutionCostLamports:
+      maxExecutionCostLamports < 0n ? 0n : maxExecutionCostLamports,
     maxTokenBudget: requestedTokenBudget,
   };
 }
@@ -145,19 +165,24 @@ export async function generateExecutionCandidates(
 ): Promise<CandidateGenerationResult> {
   const policy = resolvePolicy(input.task, input.config);
   const estimateTokenUnits =
-    input.estimateTokenUnits ?? ((output: bigint[]) => Math.max(1, output.length * 16));
+    input.estimateTokenUnits ??
+    ((output: bigint[]) => Math.max(1, output.length * 16));
 
   const candidates: GeneratedExecutionCandidate[] = [];
   let attempts = 0;
   let consumedCostLamports = 0n;
   let consumedTokenUnits = 0;
-  let stoppedReason: CandidateGenerationResult['budget']['stoppedReason'] = 'attempt_budget_reached';
+  let stoppedReason: CandidateGenerationResult["budget"]["stoppedReason"] =
+    "attempt_budget_reached";
 
-  while (attempts < policy.maxGenerationAttempts && candidates.length < policy.maxCandidates) {
+  while (
+    attempts < policy.maxGenerationAttempts &&
+    candidates.length < policy.maxCandidates
+  ) {
     const attempt = attempts + 1;
     const projectedCostLamports = consumedCostLamports + input.task.reward;
     if (projectedCostLamports > policy.maxExecutionCostLamports) {
-      stoppedReason = 'cost_budget_reached';
+      stoppedReason = "cost_budget_reached";
       break;
     }
 
@@ -175,7 +200,7 @@ export async function generateExecutionCandidates(
     const tokenEstimate = Math.max(1, Math.floor(estimateTokenUnits(output)));
     const projectedTokenUnits = consumedTokenUnits + tokenEstimate;
     if (projectedTokenUnits > policy.maxTokenBudget) {
-      stoppedReason = 'token_budget_reached';
+      stoppedReason = "token_budget_reached";
       break;
     }
     consumedTokenUnits = projectedTokenUnits;
@@ -198,9 +223,9 @@ export async function generateExecutionCandidates(
   }
 
   if (candidates.length >= policy.maxCandidates) {
-    stoppedReason = 'target_reached';
+    stoppedReason = "target_reached";
   } else if (attempts >= policy.maxGenerationAttempts) {
-    stoppedReason = 'attempt_budget_reached';
+    stoppedReason = "attempt_budget_reached";
   }
 
   return {

@@ -3,7 +3,7 @@
  * @module
  */
 
-import { RuntimeError, RuntimeErrorCodes } from '../types/errors.js';
+import { RuntimeError, RuntimeErrorCodes } from "../types/errors.js";
 
 /**
  * Error thrown when a reputation staking operation fails.
@@ -14,9 +14,9 @@ export class ReputationStakeError extends RuntimeError {
   constructor(reason: string) {
     super(
       `Reputation stake failed: ${reason}`,
-      RuntimeErrorCodes.REPUTATION_STAKE_ERROR
+      RuntimeErrorCodes.REPUTATION_STAKE_ERROR,
     );
-    this.name = 'ReputationStakeError';
+    this.name = "ReputationStakeError";
     this.reason = reason;
   }
 }
@@ -30,9 +30,9 @@ export class ReputationDelegationError extends RuntimeError {
   constructor(reason: string) {
     super(
       `Reputation delegation failed: ${reason}`,
-      RuntimeErrorCodes.REPUTATION_DELEGATION_ERROR
+      RuntimeErrorCodes.REPUTATION_DELEGATION_ERROR,
     );
-    this.name = 'ReputationDelegationError';
+    this.name = "ReputationDelegationError";
     this.reason = reason;
   }
 }
@@ -46,9 +46,9 @@ export class ReputationWithdrawError extends RuntimeError {
   constructor(reason: string) {
     super(
       `Reputation withdrawal failed: ${reason}`,
-      RuntimeErrorCodes.REPUTATION_WITHDRAW_ERROR
+      RuntimeErrorCodes.REPUTATION_WITHDRAW_ERROR,
     );
-    this.name = 'ReputationWithdrawError';
+    this.name = "ReputationWithdrawError";
     this.reason = reason;
   }
 }
@@ -62,9 +62,9 @@ export class ReputationPortabilityError extends RuntimeError {
   constructor(reason: string) {
     super(
       `Reputation portability failed: ${reason}`,
-      RuntimeErrorCodes.REPUTATION_PORTABILITY_ERROR
+      RuntimeErrorCodes.REPUTATION_PORTABILITY_ERROR,
     );
-    this.name = 'ReputationPortabilityError';
+    this.name = "ReputationPortabilityError";
     this.reason = reason;
   }
 }

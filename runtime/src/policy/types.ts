@@ -4,24 +4,24 @@
  * @module
  */
 
-import type { MetricsProvider } from '../task/types.js';
-import type { Logger } from '../utils/logger.js';
+import type { MetricsProvider } from "../task/types.js";
+import type { Logger } from "../utils/logger.js";
 
 export type PolicyActionType =
-  | 'tool_call'
-  | 'task_discovery'
-  | 'task_claim'
-  | 'task_execution'
-  | 'tx_submission'
-  | 'custom';
+  | "tool_call"
+  | "task_discovery"
+  | "task_claim"
+  | "task_execution"
+  | "tx_submission"
+  | "custom";
 
-export type PolicyAccess = 'read' | 'write';
+export type PolicyAccess = "read" | "write";
 
 export type CircuitBreakerMode =
-  | 'normal'
-  | 'pause_discovery'
-  | 'halt_submissions'
-  | 'safe_mode';
+  | "normal"
+  | "pause_discovery"
+  | "halt_submissions"
+  | "safe_mode";
 
 export interface PolicyAction {
   type: PolicyActionType;
@@ -97,7 +97,7 @@ export interface CircuitBreakerConfig {
   /** Violation counting window in ms. */
   windowMs: number;
   /** Mode entered when auto-tripped. */
-  mode: Exclude<CircuitBreakerMode, 'normal'>;
+  mode: Exclude<CircuitBreakerMode, "normal">;
 }
 
 export interface RuntimePolicyConfig {
@@ -134,12 +134,12 @@ export interface ProductionRuntimeExtensions {
 
 export interface PolicyViolation {
   code:
-    | 'circuit_breaker_active'
-    | 'tool_denied'
-    | 'action_denied'
-    | 'action_budget_exceeded'
-    | 'spend_budget_exceeded'
-    | 'risk_threshold_exceeded';
+    | "circuit_breaker_active"
+    | "tool_denied"
+    | "action_denied"
+    | "action_budget_exceeded"
+    | "spend_budget_exceeded"
+    | "risk_threshold_exceeded";
   message: string;
   actionType: PolicyActionType;
   actionName: string;
@@ -171,9 +171,9 @@ export class PolicyViolationError extends Error {
   readonly decision: PolicyDecision;
 
   constructor(action: PolicyAction, decision: PolicyDecision) {
-    const reason = decision.violations[0]?.message ?? 'Policy blocked action';
+    const reason = decision.violations[0]?.message ?? "Policy blocked action";
     super(reason);
-    this.name = 'PolicyViolationError';
+    this.name = "PolicyViolationError";
     this.action = action;
     this.decision = decision;
   }

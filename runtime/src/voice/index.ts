@@ -19,20 +19,17 @@ export type {
   TTSConfig,
   RealtimeVoiceConfig,
   VoiceConfig,
-} from './types.js';
+} from "./types.js";
 
 // Error classes
-export {
-  VoiceTranscriptionError,
-  VoiceSynthesisError,
-} from './errors.js';
+export { VoiceTranscriptionError, VoiceSynthesisError } from "./errors.js";
 
 // STT providers
 export {
   WhisperAPIProvider,
   toTranscriptionProvider,
   type WhisperAPIProviderConfig,
-} from './stt.js';
+} from "./stt.js";
 
 // TTS providers
 export {
@@ -42,7 +39,7 @@ export {
   type ElevenLabsProviderConfig,
   type OpenAITTSProviderConfig,
   type EdgeTTSProviderConfig,
-} from './tts.js';
+} from "./tts.js";
 
 // Realtime voice (xAI Realtime API)
 export {
@@ -57,4 +54,4 @@ export {
   type ServerEvent as VoiceServerEvent,
   type VoiceSessionCallbacks,
   type XaiRealtimeClientConfig,
-} from './realtime/index.js';
+} from "./realtime/index.js";

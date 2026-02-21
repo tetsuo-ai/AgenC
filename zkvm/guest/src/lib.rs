@@ -148,15 +148,8 @@ mod tests {
         let short = [9_u8; JOURNAL_FIELD_LEN - 1];
         let long = [8_u8; JOURNAL_FIELD_LEN + 1];
 
-        let err = serialize_journal_from_slices(
-            &short,
-            &ok,
-            &ok,
-            &ok,
-            &ok,
-            &ok,
-        )
-        .expect_err("short task_pda must fail");
+        let err = serialize_journal_from_slices(&short, &ok, &ok, &ok, &ok, &ok)
+            .expect_err("short task_pda must fail");
 
         assert_eq!(
             err,
@@ -167,15 +160,8 @@ mod tests {
             }
         );
 
-        let err = serialize_journal_from_slices(
-            &ok,
-            &ok,
-            &ok,
-            &ok,
-            &ok,
-            &long,
-        )
-        .expect_err("long nullifier must fail");
+        let err = serialize_journal_from_slices(&ok, &ok, &ok, &ok, &ok, &long)
+            .expect_err("long nullifier must fail");
 
         assert_eq!(
             err,

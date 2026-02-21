@@ -8,9 +8,9 @@
  * @module
  */
 
-import type { WorkflowDefinition } from './types.js';
-import { OnChainDependencyType } from './types.js';
-import { WorkflowValidationError } from './errors.js';
+import type { WorkflowDefinition } from "./types.js";
+import { OnChainDependencyType } from "./types.js";
+import { WorkflowValidationError } from "./errors.js";
 
 /**
  * Validate a workflow definition.
@@ -31,14 +31,14 @@ export function validateWorkflow(definition: WorkflowDefinition): void {
 
   // 1. Non-empty
   if (!tasks || tasks.length === 0) {
-    throw new WorkflowValidationError('Workflow must have at least one task');
+    throw new WorkflowValidationError("Workflow must have at least one task");
   }
 
   // 2. No duplicate names
   const names = new Set<string>();
   for (const task of tasks) {
     if (!task.name || task.name.trim().length === 0) {
-      throw new WorkflowValidationError('Task name must be a non-empty string');
+      throw new WorkflowValidationError("Task name must be a non-empty string");
     }
     if (names.has(task.name)) {
       throw new WorkflowValidationError(`Duplicate task name: "${task.name}"`);
@@ -50,17 +50,17 @@ export function validateWorkflow(definition: WorkflowDefinition): void {
   for (const edge of edges) {
     if (!names.has(edge.from)) {
       throw new WorkflowValidationError(
-        `Edge references unknown task "${edge.from}" in "from" field`
+        `Edge references unknown task "${edge.from}" in "from" field`,
       );
     }
     if (!names.has(edge.to)) {
       throw new WorkflowValidationError(
-        `Edge references unknown task "${edge.to}" in "to" field`
+        `Edge references unknown task "${edge.to}" in "to" field`,
       );
     }
     if (edge.from === edge.to) {
       throw new WorkflowValidationError(
-        `Self-loop detected: task "${edge.from}" depends on itself`
+        `Self-loop detected: task "${edge.from}" depends on itself`,
       );
     }
     if (
@@ -70,7 +70,7 @@ export function validateWorkflow(definition: WorkflowDefinition): void {
     ) {
       throw new WorkflowValidationError(
         `Invalid dependency type ${edge.dependencyType} on edge "${edge.from}" -> "${edge.to}". ` +
-        'Must be Data (1), Ordering (2), or Proof (3)'
+          "Must be Data (1), Ordering (2), or Proof (3)",
       );
     }
   }
@@ -81,7 +81,7 @@ export function validateWorkflow(definition: WorkflowDefinition): void {
     if (childSeen.has(edge.to)) {
       throw new WorkflowValidationError(
         `Multi-parent detected: task "${edge.to}" has more than one incoming edge. ` +
-        'On-chain tasks support only one parent (depends_on: Option<Pubkey>)'
+          "On-chain tasks support only one parent (depends_on: Option<Pubkey>)",
       );
     }
     childSeen.add(edge.to);
@@ -98,7 +98,7 @@ export function validateWorkflow(definition: WorkflowDefinition): void {
   }
 
   const WHITE = 0; // unvisited
-  const GRAY = 1;  // in current DFS path
+  const GRAY = 1; // in current DFS path
   const BLACK = 2; // fully explored
   const color = new Map<string, number>();
   for (const name of names) {
@@ -119,7 +119,7 @@ export function validateWorkflow(definition: WorkflowDefinition): void {
   for (const name of names) {
     if (color.get(name) === WHITE) {
       if (dfs(name)) {
-        throw new WorkflowValidationError('Cycle detected in workflow edges');
+        throw new WorkflowValidationError("Cycle detected in workflow edges");
       }
     }
   }

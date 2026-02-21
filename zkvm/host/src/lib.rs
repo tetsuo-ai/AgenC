@@ -50,13 +50,20 @@ pub struct ProveResponse {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProveError {
-    UnexpectedJournalLength { expected: usize, actual: usize },
+    UnexpectedJournalLength {
+        expected: usize,
+        actual: usize,
+    },
     UntrustedSelector {
         expected: Selector,
         actual: Selector,
     },
-    DevModeEnabled { variable: &'static str },
-    ClusterNotAllowlisted { cluster: String },
+    DevModeEnabled {
+        variable: &'static str,
+    },
+    ClusterNotAllowlisted {
+        cluster: String,
+    },
     SealEncodingFailed(String),
     ProverFailed(String),
     ReceiptTypeMismatch(String),
@@ -190,10 +197,7 @@ fn derive_image_id(request: &ProveRequest) -> ImageId {
 }
 
 #[cfg(not(feature = "production-prover"))]
-fn simulate_proof_bytes(
-    journal: &[u8; JOURNAL_TOTAL_LEN],
-    image_id: &ImageId,
-) -> ProofBytes {
+fn simulate_proof_bytes(journal: &[u8; JOURNAL_TOTAL_LEN], image_id: &ImageId) -> ProofBytes {
     let mut out = [0_u8; SEAL_PROOF_LEN];
     for (i, slot) in out.iter_mut().enumerate() {
         *slot = journal[i % JOURNAL_TOTAL_LEN]
@@ -224,9 +228,9 @@ fn generate_proof_real(request: &ProveRequest) -> Result<ProveResponse, ProveErr
 
     let mut builder = ExecutorEnv::builder();
     for (name, field) in fields {
-        builder.write(*field).map_err(|e| {
-            ProveError::ProverFailed(format!("failed to write {name}: {e}"))
-        })?;
+        builder
+            .write(*field)
+            .map_err(|e| ProveError::ProverFailed(format!("failed to write {name}: {e}")))?;
     }
     let env = builder
         .build()
@@ -241,9 +245,7 @@ fn generate_proof_real(request: &ProveRequest) -> Result<ProveResponse, ProveErr
     let groth16 = receipt
         .inner
         .groth16()
-        .map_err(|e| {
-            ProveError::ReceiptTypeMismatch(format!("expected Groth16 receipt: {e}"))
-        })?;
+        .map_err(|e| ProveError::ReceiptTypeMismatch(format!("expected Groth16 receipt: {e}")))?;
     let raw_seal: [u8; SEAL_PROOF_LEN] =
         groth16.seal.clone().try_into().map_err(|v: Vec<u8>| {
             ProveError::ProverFailed(format!(
@@ -344,8 +346,8 @@ mod tests {
     #[test]
     fn canonical_seal_shape_and_lengths_are_correct() {
         let request = default_prove_request();
-        let response = generate_proof_with_dev_mode(&request, None)
-            .expect("proof generation must succeed");
+        let response =
+            generate_proof_with_dev_mode(&request, None).expect("proof generation must succeed");
 
         assert_eq!(response.seal_bytes.len(), SEAL_BYTES_LEN);
         let decoded = Seal::try_from_slice(&response.seal_bytes)
@@ -368,8 +370,8 @@ mod tests {
             .try_to_vec()
             .expect("canonical seal must serialize");
 
-        let response = generate_proof_with_dev_mode(&request, None)
-            .expect("proof generation must succeed");
+        let response =
+            generate_proof_with_dev_mode(&request, None).expect("proof generation must succeed");
         assert_eq!(response.seal_bytes, expected_bytes);
     }
 
@@ -377,10 +379,9 @@ mod tests {
     #[test]
     fn real_seal_bytes_decode_with_correct_selector() {
         let request = default_prove_request();
-        let response = generate_proof_with_dev_mode(&request, None)
-            .expect("proof generation must succeed");
-        let decoded = Seal::try_from_slice(&response.seal_bytes)
-            .expect("seal bytes must decode");
+        let response =
+            generate_proof_with_dev_mode(&request, None).expect("proof generation must succeed");
+        let decoded = Seal::try_from_slice(&response.seal_bytes).expect("seal bytes must decode");
         assert_eq!(decoded.selector, TRUSTED_SEAL_SELECTOR);
     }
 
@@ -388,10 +389,8 @@ mod tests {
     fn proof_generation_is_deterministic() {
         let request = default_prove_request();
 
-        let first = generate_proof_with_dev_mode(&request, None)
-            .expect("first run must succeed");
-        let second = generate_proof_with_dev_mode(&request, None)
-            .expect("second run must succeed");
+        let first = generate_proof_with_dev_mode(&request, None).expect("first run must succeed");
+        let second = generate_proof_with_dev_mode(&request, None).expect("second run must succeed");
 
         #[cfg(not(feature = "production-prover"))]
         assert_eq!(first, second);
@@ -439,10 +438,19 @@ mod tests {
         let deployment = config::require_allowlisted_deployment(config::DEFAULT_CLUSTER)
             .expect("default cluster must be allowlisted");
 
-        assert_eq!(deployment.router_program_id, config::TRUSTED_ROUTER_PROGRAM_ID);
-        assert_eq!(deployment.verifier_program_id, config::TRUSTED_VERIFIER_PROGRAM_ID);
+        assert_eq!(
+            deployment.router_program_id,
+            config::TRUSTED_ROUTER_PROGRAM_ID
+        );
+        assert_eq!(
+            deployment.verifier_program_id,
+            config::TRUSTED_VERIFIER_PROGRAM_ID
+        );
         assert_eq!(deployment.provenance, config::DEPLOYMENT_PROVENANCE);
-        assert_eq!(deployment.provenance_path, config::DEPLOYMENT_PROVENANCE_PATH);
+        assert_eq!(
+            deployment.provenance_path,
+            config::DEPLOYMENT_PROVENANCE_PATH
+        );
     }
 
     #[test]
@@ -460,11 +468,17 @@ mod tests {
 
     #[test]
     fn deployment_allowlist_accepts_devnet() {
-        let deployment = config::require_allowlisted_deployment("devnet")
-            .expect("devnet must be allowlisted");
+        let deployment =
+            config::require_allowlisted_deployment("devnet").expect("devnet must be allowlisted");
 
-        assert_eq!(deployment.router_program_id, config::TRUSTED_ROUTER_PROGRAM_ID);
-        assert_eq!(deployment.verifier_program_id, config::TRUSTED_VERIFIER_PROGRAM_ID);
+        assert_eq!(
+            deployment.router_program_id,
+            config::TRUSTED_ROUTER_PROGRAM_ID
+        );
+        assert_eq!(
+            deployment.verifier_program_id,
+            config::TRUSTED_VERIFIER_PROGRAM_ID
+        );
     }
 
     #[test]
@@ -472,8 +486,14 @@ mod tests {
         let deployment = config::require_allowlisted_deployment("mainnet-beta")
             .expect("mainnet-beta must be allowlisted");
 
-        assert_eq!(deployment.router_program_id, config::TRUSTED_ROUTER_PROGRAM_ID);
-        assert_eq!(deployment.verifier_program_id, config::TRUSTED_VERIFIER_PROGRAM_ID);
+        assert_eq!(
+            deployment.router_program_id,
+            config::TRUSTED_ROUTER_PROGRAM_ID
+        );
+        assert_eq!(
+            deployment.verifier_program_id,
+            config::TRUSTED_VERIFIER_PROGRAM_ID
+        );
     }
 
     // -------------------------------------------------------------------
@@ -495,8 +515,8 @@ mod tests {
     #[test]
     fn guest_id_to_image_id_converts_le_words_correctly() {
         let guest_id: [u32; 8] = [
-            0x04030201, 0x08070605, 0x0c0b0a09, 0x100f0e0d,
-            0x14131211, 0x18171615, 0x1c1b1a19, 0x201f1e1d,
+            0x04030201, 0x08070605, 0x0c0b0a09, 0x100f0e0d, 0x14131211, 0x18171615, 0x1c1b1a19,
+            0x201f1e1d,
         ];
         let image_id = guest_id_to_image_id(&guest_id);
 
@@ -543,21 +563,20 @@ mod tests {
         #[test]
         fn real_proof_has_correct_structure() {
             let request = default_prove_request();
-            let response = generate_proof_real(&request)
-                .expect("real proof generation must succeed");
+            let response =
+                generate_proof_real(&request).expect("real proof generation must succeed");
 
             assert_eq!(response.seal_bytes.len(), SEAL_BYTES_LEN);
             assert_eq!(response.journal.len(), JOURNAL_TOTAL_LEN);
             assert_eq!(response.image_id.len(), IMAGE_ID_LEN);
 
             // Journal matches expected serialization
-            let expected_journal =
-                serialize_journal(&JournalFields::from(request));
+            let expected_journal = serialize_journal(&JournalFields::from(request));
             assert_eq!(response.journal, expected_journal.to_vec());
 
             // Seal decodes with correct selector
-            let decoded = Seal::try_from_slice(&response.seal_bytes)
-                .expect("seal bytes must decode");
+            let decoded =
+                Seal::try_from_slice(&response.seal_bytes).expect("seal bytes must decode");
             assert_eq!(decoded.selector, TRUSTED_SEAL_SELECTOR);
         }
 

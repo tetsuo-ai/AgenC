@@ -4,21 +4,17 @@
  * @module
  */
 
-import {
-  LLMProviderError,
-  LLMServerError,
-  LLMTimeoutError,
-} from './errors.js';
+import { LLMProviderError, LLMServerError, LLMTimeoutError } from "./errors.js";
 import type {
   LLMMessage,
   LLMProvider,
   LLMResponse,
   StreamProgressCallback,
-} from './types.js';
+} from "./types.js";
 
 export interface FallbackChainConfig {
   providers: LLMProvider[];
-  fallbackOnErrors?: Array<'timeout' | 'server' | 'provider'>;
+  fallbackOnErrors?: Array<"timeout" | "server" | "provider">;
 }
 
 /**
@@ -28,17 +24,17 @@ export class FallbackLLMProvider implements LLMProvider {
   readonly name: string;
 
   private readonly providers: LLMProvider[];
-  private readonly fallbackErrors: Set<'timeout' | 'server' | 'provider'>;
+  private readonly fallbackErrors: Set<"timeout" | "server" | "provider">;
 
   constructor(config: FallbackChainConfig) {
     if (!config.providers || config.providers.length === 0) {
-      throw new Error('FallbackLLMProvider requires at least one provider');
+      throw new Error("FallbackLLMProvider requires at least one provider");
     }
     this.providers = [...config.providers];
     this.fallbackErrors = new Set(
-      config.fallbackOnErrors ?? ['timeout', 'server', 'provider'],
+      config.fallbackOnErrors ?? ["timeout", "server", "provider"],
     );
-    this.name = `fallback(${this.providers.map((provider) => provider.name).join(',')})`;
+    this.name = `fallback(${this.providers.map((provider) => provider.name).join(",")})`;
   }
 
   async chat(messages: LLMMessage[]): Promise<LLMResponse> {
@@ -47,7 +43,7 @@ export class FallbackLLMProvider implements LLMProvider {
     for (const provider of this.providers) {
       try {
         const response = await provider.chat(messages);
-        if (response.finishReason === 'error' && response.error) {
+        if (response.finishReason === "error" && response.error) {
           throw response.error;
         }
         return response;
@@ -59,7 +55,7 @@ export class FallbackLLMProvider implements LLMProvider {
       }
     }
 
-    throw lastError ?? new LLMProviderError(this.name, 'All providers failed');
+    throw lastError ?? new LLMProviderError(this.name, "All providers failed");
   }
 
   async chatStream(
@@ -71,7 +67,7 @@ export class FallbackLLMProvider implements LLMProvider {
     for (const provider of this.providers) {
       try {
         const response = await provider.chatStream(messages, onChunk);
-        if (response.finishReason === 'error' && response.error) {
+        if (response.finishReason === "error" && response.error) {
           throw response.error;
         }
         return response;
@@ -83,7 +79,7 @@ export class FallbackLLMProvider implements LLMProvider {
       }
     }
 
-    throw lastError ?? new LLMProviderError(this.name, 'All providers failed');
+    throw lastError ?? new LLMProviderError(this.name, "All providers failed");
   }
 
   async healthCheck(): Promise<boolean> {
@@ -101,13 +97,13 @@ export class FallbackLLMProvider implements LLMProvider {
 
   private shouldFallback(err: Error): boolean {
     if (err instanceof LLMTimeoutError) {
-      return this.fallbackErrors.has('timeout');
+      return this.fallbackErrors.has("timeout");
     }
     if (err instanceof LLMServerError) {
-      return this.fallbackErrors.has('server');
+      return this.fallbackErrors.has("server");
     }
     if (err instanceof LLMProviderError) {
-      return this.fallbackErrors.has('provider');
+      return this.fallbackErrors.has("provider");
     }
     return false;
   }

@@ -13,7 +13,7 @@ import {
   type SkillUsageEvent,
   type SkillAnalytics,
   type AgentUsageSummary,
-} from './types.js';
+} from "./types.js";
 
 interface SkillData {
   events: SkillUsageEvent[];
@@ -75,7 +75,8 @@ export class SkillUsageTracker {
       failureCount,
       successRate: totalInvocations > 0 ? successCount / totalInvocations : 0,
       uniqueAgents: agents.size,
-      avgDurationMs: totalInvocations > 0 ? totalDurationMs / totalInvocations : 0,
+      avgDurationMs:
+        totalInvocations > 0 ? totalDurationMs / totalInvocations : 0,
       firstUsedAt,
       lastUsedAt,
       revenueGenerated: entry.revenue,

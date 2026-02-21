@@ -13,10 +13,10 @@
  * @module
  */
 
-import { execFile, type ExecFileException } from 'node:child_process';
-import type { Logger } from '../utils/logger.js';
-import { silentLogger } from '../utils/logger.js';
-import { RuntimeError, RuntimeErrorCodes } from '../types/errors.js';
+import { execFile, type ExecFileException } from "node:child_process";
+import type { Logger } from "../utils/logger.js";
+import { silentLogger } from "../utils/logger.js";
+import { RuntimeError, RuntimeErrorCodes } from "../types/errors.js";
 
 /**
  * Promise wrapper for `execFile` that returns `{ stdout, stderr }`.
@@ -31,15 +31,20 @@ function execFileAsync(
   opts: { timeout?: number; maxBuffer?: number },
 ): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
-    execFile(cmd, args, opts, (error: ExecFileException | null, stdout: string, stderr: string) => {
-      if (error) {
-        // Attach stdout/stderr to the error for non-zero exit code handling
-        Object.assign(error, { stdout, stderr });
-        reject(error);
-      } else {
-        resolve({ stdout, stderr });
-      }
-    });
+    execFile(
+      cmd,
+      args,
+      opts,
+      (error: ExecFileException | null, stdout: string, stderr: string) => {
+        if (error) {
+          // Attach stdout/stderr to the error for non-zero exit code handling
+          Object.assign(error, { stdout, stderr });
+          reject(error);
+        } else {
+          resolve({ stdout, stderr });
+        }
+      },
+    );
   });
 }
 
@@ -48,13 +53,13 @@ function execFileAsync(
 // ============================================================================
 
 /** Default Docker image used for sandbox containers. */
-export const DEFAULT_IMAGE = 'node:20-slim';
+export const DEFAULT_IMAGE = "node:20-slim";
 
 /** Default memory limit for sandbox containers. */
-export const DEFAULT_MAX_MEMORY = '512m';
+export const DEFAULT_MAX_MEMORY = "512m";
 
 /** Default CPU limit for sandbox containers. */
-export const DEFAULT_MAX_CPU = '1.0';
+export const DEFAULT_MAX_CPU = "1.0";
 
 /** Default timeout for Docker daemon commands (info, run, rm) in ms. */
 export const DEFAULT_DOCKER_TIMEOUT_MS = 30_000;
@@ -66,7 +71,7 @@ export const DEFAULT_EXECUTE_TIMEOUT_MS = 120_000;
 export const DEFAULT_MAX_OUTPUT_BYTES = 100 * 1024;
 
 /** Prefix for all AgenC sandbox container names. */
-export const CONTAINER_PREFIX = 'agenc-sandbox';
+export const CONTAINER_PREFIX = "agenc-sandbox";
 
 // ============================================================================
 // Error classes
@@ -82,7 +87,7 @@ export class SandboxExecutionError extends RuntimeError {
       `Sandbox execution failed for command "${command}": ${msg}`,
       RuntimeErrorCodes.SANDBOX_EXECUTION_ERROR,
     );
-    this.name = 'SandboxExecutionError';
+    this.name = "SandboxExecutionError";
     this.command = command;
     this.cause = cause;
   }
@@ -92,9 +97,14 @@ export class SandboxUnavailableError extends RuntimeError {
   public readonly cause: unknown;
 
   constructor(cause?: unknown) {
-    const msg = cause instanceof Error ? cause.message : (cause ? String(cause) : 'Docker is not available');
+    const msg =
+      cause instanceof Error
+        ? cause.message
+        : cause
+          ? String(cause)
+          : "Docker is not available";
     super(msg, RuntimeErrorCodes.SANDBOX_UNAVAILABLE);
-    this.name = 'SandboxUnavailableError';
+    this.name = "SandboxUnavailableError";
     this.cause = cause;
   }
 }
@@ -104,7 +114,7 @@ export class SandboxUnavailableError extends RuntimeError {
 // ============================================================================
 
 /** Sandboxing mode controlling which scopes are isolated. */
-export type SandboxMode = 'off' | 'non-main' | 'all';
+export type SandboxMode = "off" | "non-main" | "all";
 
 /**
  * Scope granularity for container isolation.
@@ -112,10 +122,10 @@ export type SandboxMode = 'off' | 'non-main' | 'all';
  * - `agent`   — one container per agent (shared across sessions)
  * - `shared`  — single shared container for all executions
  */
-export type SandboxScope = 'session' | 'agent' | 'shared';
+export type SandboxScope = "session" | "agent" | "shared";
 
 /** Workspace directory access mode inside the container. */
-export type WorkspaceAccessMode = 'none' | 'readonly' | 'readwrite';
+export type WorkspaceAccessMode = "none" | "readonly" | "readwrite";
 
 /** Configuration for the sandbox manager. */
 export interface SandboxConfig {
@@ -165,9 +175,9 @@ export interface SandboxExecuteOptions {
 /** Returns a safe default sandbox configuration (sandboxing disabled). */
 export function defaultSandboxConfig(): SandboxConfig {
   return {
-    mode: 'off',
-    scope: 'session',
-    workspaceAccess: 'none',
+    mode: "off",
+    scope: "session",
+    workspaceAccess: "none",
     networkAccess: false,
   };
 }
@@ -180,7 +190,9 @@ export function defaultSandboxConfig(): SandboxConfig {
  */
 export async function checkDockerAvailable(): Promise<boolean> {
   try {
-    await execFileAsync('docker', ['info'], { timeout: DEFAULT_DOCKER_TIMEOUT_MS });
+    await execFileAsync("docker", ["info"], {
+      timeout: DEFAULT_DOCKER_TIMEOUT_MS,
+    });
     return true;
   } catch {
     return false;
@@ -213,11 +225,16 @@ export class SandboxManager {
 
   constructor(
     config: SandboxConfig,
-    options?: { workspacePath?: string; dockerTimeoutMs?: number; logger?: Logger },
+    options?: {
+      workspacePath?: string;
+      dockerTimeoutMs?: number;
+      logger?: Logger;
+    },
   ) {
     this.config = config;
     this.workspacePath = options?.workspacePath;
-    this.dockerTimeoutMs = options?.dockerTimeoutMs ?? DEFAULT_DOCKER_TIMEOUT_MS;
+    this.dockerTimeoutMs =
+      options?.dockerTimeoutMs ?? DEFAULT_DOCKER_TIMEOUT_MS;
     this.logger = options?.logger ?? silentLogger;
   }
 
@@ -234,7 +251,9 @@ export class SandboxManager {
       return this.dockerAvailable;
     }
     try {
-      await execFileAsync('docker', ['info'], { timeout: this.dockerTimeoutMs });
+      await execFileAsync("docker", ["info"], {
+        timeout: this.dockerTimeoutMs,
+      });
       this.dockerAvailable = true;
     } catch {
       this.dockerAvailable = false;
@@ -246,14 +265,14 @@ export class SandboxManager {
    * Determines whether the given message scope should be sandboxed based on
    * the current mode configuration. Pure synchronous check.
    */
-  shouldSandbox(scope: 'dm' | 'group' | 'thread'): boolean {
+  shouldSandbox(scope: "dm" | "group" | "thread"): boolean {
     switch (this.config.mode) {
-      case 'off':
+      case "off":
         return false;
-      case 'all':
+      case "all":
         return true;
-      case 'non-main':
-        return scope === 'group' || scope === 'thread';
+      case "non-main":
+        return scope === "group" || scope === "thread";
       default:
         return false;
     }
@@ -266,30 +285,33 @@ export class SandboxManager {
    * scope key. Returns a `SandboxResult` with stdout, stderr, and exit code.
    * Non-zero exit codes do NOT throw — only Docker infrastructure failures do.
    */
-  async execute(command: string, options?: SandboxExecuteOptions): Promise<SandboxResult> {
-    const sessionId = options?.sessionId ?? 'default';
+  async execute(
+    command: string,
+    options?: SandboxExecuteOptions,
+  ): Promise<SandboxResult> {
+    const sessionId = options?.sessionId ?? "default";
     const timeoutMs = options?.timeoutMs ?? DEFAULT_EXECUTE_TIMEOUT_MS;
 
     const containerId = await this.getContainer(sessionId);
 
-    const args = ['exec'];
+    const args = ["exec"];
 
     // Env vars
     if (options?.env) {
       for (const [key, value] of Object.entries(options.env)) {
-        args.push('--env', `${key}=${value}`);
+        args.push("--env", `${key}=${value}`);
       }
     }
 
     // Working directory
     if (options?.cwd) {
-      args.push('--workdir', options.cwd);
+      args.push("--workdir", options.cwd);
     }
 
-    args.push(containerId, 'sh', '-c', command);
+    args.push(containerId, "sh", "-c", command);
 
     try {
-      const { stdout, stderr } = await execFileAsync('docker', args, {
+      const { stdout, stderr } = await execFileAsync("docker", args, {
         timeout: timeoutMs,
         maxBuffer: DEFAULT_MAX_OUTPUT_BYTES,
       });
@@ -300,9 +322,9 @@ export class SandboxManager {
       if (isExecError(err)) {
         const truncated = isTruncationError(err);
         return {
-          stdout: truncateOutput(err.stdout ?? ''),
-          stderr: truncateOutput(err.stderr ?? ''),
-          exitCode: typeof err.code === 'number' ? err.code : 1,
+          stdout: truncateOutput(err.stdout ?? ""),
+          stderr: truncateOutput(err.stderr ?? ""),
+          exitCode: typeof err.code === "number" ? err.code : 1,
           truncated,
         };
       }
@@ -322,12 +344,14 @@ export class SandboxManager {
     this.containers.delete(key);
     try {
       const containerId = await pending;
-      await execFileAsync('docker', ['rm', '-f', containerId], {
+      await execFileAsync("docker", ["rm", "-f", containerId], {
         timeout: this.dockerTimeoutMs,
       });
       this.logger.debug(`Destroyed sandbox container ${containerId}`);
     } catch (err) {
-      this.logger.warn(`Failed to destroy sandbox container for ${key}: ${err}`);
+      this.logger.warn(
+        `Failed to destroy sandbox container for ${key}: ${err}`,
+      );
     }
   }
 
@@ -343,13 +367,15 @@ export class SandboxManager {
       this.containers.delete(key);
       return pending
         .then((containerId) =>
-          execFileAsync('docker', ['rm', '-f', containerId], {
+          execFileAsync("docker", ["rm", "-f", containerId], {
             timeout: this.dockerTimeoutMs,
           }),
         )
         .then(() => undefined)
         .catch((err) => {
-          this.logger.warn(`Failed to destroy sandbox container for ${key}: ${err}`);
+          this.logger.warn(
+            `Failed to destroy sandbox container for ${key}: ${err}`,
+          );
         });
     });
 
@@ -403,11 +429,11 @@ export class SandboxManager {
   /** Derives a scope key from the session ID based on the configured scope. */
   private scopeKey(sessionId: string): string {
     switch (this.config.scope) {
-      case 'shared':
-        return 'shared';
-      case 'agent':
+      case "shared":
+        return "shared";
+      case "agent":
         return `agent-${sessionId}`;
-      case 'session':
+      case "session":
       default:
         return sessionId;
     }
@@ -422,7 +448,7 @@ export class SandboxManager {
 
     // Stale container recovery — remove any leftover container with the same name
     try {
-      await execFileAsync('docker', ['rm', '-f', name], {
+      await execFileAsync("docker", ["rm", "-f", name], {
         timeout: this.dockerTimeoutMs,
       });
     } catch {
@@ -430,31 +456,36 @@ export class SandboxManager {
     }
 
     const args = [
-      'run', '--detach',
-      '--name', name,
-      '--memory', memory,
-      '--cpus', cpu,
-      '--label', 'managed-by=agenc',
+      "run",
+      "--detach",
+      "--name",
+      name,
+      "--memory",
+      memory,
+      "--cpus",
+      cpu,
+      "--label",
+      "managed-by=agenc",
     ];
 
     // Network isolation
     if (!this.config.networkAccess) {
-      args.push('--network', 'none');
+      args.push("--network", "none");
     }
 
     // Workspace mount
-    const access = this.config.workspaceAccess ?? 'none';
-    if (access !== 'none' && this.workspacePath) {
-      const mountMode = access === 'readonly' ? 'ro' : 'rw';
-      args.push('--volume', `${this.workspacePath}:/workspace:${mountMode}`);
+    const access = this.config.workspaceAccess ?? "none";
+    if (access !== "none" && this.workspacePath) {
+      const mountMode = access === "readonly" ? "ro" : "rw";
+      args.push("--volume", `${this.workspacePath}:/workspace:${mountMode}`);
     }
 
-    args.push(image, 'tail', '-f', '/dev/null');
+    args.push(image, "tail", "-f", "/dev/null");
 
-    this.logger.debug(`Creating sandbox container: docker ${args.join(' ')}`);
+    this.logger.debug(`Creating sandbox container: docker ${args.join(" ")}`);
 
     try {
-      const { stdout } = await execFileAsync('docker', args, {
+      const { stdout } = await execFileAsync("docker", args, {
         timeout: this.dockerTimeoutMs,
       });
       const containerId = stdout.trim();
@@ -463,8 +494,8 @@ export class SandboxManager {
       if (this.config.setupScript) {
         this.logger.debug(`Running setup script in ${containerId}`);
         await execFileAsync(
-          'docker',
-          ['exec', containerId, 'sh', '-c', this.config.setupScript],
+          "docker",
+          ["exec", containerId, "sh", "-c", this.config.setupScript],
           { timeout: this.dockerTimeoutMs },
         );
       }
@@ -490,21 +521,24 @@ interface ExecError {
 }
 
 function isExecError(err: unknown): err is ExecError {
-  return err instanceof Error && ('stdout' in err || 'stderr' in err || 'code' in err);
+  return (
+    err instanceof Error &&
+    ("stdout" in err || "stderr" in err || "code" in err)
+  );
 }
 
 function isTruncationError(err: ExecError): boolean {
   return (
     err.killed === true ||
-    (typeof err.message === 'string' && err.message.includes('maxBuffer'))
+    (typeof err.message === "string" && err.message.includes("maxBuffer"))
   );
 }
 
 function truncateOutput(output: string): string {
-  if (Buffer.byteLength(output, 'utf8') > DEFAULT_MAX_OUTPUT_BYTES) {
+  if (Buffer.byteLength(output, "utf8") > DEFAULT_MAX_OUTPUT_BYTES) {
     // Truncate to approximate byte limit
-    const buf = Buffer.from(output, 'utf8');
-    return buf.subarray(0, DEFAULT_MAX_OUTPUT_BYTES).toString('utf8');
+    const buf = Buffer.from(output, "utf8");
+    return buf.subarray(0, DEFAULT_MAX_OUTPUT_BYTES).toString("utf8");
   }
   return output;
 }

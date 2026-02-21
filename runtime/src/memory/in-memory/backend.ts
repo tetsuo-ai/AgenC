@@ -7,19 +7,19 @@
  * @module
  */
 
-import { randomUUID } from 'node:crypto';
-import type { Logger } from '../../utils/logger.js';
-import { silentLogger } from '../../utils/logger.js';
+import { randomUUID } from "node:crypto";
+import type { Logger } from "../../utils/logger.js";
+import { silentLogger } from "../../utils/logger.js";
 import type {
   MemoryBackend,
   MemoryEntry,
   MemoryQuery,
   AddEntryOptions,
   MemoryBackendConfig,
-} from '../types.js';
-import { MemoryBackendError } from '../errors.js';
-import type { MetricsProvider } from '../../task/types.js';
-import { TELEMETRY_METRIC_NAMES } from '../../telemetry/metric-names.js';
+} from "../types.js";
+import { MemoryBackendError } from "../errors.js";
+import type { MetricsProvider } from "../../task/types.js";
+import { TELEMETRY_METRIC_NAMES } from "../../telemetry/metric-names.js";
 
 /**
  * Configuration for the in-memory backend
@@ -40,7 +40,7 @@ const DEFAULT_MAX_ENTRIES_PER_SESSION = 1000;
 const DEFAULT_MAX_TOTAL_ENTRIES = 100_000;
 
 export class InMemoryBackend implements MemoryBackend {
-  readonly name = 'in-memory';
+  readonly name = "in-memory";
 
   private readonly threads = new Map<string, MemoryEntry[]>();
   private readonly kv = new Map<string, KVEntry>();
@@ -55,7 +55,8 @@ export class InMemoryBackend implements MemoryBackend {
   constructor(config: InMemoryBackendConfig = {}) {
     this.logger = config.logger ?? silentLogger;
     this.defaultTtlMs = config.defaultTtlMs ?? 0;
-    this.maxEntriesPerSession = config.maxEntriesPerSession ?? DEFAULT_MAX_ENTRIES_PER_SESSION;
+    this.maxEntriesPerSession =
+      config.maxEntriesPerSession ?? DEFAULT_MAX_ENTRIES_PER_SESSION;
     this.maxTotalEntries = config.maxTotalEntries ?? DEFAULT_MAX_TOTAL_ENTRIES;
     this.metrics = config.metrics;
   }
@@ -105,8 +106,10 @@ export class InMemoryBackend implements MemoryBackend {
     thread.push(stored);
     this.totalEntries++;
 
-    this.logger.debug(`Added entry ${entry.id} to session ${options.sessionId}`);
-    this.recordMemoryMetrics('addEntry', Date.now() - start);
+    this.logger.debug(
+      `Added entry ${entry.id} to session ${options.sessionId}`,
+    );
+    this.recordMemoryMetrics("addEntry", Date.now() - start);
     return entry;
   }
 
@@ -121,11 +124,11 @@ export class InMemoryBackend implements MemoryBackend {
 
     if (limit !== undefined && limit > 0) {
       const result = alive.slice(-limit).map((e) => this.stripInternal(e));
-      this.recordMemoryMetrics('getThread', Date.now() - start);
+      this.recordMemoryMetrics("getThread", Date.now() - start);
       return result;
     }
     const result = alive.map((e) => this.stripInternal(e));
-    this.recordMemoryMetrics('getThread', Date.now() - start);
+    this.recordMemoryMetrics("getThread", Date.now() - start);
     return result;
   }
 
@@ -150,17 +153,19 @@ export class InMemoryBackend implements MemoryBackend {
       for (const entry of thread) {
         if (this.isExpired(entry, now)) continue;
         if (query.taskPda && entry.taskPda !== query.taskPda) continue;
-        if (query.after !== undefined && entry.timestamp <= query.after) continue;
-        if (query.before !== undefined && entry.timestamp >= query.before) continue;
+        if (query.after !== undefined && entry.timestamp <= query.after)
+          continue;
+        if (query.before !== undefined && entry.timestamp >= query.before)
+          continue;
         if (query.role && entry.role !== query.role) continue;
         results.push(this.stripInternal(entry));
       }
     }
 
     // Sort
-    const order = query.order ?? 'asc';
+    const order = query.order ?? "asc";
     results.sort((a, b) =>
-      order === 'asc' ? a.timestamp - b.timestamp : b.timestamp - a.timestamp,
+      order === "asc" ? a.timestamp - b.timestamp : b.timestamp - a.timestamp,
     );
 
     // Limit
@@ -168,7 +173,7 @@ export class InMemoryBackend implements MemoryBackend {
       results = results.slice(0, query.limit);
     }
 
-    this.recordMemoryMetrics('query', Date.now() - start);
+    this.recordMemoryMetrics("query", Date.now() - start);
     return results;
   }
 
@@ -252,7 +257,7 @@ export class InMemoryBackend implements MemoryBackend {
     this.threads.clear();
     this.kv.clear();
     this.totalEntries = 0;
-    this.logger.debug('Cleared all memory');
+    this.logger.debug("Cleared all memory");
   }
 
   async close(): Promise<void> {
@@ -260,18 +265,18 @@ export class InMemoryBackend implements MemoryBackend {
     this.threads.clear();
     this.kv.clear();
     this.totalEntries = 0;
-    this.logger.debug('In-memory backend closed');
+    this.logger.debug("In-memory backend closed");
   }
 
   async healthCheck(): Promise<boolean> {
     return !this.closed;
   }
 
-  getDurability(): import('../types.js').DurabilityInfo {
+  getDurability(): import("../types.js").DurabilityInfo {
     return {
-      level: 'none',
+      level: "none",
       supportsFlush: false,
-      description: 'Data lives only in process memory and is lost on restart.',
+      description: "Data lives only in process memory and is lost on restart.",
     };
   }
 
@@ -283,7 +288,7 @@ export class InMemoryBackend implements MemoryBackend {
 
   private ensureOpen(): void {
     if (this.closed) {
-      throw new MemoryBackendError(this.name, 'Backend is closed');
+      throw new MemoryBackendError(this.name, "Backend is closed");
     }
   }
 
@@ -294,7 +299,7 @@ export class InMemoryBackend implements MemoryBackend {
 
   private stripInternal(entry: MemoryEntry): MemoryEntry {
     // Remove internal _expiresAt field from returned entries
-    if ('_expiresAt' in entry) {
+    if ("_expiresAt" in entry) {
       const { _expiresAt, ...clean } = entry as any;
       return clean as MemoryEntry;
     }
@@ -303,9 +308,13 @@ export class InMemoryBackend implements MemoryBackend {
 
   private recordMemoryMetrics(operation: string, durationMs: number): void {
     if (!this.metrics) return;
-    const labels = { operation, backend: 'in-memory' };
+    const labels = { operation, backend: "in-memory" };
     this.metrics.counter(TELEMETRY_METRIC_NAMES.MEMORY_OPS_TOTAL, 1, labels);
-    this.metrics.histogram(TELEMETRY_METRIC_NAMES.MEMORY_OP_DURATION, durationMs, labels);
+    this.metrics.histogram(
+      TELEMETRY_METRIC_NAMES.MEMORY_OP_DURATION,
+      durationMs,
+      labels,
+    );
   }
 
   private evictOldest(): void {

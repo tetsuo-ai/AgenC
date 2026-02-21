@@ -1,14 +1,14 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import {
   Keypair,
   Transaction,
   VersionedTransaction,
   SystemProgram,
   TransactionMessage,
-} from '@solana/web3.js';
-import * as fs from 'fs';
-import * as os from 'os';
-import * as path from 'path';
+} from "@solana/web3.js";
+import * as fs from "fs";
+import * as os from "os";
+import * as path from "path";
 import {
   keypairToWallet,
   loadKeypairFromFile,
@@ -17,29 +17,29 @@ import {
   loadDefaultKeypair,
   KeypairFileError,
   Wallet,
-} from './wallet';
+} from "./wallet";
 
-describe('keypairToWallet', () => {
-  it('returns wallet with correct publicKey', () => {
+describe("keypairToWallet", () => {
+  it("returns wallet with correct publicKey", () => {
     const keypair = Keypair.generate();
     const wallet = keypairToWallet(keypair);
 
     expect(wallet.publicKey.equals(keypair.publicKey)).toBe(true);
   });
 
-  it('signTransaction signs legacy Transaction', async () => {
+  it("signTransaction signs legacy Transaction", async () => {
     const keypair = Keypair.generate();
     const wallet = keypairToWallet(keypair);
 
     const tx = new Transaction();
-    tx.recentBlockhash = 'GfVcyD4kkTrj4bKc7WA9sZCin9JDbdT4Zkd3EittNR1W';
+    tx.recentBlockhash = "GfVcyD4kkTrj4bKc7WA9sZCin9JDbdT4Zkd3EittNR1W";
     tx.feePayer = keypair.publicKey;
     tx.add(
       SystemProgram.transfer({
         fromPubkey: keypair.publicKey,
         toPubkey: Keypair.generate().publicKey,
         lamports: 1000,
-      })
+      }),
     );
 
     const signedTx = await wallet.signTransaction(tx);
@@ -49,11 +49,11 @@ describe('keypairToWallet', () => {
     expect(tx.signatures[0].signature).not.toBeNull();
   });
 
-  it('signTransaction signs VersionedTransaction', async () => {
+  it("signTransaction signs VersionedTransaction", async () => {
     const keypair = Keypair.generate();
     const wallet = keypairToWallet(keypair);
 
-    const recentBlockhash = 'GfVcyD4kkTrj4bKc7WA9sZCin9JDbdT4Zkd3EittNR1W';
+    const recentBlockhash = "GfVcyD4kkTrj4bKc7WA9sZCin9JDbdT4Zkd3EittNR1W";
     const message = new TransactionMessage({
       payerKey: keypair.publicKey,
       recentBlockhash,
@@ -75,11 +75,11 @@ describe('keypairToWallet', () => {
     expect(tx.signatures[0]).not.toEqual(new Uint8Array(64));
   });
 
-  it('signAllTransactions signs multiple transactions', async () => {
+  it("signAllTransactions signs multiple transactions", async () => {
     const keypair = Keypair.generate();
     const wallet = keypairToWallet(keypair);
 
-    const recentBlockhash = 'GfVcyD4kkTrj4bKc7WA9sZCin9JDbdT4Zkd3EittNR1W';
+    const recentBlockhash = "GfVcyD4kkTrj4bKc7WA9sZCin9JDbdT4Zkd3EittNR1W";
 
     const tx1 = new Transaction();
     tx1.recentBlockhash = recentBlockhash;
@@ -89,7 +89,7 @@ describe('keypairToWallet', () => {
         fromPubkey: keypair.publicKey,
         toPubkey: Keypair.generate().publicKey,
         lamports: 1000,
-      })
+      }),
     );
 
     const tx2 = new Transaction();
@@ -100,7 +100,7 @@ describe('keypairToWallet', () => {
         fromPubkey: keypair.publicKey,
         toPubkey: Keypair.generate().publicKey,
         lamports: 2000,
-      })
+      }),
     );
 
     const signedTxs = await wallet.signAllTransactions([tx1, tx2]);
@@ -112,7 +112,7 @@ describe('keypairToWallet', () => {
     expect(tx2.signatures[0].signature).not.toBeNull();
   });
 
-  it('implements Wallet interface', () => {
+  it("implements Wallet interface", () => {
     const keypair = Keypair.generate();
     const wallet = keypairToWallet(keypair);
 
@@ -122,15 +122,15 @@ describe('keypairToWallet', () => {
   });
 });
 
-describe('loadKeypairFromFile', () => {
+describe("loadKeypairFromFile", () => {
   const tmpDir = os.tmpdir();
-  const validKeypairPath = path.join(tmpDir, 'test-keypair-valid.json');
-  const invalidJsonPath = path.join(tmpDir, 'test-keypair-invalid.json');
-  const wrongSizePath = path.join(tmpDir, 'test-keypair-wrongsize.json');
-  const invalidBytePath = path.join(tmpDir, 'test-keypair-invalidbyte.json');
-  const nonArrayPath = path.join(tmpDir, 'test-keypair-nonarray.json');
-  const negativeBytePath = path.join(tmpDir, 'test-keypair-negative.json');
-  const floatBytePath = path.join(tmpDir, 'test-keypair-float.json');
+  const validKeypairPath = path.join(tmpDir, "test-keypair-valid.json");
+  const invalidJsonPath = path.join(tmpDir, "test-keypair-invalid.json");
+  const wrongSizePath = path.join(tmpDir, "test-keypair-wrongsize.json");
+  const invalidBytePath = path.join(tmpDir, "test-keypair-invalidbyte.json");
+  const nonArrayPath = path.join(tmpDir, "test-keypair-nonarray.json");
+  const negativeBytePath = path.join(tmpDir, "test-keypair-negative.json");
+  const floatBytePath = path.join(tmpDir, "test-keypair-float.json");
 
   let testKeypair: Keypair;
 
@@ -140,11 +140,11 @@ describe('loadKeypairFromFile', () => {
     // Write valid keypair file
     fs.writeFileSync(
       validKeypairPath,
-      JSON.stringify(Array.from(testKeypair.secretKey))
+      JSON.stringify(Array.from(testKeypair.secretKey)),
     );
 
     // Write invalid JSON file
-    fs.writeFileSync(invalidJsonPath, 'not valid json{');
+    fs.writeFileSync(invalidJsonPath, "not valid json{");
 
     // Write wrong size array
     fs.writeFileSync(wrongSizePath, JSON.stringify([1, 2, 3, 4, 5]));
@@ -155,7 +155,7 @@ describe('loadKeypairFromFile', () => {
     fs.writeFileSync(invalidBytePath, JSON.stringify(invalidBytes));
 
     // Write non-array JSON (object instead of array)
-    fs.writeFileSync(nonArrayPath, JSON.stringify({ foo: 'bar' }));
+    fs.writeFileSync(nonArrayPath, JSON.stringify({ foo: "bar" }));
 
     // Write array with negative byte value
     const negativeBytes = Array(64).fill(0);
@@ -188,83 +188,83 @@ describe('loadKeypairFromFile', () => {
     }
   });
 
-  it('loads valid keypair file', async () => {
+  it("loads valid keypair file", async () => {
     const loaded = await loadKeypairFromFile(validKeypairPath);
 
     expect(loaded.publicKey.equals(testKeypair.publicKey)).toBe(true);
     expect(loaded.secretKey).toEqual(testKeypair.secretKey);
   });
 
-  it('throws KeypairFileError for missing file', async () => {
-    const nonExistentPath = path.join(tmpDir, 'does-not-exist.json');
+  it("throws KeypairFileError for missing file", async () => {
+    const nonExistentPath = path.join(tmpDir, "does-not-exist.json");
 
     await expect(loadKeypairFromFile(nonExistentPath)).rejects.toThrow(
-      KeypairFileError
+      KeypairFileError,
     );
     await expect(loadKeypairFromFile(nonExistentPath)).rejects.toThrow(
-      `Keypair file not found: ${nonExistentPath}`
+      `Keypair file not found: ${nonExistentPath}`,
     );
   });
 
-  it('throws KeypairFileError for invalid JSON', async () => {
+  it("throws KeypairFileError for invalid JSON", async () => {
     await expect(loadKeypairFromFile(invalidJsonPath)).rejects.toThrow(
-      KeypairFileError
+      KeypairFileError,
     );
     await expect(loadKeypairFromFile(invalidJsonPath)).rejects.toThrow(
-      `Invalid JSON in keypair file: ${invalidJsonPath}`
+      `Invalid JSON in keypair file: ${invalidJsonPath}`,
     );
   });
 
-  it('throws KeypairFileError for wrong array size', async () => {
+  it("throws KeypairFileError for wrong array size", async () => {
     await expect(loadKeypairFromFile(wrongSizePath)).rejects.toThrow(
-      KeypairFileError
+      KeypairFileError,
     );
     await expect(loadKeypairFromFile(wrongSizePath)).rejects.toThrow(
-      'must contain 64 bytes, got 5'
+      "must contain 64 bytes, got 5",
     );
   });
 
-  it('throws KeypairFileError for invalid byte value', async () => {
+  it("throws KeypairFileError for invalid byte value", async () => {
     await expect(loadKeypairFromFile(invalidBytePath)).rejects.toThrow(
-      KeypairFileError
+      KeypairFileError,
     );
     await expect(loadKeypairFromFile(invalidBytePath)).rejects.toThrow(
-      'Invalid byte value at index 10: 256'
+      "Invalid byte value at index 10: 256",
     );
   });
 
-  it('throws KeypairFileError for non-array JSON', async () => {
+  it("throws KeypairFileError for non-array JSON", async () => {
     await expect(loadKeypairFromFile(nonArrayPath)).rejects.toThrow(
-      KeypairFileError
+      KeypairFileError,
     );
     await expect(loadKeypairFromFile(nonArrayPath)).rejects.toThrow(
-      'must contain a JSON array, got object'
+      "must contain a JSON array, got object",
     );
   });
 
-  it('throws KeypairFileError for negative byte value', async () => {
+  it("throws KeypairFileError for negative byte value", async () => {
     await expect(loadKeypairFromFile(negativeBytePath)).rejects.toThrow(
-      KeypairFileError
+      KeypairFileError,
     );
     await expect(loadKeypairFromFile(negativeBytePath)).rejects.toThrow(
-      'Invalid byte value at index 5: -1'
+      "Invalid byte value at index 5: -1",
     );
   });
 
-  it('throws KeypairFileError for float byte value', async () => {
+  it("throws KeypairFileError for float byte value", async () => {
     await expect(loadKeypairFromFile(floatBytePath)).rejects.toThrow(
-      KeypairFileError
+      KeypairFileError,
     );
     await expect(loadKeypairFromFile(floatBytePath)).rejects.toThrow(
-      'Invalid byte value at index 3: 1.5'
+      "Invalid byte value at index 3: 1.5",
     );
   });
 });
 
-describe('loadKeypairFromFileSync', () => {
+describe("loadKeypairFromFileSync", () => {
   const tmpDir = os.tmpdir();
-  const validKeypairPath = path.join(tmpDir, 'test-keypair-sync-valid.json');
-  const invalidJsonPath = path.join(tmpDir, 'test-keypair-sync-invalid.json');
+  const validKeypairPath = path.join(tmpDir, "test-keypair-sync-valid.json");
+  const invalidJsonPath = path.join(tmpDir, "test-keypair-sync-invalid.json");
 
   let testKeypair: Keypair;
 
@@ -273,10 +273,10 @@ describe('loadKeypairFromFileSync', () => {
 
     fs.writeFileSync(
       validKeypairPath,
-      JSON.stringify(Array.from(testKeypair.secretKey))
+      JSON.stringify(Array.from(testKeypair.secretKey)),
     );
 
-    fs.writeFileSync(invalidJsonPath, 'not valid json{');
+    fs.writeFileSync(invalidJsonPath, "not valid json{");
   });
 
   afterAll(() => {
@@ -292,31 +292,31 @@ describe('loadKeypairFromFileSync', () => {
     }
   });
 
-  it('loads valid keypair file synchronously', () => {
+  it("loads valid keypair file synchronously", () => {
     const loaded = loadKeypairFromFileSync(validKeypairPath);
 
     expect(loaded.publicKey.equals(testKeypair.publicKey)).toBe(true);
     expect(loaded.secretKey).toEqual(testKeypair.secretKey);
   });
 
-  it('throws KeypairFileError for missing file', () => {
-    const nonExistentPath = path.join(tmpDir, 'sync-does-not-exist.json');
+  it("throws KeypairFileError for missing file", () => {
+    const nonExistentPath = path.join(tmpDir, "sync-does-not-exist.json");
 
     expect(() => loadKeypairFromFileSync(nonExistentPath)).toThrow(
-      KeypairFileError
+      KeypairFileError,
     );
     expect(() => loadKeypairFromFileSync(nonExistentPath)).toThrow(
-      `Keypair file not found: ${nonExistentPath}`
+      `Keypair file not found: ${nonExistentPath}`,
     );
   });
 
-  it('throws KeypairFileError for invalid JSON', () => {
+  it("throws KeypairFileError for invalid JSON", () => {
     expect(() => loadKeypairFromFileSync(invalidJsonPath)).toThrow(
-      KeypairFileError
+      KeypairFileError,
     );
   });
 
-  it('behaves identically to async version', async () => {
+  it("behaves identically to async version", async () => {
     const asyncResult = await loadKeypairFromFile(validKeypairPath);
     const syncResult = loadKeypairFromFileSync(validKeypairPath);
 
@@ -325,26 +325,31 @@ describe('loadKeypairFromFileSync', () => {
   });
 });
 
-describe('getDefaultKeypairPath', () => {
-  it('returns correct format', () => {
+describe("getDefaultKeypairPath", () => {
+  it("returns correct format", () => {
     const defaultPath = getDefaultKeypairPath();
 
-    expect(defaultPath).toContain('.config');
-    expect(defaultPath).toContain('solana');
-    expect(defaultPath).toContain('id.json');
+    expect(defaultPath).toContain(".config");
+    expect(defaultPath).toContain("solana");
+    expect(defaultPath).toContain("id.json");
     expect(defaultPath.startsWith(os.homedir())).toBe(true);
   });
 
-  it('returns path under home directory', () => {
+  it("returns path under home directory", () => {
     const defaultPath = getDefaultKeypairPath();
-    const expectedPath = path.join(os.homedir(), '.config', 'solana', 'id.json');
+    const expectedPath = path.join(
+      os.homedir(),
+      ".config",
+      "solana",
+      "id.json",
+    );
 
     expect(defaultPath).toBe(expectedPath);
   });
 });
 
-describe('loadDefaultKeypair', () => {
-  it('attempts to load from default path', async () => {
+describe("loadDefaultKeypair", () => {
+  it("attempts to load from default path", async () => {
     const defaultPath = getDefaultKeypairPath();
 
     // loadDefaultKeypair should either succeed (if default keypair exists)
@@ -361,7 +366,7 @@ describe('loadDefaultKeypair', () => {
     }
   });
 
-  it('uses the same path as getDefaultKeypairPath', async () => {
+  it("uses the same path as getDefaultKeypairPath", async () => {
     const defaultPath = getDefaultKeypairPath();
 
     // Both functions should reference the same path
@@ -376,35 +381,40 @@ describe('loadDefaultKeypair', () => {
 
     expect(defaultOutcome.status).toBe(pathOutcome.status);
 
-    if (defaultOutcome.status === 'fulfilled' && pathOutcome.status === 'fulfilled') {
-      expect(defaultOutcome.value.publicKey.equals(pathOutcome.value.publicKey)).toBe(true);
+    if (
+      defaultOutcome.status === "fulfilled" &&
+      pathOutcome.status === "fulfilled"
+    ) {
+      expect(
+        defaultOutcome.value.publicKey.equals(pathOutcome.value.publicKey),
+      ).toBe(true);
     }
   });
 });
 
-describe('KeypairFileError', () => {
-  it('has correct name and message', () => {
-    const error = new KeypairFileError('Test message', '/path/to/file.json');
+describe("KeypairFileError", () => {
+  it("has correct name and message", () => {
+    const error = new KeypairFileError("Test message", "/path/to/file.json");
 
-    expect(error.name).toBe('KeypairFileError');
-    expect(error.message).toBe('Test message');
-    expect(error.filePath).toBe('/path/to/file.json');
+    expect(error.name).toBe("KeypairFileError");
+    expect(error.message).toBe("Test message");
+    expect(error.filePath).toBe("/path/to/file.json");
     expect(error.cause).toBeUndefined();
   });
 
-  it('preserves cause error', () => {
-    const cause = new Error('Original error');
+  it("preserves cause error", () => {
+    const cause = new Error("Original error");
     const error = new KeypairFileError(
-      'Wrapped message',
-      '/path/to/file.json',
-      cause
+      "Wrapped message",
+      "/path/to/file.json",
+      cause,
     );
 
     expect(error.cause).toBe(cause);
   });
 
-  it('is instanceof Error', () => {
-    const error = new KeypairFileError('Test', '/path');
+  it("is instanceof Error", () => {
+    const error = new KeypairFileError("Test", "/path");
 
     expect(error instanceof Error).toBe(true);
     expect(error instanceof KeypairFileError).toBe(true);

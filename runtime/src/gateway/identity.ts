@@ -9,11 +9,11 @@
  * @module
  */
 
-import { randomUUID, randomBytes, verify, createPublicKey } from 'node:crypto';
-import { PublicKey } from '@solana/web3.js';
-import { RuntimeError, RuntimeErrorCodes } from '../types/errors.js';
-import type { Logger } from '../utils/logger.js';
-import { silentLogger } from '../utils/logger.js';
+import { randomUUID, randomBytes, verify, createPublicKey } from "node:crypto";
+import { PublicKey } from "@solana/web3.js";
+import { RuntimeError, RuntimeErrorCodes } from "../types/errors.js";
+import type { Logger } from "../utils/logger.js";
+import { silentLogger } from "../utils/logger.js";
 
 // ============================================================================
 // Error Classes
@@ -28,7 +28,7 @@ export class IdentityLinkExpiredError extends RuntimeError {
       `Identity link code expired: ${linkCode}`,
       RuntimeErrorCodes.IDENTITY_LINK_EXPIRED,
     );
-    this.name = 'IdentityLinkExpiredError';
+    this.name = "IdentityLinkExpiredError";
     this.linkCode = linkCode;
   }
 }
@@ -42,7 +42,7 @@ export class IdentityLinkNotFoundError extends RuntimeError {
       `Identity link code not found: ${linkCode}`,
       RuntimeErrorCodes.IDENTITY_LINK_NOT_FOUND,
     );
-    this.name = 'IdentityLinkNotFoundError';
+    this.name = "IdentityLinkNotFoundError";
     this.linkCode = linkCode;
   }
 }
@@ -57,7 +57,7 @@ export class IdentitySelfLinkError extends RuntimeError {
       `Cannot link account to itself: ${channel}:${senderId}`,
       RuntimeErrorCodes.IDENTITY_SELF_LINK,
     );
-    this.name = 'IdentitySelfLinkError';
+    this.name = "IdentitySelfLinkError";
     this.channel = channel;
     this.senderId = senderId;
   }
@@ -73,7 +73,7 @@ export class IdentitySignatureError extends RuntimeError {
       `Identity signature verification failed for ${publicKey}: ${reason}`,
       RuntimeErrorCodes.IDENTITY_SIGNATURE_INVALID,
     );
-    this.name = 'IdentitySignatureError';
+    this.name = "IdentitySignatureError";
     this.publicKey = publicKey;
     this.reason = reason;
   }
@@ -89,7 +89,7 @@ export class IdentityValidationError extends RuntimeError {
       `Identity validation failed: ${field} — ${reason}`,
       RuntimeErrorCodes.IDENTITY_VALIDATION_ERROR,
     );
-    this.name = 'IdentityValidationError';
+    this.name = "IdentityValidationError";
     this.field = field;
     this.reason = reason;
   }
@@ -181,7 +181,10 @@ export class InMemoryIdentityStore implements IdentityStore {
     }
     this.identities.set(identity.identityId, identity);
     for (const account of identity.accounts) {
-      this.accountIndex.set(accountKey(account.channel, account.senderId), identity.identityId);
+      this.accountIndex.set(
+        accountKey(account.channel, account.senderId),
+        identity.identityId,
+      );
     }
   }
 
@@ -189,7 +192,10 @@ export class InMemoryIdentityStore implements IdentityStore {
     return this.identities.get(identityId);
   }
 
-  async findByAccount(channel: string, senderId: string): Promise<string | undefined> {
+  async findByAccount(
+    channel: string,
+    senderId: string,
+  ): Promise<string | undefined> {
     return this.accountIndex.get(accountKey(channel, senderId));
   }
 
@@ -273,7 +279,7 @@ export interface IdentityResolverConfig {
 
 const DEFAULT_PENDING_LINK_TTL_MS = 300_000; // 5 minutes
 const LINK_CODE_LENGTH = 6;
-const ALPHANUMERIC = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+const ALPHANUMERIC = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
 const MAX_CHANNEL_LENGTH = 64;
 const MAX_SENDER_ID_LENGTH = 256;
 const MAX_DISPLAY_NAME_LENGTH = 256;
@@ -282,7 +288,7 @@ const DEFAULT_MAX_PENDING_LINKS_PER_IDENTITY = 5;
 const DEFAULT_MAX_IDENTITIES = 10_000;
 
 // Ed25519 DER prefix for raw 32-byte public key
-const ED25519_DER_PREFIX = Buffer.from('302a300506032b6570032100', 'hex');
+const ED25519_DER_PREFIX = Buffer.from("302a300506032b6570032100", "hex");
 
 // ============================================================================
 // IdentityResolver
@@ -303,11 +309,15 @@ export class IdentityResolver {
   private readonly failedAttempts = new Map<string, number>();
 
   constructor(config?: IdentityResolverConfig) {
-    this.pendingLinkTtlMs = config?.pendingLinkTtlMs ?? DEFAULT_PENDING_LINK_TTL_MS;
+    this.pendingLinkTtlMs =
+      config?.pendingLinkTtlMs ?? DEFAULT_PENDING_LINK_TTL_MS;
     this.store = config?.store ?? new InMemoryIdentityStore();
     this.logger = config?.logger ?? silentLogger;
-    this.maxConfirmLinkAttempts = config?.maxConfirmLinkAttempts ?? DEFAULT_MAX_CONFIRM_LINK_ATTEMPTS;
-    this.maxPendingLinksPerIdentity = config?.maxPendingLinksPerIdentity ?? DEFAULT_MAX_PENDING_LINKS_PER_IDENTITY;
+    this.maxConfirmLinkAttempts =
+      config?.maxConfirmLinkAttempts ?? DEFAULT_MAX_CONFIRM_LINK_ATTEMPTS;
+    this.maxPendingLinksPerIdentity =
+      config?.maxPendingLinksPerIdentity ??
+      DEFAULT_MAX_PENDING_LINKS_PER_IDENTITY;
     this.maxIdentities = config?.maxIdentities ?? DEFAULT_MAX_IDENTITIES;
   }
 
@@ -315,7 +325,10 @@ export class IdentityResolver {
    * Resolve a channel-specific sender to a canonical identity ID.
    * Returns undefined if no identity is linked.
    */
-  async resolve(channel: string, senderId: string): Promise<string | undefined> {
+  async resolve(
+    channel: string,
+    senderId: string,
+  ): Promise<string | undefined> {
     return this.store.findByAccount(channel, senderId);
   }
 
@@ -329,7 +342,10 @@ export class IdentityResolver {
   /**
    * Get the identity for a channel account, if linked.
    */
-  async getIdentityByAccount(channel: string, senderId: string): Promise<IdentityLink | undefined> {
+  async getIdentityByAccount(
+    channel: string,
+    senderId: string,
+  ): Promise<IdentityLink | undefined> {
     const identityId = await this.resolve(channel, senderId);
     if (!identityId) return undefined;
     return this.store.loadIdentity(identityId);
@@ -339,7 +355,11 @@ export class IdentityResolver {
    * Register a single account as a new identity (no cross-channel link yet).
    * If the account already has an identity, returns the existing one.
    */
-  async register(channel: string, senderId: string, displayName: string): Promise<IdentityLink> {
+  async register(
+    channel: string,
+    senderId: string,
+    displayName: string,
+  ): Promise<IdentityLink> {
     validateAccountInput(channel, senderId, displayName);
 
     const existing = await this.getIdentityByAccount(channel, senderId);
@@ -347,12 +367,20 @@ export class IdentityResolver {
 
     const count = await this.store.countIdentities();
     if (count >= this.maxIdentities) {
-      throw new IdentityValidationError('identities', `Maximum identity limit reached (${this.maxIdentities})`);
+      throw new IdentityValidationError(
+        "identities",
+        `Maximum identity limit reached (${this.maxIdentities})`,
+      );
     }
 
     const identityId = randomUUID();
     const now = Date.now();
-    const account: IdentityAccount = { channel, senderId, displayName, linkedAt: now };
+    const account: IdentityAccount = {
+      channel,
+      senderId,
+      displayName,
+      linkedAt: now,
+    };
     const identity: IdentityLink = {
       identityId,
       accounts: [account],
@@ -361,7 +389,9 @@ export class IdentityResolver {
     };
 
     await this.store.saveIdentity(identity);
-    this.logger.info(`Identity registered: ${identityId} for ${channel}:${senderId}`);
+    this.logger.info(
+      `Identity registered: ${identityId} for ${channel}:${senderId}`,
+    );
     return identity;
   }
 
@@ -369,17 +399,23 @@ export class IdentityResolver {
    * Initiate a link request. Returns a short code the user provides
    * in the second channel to complete the link.
    */
-  async requestLink(channel: string, senderId: string, displayName: string): Promise<string> {
+  async requestLink(
+    channel: string,
+    senderId: string,
+    displayName: string,
+  ): Promise<string> {
     validateAccountInput(channel, senderId, displayName);
 
     // Ensure the initiating account has an identity
     const identity = await this.register(channel, senderId, displayName);
 
     // Check pending link limit
-    const pendingCount = await this.store.countPendingLinksForIdentity(identity.identityId);
+    const pendingCount = await this.store.countPendingLinksForIdentity(
+      identity.identityId,
+    );
     if (pendingCount >= this.maxPendingLinksPerIdentity) {
       throw new IdentityValidationError(
-        'pendingLinks',
+        "pendingLinks",
         `Maximum pending links per identity reached (${this.maxPendingLinksPerIdentity})`,
       );
     }
@@ -419,8 +455,13 @@ export class IdentityResolver {
     const attemptKey = accountKey(channel, senderId);
     const attempts = this.failedAttempts.get(attemptKey) ?? 0;
     if (attempts >= this.maxConfirmLinkAttempts) {
-      this.logger.warn(`Link attempt limit exceeded for ${channel}:${senderId}`);
-      throw new IdentityValidationError('attempts', 'Maximum link attempts exceeded');
+      this.logger.warn(
+        `Link attempt limit exceeded for ${channel}:${senderId}`,
+      );
+      throw new IdentityValidationError(
+        "attempts",
+        "Maximum link attempts exceeded",
+      );
     }
 
     const pending = await this.store.loadPendingLink(code);
@@ -446,7 +487,10 @@ export class IdentityResolver {
     }
 
     // Get the initiator's identity
-    const fromIdentityId = await this.store.findByAccount(pending.fromChannel, pending.fromSenderId);
+    const fromIdentityId = await this.store.findByAccount(
+      pending.fromChannel,
+      pending.fromSenderId,
+    );
     if (!fromIdentityId) {
       this.failedAttempts.set(attemptKey, attempts + 1);
       throw new IdentityLinkNotFoundError(code);
@@ -468,7 +512,12 @@ export class IdentityResolver {
       return fromIdentity;
     }
 
-    const newAccount: IdentityAccount = { channel, senderId, displayName, linkedAt: now };
+    const newAccount: IdentityAccount = {
+      channel,
+      senderId,
+      displayName,
+      linkedAt: now,
+    };
 
     if (toIdentityId && toIdentityId !== fromIdentityId) {
       // Merge: move all accounts from the completing identity into the initiator's
@@ -477,13 +526,15 @@ export class IdentityResolver {
         const mergedAccounts = [...fromIdentity.accounts];
         for (const account of toIdentity.accounts) {
           // Use new displayName for the completing account
-          const isCompletingAccount = account.channel === channel && account.senderId === senderId;
+          const isCompletingAccount =
+            account.channel === channel && account.senderId === senderId;
           const merged = isCompletingAccount
             ? { ...account, displayName, linkedAt: now }
             : account;
 
           const existingIndex = mergedAccounts.findIndex(
-            (a) => a.channel === account.channel && a.senderId === account.senderId,
+            (a) =>
+              a.channel === account.channel && a.senderId === account.senderId,
           );
           if (existingIndex >= 0) {
             mergedAccounts[existingIndex] = merged;
@@ -500,7 +551,9 @@ export class IdentityResolver {
         await this.store.deleteIdentity(toIdentityId);
         await this.store.saveIdentity(merged);
         this.failedAttempts.delete(attemptKey);
-        this.logger.info(`Identities merged: ${toIdentityId} → ${fromIdentityId}`);
+        this.logger.info(
+          `Identities merged: ${toIdentityId} → ${fromIdentityId}`,
+        );
         return merged;
       }
     }
@@ -512,7 +565,9 @@ export class IdentityResolver {
     };
     await this.store.saveIdentity(updated);
     this.failedAttempts.delete(attemptKey);
-    this.logger.info(`Link completed: ${channel}:${senderId} → ${fromIdentityId}`);
+    this.logger.info(
+      `Link completed: ${channel}:${senderId} → ${fromIdentityId}`,
+    );
     return updated;
   }
 
@@ -522,7 +577,7 @@ export class IdentityResolver {
    * Returns true if the account was unlinked.
    */
   async unlink(channel: string, senderId: string): Promise<boolean> {
-    validateAccountInput(channel, senderId, '');
+    validateAccountInput(channel, senderId, "");
 
     const identityId = await this.store.findByAccount(channel, senderId);
     if (!identityId) return false;
@@ -540,14 +595,19 @@ export class IdentityResolver {
       await this.store.saveIdentity({ ...identity, accounts: remaining });
     }
 
-    this.logger.info(`Account unlinked: ${channel}:${senderId} from ${identityId}`);
+    this.logger.info(
+      `Account unlinked: ${channel}:${senderId} from ${identityId}`,
+    );
     return true;
   }
 
   /**
    * Set the on-chain agent pubkey for an identity.
    */
-  async setAgentPubkey(identityId: string, agentPubkey: string): Promise<boolean> {
+  async setAgentPubkey(
+    identityId: string,
+    agentPubkey: string,
+  ): Promise<boolean> {
     const identity = await this.store.loadIdentity(identityId);
     if (!identity) return false;
 
@@ -572,7 +632,7 @@ export class IdentityResolver {
   ): Promise<IdentityLink> {
     const identity = await this.store.loadIdentity(identityId);
     if (!identity) {
-      throw new IdentityValidationError('identityId', 'Identity not found');
+      throw new IdentityValidationError("identityId", "Identity not found");
     }
 
     // Validate the public key
@@ -580,35 +640,46 @@ export class IdentityResolver {
     try {
       pubkey = new PublicKey(publicKeyBase58);
     } catch {
-      throw new IdentitySignatureError(publicKeyBase58, 'Invalid Solana public key');
+      throw new IdentitySignatureError(
+        publicKeyBase58,
+        "Invalid Solana public key",
+      );
     }
 
     // Build DER-encoded ed25519 public key for node:crypto
     const rawKey = pubkey.toBytes();
     const derKey = createPublicKey({
       key: Buffer.concat([ED25519_DER_PREFIX, rawKey]),
-      format: 'der',
-      type: 'spki',
+      format: "der",
+      type: "spki",
     });
 
     // Verify the ed25519 signature
     const valid = verify(null, message, derKey, signature);
     if (!valid) {
       this.logger.warn(`Signature verification failed for ${publicKeyBase58}`);
-      throw new IdentitySignatureError(publicKeyBase58, 'Signature does not match public key');
+      throw new IdentitySignatureError(
+        publicKeyBase58,
+        "Signature does not match public key",
+      );
     }
 
     // Store the verified pubkey
     const updated = { ...identity, agentPubkey: publicKeyBase58 };
     await this.store.saveIdentity(updated);
-    this.logger.info(`Solana pubkey linked: ${publicKeyBase58} → ${identityId}`);
+    this.logger.info(
+      `Solana pubkey linked: ${publicKeyBase58} → ${identityId}`,
+    );
     return updated;
   }
 
   /**
    * Update preferences for an identity.
    */
-  async setPreferences(identityId: string, preferences: Record<string, unknown>): Promise<boolean> {
+  async setPreferences(
+    identityId: string,
+    preferences: Record<string, unknown>,
+  ): Promise<boolean> {
     const identity = await this.store.loadIdentity(identityId);
     if (!identity) return false;
 
@@ -648,41 +719,60 @@ function accountKey(channel: string, senderId: string): string {
 
 function generateLinkCode(): string {
   const bytes = randomBytes(LINK_CODE_LENGTH);
-  return Array.from(bytes, (b) => ALPHANUMERIC[b % 36]).join('');
+  return Array.from(bytes, (b) => ALPHANUMERIC[b % 36]).join("");
 }
 
 /**
  * Validate channel/senderId/displayName inputs.
  * displayName validation is skipped when empty (for unlink).
  */
-function validateAccountInput(channel: string, senderId: string, displayName: string): void {
-  if (typeof channel !== 'string' || channel.length === 0) {
-    throw new IdentityValidationError('channel', 'must be a non-empty string');
+function validateAccountInput(
+  channel: string,
+  senderId: string,
+  displayName: string,
+): void {
+  if (typeof channel !== "string" || channel.length === 0) {
+    throw new IdentityValidationError("channel", "must be a non-empty string");
   }
   if (channel.length > MAX_CHANNEL_LENGTH) {
-    throw new IdentityValidationError('channel', `must be at most ${MAX_CHANNEL_LENGTH} characters`);
+    throw new IdentityValidationError(
+      "channel",
+      `must be at most ${MAX_CHANNEL_LENGTH} characters`,
+    );
   }
-  if (channel.includes('\x00')) {
-    throw new IdentityValidationError('channel', 'must not contain null bytes');
+  if (channel.includes("\x00")) {
+    throw new IdentityValidationError("channel", "must not contain null bytes");
   }
 
-  if (typeof senderId !== 'string' || senderId.length === 0) {
-    throw new IdentityValidationError('senderId', 'must be a non-empty string');
+  if (typeof senderId !== "string" || senderId.length === 0) {
+    throw new IdentityValidationError("senderId", "must be a non-empty string");
   }
   if (senderId.length > MAX_SENDER_ID_LENGTH) {
-    throw new IdentityValidationError('senderId', `must be at most ${MAX_SENDER_ID_LENGTH} characters`);
+    throw new IdentityValidationError(
+      "senderId",
+      `must be at most ${MAX_SENDER_ID_LENGTH} characters`,
+    );
   }
-  if (senderId.includes('\x00')) {
-    throw new IdentityValidationError('senderId', 'must not contain null bytes');
+  if (senderId.includes("\x00")) {
+    throw new IdentityValidationError(
+      "senderId",
+      "must not contain null bytes",
+    );
   }
 
   // displayName is optional for unlink
   if (displayName.length > 0) {
     if (displayName.length > MAX_DISPLAY_NAME_LENGTH) {
-      throw new IdentityValidationError('displayName', `must be at most ${MAX_DISPLAY_NAME_LENGTH} characters`);
+      throw new IdentityValidationError(
+        "displayName",
+        `must be at most ${MAX_DISPLAY_NAME_LENGTH} characters`,
+      );
     }
-    if (displayName.includes('\x00')) {
-      throw new IdentityValidationError('displayName', 'must not contain null bytes');
+    if (displayName.includes("\x00")) {
+      throw new IdentityValidationError(
+        "displayName",
+        "must not contain null bytes",
+      );
     }
   }
 }

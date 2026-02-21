@@ -1,13 +1,13 @@
-import { describe, expect, it } from 'vitest';
-import { PublicKey } from '@solana/web3.js';
-import { ReplayBackfillService } from './backfill.js';
-import { InMemoryReplayTimelineStore } from './in-memory-store.js';
+import { describe, expect, it } from "vitest";
+import { PublicKey } from "@solana/web3.js";
+import { ReplayBackfillService } from "./backfill.js";
+import { InMemoryReplayTimelineStore } from "./in-memory-store.js";
 import type {
   BackfillFetcher,
   BackfillFetcherPage,
   ProjectedTimelineInput,
   ReplayEventCursor,
-} from './types.js';
+} from "./types.js";
 
 function pubkey(seed: number): PublicKey {
   const buf = new Uint8Array(32);
@@ -21,7 +21,11 @@ function bytes(seed = 0, length = 32): Uint8Array {
   return buf;
 }
 
-function event(slot: number, signature: string, eventName: string): ProjectedTimelineInput {
+function event(
+  slot: number,
+  signature: string,
+  eventName: string,
+): ProjectedTimelineInput {
   return {
     slot,
     signature,
@@ -41,9 +45,7 @@ function event(slot: number, signature: string, eventName: string): ProjectedTim
   };
 }
 
-function createMockFetcher(
-  pages: BackfillFetcherPage[],
-): BackfillFetcher {
+function createMockFetcher(pages: BackfillFetcherPage[]): BackfillFetcher {
   let pageIndex = 0;
   return {
     async fetchPage(
@@ -61,17 +63,17 @@ function createMockFetcher(
   };
 }
 
-describe('ReplayBackfillService', () => {
-  it('cursor reflects last processed page boundary', async () => {
+describe("ReplayBackfillService", () => {
+  it("cursor reflects last processed page boundary", async () => {
     const store = new InMemoryReplayTimelineStore();
     const fetcher = createMockFetcher([
       {
-        events: [event(1, 'SIG_1', 'taskCreated')],
-        nextCursor: { slot: 1, signature: 'SIG_1' },
+        events: [event(1, "SIG_1", "taskCreated")],
+        nextCursor: { slot: 1, signature: "SIG_1" },
         done: false,
       },
       {
-        events: [event(2, 'SIG_2', 'taskClaimed')],
+        events: [event(2, "SIG_2", "taskClaimed")],
         nextCursor: null,
         done: true,
       },
@@ -87,13 +89,13 @@ describe('ReplayBackfillService', () => {
     expect(result.duplicates).toBe(0);
   });
 
-  it('reports duplicate events deterministically', async () => {
+  it("reports duplicate events deterministically", async () => {
     const store = new InMemoryReplayTimelineStore();
-    const duplicateEvent = event(1, 'SIG_1', 'taskCreated');
+    const duplicateEvent = event(1, "SIG_1", "taskCreated");
     const fetcher = createMockFetcher([
       {
         events: [duplicateEvent],
-        nextCursor: { slot: 1, signature: 'SIG_1' },
+        nextCursor: { slot: 1, signature: "SIG_1" },
         done: false,
       },
       {
@@ -114,44 +116,52 @@ describe('ReplayBackfillService', () => {
     );
   });
 
-  it('resume from partial cursor produces no event gaps', async () => {
+  it("resume from partial cursor produces no event gaps", async () => {
     const store = new InMemoryReplayTimelineStore();
     // First run: process first event
     const fetcher1 = createMockFetcher([
       {
-        events: [event(1, 'SIG_1', 'taskCreated')],
-        nextCursor: { slot: 1, signature: 'SIG_1' },
+        events: [event(1, "SIG_1", "taskCreated")],
+        nextCursor: { slot: 1, signature: "SIG_1" },
         done: true,
       },
     ]);
 
-    const service1 = new ReplayBackfillService(store, { toSlot: 100, fetcher: fetcher1 });
+    const service1 = new ReplayBackfillService(store, {
+      toSlot: 100,
+      fetcher: fetcher1,
+    });
     await service1.runBackfill();
 
     // Set cursor at the midpoint for resume
-    await store.saveCursor({ slot: 1, signature: 'SIG_1' });
+    await store.saveCursor({ slot: 1, signature: "SIG_1" });
 
     // Second run: resume from cursor
     const fetcher2 = createMockFetcher([
       {
-        events: [event(2, 'SIG_2', 'taskClaimed')],
+        events: [event(2, "SIG_2", "taskClaimed")],
         nextCursor: null,
         done: true,
       },
     ]);
 
-    const service2 = new ReplayBackfillService(store, { toSlot: 100, fetcher: fetcher2 });
+    const service2 = new ReplayBackfillService(store, {
+      toSlot: 100,
+      fetcher: fetcher2,
+    });
     await service2.runBackfill();
 
     const allRecords = await store.query();
     expect(allRecords.length).toBe(2);
     // Verify monotonic slot ordering
     for (let i = 1; i < allRecords.length; i++) {
-      expect(allRecords[i]!.slot).toBeGreaterThanOrEqual(allRecords[i - 1]!.slot);
+      expect(allRecords[i]!.slot).toBeGreaterThanOrEqual(
+        allRecords[i - 1]!.slot,
+      );
     }
   });
 
-  it('survives interruption mid-page and resumes correctly', async () => {
+  it("survives interruption mid-page and resumes correctly", async () => {
     const store = new InMemoryReplayTimelineStore();
     let callCount = 0;
 
@@ -160,18 +170,21 @@ describe('ReplayBackfillService', () => {
         callCount++;
         if (callCount === 1) {
           return {
-            events: [event(1, 'SIG_1', 'taskCreated'), event(2, 'SIG_2', 'taskClaimed')],
-            nextCursor: { slot: 2, signature: 'SIG_2' },
+            events: [
+              event(1, "SIG_1", "taskCreated"),
+              event(2, "SIG_2", "taskClaimed"),
+            ],
+            nextCursor: { slot: 2, signature: "SIG_2" },
             done: false,
           };
         }
         if (callCount === 2) {
           // Simulate crash after first page saved
-          throw new Error('simulated crash');
+          throw new Error("simulated crash");
         }
         // Resume call (callCount >= 3)
         return {
-          events: [event(3, 'SIG_3', 'taskCompleted')],
+          events: [event(3, "SIG_3", "taskCompleted")],
           nextCursor: null,
           done: true,
         };
@@ -180,7 +193,7 @@ describe('ReplayBackfillService', () => {
 
     // First run -- crashes on page 2 fetch
     const service1 = new ReplayBackfillService(store, { toSlot: 100, fetcher });
-    await expect(service1.runBackfill()).rejects.toThrow('simulated crash');
+    await expect(service1.runBackfill()).rejects.toThrow("simulated crash");
 
     // Events from page 1 should be persisted
     const recordsAfterCrash = await store.query();
@@ -195,11 +208,11 @@ describe('ReplayBackfillService', () => {
     expect(result.processed).toBe(1);
   });
 
-  it('repeat backfill with same inputs produces identical store state', async () => {
+  it("repeat backfill with same inputs produces identical store state", async () => {
     const events = [
-      event(1, 'SIG_1', 'taskCreated'),
-      event(2, 'SIG_2', 'taskClaimed'),
-      event(3, 'SIG_3', 'taskCompleted'),
+      event(1, "SIG_1", "taskCreated"),
+      event(2, "SIG_2", "taskClaimed"),
+      event(3, "SIG_3", "taskCompleted"),
     ];
 
     // First run
@@ -241,10 +254,10 @@ describe('ReplayBackfillService', () => {
     expect(result3.duplicateReport!.count).toBe(events.length);
   });
 
-  it('resets invalid cursor and emits alert', async () => {
+  it("resets invalid cursor and emits alert", async () => {
     const store = new InMemoryReplayTimelineStore();
     // Set invalid cursor (negative slot)
-    await store.saveCursor({ slot: -1, signature: '' });
+    await store.saveCursor({ slot: -1, signature: "" });
 
     const alerts: { code: string; message: string }[] = [];
     const alertDispatcher = {
@@ -255,7 +268,7 @@ describe('ReplayBackfillService', () => {
 
     const fetcher = createMockFetcher([
       {
-        events: [event(1, 'SIG_1', 'taskCreated')],
+        events: [event(1, "SIG_1", "taskCreated")],
         nextCursor: null,
         done: true,
       },
@@ -272,12 +285,14 @@ describe('ReplayBackfillService', () => {
     const records = await store.query();
     expect(records.length).toBe(1);
     // Alert should have been emitted for invalid cursor
-    expect(alerts.some(a => a.code === 'replay.backfill.invalid_cursor')).toBe(true);
+    expect(
+      alerts.some((a) => a.code === "replay.backfill.invalid_cursor"),
+    ).toBe(true);
   });
 
-  it('resets cursor with empty signature and emits alert', async () => {
+  it("resets cursor with empty signature and emits alert", async () => {
     const store = new InMemoryReplayTimelineStore();
-    await store.saveCursor({ slot: 5, signature: '' });
+    await store.saveCursor({ slot: 5, signature: "" });
 
     const alerts: { code: string }[] = [];
     const alertDispatcher = {
@@ -288,7 +303,7 @@ describe('ReplayBackfillService', () => {
 
     const fetcher = createMockFetcher([
       {
-        events: [event(1, 'SIG_1', 'taskCreated')],
+        events: [event(1, "SIG_1", "taskCreated")],
         nextCursor: null,
         done: true,
       },
@@ -301,14 +316,19 @@ describe('ReplayBackfillService', () => {
     });
     await service.runBackfill();
 
-    expect(alerts.some(a => a.code === 'replay.backfill.invalid_cursor')).toBe(true);
+    expect(
+      alerts.some((a) => a.code === "replay.backfill.invalid_cursor"),
+    ).toBe(true);
   });
 
-  it('no duplicate report when no duplicates detected', async () => {
+  it("no duplicate report when no duplicates detected", async () => {
     const store = new InMemoryReplayTimelineStore();
     const fetcher = createMockFetcher([
       {
-        events: [event(1, 'SIG_1', 'taskCreated'), event(2, 'SIG_2', 'taskClaimed')],
+        events: [
+          event(1, "SIG_1", "taskCreated"),
+          event(2, "SIG_2", "taskClaimed"),
+        ],
         nextCursor: null,
         done: true,
       },

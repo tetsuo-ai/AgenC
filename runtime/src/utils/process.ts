@@ -1,4 +1,4 @@
-import { execFile } from 'node:child_process';
+import { execFile } from "node:child_process";
 
 export interface RunCommandOptions {
   cwd: string;
@@ -39,12 +39,14 @@ export function runCommand(
         env,
       },
       (error, stdout, stderr) => {
-        const code = (error as NodeJS.ErrnoException & { code?: number | string })?.code;
+        const code = (
+          error as NodeJS.ErrnoException & { code?: number | string }
+        )?.code;
         resolve({
-          stdout: stdout ?? '',
-          stderr: stderr ?? '',
+          stdout: stdout ?? "",
+          stderr: stderr ?? "",
           exitCode: error
-            ? code === 'ETIMEDOUT'
+            ? code === "ETIMEDOUT"
               ? 124
               : (child.exitCode ?? 1)
             : 0,

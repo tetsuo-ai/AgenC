@@ -4,23 +4,23 @@
  * @module
  */
 
-import type { TelemetrySnapshot } from '../telemetry/types.js';
-import type { TelemetryCollector } from '../telemetry/types.js';
-import type { WorkflowState } from './types.js';
-import { WorkflowNodeStatus, WorkflowStatus } from './types.js';
+import type { TelemetrySnapshot } from "../telemetry/types.js";
+import type { TelemetryCollector } from "../telemetry/types.js";
+import type { WorkflowState } from "./types.js";
+import { WorkflowNodeStatus, WorkflowStatus } from "./types.js";
 import {
   WORKFLOW_FEATURE_SCHEMA_VERSION,
   type WorkflowFeatureVector,
   type WorkflowNodeFeature,
   type WorkflowOutcomeLabels,
-} from './optimizer-types.js';
+} from "./optimizer-types.js";
 
 export const WORKFLOW_TELEMETRY_KEYS = {
-  COST_UNITS: 'agenc.workflow.cost.units',
-  ROLLBACKS_TOTAL: 'agenc.workflow.rollbacks.total',
-  VERIFIER_DISAGREEMENTS_TOTAL: 'agenc.workflow.verifier_disagreements.total',
+  COST_UNITS: "agenc.workflow.cost.units",
+  ROLLBACKS_TOTAL: "agenc.workflow.rollbacks.total",
+  VERIFIER_DISAGREEMENTS_TOTAL: "agenc.workflow.verifier_disagreements.total",
   // Fallback: existing speculation rollbacks metric.
-  SPECULATION_ROLLBACKS_TOTAL: 'agenc.speculation.rollbacks.total',
+  SPECULATION_ROLLBACKS_TOTAL: "agenc.speculation.rollbacks.total",
 } as const;
 
 export interface WorkflowFeatureExtractionOptions {
@@ -53,12 +53,15 @@ function safeBigIntToNumber(value: bigint): number {
   return Number(value);
 }
 
-function parseCompositeMetricKey(key: string): { name: string; labels: Record<string, string> } {
-  const [name, ...labelParts] = key.split('|');
+function parseCompositeMetricKey(key: string): {
+  name: string;
+  labels: Record<string, string>;
+} {
+  const [name, ...labelParts] = key.split("|");
   const labels: Record<string, string> = {};
 
   for (const labelPart of labelParts) {
-    const idx = labelPart.indexOf('=');
+    const idx = labelPart.indexOf("=");
     if (idx <= 0 || idx >= labelPart.length - 1) continue;
     const label = labelPart.slice(0, idx);
     const value = labelPart.slice(idx + 1);
@@ -143,12 +146,16 @@ function orderedRecord(map: Map<string, number>): Record<string, number> {
   return out;
 }
 
-function hasConstraintHash(task: WorkflowState['definition']['tasks'][number]): boolean {
+function hasConstraintHash(
+  task: WorkflowState["definition"]["tasks"][number],
+): boolean {
   return !!task.constraintHash;
 }
 
 function buildNodeFeatures(state: WorkflowState): WorkflowNodeFeature[] {
-  const nodes = Array.from(state.nodes.values()).sort((a, b) => a.name.localeCompare(b.name));
+  const nodes = Array.from(state.nodes.values()).sort((a, b) =>
+    a.name.localeCompare(b.name),
+  );
 
   return nodes.map((node) => ({
     name: node.name,
@@ -162,20 +169,27 @@ function buildNodeFeatures(state: WorkflowState): WorkflowNodeFeature[] {
   }));
 }
 
-function deriveOutcome(state: WorkflowState): 'completed' | 'failed' | 'partially_completed' {
-  if (state.status === WorkflowStatus.Completed) return 'completed';
-  if (state.status === WorkflowStatus.Failed) return 'failed';
-  if (state.status === WorkflowStatus.PartiallyCompleted) return 'partially_completed';
+function deriveOutcome(
+  state: WorkflowState,
+): "completed" | "failed" | "partially_completed" {
+  if (state.status === WorkflowStatus.Completed) return "completed";
+  if (state.status === WorkflowStatus.Failed) return "failed";
+  if (state.status === WorkflowStatus.PartiallyCompleted)
+    return "partially_completed";
 
   const nodes = Array.from(state.nodes.values());
-  const completed = nodes.filter((node) => node.status === WorkflowNodeStatus.Completed).length;
+  const completed = nodes.filter(
+    (node) => node.status === WorkflowNodeStatus.Completed,
+  ).length;
   const failed = nodes.filter(
-    (node) => node.status === WorkflowNodeStatus.Failed || node.status === WorkflowNodeStatus.Cancelled,
+    (node) =>
+      node.status === WorkflowNodeStatus.Failed ||
+      node.status === WorkflowNodeStatus.Cancelled,
   ).length;
 
-  if (completed === nodes.length && nodes.length > 0) return 'completed';
-  if (failed > 0) return 'failed';
-  return 'partially_completed';
+  if (completed === nodes.length && nodes.length > 0) return "completed";
+  if (failed > 0) return "failed";
+  return "partially_completed";
 }
 
 function deriveElapsedMs(state: WorkflowState, capturedAtMs: number): number {
@@ -223,20 +237,20 @@ function buildMetadata(
     }
 
     if (roleCounts.size > 0) {
-      out.set('workflow_source', 'team_adapter');
+      out.set("workflow_source", "team_adapter");
       for (const role of [...roleCounts.keys()].sort()) {
         out.set(`role_count.${role}`, String(roleCounts.get(role) ?? 0));
       }
     }
   } else {
-    out.set('workflow_source', 'single_agent');
+    out.set("workflow_source", "single_agent");
   }
 
   if (out.size === 0) return undefined;
 
   const object: Record<string, string> = {};
   for (const key of [...out.keys()].sort()) {
-    object[key] = out.get(key) ?? '';
+    object[key] = out.get(key) ?? "";
   }
   return object;
 }
@@ -244,7 +258,11 @@ function buildMetadata(
 function deriveTelemetryCounts(
   workflowId: string,
   snapshot: TelemetrySnapshot | undefined,
-): { costUnits: number; rollbackCount: number; verifierDisagreementCount: number } {
+): {
+  costUnits: number;
+  rollbackCount: number;
+  verifierDisagreementCount: number;
+} {
   if (!snapshot) {
     return {
       costUnits: 0,
@@ -260,8 +278,16 @@ function deriveTelemetryCounts(
   );
 
   const rollbackCount =
-    sumMatchingMetrics(snapshot.counters, WORKFLOW_TELEMETRY_KEYS.ROLLBACKS_TOTAL, workflowId) ||
-    sumMatchingMetrics(snapshot.counters, WORKFLOW_TELEMETRY_KEYS.SPECULATION_ROLLBACKS_TOTAL, workflowId);
+    sumMatchingMetrics(
+      snapshot.counters,
+      WORKFLOW_TELEMETRY_KEYS.ROLLBACKS_TOTAL,
+      workflowId,
+    ) ||
+    sumMatchingMetrics(
+      snapshot.counters,
+      WORKFLOW_TELEMETRY_KEYS.SPECULATION_ROLLBACKS_TOTAL,
+      workflowId,
+    );
 
   const verifierDisagreementCount = sumMatchingMetrics(
     snapshot.counters,
@@ -289,7 +315,9 @@ export function extractWorkflowFeatureVector(
   const nodeFeatures = buildNodeFeatures(state);
 
   const childSet = new Set(state.definition.edges.map((edge) => edge.to));
-  const rootCount = state.definition.tasks.filter((task) => !childSet.has(task.name)).length;
+  const rootCount = state.definition.tasks.filter(
+    (task) => !childSet.has(task.name),
+  ).length;
 
   const depthByNode = computeDepthByNode(state);
   const maxDepth = Math.max(0, ...depthByNode.values());
@@ -301,7 +329,10 @@ export function extractWorkflowFeatureVector(
 
   let averageBranchingFactor = 0;
   if (childrenByParent.size > 0) {
-    const childrenTotal = [...childrenByParent.values()].reduce((sum, count) => sum + count, 0);
+    const childrenTotal = [...childrenByParent.values()].reduce(
+      (sum, count) => sum + count,
+      0,
+    );
     averageBranchingFactor = childrenTotal / childrenByParent.size;
   }
 
@@ -312,7 +343,10 @@ export function extractWorkflowFeatureVector(
 
   for (const node of nodeFeatures) {
     const taskTypeKey = String(node.taskType);
-    taskTypeHistogram.set(taskTypeKey, (taskTypeHistogram.get(taskTypeKey) ?? 0) + 1);
+    taskTypeHistogram.set(
+      taskTypeKey,
+      (taskTypeHistogram.get(taskTypeKey) ?? 0) + 1,
+    );
 
     const dependencyKey = String(node.dependencyType);
     dependencyTypeHistogram.set(
@@ -327,23 +361,40 @@ export function extractWorkflowFeatureVector(
     totalReward += BigInt(node.rewardLamports);
   }
 
-  const completedCount = nodeFeatures.filter((node) => node.status === WorkflowNodeStatus.Completed).length;
-  const failedCount = nodeFeatures.filter((node) => node.status === WorkflowNodeStatus.Failed).length;
-  const cancelledCount = nodeFeatures.filter((node) => node.status === WorkflowNodeStatus.Cancelled).length;
+  const completedCount = nodeFeatures.filter(
+    (node) => node.status === WorkflowNodeStatus.Completed,
+  ).length;
+  const failedCount = nodeFeatures.filter(
+    (node) => node.status === WorkflowNodeStatus.Failed,
+  ).length;
+  const cancelledCount = nodeFeatures.filter(
+    (node) => node.status === WorkflowNodeStatus.Cancelled,
+  ).length;
 
   const completionRate = integerRatio(completedCount, totalNodes);
   const failureRate = integerRatio(failedCount, totalNodes);
   const cancelledRate = integerRatio(cancelledCount, totalNodes);
 
-  const telemetryCounts = deriveTelemetryCounts(state.id, options.telemetrySnapshot);
-  const costUnits = safeNonNegative(options.costUnits ?? telemetryCounts.costUnits);
-  const rollbackCount = safeNonNegative(options.rollbackCount ?? telemetryCounts.rollbackCount);
+  const telemetryCounts = deriveTelemetryCounts(
+    state.id,
+    options.telemetrySnapshot,
+  );
+  const costUnits = safeNonNegative(
+    options.costUnits ?? telemetryCounts.costUnits,
+  );
+  const rollbackCount = safeNonNegative(
+    options.rollbackCount ?? telemetryCounts.rollbackCount,
+  );
   const verifierDisagreementCount = safeNonNegative(
-    options.verifierDisagreementCount ?? telemetryCounts.verifierDisagreementCount,
+    options.verifierDisagreementCount ??
+      telemetryCounts.verifierDisagreementCount,
   );
 
   const rollbackRate = integerRatio(rollbackCount, totalNodes);
-  const verifierDisagreementRate = integerRatio(verifierDisagreementCount, totalNodes);
+  const verifierDisagreementRate = integerRatio(
+    verifierDisagreementCount,
+    totalNodes,
+  );
 
   const conformanceScore = clamp01(
     options.conformanceScore ??
@@ -389,11 +440,16 @@ export function extractWorkflowFeatureVector(
       dependencyTypeHistogram: orderedRecord(dependencyTypeHistogram),
       privateTaskCount,
       totalRewardLamports: totalReward.toString(),
-      averageRewardLamports: totalNodes > 0 ? safeBigIntToNumber(totalReward) / totalNodes : 0,
+      averageRewardLamports:
+        totalNodes > 0 ? safeBigIntToNumber(totalReward) / totalNodes : 0,
     },
     outcomes,
     nodeFeatures,
-    metadata: buildMetadata(options.metadata, nodeFeatures, options.taskRoleByTaskName),
+    metadata: buildMetadata(
+      options.metadata,
+      nodeFeatures,
+      options.taskRoleByTaskName,
+    ),
   };
 }
 
@@ -402,8 +458,8 @@ export function extractWorkflowFeatureVector(
  */
 export function extractWorkflowFeatureVectorFromCollector(
   state: WorkflowState,
-  collector: Pick<TelemetryCollector, 'getFullSnapshot'>,
-  options: Omit<WorkflowFeatureExtractionOptions, 'telemetrySnapshot'> = {},
+  collector: Pick<TelemetryCollector, "getFullSnapshot">,
+  options: Omit<WorkflowFeatureExtractionOptions, "telemetrySnapshot"> = {},
 ): WorkflowFeatureVector {
   return extractWorkflowFeatureVector(state, {
     ...options,
