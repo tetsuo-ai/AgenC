@@ -33,7 +33,7 @@ import {
 import { parseAgentState, agentStatusToString } from '../../agent/types.js';
 import { getCapabilityNames } from '../../agent/capabilities.js';
 import { parseProtocolConfig } from '../../types/protocol.js';
-import { buildCreateTaskTokenAccounts } from '../../utils/token.js';
+// buildCreateTaskTokenAccounts omitted — devnet only supports SOL escrow
 import {
   lamportsToSol,
   bytesToHex,
@@ -251,26 +251,6 @@ async function resolveCreatorAgentPda(
   return [matches[0].pubkey, null];
 }
 
-async function buildMissingRegistrationResult(
-  program: Program<AgencCoordination>,
-): Promise<ToolResult> {
-  const [, config, configErr] = await fetchProtocolConfigForAction(program, 'create tasks');
-  if (configErr || !config) {
-    return (
-      configErr ??
-      errorResult(
-        'No agent registration found for signer. Register one first via agenc.registerAgent, or provide creatorAgentPda explicitly.',
-      )
-    );
-  }
-
-  return errorResult(
-    `No agent registration found for signer. Register one first via agenc.registerAgent ` +
-    `(minimum stake: ${config.minAgentStake.toString()} lamports / ${lamportsToSol(config.minAgentStake)} SOL), ` +
-    `or provide creatorAgentPda explicitly.`,
-  );
-}
-
 function isMissingAccountError(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err);
   const lower = msg.toLowerCase();
@@ -310,8 +290,8 @@ async function fetchProtocolConfigForAction(
       protocolFeeBps: data.readUInt16LE(73),
       minArbiterStake: 0n,
       minAgentStake: 0n,
-      maxClaimDuration: 0n,
-      maxDisputeDuration: 0n,
+      maxClaimDuration: 0,
+      maxDisputeDuration: 0,
       totalAgents: 0n,
       totalTasks: 0n,
       completedTasks: 0n,
@@ -320,14 +300,14 @@ async function fetchProtocolConfigForAction(
       multisigThreshold: 0,
       multisigOwnersLen: 0,
       multisigOwners: [],
-      taskCreationCooldown: 0n,
+      taskCreationCooldown: 0,
       maxTasksPer24h: 0,
-      disputeInitiationCooldown: 0n,
+      disputeInitiationCooldown: 0,
       maxDisputesPer24h: 0,
       minStakeForDispute: 0n,
       slashPercentage: 0,
-      stateUpdateCooldown: 0n,
-      votingPeriod: 0n,
+      stateUpdateCooldown: 0,
+      votingPeriod: 0,
       protocolVersion: 0,
       minSupportedVersion: 0,
     };
@@ -735,7 +715,9 @@ export function createRegisterAgentTool(
         }
         const agentPda = findAgentPda(agentId, program.programId);
 
-        const txSignature = await program.methods
+        // Devnet registerAgent has 4 args (no stakeAmount); canonical IDL types
+        // expect 5, so we use `as any` to bypass the arity check.
+        const txSignature = await (program.methods as any)
           .registerAgent(
             Array.from(agentId),
             new anchor.BN(capabilities.toString()),
@@ -878,14 +860,6 @@ export function createCreateTaskTool(
         if (taskTypeErr) return taskTypeErr;
         const [maxWorkers, maxWorkersErr] = parseBoundedNumber(args.maxWorkers, 'maxWorkers', 1, 100, 1);
         if (maxWorkersErr) return maxWorkersErr;
-        const [minReputation, minReputationErr] = parseBoundedNumber(
-          args.minReputation,
-          'minReputation',
-          0,
-          10_000,
-          0,
-        );
-        if (minReputationErr) return minReputationErr;
 
         const now = Math.floor(Date.now() / 1000);
         const [deadline, deadlineErr] = parseBoundedNumber(
@@ -897,22 +871,9 @@ export function createCreateTaskTool(
         );
         if (deadlineErr) return deadlineErr;
 
-        let constraintHash: Uint8Array | null = null;
-        if (args.constraintHash !== undefined) {
-          if (typeof args.constraintHash !== 'string') {
-            return errorResult('constraintHash must be a hex string');
-          }
-          try {
-            const parsed = hexToBytes(args.constraintHash);
-            if (parsed.length !== 32) {
-              return errorResult('constraintHash must be exactly 32 bytes');
-            }
-            constraintHash = parsed;
-          } catch {
-            return errorResult('constraintHash must be a valid hex string');
-          }
-        }
-
+        // Devnet program doesn't support constraintHash, minReputation, or
+        // non-SOL rewardMints.  We still validate rewardMint so the LLM gets a
+        // clear error instead of a confusing on-chain failure.
         const [rewardMint, rewardMintErr] = parseKnownRewardMint(args.rewardMint);
         if (rewardMintErr) return rewardMintErr;
 
@@ -920,7 +881,9 @@ export function createCreateTaskTool(
         const escrowPda = findEscrowPda(taskPda, program.programId);
         const protocolPda = findProtocolPda(program.programId);
 
-        const txSignature = await program.methods
+        // Devnet createTask has 7 args (no constraintHash, minReputation,
+        // rewardMint); canonical IDL types expect 10, so we use `as any`.
+        const txSignature = await (program.methods as any)
           .createTask(
             toAnchorBytes(taskId),
             new anchor.BN(requiredCapabilities.toString()),

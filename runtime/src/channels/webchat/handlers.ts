@@ -256,8 +256,9 @@ export async function handleTasksCreate(
 
     const deadline = Math.floor(Date.now() / 1000) + 3600; // 1 hour from now
 
-    // Devnet program: 7 args (no constraintHash, minReputation, rewardMint)
-    await program.methods
+    // Devnet program: 7 args (no constraintHash, minReputation, rewardMint);
+    // canonical IDL types expect 10, so we use `as any` to bypass arity check.
+    await (program.methods as any)
       .createTask(
         toAnchorBytes(taskId),
         new anchor.BN('1'),                        // requiredCapabilities
