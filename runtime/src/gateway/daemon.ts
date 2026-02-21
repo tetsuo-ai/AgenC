@@ -43,6 +43,14 @@ import { loadPersonalityTemplate, mergePersonality } from './personality.js';
 import { SlashCommandRegistry, createDefaultCommands } from './commands.js';
 import { HookDispatcher, createBuiltinHooks } from './hooks.js';
 import { ConnectionManager } from '../connection/manager.js';
+import { DiscordChannel } from '../channels/discord/plugin.js';
+import { SlackChannel } from '../channels/slack/plugin.js';
+import { WhatsAppChannel } from '../channels/whatsapp/plugin.js';
+import { SignalChannel } from '../channels/signal/plugin.js';
+import { MatrixChannel } from '../channels/matrix/plugin.js';
+import { formatForChannel } from './format.js';
+import type { ChannelPlugin } from './channel.js';
+import type { ProactiveCommunicator } from './proactive.js';
 
 // ============================================================================
 // Constants
@@ -182,6 +190,14 @@ export class DaemonManager {
   private gateway: Gateway | null = null;
   private _webChatChannel: WebChatChannel | null = null;
   private _telegramChannel: TelegramChannel | null = null;
+  private _discordChannel: DiscordChannel | null = null;
+  private _slackChannel: SlackChannel | null = null;
+  private _whatsAppChannel: WhatsAppChannel | null = null;
+  private _signalChannel: SignalChannel | null = null;
+  private _matrixChannel: MatrixChannel | null = null;
+  private _imessageChannel: ChannelPlugin | null = null;
+  private _proactiveCommunicator: ProactiveCommunicator | null = null;
+  private _heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private _voiceBridge: VoiceBridge | null = null;
   private _memoryBackend: MemoryBackend | null = null;
   private _approvalEngine: ApprovalEngine | null = null;
@@ -190,6 +206,7 @@ export class DaemonManager {
   private _connectionManager: ConnectionManager | null = null;
   private _chatExecutor: ChatExecutor | null = null;
   private _llmTools: LLMTool[] = [];
+  private _llmProviders: LLMProvider[] = [];
   private _baseToolHandler: ToolHandler | null = null;
   private shutdownInProgress = false;
   private startedAt = 0;
@@ -225,6 +242,12 @@ export class DaemonManager {
     if (gatewayConfig.channels?.telegram) {
       await this.wireTelegram(gatewayConfig);
     }
+
+    // Wire up all other external channels (Discord, Slack, WhatsApp, Signal, Matrix, iMessage)
+    await this.wireExternalChannels(gatewayConfig);
+
+    // Wire up autonomous features (curiosity, self-learning, meta-planner, proactive comms)
+    await this.wireAutonomousFeatures(gatewayConfig);
 
     try {
       await writePidFile(
@@ -288,6 +311,7 @@ export class DaemonManager {
     this._llmTools = llmTools;
     this._baseToolHandler = baseToolHandler;
     const providers = await this.createLLMProviders(config, llmTools);
+    this._llmProviders = providers;
     const skillInjector = this.createSkillInjector(availableSkills);
     const memoryBackend = await this.createMemoryBackend(config, telemetry ?? undefined);
     this._memoryBackend = memoryBackend;
@@ -507,6 +531,250 @@ export class DaemonManager {
   }
 
   /**
+   * Wire a generic external channel plugin to the ChatExecutor pipeline.
+   *
+   * Creates a per-channel SessionManager, routes incoming messages through
+   * the shared ChatExecutor, formats output per channel, and persists to memory.
+   */
+  private async wireExternalChannel(
+    channel: ChannelPlugin,
+    channelName: string,
+    config: GatewayConfig,
+    channelConfig: Record<string, unknown>,
+  ): Promise<void> {
+    const sessionMgr = new SessionManager({ maxSessions: 100 });
+    const systemPrompt = await this.buildSystemPrompt(config);
+
+    const onMessage = async (msg: GatewayMessage): Promise<void> => {
+      if (!msg.content.trim()) return;
+
+      const chatExecutor = this._chatExecutor;
+      if (!chatExecutor) {
+        await channel.send({
+          sessionId: msg.sessionId,
+          content: "No LLM provider configured.",
+        });
+        return;
+      }
+
+      const session = sessionMgr.getOrCreate({
+        channel: channelName,
+        senderId: msg.senderId,
+        scope: msg.scope,
+        workspaceId: "default",
+      });
+
+      try {
+        const result = await chatExecutor.execute({
+          message: msg,
+          history: session.history,
+          systemPrompt,
+          sessionId: msg.sessionId,
+          toolHandler: this._baseToolHandler!,
+        });
+
+        sessionMgr.appendMessage(session.id, { role: "user", content: msg.content });
+        sessionMgr.appendMessage(session.id, { role: "assistant", content: result.content });
+
+        const formatted = formatForChannel(result.content || "(no response)", channelName);
+        await channel.send({ sessionId: msg.sessionId, content: formatted });
+
+        if (this._memoryBackend) {
+          try {
+            await this._memoryBackend.addEntry({
+              sessionId: msg.sessionId,
+              role: "user",
+              content: msg.content,
+            });
+            await this._memoryBackend.addEntry({
+              sessionId: msg.sessionId,
+              role: "assistant",
+              content: result.content,
+            });
+          } catch { /* non-critical */ }
+        }
+      } catch (error) {
+        this.logger.error(`${channelName} LLM error:`, error);
+        const errMsg = formatForChannel(
+          `Error: ${(error as Error).message}`,
+          channelName,
+        );
+        await channel.send({ sessionId: msg.sessionId, content: errMsg });
+      }
+    };
+
+    await channel.initialize({ onMessage, logger: this.logger, config: channelConfig });
+    await channel.start();
+    this.logger.info(`${channelName} channel wired`);
+  }
+
+  /**
+   * Wire all configured external channels (Discord, Slack, WhatsApp, Signal, Matrix, iMessage).
+   * Each channel is wrapped in try/catch so one failure doesn't block the others.
+   */
+  private async wireExternalChannels(config: GatewayConfig): Promise<void> {
+    const channels = config.channels ?? {};
+
+    if (channels.discord) {
+      try {
+        const discord = new DiscordChannel();
+        await this.wireExternalChannel(discord, "discord", config, channels.discord as unknown as Record<string, unknown>);
+        this._discordChannel = discord;
+      } catch (err) { this.logger.error("Failed to wire Discord channel:", err); }
+    }
+
+    if (channels.slack) {
+      try {
+        const slack = new SlackChannel();
+        await this.wireExternalChannel(slack, "slack", config, channels.slack as unknown as Record<string, unknown>);
+        this._slackChannel = slack;
+      } catch (err) { this.logger.error("Failed to wire Slack channel:", err); }
+    }
+
+    if (channels.whatsapp) {
+      try {
+        const whatsapp = new WhatsAppChannel();
+        await this.wireExternalChannel(whatsapp, "whatsapp", config, channels.whatsapp as unknown as Record<string, unknown>);
+        this._whatsAppChannel = whatsapp;
+      } catch (err) { this.logger.error("Failed to wire WhatsApp channel:", err); }
+    }
+
+    if (channels.signal) {
+      try {
+        const signal = new SignalChannel();
+        await this.wireExternalChannel(signal, "signal", config, channels.signal as unknown as Record<string, unknown>);
+        this._signalChannel = signal;
+      } catch (err) { this.logger.error("Failed to wire Signal channel:", err); }
+    }
+
+    if (channels.matrix) {
+      try {
+        const matrix = new MatrixChannel();
+        await this.wireExternalChannel(matrix, "matrix", config, channels.matrix as unknown as Record<string, unknown>);
+        this._matrixChannel = matrix;
+      } catch (err) { this.logger.error("Failed to wire Matrix channel:", err); }
+    }
+
+    // iMessage: macOS only, lazy-loaded
+    if (channels.imessage && process.platform === "darwin") {
+      try {
+        const { IMessageChannel } = await import("../channels/imessage/plugin.js");
+        const imessage = new IMessageChannel();
+        await this.wireExternalChannel(imessage, "imessage", config, channels.imessage as unknown as Record<string, unknown>);
+        this._imessageChannel = imessage;
+      } catch (err) { this.logger.error("Failed to wire iMessage channel:", err); }
+    }
+  }
+
+  /**
+   * Wire autonomous features: curiosity, self-learning, meta-planner, proactive comms.
+   * Creates a HeartbeatScheduler-style interval that runs each action in sequence.
+   */
+  private async wireAutonomousFeatures(config: GatewayConfig): Promise<void> {
+    const heartbeatConfig = (config as Record<string, unknown>).heartbeat as
+      | { enabled?: boolean; intervalMs?: number }
+      | undefined;
+    if (heartbeatConfig?.enabled === false) return;
+    if (!this._chatExecutor || !this._memoryBackend) return;
+
+    const intervalMs = heartbeatConfig?.intervalMs ?? 300_000; // default 5 min
+
+    // Build active channels map for ProactiveCommunicator
+    const activeChannels = new Map<string, ChannelPlugin>();
+    if (this._telegramChannel) activeChannels.set("telegram", this._telegramChannel as unknown as ChannelPlugin);
+    if (this._discordChannel) activeChannels.set("discord", this._discordChannel as unknown as ChannelPlugin);
+    if (this._slackChannel) activeChannels.set("slack", this._slackChannel as unknown as ChannelPlugin);
+    if (this._whatsAppChannel) activeChannels.set("whatsapp", this._whatsAppChannel as unknown as ChannelPlugin);
+    if (this._signalChannel) activeChannels.set("signal", this._signalChannel as unknown as ChannelPlugin);
+    if (this._matrixChannel) activeChannels.set("matrix", this._matrixChannel as unknown as ChannelPlugin);
+    if (this._imessageChannel) activeChannels.set("imessage", this._imessageChannel);
+
+    if (activeChannels.size === 0) {
+      this.logger.info("No external channels active — skipping autonomous features");
+      return;
+    }
+
+    try {
+      const { ProactiveCommunicator: ProactiveComm } = await import("./proactive.js");
+      const communicator = new ProactiveComm({
+        channels: activeChannels,
+        logger: this.logger,
+        defaultTargets: {},
+      });
+      this._proactiveCommunicator = communicator;
+
+      // Import autonomous action factories
+      const [
+        { createCuriosityAction },
+        { createSelfLearningAction },
+        { createMetaPlannerAction },
+        { createProactiveCommsAction },
+      ] = await Promise.all([
+        import("../autonomous/curiosity.js"),
+        import("../autonomous/self-learning.js"),
+        import("../autonomous/meta-planner.js"),
+        import("./heartbeat-actions.js"),
+      ]);
+
+      // Get a provider for actions that need direct LLM access
+      const llm = this._llmProviders[0];
+      if (!llm) {
+        this.logger.warn("No LLM provider — skipping autonomous features");
+        return;
+      }
+
+      const actions = [
+        createCuriosityAction({
+          interests: ["Solana ecosystem", "DeFi protocols", "AI agents"],
+          chatExecutor: this._chatExecutor!,
+          toolHandler: this._baseToolHandler!,
+          memory: this._memoryBackend!,
+          systemPrompt: "You are an autonomous AI research agent.",
+          communicator,
+        }),
+        createSelfLearningAction({
+          llm,
+          memory: this._memoryBackend!,
+        }),
+        createMetaPlannerAction({
+          llm,
+          memory: this._memoryBackend!,
+        }),
+        createProactiveCommsAction({
+          llm,
+          memory: this._memoryBackend!,
+          communicator,
+        }),
+      ];
+
+      const context = {
+        logger: this.logger,
+        timestamp: Date.now(),
+      };
+
+      this._heartbeatTimer = setInterval(async () => {
+        for (const action of actions) {
+          if (!action.enabled) continue;
+          try {
+            const result = await action.execute(context);
+            if (result.hasOutput && !result.quiet) {
+              this.logger.info(`[heartbeat:${action.name}] ${result.output}`);
+            }
+          } catch (err) {
+            this.logger.error(`[heartbeat:${action.name}] error:`, err);
+          }
+        }
+      }, intervalMs);
+
+      this.logger.info(
+        `Autonomous features wired: ${actions.length} actions, interval=${intervalMs}ms`,
+      );
+    } catch (err) {
+      this.logger.error("Failed to wire autonomous features:", err);
+    }
+  }
+
+  /**
    * Hot-swap the LLM provider when config.set changes llm.* fields.
    * Re-creates the provider chain and ChatExecutor without restarting the gateway.
    */
@@ -575,6 +843,16 @@ export class DaemonManager {
       allowDelete: false,
     }));
     registry.registerAll(createBrowserTools({ mode: 'basic' }, this.logger));
+
+    // macOS native automation tools (AppleScript, JXA, open, notifications)
+    if (process.platform === 'darwin') {
+      try {
+        const { createMacOSTools } = await import('../tools/system/macos.js');
+        registry.registerAll(createMacOSTools({ logger: this.logger }));
+      } catch (err) {
+        this.logger.warn?.('macOS tools unavailable:', err);
+      }
+    }
 
     if (config.connection?.rpcUrl) {
       try {
@@ -1278,6 +1556,38 @@ export class DaemonManager {
       if (this._memoryBackend !== null) {
         await this._memoryBackend.close();
         this._memoryBackend = null;
+      }
+      // Stop heartbeat timer
+      if (this._heartbeatTimer !== null) {
+        clearInterval(this._heartbeatTimer);
+        this._heartbeatTimer = null;
+      }
+      // Clear proactive communicator
+      this._proactiveCommunicator = null;
+      // Stop external channels (reverse order of wiring)
+      if (this._imessageChannel !== null) {
+        await this._imessageChannel.stop();
+        this._imessageChannel = null;
+      }
+      if (this._matrixChannel !== null) {
+        await this._matrixChannel.stop();
+        this._matrixChannel = null;
+      }
+      if (this._signalChannel !== null) {
+        await this._signalChannel.stop();
+        this._signalChannel = null;
+      }
+      if (this._whatsAppChannel !== null) {
+        await this._whatsAppChannel.stop();
+        this._whatsAppChannel = null;
+      }
+      if (this._slackChannel !== null) {
+        await this._slackChannel.stop();
+        this._slackChannel = null;
+      }
+      if (this._discordChannel !== null) {
+        await this._discordChannel.stop();
+        this._discordChannel = null;
       }
       // Stop Telegram channel
       if (this._telegramChannel !== null) {
