@@ -20,6 +20,7 @@ import type { GatewayConfig, GatewayLLMConfig, GatewayStatus, ConfigDiff } from 
 import type { Logger } from '../utils/logger.js';
 import { silentLogger } from '../utils/logger.js';
 import { WebChatChannel } from '../channels/webchat/plugin.js';
+import { TelegramChannel } from '../channels/telegram/plugin.js';
 import type { LLMProvider, LLMTool, ToolHandler, StreamProgressCallback } from '../llm/types.js';
 import type { GatewayMessage } from './message.js';
 import { ChatExecutor } from '../llm/chat-executor.js';
@@ -180,6 +181,7 @@ export interface DaemonStatus {
 export class DaemonManager {
   private gateway: Gateway | null = null;
   private _webChatChannel: WebChatChannel | null = null;
+  private _telegramChannel: TelegramChannel | null = null;
   private _voiceBridge: VoiceBridge | null = null;
   private _memoryBackend: MemoryBackend | null = null;
   private _approvalEngine: ApprovalEngine | null = null;
@@ -218,6 +220,11 @@ export class DaemonManager {
 
     // Wire up WebChat channel with LLM pipeline
     await this.wireWebChat(gateway, gatewayConfig);
+
+    // Wire up Telegram channel if configured
+    if (gatewayConfig.channels?.telegram) {
+      await this.wireTelegram(gatewayConfig);
+    }
 
     try {
       await writePidFile(
@@ -374,6 +381,129 @@ export class DaemonManager {
       (voiceBridge ? ', voice' : '') +
       ', hooks, sessions, approvals',
     );
+  }
+
+  /**
+   * Wire the Telegram channel plugin.
+   *
+   * Creates a TelegramChannel instance, initializes it with an onMessage
+   * handler that routes messages through the shared ChatExecutor pipeline,
+   * then starts long-polling (or webhook if configured).
+   */
+  private async wireTelegram(config: GatewayConfig): Promise<void> {
+    const telegramConfig = config.channels?.telegram;
+    if (!telegramConfig) return;
+
+    const escapeHtml = (text: string): string =>
+      text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+    const agentName = config.agent?.name ?? "AgenC";
+
+    const welcomeMessage =
+      `\u{1F916} <b>${agentName}</b>\n` +
+      `\u{2501}\u{2501}\u{2501}\u{2501}\u{2501}\u{2501}\u{2501}\u{2501}\u{2501}\u{2501}\u{2501}\u{2501}\u{2501}\u{2501}\u{2501}\u{2501}\u{2501}\u{2501}\u{2501}\u{2501}\n\n` +
+      `Privacy-preserving AI agent coordinating tasks on <b>Solana</b> via the AgenC protocol.\n\n` +
+      `\u{2699}\uFE0F  <b>Capabilities</b>\n` +
+      `\u{251C} \u{1F4CB} On-chain task coordination\n` +
+      `\u{251C} \u{1F50D} Agent &amp; protocol queries\n` +
+      `\u{251C} \u{1F4BB} Local shell &amp; file operations\n` +
+      `\u{2514} \u{1F310} Web search &amp; lookups\n\n` +
+      `\u{26A1} <b>Quick Commands</b>\n` +
+      `\u{2022} <code>List open tasks</code>\n` +
+      `\u{2022} <code>Create a task for ...</code>\n` +
+      `\u{2022} <code>Show my agent status</code>\n` +
+      `\u{2022} <code>Run git status</code>\n\n` +
+      `<i>Send any message to get started.</i>`;
+
+    const telegram = new TelegramChannel();
+    const sessionMgr = new SessionManager({ maxSessions: 100 });
+    const systemPrompt = await this.buildSystemPrompt(config);
+
+    const onMessage = async (msg: GatewayMessage): Promise<void> => {
+      if (!msg.content.trim()) return;
+
+      // Handle /start command with curated welcome
+      if (msg.content.trim() === "/start") {
+        await telegram.send({
+          sessionId: msg.sessionId,
+          content: welcomeMessage,
+        });
+        return;
+      }
+
+      const chatExecutor = this._chatExecutor;
+      if (!chatExecutor) {
+        await telegram.send({
+          sessionId: msg.sessionId,
+          content: "\u{26A0}\uFE0F No LLM provider configured.",
+        });
+        return;
+      }
+
+      const session = sessionMgr.getOrCreate({
+        channel: "telegram",
+        senderId: msg.senderId,
+        scope: msg.scope,
+        workspaceId: "default",
+      });
+
+      try {
+        const result = await chatExecutor.execute({
+          message: msg,
+          history: session.history,
+          systemPrompt,
+          sessionId: msg.sessionId,
+          toolHandler: this._baseToolHandler!,
+        });
+
+        sessionMgr.appendMessage(session.id, {
+          role: "user",
+          content: msg.content,
+        });
+        sessionMgr.appendMessage(session.id, {
+          role: "assistant",
+          content: result.content,
+        });
+
+        await telegram.send({
+          sessionId: msg.sessionId,
+          content: escapeHtml(result.content || "(no response)"),
+        });
+
+        // Persist to memory
+        if (this._memoryBackend) {
+          try {
+            await this._memoryBackend.addEntry({
+              sessionId: msg.sessionId,
+              role: "user",
+              content: msg.content,
+            });
+            await this._memoryBackend.addEntry({
+              sessionId: msg.sessionId,
+              role: "assistant",
+              content: result.content,
+            });
+          } catch {
+            // non-critical
+          }
+        }
+      } catch (error) {
+        this.logger.error("Telegram LLM error:", error);
+        await telegram.send({
+          sessionId: msg.sessionId,
+          content: `\u{274C} Error: ${escapeHtml((error as Error).message)}`,
+        });
+      }
+    };
+
+    await telegram.initialize({
+      onMessage,
+      logger: this.logger,
+      config: telegramConfig as unknown as Record<string, unknown>,
+    });
+    await telegram.start();
+    this._telegramChannel = telegram;
+    this.logger.info("Telegram channel wired");
   }
 
   /**
@@ -1148,6 +1278,11 @@ export class DaemonManager {
       if (this._memoryBackend !== null) {
         await this._memoryBackend.close();
         this._memoryBackend = null;
+      }
+      // Stop Telegram channel
+      if (this._telegramChannel !== null) {
+        await this._telegramChannel.stop();
+        this._telegramChannel = null;
       }
       // Stop WebChat channel before gateway
       if (this._webChatChannel !== null) {
