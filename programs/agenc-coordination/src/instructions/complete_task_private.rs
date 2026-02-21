@@ -35,6 +35,15 @@ const ROUTER_VERIFY_IX_DISCRIMINATOR: [u8; 8] = [133, 161, 141, 48, 120, 198, 88
 const VERIFIER_ENTRY_DISCRIMINATOR: [u8; 8] = [102, 247, 148, 158, 33, 153, 100, 93];
 const VERIFIER_ENTRY_ACCOUNT_LEN: usize = 8 + RISC0_SELECTOR_LEN + 32 + 1;
 
+// Byte offsets within the VerifierEntry account data:
+// [0..8]   discriminator
+// [8..12]  selector (RISC0_SELECTOR_LEN)
+// [12..44] verifier pubkey (32 bytes)
+// [44]     estopped flag (1 byte)
+const VERIFIER_ENTRY_SELECTOR_OFFSET: usize = 8;
+const VERIFIER_ENTRY_VERIFIER_OFFSET: usize = VERIFIER_ENTRY_SELECTOR_OFFSET + RISC0_SELECTOR_LEN;
+const VERIFIER_ENTRY_ESTOPPED_OFFSET: usize = VERIFIER_ENTRY_VERIFIER_OFFSET + 32;
+
 const TRUSTED_RISC0_SELECTOR: [u8; RISC0_SELECTOR_LEN] = [0x52, 0x5a, 0x56, 0x4d];
 const TRUSTED_RISC0_ROUTER_PROGRAM_ID: Pubkey =
     Pubkey::from_str_const("6JvFfBrvCcWgANKh1Eae9xDq4RC6cfJuBcf71rp2k9Y7");
@@ -495,7 +504,7 @@ fn validate_verifier_entry_data(data: &[u8], verifier_program_key: &Pubkey) -> R
     );
 
     let selector_slice = data
-        .get(8..12)
+        .get(VERIFIER_ENTRY_SELECTOR_OFFSET..VERIFIER_ENTRY_VERIFIER_OFFSET)
         .ok_or(error!(CoordinationError::RouterAccountMismatch))?;
     let mut selector = [0u8; RISC0_SELECTOR_LEN];
     selector.copy_from_slice(selector_slice);
@@ -505,7 +514,7 @@ fn validate_verifier_entry_data(data: &[u8], verifier_program_key: &Pubkey) -> R
     );
 
     let verifier_slice = data
-        .get(12..44)
+        .get(VERIFIER_ENTRY_VERIFIER_OFFSET..VERIFIER_ENTRY_ESTOPPED_OFFSET)
         .ok_or(error!(CoordinationError::RouterAccountMismatch))?;
     let verifier_pubkey = Pubkey::new_from_array(
         verifier_slice
@@ -522,7 +531,7 @@ fn validate_verifier_entry_data(data: &[u8], verifier_program_key: &Pubkey) -> R
     );
 
     let estopped = data
-        .get(44)
+        .get(VERIFIER_ENTRY_ESTOPPED_OFFSET)
         .ok_or(error!(CoordinationError::RouterAccountMismatch))?;
     require!(*estopped == 0, CoordinationError::RouterAccountMismatch);
 

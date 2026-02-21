@@ -377,7 +377,7 @@ export function registerProtocolTools(server: McpServer): void {
                   text:
                     "Error code " +
                     error_code +
-                    " is an Anchor framework error, not an AgenC program error.\nAgenC error codes range from 6000-6077.",
+                    " is an Anchor framework error, not an AgenC program error.\nAgenC error codes range from 6000-6175.",
                 },
               ],
             };
@@ -389,7 +389,7 @@ export function registerProtocolTools(server: McpServer): void {
                 text:
                   "Unknown error code: " +
                   error_code +
-                  "\nValid range: 6000-6077",
+                  "\nValid range: 6000-6175",
               },
             ],
           };
