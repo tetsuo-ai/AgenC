@@ -16,8 +16,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     x11vnc novnc websockify \
     # Input automation
     xdotool xclip xsel \
-    # Screenshot
-    scrot imagemagick \
+    # Screenshot + display info
+    scrot imagemagick xdpyinfo \
     # Process management
     supervisor \
     # Fonts
@@ -37,8 +37,9 @@ RUN useradd -m -s /bin/bash -d /home/agenc agenc
 # XFCE configuration (disable screensaver, power management, first-run wizard)
 COPY xfce-config/ /home/agenc/.config/xfce4/xfconf/xfce-perchannel-xml/
 
-# Supervisor configuration
+# Supervisor configuration (must be readable by non-root agenc user)
 COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+RUN chmod 644 /etc/supervisor/conf.d/supervisord.conf
 
 # REST server
 COPY server/package.json server/package-lock.json* /opt/server/
