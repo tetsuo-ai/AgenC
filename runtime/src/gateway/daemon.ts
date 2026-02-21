@@ -8,60 +8,46 @@
  * @module
  */
 
-import { mkdir, readFile, unlink, writeFile, access } from "node:fs/promises";
-import { constants } from "node:fs";
-import { dirname, join, resolve as resolvePath } from "node:path";
-import { homedir } from "node:os";
-import { Gateway } from "./gateway.js";
-import { loadGatewayConfig } from "./config-watcher.js";
-import { GatewayLifecycleError, GatewayStateError } from "./errors.js";
-import { toErrorMessage } from "../utils/async.js";
-import type {
-  GatewayConfig,
-  GatewayLLMConfig,
-  GatewayStatus,
-  ConfigDiff,
-} from "./types.js";
-import type { Logger } from "../utils/logger.js";
-import { silentLogger } from "../utils/logger.js";
-import { WebChatChannel } from "../channels/webchat/plugin.js";
-import type {
-  LLMProvider,
-  LLMTool,
-  ToolHandler,
-  StreamProgressCallback,
-} from "../llm/types.js";
-import type { GatewayMessage } from "./message.js";
-import { ChatExecutor } from "../llm/chat-executor.js";
-import type { SkillInjector, MemoryRetriever } from "../llm/chat-executor.js";
-import { ToolRegistry } from "../tools/registry.js";
-import { createBashTool } from "../tools/system/bash.js";
-import { createHttpTools } from "../tools/system/http.js";
-import { createFilesystemTools } from "../tools/system/filesystem.js";
-import { createBrowserTools } from "../tools/system/browser.js";
-import { SkillDiscovery } from "../skills/markdown/discovery.js";
-import type { DiscoveredSkill } from "../skills/markdown/discovery.js";
-import { VoiceBridge } from "./voice-bridge.js";
-import { InMemoryBackend } from "../memory/in-memory/backend.js";
-import { ApprovalEngine } from "./approvals.js";
-import type { MemoryBackend } from "../memory/types.js";
-import { UnifiedTelemetryCollector } from "../telemetry/collector.js";
-import { SessionManager } from "./session.js";
-import {
-  WorkspaceLoader,
-  getDefaultWorkspacePath,
-  assembleSystemPrompt,
-} from "./workspace-files.js";
-import { loadPersonalityTemplate, mergePersonality } from "./personality.js";
-import { SlashCommandRegistry, createDefaultCommands } from "./commands.js";
-import { HookDispatcher, createBuiltinHooks } from "./hooks.js";
-import { ConnectionManager } from "../connection/manager.js";
+import { mkdir, readFile, unlink, writeFile, access } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import { dirname, join, resolve as resolvePath } from 'node:path';
+import { homedir } from 'node:os';
+import { Gateway } from './gateway.js';
+import { loadGatewayConfig } from './config-watcher.js';
+import { GatewayLifecycleError, GatewayStateError } from './errors.js';
+import { toErrorMessage } from '../utils/async.js';
+import type { GatewayConfig, GatewayLLMConfig, GatewayStatus, ConfigDiff } from './types.js';
+import type { Logger } from '../utils/logger.js';
+import { silentLogger } from '../utils/logger.js';
+import { WebChatChannel } from '../channels/webchat/plugin.js';
+import type { LLMProvider, LLMTool, ToolHandler, StreamProgressCallback } from '../llm/types.js';
+import type { GatewayMessage } from './message.js';
+import { ChatExecutor } from '../llm/chat-executor.js';
+import type { SkillInjector, MemoryRetriever } from '../llm/chat-executor.js';
+import { ToolRegistry } from '../tools/registry.js';
+import { createBashTool } from '../tools/system/bash.js';
+import { createHttpTools } from '../tools/system/http.js';
+import { createFilesystemTools } from '../tools/system/filesystem.js';
+import { createBrowserTools } from '../tools/system/browser.js';
+import { SkillDiscovery } from '../skills/markdown/discovery.js';
+import type { DiscoveredSkill } from '../skills/markdown/discovery.js';
+import { VoiceBridge } from './voice-bridge.js';
+import { InMemoryBackend } from '../memory/in-memory/backend.js';
+import { ApprovalEngine } from './approvals.js';
+import type { MemoryBackend } from '../memory/types.js';
+import { UnifiedTelemetryCollector } from '../telemetry/collector.js';
+import { SessionManager } from './session.js';
+import { WorkspaceLoader, getDefaultWorkspacePath, assembleSystemPrompt } from './workspace-files.js';
+import { loadPersonalityTemplate, mergePersonality } from './personality.js';
+import { SlashCommandRegistry, createDefaultCommands } from './commands.js';
+import { HookDispatcher, createBuiltinHooks } from './hooks.js';
+import { ConnectionManager } from '../connection/manager.js';
 
 // ============================================================================
 // Constants
 // ============================================================================
 
-const DEFAULT_GROK_MODEL = "grok-4-1-fast-reasoning";
+const DEFAULT_GROK_MODEL = 'grok-4-1-fast-reasoning';
 
 interface WebChatSkillSummary {
   name: string;
@@ -85,7 +71,7 @@ export interface PidFileInfo {
 }
 
 export interface StalePidResult {
-  status: "none" | "alive" | "stale";
+  status: 'none' | 'alive' | 'stale';
   pid?: number;
   port?: number;
 }
@@ -95,7 +81,7 @@ export interface StalePidResult {
 // ============================================================================
 
 export function getDefaultPidPath(): string {
-  return process.env.AGENC_PID_PATH ?? join(homedir(), ".agenc", "daemon.pid");
+  return process.env.AGENC_PID_PATH ?? join(homedir(), '.agenc', 'daemon.pid');
 }
 
 export async function writePidFile(
@@ -110,17 +96,17 @@ export async function readPidFile(
   pidPath: string,
 ): Promise<PidFileInfo | null> {
   try {
-    const raw = await readFile(pidPath, "utf-8");
+    const raw = await readFile(pidPath, 'utf-8');
     const parsed = JSON.parse(raw) as unknown;
     if (
-      typeof parsed === "object" &&
-      parsed !== null &&
-      "pid" in parsed &&
-      "port" in parsed &&
-      "configPath" in parsed &&
-      typeof (parsed as PidFileInfo).pid === "number" &&
-      typeof (parsed as PidFileInfo).port === "number" &&
-      typeof (parsed as PidFileInfo).configPath === "string"
+      typeof parsed === 'object'
+      && parsed !== null
+      && 'pid' in parsed
+      && 'port' in parsed
+      && 'configPath' in parsed
+      && typeof (parsed as PidFileInfo).pid === 'number'
+      && typeof (parsed as PidFileInfo).port === 'number'
+      && typeof (parsed as PidFileInfo).configPath === 'string'
     ) {
       return parsed as PidFileInfo;
     }
@@ -134,7 +120,7 @@ export async function removePidFile(pidPath: string): Promise<void> {
   try {
     await unlink(pidPath);
   } catch (error: unknown) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
       throw error;
     }
   }
@@ -165,12 +151,12 @@ export function isProcessAlive(pid: number): boolean {
 export async function checkStalePid(pidPath: string): Promise<StalePidResult> {
   const info = await readPidFile(pidPath);
   if (info === null) {
-    return { status: "none" };
+    return { status: 'none' };
   }
   if (isProcessAlive(info.pid)) {
-    return { status: "alive", pid: info.pid, port: info.port };
+    return { status: 'alive', pid: info.pid, port: info.port };
   }
-  return { status: "stale", pid: info.pid, port: info.port };
+  return { status: 'stale', pid: info.pid, port: info.port };
 }
 
 // ============================================================================
@@ -219,7 +205,7 @@ export class DaemonManager {
 
   async start(): Promise<void> {
     if (this.gateway !== null) {
-      throw new GatewayStateError("Daemon is already running");
+      throw new GatewayStateError('Daemon is already running');
     }
 
     const gatewayConfig = await loadGatewayConfig(this.configPath);
@@ -253,7 +239,7 @@ export class DaemonManager {
     this.startedAt = Date.now();
     this.setupSignalHandlers();
 
-    this.logger.info("Daemon started", {
+    this.logger.info('Daemon started', {
       pid: process.pid,
       port: gatewayConfig.gateway.port,
     });
@@ -265,10 +251,7 @@ export class DaemonManager {
    * session management, workspace-driven system prompt, slash commands,
    * memory retrieval, lifecycle hooks, and real-time tool/typing events.
    */
-  private async wireWebChat(
-    gateway: Gateway,
-    config: GatewayConfig,
-  ): Promise<void> {
+  private async wireWebChat(gateway: Gateway, config: GatewayConfig): Promise<void> {
     const hooks = await this.createHookDispatcher(config);
     const discovered = await this.discoverSkills();
     const availableSkills = discovered.filter((d) => d.available);
@@ -291,10 +274,7 @@ export class DaemonManager {
       this._telemetry = telemetry;
     }
 
-    const registry = await this.createToolRegistry(
-      config,
-      telemetry ?? undefined,
-    );
+    const registry = await this.createToolRegistry(config, telemetry ?? undefined);
 
     const llmTools = registry.toLLMTools();
     const baseToolHandler = registry.createToolHandler();
@@ -302,22 +282,17 @@ export class DaemonManager {
     this._baseToolHandler = baseToolHandler;
     const providers = await this.createLLMProviders(config, llmTools);
     const skillInjector = this.createSkillInjector(availableSkills);
-    const memoryBackend = await this.createMemoryBackend(
-      config,
-      telemetry ?? undefined,
-    );
+    const memoryBackend = await this.createMemoryBackend(config, telemetry ?? undefined);
     this._memoryBackend = memoryBackend;
     const memoryRetriever = this.createMemoryRetriever(memoryBackend);
-    this._chatExecutor =
-      providers.length > 0
-        ? new ChatExecutor({
-            providers,
-            toolHandler: baseToolHandler,
-            skillInjector,
-            memoryRetriever,
-            sessionTokenBudget: config.llm?.sessionTokenBudget || undefined,
-          })
-        : null;
+    this._chatExecutor = providers.length > 0 ? new ChatExecutor({
+      providers,
+      toolHandler: baseToolHandler,
+      skillInjector,
+      memoryRetriever,
+      maxToolRounds: config.llm?.maxToolRounds ?? 3,
+      sessionTokenBudget: config.llm?.sessionTokenBudget || undefined,
+    }) : null;
 
     const approvalEngine = new ApprovalEngine();
     this._approvalEngine = approvalEngine;
@@ -333,12 +308,7 @@ export class DaemonManager {
       availableSkills,
       skillList,
     );
-    const voiceBridge = this.createOptionalVoiceBridge(
-      config,
-      llmTools,
-      baseToolHandler,
-      systemPrompt,
-    );
+    const voiceBridge = this.createOptionalVoiceBridge(config, llmTools, baseToolHandler, systemPrompt);
     this._voiceBridge = voiceBridge ?? null;
 
     const webChat = new WebChatChannel({
@@ -372,52 +342,37 @@ export class DaemonManager {
     this._webChatChannel = webChat;
 
     // Hot-swap LLM provider and voice bridge when config changes at runtime
-    gateway.on("configReloaded", (...args: unknown[]) => {
+    gateway.on('configReloaded', (...args: unknown[]) => {
       const diff = args[0] as ConfigDiff;
-      const llmChanged = diff.safe.some((key) => key.startsWith("llm."));
+      const llmChanged = diff.safe.some((key) => key.startsWith('llm.'));
       if (llmChanged) {
-        void this.hotSwapLLMProvider(
-          gateway.config,
-          skillInjector,
-          memoryRetriever,
-        );
+        void this.hotSwapLLMProvider(gateway.config, skillInjector, memoryRetriever);
       }
-      const voiceChanged = diff.safe.some(
-        (key) => key.startsWith("voice.") || key.startsWith("llm.apiKey"),
-      );
+      const voiceChanged = diff.safe.some((key) => key.startsWith('voice.') || key.startsWith('llm.apiKey'));
       if (voiceChanged) {
         void this._voiceBridge?.stopAll();
-        const newBridge = this.createOptionalVoiceBridge(
-          gateway.config,
-          llmTools,
-          baseToolHandler,
-          systemPrompt,
-        );
+        const newBridge = this.createOptionalVoiceBridge(gateway.config, llmTools, baseToolHandler, systemPrompt);
         this._voiceBridge = newBridge ?? null;
         if (this._webChatChannel) {
           this._webChatChannel.updateVoiceBridge(newBridge ?? null);
         }
-        this.logger.info(
-          `Voice bridge ${newBridge ? "recreated" : "disabled"}`,
-        );
+        this.logger.info(`Voice bridge ${newBridge ? 'recreated' : 'disabled'}`);
       }
     });
 
     const toolCount = registry.size;
     const skillCount = availableSkills.length;
-    const providerNames = providers.map((p) => p.name).join(" → ") || "none";
+    const providerNames = providers.map((p) => p.name).join(' → ') || 'none';
     this.logger.info(
       `WebChat wired` +
-        ` with LLM [${providerNames}]` +
-        `, ${toolCount} tools, ${skillCount} skills` +
-        `, memory=${memoryBackend.name}` +
-        `, ${commandRegistry.size} commands` +
-        (telemetry ? ", telemetry" : "") +
-        (config.llm?.sessionTokenBudget
-          ? `, budget=${config.llm.sessionTokenBudget}`
-          : "") +
-        (voiceBridge ? ", voice" : "") +
-        ", hooks, sessions, approvals",
+      ` with LLM [${providerNames}]` +
+      `, ${toolCount} tools, ${skillCount} skills` +
+      `, memory=${memoryBackend.name}` +
+      `, ${commandRegistry.size} commands` +
+      (telemetry ? ', telemetry' : '') +
+      (config.llm?.sessionTokenBudget ? `, budget=${config.llm.sessionTokenBudget}` : '') +
+      (voiceBridge ? ', voice' : '') +
+      ', hooks, sessions, approvals',
     );
   }
 
@@ -431,38 +386,30 @@ export class DaemonManager {
     memoryRetriever: MemoryRetriever,
   ): Promise<void> {
     try {
-      const providers = await this.createLLMProviders(
-        newConfig,
-        this._llmTools,
-      );
-      this._chatExecutor =
-        providers.length > 0
-          ? new ChatExecutor({
-              providers,
-              toolHandler: this._baseToolHandler!,
-              skillInjector,
-              memoryRetriever,
-              sessionTokenBudget:
-                newConfig.llm?.sessionTokenBudget || undefined,
-            })
-          : null;
+      const providers = await this.createLLMProviders(newConfig, this._llmTools);
+      this._chatExecutor = providers.length > 0 ? new ChatExecutor({
+        providers,
+        toolHandler: this._baseToolHandler!,
+        skillInjector,
+        memoryRetriever,
+        maxToolRounds: newConfig.llm?.maxToolRounds ?? 3,
+        sessionTokenBudget: newConfig.llm?.sessionTokenBudget || undefined,
+      }) : null;
 
-      const providerNames = providers.map((p) => p.name).join(" → ") || "none";
+      const providerNames = providers.map((p) => p.name).join(' → ') || 'none';
       this.logger.info(`LLM provider hot-swapped to [${providerNames}]`);
     } catch (err) {
-      this.logger.error("Failed to hot-swap LLM provider:", err);
+      this.logger.error('Failed to hot-swap LLM provider:', err);
     }
   }
 
-  private async createHookDispatcher(
-    config: GatewayConfig,
-  ): Promise<HookDispatcher> {
+  private async createHookDispatcher(config: GatewayConfig): Promise<HookDispatcher> {
     const hooks = new HookDispatcher({ logger: this.logger });
     for (const hook of createBuiltinHooks()) {
       hooks.on(hook);
     }
     this._hookDispatcher = hooks;
-    await hooks.dispatch("gateway:startup", { config });
+    await hooks.dispatch('gateway:startup', { config });
     return hooks;
   }
 
@@ -478,21 +425,13 @@ export class DaemonManager {
       }
     }
 
-    registry.register(
-      createBashTool({
-        logger: this.logger,
-        env: processEnv,
-        unrestricted: true,
-      }),
-    );
+    registry.register(createBashTool({ logger: this.logger, env: processEnv, unrestricted: true }));
     registry.registerAll(createHttpTools({}, this.logger));
-    registry.registerAll(
-      createFilesystemTools({
-        allowedPaths: [homedir(), "/tmp"],
-        allowDelete: true,
-      }),
-    );
-    registry.registerAll(createBrowserTools({ mode: "basic" }, this.logger));
+    registry.registerAll(createFilesystemTools({
+      allowedPaths: [homedir(), '/tmp'],
+      allowDelete: true,
+    }));
+    registry.registerAll(createBrowserTools({ mode: 'basic' }, this.logger));
 
     if (config.connection?.rpcUrl) {
       try {
@@ -511,40 +450,26 @@ export class DaemonManager {
         });
         this._connectionManager = connMgr;
 
-        const { createAgencTools } = await import("../tools/agenc/index.js");
+        const { createAgencTools } = await import('../tools/agenc/index.js');
         // Load wallet so chat agent can sign transactions (createTask, etc.)
-        let wallet:
-          | import("../tools/types.js").ToolContext["wallet"]
-          | undefined;
+        let wallet: import('../tools/types.js').ToolContext['wallet'] | undefined;
         try {
-          const { loadKeypairFromFile, getDefaultKeypairPath } =
-            await import("../types/wallet.js");
-          const kpPath =
-            config.connection?.keypairPath ?? getDefaultKeypairPath();
+          const { loadKeypairFromFile, getDefaultKeypairPath } = await import('../types/wallet.js');
+          const kpPath = config.connection?.keypairPath ?? getDefaultKeypairPath();
           const keypair = await loadKeypairFromFile(kpPath);
           wallet = {
             publicKey: keypair.publicKey,
-            signTransaction: async (tx: any) => {
-              tx.sign(keypair);
-              return tx;
-            },
-            signAllTransactions: async (txs: any[]) => {
-              txs.forEach((tx) => tx.sign(keypair));
-              return txs;
-            },
+            signTransaction: async (tx: any) => { tx.sign(keypair); return tx; },
+            signAllTransactions: async (txs: any[]) => { txs.forEach(tx => tx.sign(keypair)); return txs; },
           };
-        } catch {
-          /* wallet unavailable — tools will be read-only */
-        }
-        registry.registerAll(
-          createAgencTools({
-            connection: connMgr.getConnection(),
-            wallet,
-            logger: this.logger,
-          }),
-        );
+        } catch { /* wallet unavailable — tools will be read-only */ }
+        registry.registerAll(createAgencTools({
+          connection: connMgr.getConnection(),
+          wallet,
+          logger: this.logger,
+        }));
       } catch (error) {
-        this.logger.warn?.("AgenC protocol tools unavailable:", error);
+        this.logger.warn?.('AgenC protocol tools unavailable:', error);
       }
     }
 
@@ -553,24 +478,20 @@ export class DaemonManager {
 
   private createSkillInjector(skills: DiscoveredSkill[]): SkillInjector {
     return {
-      async inject(
-        _message: string,
-        _sessionId: string,
-      ): Promise<string | undefined> {
+      async inject(_message: string, _sessionId: string): Promise<string | undefined> {
         if (skills.length === 0) {
           return undefined;
         }
 
-        const sections = skills.map(
-          (skill) =>
-            `## Skill: ${skill.skill.name}\n${skill.skill.description}\n\n${skill.skill.body}`,
+        const sections = skills.map((skill) =>
+          `## Skill: ${skill.skill.name}\n${skill.skill.description}\n\n${skill.skill.body}`,
         );
         return (
-          "# Available Skills\n\n" +
-          "You have the following skills available. Use the system.bash tool to execute commands. " +
-          "The system.bash tool takes a `command` (executable name) and `args` (array of argument strings). " +
-          "Do NOT use shell syntax — pass the executable and its arguments separately.\n\n" +
-          sections.join("\n\n---\n\n")
+          '# Available Skills\n\n' +
+          'You have the following skills available. Use the system.bash tool to execute commands. ' +
+          'The system.bash tool takes a `command` (executable name) and `args` (array of argument strings). ' +
+          'Do NOT use shell syntax — pass the executable and its arguments separately.\n\n' +
+          sections.join('\n\n---\n\n')
         );
       },
     };
@@ -578,19 +499,14 @@ export class DaemonManager {
 
   private createMemoryRetriever(memoryBackend: MemoryBackend): MemoryRetriever {
     return {
-      async retrieve(
-        _message: string,
-        sessionId: string,
-      ): Promise<string | undefined> {
+      async retrieve(_message: string, sessionId: string): Promise<string | undefined> {
         try {
           const entries = await memoryBackend.getThread(sessionId, 10);
           if (entries.length === 0) {
             return undefined;
           }
-          const lines = entries.map(
-            (entry) => `[${entry.role}] ${entry.content}`,
-          );
-          return "# Recent Memory\n\n" + lines.join("\n");
+          const lines = entries.map((entry) => `[${entry.role}] ${entry.content}`);
+          return '# Recent Memory\n\n' + lines.join('\n');
         } catch {
           return undefined;
         }
@@ -601,14 +517,14 @@ export class DaemonManager {
   private createSessionManager(hooks: HookDispatcher): SessionManager {
     return new SessionManager(
       {
-        scope: "per-peer",
-        reset: { mode: "idle", idleMinutes: 120 },
+        scope: 'per-peer',
+        reset: { mode: 'idle', idleMinutes: 120 },
         maxHistoryLength: 100,
-        compaction: "sliding-window",
+        compaction: 'sliding-window',
       },
       {
         compactionHook: async (payload) => {
-          await hooks.dispatch("session:compact", {
+          await hooks.dispatch('session:compact', {
             phase: payload.phase,
             sessionId: payload.sessionId,
             strategy: payload.strategy,
@@ -622,15 +538,13 @@ export class DaemonManager {
     );
   }
 
-  private createSessionIdResolver(
-    sessionMgr: SessionManager,
-  ): (senderId: string) => string {
+  private createSessionIdResolver(sessionMgr: SessionManager): (senderId: string) => string {
     return (senderId: string): string => {
       return sessionMgr.getOrCreate({
-        channel: "webchat",
+        channel: 'webchat',
         senderId,
-        scope: "dm",
-        workspaceId: "default",
+        scope: 'dm',
+        workspaceId: 'default',
       }).id;
     };
   }
@@ -650,96 +564,89 @@ export class DaemonManager {
     }
 
     commandRegistry.register({
-      name: "help",
-      description: "Show available commands",
+      name: 'help',
+      description: 'Show available commands',
       global: true,
       handler: async (ctx) => {
         const commands = commandRegistry.getCommands();
-        const lines = commands.map(
-          (command) => `  /${command.name} — ${command.description}`,
-        );
-        await ctx.reply("Available commands:\n" + lines.join("\n"));
+        const lines = commands.map((command) => `  /${command.name} — ${command.description}`);
+        await ctx.reply('Available commands:\n' + lines.join('\n'));
       },
     });
     commandRegistry.register({
-      name: "new",
-      description: "Start a new session (reset conversation)",
+      name: 'new',
+      description: 'Start a new session (reset conversation)',
       global: true,
       handler: async (ctx) => {
         sessionMgr.reset(resolveSessionId(ctx.senderId));
-        await ctx.reply("Session reset. Starting fresh conversation.");
+        await ctx.reply('Session reset. Starting fresh conversation.');
       },
     });
     commandRegistry.register({
-      name: "reset",
-      description: "Reset session and clear context",
+      name: 'reset',
+      description: 'Reset session and clear context',
       global: true,
       handler: async (ctx) => {
         sessionMgr.reset(resolveSessionId(ctx.senderId));
-        await ctx.reply("Session and context cleared.");
+        await ctx.reply('Session and context cleared.');
       },
     });
     commandRegistry.register({
-      name: "compact",
-      description: "Force conversation compaction",
+      name: 'compact',
+      description: 'Force conversation compaction',
       global: true,
       handler: async (ctx) => {
         const sessionId = resolveSessionId(ctx.senderId);
         const result = await sessionMgr.compact(sessionId);
         if (result) {
-          await ctx.reply(
-            `Compacted: removed ${result.messagesRemoved}, retained ${result.messagesRetained}.`,
-          );
+          await ctx.reply(`Compacted: removed ${result.messagesRemoved}, retained ${result.messagesRetained}.`);
         } else {
-          await ctx.reply("No session to compact.");
+          await ctx.reply('No session to compact.');
         }
       },
     });
     commandRegistry.register({
-      name: "status",
-      description: "Show agent status",
+      name: 'status',
+      description: 'Show agent status',
       global: true,
       handler: async (ctx) => {
         const sessionId = resolveSessionId(ctx.senderId);
         const session = sessionMgr.get(sessionId);
         const historyLen = session?.history.length ?? 0;
-        const providerNames =
-          providers.map((provider) => provider.name).join(" → ") || "none";
+        const providerNames = providers.map((provider) => provider.name).join(' → ') || 'none';
         await ctx.reply(
           `Agent is running.\n` +
-            `Session: ${sessionId.slice(0, 16)}...\n` +
-            `History: ${historyLen} messages\n` +
-            `LLM: ${providerNames}\n` +
-            `Memory: ${memoryBackend.name}\n` +
-            `Tools: ${registry.size}\n` +
-            `Skills: ${availableSkills.length}`,
+          `Session: ${sessionId.slice(0, 16)}...\n` +
+          `History: ${historyLen} messages\n` +
+          `LLM: ${providerNames}\n` +
+          `Memory: ${memoryBackend.name}\n` +
+          `Tools: ${registry.size}\n` +
+          `Skills: ${availableSkills.length}`,
         );
       },
     });
     commandRegistry.register({
-      name: "skills",
-      description: "List available skills",
+      name: 'skills',
+      description: 'List available skills',
       global: true,
       handler: async (ctx) => {
         if (skillList.length === 0) {
-          await ctx.reply("No skills available.");
+          await ctx.reply('No skills available.');
           return;
         }
-        const lines = skillList.map(
-          (skill) =>
-            `  ${skill.enabled ? "●" : "○"} ${skill.name} — ${skill.description}`,
+        const lines = skillList.map((skill) =>
+          `  ${skill.enabled ? '●' : '○'} ${skill.name} — ${skill.description}`,
         );
-        await ctx.reply("Skills:\n" + lines.join("\n"));
+        await ctx.reply('Skills:\n' + lines.join('\n'));
       },
     });
     commandRegistry.register({
-      name: "model",
-      description: "Show current LLM model",
-      args: "[name]",
+      name: 'model',
+      description: 'Show current LLM model',
+      args: '[name]',
       global: true,
       handler: async (ctx) => {
-        const providerInfo =
-          providers.map((provider) => provider.name).join(", ") || "none";
+        const providerInfo = providers.map((provider) => provider.name).join(', ') || 'none';
         await ctx.reply(`LLM providers: ${providerInfo}`);
       },
     });
@@ -763,9 +670,9 @@ export class DaemonManager {
       tools: llmTools,
       toolHandler,
       systemPrompt,
-      voice: config.voice?.voice ?? "Ara",
+      voice: config.voice?.voice ?? 'Ara',
       model: config.llm?.model ?? DEFAULT_GROK_MODEL,
-      mode: config.voice?.mode ?? "vad",
+      mode: config.voice?.mode ?? 'vad',
       logger: this.logger,
     });
   }
@@ -774,21 +681,21 @@ export class DaemonManager {
     return {
       signalThinking: (sessionId: string): void => {
         webChat.pushToSession(sessionId, {
-          type: "agent.status",
-          payload: { phase: "thinking" },
+          type: 'agent.status',
+          payload: { phase: 'thinking' },
         });
         webChat.pushToSession(sessionId, {
-          type: "chat.typing",
+          type: 'chat.typing',
           payload: { active: true },
         });
       },
       signalIdle: (sessionId: string): void => {
         webChat.pushToSession(sessionId, {
-          type: "agent.status",
-          payload: { phase: "idle" },
+          type: 'agent.status',
+          payload: { phase: 'idle' },
         });
         webChat.pushToSession(sessionId, {
-          type: "chat.typing",
+          type: 'chat.typing',
           payload: { active: false },
         });
       },
@@ -833,7 +740,7 @@ export class DaemonManager {
         msg.content,
         msg.sessionId,
         msg.senderId,
-        "webchat",
+        'webchat',
         reply,
       );
       if (handled) {
@@ -844,13 +751,12 @@ export class DaemonManager {
       if (!chatExecutor) {
         await webChat.send({
           sessionId: msg.sessionId,
-          content:
-            "No LLM provider configured. Add an `llm` section to ~/.agenc/config.json.",
+          content: 'No LLM provider configured. Add an `llm` section to ~/.agenc/config.json.',
         });
         return;
       }
 
-      const inboundResult = await hooks.dispatch("message:inbound", {
+      const inboundResult = await hooks.dispatch('message:inbound', {
         sessionId: msg.sessionId,
         content: msg.content,
         senderId: msg.senderId,
@@ -859,17 +765,27 @@ export class DaemonManager {
         return;
       }
 
-      webChat.broadcastEvent("chat.inbound", { sessionId: msg.sessionId });
+      webChat.broadcastEvent('chat.inbound', { sessionId: msg.sessionId });
 
       const sessionStreamCallback: StreamProgressCallback = (chunk) => {
         webChat.pushToSession(msg.sessionId, {
-          type: "chat.stream",
+          type: 'chat.stream',
           payload: { content: chunk.content, done: chunk.done },
         });
       };
 
+      // Detect greeting messages — block tool execution for casual conversation
+      const GREETING_RE = /^(h(i|ello|ey|ola|owdy)|yo|sup|what'?s\s*up|greetings?|good\s*(morning|afternoon|evening)|gm|gn)\s*[!?.,:;\-)*]*$/i;
+      const isGreeting = GREETING_RE.test(msg.content.trim());
+
       const sessionToolHandler: ToolHandler = async (name, args) => {
-        const toolBeforeResult = await hooks.dispatch("tool:before", {
+        if (isGreeting) {
+          return JSON.stringify({
+            error: 'This is a greeting message. Respond conversationally without using any tools.',
+          });
+        }
+
+        const toolBeforeResult = await hooks.dispatch('tool:before', {
           sessionId: msg.sessionId,
           toolName: name,
           args,
@@ -879,11 +795,11 @@ export class DaemonManager {
         }
 
         webChat.pushToSession(msg.sessionId, {
-          type: "agent.status",
-          payload: { phase: "tool_call", detail: `Calling ${name}` },
+          type: 'agent.status',
+          payload: { phase: 'tool_call', detail: `Calling ${name}` },
         });
         webChat.pushToSession(msg.sessionId, {
-          type: "tools.executing",
+          type: 'tools.executing',
           payload: { toolName: name, args },
         });
 
@@ -897,7 +813,7 @@ export class DaemonManager {
             rule,
           );
           webChat.pushToSession(msg.sessionId, {
-            type: "approval.request",
+            type: 'approval.request',
             payload: {
               requestId: request.id,
               action: name,
@@ -906,26 +822,19 @@ export class DaemonManager {
             },
           });
           const response = await approvalEngine.requestApproval(request);
-          if (response.disposition === "no") {
-            const err = JSON.stringify({
-              error: `Tool "${name}" denied by user`,
+          if (response.disposition === 'no') {
+            const err = JSON.stringify({ error: `Tool "${name}" denied by user` });
+            webChat.pushToSession(msg.sessionId, {
+              type: 'tools.result',
+              payload: { toolName: name, result: err, durationMs: 0, isError: true },
             });
             webChat.pushToSession(msg.sessionId, {
-              type: "tools.result",
-              payload: {
-                toolName: name,
-                result: err,
-                durationMs: 0,
-                isError: true,
-              },
-            });
-            webChat.pushToSession(msg.sessionId, {
-              type: "agent.status",
-              payload: { phase: "generating" },
+              type: 'agent.status',
+              payload: { phase: 'generating' },
             });
             return err;
           }
-          if (response.disposition === "always") {
+          if (response.disposition === 'always') {
             approvalEngine.elevate(msg.sessionId, name);
           }
         }
@@ -935,11 +844,11 @@ export class DaemonManager {
         const durationMs = Date.now() - start;
 
         webChat.pushToSession(msg.sessionId, {
-          type: "tools.result",
+          type: 'tools.result',
           payload: { toolName: name, result, durationMs },
         });
 
-        await hooks.dispatch("tool:after", {
+        await hooks.dispatch('tool:after', {
           sessionId: msg.sessionId,
           toolName: name,
           args,
@@ -947,15 +856,15 @@ export class DaemonManager {
           durationMs,
         });
 
-        webChat.broadcastEvent("tool.executed", {
+        webChat.broadcastEvent('tool.executed', {
           toolName: name,
           durationMs,
           sessionId: msg.sessionId,
         });
 
         webChat.pushToSession(msg.sessionId, {
-          type: "agent.status",
-          payload: { phase: "generating" },
+          type: 'agent.status',
+          payload: { phase: 'generating' },
         });
 
         return result;
@@ -965,10 +874,10 @@ export class DaemonManager {
         signals.signalThinking(msg.sessionId);
 
         const session = sessionMgr.getOrCreate({
-          channel: "webchat",
+          channel: 'webchat',
           senderId: msg.senderId,
-          scope: "dm",
-          workspaceId: "default",
+          scope: 'dm',
+          workspaceId: 'default',
         });
 
         const result = await chatExecutor.execute({
@@ -981,23 +890,17 @@ export class DaemonManager {
         });
 
         signals.signalIdle(msg.sessionId);
-        sessionMgr.appendMessage(session.id, {
-          role: "user",
-          content: msg.content,
-        });
-        sessionMgr.appendMessage(session.id, {
-          role: "assistant",
-          content: result.content,
-        });
+        sessionMgr.appendMessage(session.id, { role: 'user', content: msg.content });
+        sessionMgr.appendMessage(session.id, { role: 'assistant', content: result.content });
 
         await webChat.send({
           sessionId: msg.sessionId,
-          content: result.content || "(no response)",
+          content: result.content || '(no response)',
         });
 
-        webChat.broadcastEvent("chat.response", { sessionId: msg.sessionId });
+        webChat.broadcastEvent('chat.response', { sessionId: msg.sessionId });
 
-        await hooks.dispatch("message:outbound", {
+        await hooks.dispatch('message:outbound', {
           sessionId: msg.sessionId,
           content: result.content,
           provider: result.provider,
@@ -1006,30 +909,27 @@ export class DaemonManager {
         try {
           await memoryBackend.addEntry({
             sessionId: msg.sessionId,
-            role: "user",
+            role: 'user',
             content: msg.content,
           });
           await memoryBackend.addEntry({
             sessionId: msg.sessionId,
-            role: "assistant",
+            role: 'assistant',
             content: result.content,
           });
         } catch (error) {
-          this.logger.warn?.("Failed to persist messages to memory:", error);
+          this.logger.warn?.('Failed to persist messages to memory:', error);
         }
 
         if (result.toolCalls.length > 0) {
-          this.logger.info(
-            `Chat used ${result.toolCalls.length} tool call(s)`,
-            {
-              tools: result.toolCalls.map((toolCall) => toolCall.name),
-              provider: result.provider,
-            },
-          );
+          this.logger.info(`Chat used ${result.toolCalls.length} tool call(s)`, {
+            tools: result.toolCalls.map((toolCall) => toolCall.name),
+            provider: result.provider,
+          });
         }
       } catch (error) {
         signals.signalIdle(msg.sessionId);
-        this.logger.error("LLM chat error:", error);
+        this.logger.error('LLM chat error:', error);
         await webChat.send({
           sessionId: msg.sessionId,
           content: `Error: ${(error as Error).message}`,
@@ -1052,11 +952,11 @@ export class DaemonManager {
       if (workspaceFiles.agent) {
         const prompt = assembleSystemPrompt(workspaceFiles, {
           additionalContext:
-            "You have full access to the local machine via the system.bash tool. " +
-            "You can create files, compile and run code, install packages, run git commands, " +
-            "and execute any CLI tool. Use your tools proactively to fulfill requests.",
+            'You have full access to the local machine via the system.bash tool. ' +
+            'You can create files, compile and run code, install packages, run git commands, ' +
+            'and execute any CLI tool. Use your tools proactively to fulfill requests.',
         });
-        this.logger.info("System prompt loaded from workspace files");
+        this.logger.info('System prompt loaded from workspace files');
         return prompt;
       }
     } catch {
@@ -1064,19 +964,19 @@ export class DaemonManager {
     }
 
     // Fall back to personality template
-    const template = loadPersonalityTemplate("default");
+    const template = loadPersonalityTemplate('default');
     const nameOverride = config.agent?.name
       ? { agent: template.agent?.replace(/^AgenC$/m, config.agent.name) }
       : {};
     const merged = mergePersonality(template, nameOverride);
     const prompt = assembleSystemPrompt(merged, {
       additionalContext:
-        "You have full access to the local machine via the system.bash tool. " +
-        "You can create files, compile and run code, install packages, run git commands, " +
-        "and execute any CLI tool. You are NOT sandboxed — use your tools proactively. " +
-        "Be helpful and concise.",
+        'You have full access to the local machine via the system.bash tool. ' +
+        'You can create files, compile and run code, install packages, run git commands, ' +
+        'and execute any CLI tool. You are NOT sandboxed — use your tools proactively. ' +
+        'Be helpful and concise.',
     });
-    this.logger.info("System prompt loaded from default personality template");
+    this.logger.info('System prompt loaded from default personality template');
     return prompt;
   }
 
@@ -1084,10 +984,7 @@ export class DaemonManager {
    * Create the ordered provider chain: primary + optional fallbacks.
    * ChatExecutor handles cooldown-based failover across the chain.
    */
-  private async createLLMProviders(
-    config: GatewayConfig,
-    tools: LLMTool[],
-  ): Promise<LLMProvider[]> {
+  private async createLLMProviders(config: GatewayConfig, tools: LLMTool[]): Promise<LLMProvider[]> {
     if (!config.llm) return [];
 
     const providers: LLMProvider[] = [];
@@ -1107,35 +1004,31 @@ export class DaemonManager {
   /**
    * Create a single LLM provider from a provider config.
    */
-  private async createSingleLLMProvider(
-    llmConfig: GatewayLLMConfig,
-    tools: LLMTool[],
-  ): Promise<LLMProvider | null> {
+  private async createSingleLLMProvider(llmConfig: GatewayLLMConfig, tools: LLMTool[]): Promise<LLMProvider | null> {
     const { provider, apiKey, model, baseUrl } = llmConfig;
 
     switch (provider) {
-      case "grok": {
-        const { GrokProvider } = await import("../llm/grok/adapter.js");
+      case 'grok': {
+        const { GrokProvider } = await import('../llm/grok/adapter.js');
         return new GrokProvider({
-          apiKey: apiKey ?? "",
+          apiKey: apiKey ?? '',
           model: model ?? DEFAULT_GROK_MODEL,
           baseURL: baseUrl,
           tools,
         });
       }
-      case "anthropic": {
-        const { AnthropicProvider } =
-          await import("../llm/anthropic/adapter.js");
+      case 'anthropic': {
+        const { AnthropicProvider } = await import('../llm/anthropic/adapter.js');
         return new AnthropicProvider({
-          apiKey: apiKey ?? "",
-          model: model ?? "claude-sonnet-4-5-20250929",
+          apiKey: apiKey ?? '',
+          model: model ?? 'claude-sonnet-4-5-20250929',
           tools,
         });
       }
-      case "ollama": {
-        const { OllamaProvider } = await import("../llm/ollama/adapter.js");
+      case 'ollama': {
+        const { OllamaProvider } = await import('../llm/ollama/adapter.js');
         return new OllamaProvider({
-          model: model ?? "llama3",
+          model: model ?? 'llama3',
           host: baseUrl,
           tools,
         });
@@ -1155,23 +1048,23 @@ export class DaemonManager {
     metrics?: UnifiedTelemetryCollector,
   ): Promise<MemoryBackend> {
     const memConfig = config.memory;
-    const backend = memConfig?.backend ?? "memory";
+    const backend = memConfig?.backend ?? 'memory';
     const encryption = memConfig?.encryptionKey
       ? { key: memConfig.encryptionKey }
       : undefined;
 
     switch (backend) {
-      case "sqlite": {
-        const { SqliteBackend } = await import("../memory/sqlite/backend.js");
+      case 'sqlite': {
+        const { SqliteBackend } = await import('../memory/sqlite/backend.js');
         return new SqliteBackend({
-          dbPath: memConfig?.dbPath ?? join(homedir(), ".agenc", "memory.db"),
+          dbPath: memConfig?.dbPath ?? join(homedir(), '.agenc', 'memory.db'),
           logger: this.logger,
           metrics,
           encryption,
         });
       }
-      case "redis": {
-        const { RedisBackend } = await import("../memory/redis/backend.js");
+      case 'redis': {
+        const { RedisBackend } = await import('../memory/redis/backend.js');
         return new RedisBackend({
           url: memConfig?.url,
           host: memConfig?.host,
@@ -1195,14 +1088,14 @@ export class DaemonManager {
       // __filename = runtime/dist/bin/agenc-runtime.js (tsup entry point).
       // We need the package root (runtime/) to find src/skills/bundled/.
       // dist/bin/ → dist/ → runtime/ (2 levels up from dirname)
-      const pkgRoot = resolvePath(dirname(__filename), "..", "..");
-      const builtinSkills = join(pkgRoot, "src", "skills", "bundled");
-      const userSkills = join(homedir(), ".agenc", "skills");
+      const pkgRoot = resolvePath(dirname(__filename), '..', '..');
+      const builtinSkills = join(pkgRoot, 'src', 'skills', 'bundled');
+      const userSkills = join(homedir(), '.agenc', 'skills');
 
       const discovery = new SkillDiscovery({ builtinSkills, userSkills });
       return await discovery.discoverAll();
     } catch (err) {
-      this.logger.warn("Skill discovery failed:", err);
+      this.logger.warn('Skill discovery failed:', err);
       return [];
     }
   }
@@ -1216,7 +1109,7 @@ export class DaemonManager {
     try {
       // Dispatch shutdown hook (best-effort)
       if (this._hookDispatcher !== null) {
-        await this._hookDispatcher.dispatch("gateway:shutdown", {});
+        await this._hookDispatcher.dispatch('gateway:shutdown', {});
         this._hookDispatcher.clear();
         this._hookDispatcher = null;
       }
@@ -1255,7 +1148,7 @@ export class DaemonManager {
       await removePidFile(this.pidPath);
       this.removeSignalHandlers();
       this.startedAt = 0;
-      this.logger.info("Daemon stopped");
+      this.logger.info('Daemon stopped');
     } finally {
       this.shutdownInProgress = false;
     }
@@ -1264,7 +1157,7 @@ export class DaemonManager {
   getStatus(): DaemonStatus {
     const mem = process.memoryUsage();
     return {
-      running: this.gateway !== null && this.gateway.state === "running",
+      running: this.gateway !== null && this.gateway.state === 'running',
       pid: process.pid,
       uptimeMs: this.startedAt > 0 ? Date.now() - this.startedAt : 0,
       gatewayStatus: this.gateway !== null ? this.gateway.getStatus() : null,
@@ -1291,14 +1184,14 @@ export class DaemonManager {
       void this.handleConfigReload();
     };
 
-    process.on("SIGTERM", shutdown);
-    process.on("SIGINT", shutdown);
-    process.on("SIGHUP", reload);
+    process.on('SIGTERM', shutdown);
+    process.on('SIGINT', shutdown);
+    process.on('SIGHUP', reload);
 
     this.signalHandlerRefs = [
-      { signal: "SIGTERM", handler: shutdown },
-      { signal: "SIGINT", handler: shutdown },
-      { signal: "SIGHUP", handler: reload },
+      { signal: 'SIGTERM', handler: shutdown },
+      { signal: 'SIGINT', handler: shutdown },
+      { signal: 'SIGHUP', handler: reload },
     ];
   }
 
@@ -1312,19 +1205,20 @@ export class DaemonManager {
 
   private async handleConfigReload(): Promise<void> {
     try {
-      this.logger.info("Reloading config", { configPath: this.configPath });
+      this.logger.info('Reloading config', { configPath: this.configPath });
       const newConfig = await loadGatewayConfig(this.configPath);
       if (this.gateway !== null) {
         const diff = this.gateway.reloadConfig(newConfig);
-        this.logger.info("Config reloaded", {
+        this.logger.info('Config reloaded', {
           safe: diff.safe,
           unsafe: diff.unsafe,
         });
       }
     } catch (error) {
-      this.logger.error("Config reload failed", {
-        error: toErrorMessage(error),
-      });
+      this.logger.error(
+        'Config reload failed',
+        { error: toErrorMessage(error) },
+      );
     }
   }
 }
@@ -1338,35 +1232,40 @@ export function generateSystemdUnit(options: {
   description?: string;
   user?: string;
 }): string {
-  const desc = options.description ?? "AgenC Gateway Daemon";
+  const desc = options.description ?? 'AgenC Gateway Daemon';
   const lines = [
-    "[Unit]",
+    '[Unit]',
     `Description=${desc}`,
-    "After=network-online.target",
-    "Wants=network-online.target",
-    "",
-    "[Service]",
-    "Type=simple",
+    'After=network-online.target',
+    'Wants=network-online.target',
+    '',
+    '[Service]',
+    'Type=simple',
     `ExecStart=${options.execStart}`,
-    "Restart=on-failure",
-    "RestartSec=10s",
-    "TimeoutStopSec=35s",
-    "Environment=NODE_ENV=production",
+    'Restart=on-failure',
+    'RestartSec=10s',
+    'TimeoutStopSec=35s',
+    'Environment=NODE_ENV=production',
   ];
   if (options.user) {
     lines.push(`User=${options.user}`);
   }
-  lines.push("", "[Install]", "WantedBy=multi-user.target", "");
-  return lines.join("\n");
+  lines.push(
+    '',
+    '[Install]',
+    'WantedBy=multi-user.target',
+    '',
+  );
+  return lines.join('\n');
 }
 
 function escapeXml(str: string): string {
   return str
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&apos;");
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
 }
 
 export function generateLaunchdPlist(options: {
@@ -1374,31 +1273,31 @@ export function generateLaunchdPlist(options: {
   label?: string;
   logDir?: string;
 }): string {
-  const label = escapeXml(options.label ?? "ai.agenc.gateway");
-  const logDir = options.logDir ?? join(homedir(), ".agenc", "logs");
+  const label = escapeXml(options.label ?? 'ai.agenc.gateway');
+  const logDir = options.logDir ?? join(homedir(), '.agenc', 'logs');
   const programArgs = options.programArguments
     .map((arg) => `    <string>${escapeXml(arg)}</string>`)
-    .join("\n");
+    .join('\n');
 
   return [
     '<?xml version="1.0" encoding="UTF-8"?>',
     '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">',
     '<plist version="1.0">',
-    "<dict>",
-    "  <key>Label</key>",
+    '<dict>',
+    '  <key>Label</key>',
     `  <string>${label}</string>`,
-    "  <key>ProgramArguments</key>",
-    "  <array>",
+    '  <key>ProgramArguments</key>',
+    '  <array>',
     programArgs,
-    "  </array>",
-    "  <key>KeepAlive</key>",
-    "  <true/>",
-    "  <key>StandardOutPath</key>",
-    `  <string>${escapeXml(join(logDir, "agenc-stdout.log"))}</string>`,
-    "  <key>StandardErrorPath</key>",
-    `  <string>${escapeXml(join(logDir, "agenc-stderr.log"))}</string>`,
-    "</dict>",
-    "</plist>",
-    "",
-  ].join("\n");
+    '  </array>',
+    '  <key>KeepAlive</key>',
+    '  <true/>',
+    '  <key>StandardOutPath</key>',
+    `  <string>${escapeXml(join(logDir, 'agenc-stdout.log'))}</string>`,
+    '  <key>StandardErrorPath</key>',
+    `  <string>${escapeXml(join(logDir, 'agenc-stderr.log'))}</string>`,
+    '</dict>',
+    '</plist>',
+    '',
+  ].join('\n');
 }

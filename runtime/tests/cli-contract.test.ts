@@ -7,6 +7,7 @@ import {
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { Writable } from 'node:stream';
+import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { runCli } from '../src/cli/index.js';
 import { projectOnChainEvents, type ProjectedTimelineEvent } from '../src/eval/projector.js';
@@ -173,6 +174,7 @@ describe('CLI output contract tests', () => {
   });
 
   const fixtureDir = new URL('./fixtures/golden/', import.meta.url);
+  const fixturePath = (name: string) => fileURLToPath(new URL(name, fixtureDir));
   const backfillProjection = projectOnChainEvents(FIXTURE_EVENTS, {
     traceId: 'fixture-backfill',
     seed: 99,
@@ -183,7 +185,7 @@ describe('CLI output contract tests', () => {
     {
       id: 'cli.replay.backfill.success',
       command: 'replay.backfill',
-      fixturePath: new URL('cli-replay-backfill-success.json', fixtureDir).pathname,
+      fixturePath: fixturePath('cli-replay-backfill-success.json'),
       outputSchema: 'replay.backfill.output.v1',
       expectedStatus: 'ok',
       requiredTopLevelKeys: [
@@ -265,7 +267,7 @@ describe('CLI output contract tests', () => {
     {
       id: 'cli.replay.backfill.failure.missing-rpc',
       command: 'replay.backfill',
-      fixturePath: new URL('cli-replay-backfill-failure-missing-rpc.json', fixtureDir).pathname,
+      fixturePath: fixturePath('cli-replay-backfill-failure-missing-rpc.json'),
       outputSchema: 'replay-error',
       expectedStatus: 'error',
       requiredTopLevelKeys: ['status', 'code', 'message'],
@@ -295,7 +297,7 @@ describe('CLI output contract tests', () => {
     {
       id: 'cli.replay.compare.success',
       command: 'replay.compare',
-      fixturePath: new URL('cli-replay-compare-success.json', fixtureDir).pathname,
+      fixturePath: fixturePath('cli-replay-compare-success.json'),
       outputSchema: 'replay.compare.output.v1',
       expectedStatus: 'ok',
       requiredTopLevelKeys: [
@@ -369,7 +371,7 @@ describe('CLI output contract tests', () => {
     {
       id: 'cli.replay.compare.mismatch',
       command: 'replay.compare',
-      fixturePath: new URL('cli-replay-compare-mismatch.json', fixtureDir).pathname,
+      fixturePath: fixturePath('cli-replay-compare-mismatch.json'),
       outputSchema: 'replay.compare.output.v1',
       expectedStatus: 'ok',
       requiredTopLevelKeys: [
@@ -438,7 +440,7 @@ describe('CLI output contract tests', () => {
     {
       id: 'cli.replay.incident.success',
       command: 'replay.incident',
-      fixturePath: new URL('cli-replay-incident-success.json', fixtureDir).pathname,
+      fixturePath: fixturePath('cli-replay-incident-success.json'),
       outputSchema: 'replay.incident.output.v1',
       expectedStatus: 'ok',
       requiredTopLevelKeys: [
@@ -476,7 +478,7 @@ describe('CLI output contract tests', () => {
     {
       id: 'cli.replay.incident.truncated',
       command: 'replay.incident',
-      fixturePath: new URL('cli-replay-incident-truncated.json', fixtureDir).pathname,
+      fixturePath: fixturePath('cli-replay-incident-truncated.json'),
       outputSchema: 'replay.incident.output.v1',
       expectedStatus: 'ok',
       requiredTopLevelKeys: [
@@ -516,7 +518,7 @@ describe('CLI output contract tests', () => {
     {
       id: 'cli.replay.incident.empty',
       command: 'replay.incident',
-      fixturePath: new URL('cli-replay-incident-empty.json', fixtureDir).pathname,
+      fixturePath: fixturePath('cli-replay-incident-empty.json'),
       outputSchema: 'replay.incident.output.v1',
       expectedStatus: 'ok',
       requiredTopLevelKeys: [
@@ -558,7 +560,7 @@ describe('CLI output contract tests', () => {
   }
 
   it('does not include extra top-level keys for mismatch case', () => {
-    const mismatchPath = new URL('cli-replay-compare-mismatch.json', fixtureDir).pathname;
+    const mismatchPath = fixturePath('cli-replay-compare-mismatch.json');
     const fixture = loadGoldenSnapshot<Record<string, unknown>, Record<string, unknown>>(mismatchPath);
     expect(fixture.output.shape).toBeTypeOf('object');
   });

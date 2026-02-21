@@ -44,6 +44,7 @@ describe('Integration Tests', () => {
         connection: ctx.connection,
         wallet: keypairToWallet(ctx.payer),
         program: ctx.program,
+        programId: ctx.program.programId,
       });
 
       // Register
@@ -183,6 +184,7 @@ describe('Integration Tests', () => {
         connection: ctx.connection,
         wallet: keypairToWallet(ctx.payer),
         program: ctx.program,
+        programId: ctx.program.programId,
       });
 
       await manager.register({
@@ -209,6 +211,7 @@ describe('Integration Tests', () => {
         connection: ctx.connection,
         wallet: keypairToWallet(ctx.payer),
         program: ctx.program,
+        programId: ctx.program.programId,
       });
 
       await manager.register({
@@ -233,6 +236,7 @@ describe('Integration Tests', () => {
         connection: ctx.connection,
         wallet: keypairToWallet(ctx.payer),
         program: ctx.program,
+        programId: ctx.program.programId,
       });
 
       await manager.register({
@@ -267,6 +271,7 @@ describe('Integration Tests', () => {
         connection: ctx.connection,
         wallet: keypairToWallet(ctx.payer),
         program: ctx.program,
+        programId: ctx.program.programId,
       });
 
       await manager.register({

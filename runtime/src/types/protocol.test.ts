@@ -1,18 +1,11 @@
-import { describe, it, expect } from "vitest";
-import { PublicKey } from "@solana/web3.js";
-import {
-  MAX_MULTISIG_OWNERS,
-  parseProtocolConfig,
-  ProtocolConfig,
-} from "./protocol";
+import { describe, it, expect } from 'vitest';
+import { PublicKey } from '@solana/web3.js';
+import { MAX_MULTISIG_OWNERS, parseProtocolConfig, ProtocolConfig } from './protocol';
 
 /**
  * Mock BN-like object for testing
  */
-function mockBN(value: bigint | number): {
-  toNumber: () => number;
-  toString: () => string;
-} {
+function mockBN(value: bigint | number): { toNumber: () => number; toString: () => string } {
   const bigValue = BigInt(value);
   return {
     toNumber: () => Number(bigValue),
@@ -21,13 +14,13 @@ function mockBN(value: bigint | number): {
 }
 
 // Well-known valid Solana addresses for testing (NOT actual program IDs)
-const TEST_PUBKEY_1 = "11111111111111111111111111111111";
-const TEST_PUBKEY_2 = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
-const TEST_PUBKEY_3 = "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr";
-const TEST_PUBKEY_4 = "SysvarRent111111111111111111111111111111111";
-const TEST_PUBKEY_5 = "SysvarC1ock11111111111111111111111111111111";
-const TEST_PUBKEY_6 = "SysvarStakeHistory1111111111111111111111111";
-const TEST_PUBKEY_7 = "SysvarS1otHashes111111111111111111111111111";
+const TEST_PUBKEY_1 = '11111111111111111111111111111111';
+const TEST_PUBKEY_2 = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
+const TEST_PUBKEY_3 = 'MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr';
+const TEST_PUBKEY_4 = 'SysvarRent111111111111111111111111111111111';
+const TEST_PUBKEY_5 = 'SysvarC1ock11111111111111111111111111111111';
+const TEST_PUBKEY_6 = 'SysvarStakeHistory1111111111111111111111111';
+const TEST_PUBKEY_7 = 'SysvarS1otHashes111111111111111111111111111';
 
 /**
  * Creates valid mock protocol config data
@@ -69,14 +62,32 @@ function createValidMockData() {
   };
 }
 
-describe("MAX_MULTISIG_OWNERS", () => {
-  it("equals 5", () => {
+/**
+ * Creates legacy protocol config account data (without extended fields).
+ */
+function createLegacyMockData() {
+  return {
+    authority: new PublicKey(TEST_PUBKEY_1),
+    treasury: new PublicKey(TEST_PUBKEY_2),
+    disputeThreshold: 51,
+    protocolFeeBps: 100,
+    minArbiterStake: mockBN(100_000_000n),
+    totalAgents: mockBN(5n),
+    totalTasks: mockBN(10n),
+    completedTasks: mockBN(7n),
+    totalValueDistributed: mockBN(1_000_000_000n),
+    bump: 255,
+  };
+}
+
+describe('MAX_MULTISIG_OWNERS', () => {
+  it('equals 5', () => {
     expect(MAX_MULTISIG_OWNERS).toBe(5);
   });
 });
 
-describe("ProtocolConfig interface", () => {
-  it("accepts valid structure", () => {
+describe('ProtocolConfig interface', () => {
+  it('accepts valid structure', () => {
     // This test verifies the interface is correctly typed
     const config: ProtocolConfig = {
       authority: new PublicKey(TEST_PUBKEY_1),
@@ -108,14 +119,14 @@ describe("ProtocolConfig interface", () => {
     };
 
     expect(config.authority).toBeInstanceOf(PublicKey);
-    expect(typeof config.disputeThreshold).toBe("number");
-    expect(typeof config.minArbiterStake).toBe("bigint");
+    expect(typeof config.disputeThreshold).toBe('number');
+    expect(typeof config.minArbiterStake).toBe('bigint');
   });
 });
 
-describe("parseProtocolConfig", () => {
-  describe("success cases", () => {
-    it("parses valid mock data", () => {
+describe('parseProtocolConfig', () => {
+  describe('success cases', () => {
+    it('parses valid mock data', () => {
       const mockData = createValidMockData();
       const config = parseProtocolConfig(mockData);
 
@@ -146,7 +157,7 @@ describe("parseProtocolConfig", () => {
       expect(config.minSupportedVersion).toBe(1);
     });
 
-    it("correctly converts u64 fields to bigint", () => {
+    it('correctly converts u64 fields to bigint', () => {
       const mockData = createValidMockData();
       mockData.minArbiterStake = mockBN(9_007_199_254_740_993n); // > MAX_SAFE_INTEGER
       mockData.totalValueDistributed = mockBN(18_446_744_073_709_551_615n); // u64 max
@@ -157,7 +168,7 @@ describe("parseProtocolConfig", () => {
       expect(config.totalValueDistributed).toBe(18_446_744_073_709_551_615n);
     });
 
-    it("correctly converts i64 duration fields to number", () => {
+    it('correctly converts i64 duration fields to number', () => {
       const mockData = createValidMockData();
       mockData.maxClaimDuration = mockBN(604800); // 1 week in seconds
       mockData.maxDisputeDuration = mockBN(1209600); // 2 weeks
@@ -166,10 +177,23 @@ describe("parseProtocolConfig", () => {
 
       expect(config.maxClaimDuration).toBe(604800);
       expect(config.maxDisputeDuration).toBe(1209600);
-      expect(typeof config.maxClaimDuration).toBe("number");
+      expect(typeof config.maxClaimDuration).toBe('number');
     });
 
-    it("correctly slices multisigOwners to actual length", () => {
+    it('parses legacy protocol config shape with compatibility defaults', () => {
+      const mockData = createLegacyMockData();
+      const config = parseProtocolConfig(mockData);
+
+      expect(config.minArbiterStake).toBe(100_000_000n);
+      expect(config.minAgentStake).toBe(100_000_000n);
+      expect(config.maxTasksPer24h).toBe(0);
+      expect(config.maxDisputesPer24h).toBe(0);
+      expect(config.minStakeForDispute).toBe(0n);
+      expect(config.multisigOwnersLen).toBe(0);
+      expect(config.multisigOwners).toEqual([]);
+    });
+
+    it('correctly slices multisigOwners to actual length', () => {
       const mockData = createValidMockData();
       mockData.multisigOwnersLen = 2;
       mockData.multisigOwners = [
@@ -186,7 +210,7 @@ describe("parseProtocolConfig", () => {
       expect(config.multisigOwners[0].toBase58()).toBe(TEST_PUBKEY_3);
     });
 
-    it("handles empty multisig owners (length 0)", () => {
+    it('handles empty multisig owners (length 0)', () => {
       const mockData = createValidMockData();
       mockData.multisigOwnersLen = 0;
 
@@ -196,160 +220,130 @@ describe("parseProtocolConfig", () => {
     });
   });
 
-  describe("error cases - missing required fields", () => {
-    it("throws on null input", () => {
-      expect(() => parseProtocolConfig(null)).toThrow(
-        "Invalid protocol config data",
-      );
+  describe('error cases - missing required fields', () => {
+    it('throws on null input', () => {
+      expect(() => parseProtocolConfig(null)).toThrow('Invalid protocol config data');
     });
 
-    it("throws on undefined input", () => {
-      expect(() => parseProtocolConfig(undefined)).toThrow(
-        "Invalid protocol config data",
-      );
+    it('throws on undefined input', () => {
+      expect(() => parseProtocolConfig(undefined)).toThrow('Invalid protocol config data');
     });
 
-    it("throws on empty object", () => {
-      expect(() => parseProtocolConfig({})).toThrow(
-        "Invalid protocol config data",
-      );
+    it('throws on empty object', () => {
+      expect(() => parseProtocolConfig({})).toThrow('Invalid protocol config data');
     });
 
-    it("throws when authority is missing", () => {
+    it('throws when authority is missing', () => {
       const mockData = createValidMockData();
       const { authority: _, ...dataWithoutAuthority } = mockData;
 
       expect(() => parseProtocolConfig(dataWithoutAuthority)).toThrow(
-        "Invalid protocol config data",
+        'Invalid protocol config data'
       );
     });
 
-    it("throws when authority is not a PublicKey", () => {
+    it('throws when authority is not a PublicKey', () => {
       const mockData = createValidMockData();
-      (mockData as Record<string, unknown>).authority = "not a pubkey";
+      (mockData as Record<string, unknown>).authority = 'not a pubkey';
 
-      expect(() => parseProtocolConfig(mockData)).toThrow(
-        "Invalid protocol config data",
-      );
+      expect(() => parseProtocolConfig(mockData)).toThrow('Invalid protocol config data');
     });
 
-    it("throws when treasury is missing", () => {
+    it('throws when treasury is missing', () => {
       const mockData = createValidMockData();
       const { treasury: _, ...dataWithoutTreasury } = mockData;
 
       expect(() => parseProtocolConfig(dataWithoutTreasury)).toThrow(
-        "Invalid protocol config data",
+        'Invalid protocol config data'
       );
     });
 
-    it("throws when disputeThreshold is not a number", () => {
+    it('throws when disputeThreshold is not a number', () => {
       const mockData = createValidMockData();
-      (mockData as Record<string, unknown>).disputeThreshold = "not a number";
+      (mockData as Record<string, unknown>).disputeThreshold = 'not a number';
 
-      expect(() => parseProtocolConfig(mockData)).toThrow(
-        "Invalid protocol config data",
-      );
+      expect(() => parseProtocolConfig(mockData)).toThrow('Invalid protocol config data');
     });
 
-    it("throws when protocolFeeBps is not a number", () => {
+    it('throws when protocolFeeBps is not a number', () => {
       const mockData = createValidMockData();
       (mockData as Record<string, unknown>).protocolFeeBps = null;
 
-      expect(() => parseProtocolConfig(mockData)).toThrow(
-        "Invalid protocol config data",
-      );
+      expect(() => parseProtocolConfig(mockData)).toThrow('Invalid protocol config data');
     });
 
-    it("throws when bump is not a number", () => {
+    it('throws when bump is not a number', () => {
       const mockData = createValidMockData();
       (mockData as Record<string, unknown>).bump = undefined;
 
-      expect(() => parseProtocolConfig(mockData)).toThrow(
-        "Invalid protocol config data",
-      );
+      expect(() => parseProtocolConfig(mockData)).toThrow('Invalid protocol config data');
     });
 
-    it("throws when multisigThreshold is not a number", () => {
+    it('throws when multisigThreshold is not a number', () => {
       const mockData = createValidMockData();
-      (mockData as Record<string, unknown>).multisigThreshold = "two";
+      (mockData as Record<string, unknown>).multisigThreshold = 'two';
 
-      expect(() => parseProtocolConfig(mockData)).toThrow(
-        "Invalid protocol config data",
-      );
+      expect(() => parseProtocolConfig(mockData)).toThrow('Invalid protocol config data');
     });
 
-    it("throws when multisigOwnersLen is not a number", () => {
+    it('throws when multisigOwnersLen is not a number', () => {
       const mockData = createValidMockData();
       (mockData as Record<string, unknown>).multisigOwnersLen = null;
 
-      expect(() => parseProtocolConfig(mockData)).toThrow(
-        "Invalid protocol config data",
-      );
+      expect(() => parseProtocolConfig(mockData)).toThrow('Invalid protocol config data');
     });
 
-    it("throws when BN fields are missing toNumber/toString", () => {
+    it('throws when BN fields are missing toNumber/toString', () => {
       const mockData = createValidMockData();
       (mockData as Record<string, unknown>).minArbiterStake = 123; // number instead of BN-like
 
-      expect(() => parseProtocolConfig(mockData)).toThrow(
-        "Invalid protocol config data",
-      );
+      expect(() => parseProtocolConfig(mockData)).toThrow('Invalid protocol config data');
     });
 
-    it("throws when multisigOwners is not an array", () => {
+    it('throws when multisigOwners is not an array', () => {
       const mockData = createValidMockData();
-      (mockData as Record<string, unknown>).multisigOwners = "not an array";
+      (mockData as Record<string, unknown>).multisigOwners = 'not an array';
 
-      expect(() => parseProtocolConfig(mockData)).toThrow(
-        "Invalid protocol config data",
-      );
+      expect(() => parseProtocolConfig(mockData)).toThrow('Invalid protocol config data');
     });
 
-    it("throws when multisigOwners contains non-PublicKey elements", () => {
+    it('throws when multisigOwners contains non-PublicKey elements', () => {
       const mockData = createValidMockData();
       (mockData as Record<string, unknown>).multisigOwners = [
-        "not a pubkey",
+        'not a pubkey',
         new PublicKey(TEST_PUBKEY_1),
       ];
 
-      expect(() => parseProtocolConfig(mockData)).toThrow(
-        "Invalid protocol config data",
-      );
+      expect(() => parseProtocolConfig(mockData)).toThrow('Invalid protocol config data');
     });
   });
 
-  describe("error cases - range validation", () => {
-    it("throws when disputeThreshold is 0", () => {
+  describe('error cases - range validation', () => {
+    it('throws when disputeThreshold is 0', () => {
       const mockData = createValidMockData();
       mockData.disputeThreshold = 0;
 
-      expect(() => parseProtocolConfig(mockData)).toThrow(
-        "Invalid disputeThreshold",
-      );
-      expect(() => parseProtocolConfig(mockData)).toThrow("must be 1-100");
+      expect(() => parseProtocolConfig(mockData)).toThrow('Invalid disputeThreshold');
+      expect(() => parseProtocolConfig(mockData)).toThrow('must be 1-100');
     });
 
-    it("throws when disputeThreshold exceeds 100", () => {
+    it('throws when disputeThreshold exceeds 100', () => {
       const mockData = createValidMockData();
       mockData.disputeThreshold = 101;
 
-      expect(() => parseProtocolConfig(mockData)).toThrow(
-        "Invalid disputeThreshold: 101",
-      );
-      expect(() => parseProtocolConfig(mockData)).toThrow("must be 1-100");
+      expect(() => parseProtocolConfig(mockData)).toThrow('Invalid disputeThreshold: 101');
+      expect(() => parseProtocolConfig(mockData)).toThrow('must be 1-100');
     });
 
-    it("throws when protocolFeeBps exceeds 10000", () => {
+    it('throws when protocolFeeBps exceeds 10000', () => {
       const mockData = createValidMockData();
       mockData.protocolFeeBps = 10001;
 
-      expect(() => parseProtocolConfig(mockData)).toThrow(
-        "Invalid protocolFeeBps: 10001",
-      );
-      expect(() => parseProtocolConfig(mockData)).toThrow("must be <= 10000");
+      expect(() => parseProtocolConfig(mockData)).toThrow('Invalid protocolFeeBps: 10001');
+      expect(() => parseProtocolConfig(mockData)).toThrow('must be <= 10000');
     });
 
-    it("allows protocolFeeBps at max (10000 = 100%)", () => {
+    it('allows protocolFeeBps at max (10000 = 100%)', () => {
       const mockData = createValidMockData();
       mockData.protocolFeeBps = 10000;
 
@@ -357,17 +351,15 @@ describe("parseProtocolConfig", () => {
       expect(config.protocolFeeBps).toBe(10000);
     });
 
-    it("throws when slashPercentage exceeds 100", () => {
+    it('throws when slashPercentage exceeds 100', () => {
       const mockData = createValidMockData();
       mockData.slashPercentage = 101;
 
-      expect(() => parseProtocolConfig(mockData)).toThrow(
-        "Invalid slashPercentage: 101",
-      );
-      expect(() => parseProtocolConfig(mockData)).toThrow("must be 0-100");
+      expect(() => parseProtocolConfig(mockData)).toThrow('Invalid slashPercentage: 101');
+      expect(() => parseProtocolConfig(mockData)).toThrow('must be 0-100');
     });
 
-    it("allows slashPercentage at boundary values (0 and 100)", () => {
+    it('allows slashPercentage at boundary values (0 and 100)', () => {
       const mockData = createValidMockData();
 
       mockData.slashPercentage = 0;
@@ -379,17 +371,15 @@ describe("parseProtocolConfig", () => {
       expect(config.slashPercentage).toBe(100);
     });
 
-    it("throws when multisigOwnersLen exceeds MAX_MULTISIG_OWNERS", () => {
+    it('throws when multisigOwnersLen exceeds MAX_MULTISIG_OWNERS', () => {
       const mockData = createValidMockData();
       mockData.multisigOwnersLen = 6;
 
-      expect(() => parseProtocolConfig(mockData)).toThrow(
-        "Invalid multisigOwnersLen: 6",
-      );
-      expect(() => parseProtocolConfig(mockData)).toThrow("exceeds maximum 5");
+      expect(() => parseProtocolConfig(mockData)).toThrow('Invalid multisigOwnersLen: 6');
+      expect(() => parseProtocolConfig(mockData)).toThrow('exceeds maximum 5');
     });
 
-    it("allows multisigOwnersLen at MAX_MULTISIG_OWNERS", () => {
+    it('allows multisigOwnersLen at MAX_MULTISIG_OWNERS', () => {
       const mockData = createValidMockData();
       mockData.multisigOwnersLen = 5;
 
@@ -399,8 +389,8 @@ describe("parseProtocolConfig", () => {
     });
   });
 
-  describe("edge cases", () => {
-    it("handles zero values for optional fields", () => {
+  describe('edge cases', () => {
+    it('handles zero values for optional fields', () => {
       const mockData = createValidMockData();
       mockData.taskCreationCooldown = mockBN(0);
       mockData.maxTasksPer24H = 0;
@@ -415,7 +405,7 @@ describe("parseProtocolConfig", () => {
       expect(config.maxDisputesPer24h).toBe(0);
     });
 
-    it("handles maximum u8 values", () => {
+    it('handles maximum u8 values', () => {
       const mockData = createValidMockData();
       mockData.bump = 255;
       mockData.maxTasksPer24H = 255;
@@ -430,7 +420,7 @@ describe("parseProtocolConfig", () => {
       expect(config.disputeThreshold).toBe(100);
     });
 
-    it("handles minimum valid disputeThreshold (1)", () => {
+    it('handles minimum valid disputeThreshold (1)', () => {
       const mockData = createValidMockData();
       mockData.disputeThreshold = 1;
 

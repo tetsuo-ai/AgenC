@@ -380,8 +380,30 @@ export class ChatExecutor {
     // Update session token budget
     this.trackTokenUsage(sessionId, cumulativeUsage.totalTokens);
 
+    // If the LLM returned empty content after tool calls (common when maxToolRounds
+    // is hit while the LLM still wanted to make more calls), generate a fallback
+    // summary from the last successful tool result.
+    let finalContent = response.content;
+    if (!finalContent && allToolCalls.length > 0) {
+      const lastSuccess = [...allToolCalls].reverse().find((tc) => !tc.isError);
+      if (lastSuccess) {
+        try {
+          const parsed = JSON.parse(lastSuccess.result);
+          if (parsed.taskPda) {
+            finalContent = `Task created successfully.\n\n**Task PDA:** ${parsed.taskPda}\n**Transaction:** ${parsed.transactionSignature ?? 'confirmed'}`;
+          } else if (parsed.agentPda) {
+            finalContent = `Agent registered successfully.\n\n**Agent PDA:** ${parsed.agentPda}\n**Transaction:** ${parsed.transactionSignature ?? 'confirmed'}`;
+          } else {
+            finalContent = `Operation completed. Result:\n\`\`\`json\n${lastSuccess.result.slice(0, 500)}\n\`\`\``;
+          }
+        } catch {
+          finalContent = `Operation completed. Result: ${lastSuccess.result.slice(0, 500)}`;
+        }
+      }
+    }
+
     return {
-      content: response.content,
+      content: finalContent,
       provider: providerName,
       usedFallback,
       toolCalls: allToolCalls,

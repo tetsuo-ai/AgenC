@@ -135,7 +135,7 @@ export function RightPanel({ settings, wallet, chatSessions, activeSessionId, on
       <TabBar active={activeTab} onChange={handleTabChange} />
 
       {/* Tab content with entrance animation */}
-      <div key={tabKey} className="flex-1 min-h-0 animate-panel-enter">
+      <div key={tabKey} className="flex-1 min-h-0 overflow-y-auto animate-panel-enter">
         {activeTab === 'main' && (
           <MainTab
             sessions={chatSessions ?? []}
