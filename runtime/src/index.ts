@@ -1790,3 +1790,47 @@ export {
   // Operations
   ReputationEconomyOperations,
 } from "./reputation/index.js";
+
+// MCP Client (External MCP server integration)
+export {
+  type MCPServerConfig,
+  type MCPToolBridge,
+  createMCPConnection,
+  createToolBridge,
+  MCPManager,
+} from "./mcp-client/index.js";
+
+// Desktop Awareness (Autonomous desktop monitoring)
+export {
+  type DesktopAwarenessConfig,
+  createDesktopAwarenessAction,
+} from "./autonomous/desktop-awareness.js";
+
+// Desktop Executor (Autonomous see-think-act-verify loop)
+export {
+  DesktopExecutor,
+  type DesktopExecutorConfig,
+  type DesktopExecutorResult,
+  type GoalStatus,
+  type ExecutionStep,
+} from "./autonomous/desktop-executor.js";
+
+// Goal Manager (Autonomous goal lifecycle)
+export {
+  GoalManager,
+  type GoalManagerConfig,
+  type ManagedGoal,
+} from "./autonomous/goal-manager.js";
+
+// Awareness Goal Bridge (Desktop awareness → goal generation)
+export {
+  createAwarenessGoalBridge,
+  type AwarenessPattern,
+  type AwarenessGoalBridgeConfig,
+} from "./autonomous/awareness-goal-bridge.js";
+
+// Goal Executor Action (Heartbeat-driven goal execution)
+export {
+  createGoalExecutorAction,
+  type GoalExecutorActionConfig,
+} from "./autonomous/goal-executor-action.js";

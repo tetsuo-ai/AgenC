@@ -499,8 +499,8 @@ describe('ApprovalEngine', () => {
   // ============================================================================
 
   describe('DEFAULT_APPROVAL_RULES', () => {
-    it('has 7 rules', () => {
-      expect(DEFAULT_APPROVAL_RULES).toHaveLength(7);
+    it('has 11 rules', () => {
+      expect(DEFAULT_APPROVAL_RULES).toHaveLength(11);
     });
 
     it('covers system.bash, system.delete, system.evaluateJs', () => {

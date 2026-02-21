@@ -114,3 +114,24 @@ export {
   // Default strategy
   DefaultClaimStrategy,
 } from "./types.js";
+export {
+  DesktopExecutor,
+  type DesktopExecutorConfig,
+  type DesktopExecutorResult,
+  type GoalStatus,
+  type ExecutionStep,
+} from "./desktop-executor.js";
+export {
+  GoalManager,
+  type GoalManagerConfig,
+  type ManagedGoal,
+} from "./goal-manager.js";
+export {
+  createAwarenessGoalBridge,
+  type AwarenessPattern,
+  type AwarenessGoalBridgeConfig,
+} from "./awareness-goal-bridge.js";
+export {
+  createGoalExecutorAction,
+  type GoalExecutorActionConfig,
+} from "./goal-executor-action.js";
